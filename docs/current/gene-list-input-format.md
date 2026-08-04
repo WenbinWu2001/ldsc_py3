@@ -55,7 +55,7 @@ claiming a liftover method.
 
 Catalog intervals are 0-based and half-open: `[start0, end)`. Baseline SNP
 positions remain 1-based and a SNP at `POS=p` is treated as `[p-1, p)`. This is
-the same coordinate contract as query BED files. `--bed-padding-bp N` expands
+the same coordinate contract as query BED files. `--padding-bp N` expands
 both gene and BED intervals by `N` bases on each side, clips starts at zero, and
 is applied exactly once. Overlapping intervals are unioned, so the annotation
 remains binary.
@@ -121,4 +121,14 @@ If an input query gene list or BED file is absent from the scientific results,
 that query failed. Check `diagnostics/query_annotation_status.tsv` for the
 reason, then `diagnostics/gene_list_unresolved.tsv.gz` for gene-level details.
 
-No all-protein-coding control annotation is added automatically.
+By default, gene-list runs append an all-protein-coding fixed control named
+`gene_control` to the baseline block. Use `--control-gene-list-source none` to
+disable it or pass one custom control-list path. `--gene-exclude-regions mhc`
+removes genes whose unpadded transcribed intervals overlap the packaged MHC
+interval before padding; it is independent of SNP `--exclude-regions`.
+
+For an installed exact index profile, replace the live baseline/reference
+arguments with `--gene-ldscore-index-dir <profile-dir>`. Resolution then uses
+only the profile's embedded catalog and immutable padding/exclusion policy. See
+[gene-ldscore-index.md](gene-ldscore-index.md) and the task-oriented
+[indexed gene-list LD-score tutorial](../wiki/main-functionalities/ldscore.md).

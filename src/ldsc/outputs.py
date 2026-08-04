@@ -449,6 +449,8 @@ class LDScoreDirectoryWriter:
         """Serialize fixed query diagnostics after family preflight."""
         query_statuses = tuple(getattr(result, "query_statuses", ()))
         gene_resolutions = tuple(getattr(result, "gene_list_resolutions", ()))
+        control_resolution = getattr(result, "control_gene_list_resolution", None)
+        audit_resolutions = (*gene_resolutions, *((control_resolution,) if control_resolution is not None else ()))
         if "query_status" in paths:
             paths["query_status"].parent.mkdir(parents=True, exist_ok=True)
             pd.DataFrame([record.as_dict() for record in query_statuses], columns=QUERY_STATUS_COLUMNS).to_csv(
@@ -458,7 +460,7 @@ class LDScoreDirectoryWriter:
             paths["gene_list_unresolved"].parent.mkdir(parents=True, exist_ok=True)
             unresolved_rows = [
                 record.as_dict()
-                for resolution in gene_resolutions
+                for resolution in audit_resolutions
                 for record in resolution.unresolved
             ]
             pd.DataFrame(unresolved_rows, columns=GENE_UNRESOLVED_COLUMNS).to_csv(
@@ -538,6 +540,12 @@ class LDScoreDirectoryWriter:
             payload.setdefault("query_diagnostics", {})["gene_list_unresolved"] = (
                 "diagnostics/gene_list_unresolved.tsv.gz"
             )
+        control_resolution = getattr(result, "control_gene_list_resolution", None)
+        if control_resolution is not None:
+            payload["gene_control"] = control_resolution.provenance()
+        index_provenance = getattr(result, "index_provenance", None)
+        if index_provenance is not None:
+            payload.update(dict(index_provenance))
         snp_universe_policy = getattr(result, "snp_universe_policy", None)
         if snp_universe_policy is not None:
             payload["snp_universe_policy"] = dict(snp_universe_policy)

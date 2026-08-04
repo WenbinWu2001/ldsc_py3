@@ -331,8 +331,8 @@ inputs. The workflow then creates a synthetic baseline annotation named exactly
 `base`, with value `1.0` for every row returned by the retained reference-panel
 metadata. Query annotations are partitioned-LDSC inputs and require explicit
 baseline annotations. Query BED inputs and packaged-catalog gene intervals are
-projected to the same baseline SNP universe. `bed_padding_bp` /
-`--bed-padding-bp` expands either interval type on both sides before overlap
+projected to the same baseline SNP universe. `padding_bp` /
+`--padding-bp` expands either interval type on both sides before overlap
 projection and clips starts at zero. Each concrete BED or gene list receives a
 status; unusable queries are omitted while usable siblings continue.
 

@@ -217,6 +217,31 @@ bad provenance / missing A1-A2 / duplicate identity rows)
 
 ## ldscore
 
+### build-gene-ldscore-index: baseline identities do not equal PLINK BIM
+
+**Symptom:** the builder reports missing, extra, duplicate, or conflicting
+`CHR/POS/SNP` identities before genotype QC.
+
+The index builder is intentionally stricter than direct `ldscore`. For every
+selected chromosome, each ordered baseline source and the PLINK BIM must
+contain exactly the same genomic identity rows after canonical sorting.
+Reordering is allowed; intersection is not. Use baseline annotations generated
+for the same PLINK suite, inspect duplicates and position/rsID conflicts, and
+rebuild the mismatched source. Do not work around this check with a looser SNP
+identifier mode.
+
+### ldscore: an explicit gene index is missing, corrupt, or incompatible
+
+**Symptom:** indexed mode rejects metadata IDs, chromosome coverage, Parquet
+rows, NPZ members, CSR structure/dtypes, or dimensions.
+
+Pass one profile directory beneath `profiles/`, not the suite root. Do not add
+live baseline, reference, build, padding, window, map, or region settings: those
+belong to the immutable profile. A failed validation never falls back to direct
+mode and is completed before canonical scientific output publication. Restore
+or reinstall the profile, or remove `--gene-ldscore-index-dir` and supply the
+full direct-mode inputs explicitly.
+
 ### ldscore: a BED or gene-list query is missing from results
 
 **Raised by:** query annotation status handling · **Symptom:** one requested

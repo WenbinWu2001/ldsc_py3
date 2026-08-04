@@ -148,7 +148,7 @@ are written.
 | `--query-annot-bed-sources` | input | yes | BED interval files | Accepts exact files, globs, comma-separated tokens, and source-token lists. Each resolved BED file stem (`Path.stem`) becomes a query annotation name; duplicate stems are rejected. |
 | `--baseline-annot-sources` | input | yes | baseline `.annot[.gz]` templates | Accepts exact files, globs, and `@` chromosome-suite tokens. |
 | `--output-dir` | output | yes | generated query annotation directory | Writes combined root `query.<chrom>.annot.gz` files, with all BED inputs represented as query columns, plus diagnostic `metadata.json`, `dropped_snps/dropped.tsv.gz`, and `annotate.log` under `diagnostics/`. |
-| `--bed-padding-bp` | input transform | no | BED interval expansion | Adds this many base pairs to both sides of each BED interval before SNP projection; starts are clipped at zero. Defaults to `0`, so BED intervals are used as provided. |
+| `--padding-bp` | input transform | no | BED interval expansion | Adds this many base pairs to both sides of each BED interval before SNP projection; starts are clipped at zero. Defaults to `0`, so BED intervals are used as provided. |
 | `--overwrite` | output mode | no | collision policy | Controls whether generated annotation files and diagnostics may be replaced; defaults to `False`, so any existing root-level `query.*.annot.gz` shard or owned diagnostic artifact is refused. With overwrite, stale query shards outside the current chromosome set are removed after a successful run. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; these records go to `diagnostics/annotate.log` and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
 | `--snp-identifier` | config | no | SNP identity mode | Defines how SNPs are keyed. Defaults to `chr_pos_allele_aware`; valid values are `rsid`, `rsid_allele_aware`, `chr_pos`, and `chr_pos_allele_aware`. |
@@ -167,7 +167,7 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--query-annot-sources` | input | no | prebuilt query annotation files | Supplies prebuilt query annotations. Mutually exclusive with the BED and gene-list routes and requires `--baseline-annot-sources`. |
 | `--query-annot-bed-sources` | input | no | query BED interval files | Supplies BED intervals projected in memory. Mutually exclusive with the prebuilt and gene-list routes and requires `--baseline-annot-sources`. Concrete-source failures are recorded and skipped while usable siblings continue. |
 | `--query-annot-gene-list-sources` | input | no | one-column gene lists | Supplies exact/glob file groups resolved against the packaged protein-coding catalog; explicit files retain order and globs expand lexically. Mutually exclusive with other query routes, does not use `@`, and requires `--baseline-annot-sources`. |
-| `--bed-padding-bp` | input transform | no | query BED interval expansion | Adds this many base pairs to both sides of each query BED interval before in-memory projection; starts are clipped at zero. Defaults to `0`, so BED intervals are used as provided. |
+| `--padding-bp` | input transform | no | query BED/gene interval expansion | Adds this many base pairs to both sides before in-memory projection; starts are clipped at zero. Defaults to `0` in direct mode. |
 | `--plink-prefix` | input | conditional | PLINK reference panel prefix | Selects PLINK reference-panel input; defaults to omitted/`None` and is required when `--r2-dir` is omitted. Supports exact prefix, PLINK-prefix glob, or `@` suite. |
 | `--r2-dir` | input | conditional | package-built parquet R2 directory | Selects parquet reference-panel input; defaults to omitted/`None` and is required when `--plink-prefix` is omitted. Use a build-specific directory such as `ref_panel/hg38`. The directory must contain paired `chrN_r2.parquet` (4-column index format) and `chrN_meta.tsv.gz` sidecar files; the sidecar is mandatory. One parquet serves all identifier modes. |
 | `--snp-identifier` | config | no | SNP identity mode | Defines how SNPs are keyed. Defaults to `chr_pos_allele_aware`; valid values are `rsid`, `rsid_allele_aware`, `chr_pos`, and `chr_pos_allele_aware`. |
@@ -466,18 +466,18 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `AnnotationBuildConfig` | `query_annot_sources` | input | prebuilt query annotation group |
 | `AnnotationBuildConfig` | `query_annot_bed_sources` | input | query BED group |
 | `AnnotationBuildConfig` | `query_annot_gene_list_sources` | input | one-column query gene-list group |
-| `AnnotationBuildConfig` | `bed_padding_bp` | input transform | BED interval padding in base pairs; default `0` |
+| `AnnotationBuildConfig` | `padding_bp` | input transform | BED/gene interval padding in base pairs; default `0` |
 | `AnnotationBuildConfig` | `output_dir` | output | generated query annotation directory |
 | `AnnotationBuilder.run(config=None, chrom=None)` | `config` | input/output | annotation workflow config; defaults to the builder config |
 | `AnnotationBuilder.project_bed_annotations(...)` | `query_annot_bed_sources` | input | query BED group |
-| `AnnotationBuilder.project_bed_annotations(...)` | `bed_padding_bp` | input transform | BED interval padding in base pairs before projection |
+| `AnnotationBuilder.project_bed_annotations(...)` | `padding_bp` | input transform | BED interval padding in base pairs before projection |
 | `add_annotate_arguments(parser)` | `parser` | CLI surface | shared annotate argument registration for standalone and top-level parsers |
 | `run_annotate_from_args(args)` / `main(argv)` | `query_annot_bed_sources` | input | query BED group |
 | `run_annotate_from_args(args)` / `main(argv)` | `baseline_annot_sources` | input | baseline annotation templates |
 | `run_annotate_from_args(args)` / `main(argv)` | `output_dir` | output | generated query annotation directory |
 | `run_bed_to_annot(...)` | `query_annot_bed_sources` | input | query BED group |
 | `run_bed_to_annot(...)` | `baseline_annot_sources` | input | baseline annotation templates |
-| `run_bed_to_annot(...)` | `bed_padding_bp` | input transform | BED interval padding in base pairs before projection; default `0` |
+| `run_bed_to_annot(...)` | `padding_bp` | input transform | BED interval padding in base pairs before projection; default `0` |
 | `run_bed_to_annot(...)` | `output_dir` | output | generated query annotation directory; convenience wrapper writes `diagnostics/annotate.log` |
 
 Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
@@ -497,7 +497,7 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | `LDScoreConfig` | `threads` | performance | cross-chromosome worker processes |
 | `LDScoreConfig` | `common_maf_min` | input metadata | common-SNP count threshold only |
 | `LDScoreOutputConfig` | `output_dir` | output | canonical LD-score result directory |
-| `run_ldscore(**kwargs)` | `baseline_annot_sources`, `query_annot_sources`, `query_annot_bed_sources`, `query_annot_gene_list_sources`, `bed_padding_bp` | input | optional annotation sources and BED/gene padding; query inputs require baseline sources, and no-annotation runs synthesize `base` |
+| `run_ldscore(**kwargs)` | `baseline_annot_sources`, `query_annot_sources`, `query_annot_bed_sources`, `query_annot_gene_list_sources`, `padding_bp`, `gene_ldscore_index_dir` | input | direct annotations and padding, or one explicit immutable gene-index profile; no-annotation runs synthesize `base` |
 | `run_ldscore(**kwargs)` | `plink_prefix`, `r2_dir` | input | reference-panel sources |
 | `run_ldscore(**kwargs)` | `ref_panel_snps_file`, `regression_snps_file`, `exclude_regions` | input | independently selects the retained reference universe, regression rows, and regression-only named region subtraction |
 | `run_ldscore(**kwargs)` | `output_dir` | output | canonical result directory; convenience wrapper writes `diagnostics/ldscore.log` |

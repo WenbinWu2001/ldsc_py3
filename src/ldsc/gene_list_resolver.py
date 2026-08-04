@@ -20,6 +20,7 @@ from typing import Any
 import pandas as pd
 
 from .chromosome_inference import normalize_chromosome
+from ._kernel.regions import load_preset_intervals
 from .errors import LDSCInputError
 
 
@@ -43,6 +44,7 @@ UNRESOLVED_REASONS = (
     "build_missing",
     "ambiguous_identifier",
     "malformed_input",
+    "excluded_gene_region",
 )
 _VERSIONED_ENSEMBL = re.compile(r"^(ENSG[0-9]+)\.([0-9]+)$")
 _ENSEMBL_LIKE = re.compile(r"^ENSG[0-9]+(?:\..*)?$")
@@ -163,6 +165,48 @@ class GeneCatalog:
             "content_sha256": self.content_sha256,
         }
 
+    @classmethod
+    def from_index_frame(
+        cls,
+        frame: pd.DataFrame,
+        *,
+        genome_build: str,
+        release: str,
+        content_sha256: str,
+    ) -> "GeneCatalog":
+        """Build the resolution authority embedded in one validated index profile."""
+        if genome_build not in {"hg19", "hg38"}:
+            raise LDSCInputError("Indexed gene catalog requires a concrete hg19 or hg38 projection build.")
+        required = {"canonical_ensembl_id", "gene_name", "CHR", "start0", "end"}
+        if not required.issubset(frame.columns):
+            raise LDSCInputError("Indexed gene catalog is missing required resolution columns.")
+        catalog_frame = pd.DataFrame(
+            {
+                "ensgid": frame["canonical_ensembl_id"].astype(str),
+                "gene_name": frame["gene_name"].astype(str),
+                f"{genome_build}_chr": frame["CHR"],
+                f"{genome_build}_start0": frame["start0"],
+                f"{genome_build}_end": frame["end"],
+            }
+        )
+        other = "hg38" if genome_build == "hg19" else "hg19"
+        catalog_frame[f"{other}_chr"] = pd.NA
+        catalog_frame[f"{other}_start0"] = pd.NA
+        catalog_frame[f"{other}_end"] = pd.NA
+        catalog_frame = catalog_frame.reset_index(drop=True)
+        ensembl_to_index = {value: int(index) for index, value in catalog_frame["ensgid"].items()}
+        name_groups: dict[str, list[int]] = defaultdict(list)
+        for index, value in catalog_frame["gene_name"].items():
+            name_groups[str(value)].append(int(index))
+        return cls(
+            frame=catalog_frame,
+            resource="gene_catalog.parquet",
+            release=release,
+            content_sha256=content_sha256,
+            ensembl_to_index=ensembl_to_index,
+            gene_name_to_indices={name: tuple(indices) for name, indices in name_groups.items()},
+        )
+
 
 def gene_list_query_name(path: str | Path) -> str:
     """Derive a query name from one gene-list basename."""
@@ -181,6 +225,7 @@ def resolve_gene_list(
     *,
     genome_build: str,
     source_ordinal: int = 1,
+    gene_exclude_regions: str = "none",
 ) -> GeneListResolution:
     """Resolve one gene list to unique canonical genes and build intervals."""
     if genome_build not in {"hg19", "hg38"}:
@@ -188,6 +233,14 @@ def resolve_gene_list(
             f"Gene-list resolution requires a concrete catalog build, got {genome_build!r}. "
             "Pass or infer hg19/hg38 before resolving gene lists."
         )
+    if gene_exclude_regions not in {"none", "mhc"}:
+        raise LDSCInputError(
+            f"Gene-list resolution received unsupported gene exclusion policy {gene_exclude_regions!r}. "
+            "Use 'none' or 'mhc'."
+        )
+    excluded_intervals = (
+        None if gene_exclude_regions == "none" else load_preset_intervals(("mhc",), genome_build)
+    )
     source_path = Path(path)
     query = gene_list_query_name(source_path)
     source = source_path.name
@@ -200,7 +253,7 @@ def resolve_gene_list(
     unresolved: list[GeneUnresolvedRecord] = []
     normalized_tokens: list[str] = []
     matched_rows = 0
-    resolved_rows: list[tuple[str, int, str]] = []
+    resolved_rows: list[tuple[str, int, str, int, str]] = []
     problem_counts: Counter[str] = Counter()
     blank_rows = 0
     for line_number, raw_line in enumerate(text.splitlines(), start=1):
@@ -287,17 +340,34 @@ def resolve_gene_list(
                 )
             )
             continue
-        resolved_rows.append((canonical_id, int(index), normalized))
+        resolved_rows.append((canonical_id, int(index), normalized, line_number, token))
 
     canonical_ids: list[str] = []
     catalog_indices: list[int] = []
     seen_ids: set[str] = set()
     unique_matched_tokens: set[str] = set()
-    for canonical_id, index, normalized in resolved_rows:
+    for canonical_id, index, normalized, line_number, token in resolved_rows:
         unique_matched_tokens.add(normalized)
         if canonical_id in seen_ids:
             continue
         seen_ids.add(canonical_id)
+        chrom = str(catalog.frame.at[index, f"{genome_build}_chr"])
+        start = int(catalog.frame.at[index, f"{genome_build}_start0"])
+        end = int(catalog.frame.at[index, f"{genome_build}_end"])
+        if excluded_intervals is not None and _interval_overlaps_regions(chrom, start, end, excluded_intervals.intervals):
+            problem_counts["excluded_gene_region"] += 1
+            unresolved.append(
+                GeneUnresolvedRecord(
+                    query,
+                    source,
+                    line_number,
+                    token,
+                    "excluded_gene_region",
+                    canonical_ensembl_id=canonical_id,
+                    details=f"unpadded gene interval overlaps {gene_exclude_regions}",
+                )
+            )
+            continue
         canonical_ids.append(canonical_id)
         catalog_indices.append(index)
 
@@ -328,7 +398,10 @@ def resolve_gene_list(
         status, reason = "skipped", "empty_input"
     elif not canonical_ids:
         status, reason = "skipped", "fully_unresolved"
-    elif any(problem_counts[item] for item in ("unmatched_identifier", "invalid_identifier", "build_missing")):
+    elif any(
+        problem_counts[item]
+        for item in ("unmatched_identifier", "invalid_identifier", "build_missing", "excluded_gene_region")
+    ):
         status, reason = "warning", "partial_resolution"
     else:
         status, reason = "ok", ""
@@ -348,6 +421,88 @@ def resolve_gene_list(
         counts=counts,
         unresolved=tuple(unresolved),
     )
+
+
+def resolve_all_protein_coding(
+    catalog: GeneCatalog,
+    *,
+    genome_build: str,
+    gene_exclude_regions: str = "none",
+) -> GeneListResolution:
+    """Resolve the reserved all-protein-coding control against one catalog."""
+    if genome_build not in {"hg19", "hg38"}:
+        raise LDSCInputError(
+            f"Gene-list resolution requires a concrete catalog build, got {genome_build!r}."
+        )
+    if gene_exclude_regions not in {"none", "mhc"}:
+        raise LDSCInputError(
+            f"Gene-list resolution received unsupported gene exclusion policy {gene_exclude_regions!r}."
+        )
+    excluded_intervals = (
+        None if gene_exclude_regions == "none" else load_preset_intervals(("mhc",), genome_build)
+    )
+    indices: list[int] = []
+    excluded_count = 0
+    for index, row in catalog.frame.iterrows():
+        chrom = row[f"{genome_build}_chr"]
+        if pd.isna(chrom):
+            continue
+        start = int(row[f"{genome_build}_start0"])
+        end = int(row[f"{genome_build}_end"])
+        if excluded_intervals is not None and _interval_overlaps_regions(
+            str(chrom), start, end, excluded_intervals.intervals
+        ):
+            excluded_count += 1
+            continue
+        indices.append(int(index))
+    canonical_ids = tuple(catalog.frame.loc[indices, "ensgid"].astype(str))
+    intervals = tuple(
+        (
+            str(catalog.frame.at[index, f"{genome_build}_chr"]),
+            int(catalog.frame.at[index, f"{genome_build}_start0"]),
+            int(catalog.frame.at[index, f"{genome_build}_end"]),
+        )
+        for index in indices
+    )
+    counts = {
+        "nonblank_input_rows": len(indices),
+        "unique_normalized_input_tokens": len(indices),
+        "repeated_token_rows": 0,
+        "matched_input_rows": len(indices),
+        "unique_resolved_canonical_genes": len(indices),
+        "alias_collapsed_rows": 0,
+        "blank_rows": 0,
+        **{reason: 0 for reason in UNRESOLVED_REASONS},
+    }
+    counts["excluded_gene_region"] = excluded_count
+    return GeneListResolution(
+        source_ordinal=0,
+        query="gene_control",
+        source="all-protein-coding",
+        source_path="all-protein-coding",
+        input_sha256=None,
+        status="ok" if indices else "skipped",
+        reason="" if indices else "fully_unresolved",
+        details=None,
+        canonical_ensembl_ids=canonical_ids,
+        catalog_indices=tuple(indices),
+        intervals=intervals,
+        counts=counts,
+        unresolved=(),
+    )
+
+
+def _interval_overlaps_regions(
+    chrom: str,
+    start: int,
+    end: int,
+    regions_by_chrom: dict[str, Any],
+) -> bool:
+    """Return whether one half-open gene interval overlaps any named region."""
+    intervals = regions_by_chrom.get(normalize_chromosome(chrom))
+    if intervals is None or len(intervals) == 0:
+        return False
+    return bool(((intervals[:, 0] < end) & (intervals[:, 1] > start)).any())
 
 
 def _unreadable_resolution(

@@ -195,7 +195,7 @@ How files are handled:
   suffix removed (`pathlib.Path.stem`); directory names are ignored, so
   `/path1/annot.bed` and `/path2/annot.bed` both become `annot`
 - every resolved baseline annotation file is used as a SNP template
-- `bed_padding_bp` / `--bed-padding-bp` expands each BED interval on both
+- `padding_bp` / `--padding-bp` expands each BED interval on both
   sides before projection and clips starts at zero; the default `0` leaves
   intervals unchanged
 - CLI dispatch through `ldsc annotate` calls the same workflow module directly;
@@ -215,7 +215,7 @@ run_bed_to_annot(
     query_annot_bed_sources="beds/*.bed",
     baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     output_dir="annotations/query_from_beds",
-    bed_padding_bp=0,
+    padding_bp=0,
     overwrite=True,
 )
 ```

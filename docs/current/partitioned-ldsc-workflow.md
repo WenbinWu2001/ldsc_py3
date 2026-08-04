@@ -16,6 +16,11 @@ The public regression CLI no longer accepts fragmented LD-score artifacts:
 `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`, and
 `--query-columns` are removed.
 
+Gene-set analyses may construct the same canonical LD-score directory through
+an explicit exact profile. In that mode, `gene_control` is part of the baseline
+block and each model still contains baseline plus control plus one focal gene
+set. See [the indexed gene-list tutorial](../wiki/main-functionalities/ldscore.md).
+
 ## 2. LD-Score Result Directory
 
 An LD-score run writes:
@@ -117,7 +122,7 @@ against an all-ones universe, they should create an explicit all-ones `base`
 baseline annotation over the query annotation universe and run the partitioned
 workflow with both baseline and query inputs.
 
-For gene-set or pathway BEDs that need flanking sequence, `--bed-padding-bp`
+For gene-set or pathway BEDs that need flanking sequence, `--padding-bp`
 expands each query BED interval by the requested number of base pairs on both
 sides before projection; starts are clipped at zero. The default is `0`, so BED
 files are used exactly as supplied. Do not set this option for BED files already
@@ -308,7 +313,7 @@ ldsc ldscore \
   --output-dir results/my_study_ldscore \
   --baseline-annot-sources resources/baseline_v1.2/baseline.@.annot.gz \
   --query-annot-bed-sources my_peaks.bed \
-  --bed-padding-bp 0 \
+  --padding-bp 0 \
   --plink-prefix resources/1kg/1KG_EUR_Phase3_chr@ \
   --snp-identifier rsid \
   --common-maf-min 0.05 \

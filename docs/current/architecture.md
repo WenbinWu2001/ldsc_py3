@@ -24,7 +24,8 @@ Related docs:
 - **Build query annotations**: project BED or resolved gene intervals onto a baseline SNP grid. Entry points: `ldsc annotate`, `ldsc ldscore`, `ldsc.AnnotationBuilder`
 - **Build parquet reference panels**: convert PLINK genotype panels into standard parquet R2 artifacts. Entry points: `ldsc build-ref-panel`, `ldsc.ReferencePanelBuilder`
 - **Query reference-panel R2**: look up adjusted R2, sign, and optional signed Pearson `r` for SNP pairs in package-built index-format panels. Entry points: `ldsc query-r2`, `ldsc.R2Panel`, `ldsc.query_r2()`
-- **Compute LD scores**: align annotations to a reference panel and emit LDSC-compatible LD-score artifacts; ordinary unpartitioned runs may omit annotations and receive a synthetic all-ones `base` annotation. Entry points: `ldsc ldscore`, `ldsc.run_ldscore()`, `ldsc.LDScoreCalculator`
+- **Build exact gene LD-score indexes**: precompute PLINK-backed disjoint-atom operators for one immutable baseline/profile configuration. Entry point: `ldsc build-gene-ldscore-index`
+- **Compute LD scores**: align annotations to a live reference panel or explicitly assemble gene-list columns from a validated index profile, then emit the same canonical artifacts. Entry points: `ldsc ldscore`, `ldsc.run_ldscore()`, `ldsc.LDScoreCalculator`
 - **Munge raw summary statistics**: normalize raw GWAS tables into curated Parquet-first sumstats artifacts, with optional legacy `.sumstats.gz` output. Entry points: `ldsc munge-sumstats`, `ldsc.SumstatsMunger`
 - **Run LDSC regression**: consume munged sumstats and LD-score artifacts to estimate `h2`, partitioned `h2`, or `rg`. Entry points: `ldsc h2`, `ldsc partitioned-h2`, `ldsc rg`, `ldsc.RegressionRunner`
 - **Audit workflow runs**: artifact-writing workflow wrappers create deterministic
@@ -62,6 +63,7 @@ ldsc_py3_Jerry/
 │   ├── chromosome_inference.py
 │   ├── genome_build_inference.py
 │   ├── gene_list_resolver.py
+│   ├── gene_ldscore_index.py
 │   ├── query_annotations.py
 │   ├── annotation_builder.py
 │   ├── ref_panel_builder.py
@@ -78,6 +80,7 @@ ldsc_py3_Jerry/
 │       ├── ref_panel.py
 │       ├── r2_query.py
 │       ├── ldscore.py
+│       ├── gene_ldscore_index.py
 │       ├── sumstats_munger.py
 │       ├── snp_identity.py # shared SNP identity and restriction policy
 │       ├── liftover.py
@@ -117,7 +120,7 @@ log path with scientific outputs before entering the context, and result
 
 ### `ldsc.annotation_builder`
 
-This is the public interface and workflow implementation for annotation loading and interval projection. It owns `AnnotationBuilder`, `AnnotationBundle`, `run_bed_to_annot()`, `run_annotate_from_args()`, `main()`, parser construction, path-token resolution, genome-build inference for `--genome-build auto`, optional interval expansion through `bed_padding_bp` / `--bed-padding-bp`, annotation identity cleanup, output preflight, root `query.<chrom>.annot.gz` writing, and annotation diagnostics under `diagnostics/`. During `ldscore`, it also projects already-resolved gene intervals and isolates failures per concrete BED/gene-list source. It delegates low-level text-table and BED intersection primitives to `ldsc._kernel.annotation` and catalog resolution to `ldsc.gene_list_resolver`.
+This is the public interface and workflow implementation for annotation loading and interval projection. It owns `AnnotationBuilder`, `AnnotationBundle`, `run_bed_to_annot()`, `run_annotate_from_args()`, `main()`, parser construction, path-token resolution, genome-build inference for `--genome-build auto`, optional interval expansion through `padding_bp` / `--padding-bp`, annotation identity cleanup, output preflight, root `query.<chrom>.annot.gz` writing, and annotation diagnostics under `diagnostics/`. During `ldscore`, it also projects already-resolved gene intervals and isolates failures per concrete BED/gene-list source. It delegates low-level text-table and BED intersection primitives to `ldsc._kernel.annotation` and catalog resolution to `ldsc.gene_list_resolver`.
 
 ### `ldsc.gene_list_resolver`, `ldsc.query_annotations`
 
@@ -138,6 +141,10 @@ This module is the public pair-query surface for package-built index-format R2 p
 ### `ldsc.ldscore_calculator`
 
 This module orchestrates chromosome-wise LD-score computation. It resolves annotation and reference-panel inputs, selects the gene-catalog projection build, synthesizes the all-ones `base` annotation when an unpartitioned run omits baseline/query inputs, builds per-chromosome runs, prunes zero-hit or zero-variance queries, aggregates them into `LDScoreResult`, routes artifact writing through `ldsc.outputs`, and writes `diagnostics/ldscore.log` for parsed workflow runs. Query-local BED/gene failures are status records; a run continues when at least one query is usable. Architecture invariant: computation stays chromosome-wise; the aggregate result is assembled only after all chromosome runs finish.
+
+### `ldsc.gene_ldscore_index`, `ldsc._kernel.gene_ldscore_index`
+
+The workflow module owns the `build-gene-ldscore-index` command, strict pre-QC baseline/BIM identity checks, semantic suite/profile identities, staged publication, full-profile loading, and explicit indexed `ldscore` assembly. The private kernel owns disjoint half-open atoms, Boolean gene-to-atom CSR membership, bounded SNP-by-atom blocks, sufficient statistics, and float64 `Y @ z` assembly. Index profiles are separate distribution artifacts; indexed output is still a self-contained canonical LD-score directory written by `LDScoreDirectoryWriter`. Architecture invariant: online assembly uses only the explicitly named embedded profile and never discovers an index or falls back to live computation.
 
 ### `ldsc.sumstats_munger`
 
@@ -229,10 +236,11 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 - BED and gene-list queries use one partial-success contract. Only usable query
   columns enter scientific artifacts; skipped inputs remain visible in
   `diagnostics/query_annotation_status.tsv`.
-- BED projection uses input intervals as provided unless `bed_padding_bp` /
-  `--bed-padding-bp` is set. Padding expands both interval ends in base pairs
+- BED projection uses input intervals as provided unless `padding_bp` /
+  `--padding-bp` is set. Padding expands both interval ends in base pairs
   before projection and clips starts at zero; it should not be applied again to
   BED files already expanded upstream.
 - Every workflow that writes fixed artifacts must precompute expected output
   paths, including its log path, and call the shared output preflight before
   the first write.
+- Gene-index construction and assembly preserve Boolean interval union, float64 adjusted-r² accumulation (including negative values), one diagonal contribution, and the broad-reference versus filtered-regression SNP-universe split.

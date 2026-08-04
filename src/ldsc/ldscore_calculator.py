@@ -246,8 +246,10 @@ class LDScoreResult:
     overlap: "LDScoreOverlap | None" = field(default=None, repr=False)
     query_statuses: tuple[QueryAnnotationStatus, ...] = ()
     gene_list_resolutions: tuple[Any, ...] = field(default_factory=tuple, repr=False)
+    control_gene_list_resolution: Any | None = field(default=None, repr=False)
     gene_catalog_provenance: dict[str, str] | None = None
     snp_universe_policy: dict[str, Any] | None = None
+    index_provenance: dict[str, str] | None = None
 
     def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""
@@ -423,6 +425,7 @@ class LDScoreCalculator:
         result = dataclass_replace(
             result,
             gene_list_resolutions=tuple(getattr(annotation_bundle, "gene_list_resolutions", ())),
+            control_gene_list_resolution=getattr(annotation_bundle, "control_gene_list_resolution", None),
             gene_catalog_provenance=getattr(annotation_bundle, "gene_catalog_provenance", None),
             snp_universe_policy=_snp_universe_policy(
                 ref_panel=ref_panel,
@@ -1059,6 +1062,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output-dir", required=True, help="Output directory for the canonical LD-score result.")
     parser.add_argument(
+        "--gene-ldscore-index-dir",
+        default=None,
+        help="Explicit prebuilt gene LD-score index profile directory. Requires gene-list queries and forbids live reference/baseline inputs.",
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         default=False,
@@ -1081,10 +1089,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated one-column gene-list path tokens projected in memory as query annotations. Requires --baseline-annot-sources.",
     )
     parser.add_argument(
-        "--bed-padding-bp",
+        "--padding-bp",
         type=int,
         default=0,
         help="Base pairs to add to both sides of each query BED interval before in-memory projection. Default: 0.",
+    )
+    parser.add_argument(
+        "--gene-exclude-regions",
+        choices=("none", "mhc"),
+        default="none",
+        help="Gene regions excluded before padding in gene-list workflows. Default: none.",
+    )
+    parser.add_argument(
+        "--control-gene-list-source",
+        default="all-protein-coding",
+        help="Fixed control gene list: all-protein-coding (default), none, or one file path.",
     )
     parser.add_argument(
         "--baseline-annot-sources",
@@ -1175,6 +1194,9 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     the normalized public ``LDScoreResult`` with split baseline/query tables.
     The result ``output_paths`` mapping contains data artifacts only.
     """
+    if getattr(args, "gene_ldscore_index_dir", None) is not None:
+        return _run_explicit_indexed_ldscore(args)
+
     from .annotation_builder import AnnotationBuilder
 
     normalized_args, global_config = _normalize_run_args(args)
@@ -1202,7 +1224,9 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             query_annot_gene_list_sources=tuple(
                 split_cli_path_tokens(getattr(normalized_args, "query_annot_gene_list_sources", None))
             ),
-            bed_padding_bp=normalized_args.bed_padding_bp,
+            control_gene_list_source=normalized_args.control_gene_list_source,
+            gene_exclude_regions=normalized_args.gene_exclude_regions,
+            padding_bp=normalized_args.padding_bp,
         )
         annotation_bundle = AnnotationBuilder(
             global_config,
@@ -1277,6 +1301,86 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     return result
 
 
+def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
+    """Validate and dispatch the closed indexed gene-list mode."""
+    forbidden = {
+        "--baseline-annot-sources": getattr(args, "baseline_annot_sources", None),
+        "--query-annot-sources": getattr(args, "query_annot_sources", None),
+        "--query-annot-bed-sources": getattr(args, "query_annot_bed_sources", None),
+        "--plink-prefix": getattr(args, "plink_prefix", None),
+        "--r2-dir": getattr(args, "r2_dir", None),
+        "--ref-panel-snps-file": getattr(args, "ref_panel_snps_file", None),
+        "--regression-snps-file": getattr(args, "regression_snps_file", None),
+        "--keep-indivs-file": getattr(args, "keep_indivs_file", None),
+        "--genetic-map-hg19-sources": getattr(args, "genetic_map_hg19_sources", None),
+        "--genetic-map-hg38-sources": getattr(args, "genetic_map_hg38_sources", None),
+        "--ld-wind-snps": getattr(args, "ld_wind_snps", None),
+        "--ld-wind-kb": getattr(args, "ld_wind_kb", None),
+        "--ld-wind-cm": getattr(args, "ld_wind_cm", None),
+        "--maf-min": getattr(args, "maf_min", None),
+    }
+    if getattr(args, "padding_bp", 0) != 0:
+        forbidden["--padding-bp"] = getattr(args, "padding_bp")
+    if getattr(args, "gene_exclude_regions", "none") != "none":
+        forbidden["--gene-exclude-regions"] = getattr(args, "gene_exclude_regions")
+    if getattr(args, "genome_build", None) is not None:
+        forbidden["--genome-build"] = getattr(args, "genome_build")
+    if getattr(args, "snp_identifier", "chr_pos_allele_aware") != "chr_pos_allele_aware":
+        forbidden["--snp-identifier"] = getattr(args, "snp_identifier")
+    if getattr(args, "exclude_regions", "mhc-and-centromeres") != "mhc-and-centromeres":
+        forbidden["--exclude-regions"] = getattr(args, "exclude_regions")
+    if getattr(args, "common_maf_min", 0.05) != 0.05:
+        forbidden["--common-maf-min"] = getattr(args, "common_maf_min")
+    if getattr(args, "snp_batch_size", 128) != 128:
+        forbidden["--snp-batch-size"] = getattr(args, "snp_batch_size")
+    supplied = [option for option, value in forbidden.items() if value not in {None, ""}]
+    if supplied:
+        raise LDSCInputError(
+            "ldscore indexed mode uses the profile's immutable scientific inputs and cannot accept live inputs: "
+            + ", ".join(supplied)
+        )
+    gene_lists = split_cli_path_tokens(getattr(args, "query_annot_gene_list_sources", None))
+    if not gene_lists:
+        raise LDSCInputError(
+            "ldscore indexed mode requires --query-annot-gene-list-sources."
+        )
+    from .gene_ldscore_index import run_indexed_ldscore
+    output_dir = Path(args.output_dir)
+    log_path = output_dir / "diagnostics" / "ldscore.log"
+    preflight_output_artifact_family(
+        [log_path],
+        [log_path],
+        overwrite=bool(getattr(args, "overwrite", False)),
+        label="LD-score output artifact",
+    )
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with workflow_logging(
+        "ldscore",
+        log_path,
+        log_level=getattr(args, "log_level", "INFO"),
+    ):
+        log_inputs(
+            output_dir=str(output_dir),
+            reference_mode="gene_ldscore_index",
+            gene_ldscore_index=str(args.gene_ldscore_index_dir),
+            query_gene_list_count=len(gene_lists),
+            control_gene_list_source=getattr(
+                args, "control_gene_list_source", "all-protein-coding"
+            ),
+        )
+        result = run_indexed_ldscore(
+            args.gene_ldscore_index_dir,
+            query_gene_list_sources=tuple(gene_lists),
+            control_gene_list_source=getattr(args, "control_gene_list_source", "all-protein-coding"),
+            output_dir=args.output_dir,
+            overwrite=bool(getattr(args, "overwrite", False)),
+        )
+        output_paths = getattr(result, "output_paths", None)
+        if output_paths:
+            log_outputs(**output_paths)
+        return result
+
+
 def _validate_run_args(args: argparse.Namespace) -> None:
     """Validate public LD-score workflow arguments before loading inputs.
 
@@ -1284,6 +1388,15 @@ def _validate_run_args(args: argparse.Namespace) -> None:
     kernel because optional baseline synthesis is a public orchestration rule:
     the numerical kernels still receive an explicit annotation bundle.
     """
+    has_gene_lists = _has_cli_tokens(getattr(args, "query_annot_gene_list_sources", None))
+    if not has_gene_lists and (
+        getattr(args, "gene_exclude_regions", "none") != "none"
+        or getattr(args, "control_gene_list_source", "all-protein-coding") != "all-protein-coding"
+    ):
+        raise LDSCUsageError(
+            "--gene-exclude-regions and --control-gene-list-source are valid only with "
+            "--query-annot-gene-list-sources. Remove the gene-specific option or use direct gene-list mode."
+        )
     if not _has_cli_tokens(args.baseline_annot_sources) and (
         _has_cli_tokens(args.query_annot_sources)
         or _has_cli_tokens(getattr(args, "query_annot_bed_sources", None))
@@ -1575,12 +1688,16 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     for attr in ("exclude_regions",):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
+    if not hasattr(normalized_args, "control_gene_list_source") or normalized_args.control_gene_list_source is None:
+        normalized_args.control_gene_list_source = "all-protein-coding"
+    if not hasattr(normalized_args, "gene_exclude_regions"):
+        normalized_args.gene_exclude_regions = "none"
     if not hasattr(normalized_args, "maf_min"):
         normalized_args.maf_min = None
     if not hasattr(normalized_args, "common_maf_min"):
         normalized_args.common_maf_min = 0.05
-    if not hasattr(normalized_args, "bed_padding_bp"):
-        normalized_args.bed_padding_bp = 0
+    if not hasattr(normalized_args, "padding_bp"):
+        normalized_args.padding_bp = 0
     if not hasattr(normalized_args, "snp_batch_size"):
         normalized_args.snp_batch_size = 128
     normalized_args.snp_identifier = normalized_mode

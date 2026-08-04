@@ -295,6 +295,16 @@ class ChromComputationResult:
     overlap: OverlapContribution | None = None
 
 
+@dataclass
+class PreparedPlinkChromosome:
+    """One filtered PLINK chromosome reused across annotation-column batches."""
+
+    geno: object
+    metadata: pd.DataFrame
+    annotation_matrix: np.ndarray
+    block_left: np.ndarray
+
+
 # Basic configuration and shared helpers.
 def configure_logging(level: str) -> None:
     """Set the ``LDSC`` logger threshold for kernel-side execution.
@@ -1665,6 +1675,108 @@ def regression_mask_from_keys(
 
 
 # Per-chromosome compute backends.
+def prepare_plink_chromosome(
+    chrom: str,
+    bundle: AnnotationBundle,
+    args: argparse.Namespace,
+) -> PreparedPlinkChromosome:
+    """Prepare aligned, genotype-filtered PLINK state without computing scores."""
+    legacy_ld = get_legacy_ld_module()
+    prefix = resolve_bfile_prefix(args, chrom=chrom)
+    if prefix is None:
+        raise LDSCUsageError(
+            "ldscore cannot run PLINK mode without a PLINK prefix. Most likely PLINK "
+            "mode was selected but `--plink-prefix`/`--bfile` was omitted."
+        )
+    bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
+    fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
+    panel_df = bim.df.loc[:, ["CHR", "SNP", "CM", "BP", "A1", "A2"]].copy().rename(columns={"BP": "POS"})
+    panel_df["CHR"] = panel_df["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
+    panel_df["SNP"] = panel_df["SNP"].astype(str)
+    panel_df["POS"] = pd.to_numeric(panel_df["POS"], errors="raise").astype(np.int64)
+    panel_df["CM"] = pd.to_numeric(panel_df["CM"], errors="coerce")
+    panel_df["A1"] = panel_df["A1"].astype(str)
+    panel_df["A2"] = panel_df["A2"].astype(str)
+    panel_df = panel_df.loc[panel_df["CHR"] == normalize_chromosome(chrom, context=prefix + ".bim")].copy()
+    if len(panel_df) == 0:
+        raise LDSCInputError(
+            f"ldscore found no PLINK SNPs for chromosome {chrom} in prefix '{prefix}'."
+        )
+    panel_df["_key"] = identifier_keys(panel_df, args.snp_identifier)
+
+    metadata = bundle.metadata.copy()
+    annotations = bundle.annotations.copy()
+    metadata["_key"] = identifier_keys(metadata, args.snp_identifier)
+    key_to_panel_index = {key: idx for key, idx in zip(panel_df["_key"], panel_df.index)}
+    keep = metadata["_key"].isin(key_to_panel_index)
+    removed = int((~keep).sum())
+    if removed:
+        LOGGER.warning(
+            f"Dropping {removed} annotated SNPs on chromosome {chrom} because they are absent from the PLINK reference panel."
+        )
+    metadata = metadata.loc[keep].reset_index(drop=True)
+    annotations = annotations.loc[keep].reset_index(drop=True)
+    if len(metadata) == 0:
+        raise LDSCInputError(
+            f"ldscore retained no annotation SNPs on chromosome {chrom} after PLINK intersection. "
+            f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
+        )
+
+    keep_indivs = resolve_keep_individuals(getattr(args, "keep", None), fam)
+    keep_snps = [key_to_panel_index[key] for key in metadata["_key"]]
+    geno = legacy_ld.PlinkBEDFile(
+        prefix + ".bed",
+        len(fam.IDList),
+        bim,
+        keep_snps=keep_snps,
+        keep_indivs=keep_indivs,
+        mafMin=getattr(args, "maf_min", getattr(args, "maf", None)),
+    )
+    geno_meta = pd.DataFrame(geno.df, columns=geno.colnames)
+    if "BP" in geno_meta.columns:
+        geno_meta = geno_meta.rename(columns={"BP": "POS"})
+    geno_meta["CHR"] = geno_meta["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
+    geno_meta["SNP"] = geno_meta["SNP"].astype(str)
+    geno_meta["POS"] = pd.to_numeric(geno_meta["POS"], errors="raise").astype(np.int64)
+    geno_meta["CM"] = pd.to_numeric(geno_meta["CM"], errors="coerce")
+    geno_meta["MAF"] = pd.to_numeric(geno_meta["MAF"], errors="coerce")
+    geno_meta = geno_meta.merge(
+        panel_df.loc[:, ["CHR", "SNP", "POS", "A1", "A2"]],
+        how="left",
+        on=["CHR", "SNP", "POS"],
+        sort=False,
+    )
+    geno_meta["_key"] = identifier_keys(geno_meta, args.snp_identifier)
+    annotation_matrix = annotations.set_index(metadata["_key"]).loc[geno_meta["_key"]].to_numpy(dtype=np.float32)
+    if len(geno_meta) == 0:
+        raise LDSCInputError(
+            f"ldscore retained no PLINK reference SNPs on chromosome {chrom} after genotype filtering."
+        )
+    require_reference_maf(geno_meta, chrom)
+    if args.ld_wind_cm is not None:
+        genetic_map = getattr(args, "genetic_map", None)
+        if genetic_map is not None:
+            from .ref_panel_builder import interpolate_genetic_map_cm
+
+            geno_meta["CM"] = interpolate_genetic_map_cm(
+                normalize_chromosome(chrom, context=prefix + ".bim"),
+                geno_meta["POS"].to_numpy(dtype=np.int64),
+                genetic_map,
+            )
+        else:
+            assert_cm_usable(geno_meta["CM"], chrom)
+    validate_window_positions_sorted(geno_meta, chrom)
+    coords, max_dist = build_window_coordinates(geno_meta.drop(columns="_key"), args)
+    block_left = legacy_ld.getBlockLefts(coords, max_dist)
+    check_whole_chromosome_window(block_left, args, chrom)
+    return PreparedPlinkChromosome(
+        geno=geno,
+        metadata=geno_meta.drop(columns="_key").reset_index(drop=True),
+        annotation_matrix=annotation_matrix,
+        block_left=np.asarray(block_left),
+    )
+
+
 def compute_chrom_from_parquet(
     chrom: str,
     bundle: AnnotationBundle,
@@ -1782,124 +1894,21 @@ def compute_chrom_from_plink(
     3. Compute partitioned reference LD scores and one-column regression-universe LD scores.
     4. Return chromosome-level LD scores plus all-SNP and common-SNP counts.
     """
-    legacy_ld = get_legacy_ld_module()
-    prefix = resolve_bfile_prefix(args, chrom=chrom)
-    if prefix is None:
-        raise LDSCUsageError(
-            "ldscore cannot run PLINK mode without a PLINK prefix. Most likely PLINK "
-            "mode was selected but `--plink-prefix`/`--bfile` was omitted. Pass the "
-            "prefix shared by the `.bed`, `.bim`, and `.fam` files, or use parquet "
-            "mode with `--r2-dir`."
-        )
-
-    bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
-    fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
-    panel_df = bim.df.loc[:, ["CHR", "SNP", "CM", "BP", "A1", "A2"]].copy().rename(columns={"BP": "POS"})
-    panel_df["CHR"] = panel_df["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
-    panel_df["SNP"] = panel_df["SNP"].astype(str)
-    panel_df["POS"] = pd.to_numeric(panel_df["POS"], errors="raise").astype(np.int64)
-    panel_df["CM"] = pd.to_numeric(panel_df["CM"], errors="coerce")
-    panel_df["A1"] = panel_df["A1"].astype(str)
-    panel_df["A2"] = panel_df["A2"].astype(str)
-    panel_df = panel_df.loc[panel_df["CHR"] == normalize_chromosome(chrom, context=prefix + ".bim")].copy()
-    if len(panel_df) == 0:
-        raise LDSCInputError(
-            f"ldscore found no PLINK SNPs for chromosome {chrom} in prefix '{prefix}'. "
-            "Most likely the `.bim` file does not contain that chromosome or the chromosome "
-            "labels do not match the annotation inputs. Pass the correct chromosome-specific "
-            "PLINK prefix or rebuild the reference panel with matching chromosome labels."
-        )
-    panel_df["_key"] = identifier_keys(panel_df, args.snp_identifier)
-
-    metadata = bundle.metadata.copy()
-    annotations = bundle.annotations.copy()
-    metadata["_key"] = identifier_keys(metadata, args.snp_identifier)
-
-    key_to_panel_index = {key: idx for key, idx in zip(panel_df["_key"], panel_df.index)}
-    keep = metadata["_key"].isin(key_to_panel_index)
-    removed = int((~keep).sum())
-    if removed:
-        LOGGER.warning(
-            f"Dropping {removed} annotated SNPs on chromosome {chrom} "
-            "because they are absent from the PLINK reference panel."
-        )
-    metadata = metadata.loc[keep].reset_index(drop=True)
-    annotations = annotations.loc[keep].reset_index(drop=True)
-    if regression_keys is not None and not isinstance(regression_keys, RestrictionIdentityKeys):
-        regression_keys = regression_keys.intersection(set(metadata["_key"]))
-    if len(metadata) == 0:
-        raise LDSCInputError(
-            f"ldscore retained no annotation SNPs on chromosome {chrom} after PLINK "
-            "intersection. Most likely the annotation SNP identifiers, genome build, "
-            "or allele-aware identifier mode do not match the PLINK `.bim` file. Use "
-            "annotation and PLINK reference files built with the same SNP identifier mode "
-            "and genome build. "
-            f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
-        )
-
-    keep_indivs = resolve_keep_individuals(getattr(args, "keep", None), fam)
-    keep_snps = [key_to_panel_index[key] for key in metadata["_key"]]
-    geno = legacy_ld.PlinkBEDFile(
-        prefix + ".bed",
-        len(fam.IDList),
-        bim,
-        keep_snps=keep_snps,
-        keep_indivs=keep_indivs,
-        mafMin=getattr(args, "maf_min", getattr(args, "maf", None)),
+    prepared = prepare_plink_chromosome(chrom, bundle, args)
+    geno = prepared.geno
+    geno_meta = prepared.metadata
+    annotation_matrix = pd.DataFrame(
+        prepared.annotation_matrix,
+        columns=[*bundle.baseline_columns, *bundle.query_columns],
     )
-
-    geno_meta = pd.DataFrame(geno.df, columns=geno.colnames)
-    if "BP" in geno_meta.columns:
-        geno_meta = geno_meta.rename(columns={"BP": "POS"})
-    geno_meta["CHR"] = geno_meta["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
-    geno_meta["SNP"] = geno_meta["SNP"].astype(str)
-    geno_meta["POS"] = pd.to_numeric(geno_meta["POS"], errors="raise").astype(np.int64)
-    geno_meta["CM"] = pd.to_numeric(geno_meta["CM"], errors="coerce")
-    geno_meta["MAF"] = pd.to_numeric(geno_meta["MAF"], errors="coerce")
-    geno_meta = geno_meta.merge(
-        panel_df.loc[:, ["CHR", "SNP", "POS", "A1", "A2"]],
-        how="left",
-        on=["CHR", "SNP", "POS"],
-        sort=False,
-    )
-    geno_meta["_key"] = identifier_keys(geno_meta, args.snp_identifier)
-
-    annotation_matrix = annotations.set_index(metadata["_key"]).loc[geno_meta["_key"]]
-
-    if len(geno_meta) == 0:
-        raise LDSCInputError(
-            f"ldscore retained no PLINK reference SNPs on chromosome {chrom} after genotype "
-            "filtering. Most likely every candidate SNP is monomorphic, --maf-min is too high, "
-            "or no annotation SNPs overlap the panel. Lower --maf-min, or check the SNP "
-            "overlap and genome build."
-        )
-    require_reference_maf(geno_meta, chrom)
-    if args.ld_wind_cm is not None:
-        genetic_map = getattr(args, "genetic_map", None)
-        if genetic_map is not None:
-            # An explicit genetic map always wins: interpolate CM at the .bim positions
-            # for all chromosomes, ignoring any (often all-zero) .bim CM column.
-            from .ref_panel_builder import interpolate_genetic_map_cm
-
-            geno_meta["CM"] = interpolate_genetic_map_cm(
-                normalize_chromosome(chrom, context=prefix + ".bim"),
-                geno_meta["POS"].to_numpy(dtype=np.int64),
-                genetic_map,
-            )
-        else:
-            assert_cm_usable(geno_meta["CM"], chrom)
-    validate_window_positions_sorted(geno_meta, chrom)
-    coords, max_dist = build_window_coordinates(geno_meta.drop(columns="_key"), args)
-    block_left = legacy_ld.getBlockLefts(coords, max_dist)
-    check_whole_chromosome_window(block_left, args, chrom)
-
-    ld_scores = geno.ldScoreVarBlocks(block_left, args.snp_batch_size, annot=annotation_matrix.to_numpy(dtype=np.float32))
+    block_left = prepared.block_left
+    ld_scores = geno.ldScoreVarBlocks(block_left, args.snp_batch_size, annot=prepared.annotation_matrix)
     regression_mask = regression_mask_from_keys(
-        geno_meta.drop(columns="_key"), regression_keys, args.snp_identifier, region_intervals=regression_regions
+        geno_meta, regression_keys, args.snp_identifier, region_intervals=regression_regions
     )
     geno._currentSNP = 0
     w_ld = geno.ldScoreVarBlocks(block_left, args.snp_batch_size, annot=regression_mask.reshape(-1, 1))
-    out_metadata = geno_meta.drop(columns="_key").reset_index(drop=True)
+    out_metadata = geno_meta.reset_index(drop=True)
     M, M_5_50 = compute_counts(
         out_metadata,
         annotation_matrix.reset_index(drop=True),

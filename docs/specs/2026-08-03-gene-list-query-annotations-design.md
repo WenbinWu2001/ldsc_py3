@@ -2,7 +2,7 @@
 
 Last updated on: 2026-08-03
 
-Status: approved for implementation
+Status: implemented; the [exact-index specification](2026-08-03-exact-disjoint-atom-gene-ldscore-index-design.md) supersedes only its explicitly listed direct-workflow changes when implemented
 
 ## Problem and goal
 
@@ -122,7 +122,7 @@ Gene-list projection reuses `--genome-build`; no gene-list-specific build flag i
 
 When gene-list input is present and `--genome-build` is omitted, its effective default is `auto`, including in rsID-family modes. A concrete build selects that catalog interval set. In `auto`, the workflow uses existing LD-score evidence from baseline annotation coordinates and R2 parquet metadata; gene identifiers themselves provide no build evidence. All available evidence must agree. Insufficient or conflicting evidence is a run-global error with guidance to pass hg19 or hg38 explicitly.
 
-For rsID-family workflows, the selected build controls only interval projection. SNP matching remains rsID-based and LD-score compatibility metadata keeps `genome_build=null`. The separately recorded catalog provenance carries the effective projection build. The declared or inferred projection build and the evidence used are reported in `diagnostics/ldscore.log`.
+For rsID-family workflows, the selected build controls interval projection and selection of named regression-region presets. SNP matching remains rsID-based and LD-score compatibility metadata keeps `genome_build=null`. The separately recorded catalog provenance carries the effective projection build. The declared or inferred projection build and the evidence used are reported in `diagnostics/ldscore.log`.
 
 ## Query naming
 
@@ -236,7 +236,7 @@ For successful gene-list runs, root `metadata.json` retains the current LD-score
 
 Successful canonical Ensembl IDs are not copied into metadata or a resolved-gene sidecar. The resolver keeps canonical IDs and compact catalog indices in memory. BED-only runs add the status-manifest reference but no catalog or gene-resolution metadata.
 
-The shared artifact `schema_version` is not bumped solely for these additive LD-score metadata fields. Readers must continue to ignore additive fields they do not consume.
+The shared `artifact_type` guard is unchanged by these additive LD-score metadata fields. Readers must continue to ignore additive fields they do not consume.
 
 ## Internal module boundary and performance
 

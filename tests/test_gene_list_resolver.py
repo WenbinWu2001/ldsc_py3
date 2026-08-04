@@ -78,6 +78,7 @@ def test_resolve_gene_list_accepts_mixed_ids_versions_names_and_collapses_aliase
         "build_missing": 0,
         "ambiguous_identifier": 0,
         "malformed_input": 0,
+        "excluded_gene_region": 0,
     }
 
 
@@ -94,6 +95,38 @@ def test_resolve_gene_list_reports_every_problem_and_keeps_partial_query(tmp_pat
         (2, "UNKNOWN", "unmatched_identifier", None),
         (3, "ENSG00000000002.bad", "invalid_identifier", None),
         (4, "GENEB", "build_missing", "ENSG00000000002"),
+    ]
+
+
+def test_mhc_gene_exclusion_uses_unpadded_half_open_intervals(tmp_path):
+    catalog = GeneCatalog.load(
+        _write_catalog(
+            tmp_path / "mhc-catalog.tsv.gz",
+            [
+                ["ENSG00000000011", "LEFT", "chr6", 24_999_990, 25_000_000, "+", "chr6", 24_999_990, 25_000_000, "+"],
+                ["ENSG00000000012", "OVERLAP_LEFT", "chr6", 24_999_999, 25_000_001, "+", "chr6", 24_999_999, 25_000_001, "+"],
+                ["ENSG00000000013", "HLA_TEST", "chr6", 30_000_000, 30_000_100, "+", "chr6", 30_000_000, 30_000_100, "+"],
+                ["ENSG00000000014", "RIGHT", "chr6", 35_000_000, 35_000_010, "+", "chr6", 35_000_000, 35_000_010, "+"],
+                ["ENSG00000000015", "OTHER_CHROM", "chr7", 30_000_000, 30_000_100, "+", "chr7", 30_000_000, 30_000_100, "+"],
+            ],
+        )
+    )
+    source = tmp_path / "genes.txt"
+    source.write_text("LEFT\nOVERLAP_LEFT\nHLA_TEST\nRIGHT\nOTHER_CHROM\n", encoding="utf-8")
+
+    result = resolve_gene_list(source, catalog, genome_build="hg19", gene_exclude_regions="mhc")
+
+    assert result.status == "warning"
+    assert result.reason == "partial_resolution"
+    assert result.canonical_ensembl_ids == (
+        "ENSG00000000011",
+        "ENSG00000000014",
+        "ENSG00000000015",
+    )
+    assert result.counts["excluded_gene_region"] == 2
+    assert [(row.line, row.input_gene, row.reason) for row in result.unresolved] == [
+        (2, "OVERLAP_LEFT", "excluded_gene_region"),
+        (3, "HLA_TEST", "excluded_gene_region"),
     ]
 
 

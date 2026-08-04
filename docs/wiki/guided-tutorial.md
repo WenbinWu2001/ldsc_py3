@@ -271,6 +271,15 @@ rg/mdd2025_scz2022_adhd2019/
 
 **Goal:** partition a trait's heritability into the contributions of a set of pathways / cell types, testing whether each query annotation contributes to heritability after controlling for the baseline annotations.
 
+Many hypotheses in this analysis are gene sets: genes differentially expressed
+in a tissue or cell type, genes prioritized by proteomics, or genes sharing a
+GO or SynGO term. LDSC-SEG demonstrated that S-LDSC can test whether
+heritability is enriched near specifically expressed genes conditional on both
+the baseline model and an all-genes annotation
+([Finucane et al., 2018](https://doi.org/10.1038/s41588-018-0081-4)). For a
+large collection of gene sets, an exact gene LD-score index computes the fixed
+PLINK/reference work once and reuses it without changing the downstream model.
+
 **Recommended memory allocation:** Step 1: 24 GB (generous, for safety); Step 2: < 4 GB
 
 **Expected running time:** Step 1: < 2 h; Step 2: < 5 min (depends on the number of query annotations)
@@ -314,6 +323,15 @@ ldsc ldscore \
   results, that query hit a failure. Check
   `diagnostics/query_annotation_status.tsv` for the reason. For gene lists,
   `diagnostics/gene_list_unresolved.tsv.gz` lists the problematic genes.
+- For a prebuilt exact gene profile, use
+  `--gene-ldscore-index-dir <suite>/profiles/<profile>` with
+  `--query-annot-gene-list-sources` and omit live baseline, PLINK/R²,
+  genome-build, window, padding, and region arguments. The indexed run writes
+  the same canonical output directory and defaults to the fixed
+  `gene_control` baseline column.
+- For the complete indexed workflow, see [Build an exact gene LD-score
+  index](utility-functionalities/build-gene-ldscore-index.md) and [Calculate LD
+  scores for gene lists with an index](main-functionalities/ldscore.md).
 
 **Caveat:** if you use `--ld-wind-cm`, make sure your PLINK suite has non-missing genetic coordinates (the third column in the `.bim` file). If they are missing (e.g., all zeros), the program will raise an error.
 

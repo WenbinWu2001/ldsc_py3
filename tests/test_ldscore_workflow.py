@@ -1252,12 +1252,12 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 "10",
                 "--query-annot-bed-sources",
                 "query.bed",
-                "--bed-padding-bp",
+                "--padding-bp",
                 "50000",
             ]
         )
         self.assertEqual(args.query_annot_bed_sources, "query.bed")
-        self.assertEqual(args.bed_padding_bp, 50000)
+        self.assertEqual(args.padding_bp, 50000)
 
     def test_build_parser_accepts_gene_lists_and_keeps_query_routes_mutually_exclusive(self):
         parser = ldscore_workflow.build_parser()
@@ -1273,6 +1273,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
 
         self.assertEqual(args.query_annot_gene_list_sources, "immune.txt.gz,brain.list")
+        self.assertEqual(args.control_gene_list_source, "all-protein-coding")
+        self.assertEqual(args.gene_exclude_regions, "none")
         with self.assertRaises(SystemExit):
             parser.parse_args(
                 [
@@ -3935,6 +3937,7 @@ def test_gene_list_mhc_query_keeps_reference_counts_but_not_regression_row(tmp_p
         AnnotationBuildConfig(
             baseline_annot_sources=(baseline,),
             query_annot_gene_list_sources=(genes,),
+            control_gene_list_source="none",
         )
     )
     metadata = bundle.metadata.copy()

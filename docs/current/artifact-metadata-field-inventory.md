@@ -168,7 +168,7 @@ annotate/
 | `query_columns` | Projected query annotation columns. | None. |
 | `baseline_columns` | Baseline annotation columns used as the SNP template. | None. |
 | `n_snps` | Number of retained SNP rows after annotation identity cleanup. | None. |
-| `bed_padding_bp` | BED interval padding applied before projection. | None. |
+| `padding_bp` | BED or gene interval padding applied before projection. | None. |
 
 ### `ldscore`
 

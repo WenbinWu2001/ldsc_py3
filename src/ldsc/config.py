@@ -328,7 +328,13 @@ class AnnotationBuildConfig:
     query_annot_gene_list_sources : str, os.PathLike[str], or sequence of those, optional
         One-column gene lists that should be resolved and projected to SNP-level
         query annotations. Default is ``()``.
-    bed_padding_bp : int, optional
+    control_gene_list_source : str or os.PathLike[str], optional
+        Fixed gene control for gene-list workflows. ``"all-protein-coding"``
+        selects every eligible catalog gene and ``"none"`` disables it.
+    gene_exclude_regions : {"none", "mhc"}, optional
+        Named gene-region policy applied to unpadded gene intervals. Default is
+        ``"none"``.
+    padding_bp : int, optional
         Number of base pairs to add to both sides of each BED interval before
         SNP overlap projection. Starts are clipped at zero. Default is ``0``.
     output_dir : str or os.PathLike[str] or None, optional
@@ -346,7 +352,9 @@ class AnnotationBuildConfig:
     query_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_bed_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_gene_list_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    bed_padding_bp: int = 0
+    control_gene_list_source: str | PathLike[str] = "all-protein-coding"
+    gene_exclude_regions: str = "none"
+    padding_bp: int = 0
     output_dir: str | PathLike[str] | None = None
     compression: CompressionMode = "gzip"
     allow_missing_query: bool = True
@@ -358,6 +366,11 @@ class AnnotationBuildConfig:
         object.__setattr__(self, "query_annot_sources", _normalize_path_tuple(self.query_annot_sources))
         object.__setattr__(self, "query_annot_bed_sources", _normalize_path_tuple(self.query_annot_bed_sources))
         object.__setattr__(self, "query_annot_gene_list_sources", _normalize_path_tuple(self.query_annot_gene_list_sources))
+        object.__setattr__(self, "control_gene_list_source", str(self.control_gene_list_source))
+        if self.gene_exclude_regions not in {"none", "mhc"}:
+            raise LDSCConfigError(
+                "Could not construct AnnotationBuildConfig: gene_exclude_regions must be 'none' or 'mhc'."
+            )
         query_groups = (
             self.query_annot_sources,
             self.query_annot_bed_sources,
@@ -369,31 +382,31 @@ class AnnotationBuildConfig:
                 "are mutually exclusive. Supply exactly one query source type per run."
             )
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
-        if isinstance(self.bed_padding_bp, bool):
+        if isinstance(self.padding_bp, bool):
             raise LDSCConfigError(
-                f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be an integer. "
-                "Most likely a boolean padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+                f"Could not construct AnnotationBuildConfig: padding_bp={self.padding_bp!r} must be an integer. "
+                "Most likely a boolean padding value was supplied. Set padding_bp to 0 or a positive integer."
             )
-        if isinstance(self.bed_padding_bp, Integral):
-            bed_padding_bp = int(self.bed_padding_bp)
-        elif isinstance(self.bed_padding_bp, str):
-            stripped_padding = self.bed_padding_bp.strip()
+        if isinstance(self.padding_bp, Integral):
+            padding_bp = int(self.padding_bp)
+        elif isinstance(self.padding_bp, str):
+            stripped_padding = self.padding_bp.strip()
             if not stripped_padding or stripped_padding in {"+", "-"} or not stripped_padding.lstrip("+-").isdigit():
                 raise LDSCConfigError(
-                    f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be an integer. "
-                    "Most likely a non-integer padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+                    f"Could not construct AnnotationBuildConfig: padding_bp={self.padding_bp!r} must be an integer. "
+                    "Most likely a non-integer padding value was supplied. Set padding_bp to 0 or a positive integer."
                 )
-            bed_padding_bp = int(stripped_padding)
+            padding_bp = int(stripped_padding)
         else:
             raise LDSCConfigError(
-                f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be an integer. "
-                "Most likely a non-integer padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+                f"Could not construct AnnotationBuildConfig: padding_bp={self.padding_bp!r} must be an integer. "
+                "Most likely a non-integer padding value was supplied. Set padding_bp to 0 or a positive integer."
             )
-        object.__setattr__(self, "bed_padding_bp", bed_padding_bp)
-        if self.bed_padding_bp < 0:
+        object.__setattr__(self, "padding_bp", padding_bp)
+        if self.padding_bp < 0:
             raise LDSCConfigError(
-                f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be non-negative. "
-                "Most likely a negative padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+                f"Could not construct AnnotationBuildConfig: padding_bp={self.padding_bp!r} must be non-negative. "
+                "Most likely a negative padding value was supplied. Set padding_bp to 0 or a positive integer."
             )
         if self.compression not in {"auto", "gzip", "bz2", "none"}:
             raise LDSCConfigError(
@@ -530,6 +543,94 @@ class LDScoreConfig:
                 "but one."
             )
         object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
+
+
+@dataclass(frozen=True)
+class GeneLDScoreIndexBuildConfig:
+    """Scientific and resource settings for the v1 gene-index builder.
+
+    Parameters
+    ----------
+    baseline_annot_sources : tuple of str
+        Ordered baseline annotation paths or chromosome-suite tokens. Their
+        pre-QC ``CHR/POS/SNP`` identities must equal the selected PLINK BIM.
+    plink_prefix : str
+        PLINK BED/BIM/FAM prefix; ``@`` may stand for chromosome number.
+    output_dir : str
+        Suite directory containing immutable ``common/`` data and profiles.
+    chromosomes : tuple of str, optional
+        Canonical autosome coverage. Default is chromosomes 1 through 22.
+    genome_build : {"hg19"}, optional
+        Gene projection and coordinate build. V1 supports only hg19.
+    snp_identifier : {"rsid"}, optional
+        Variant identity mode. V1 supports only rsID identity.
+    padding_bp : int, optional
+        Base pairs added to each side of included transcribed gene intervals.
+        Default is 100,000.
+    gene_exclude_regions : {"none", "mhc"}, optional
+        Gene-region exclusion applied to unpadded intervals before padding.
+        Default is ``"mhc"``.
+    ld_wind_cm : float, optional
+        Positive LD window in centiMorgans. The supported default is 1.0.
+    maf_min : float, optional
+        Inclusive retained-reference MAF threshold. Default is no explicit
+        filter.
+    common_maf_min : float, optional
+        Inclusive MAF threshold for common-SNP count statistics. Default 0.05.
+    keep_indivs_file : str, optional
+        One-IID-per-row PLINK individual restriction.
+    snp_batch_size : int, optional
+        Positive PLINK genotype work batch size. Default is 128.
+    atom_batch_size : int, optional
+        Positive offline internal atom-column batch size. Default is 64.
+    threads : int, optional
+        Chromosome worker count. Default is one; additional workers can
+        multiply chromosome-local memory.
+
+    Raises
+    ------
+    LDSCConfigError
+        If required paths are absent or a setting lies outside the closed v1
+        compatibility domain.
+    """
+
+    baseline_annot_sources: tuple[str, ...]
+    plink_prefix: str
+    output_dir: str
+    chromosomes: tuple[str, ...] = tuple(str(value) for value in range(1, 23))
+    genome_build: str = "hg19"
+    snp_identifier: str = "rsid"
+    padding_bp: int = 100000
+    gene_exclude_regions: str = "mhc"
+    ld_wind_cm: float = 1.0
+    maf_min: float | None = None
+    common_maf_min: float = 0.05
+    keep_indivs_file: str | None = None
+    snp_batch_size: int = 128
+    atom_batch_size: int = 64
+    threads: int = 1
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "baseline_annot_sources", _normalize_path_tuple(self.baseline_annot_sources))
+        object.__setattr__(self, "plink_prefix", _normalize_required_path(self.plink_prefix))
+        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+        object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
+        if not self.baseline_annot_sources:
+            raise LDSCConfigError("GeneLDScoreIndexBuildConfig requires baseline_annot_sources.")
+        if self.genome_build != "hg19" or self.snp_identifier != "rsid":
+            raise LDSCConfigError("The v1 gene LD-score index builder supports only hg19 with rsid identity.")
+        if self.gene_exclude_regions not in {"none", "mhc"}:
+            raise LDSCConfigError("gene_exclude_regions must be 'none' or 'mhc'.")
+        if self.padding_bp < 0:
+            raise LDSCConfigError("padding_bp must be nonnegative.")
+        if self.ld_wind_cm <= 0 or self.snp_batch_size <= 0 or self.atom_batch_size <= 0:
+            raise LDSCConfigError("LD window and construction batch sizes must be positive.")
+        if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
+            raise LDSCConfigError("maf_min must be in [0, 0.5].")
+        if not 0 <= self.common_maf_min <= 0.5:
+            raise LDSCConfigError("common_maf_min must be in [0, 0.5].")
+        if self.threads == 0:
+            raise LDSCConfigError("threads cannot be zero.")
 
 
 @dataclass(frozen=True)

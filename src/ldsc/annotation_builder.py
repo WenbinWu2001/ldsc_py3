@@ -86,7 +86,12 @@ from .config import (
 )
 from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
 from .genome_build_inference import resolve_genome_build
-from .gene_list_resolver import GeneCatalog, GeneListResolution, resolve_gene_list
+from .gene_list_resolver import (
+    GeneCatalog,
+    GeneListResolution,
+    resolve_all_protein_coding,
+    resolve_gene_list,
+)
 from .path_resolution import (
     ANNOTATION_SUFFIXES,
     ensure_output_directory,
@@ -119,7 +124,7 @@ def _project_intervals_to_metadata(
     metadata: pd.DataFrame,
     intervals: Sequence[tuple[str, int, int]],
     *,
-    bed_padding_bp: int,
+    padding_bp: int,
 ) -> np.ndarray:
     """Project a union of 0-based half-open intervals onto 1-based SNP positions.
 
@@ -133,8 +138,8 @@ def _project_intervals_to_metadata(
     values = np.zeros(len(metadata), dtype=np.float32)
     intervals_by_chrom: dict[str, list[tuple[int, int]]] = {}
     for interval_chrom, start0, end in intervals:
-        padded_start = max(0, int(start0) - bed_padding_bp)
-        padded_end = int(end) + bed_padding_bp
+        padded_start = max(0, int(start0) - padding_bp)
+        padded_end = int(end) + padding_bp
         normalized_chrom = normalize_chromosome(interval_chrom)
         intervals_by_chrom.setdefault(normalized_chrom, []).append((padded_start, padded_end))
     for interval_chrom, chrom_intervals in intervals_by_chrom.items():
@@ -216,6 +221,7 @@ class AnnotationBundle:
     config_snapshot: GlobalConfig | None = None
     query_statuses: tuple[QueryAnnotationStatus, ...] = ()
     gene_list_resolutions: tuple[GeneListResolution, ...] = ()
+    control_gene_list_resolution: GeneListResolution | None = None
     gene_catalog_provenance: dict[str, str] | None = None
 
     def validate(self, snp_identifier: str = "chr_pos_allele_aware") -> None:
@@ -394,6 +400,7 @@ class AnnotationBuilder:
             )
         )
         gene_resolutions: tuple[GeneListResolution, ...] = ()
+        control_resolution: GeneListResolution | None = None
         catalog_provenance: dict[str, str] | None = None
         if source_spec.query_annot_gene_list_sources:
             if self.projection_genome_build not in {"hg19", "hg38"}:
@@ -413,9 +420,31 @@ class AnnotationBuilder:
                     catalog,
                     genome_build=self.projection_genome_build,
                     source_ordinal=index,
+                    gene_exclude_regions=source_spec.gene_exclude_regions,
                 )
                 for index, path in enumerate(gene_paths, start=1)
             )
+            control_source = str(source_spec.control_gene_list_source)
+            if control_source == "all-protein-coding":
+                control_resolution = resolve_all_protein_coding(
+                    catalog,
+                    genome_build=self.projection_genome_build,
+                    gene_exclude_regions=source_spec.gene_exclude_regions,
+                )
+            elif control_source != "none":
+                control_resolution = resolve_gene_list(
+                    control_source,
+                    catalog,
+                    genome_build=self.projection_genome_build,
+                    source_ordinal=0,
+                    gene_exclude_regions=source_spec.gene_exclude_regions,
+                )
+            if control_resolution is not None and control_resolution.status not in {"ok", "warning"}:
+                raise LDSCInputError(
+                    "The requested control gene list is unusable "
+                    f"(reason={control_resolution.reason}). Use a valid control path, "
+                    "'all-protein-coding', or 'none'."
+                )
             catalog_provenance = catalog.provenance(self.projection_genome_build)
 
         sharded_baseline = self._detect_chromosome_shards(baseline_files, group_name="baseline")
@@ -434,6 +463,7 @@ class AnnotationBuilder:
                 chrom=chrom,
                 has_query_inputs=bool(query_files),
                 gene_resolutions=gene_resolutions,
+                control_resolution=control_resolution,
                 catalog_provenance=catalog_provenance,
             )
 
@@ -443,6 +473,7 @@ class AnnotationBuilder:
             query_files,
             chrom=chrom,
             gene_resolutions=gene_resolutions,
+            control_resolution=control_resolution,
             catalog_provenance=catalog_provenance,
         )
 
@@ -453,6 +484,7 @@ class AnnotationBuilder:
         query_files: Sequence[str],
         chrom: str | None = None,
         gene_resolutions: Sequence[GeneListResolution] = (),
+        control_resolution: GeneListResolution | None = None,
         catalog_provenance: dict[str, str] | None = None,
     ) -> AnnotationBundle:
         """Build one bundle when all inputs should share one SNP row universe."""
@@ -504,6 +536,26 @@ class AnnotationBuilder:
         )
 
         query_statuses: list[QueryAnnotationStatus] = []
+        if control_resolution is not None:
+            if "gene_control" in seen_columns:
+                raise LDSCInputError(
+                    "The fixed control column 'gene_control' clashes with a supplied baseline annotation column. "
+                    "Rename the supplied column before rerunning."
+                )
+            baseline_blocks.append(
+                pd.DataFrame(
+                    {
+                        "gene_control": _project_intervals_to_metadata(
+                            metadata,
+                            control_resolution.intervals,
+                            padding_bp=source_spec.padding_bp,
+                        )
+                    },
+                    index=metadata.index,
+                )
+            )
+            baseline_columns.append("gene_control")
+            seen_columns.add("gene_control")
         if gene_resolutions:
             names = [resolution.query for resolution in gene_resolutions]
             duplicate_names = sorted({name for name in names if names.count(name) > 1})
@@ -537,7 +589,7 @@ class AnnotationBuilder:
                             resolution.query: _project_intervals_to_metadata(
                                 metadata,
                                 resolution.intervals,
-                                bed_padding_bp=source_spec.bed_padding_bp,
+                                padding_bp=source_spec.padding_bp,
                             )
                         },
                         index=metadata.index,
@@ -573,7 +625,7 @@ class AnnotationBuilder:
                         kernel_annotation._write_normalized_bed(
                             bed_path,
                             normalized_path,
-                            bed_padding_bp=source_spec.bed_padding_bp,
+                            padding_bp=source_spec.padding_bp,
                         )
                     except LDSCInputError as exc:
                         query_statuses.append(
@@ -640,6 +692,7 @@ class AnnotationBuilder:
             source_spec=source_spec,
             query_statuses=tuple(query_statuses),
             gene_resolutions=tuple(gene_resolutions),
+            control_resolution=control_resolution,
             catalog_provenance=catalog_provenance,
         )
 
@@ -651,6 +704,7 @@ class AnnotationBuilder:
         chrom: str | None,
         has_query_inputs: bool,
         gene_resolutions: Sequence[GeneListResolution] = (),
+        control_resolution: GeneListResolution | None = None,
         catalog_provenance: dict[str, str] | None = None,
     ) -> AnnotationBundle:
         """Build and aggregate one bundle per chromosome shard."""
@@ -679,7 +733,9 @@ class AnnotationBuilder:
                 query_annot_sources=(() if not has_query_inputs else (query_by_chrom[chrom_key],)),
                 query_annot_bed_sources=source_spec.query_annot_bed_sources,
                 query_annot_gene_list_sources=source_spec.query_annot_gene_list_sources,
-                bed_padding_bp=source_spec.bed_padding_bp,
+                control_gene_list_source=source_spec.control_gene_list_source,
+                gene_exclude_regions=source_spec.gene_exclude_regions,
+                padding_bp=source_spec.padding_bp,
                 allow_missing_query=source_spec.allow_missing_query,
             )
             bundles.append(
@@ -689,6 +745,7 @@ class AnnotationBuilder:
                     (() if not has_query_inputs else (query_by_chrom[chrom_key],)),
                     chrom=chrom_key,
                     gene_resolutions=gene_resolutions,
+                    control_resolution=control_resolution,
                     catalog_provenance=catalog_provenance,
                 )
             )
@@ -717,6 +774,7 @@ class AnnotationBuilder:
             source_spec=source_spec,
             query_statuses=bundles[0].query_statuses,
             gene_resolutions=tuple(gene_resolutions),
+            control_resolution=control_resolution,
             catalog_provenance=catalog_provenance,
         )
 
@@ -765,6 +823,7 @@ class AnnotationBuilder:
         source_spec: AnnotationBuildConfig,
         query_statuses: tuple[QueryAnnotationStatus, ...] = (),
         gene_resolutions: tuple[GeneListResolution, ...] = (),
+        control_resolution: GeneListResolution | None = None,
         catalog_provenance: dict[str, str] | None = None,
     ) -> AnnotationBundle:
         """Construct, validate, and return an ``AnnotationBundle``."""
@@ -780,11 +839,14 @@ class AnnotationBuilder:
                 "query_annot_sources": list(source_spec.query_annot_sources),
                 "query_annot_bed_sources": list(source_spec.query_annot_bed_sources),
                 "query_annot_gene_list_sources": [Path(path).name for path in source_spec.query_annot_gene_list_sources],
-                "bed_padding_bp": source_spec.bed_padding_bp,
+                "control_gene_list_source": Path(str(source_spec.control_gene_list_source)).name,
+                "gene_exclude_regions": source_spec.gene_exclude_regions,
+                "padding_bp": source_spec.padding_bp,
             },
             config_snapshot=self.global_config,
             query_statuses=query_statuses,
             gene_list_resolutions=gene_resolutions,
+            control_gene_list_resolution=control_resolution,
             gene_catalog_provenance=catalog_provenance,
         )
         bundle.validate(self.global_config.snp_identifier)
@@ -891,7 +953,7 @@ class AnnotationBuilder:
         query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
         baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
         output_dir: str | Path | None = None,
-        bed_padding_bp: int = 0,
+        padding_bp: int = 0,
         log_level: str | None = None,
         overwrite: bool | None = None,
     ) -> AnnotationBundle:
@@ -917,7 +979,7 @@ class AnnotationBuilder:
         output_dir : str or pathlib.Path, optional
             Directory for materialized ``query.<chrom>.annot.gz`` files. If
             omitted, projection stays in memory.
-        bed_padding_bp : int, optional
+        padding_bp : int, optional
             Number of base pairs to add to both sides of each BED interval
             before projection. Starts are clipped at zero. Default is ``0``.
         log_level : str, optional
@@ -939,7 +1001,7 @@ class AnnotationBuilder:
         source_spec = AnnotationBuildConfig(
             baseline_annot_sources=baseline_annot_sources,
             query_annot_bed_sources=query_annot_bed_sources,
-            bed_padding_bp=bed_padding_bp,
+            padding_bp=padding_bp,
         )
         bundle = self.run(source_spec)
         if output_dir is not None:
@@ -965,7 +1027,7 @@ class AnnotationBuilder:
                 log_inputs(
                     query_annot_bed_sources=query_annot_bed_sources,
                     baseline_annot_sources=baseline_annot_sources,
-                    bed_padding_bp=bed_padding_bp,
+                    padding_bp=padding_bp,
                     output_dir=str(output_path),
                 )
                 written = _write_bundle_query_as_annot_files(bundle, output_path)
@@ -976,7 +1038,7 @@ class AnnotationBuilder:
                     bundle=bundle,
                     query_annot_bed_sources=query_annot_bed_sources,
                     baseline_annot_sources=baseline_annot_sources,
-                    bed_padding_bp=bed_padding_bp,
+                    padding_bp=padding_bp,
                     dropped_snps_path=drop_sidecar_path,
                     written_query_paths=written,
                 )
@@ -1025,7 +1087,7 @@ def run_bed_to_annot(
     query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
     baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
     output_dir: str | Path | None = None,
-    bed_padding_bp: int = 0,
+    padding_bp: int = 0,
     overwrite: bool = False,
 ) -> AnnotationBundle:
     """Project BED files to an ``AnnotationBundle`` using registered globals.
@@ -1048,7 +1110,7 @@ def run_bed_to_annot(
     output_dir : str or pathlib.Path, optional
         Destination directory for generated query annotation shards. Omit to
         keep the result in memory only.
-    bed_padding_bp : int, optional
+    padding_bp : int, optional
         Number of base pairs to add to both sides of each BED interval before
         projection. Starts are clipped at zero. Default is ``0``.
     overwrite : bool, optional
@@ -1064,7 +1126,7 @@ def run_bed_to_annot(
         query_annot_bed_sources=query_annot_bed_sources,
         baseline_annot_sources=baseline_annot_sources,
         output_dir=output_dir,
-        bed_padding_bp=bed_padding_bp,
+        padding_bp=padding_bp,
         overwrite=overwrite,
         global_config=get_global_config(),
         entrypoint="run_bed_to_annot",
@@ -1076,14 +1138,14 @@ def _run_bed_to_annot_with_global_config(
     baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
     output_dir: str | Path | None,
     *,
-    bed_padding_bp: int,
+    padding_bp: int,
     overwrite: bool,
     global_config: GlobalConfig,
     entrypoint: str,
 ) -> AnnotationBundle:
     """Run BED-to-annotation projection with an explicit resolved GlobalConfig."""
     print_global_config_banner(entrypoint, global_config)
-    build_config = AnnotationBuildConfig(query_annot_bed_sources=query_annot_bed_sources, bed_padding_bp=bed_padding_bp)
+    build_config = AnnotationBuildConfig(query_annot_bed_sources=query_annot_bed_sources, padding_bp=padding_bp)
     builder = AnnotationBuilder(global_config, build_config)
     if output_dir is not None:
         builder._workflow_log_path = Path(output_dir) / "diagnostics" / "annotate.log"
@@ -1091,7 +1153,7 @@ def _run_bed_to_annot_with_global_config(
         query_annot_bed_sources=query_annot_bed_sources,
         baseline_annot_sources=baseline_annot_sources,
         output_dir=output_dir,
-        bed_padding_bp=bed_padding_bp,
+        padding_bp=padding_bp,
         log_level=global_config.log_level,
         overwrite=overwrite,
     )
@@ -1121,7 +1183,7 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         help="Destination directory for generated .annot.gz files.",
     )
     parser.add_argument(
-        "--bed-padding-bp",
+        "--padding-bp",
         type=int,
         default=0,
         help="Base pairs to add to both sides of each BED interval before projection. Default: 0.",
@@ -1228,7 +1290,7 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
         query_annot_bed_sources=split_cli_path_tokens(args.query_annot_bed_sources),
         baseline_annot_sources=split_cli_path_tokens(args.baseline_annot_sources),
         output_dir=args.output_dir,
-        bed_padding_bp=getattr(args, "bed_padding_bp", 0),
+        padding_bp=getattr(args, "padding_bp", 0),
         overwrite=args.overwrite,
         global_config=cli_global_config,
         entrypoint="run_annotate_from_args",
@@ -1308,7 +1370,7 @@ def _write_annotation_metadata(
     bundle: AnnotationBundle,
     query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]] | None,
     baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]] | None,
-    bed_padding_bp: int,
+    padding_bp: int,
     dropped_snps_path: Path,
     written_query_paths: Sequence[Path],
 ) -> None:
@@ -1330,7 +1392,7 @@ def _write_annotation_metadata(
         "n_snps": int(len(bundle.metadata)),
         "query_annot_bed_sources": _metadata_path_tokens(query_annot_bed_sources),
         "baseline_annot_sources": _metadata_path_tokens(baseline_annot_sources),
-        "bed_padding_bp": int(bed_padding_bp),
+        "padding_bp": int(padding_bp),
     }
     _atomic_write_json(payload, path)
 

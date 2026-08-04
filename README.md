@@ -91,6 +91,7 @@ python -m ldsc --help
 Subcommands:
 
 - `ldsc annotate`
+- `ldsc build-gene-ldscore-index`
 - `ldsc build-ref-panel`
 - `ldsc ldscore`
 - `ldsc munge-sumstats`
@@ -150,6 +151,7 @@ and duplicate-only sidecars under `dropped_snps/`.
 Artifact-writing workflows also write per-run logs under their output
 directories. `munge-sumstats` keeps the historical `sumstats.log` name; other
 commands use `annotate.log`, `ldscore.log`, `build-ref-panel.log`,
+`build-gene-ldscore-index.log`,
 `h2.log`, `partitioned-h2.log`, or `rg.log`. Concrete single-chromosome
 `build-ref-panel` runs use `build-ref-panel.chr<chrom>.log` so parallel
 per-chromosome jobs can share an output directory without sharing one log file.
@@ -165,14 +167,32 @@ ldsc h2 --sumstats-file trait/sumstats.parquet --ldscore-dir ldscores --output-d
 ```
 
 When no baseline and no query annotations are supplied, the workflow writes a
-synthetic all-ones baseline column named exactly `base` in `baseline.parquet`.
+synthetic all-ones baseline column named exactly `base` in
+`ldscore.baseline.parquet`.
 Query annotation inputs still require explicit `--baseline-annot-sources`.
 Use this synthetic `base` directory for `ldsc h2` or `ldsc rg`; `ldsc
 partitioned-h2` requires query annotations in the LD-score directory.
-The LD-score parquet files remain flat `baseline.parquet` and `query.parquet`
-files, but they are written with one row group per chromosome. The manifest
+The LD-score parquet files remain flat `ldscore.baseline.parquet` and
+`ldscore.query.parquet` files, but they are written with one row group per chromosome. The metadata
 records `row_group_layout`, `baseline_row_groups`, and `query_row_groups` so
 callers can load a single chromosome by row-group index when needed.
+
+Gene-list LD scores may also use an explicitly installed exact profile:
+
+```bash
+ldsc ldscore \
+  --gene-ldscore-index-dir indexes/suite/profiles/padding-100000bp-mhc \
+  --query-annot-gene-list-sources gene_lists/immune.txt \
+  --output-dir gene_ldscores
+```
+
+Build profiles offline with `ldsc build-gene-ldscore-index`. Indexed mode is
+explicit and fail-closed: it validates the complete profile, accepts no live
+baseline/reference/window settings, and writes the same self-contained
+canonical LD-score directory. See
+[the exact gene-index guide](docs/current/gene-ldscore-index.md).
+Task-oriented walkthroughs cover [building the index](docs/wiki/utility-functionalities/build-gene-ldscore-index.md)
+and [using it for gene-list LD scores](docs/wiki/main-functionalities/ldscore.md).
 
 ## Python API
 
@@ -180,11 +200,14 @@ callers can load a single chromosome by row-group index when needed.
 from ldsc import (
     AnnotationBuilder,
     ChrPosBuildInference,
+    GeneLDScoreIndexBuildConfig,
     LDScoreCalculator,
     ReferencePanelBuilder,
     RegressionRunner,
     SumstatsMunger,
+    build_gene_ldscore_index,
     infer_chr_pos_build,
+    load_gene_ldscore_index,
     load_sumstats,
     resolve_chr_pos_table,
 )

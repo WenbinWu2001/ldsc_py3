@@ -107,8 +107,8 @@ siblings can continue. An all-skipped run writes diagnostics and then fails.
 The shared syntax contract is the same for all text BED interval inputs, but
 workflow-specific transforms still happen after parsing:
 
-- query annotation BEDs may be expanded by `bed_padding_bp` /
-  `--bed-padding-bp`; starts are clipped at zero after padding
+- query annotation BEDs may be expanded by `padding_bp` /
+  `--padding-bp`; starts are clipped at zero after padding
 - query annotation BED column names are derived from the resolved file basename
   with the final suffix removed (`pathlib.Path.stem`); directory names are not
   included, so `/path1/annot.bed` and `/path2/annot.bed` both map to `annot`

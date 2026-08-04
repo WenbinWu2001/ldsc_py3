@@ -21,7 +21,7 @@ import logging
 import sys
 from typing import Sequence
 
-from . import annotation_builder, ldscore_calculator, r2_query, ref_panel_builder
+from . import annotation_builder, gene_ldscore_index, ldscore_calculator, r2_query, ref_panel_builder
 from ._logging import (
     install_cli_console_handler,
     last_workflow_log_path,
@@ -46,6 +46,7 @@ _SUBCOMMAND_HELP = {
     "annotate": "Project BED files to SNP-level query annotations.",
     "ldscore": "Compute LD scores.",
     "build-ref-panel": "Build standard parquet reference panels.",
+    "build-gene-ldscore-index": "Build an exact disjoint-atom gene LD-score index.",
     "munge-sumstats": "Munge GWAS summary statistics.",
     "h2": "Estimate heritability from munged sumstats and LD scores.",
     "partitioned-h2": "Estimate partitioned heritability by looping over query annotations.",
@@ -81,6 +82,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     ref_panel_parser = subparsers.add_parser("build-ref-panel", help=_SUBCOMMAND_HELP["build-ref-panel"])
     _copy_actions(ref_panel_parser, ref_panel_builder.build_parser())
+
+    gene_index_parser = subparsers.add_parser(
+        "build-gene-ldscore-index", help=_SUBCOMMAND_HELP["build-gene-ldscore-index"]
+    )
+    _copy_actions(gene_index_parser, gene_ldscore_index.build_parser())
 
     sumstats_munger = _load_sumstats_munger()
     munge_parser = subparsers.add_parser("munge-sumstats", help=_SUBCOMMAND_HELP["munge-sumstats"])
@@ -144,6 +150,8 @@ def main(argv: Sequence[str] | None = None):
             return ldscore_calculator.main(subargv)
         if command == "build-ref-panel":
             return ref_panel_builder.main(subargv)
+        if command == "build-gene-ldscore-index":
+            return gene_ldscore_index.main(subargv)
         if command == "query-r2":
             return r2_query.main(subargv)
         if command == "munge-sumstats":

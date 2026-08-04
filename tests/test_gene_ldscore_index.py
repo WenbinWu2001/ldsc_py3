@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from argparse import Namespace
+from dataclasses import replace
+import gc
 import json
 from pathlib import Path
 import shutil
+import threading
+import time
 from types import SimpleNamespace
+import weakref
 
 import numpy as np
 import pandas as pd
@@ -69,6 +74,95 @@ def _artifact_payload():
         "projection_build": "hg19", "padding_bp": 100000, "gene_exclude_regions": "mhc",
     }
     return chromosome, catalog, index_identity
+
+
+def _configure_two_chromosome_builder(tmp_path, monkeypatch):
+    chromosome, catalog, index_identity = _artifact_payload()
+    identity_rows = chromosome.baseline_rows[["CHR", "POS", "SNP"]].copy()
+    embedded_catalog = pd.concat(
+        [
+            catalog.assign(
+                gene_index=[0, 1],
+                canonical_ensembl_id=[f"ENSG{chrom}1", f"ENSG{chrom}2"],
+                gene_name=[f"G{chrom}1", f"G{chrom}2"],
+                CHR=chrom,
+                chromosome_gene_row=[0, 1],
+            )
+            for chrom in ("1", "2")
+        ],
+        ignore_index=True,
+    )
+    embedded_catalog["gene_index"] = np.arange(len(embedded_catalog))
+
+    class FakeAnnotationBuilder:
+        def __init__(self, _global_config):
+            pass
+
+        def run(self, _annotation_spec, *, chrom):
+            return SimpleNamespace(
+                metadata=identity_rows.assign(CHR=chrom, CM=[0.1, 0.2]),
+                baseline_annotations=pd.DataFrame({"base": [1.0, 1.0]}),
+                baseline_columns=["base"],
+            )
+
+    monkeypatch.setattr(gene_ldscore_index, "AnnotationBuilder", FakeAnnotationBuilder)
+    monkeypatch.setattr(
+        gene_ldscore_index.GeneCatalog,
+        "load",
+        lambda: SimpleNamespace(resource="catalog.tsv.gz", release="test"),
+    )
+    monkeypatch.setattr(
+        gene_ldscore_index,
+        "_build_embedded_gene_catalog",
+        lambda *args, **kwargs: embedded_catalog,
+    )
+    monkeypatch.setattr(gene_ldscore_index, "_load_builder_genetic_map", lambda _args: None)
+    monkeypatch.setattr(
+        gene_ldscore_index, "read_snp_restriction_keys", lambda *args, **kwargs: {"rs1"}
+    )
+    monkeypatch.setattr(
+        gene_ldscore_index.kernel_regions, "load_preset_intervals", lambda *args: None
+    )
+    monkeypatch.setattr(
+        gene_ldscore_index,
+        "_read_bim_identity",
+        lambda prefix: identity_rows.assign(CHR=str(prefix)),
+    )
+    monkeypatch.setattr(
+        gene_ldscore_index,
+        "_builder_index_identity",
+        lambda *args, **kwargs: {**index_identity, "chromosomes": ["1", "2"]},
+    )
+    monkeypatch.setattr(
+        gene_ldscore_index.kernel_ldscore,
+        "resolve_bfile_prefix",
+        lambda *args, chrom, **kwargs: chrom,
+    )
+    output = tmp_path / "index"
+    args = Namespace(
+        baseline_annot_sources="baseline.@.annot.gz",
+        plink_prefix="reference.@",
+        output_dir=str(output),
+        genome_build="hg19",
+        snp_identifier="rsid",
+        padding_bp=100000,
+        gene_exclude_regions="mhc",
+        ld_wind_cm=1.0,
+        maf_min=None,
+        common_maf_min=0.05,
+        keep_indivs_file=None,
+        regression_snps_file=None,
+        exclude_regions="mhc-and-centromeres",
+        genetic_map_hg19_sources=None,
+        genetic_map_hg38_sources=None,
+        chromosomes="1,2",
+        snp_batch_size=128,
+        atom_batch_size=64,
+        threads=2,
+        overwrite=False,
+        log_level="INFO",
+    )
+    return chromosome, output, args
 
 
 def test_builder_chromosome_selection_is_canonical_and_unique():
@@ -436,6 +530,87 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     assert not legacy_state.exists()
 
 
+def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
+    tmp_path, monkeypatch
+):
+    chromosome, output, args = _configure_two_chromosome_builder(tmp_path, monkeypatch)
+    first_started = threading.Event()
+    release_first = threading.Event()
+    second_computed = threading.Event()
+    second_record_released = threading.Event()
+    durable_rename_seen = threading.Event()
+    build_error: list[BaseException] = []
+
+    def fake_build(chrom, *_args, **_kwargs):
+        if chrom == "1":
+            first_started.set()
+            assert release_first.wait(timeout=10)
+        record = replace(
+            chromosome,
+            baseline_rows=chromosome.baseline_rows.assign(CHR=chrom),
+            atom_model=build_disjoint_atoms(
+                chrom, np.array([[0, 10], [5, 15]], dtype=np.int64)
+            ),
+        )
+        if chrom == "2":
+            weakref.finalize(record, second_record_released.set)
+            second_computed.set()
+        return record
+
+    monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", fake_build)
+    live_log = tmp_path / ".index.build-state" / "build-gene-ldscore-index.log"
+    real_replace = gene_ldscore_index.os.replace
+
+    def observe_shard_rename(source, destination):
+        if Path(destination).name == "chr2":
+            if live_log.exists():
+                assert "Finished chromosome 2" not in live_log.read_text(encoding="utf-8")
+            result = real_replace(source, destination)
+            assert Path(destination).is_dir()
+            durable_rename_seen.set()
+            return result
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(gene_ldscore_index.os, "replace", observe_shard_rename)
+
+    def run_build():
+        try:
+            gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+        except BaseException as exc:
+            build_error.append(exc)
+
+    thread = threading.Thread(target=run_build)
+    thread.start()
+    try:
+        assert first_started.wait(timeout=10)
+        assert second_computed.wait(timeout=10)
+        deadline = time.monotonic() + 10
+        staged_shard = None
+        while time.monotonic() < deadline:
+            stages = list(tmp_path.glob(".index.stage-*"))
+            if stages:
+                candidate = stages[0] / "index" / "chromosomes" / "chr2"
+                if candidate.is_dir():
+                    staged_shard = candidate
+                    break
+            time.sleep(0.01)
+
+        assert staged_shard is not None
+        assert (staged_shard / "ldscore_operator.npz").exists()
+        assert not output.exists()
+        assert durable_rename_seen.is_set()
+        assert "Finished chromosome 2" in live_log.read_text(encoding="utf-8")
+        gc.collect()
+        assert second_record_released.wait(timeout=10)
+    finally:
+        release_first.set()
+        thread.join(timeout=20)
+
+    assert not thread.is_alive()
+    assert not build_error
+    assert load_gene_ldscore_index(output).chromosomes == ("1", "2")
+
+
 def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path, monkeypatch):
     chromosome, catalog, index_identity = _artifact_payload()
     identity_rows = chromosome.baseline_rows[["CHR", "POS", "SNP"]].copy()
@@ -519,6 +694,43 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
     assert (index_dir / "diagnostics" / "build-gene-ldscore-index.log").exists()
     assert not log_path.exists()
     assert any((build_state / "history").glob("*.log"))
+
+
+def test_chromosome_failure_cleans_staged_shards_without_publication(tmp_path, monkeypatch):
+    chromosome, output, args = _configure_two_chromosome_builder(tmp_path, monkeypatch)
+    first_durable = threading.Event()
+
+    def fake_build(chrom, *_args, **_kwargs):
+        if chrom == "2":
+            assert first_durable.wait(timeout=10)
+            raise RuntimeError("injected chromosome failure")
+        return replace(
+            chromosome,
+            baseline_rows=chromosome.baseline_rows.assign(CHR=chrom),
+            atom_model=build_disjoint_atoms(
+                chrom, np.array([[0, 10], [5, 15]], dtype=np.int64)
+            ),
+        )
+
+    monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", fake_build)
+    real_replace = gene_ldscore_index.os.replace
+
+    def observe_first_shard(source, destination):
+        result = real_replace(source, destination)
+        if Path(destination).name == "chr1":
+            first_durable.set()
+        return result
+
+    monkeypatch.setattr(gene_ldscore_index.os, "replace", observe_first_shard)
+
+    with pytest.raises(RuntimeError, match="injected chromosome failure"):
+        gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+
+    assert first_durable.is_set()
+    assert not output.exists()
+    assert not list(tmp_path.glob(".index.stage-*"))
+    failed_log = tmp_path / ".index.build-state" / "build-gene-ldscore-index.log"
+    assert "Finished chromosome 1" in failed_log.read_text(encoding="utf-8")
 
 
 def test_plink_operator_matches_independent_dense_adjusted_r2_reference():
@@ -816,6 +1028,19 @@ def test_index_publication_recovery_restores_one_valid_owned_backup(tmp_path):
 
     assert load_gene_ldscore_index(index_dir).index_id == calculate_index_id(index_identity)
     assert not transaction.exists()
+
+
+def test_retry_discards_a_marked_partial_stage_instead_of_reusing_it(tmp_path):
+    index_dir = tmp_path / "index"
+    transaction = gene_ldscore_index._create_gene_index_transaction(index_dir)
+    stale_shard = transaction / "index" / "chromosomes" / "chr22"
+    stale_shard.mkdir()
+    (stale_shard / "stale-payload.txt").write_text("partial\n", encoding="utf-8")
+
+    gene_ldscore_index._recover_gene_index_publication(index_dir)
+
+    assert not transaction.exists()
+    assert not index_dir.exists()
 
 
 def test_failed_index_overwrite_rolls_back_without_mutating_valid_index(tmp_path, monkeypatch):

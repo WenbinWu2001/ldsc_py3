@@ -332,6 +332,9 @@ ldsc ldscore \
 - For the complete indexed workflow, see [Build an exact gene LD-score
   index](utility-functionalities/build-gene-ldscore-index.md) and [Calculate LD
   scores for gene lists with an index](main-functionalities/ldscore.md).
+  Per-chromosome `Finished` lines report durable private staging; the index
+  becomes public only after complete reload validation. Stages cannot be
+  resumed or used for incremental chromosome updates.
 
 **Caveat:** if you use `--ld-wind-cm`, make sure your PLINK suite has non-missing genetic coordinates (the third column in the `.bim` file). If they are missing (e.g., all zeros), the program will raise an error.
 

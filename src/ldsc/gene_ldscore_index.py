@@ -11,7 +11,7 @@ LD calculation.
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -182,11 +182,16 @@ def build_gene_ldscore_index(
     Notes
     -----
     Construction uses float64 adjusted-r-squared accumulation, retains
-    negative values, and batches internal atom columns. ``threads`` controls
-    chromosome workers and can multiply chromosome-local peak memory. A missing
-    or empty destination is not mutated before commit. After destination reload
-    validation succeeds, failure to remove builder-owned staging/backup data is
-    warned with its retained path and does not change publication success.
+    negative values, and batches internal atom columns. Each chromosome worker
+    atomically persists its completed shard in a private run stage before
+    releasing the in-memory record; ``threads`` therefore controls concurrent
+    chromosome-local peak memory. A ``Finished chromosome N`` log record means
+    that internal shard is durable, not that a partial public index exists. The
+    destination remains missing, empty, or loadable at its prior version until
+    the complete staged index passes reload validation and is committed. Stages
+    are never resumed or reused. After destination reload validation succeeds,
+    failure to remove builder-owned staging/backup data is warned with its
+    retained path and does not change publication success.
     """
     if not isinstance(config, GeneLDScoreIndexBuildConfig):
         raise TypeError("build_gene_ldscore_index requires GeneLDScoreIndexBuildConfig.")
@@ -336,12 +341,18 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 process_id=os.getpid(),
                 hostname=socket.gethostname(),
             )
-            published_path = _run_gene_ldscore_index_build(
-                args,
-                config,
-                chromosomes,
-                started=started,
-            )
+            stage_parent = _create_gene_index_transaction(index_path)
+            try:
+                published_path = _run_gene_ldscore_index_build(
+                    args,
+                    config,
+                    chromosomes,
+                    stage_parent=stage_parent,
+                    started=started,
+                )
+            except Exception:
+                _remove_gene_index_transaction(stage_parent, published=False)
+                raise
         _finalize_gene_index_log(live_log_path, published_path)
         return published_path
 
@@ -351,9 +362,11 @@ def _run_gene_ldscore_index_build(
     config: GeneLDScoreIndexBuildConfig,
     chromosomes: tuple[str, ...],
     *,
+    stage_parent: Path,
     started: float,
 ) -> Path:
-    """Run the scientific builder inside its shared workflow log context."""
+    """Build chromosome shards into one transaction and publish it atomically."""
+    staged_index = stage_parent / Path(config.output_dir).name
     catalog = GeneCatalog.load()
     embedded_catalog = _build_embedded_gene_catalog(
         catalog,
@@ -372,7 +385,7 @@ def _run_gene_ldscore_index_build(
     )
     genetic_map = _load_builder_genetic_map(args)
 
-    def build_one(chrom: str) -> tuple[str, IndexChromosomeData, dict]:
+    def build_one(chrom: str) -> StagedIndexChromosome:
         chrom_started = time.perf_counter()
         LOGGER.info(f"Starting chromosome {chrom}.")
         phase = "baseline annotation resolution"
@@ -467,8 +480,17 @@ def _run_gene_ldscore_index_build(
             "atom_batch_size": int(config.atom_batch_size),
             "maf_filter_policy": "disabled" if config.maf_min is None else f">={config.maf_min}",
             "cm_source": record.cm_source,
-            "elapsed_seconds": time.perf_counter() - chrom_started,
         }
+        try:
+            component_metadata = _index_chromosome_metadata(chrom, record)
+            _stage_index_chromosome(staged_index, chrom, record)
+        except Exception as exc:
+            LOGGER.error(
+                f"Chromosome {chrom} failed during durable shard staging: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            raise
+        evidence["elapsed_seconds"] = time.perf_counter() - chrom_started
         LOGGER.info(
             f"Finished chromosome {chrom}: protein-coding genes={protein_coding_genes}, "
             f"retained-reference={evidence['retained_reference_rows']}, "
@@ -479,19 +501,36 @@ def _run_gene_ldscore_index_build(
             LOGGER.warning(
                 f"Chromosome {chrom} has zero persisted regression SNP rows after restriction and region exclusion."
             )
-        return chrom, record, evidence
+        return StagedIndexChromosome(
+            chromosome=chrom,
+            evidence=evidence,
+            component_metadata=component_metadata,
+        )
 
     if config.threads == 1 or len(chromosomes) == 1:
-        built = [build_one(chrom) for chrom in chromosomes]
+        completed = {chrom: build_one(chrom) for chrom in chromosomes}
     else:
         max_workers = os.cpu_count() if config.threads == -1 else config.threads
         if max_workers is None or max_workers < 1:
             max_workers = max(1, (os.cpu_count() or 1) + 1 + config.threads)
         with ThreadPoolExecutor(max_workers=min(max_workers, len(chromosomes))) as pool:
-            built = list(pool.map(build_one, chromosomes))
-    chromosome_data = {chrom: record for chrom, record, _evidence in built}
-    evidence_by_chrom = {chrom: evidence for chrom, _record, evidence in built}
-    total_regression_rows = sum(len(record.baseline_rows) for record in chromosome_data.values())
+            futures = {pool.submit(build_one, chrom): chrom for chrom in chromosomes}
+            completed = {}
+            try:
+                for future in as_completed(futures):
+                    result = future.result()
+                    completed[result.chromosome] = result
+            except Exception:
+                for future in futures:
+                    future.cancel()
+                raise
+    staged_chromosomes = {chrom: completed[chrom] for chrom in chromosomes}
+    evidence_by_chrom = {
+        chrom: staged_chromosomes[chrom].evidence for chrom in chromosomes
+    }
+    total_regression_rows = sum(
+        values["regression_rows"] for values in evidence_by_chrom.values()
+    )
     if total_regression_rows == 0:
         raise LDSCInputError(
             "Gene LD-score index has zero regression SNP rows across all selected chromosomes "
@@ -500,7 +539,7 @@ def _run_gene_ldscore_index_build(
     index_identity = _builder_index_identity(
         config,
         args,
-        chromosome_data,
+        chromosomes,
         regression_keys,
         genetic_map,
         catalog,
@@ -576,13 +615,17 @@ def _run_gene_ldscore_index_build(
         },
     }
     try:
-        published_path = publish_gene_ldscore_index(
-            config.output_dir,
+        _finalize_staged_index_artifact(
+            staged_index,
+            index_id=index_id,
             index_identity=index_identity,
             gene_catalog=embedded_catalog,
-            chromosomes=chromosome_data,
-            overwrite=bool(args.overwrite),
+            chromosomes=staged_chromosomes,
             diagnostic_payload=diagnostic_payload,
+        )
+        published_path = _commit_staged_gene_ldscore_index(
+            stage_parent,
+            Path(config.output_dir),
         )
     except Exception as exc:
         LOGGER.error(
@@ -707,11 +750,13 @@ def _recover_gene_index_publication(index_path: Path) -> None:
             _remove_gene_index_transaction(candidate, published=True)
         return
 
+    backup_paths: list[Path] = []
     valid_backups: list[Path] = []
     for candidate in candidates:
         backup = candidate / f"{destination.name}.backup"
         if not backup.is_dir():
             continue
+        backup_paths.append(backup)
         marker_path = backup / ".gene-index-publication.json"
         try:
             marker = _read_json(marker_path, "backup publication marker")
@@ -720,6 +765,10 @@ def _recover_gene_index_publication(index_path: Path) -> None:
             continue
         if marker.get("target") == str(destination):
             valid_backups.append(backup)
+    if not valid_backups and not backup_paths:
+        for candidate in candidates:
+            _remove_gene_index_transaction(candidate, published=False)
+        return
     if len(valid_backups) != 1:
         listed = ", ".join(str(path) for path in valid_backups) or "none"
         raise LDSCInputError(
@@ -1142,6 +1191,15 @@ class IndexChromosomeData:
 
 
 @dataclass(frozen=True)
+class StagedIndexChromosome:
+    """Compact evidence returned after one chromosome shard is durable."""
+
+    chromosome: str
+    evidence: dict
+    component_metadata: dict
+
+
+@dataclass(frozen=True)
 class LoadedGeneLDScoreIndex:
     """One validated, self-contained gene LD-score index.
 
@@ -1178,7 +1236,7 @@ def publish_gene_ldscore_index(
     overwrite: bool,
     diagnostic_payload: dict | None = None,
 ) -> Path:
-    """Stage, reload, and atomically publish one complete index directory.
+    """Stage, reload, and atomically publish one complete in-memory index.
 
     Existing valid indexes require ``overwrite=True`` and are kept loadable
     until their complete replacement has passed staged reload validation.
@@ -1189,7 +1247,9 @@ def publish_gene_ldscore_index(
     successful log into published diagnostics. Once the destination has been
     replaced and reload-validated, failure to remove the builder-owned
     transaction tree is reported as a warning and does not change publication
-    success.
+    success. This convenience seam writes supplied chromosome records into a
+    new transaction; the CLI builder instead persists worker shards directly
+    into its run transaction and moves that already-written tree at commit.
     """
     destination = Path(index_dir)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1213,14 +1273,8 @@ def publish_gene_ldscore_index(
                     f"Gene LD-score index already exists: {destination}. Pass --overwrite to rebuild it completely."
                 )
     index_id = calculate_index_id(index_identity)
-    stage_parent = Path(tempfile.mkdtemp(prefix=f".{destination.name}.stage-", dir=destination.parent))
+    stage_parent = _create_gene_index_transaction(destination)
     staged_index = stage_parent / destination.name
-    publication_marker = {
-        "artifact_type": "gene_ldscore_index_publication",
-        "target": str(destination.expanduser().resolve()),
-    }
-    _write_json(stage_parent / ".gene-index-publication.json", publication_marker)
-    committed = False
     try:
         _write_index_artifact(
             staged_index,
@@ -1242,11 +1296,39 @@ def publish_gene_ldscore_index(
                 staged_index / "diagnostics" / "build-gene-ldscore-index.json",
                 diagnostic_payload,
             )
-        _write_json(staged_index / ".gene-index-publication.json", publication_marker)
+        return _commit_staged_gene_ldscore_index(stage_parent, destination)
+    except Exception:
+        _remove_gene_index_transaction(stage_parent, published=False)
+        raise
+
+
+def _create_gene_index_transaction(destination: Path) -> Path:
+    """Create one marked hidden transaction beside a publication target."""
+    destination = destination.expanduser()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    stage_parent = Path(
+        tempfile.mkdtemp(prefix=f".{destination.name}.stage-", dir=destination.parent)
+    )
+    marker = {
+        "artifact_type": "gene_ldscore_index_publication",
+        "target": str(destination.resolve()),
+    }
+    _write_json(stage_parent / ".gene-index-publication.json", marker)
+    (stage_parent / destination.name / "chromosomes").mkdir(parents=True)
+    return stage_parent
+
+
+def _commit_staged_gene_ldscore_index(stage_parent: Path, destination: Path) -> Path:
+    """Reload-validate and atomically install an already-written complete index."""
+    staged_index = stage_parent / destination.name
+    marker = _read_json(stage_parent / ".gene-index-publication.json", "publication marker")
+    committed = False
+    try:
+        _write_json(staged_index / ".gene-index-publication.json", marker)
         load_gene_ldscore_index(staged_index)
         backup = stage_parent / f"{destination.name}.backup"
         if destination.exists():
-            _write_json(destination / ".gene-index-publication.json", publication_marker)
+            _write_json(destination / ".gene-index-publication.json", marker)
             try:
                 os.replace(destination, backup)
             except Exception:
@@ -1272,7 +1354,6 @@ def publish_gene_ldscore_index(
                 f"{destination / '.gene-index-publication.json'}. The published index is valid."
             )
     except Exception:
-        _remove_gene_index_transaction(stage_parent, published=False)
         raise
     _remove_gene_index_transaction(stage_parent, published=committed)
     return destination
@@ -1893,6 +1974,130 @@ def _cast_index_baseline_rows(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.astype({column: np.float32 for column in float64_columns}) if float64_columns else frame
 
 
+def _index_chromosome_metadata(chrom: str, record: IndexChromosomeData) -> dict:
+    """Return compact component metadata without the not-yet-known index ID."""
+    baseline_columns = [
+        column
+        for column in record.baseline_rows.columns
+        if column not in {"CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores"}
+    ]
+    return {
+        "artifact_type": "gene_ldscore_index",
+        "chromosome": str(chrom),
+        "n_rows": len(record.baseline_rows),
+        "n_baseline": len(baseline_columns),
+        "baseline_columns": baseline_columns,
+        "n_genes": record.atom_model.gene_to_atom.shape[0],
+        "n_atoms": record.atom_model.n_atoms,
+        "gene_to_atom_format": "csr_bool_int32",
+        "ldscore_operator_format": "csr_float64_int32",
+    }
+
+
+def _write_index_chromosome_payload(
+    chrom_path: Path,
+    *,
+    chrom: str,
+    record: IndexChromosomeData,
+) -> None:
+    """Write one chromosome's large scientific payloads without shared metadata."""
+    _cast_index_baseline_rows(record.baseline_rows).to_parquet(
+        chrom_path / "baseline_rows.parquet", index=False
+    )
+    np.savez(
+        chrom_path / "baseline_statistics.npz",
+        baseline_count_all=np.asarray(record.baseline_count_all, dtype=np.float64),
+        baseline_count_common=np.asarray(record.baseline_count_common, dtype=np.float64),
+        baseline_overlap_all=np.asarray(record.baseline_overlap_all, dtype=np.float64),
+        baseline_overlap_common=np.asarray(record.baseline_overlap_common, dtype=np.float64),
+        total_reference_snps_all=np.asarray(record.total_reference_snps_all, dtype=np.int64),
+        total_reference_snps_common=np.asarray(record.total_reference_snps_common, dtype=np.int64),
+    )
+    atoms = pd.DataFrame(
+        {
+            "atom_id": np.arange(record.atom_model.n_atoms, dtype=np.int64),
+            "CHR": str(chrom),
+            "start0": record.atom_model.starts,
+            "end": record.atom_model.ends,
+        }
+    )
+    atoms.to_parquet(chrom_path / "atoms.parquet", index=False)
+    gene_to_atom = record.atom_model.gene_to_atom.astype(bool).tocsr()
+    gene_to_atom.sort_indices()
+    operator = record.operator.astype(np.float64).tocsr()
+    operator.sort_indices()
+    sparse.save_npz(chrom_path / "gene_to_atom.npz", gene_to_atom, compressed=True)
+    sparse.save_npz(chrom_path / "ldscore_operator.npz", operator, compressed=True)
+    np.savez(
+        chrom_path / "atom_statistics.npz",
+        atom_count_all=np.asarray(record.atom_statistics.atom_count_all, dtype=np.int64),
+        atom_count_common=np.asarray(record.atom_statistics.atom_count_common, dtype=np.int64),
+        baseline_atom_overlap_all=np.asarray(record.atom_statistics.baseline_atom_overlap_all, dtype=np.float64),
+        baseline_atom_overlap_common=np.asarray(record.atom_statistics.baseline_atom_overlap_common, dtype=np.float64),
+    )
+
+
+def _stage_index_chromosome(
+    staged_index: Path,
+    chrom: str,
+    record: IndexChromosomeData,
+) -> Path:
+    """Write one private shard and atomically make it durable in the run stage."""
+    chromosomes_path = staged_index / "chromosomes"
+    chromosomes_path.mkdir(parents=True, exist_ok=True)
+    temporary = Path(
+        tempfile.mkdtemp(prefix=f".chr{chrom}.tmp-", dir=chromosomes_path)
+    )
+    destination = chromosomes_path / f"chr{chrom}"
+    try:
+        _write_index_chromosome_payload(temporary, chrom=chrom, record=record)
+        os.replace(temporary, destination)
+    except Exception:
+        _remove_gene_index_transaction(temporary, published=False)
+        raise
+    return destination
+
+
+def _finalize_staged_index_artifact(
+    index_path: Path,
+    *,
+    index_id: str,
+    index_identity: dict,
+    gene_catalog: pd.DataFrame,
+    chromosomes: dict[str, StagedIndexChromosome],
+    diagnostic_payload: dict | None = None,
+) -> None:
+    """Write coordinator-owned metadata after every chromosome is staged."""
+    _write_json(
+        index_path / "metadata.json",
+        {
+            "artifact_type": "gene_ldscore_index",
+            "index_id": index_id,
+            "index_identity": index_identity,
+            "chromosomes": list(chromosomes),
+        },
+    )
+    gene_catalog.to_parquet(index_path / "gene_catalog.parquet", index=False)
+    for chrom, result in chromosomes.items():
+        _write_json(
+            index_path / "chromosomes" / f"chr{chrom}" / "metadata.json",
+            {**result.component_metadata, "index_id": index_id},
+        )
+    if diagnostic_payload is not None:
+        diagnostic_payload["payload_bytes"] = _scientific_payload_bytes(index_path)
+        chromosome_diagnostics = diagnostic_payload.get("chromosomes", {})
+        for chrom in chromosomes:
+            values = chromosome_diagnostics.get(chrom)
+            if isinstance(values, dict):
+                values["payload_bytes"] = _directory_payload_bytes(
+                    index_path / "chromosomes" / f"chr{chrom}"
+                )
+        _write_json(
+            index_path / "diagnostics" / "build-gene-ldscore-index.json",
+            diagnostic_payload,
+        )
+
+
 def _write_index_artifact(
     index_path: Path,
     *,
@@ -1902,7 +2107,7 @@ def _write_index_artifact(
     chromosomes: dict[str, IndexChromosomeData],
 ) -> None:
     """Write one complete staged index in the canonical single-directory layout."""
-    index_path.mkdir(parents=True)
+    index_path.mkdir(parents=True, exist_ok=True)
     _write_json(
         index_path / "metadata.json",
         {
@@ -1916,60 +2121,11 @@ def _write_index_artifact(
     for chrom, record in chromosomes.items():
         chrom_path = index_path / "chromosomes" / f"chr{chrom}"
         chrom_path.mkdir(parents=True)
-        baseline_columns = [
-            column
-            for column in record.baseline_rows.columns
-            if column not in {"CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores"}
-        ]
         _write_json(
             chrom_path / "metadata.json",
-            {
-                "artifact_type": "gene_ldscore_index",
-                "index_id": index_id,
-                "chromosome": str(chrom),
-                "n_rows": len(record.baseline_rows),
-                "n_baseline": len(baseline_columns),
-                "baseline_columns": baseline_columns,
-                "n_genes": record.atom_model.gene_to_atom.shape[0],
-                "n_atoms": record.atom_model.n_atoms,
-                "gene_to_atom_format": "csr_bool_int32",
-                "ldscore_operator_format": "csr_float64_int32",
-            },
+            {**_index_chromosome_metadata(chrom, record), "index_id": index_id},
         )
-        _cast_index_baseline_rows(record.baseline_rows).to_parquet(
-            chrom_path / "baseline_rows.parquet", index=False
-        )
-        np.savez(
-            chrom_path / "baseline_statistics.npz",
-            baseline_count_all=np.asarray(record.baseline_count_all, dtype=np.float64),
-            baseline_count_common=np.asarray(record.baseline_count_common, dtype=np.float64),
-            baseline_overlap_all=np.asarray(record.baseline_overlap_all, dtype=np.float64),
-            baseline_overlap_common=np.asarray(record.baseline_overlap_common, dtype=np.float64),
-            total_reference_snps_all=np.asarray(record.total_reference_snps_all, dtype=np.int64),
-            total_reference_snps_common=np.asarray(record.total_reference_snps_common, dtype=np.int64),
-        )
-        atoms = pd.DataFrame(
-            {
-                "atom_id": np.arange(record.atom_model.n_atoms, dtype=np.int64),
-                "CHR": str(chrom),
-                "start0": record.atom_model.starts,
-                "end": record.atom_model.ends,
-            }
-        )
-        atoms.to_parquet(chrom_path / "atoms.parquet", index=False)
-        gene_to_atom = record.atom_model.gene_to_atom.astype(bool).tocsr()
-        gene_to_atom.sort_indices()
-        operator = record.operator.astype(np.float64).tocsr()
-        operator.sort_indices()
-        sparse.save_npz(chrom_path / "gene_to_atom.npz", gene_to_atom, compressed=True)
-        sparse.save_npz(chrom_path / "ldscore_operator.npz", operator, compressed=True)
-        np.savez(
-            chrom_path / "atom_statistics.npz",
-            atom_count_all=np.asarray(record.atom_statistics.atom_count_all, dtype=np.int64),
-            atom_count_common=np.asarray(record.atom_statistics.atom_count_common, dtype=np.int64),
-            baseline_atom_overlap_all=np.asarray(record.atom_statistics.baseline_atom_overlap_all, dtype=np.float64),
-            baseline_atom_overlap_common=np.asarray(record.atom_statistics.baseline_atom_overlap_common, dtype=np.float64),
-        )
+        _write_index_chromosome_payload(chrom_path, chrom=chrom, record=record)
 
 
 def _load_npz_members(path: Path, required: set[str]) -> dict[str, np.ndarray]:

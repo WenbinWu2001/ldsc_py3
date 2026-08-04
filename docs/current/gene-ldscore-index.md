@@ -90,6 +90,10 @@ One output directory contains one complete immutable index:
     build-gene-ldscore-index.lock
     build-gene-ldscore-index.log # present while running or after failure
     history/                     # prior failed/interrupted attempts
+
+.<index-name>.stage-<run-id>/     # hidden, private transaction while building
+    .gene-index-publication.json
+    <index-name>/chromosomes/chrN/
 ```
 
 `index_id` is a canonical SHA-256 identity over scientific content and settings,
@@ -103,7 +107,10 @@ not change the identity.
 Gene indexes do not support incremental updates, chromosome append, profile
 addition, or common-layer reuse. Any input, configuration, or coverage change
 requires a complete new build. A chromosome-22 prototype therefore belongs in
-a different output directory from a chromosomes-1–22 production index.
+a different output directory from a chromosomes-1–22 production index. The
+incremental appearance of chromosome shards in a private run stage is only a
+memory and durability strategy; it is not restart, resume, checkpoint reuse,
+or incremental index-update support.
 
 ## Output preflight, logging, and replacement
 
@@ -113,8 +120,9 @@ a different output directory from a chromosomes-1–22 production index.
   be unchanged.
 - A nonempty invalid directory fails before chromosome computation, including
   with `--overwrite`.
-- A failed build writes only to the hidden sibling build-state directory and does not
-  create a partial or diagnostics-only index.
+- A failed build never creates a partial or diagnostics-only public index.
+  Graceful failure removes its marked private transaction best-effort; an
+  interrupted transaction is never reused scientifically on retry.
 - Two builders cannot target the same absolute directory concurrently.
 
 While the build is running, the live log is
@@ -128,14 +136,24 @@ without a terminal `Finished` or `Failed` line indicates abrupt termination;
 there is no separate status file. The JSON diagnostic is a successful-build
 summary, not a live status record.
 
-Publication writes and reload-validates a complete sibling stage. During
-overwrite, the old valid index remains loadable until the replacement passes
-validation. A graceful failure keeps the old scientific index and its prior
-success diagnostics while leaving the failed attempt in hidden build state. After the
-replacement is reload-validated, transaction cleanup is best-effort garbage
-collection: a cleanup error warns with the retained builder-owned path but does
-not turn the completed publication into a failed command. Recognized interrupted
-publication transactions are retried on the next invocation; ambiguous backup
+Before chromosome computation, the builder creates one marked run-specific
+sibling stage. Each worker writes its large payloads in a private temporary
+shard directory, closes them, and atomically renames that directory to
+`<stage>/<index-name>/chromosomes/chrN`. `Finished chromosome N` is logged only
+after this rename, so it means the internal shard is durable; it does not mean
+chromosome N is public. Workers return compact evidence, and the coordinator
+writes shared metadata, the catalog, diagnostics, and final `index_id` metadata
+after all chromosomes finish in canonical order.
+
+The complete staged index is then reload-validated and moved into place without
+rewriting or copying its chromosome payloads. During overwrite, the old valid
+index remains loadable until the replacement passes validation. A graceful
+failure keeps the old scientific index and its prior success diagnostics while
+leaving the failed attempt in hidden build state. After the replacement is
+reload-validated, transaction cleanup is best-effort garbage collection: a
+cleanup error warns with the retained builder-owned path but does not turn the
+completed publication into a failed command. Recognized computation-only
+stages are discarded on the next invocation, never resumed. Ambiguous backup
 evidence fails rather than guessing.
 
 ## Assemble gene-list LD scores

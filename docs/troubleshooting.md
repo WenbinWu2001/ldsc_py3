@@ -239,6 +239,22 @@ actually overlap. A failed first build leaves the index destination absent or
 empty and can be retried directly; the previous log is archived under
 `<parent>/.<index-name>.build-state/history/`.
 
+### build-gene-ldscore-index: a partial hidden stage remains after failure
+
+**Symptom:** a marked `.<index-name>.stage-<run-id>/` sibling contains one or
+more `chromosomes/chrN` directories, but the public index is absent, empty, or
+still contains its prior complete version.
+
+`Finished chromosome N` means that shard was durably written inside the private
+run transaction; it never means partial chromosome coverage was published. A
+graceful failure removes the transaction best-effort. Abrupt termination or a
+filesystem cleanup error can retain it, but it is not a restart checkpoint and
+must not be copied into the public destination. Retry the full command. The
+next invocation removes a recognized computation-only stage before starting a
+new transaction. If cleanup warns again, confirm that no builder for the same
+destination is active, then remove only the exact marked path named in the
+warning. Unrecognized neighboring directories are never cleanup candidates.
+
 ### build-gene-ldscore-index: transaction cleanup remains after success
 
 **Symptom:** the command finishes successfully but warns that a builder-owned

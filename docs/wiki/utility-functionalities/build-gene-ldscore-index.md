@@ -137,6 +137,20 @@ ambiguous recovery evidence. Once a replacement has been reload-validated,
 failure to remove its transaction directory is a warning rather than a build
 failure; the warning reports the retained path for later cleanup.
 
+The hidden run transaction is created before chromosome computation. A worker
+writes its payloads to a private temporary shard and atomically renames it to
+`<stage>/<index-name>/chromosomes/chrN`; only then does the log say `Finished
+chromosome N`. That message means the chromosome is durable inside the private
+stage, while the public destination is still missing, empty, or serving its old
+complete version. After all chromosomes finish, the coordinator writes shared
+metadata in canonical chromosome order, reload-validates the complete stage,
+and moves the already-written tree into place without recopying its payloads.
+
+These durable internal shards are not resumable checkpoints. A failed or killed
+run is never continued, and a retry never reuses its scientific payloads. A
+recognized stage with no publication backup is removed best-effort; build a new
+complete transaction for every retry or configuration change.
+
 Monitor a running build with:
 
 ```bash

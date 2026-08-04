@@ -2,6 +2,10 @@
 
 Last updated on: 2026-08-04
 
+For the mathematical construction of the disjoint atoms, stored operator, and
+sufficient statistics—and the full downstream indexed-assembly derivation—see
+[Exact gene LD-score index: mathematical algorithm](../../current/gene-ldscore-index-mathematics.md).
+
 ## Goal
 
 Build one complete reusable index that contains the fixed baseline LD scores,

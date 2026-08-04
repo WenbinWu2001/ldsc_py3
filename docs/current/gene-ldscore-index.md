@@ -8,6 +8,10 @@ Online gene-list runs resolve genes against the embedded catalog, assemble
 Boolean unions from stored disjoint atoms, and write an ordinary canonical
 LD-score directory.
 
+For the complete input-to-output derivation—including the builder factorization,
+online matrix products, annotation counts, and overlap sufficient statistics—see
+[Exact gene LD-score index: mathematical algorithm](gene-ldscore-index-mathematics.md).
+
 ## Build one complete index
 
 ```bash

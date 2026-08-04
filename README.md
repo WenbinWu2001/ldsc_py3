@@ -224,7 +224,8 @@ Build complete indexes offline with `ldsc build-gene-ldscore-index`. Indexed mod
 explicit and fail-closed: it validates the complete index, accepts no live
 baseline/reference/window settings, and writes the same self-contained
 canonical LD-score directory. See
-[the exact gene-index guide](docs/current/gene-ldscore-index.md).
+[the exact gene-index guide](docs/current/gene-ldscore-index.md) and its
+[mathematical algorithm](docs/current/gene-ldscore-index-mathematics.md).
 Task-oriented walkthroughs cover [building the index](docs/wiki/utility-functionalities/build-gene-ldscore-index.md)
 and [using it for gene-list LD scores](docs/wiki/main-functionalities/ldscore.md).
 

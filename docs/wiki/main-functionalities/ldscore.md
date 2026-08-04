@@ -19,6 +19,11 @@ Resolve one or more gene lists against the index's embedded catalog, assemble
 their exact LD scores, and write the normal self-contained partitioned LD-score
 directory used by `ldsc partitioned-h2`.
 
+The full mathematical algorithm—from catalog resolution and Boolean atom union
+through $Y Z$ assembly, counts, overlaps, chromosome aggregation, and output
+artifacts—is documented in
+[Exact gene LD-score index: mathematical algorithm](../../current/gene-ldscore-index-mathematics.md).
+
 ## Inputs
 
 You need:

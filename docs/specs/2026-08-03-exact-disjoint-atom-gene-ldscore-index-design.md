@@ -12,6 +12,12 @@ Design 2 adds an expensive offline command, `ldsc build-gene-ldscore-index`, and
 
 Success means that indexed and matching direct runs produce the same binary annotations, retained rows and ordering, annotation counts, overlap entries, query statuses, canonical LD-score artifact structure, and downstream `partitioned-h2` interpretation. Floating-point LD scores and regression results must agree within a tolerance measured by the chromosome-22 validation gate. Approximation, whole-gene LD windows, and summing overlapping per-gene LD scores are outside the contract.
 
+The consolidated notation and complete input-to-output derivation are maintained
+in [Exact gene LD-score index: mathematical algorithm](../current/gene-ldscore-index-mathematics.md).
+The equations below state the core design identity; the current mathematical
+reference is authoritative for intermediate matrices, counts, overlaps, SNP
+universes, and output mapping.
+
 ## Relationship to the current direct workflow
 
 The direct gene-list implementation remains the scientific oracle and fallback. This specification preserves the resolution, naming, build-selection, partial-success, pruning, provenance, and diagnostics contracts in [Gene-List Query Annotations Design](2026-08-03-gene-list-query-annotations-design.md), subject only to these approved changes:

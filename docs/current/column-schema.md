@@ -1,5 +1,7 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
+Last updated on: 2026-08-04
+
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `column_inference.py`, all
 kernel output routines, and any doc or test that asserts column layout.
@@ -249,7 +251,9 @@ the reference panel: the parquet sidecar (`chrN_meta.tsv.gz`) for the parquet
 backend, and the `.bim`/genotypes (or an interpolated genetic map) for the PLINK
 backend. `annotate` output keeps the legacy positional `CHR BP SNP CM` layout but
 writes an **empty** `CM` placeholder and **no** `MAF` column, so the artifacts
-stay population-agnostic and remain consumable by legacy ldsc2 (`iloc[:, 4:]`).
+stay population-agnostic. This `BP` spelling is a narrow text-interoperability
+choice, not a promise that LDSC3 output is supported as LDSC2 input. LDSC3
+normalizes `BP` back to canonical internal `POS` when reading annotations.
 
 ### `CHR` format
 `normalize_chromosome` (in `chromosome_inference.py`) strips the `chr` prefix on
@@ -262,7 +266,8 @@ normalized on read; their on-disk format is not changed.
 ## 3. Column Ordering in Written Artifacts
 
 **Rule:** SNP metadata columns appear in a stable workflow-specific order.
-Annotation artifacts use **(CHR, POS, SNP, ...)**. Munged sumstats use
+Annotation text artifacts use **(CHR, BP, SNP, ...)** on disk and canonical
+**(CHR, POS, SNP, ...)** in memory. Munged sumstats use
 **(SNP, CHR, POS, ...)** to keep the legacy leading `SNP` convention while
 adding coordinates. Pairwise R2 uses the documented pairwise coordinate
 variant. Public LD-score result tables currently use **(CHR, SNP, POS, ...)** to
@@ -279,15 +284,15 @@ This applies to artifacts **written by this package**. External input files
 normalized on read regardless of their on-disk column order; the input order is
 not preserved in any output.
 
-For annotation output files specifically: the kernel always reconstructs the
+For annotation output files specifically, the workflow writer reconstructs the
 column layout from its internal representation rather than passing through the
-input file unchanged. This means the leading metadata columns (`CHR, POS, SNP,
-CM`) follow the annotation rule unconditionally. The annotation-specific columns that follow
+input file unchanged. The leading on-disk columns (`CHR, BP, SNP, CM`) follow
+the annotation rule unconditionally. The annotation-specific columns that follow
 `CM` retain their input order (the kernel does not reorder them).
 
 | Artifact | Leading columns | Remaining columns |
 |----------|----------------|-------------------|
-| Annotation (`.annot.gz`) | `CHR, POS, SNP, CM` | annotation columns (input order preserved) |
+| Annotation (`.annot.gz`) | `CHR, BP, SNP, CM` | annotation columns (input order preserved); `BP` normalizes to internal `POS` on read |
 | LD-score output (`ldscore.baseline.parquet`) | `CHR, SNP, POS, regression_ld_scores` | baseline LD-score columns |
 | LD-score output (`ldscore.query.parquet`) | `CHR, SNP, POS` | query LD-score columns |
 | LD-score overlap (`ldscore.overlap.parquet`) | `row_annotation, col_annotation` | `overlap_all_snps, overlap_common_snps` (long-form annotation overlap matrix) |

@@ -1,6 +1,6 @@
 # Config Design: Immutable Config + Provenance-Carrying Results
 
-Last updated on: 2026-08-03
+Last updated on: 2026-08-04
 
 ## Implementation Status
 
@@ -75,9 +75,9 @@ were active when that object was produced.
 
 File-reloaded package-written artifacts must prove their original settings with
 current identity provenance. For example, `load_sumstats()` recovers provenance
-from the `sumstats.parquet` footer written by the current munger, while a legacy
-`.sumstats.gz` or footer-less parquet has no embedded provenance and loads with
-its identifier mode inferred from the LD-score panel.
+from the `sumstats.parquet` footer written by the current munger. A legacy
+`.sumstats` or `.sumstats.gz` input has no embedded provenance and is explicitly
+projected by rsID onto the LD-score panel; footerless Parquet is rejected.
 
 This means reproducibility is structural for package-written artifacts:
 interrogating a loaded result object tells you the frozen config it was computed

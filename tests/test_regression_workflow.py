@@ -2321,7 +2321,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             args = type(
@@ -2388,6 +2388,12 @@ class RegressionWorkflowTest(unittest.TestCase):
                 },
             )
             self.assertTrue((tmpdir / "h2_out" / "diagnostics" / "h2.log").exists())
+            legacy_audit = tmpdir / "h2_out" / "diagnostics" / "dropped_snps" / "legacy_sumstats.tsv.gz"
+            self.assertTrue(legacy_audit.exists())
+            self.assertEqual(
+                pd.read_csv(legacy_audit, sep="\t", compression="gzip").columns.tolist(),
+                ["trait_name", "source_path", "SNP", "A1", "A2", "reason", "panel_candidate_count"],
+            )
 
     def _h2_args(self, tmpdir, ldscore_dir, *, samp_prev=None, pop_prev=None):
         return type(
@@ -2414,7 +2420,7 @@ class RegressionWorkflowTest(unittest.TestCase):
     def _write_h2_inputs(self, tmpdir):
         set_global_config(GlobalConfig(snp_identifier="rsid"))
         with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-            handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
         self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
         return self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
 
@@ -2463,7 +2469,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             args = type(
@@ -2729,7 +2735,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 trait_dir.mkdir()
                 source = trait_dir / "sumstats.sumstats.gz"
                 with gzip.open(source, "wt", encoding="utf-8") as handle:
-                    handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                    handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
                 self.write_sumstats_sidecar(trait_dir / "metadata.json", trait_name=name)
                 sumstats_sources.append(str(source))
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
@@ -2777,7 +2783,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 trait_dir.mkdir()
                 source = trait_dir / "sumstats.sumstats.gz"
                 with gzip.open(source, "wt", encoding="utf-8") as handle:
-                    handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                    handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
                 self.write_sumstats_sidecar(trait_dir / "metadata.json", trait_name=name)
                 sumstats_sources.append(str(source))
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
@@ -2868,7 +2874,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 trait_dir.mkdir()
                 source = trait_dir / "sumstats.sumstats.gz"
                 with gzip.open(source, "wt", encoding="utf-8") as handle:
-                    handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                    handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
                 self.write_sumstats_sidecar(trait_dir / "metadata.json", trait_name=name)
                 sumstats_sources.append(str(source))
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
@@ -3056,7 +3062,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             args = type(
@@ -3105,7 +3111,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             output_dir = tmpdir / "out"
@@ -3172,7 +3178,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             output_dir = tmpdir / "out"
@@ -3237,7 +3243,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             args = type(
@@ -3295,7 +3301,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             output_dir = tmpdir / "out"
@@ -3443,7 +3449,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             output_dir = tmpdir / "out"
@@ -3502,7 +3508,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             output_dir = tmpdir / "out"
@@ -3542,7 +3548,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             output_dir = tmpdir / "out"
@@ -3586,7 +3592,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             output_dir = tmpdir / "out"
@@ -3702,7 +3708,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             output_dir = tmpdir / "out"

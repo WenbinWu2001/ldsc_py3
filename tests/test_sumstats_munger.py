@@ -603,7 +603,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data.loc[0, "SNP"], "rs1")
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
-    def test_load_sumstats_footerless_parquet_has_no_config(self):
+    def test_load_sumstats_rejects_footerless_parquet(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             sumstats_file = tmpdir / "plain.parquet"
@@ -611,10 +611,8 @@ class SumstatsMungerTest(unittest.TestCase):
                 sumstats_file, index=False
             )
 
-            table = ldsc.load_sumstats(sumstats_file)
-
-            self.assertIsNone(table.config_snapshot)
-            self.assertEqual(table.trait_name, "plain.parquet")
+            with self.assertRaisesRegex(ldsc.LDSCInputError, "missing required LDSC3 identity footer"):
+                ldsc.load_sumstats(sumstats_file)
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_recovers_trait_name_from_footer(self):
@@ -1469,7 +1467,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "munge-sumstats could not determine sample size \\(N\\).*"
                 "--N.*--N-cas.*--N-con.*N column",
             ):
-                kernel_munge.munge_sumstats(args, p=True)
+                kernel_munge.munge_sumstats(args)
 
     def test_sumstats_table_missing_required_columns_uses_input_error(self):
         table = sumstats_workflow.SumstatsTable(
@@ -1496,7 +1494,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             with contextlib.redirect_stdout(stdout):
                 with self.assertRaisesRegex(ldsc.LDSCInputError, "munge-sumstats could not determine sample size"):
-                    kernel_munge.munge_sumstats(args, p=True)
+                    kernel_munge.munge_sumstats(args)
 
             self.assertEqual(stdout.getvalue(), "")
 
@@ -1520,7 +1518,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 ldsc.LDSCInputError,
                 "snp_identifier='chr_pos_allele_aware'.*--snp-identifier chr_pos",
             ):
-                kernel_munge.munge_sumstats(args, p=True)
+                kernel_munge.munge_sumstats(args)
 
     def test_kernel_parser_rejects_removed_no_alleles_flag(self):
         with self.assertRaises(SystemExit):
@@ -1551,7 +1549,7 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(ldsc.LDSCInputError, "--a1 REF --a2 ALT"):
-                kernel_munge.munge_sumstats(args, p=True)
+                kernel_munge.munge_sumstats(args)
 
     def test_rsid_allele_aware_requires_alleles(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1573,7 +1571,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 ldsc.LDSCInputError,
                 "snp_identifier='rsid_allele_aware'.*--snp-identifier rsid",
             ):
-                kernel_munge.munge_sumstats(args, p=True)
+                kernel_munge.munge_sumstats(args)
 
     def test_base_modes_run_without_alleles_without_extra_flag(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1606,8 +1604,8 @@ class SumstatsMungerTest(unittest.TestCase):
                 ]
             )
 
-            self.assertEqual(kernel_munge.munge_sumstats(rsid_args, p=False)["SNP"].tolist(), ["rs1"])
-            self.assertEqual(kernel_munge.munge_sumstats(chr_pos_args, p=False)["SNP"].tolist(), ["rs1"])
+            self.assertEqual(kernel_munge.munge_sumstats(rsid_args)["SNP"].tolist(), ["rs1"])
+            self.assertEqual(kernel_munge.munge_sumstats(chr_pos_args)["SNP"].tolist(), ["rs1"])
 
     def test_base_modes_keep_singletons_with_bad_allele_columns(self):
         rows = (
@@ -1635,7 +1633,7 @@ class SumstatsMungerTest(unittest.TestCase):
                     ]
                 )
 
-                munged = kernel_munge.munge_sumstats(args, p=False)
+                munged = kernel_munge.munge_sumstats(args)
 
                 self.assertEqual(munged["SNP"].tolist(), ["missing", "ambiguous", "multibase", "identical"])
 
@@ -1858,7 +1856,7 @@ class SumstatsMungerTest(unittest.TestCase):
             args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
 
             with self.assertRaisesRegex(ldsc.LDSCInputError, "NEFF is not treated as N.*--N-col NEFF"):
-                kernel_munge.munge_sumstats(args, p=True)
+                kernel_munge.munge_sumstats(args)
 
     def test_kernel_missing_signed_stat_error_suggests_likely_effect_column(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1868,7 +1866,7 @@ class SumstatsMungerTest(unittest.TestCase):
             args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
 
             with self.assertRaisesRegex(ldsc.LDSCInputError, "--signed-sumstats EFFECT_SIZE,0"):
-                kernel_munge.munge_sumstats(args, p=True)
+                kernel_munge.munge_sumstats(args)
 
     def test_kernel_parser_rejects_removed_merge_alleles(self):
         with self.assertRaises(SystemExit):

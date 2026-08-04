@@ -47,6 +47,7 @@ _SUBCOMMAND_HELP = {
     "ldscore": "Compute LD scores.",
     "build-ref-panel": "Build standard parquet reference panels.",
     "build-gene-ldscore-index": "Build an exact disjoint-atom gene LD-score index.",
+    "convert-ldsc2-ldscores": "Convert selected LDSC2 LD-score suites to LDSC3 format.",
     "munge-sumstats": "Munge GWAS summary statistics.",
     "h2": "Estimate heritability from munged sumstats and LD scores.",
     "partitioned-h2": "Estimate partitioned heritability by looping over query annotations.",
@@ -87,6 +88,12 @@ def build_parser() -> argparse.ArgumentParser:
         "build-gene-ldscore-index", help=_SUBCOMMAND_HELP["build-gene-ldscore-index"]
     )
     _copy_actions(gene_index_parser, gene_ldscore_index.build_parser())
+
+    converter_parser = subparsers.add_parser(
+        "convert-ldsc2-ldscores", help=_SUBCOMMAND_HELP["convert-ldsc2-ldscores"]
+    )
+    legacy_ldscore_converter = _load_legacy_ldscore_converter()
+    _copy_actions(converter_parser, legacy_ldscore_converter.build_parser())
 
     sumstats_munger = _load_sumstats_munger()
     munge_parser = subparsers.add_parser("munge-sumstats", help=_SUBCOMMAND_HELP["munge-sumstats"])
@@ -152,6 +159,9 @@ def main(argv: Sequence[str] | None = None):
             return ref_panel_builder.main(subargv)
         if command == "build-gene-ldscore-index":
             return gene_ldscore_index.main(subargv)
+        if command == "convert-ldsc2-ldscores":
+            legacy_ldscore_converter = _load_legacy_ldscore_converter()
+            return legacy_ldscore_converter.main(subargv)
         if command == "query-r2":
             return r2_query.main(subargv)
         if command == "munge-sumstats":
@@ -294,3 +304,10 @@ def _load_sumstats_munger():
     from . import sumstats_munger
 
     return sumstats_munger
+
+
+def _load_legacy_ldscore_converter():
+    """Import the legacy converter lazily for lightweight top-level help."""
+    from . import legacy_ldscore_converter
+
+    return legacy_ldscore_converter

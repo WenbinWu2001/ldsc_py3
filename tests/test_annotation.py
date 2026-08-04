@@ -934,6 +934,8 @@ class AnnotationBuilderTest(unittest.TestCase):
                 output_dir=output_dir,
             )
             out = pd.read_csv(output_dir / "query.1.annot.gz", sep="\t", compression="gzip")
+            self.assertEqual(out.columns[:4].tolist(), ["CHR", "BP", "SNP", "CM"])
+            self.assertNotIn("POS", out.columns)
             self.assertIn("CM", out.columns)  # legacy CHR/BP/SNP/CM layout column present
             self.assertTrue(out["CM"].isna().all())  # CM is empty/NaN placeholder
             self.assertNotIn("MAF", out.columns)  # MAF is never written

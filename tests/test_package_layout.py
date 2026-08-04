@@ -112,6 +112,7 @@ class PackageLayoutTest(unittest.TestCase):
             set(subparsers_action.choices),
             {
                 "annotate", "ldscore", "build-ref-panel", "build-gene-ldscore-index",
+                "convert-ldsc2-ldscores",
                 "munge-sumstats", "h2", "partitioned-h2", "rg", "query-r2",
             },
         )

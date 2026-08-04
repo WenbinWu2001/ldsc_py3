@@ -227,66 +227,6 @@ class R2SchemaMetaReaderTest(unittest.TestCase):
 @unittest.skipIf(kernel_ldscore is None, "ldscore kernel is not available")
 class R2AutoLoadCLITest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
-    def test_cli_autofills_unbiased_from_schema_when_mode_is_none(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "hg19" / "chr1_r2.parquet"
-            _write_minimal_r2_parquet(
-                path,
-                {b"ldsc:n_samples": b"200", b"ldsc:r2_bias": b"unbiased"},
-            )
-            args = kernel_ldscore.build_parser().parse_args(
-                [
-                    "--r2-table",
-                    str(Path(tmpdir) / "hg19"),
-                    "--snp-identifier",
-                    "rsid",
-                    "--baseline-annot",
-                    "fake",
-                    "--out",
-                    "fake",
-                    "--ld-wind-kb",
-                    "1",
-                ]
-            )
-            args.r2_bias_mode = None
-            args.r2_sample_size = None
-
-            kernel_ldscore.validate_args(args)
-
-        self.assertEqual(args.r2_bias_mode, "unbiased")
-        self.assertIsNone(args.r2_sample_size)
-
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
-    def test_cli_autofills_raw_and_n_from_schema(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "hg19" / "chr1_r2.parquet"
-            _write_minimal_r2_parquet(
-                path,
-                {b"ldsc:n_samples": b"150", b"ldsc:r2_bias": b"raw"},
-            )
-            args = kernel_ldscore.build_parser().parse_args(
-                [
-                    "--r2-table",
-                    str(Path(tmpdir) / "hg19"),
-                    "--snp-identifier",
-                    "rsid",
-                    "--baseline-annot",
-                    "fake",
-                    "--out",
-                    "fake",
-                    "--ld-wind-kb",
-                    "1",
-                ]
-            )
-            args.r2_bias_mode = None
-            args.r2_sample_size = None
-
-            kernel_ldscore.validate_args(args)
-
-        self.assertEqual(args.r2_bias_mode, "raw")
-        self.assertAlmostEqual(args.r2_sample_size, 150.0)
-
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
     def test_parquet_panel_autofills_raw_and_n_from_schema(self):
         import pyarrow as pa
         import pyarrow.parquet as pq
@@ -472,68 +412,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             message,
             "Starting LD-score calculation for 22 chromosomes with 2 baseline columns and 1 query columns.",
         )
-
-    def test_kernel_build_parser_accepts_snp_batch_size_and_rejects_chunk_size(self):
-        parser = kernel_ldscore.build_parser()
-        args = parser.parse_args(
-            [
-                "--out",
-                "out",
-                "--baseline-annot",
-                "baseline.annot.gz",
-                "--r2-table",
-                "panel.@.parquet",
-                "--snp-batch-size",
-                "64",
-            ]
-        )
-        self.assertEqual(args.snp_batch_size, 64)
-        with self.assertRaises(SystemExit):
-            parser.parse_args(
-                [
-                    "--out",
-                    "out",
-                    "--baseline-annot",
-                    "baseline.annot.gz",
-                    "--r2-table",
-                    "panel.@.parquet",
-                    "--chunk-size",
-                    "64",
-                ]
-            )
-
-    def test_kernel_validate_args_accepts_omitted_r2_bias_mode_as_unbiased(self):
-        args = Namespace(
-            out="out",
-            query_annot=None,
-            baseline_annot="baseline.annot.gz",
-            bfile=None,
-            r2_table="panel.@.parquet",
-            snp_identifier="rsid",
-            genome_build=None,
-            r2_bias_mode=None,
-            r2_sample_size=None,
-            regression_snps_file=None,
-            frqfile=None,
-            query_annot_chr=None,
-            baseline_annot_chr=None,
-            bfile_chr=None,
-            r2_table_chr=None,
-            frqfile_chr=None,
-            keep=None,
-            ld_wind_snps=10,
-            ld_wind_kb=None,
-            ld_wind_cm=None,
-            maf_min=None,
-            common_maf_min=0.05,
-            snp_batch_size=50,
-            per_chr_output=False,
-            yes_really=False,
-            log_level="INFO",
-        )
-
-        kernel_ldscore.validate_args(args)
-        self.assertEqual(args.r2_bias_mode, "unbiased")
 
     def test_build_parser_help_exposes_only_r2_dir_for_parquet_input(self):
         help_text = ldscore_workflow.build_parser().format_help()
@@ -1775,7 +1653,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
             annotation_bundle = self.make_annotation_bundle([("1", "rs1", 10)])
             ref_panel = self.make_ref_panel_stub(backend="plink")
-            with mock.patch.object(ldscore_workflow.kernel_ldscore, "validate_args"), mock.patch(
+            with mock.patch(
                 "ldsc.annotation_builder.AnnotationBuilder.run",
                 autospec=True,
                 return_value=annotation_bundle,
@@ -2348,7 +2226,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
             annotation_bundle = self.make_annotation_bundle([("1", "rs1", 10), ("1", "rs2", 20)])
             ref_panel = self.make_ref_panel_stub(backend="plink")
-            with mock.patch.object(ldscore_workflow.kernel_ldscore, "validate_args"), mock.patch(
+            with mock.patch(
                 "ldsc.annotation_builder.AnnotationBuilder.run",
                 autospec=True,
                 return_value=annotation_bundle,
@@ -2446,7 +2324,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
             annotation_bundle = self.make_annotation_bundle([("1", "rs1", 10)])
             ref_panel = self.make_ref_panel_stub(backend="plink", plink_prefix=str(tmpdir / "panel.@"))
-            with mock.patch.object(ldscore_workflow.kernel_ldscore, "validate_args"), mock.patch(
+            with mock.patch(
                 "ldsc.annotation_builder.AnnotationBuilder.run",
                 autospec=True,
                 return_value=annotation_bundle,
@@ -2505,7 +2383,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 backend="parquet_r2",
                 genome_build=None,
             )
-            with mock.patch.object(ldscore_workflow.kernel_ldscore, "validate_args"), mock.patch(
+            with mock.patch(
                 "ldsc.annotation_builder.AnnotationBuilder.run",
                 autospec=True,
                 return_value=annotation_bundle,
@@ -2740,7 +2618,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ref_panel = self.make_ref_panel_stub(backend="parquet_r2", genome_build="hg19")
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                with mock.patch.object(ldscore_workflow.kernel_ldscore, "validate_args"), mock.patch(
+                with mock.patch(
                     "ldsc.annotation_builder.AnnotationBuilder.run",
                     autospec=True,
                     return_value=annotation_bundle,

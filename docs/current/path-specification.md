@@ -1,5 +1,7 @@
 # Input Path Specification
 
+Last updated on: 2026-08-04
+
 This note explains how to specify filesystem inputs in the refactored package.
 The goal is practical: help you choose the right path form for each workflow and
 avoid ambiguous inputs.
@@ -51,6 +53,12 @@ independent optional files:
 - `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional
   `ldscore.query.parquet`, optional `ldscore.overlap.parquet`, and
   `diagnostics/ldscore.log` for CLI/workflow runs
+- `convert-ldsc2-ldscores`: canonical `metadata.json`,
+  `ldscore.baseline.parquet`, optional `ldscore.overlap.parquet`,
+  `diagnostics/conversion_issues.tsv.gz`, and
+  `diagnostics/convert-ldsc2-ldscores.log`. This command deliberately accepts
+  directory inputs and performs its own strict chromosomes 1-22 family
+  discovery; that exception does not enable directory discovery elsewhere.
 - `build-ref-panel`: `{hg19,hg38}/chr*_r2.parquet`,
   `{hg19,hg38}/chr*_meta.tsv.gz`,
   `diagnostics/metadata.json`, `diagnostics/metadata.chr*.json`,

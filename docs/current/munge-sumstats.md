@@ -1,5 +1,7 @@
 # Munge-Sumstats
 
+Last updated on: 2026-08-04
+
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`
 before spending time on a full run.
@@ -109,12 +111,11 @@ The same compatibility state is attached to in-memory results as
 `SumstatsTable.config_snapshot`.
 
 `sumstats.sumstats.gz` is a plain TSV and carries no embedded metadata; in `both`
-mode only the `.parquet` is self-describing. When a downstream input has no
-footer metadata (a legacy `.sumstats.gz` or a footer-less parquet), regression
-infers the identifier mode from the LD-score panel. For `chr_pos`-family runs it
-also verifies the genome build: it reads the build from the footer when present,
-otherwise infers it from the coordinates, and rejects a build that disagrees
-with the LD-score panel with a message directing the user to liftover.
+mode only the `.parquet` is self-describing. Legacy `.sumstats` and
+`.sumstats.gz` inputs are accepted through the regression compatibility rule:
+their rsIDs are lookup keys and the canonical LD-score panel supplies identity
+and coordinates. Footerless Parquet is rejected. See
+[`legacy-sumstats-compatibility.md`](legacy-sumstats-compatibility.md).
 
 Detailed source-build inference, liftover decisions, method names, and drop
 counts live in `diagnostics/sumstats.log`, not in the footer.

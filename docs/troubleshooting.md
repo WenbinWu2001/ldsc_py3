@@ -156,7 +156,7 @@ bad provenance / missing A1-A2 / duplicate identity rows)
 | # | Likely cause | How to check |
 |---|--------------|--------------|
 | 1 | Artifact predates the current self-describing parquet schema | Inspect the parquet footer for `ldsc:artifact_type`, `ldsc:snp_identifier`, and `ldsc:genome_build` |
-| 2 | The artifact is a legacy `.sumstats.gz` or footer-less parquet | Re-munge from the raw GWAS input to produce `sumstats.parquet` |
+| 2 | The artifact is footerless Parquet | Re-munge from the raw GWAS input to produce self-describing `sumstats.parquet`; footerless Parquet is not an LDSC2 compatibility format |
 | 3 | Identity provenance in the parquet footer is invalid/corrupt | Inspect the footer identity fields against the current contract |
 | 4 | An allele-aware `snp_identifier` artifact lacks A1/A2 columns | `python -c "import pandas; print(pandas.read_parquet('<f>').columns)"` |
 | 5 | Duplicate/invalid SNP-identity rows survived in the artifact | Re-munge from raw input; the loader reports the dropped-row reasons |
@@ -165,7 +165,10 @@ bad provenance / missing A1-A2 / duplicate identity rows)
 
 1. Re-run `ldsc munge-sumstats` from the **raw** GWAS file to regenerate the
    artifact with the current schema.
-2. Do not hand-edit curated `.sumstats`/`.parquet` artifacts; treat them as outputs.
+2. A genuine LDSC2 `.sumstats` or `.sumstats.gz` text artifact is accepted
+   directly by regression when it contains `SNP`, `A1`, `A2`, `Z`, and `N`;
+   see `docs/current/legacy-sumstats-compatibility.md`.
+3. Do not hand-edit curated `.sumstats`/`.parquet` artifacts; treat them as outputs.
 
 ### munge-sumstats: liftover dropped all rows
 
@@ -476,6 +479,31 @@ restriction build/column readers · **Exception:** `LDSCInputError`
 1. Keep R2 parquet files and metadata sidecars together as one artifact family.
 2. Regenerate the reference panel with the current `ldsc build-ref-panel`.
 3. Pass a concrete build-specific R2 directory or set the matching genome build.
+
+## convert-ldsc2-ldscores
+
+### conversion rejected the legacy suite
+
+**Raised by:** `legacy_ldscore_converter.LegacyLDScoreConverter`
+· **Exception:** `LDSCInputError`
+
+Inspect `diagnostics/conversion_issues.tsv.gz`; conversion failures intentionally
+leave diagnostics but no canonical `metadata.json` or Parquet result.
+
+Common causes are a missing or ambiguous chromosome 1-22 family, duplicate
+rsIDs within or across shards, non-finite LD-score/annotation/frequency values,
+a partial or thin annotation family, missing `.l2.M_5_50`, non-bijective
+annotation-to-score names, or baseline `.M`/`.M_5_50` values that disagree with
+the full annotation/frequency reconstruction. The converter reports causal SNPs
+or annotation names in the exception and full available issue rows in the
+sidecar. Do not mix releases or edit the source suite in place; supply coherent
+reference, weight, and (for baseline) frequency directories and rerun with
+`--overwrite` because the first failure already owns its diagnostic files.
+
+For `chr_pos`, `--genome-build auto` must find decisive reference evidence. Use
+an explicit build only when it is known; an explicit declaration that conflicts
+with decisive evidence is rejected. See
+`docs/current/legacy-ldscore-conversion.md` for the complete contract.
 
 ## regression
 

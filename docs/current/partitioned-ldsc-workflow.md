@@ -1,5 +1,7 @@
 # Partitioned LDSC Workflow: Technical Reference
 
+Last updated on: 2026-08-04
+
 This document describes the refactored workflow for computing LD scores and
 running h2, partitioned-h2, and rg regression from one canonical LD-score result
 directory.
@@ -155,8 +157,13 @@ beside `SNP`, `Z`, and `N`, write `sumstats.parquet` by default, embed the thin
 compatibility payload in the parquet footer (`artifact_type`, `snp_identifier`,
 `genome_build`, and optional `trait_name`), and write
 `diagnostics/dropped_snps/dropped.tsv.gz` for row-level liftover-drop auditing.
-Legacy package-written `.sumstats.gz` files or footer-less parquet artifacts
-must be regenerated.
+Legacy LDSC2 `.sumstats` and `.sumstats.gz` files may be used directly and are
+projected by rsID onto the canonical LD-score panel. Footerless Parquet must be
+regenerated. Legacy partitioned LD-score suites are not read directly; only a
+complete baseline suite may be explicitly converted, without query annotations.
+That converted directory runs the baseline-only functional-category regime:
+all imported baseline columns are fitted jointly. It is not a converted
+cell-type/query analysis and cannot be extended with legacy query annotations.
 In allele-aware modes, current sumstats artifacts require usable `A1/A2`. To
 run without allele-aware SNP identity, set `--snp-identifier chr_pos` or
 `--snp-identifier rsid` intentionally.

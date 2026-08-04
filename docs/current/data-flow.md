@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-08-03
+Last updated on: 2026-08-04
 
 This document summarizes the user-visible file streams for each public workflow. The diagrams use Mermaid `flowchart LR` because it maps cleanly onto the package's left-to-right data movement and layered module boundaries.
 
@@ -399,6 +399,34 @@ flowchart LR
 - Kernel: `ldsc._kernel.ldscore`
 - Postprocessing: `ldsc.outputs`
 
+## 4A. `convert-ldsc2-ldscores`: Selected LDSC2 Suites To Canonical LDSC3
+
+This explicit migration boundary accepts complete chromosomes 1-22 reference
+and regression-weight directories. A complete baseline partitioned suite also
+requires its full annotation family and a frequency-suite directory. Query
+annotations, thin annotations, and general partitioned suites are not accepted.
+
+All source relationships and reference/weight retention use rsID. The reference
+suite supplies output coordinates; coordinate disagreements elsewhere are
+diagnostics. Output identity is restricted to `rsid` or `chr_pos`, and no
+alleles are manufactured.
+
+```mermaid
+flowchart LR
+  R["Legacy reference directory"] --> C["convert-ldsc2-ldscores"]
+  W["Legacy weight directory"] --> C
+  F["Frequency directory (baseline only)"] --> C
+  C --> O["Canonical LDSC3 LD-score directory"]
+  C --> D["conversion log and issue audit"]
+```
+
+Unpartitioned conversion requires every `.l2.M_5_50`; `.l2.M` may be missing,
+making all-SNP regression unavailable. Baseline conversion reconstructs counts
+and full overlap from annotations and frequencies, validates present legacy
+counts, and reconstructs only missing `.M`. The strict legacy common rule is
+fixed at `0.05`. See
+[`legacy-ldscore-conversion.md`](legacy-ldscore-conversion.md).
+
 ## Region Exclusion
 
 `ldscore --exclude-regions {none,mhc,centromeres,mhc-and-centromeres}` selects
@@ -503,7 +531,7 @@ flowchart LR
 | --- | --- | --- |
 | curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
 | log file | plain-text lifecycle, QC log, coordinate provenance, readable liftover reports, HM3 provenance, output bookkeeping, and count-level drop summaries | workflow-owned `diagnostics/sumstats.log` under `output_dir`, populated from package logger messages emitted during workflow orchestration and kernel QC; excluded from `MungeRunSummary.output_paths` |
-| embedded identity metadata | discrete footer keys `ldsc:artifact_type`, `ldsc:snp_identifier`, `ldsc:genome_build`, and optional `ldsc:trait_name` | written into the `sumstats.parquet` footer (no `metadata.json` sidecar); used by `load_sumstats()` to reconstruct config provenance and trait labels, or `None` when absent |
+| embedded identity metadata | discrete footer keys `ldsc:artifact_type`, `ldsc:snp_identifier`, `ldsc:genome_build`, and optional `ldsc:trait_name` | written into the `sumstats.parquet` footer (no `metadata.json` sidecar); used by `load_sumstats()` to reconstruct config provenance and trait labels. Footerless Parquet is rejected; legacy text is marked explicitly. |
 | dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `diagnostics/dropped_snps/dropped.tsv.gz`; header-only when no rows were dropped; reasons may include identity drops (`missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, `duplicate_identity`) and liftover drops (`missing_coordinate`, `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`) |
 
 ### Modules used
@@ -555,14 +583,14 @@ merge. rsID-family and coordinate-family modes never mix.
 
 | File | Example | Notes |
 | --- | --- | --- |
-| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; the `sumstats.parquet` footer recovers config provenance and `trait_name` when present, otherwise the identifier mode is inferred from the LD-score panel |
+| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; current Parquet recovers footer provenance. Legacy LDSC2 `.sumstats[.gz]` requires `SNP/A1/A2/Z/N` and is projected by rsID onto the panel. |
 | LD-score directory | `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, optional `ldscore.overlap.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; the overlap sidecar is written only for runs with >=2 annotation columns; `partitioned-h2` requires `ldscore.overlap.parquet` (baseline-only = functional regime, query columns = cell-type regime) and rejects directories that lack it; current parquet files have chromosome-aligned row groups; package-written directories without current metadata identity provenance are rejected and must be regenerated |
 
 ### Flow
 
 ```mermaid
 flowchart LR
-  I1[Curated sumstats parquet or .sumstats.gz]
+  I1[Current Parquet or legacy LDSC2 sumstats text]
   I2[LD-score artifacts]
 
   subgraph P5[Preprocessing (public)<br/>path_resolution + column_inference]

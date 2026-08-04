@@ -10,9 +10,9 @@ This module contains the low-level munging implementation reused by the public
 ``ldsc.sumstats_munger`` workflow wrapper. It stays close to the historical
 LDSC behavior so filtering semantics and output formats remain stable while the
 rest of the refactored package gains a cleaner public interface. Public CLI
-orchestration, output preflight, metadata sidecars, and log-file ownership live
-in ``ldsc.sumstats_munger``; this module emits ordinary package logger records
-while retaining the legacy-compatible `.sumstats.gz` writer.
+orchestration, output preflight, metadata sidecars, and file ownership live in
+``ldsc.sumstats_munger``. This module emits ordinary package logger records and
+returns an in-memory table; it does not write user-facing artifacts.
 
 The physical raw-input reader accepts plain, gzip-compressed, or bzip2-compressed
 whitespace-delimited text. DANER inputs are distinguished by schema flags rather
@@ -27,7 +27,6 @@ are not retained for the full-table concatenation step.
 import pandas as pd
 import numpy as np
 #import os
-import gzip
 import bz2
 import argparse
 import logging
@@ -1105,7 +1104,7 @@ parser.add_argument('--genome-build', default=None, choices=('auto', 'hg19', 'hg
 
 
 # set p = False for testing in order to prevent printing
-def munge_sumstats(args, p=True):
+def munge_sumstats(args):
     """Run the historical LDSC munging pipeline.
 
     Parameters
@@ -1339,22 +1338,9 @@ def munge_sumstats(args, p=True):
         dat.drop('SIGNED_SUMSTAT', inplace=True, axis=1)
     dat = _apply_liftover_if_requested(dat, args)
 
-    out_fname = args.out + '.sumstats'
-    print_colnames = [
-        c for c in ['SNP', 'CHR', 'POS', 'A1', 'A2', 'Z', 'N'] if c in dat.columns]
-    if args.keep_maf and 'FRQ' in dat.columns:
-        print_colnames.append('FRQ')
-    if p:
-        LOGGER.info(
-            f"Writing summary statistics for {len(dat)} SNPs ({dat.N.notnull().sum()} with nonmissing beta) "
-            f"to {out_fname + '.gz'}."
-        )
-        dat.to_csv(out_fname + '.gz', sep="\t", index=False,
-                   columns=print_colnames, float_format='%.3f', compression = 'gzip')
-    else:
-        LOGGER.info(
-            f"Prepared summary statistics for {len(dat)} SNPs ({dat.N.notnull().sum()} with nonmissing beta)."
-        )
+    LOGGER.info(
+        f"Prepared summary statistics for {len(dat)} SNPs ({dat.N.notnull().sum()} with nonmissing beta)."
+    )
 
     LOGGER.info('\nMetadata:')
     CHISQ = (dat.Z ** 2)

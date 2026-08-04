@@ -231,6 +231,9 @@ class LDScoreResult:
         provenance. Empty for runs without gene-list inputs.
     gene_catalog_provenance : dict or None, optional
         Concise packaged-catalog identity and selected projection build.
+    legacy_ldsc2_import : dict or None, optional
+        Explicit converter provenance for an LDSC2 LD-score suite. ``None``
+        for natively computed LDSC3 results.
     """
     baseline_table: pd.DataFrame
     query_table: pd.DataFrame | None
@@ -250,6 +253,7 @@ class LDScoreResult:
     gene_catalog_provenance: dict[str, str] | None = None
     snp_universe_policy: dict[str, Any] | None = None
     index_provenance: dict[str, str] | None = None
+    legacy_ldsc2_import: dict[str, Any] | None = None
 
     def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""

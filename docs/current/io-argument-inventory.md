@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Last updated on: 2026-08-03
+Last updated on: 2026-08-04
 
 This document records the current public input/output naming contract after the
 LD-score result-directory refactor. The LD-score workflow uses a canonical
@@ -74,6 +74,10 @@ Adapted public paths:
   when an `output_dir` is supplied.
 - `ldsc build-ref-panel` writes the primary R2 pair matrix as
   `chr{chrom}_r2.parquet`.
+- `ldsc build-gene-ldscore-index` writes one immutable gene LD-score index
+  directory for later explicit indexed LD-score assembly.
+- `ldsc convert-ldsc2-ldscores` is the only public reader of selected legacy
+  LDSC2 LD-score fragments and writes a canonical LDSC3 LD-score directory.
 - `ldsc query-r2` reads package-built index-format R2 panels and writes an
   annotated pair table to stdout or one explicit TSV path.
 
@@ -88,9 +92,11 @@ Not fully adapted or retained for compatibility:
 - `ldsc munge-sumstats` keeps `--output-format tsv.gz` and `both`, which write
   `sumstats.sumstats.gz` compatibility artifacts even though parquet is the
   default.
-- Private `_kernel` emitters still write legacy `.sumstats.gz`,
-  `.l2.ldscore.gz`, `.w.l2.ldscore.gz`, `.l2.M`, `.l2.M_5_50`, and
-  `.annotation_groups.tsv` files for direct kernel or compatibility paths.
+
+Private `_kernel` modules do not own LDSC2 artifact emission or regression
+input compatibility. The workflow-layer sumstats writer retains the optional
+metadata-free gzip output; legacy LD-score suites cross only the explicit
+converter boundary.
 
 ## Naming Rules
 
@@ -282,6 +288,57 @@ owns the full all-chromosome panel package. Existing owned artifacts block
 without `--overwrite`; with `--overwrite`, stale current-contract siblings
 inside the owned package are removed after the successful write.
 
+### `ldsc build-gene-ldscore-index`
+
+This advanced, deliberately closed command builds an immutable hg19/rsID gene
+LD-score index. It is not a legacy compatibility command.
+
+| Flag | Direction | Required | Object | Notes |
+|---|---:|---:|---|---|
+| `--baseline-annot-sources` | input | yes | full baseline annotation suite | Canonical baseline used by later indexed LD-score assembly. |
+| `--plink-prefix` | input | yes | PLINK reference panel | Exact prefix or supported chromosome suite. |
+| `--output-dir` | output | yes | immutable index directory | Publishes one complete index artifact; no incremental update or component reuse. |
+| `--genome-build` | config | no | coordinate build | Closed to `hg19`. |
+| `--snp-identifier` | config | no | SNP identity | Closed to `rsid`. |
+| `--padding-bp` | model | no | gene interval padding | Padding used when constructing disjoint gene atoms. |
+| `--gene-exclude-regions` | model | no | gene exclusion policy | `none` or `mhc`. |
+| `--ld-wind-cm` | model | no | LD window | cM window used by the PLINK-backed operator. |
+| `--maf-min`, `--common-maf-min` | QC/counts | no | reference MAF thresholds | Retained-reference and common-count thresholds stored in index identity. |
+| `--keep-indivs-file` | input | no | PLINK sample restriction | Restricts individuals used during index construction. |
+| `--regression-snps-file` | input | no | regression SNP override | Identity-only list; otherwise the bundled HM3 set is used. |
+| `--exclude-regions` | input transform | no | regression-region subtraction | `none`, `mhc`, `centromeres`, or `mhc-and-centromeres`. |
+| `--genetic-map-hg19-sources`, `--genetic-map-hg38-sources` | input | no | genetic maps | Map sources accepted by the shared PLINK preparation path; the closed index build is hg19. |
+| `--chromosomes` | input selector | no | chromosome set | Explicit chromosome selection. |
+| `--snp-batch-size`, `--atom-batch-size` | performance | no | computation batches | Bounds SNP and disjoint-atom matrix work. |
+| `--threads` | performance | no | chromosome workers | Cross-chromosome process count. |
+| `--overwrite` | output mode | no | publication policy | Replaces only a complete valid owned index through staged publication. |
+| `--log-level` | logging | no | workflow log verbosity | Controls the persistent index build-state log. |
+
+### `ldsc convert-ldsc2-ldscores`
+
+This rare, explicit migration utility accepts only reusable unpartitioned
+reference/weight suites and complete baseline partitioned suites. It does not
+accept query annotations, thin annotations, or arbitrary partitioned suites.
+
+| Flag | Direction | Required | Object | Notes |
+|---|---:|---:|---|---|
+| `--legacy-reference-dir` | input | yes | LDSC2 reference suite directory | Exactly one coherent chromosomes 1-22 `.l2.ldscore[.gz]` family. A complete full `.annot[.gz]` family selects baseline conversion; absence selects unpartitioned conversion only when the score table has one scientific column. |
+| `--legacy-weight-dir` | input | yes | LDSC2 regression-weight suite directory | Exactly one coherent chromosomes 1-22 weight LD-score family. Rows are inner-joined to reference rows by rsID. |
+| `--legacy-frequency-dir` | input | baseline only | LDSC2 `.frq[.gz]` suite directory | Required for baseline conversion to reconstruct strict legacy common counts and overlap; omitted for unpartitioned conversion. |
+| `--output-dir` | output | yes | canonical LDSC3 LD-score directory | Writes `metadata.json`, `ldscore.baseline.parquet`, optional baseline overlap, and conversion diagnostics without modifying source files. |
+| `--snp-identifier` | config | no | output identity | `rsid` (default) or `chr_pos`; allele-aware modes are forbidden because the source suite has no authoritative alleles. All source-family joins still use rsID. |
+| `--genome-build` | config | no | reference coordinate interpretation | `auto` (default), `hg19`, or `hg38`. Required inference applies only to `chr_pos`; rsID output remains buildless and records best-effort evidence as provenance. |
+| `--overwrite` | output mode | no | collision policy | Replaces converter-owned outputs only; legacy inputs remain read-only. |
+| `--log-level` | logging | no | workflow log verbosity | Writes `diagnostics/convert-ldsc2-ldscores.log`. |
+
+There is intentionally no profile flag and no common-MAF threshold flag.
+Profile selection is structural. `.l2.M_5_50` is required and always means the
+strict legacy rule `MAF > 0.05` (or `0.05 < FRQ < 0.95`). `.l2.M` is optional:
+it remains unavailable for an unpartitioned suite when any chromosome is
+missing, while baseline conversion reconstructs missing values from full
+annotations and frequencies. See
+[`legacy-ldscore-conversion.md`](legacy-ldscore-conversion.md).
+
 ### `ldsc munge-sumstats`
 
 | Flag | Direction | Required | Object | Notes |
@@ -343,8 +400,8 @@ written to `diagnostics/sumstats.log`; row-level liftover drops are written to
 `diagnostics/dropped_snps/dropped.tsv.gz`. There is no root metadata sidecar:
 the downstream identity contract is embedded in the parquet footer when parquet
 output is written. The kernel emits package logger records for QC progress and
-preserves its direct legacy-compatible `.sumstats.gz` writer for private/direct
-kernel calls.
+returns an in-memory table; the workflow layer alone writes both Parquet and
+the optional metadata-free gzip artifact.
 
 Column-name flags should usually be omitted. The workflow infers safe aliases
 for common text tables and format profiles, including `EA`/`EFFECT_ALLELE` as
@@ -386,7 +443,7 @@ panels lacking `ldsc:n_samples`. `status` is blank for found pairs and may repor
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regression_ld_scores`, the historical `w_ld` component used when final h2 weights are computed. |
-| `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. |
+| `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. Current self-describing Parquet is native; legacy LDSC2 `.sumstats[.gz]` is automatically projected by rsID onto the canonical LD-score panel. Footerless Parquet is rejected. |
 | `--trait-name` | input metadata | no | output trait label | Optional label override. If omitted, regression uses the sumstats parquet footer `ldsc:trait_name` when present, then the filename fallback. |
 | `--output-dir` | output | no | result output directory | Selects where to write h2 results; defaults to omitted/`None`, so the CLI prints the compact `h2.tsv` schema to stdout and writes no files. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
@@ -408,8 +465,8 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--ldscore-dir` | input | yes | canonical LD-score result directory | Must contain baseline plus query LD scores; baseline-only directories are rejected. |
-| `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. |
+| `--ldscore-dir` | input | yes | canonical LD-score result directory | Requires an overlap artifact. With query columns, runs the cell-type regime (baseline plus one query per model); with no query columns, runs one functional-category model jointly over all baseline columns. This includes explicitly converted baseline-only LDSC2 suites. |
+| `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. Accepts current Parquet or legacy LDSC2 text under the same projection rule as `h2`. |
 | `--trait-name` | input metadata | no | output trait label | Optional label override. If omitted, regression uses the sumstats parquet footer `ldsc:trait_name` when present, then the filename fallback. |
 | `--output-dir` | output | no | result output directory | Selects where to write partitioned-h2 results; defaults to omitted/`None`, so the CLI prints the `partitioned_h2.tsv` schema to stdout and writes no files. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
@@ -434,7 +491,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regression_ld_scores`, the historical `w_ld` component used when final rg/gencov weights are computed. |
-| `--sumstats-sources` | input | yes | two or more munged summary-statistics files | Accepts exact paths and glob patterns. With two files, computes one pair; with three or more files and no anchor, computes all unordered pairs in input order. |
+| `--sumstats-sources` | input | yes | two or more munged summary-statistics files | Accepts exact paths and glob patterns, including mixes of current Parquet and legacy LDSC2 text. Every legacy trait must have `A1/A2`; traits are projected independently and then pairwise harmonized. With two files, computes one pair; with three or more files and no anchor, computes all unordered pairs in input order. |
 | `--anchor-trait` | input selector | no | anchor trait label or path | When supplied, first matches a resolved trait name, then a resolved input path; computes anchor-vs-rest pairs only. |
 | `--output-dir` | output | no | result output directory | Selects where to write the rg output family. RG tables include nominal p-values only. Without it, Python returns `RgResultFamily` and the CLI prints only the concise `rg.tsv` schema to stdout. |
 | `--write-per-pair-detail` | output mode | no | optional pair result tree | Requires `--output-dir`; writes `diagnostics/pairs/manifest.tsv` plus one `rg_full.tsv` and `metadata.json` per attempted pair. |
@@ -507,6 +564,27 @@ Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`, `maf`,
 `r2_ref_panel_dir`, `ref_panel_dir`, `r2_sources`, `metadata_sources`, and
 LD-score `chunk_size`; `use_hm3_ref_panel_snps`, `use_hm3_regression_snps`,
 `exclude_regions_build`, and `exclude_regions_bed` are also removed.
+
+### Gene LD-score index
+
+| Object/function | Argument | Direction | Object |
+|---|---:|---:|---|
+| `GeneLDScoreIndexBuildConfig` | `baseline_annot_sources`, `plink_prefix` | input | baseline suite and PLINK panel |
+| `GeneLDScoreIndexBuildConfig` | `output_dir` | output | complete immutable index directory |
+| `GeneLDScoreIndexBuildConfig` | `padding_bp`, `gene_exclude_regions`, `ld_wind_cm` | model | closed index scientific identity |
+| `GeneLDScoreIndexBuildConfig` | `regression_snps_file`, `exclude_regions` | input | regression row universe |
+| `GeneLDScoreIndexBuildConfig` | `snp_batch_size`, `atom_batch_size`, `threads` | performance | bounded index computation |
+| `build_gene_ldscore_index(config)` | `config` | input/output | staged build and publication workflow |
+
+### LDSC2 LD-score conversion
+
+| Object/function | Argument | Direction | Object |
+|---|---:|---:|---|
+| `LegacyLDScoreConverter.convert(...)` | `legacy_reference_dir`, `legacy_weight_dir` | input | selected complete LDSC2 suite directories |
+| `LegacyLDScoreConverter.convert(...)` | `legacy_frequency_dir` | input | required baseline frequency suite; omitted for unpartitioned conversion |
+| `LegacyLDScoreConverter.convert(...)` | `snp_identifier`, `genome_build` | config | allele-unaware output identity and reference coordinate provenance |
+| `LegacyLDScoreConverter.convert(...)` | `output_dir` | output | canonical LDSC3 LD-score directory plus diagnostics |
+| `convert_ldsc2_ldscores(...)` | same names | input/output | convenience wrapper with no configurable common threshold |
 
 ### Reference-panel building
 
@@ -591,9 +669,11 @@ canonical `SNP`, `CHR`, `POS`, `Z`, and `N` fields when written by
 `ldsc munge-sumstats`, plus an embedded footer identity payload with
 `ldsc:artifact_type`, `ldsc:snp_identifier`, `ldsc:genome_build`, and
 optional `ldsc:trait_name`. `.sumstats.gz` carries no embedded metadata.
-`load_sumstats()` reconstructs the config snapshot from
-that footer payload (or `None` when absent) and resolves labels as explicit
-override, then footer `trait_name`, then filename fallback.
+`load_sumstats()` reconstructs the config snapshot from that footer payload.
+Metadata-free `.sumstats` and `.sumstats.gz` files are marked as LDSC2 legacy
+inputs and projected at the regression boundary; footerless Parquet is rejected.
+Labels resolve as explicit override, then footer `trait_name`, then filename
+fallback.
 Liftover reports, coordinate provenance, selected curated output files, and
 Parquet row groups are log provenance, not sidecar payload.
 Regression therefore merges on the effective identity key: literal `SNP` in

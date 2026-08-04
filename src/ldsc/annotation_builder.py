@@ -1351,6 +1351,9 @@ def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Pat
     for chrom, out_path in zip(bundle.chromosomes, _bundle_query_annot_output_paths(bundle, output_dir)):
         chrom_mask = bundle.metadata["CHR"].astype(str) == str(chrom)
         chrom_meta = bundle.metadata.loc[chrom_mask].reset_index(drop=True).copy()
+        chrom_meta = chrom_meta.rename(columns={"POS": "BP"})
+        metadata_order = [column for column in ("CHR", "BP", "SNP", "CM") if column in chrom_meta.columns]
+        chrom_meta = chrom_meta.loc[:, [*metadata_order, *[c for c in chrom_meta.columns if c not in metadata_order]]]
         chrom_query = bundle.query_annotations.loc[chrom_mask].reset_index(drop=True)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with gzip.open(out_path, "wt") as handle:

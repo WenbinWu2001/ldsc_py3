@@ -12,6 +12,12 @@ refactor: ``metadata.json`` plus split baseline/query parquet tables. Public
 callers pass one ``--ldscore-dir`` input instead of individual LD-score,
 weight, count, and annotation-manifest files.
 
+Legacy LDSC2 ``.sumstats`` and ``.sumstats.gz`` inputs are accepted at this
+boundary. Their rsIDs are lookup keys: each trait is projected onto the
+canonical LD-score panel, allele orientation is validated and harmonized, and
+rejected rows are recorded in a stable diagnostic audit. Legacy LD-score
+fragments are never read here and require explicit conversion first.
+
 Regression chooses either the metadata ``common_reference_snp_counts`` vector or
 ``all_reference_snp_counts`` through ``--count-kind common|all``. The default
 ``common`` mode falls back to all-SNP counts when common counts are unavailable.
@@ -133,7 +139,11 @@ _REGRESSION_SCHEMA_DOC = "docs/troubleshooting.md#common-ldsc-artifact-schema-or
 
 @dataclass(frozen=True)
 class RegressionDataset:
-    """Merged regression-ready dataset built from sumstats and LD-score tables."""
+    """Merged regression-ready dataset built from sumstats and LD-score tables.
+
+    ``legacy_sumstats_drops`` carries stable row-level projection diagnostics
+    when the source was LDSC2 text; it is empty for native LDSC3 inputs.
+    """
     merged: pd.DataFrame
     ref_ld_columns: list[str]
     weight_column: str
@@ -147,6 +157,7 @@ class RegressionDataset:
     effective_snp_identifier: str = "chr_pos_allele_aware"
     identity_downgrade_applied: bool = False
     ldscore_overlap: "LDScoreOverlap | None" = None
+    legacy_sumstats_drops: tuple[dict[str, object], ...] = ()
 
     def validate(self) -> None:
         """Validate that the merged table contains the required LDSC columns."""
@@ -162,7 +173,11 @@ class RegressionDataset:
 
 @dataclass(frozen=True)
 class RGRegressionDataset:
-    """Merged genetic-correlation dataset built from two traits and LD scores."""
+    """Merged genetic-correlation dataset built from two traits and LD scores.
+
+    ``legacy_sumstats_drops`` combines projection diagnostics for both traits
+    before pairwise allele harmonization.
+    """
     merged: pd.DataFrame
     ref_ld_columns: list[str]
     weight_column: str
@@ -175,6 +190,7 @@ class RGRegressionDataset:
     config_snapshot: GlobalConfig | None = None
     effective_snp_identifier: str = "chr_pos_allele_aware"
     identity_downgrade_applied: bool = False
+    legacy_sumstats_drops: tuple[dict[str, object], ...] = ()
 
     def validate(self) -> None:
         """Validate that the merged table contains the required RG columns."""
@@ -269,6 +285,9 @@ class RegressionRunner:
         """
         print_global_config_banner(type(self).__name__, self.global_config)
         config = config or self.regression_config
+        legacy_drops: tuple[dict[str, object], ...] = ()
+        if _is_legacy_sumstats(sumstats_table):
+            sumstats_table, legacy_drops = _project_legacy_sumstats_to_panel(sumstats_table, ldscore_result)
         weight_column = REGRESSION_LD_SCORE_COLUMN
         selected_query_columns = list(query_columns or [])
         ref_ld_columns = list(ldscore_result.baseline_columns) + selected_query_columns
@@ -391,7 +410,7 @@ class RegressionRunner:
                 )
 
         count_totals = _count_totals_for_columns(ldscore_result.count_records, ref_ld_columns)
-        count_key = _select_count_key(count_totals, config.use_common_counts)
+        count_key = _select_count_key(count_totals, config.use_common_counts, ref_ld_columns)
         if dropped_ld_columns:
             dropped_index = [ref_ld_columns.index(column) for column in dropped_ld_columns]
             keep_index = [idx for idx in range(len(ref_ld_columns)) if idx not in dropped_index]
@@ -412,6 +431,7 @@ class RegressionRunner:
             effective_snp_identifier=identifier_mode,
             identity_downgrade_applied=identity.downgrade_applied,
             ldscore_overlap=ldscore_result.overlap,
+            legacy_sumstats_drops=legacy_drops,
         )
         dataset.validate()
         return dataset
@@ -433,6 +453,13 @@ class RegressionRunner:
         """
         print_global_config_banner(type(self).__name__, self.global_config)
         config = config or self.regression_config
+        legacy_drops: list[dict[str, object]] = []
+        if _is_legacy_sumstats(sumstats_table_1):
+            sumstats_table_1, drops = _project_legacy_sumstats_to_panel(sumstats_table_1, ldscore_result)
+            legacy_drops.extend(drops)
+        if _is_legacy_sumstats(sumstats_table_2):
+            sumstats_table_2, drops = _project_legacy_sumstats_to_panel(sumstats_table_2, ldscore_result)
+            legacy_drops.extend(drops)
         identity = _resolve_rg_identity(sumstats_table_1, sumstats_table_2, ldscore_result, self.global_config, config)
         identifier_mode = identity.effective_mode
         for table, label in ((sumstats_table_1, "trait 1"), (sumstats_table_2, "trait 2")):
@@ -484,14 +511,19 @@ class RegressionRunner:
             )
 
         left = left_frame.rename(columns={"N": "N1", "Z": "Z1"})
-        right = right_frame.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2"})
-        right_payload = [column for column in ["A1x", "A2x", "N2", "Z2"] if column in right.columns]
+        left = left.rename(columns={"FRQ": "FRQ1"})
+        right = right_frame.rename(
+            columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2", "FRQ": "FRQ2"}
+        )
+        right_payload = [column for column in ["A1x", "A2x", "N2", "Z2", "FRQ2"] if column in right.columns]
         if is_allele_aware_mode(identifier_mode):
             left_keyed = _with_effective_identity_key(left_frame, identifier_mode, context=sumstats_table_1.source_path or "sumstats")
-            left = left_keyed.rename(columns={"N": "N1", "Z": "Z1"})
+            left = left_keyed.rename(columns={"N": "N1", "Z": "Z1", "FRQ": "FRQ1"})
             right_keyed = _with_effective_identity_key(right_frame, identifier_mode, context=sumstats_table_2.source_path or "sumstats")
-            right = right_keyed.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2"})
-            right_payload = [column for column in ["A1x", "A2x", "N2", "Z2"] if column in right.columns]
+            right = right_keyed.rename(
+                columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2", "FRQ": "FRQ2"}
+            )
+            right_payload = [column for column in ["A1x", "A2x", "N2", "Z2", "FRQ2"] if column in right.columns]
             ldscore_keyed = _with_effective_identity_key(ldscore_frame, identifier_mode, context="LD-score table")
             # LD-score leads the first merge so the result (and the final merge below)
             # inherits its genomic order for valid jackknife block SEs. See build_dataset.
@@ -542,7 +574,10 @@ class RegressionRunner:
                 on=CHR_POS_KEY_COLUMN,
                 sort=False,
             )
-        merged = merged.dropna(how="any").reset_index(drop=True)
+        required_numeric = ["Z1", "N1", "Z2", "N2", weight_column, *ref_ld_columns]
+        merged = merged.dropna(subset=[column for column in required_numeric if column in merged.columns]).reset_index(
+            drop=True
+        )
         if merged.empty:
             raise LDSCInputError(
                 f"rg regression retained no overlapping {identifier_mode} SNPs after merging both sumstats "
@@ -565,6 +600,13 @@ class RegressionRunner:
                     "SNP identifier mode."
                 )
             merged["Z2"] = reg._align_alleles(merged["Z2"].copy(), kept_alleles)
+            if "FRQ2" in merged.columns:
+                flip_index = kept_alleles.map(reg.FLIP_ALLELES).astype(bool)
+                valid_frq = pd.to_numeric(merged["FRQ2"], errors="coerce").between(0.0, 1.0, inclusive="both")
+                transform = flip_index & valid_frq
+                merged.loc[transform, "FRQ2"] = 1.0 - pd.to_numeric(
+                    merged.loc[transform, "FRQ2"], errors="coerce"
+                )
 
         retained_ld_columns = list(ref_ld_columns)
         dropped_ld_columns: list[str] = []
@@ -595,7 +637,7 @@ class RegressionRunner:
             keep_index = [idx for idx in range(len(ref_ld_columns)) if idx not in dropped_index]
             for key, values in list(count_totals.items()):
                 count_totals[key] = np.asarray(values)[keep_index]
-        count_key = _select_count_key(count_totals, config.use_common_counts)
+        count_key = _select_count_key(count_totals, config.use_common_counts, ref_ld_columns)
 
         dataset = RGRegressionDataset(
             merged=merged.reset_index(drop=True),
@@ -610,6 +652,7 @@ class RegressionRunner:
             config_snapshot=ldscore_result.config_snapshot,
             effective_snp_identifier=identifier_mode,
             identity_downgrade_applied=identity.downgrade_applied,
+            legacy_sumstats_drops=tuple(legacy_drops),
         )
         dataset.validate()
         return dataset
@@ -756,8 +799,9 @@ class RegressionRunner:
         Raises
         ------
         ValueError
-            If no query annotations are available or any requested query column
-            is absent from ``ldscore_result.query_columns``.
+            If a requested query column is absent from
+            ``ldscore_result.query_columns``. An empty query set selects the
+            functional-category regime and jointly fits the baseline columns.
         """
         if include_model_categories is not None:
             include_full_partitioned_h2 = include_model_categories
@@ -1062,6 +1106,234 @@ def _snapshot_identity_mode(snapshot: GlobalConfig | None) -> str | None:
     return normalize_snp_identifier_mode(value)
 
 
+def _is_legacy_sumstats(table: SumstatsTable) -> bool:
+    """Return whether ``table`` came from an LDSC2 munged text artifact."""
+    return bool(table.provenance.get("legacy_ldsc2", False)) and "legacy_projection" not in table.provenance
+
+
+def _has_legacy_sumstats_source(table: SumstatsTable) -> bool:
+    """Return whether ``table`` originated from legacy LDSC2 text."""
+    return bool(table.provenance.get("legacy_ldsc2", False))
+
+
+def _project_legacy_sumstats_to_panel(
+    table: SumstatsTable,
+    ldscore_result: LDScoreResult,
+) -> tuple[SumstatsTable, tuple[dict[str, object], ...]]:
+    """Project one LDSC2 munged-sumstats table onto canonical panel identity.
+
+    Legacy ``SNP`` values are treated only as rsID lookup keys. The supplied
+    LD-score panel owns output coordinates and identifier mode. Allele-aware
+    panels also own allele order; allele-unaware panels retain the source
+    alleles so two traits can still be harmonized for genetic correlation.
+
+    Parameters
+    ----------
+    table : SumstatsTable
+        Legacy text table marked with ``provenance['legacy_ldsc2']``.
+    ldscore_result : LDScoreResult
+        Canonical LDSC3 LD-score panel used by the pending regression.
+
+    Returns
+    -------
+    projected : SumstatsTable
+        New working table under the panel's identity configuration. The input
+        object and source file are not mutated.
+    dropped : tuple of dict
+        Stable row-level audit records for rejected source rows.
+
+    Raises
+    ------
+    LDSCInputError
+        If required legacy columns or canonical panel provenance are missing,
+        or no source row can be projected safely.
+    """
+    required = {"SNP", "A1", "A2", "Z", "N"}
+    missing = sorted(required - set(table.data.columns))
+    if missing:
+        raise LDSCInputError(
+            f"Cannot use legacy LDSC2 sumstats '{table.source_path or table.trait_name or 'sumstats'}': "
+            f"required columns are missing: {missing}. Legacy regression compatibility requires SNP, A1, A2, Z, "
+            "and N; allele-less legacy inputs are unsupported for h2, partitioned-h2, and rg."
+        )
+    panel_snapshot = ldscore_result.config_snapshot
+    panel_mode = _snapshot_identity_mode(panel_snapshot)
+    if panel_snapshot is None or panel_mode is None:
+        raise LDSCInputError(
+            "Legacy LDSC2 sumstats projection requires a canonical LD-score panel with recorded "
+            "snp_identifier metadata. Regenerate or explicitly convert the LD-score directory first."
+        )
+    panel_source = ldscore_result.baseline_table
+    missing_panel = sorted({"CHR", "POS", "SNP"} - set(panel_source.columns))
+    if missing_panel:
+        raise LDSCInputError(
+            f"Legacy LDSC2 sumstats projection cannot use the LD-score panel because it is missing {missing_panel}. "
+            "Regenerate the canonical LD-score directory."
+        )
+    allele_aware = is_allele_aware_mode(panel_mode)
+    if allele_aware and not {"A1", "A2"}.issubset(panel_source.columns):
+        raise LDSCInputError(
+            f"Legacy LDSC2 sumstats projection requires panel A1/A2 for snp_identifier='{panel_mode}', "
+            "but the canonical LD-score table does not contain both allele columns."
+        )
+
+    source = table.data.copy()
+    source["SNP"] = source["SNP"].astype("string").str.strip()
+    source["A1"] = source["A1"].astype("string").str.upper().str.strip()
+    source["A2"] = source["A2"].astype("string").str.upper().str.strip()
+    source_rsids = set(source["SNP"].dropna().astype(str)) - {""}
+    panel_snp = panel_source["SNP"].astype("string").str.strip()
+    panel_columns = ["CHR", "POS", "SNP", *(["A1", "A2"] if allele_aware else [])]
+    panel = panel_source.loc[panel_snp.isin(source_rsids), panel_columns].reset_index(drop=True).copy()
+    panel["SNP"] = panel["SNP"].astype("string").str.strip()
+    if allele_aware:
+        panel["A1"] = panel["A1"].astype("string").str.upper().str.strip()
+        panel["A2"] = panel["A2"].astype("string").str.upper().str.strip()
+
+    invalid_frq_count = 0
+    if "FRQ" in source.columns:
+        raw_frq = source["FRQ"]
+        numeric_frq = pd.to_numeric(raw_frq, errors="coerce")
+        invalid_frq = raw_frq.notna() & (~numeric_frq.between(0.0, 1.0, inclusive="both"))
+        invalid_frq_count = int(invalid_frq.sum())
+        source["FRQ"] = numeric_frq.where(numeric_frq.between(0.0, 1.0, inclusive="both"))
+        if invalid_frq_count:
+            LOGGER.warning(
+                "Legacy sumstats '%s' has %d nonnumeric, infinite, or out-of-range FRQ value(s); "
+                "they were retained as missing because regression does not consume FRQ.",
+                table.source_path or table.trait_name or "sumstats",
+                invalid_frq_count,
+            )
+
+    panel_groups = {str(snp): group for snp, group in panel.groupby("SNP", sort=False, dropna=False)}
+    duplicate_source = source["SNP"].notna() & source["SNP"].duplicated(keep=False)
+    rows: list[pd.Series] = []
+    drops: list[dict[str, object]] = []
+    valid_bases = {"A", "C", "G", "T"}
+    ambiguous_pairs = {frozenset(("A", "T")), frozenset(("C", "G"))}
+
+    def audit(row: pd.Series, reason: str, candidate_count: int) -> None:
+        drops.append(
+            {
+                "trait_name": table.trait_name or Path(table.source_path or "sumstats").name,
+                "source_path": table.source_path,
+                "SNP": row.get("SNP"),
+                "A1": row.get("A1"),
+                "A2": row.get("A2"),
+                "reason": reason,
+                "panel_candidate_count": int(candidate_count),
+            }
+        )
+
+    for source_index, row in source.iterrows():
+        snp = row["SNP"]
+        candidates = panel_groups.get(str(snp)) if pd.notna(snp) and str(snp) else None
+        candidate_count = 0 if candidates is None else len(candidates)
+        if bool(duplicate_source.loc[source_index]):
+            audit(row, "duplicate_source_rsid", candidate_count)
+            continue
+        a1, a2 = row["A1"], row["A2"]
+        if pd.isna(a1) or pd.isna(a2) or not str(a1) or not str(a2):
+            audit(row, "missing_allele", candidate_count)
+            continue
+        if a1 not in valid_bases or a2 not in valid_bases or a1 == a2:
+            audit(row, "invalid_allele", candidate_count)
+            continue
+        if frozenset((a1, a2)) in ambiguous_pairs:
+            audit(row, "strand_ambiguous", candidate_count)
+            continue
+        if candidates is None or candidates.empty:
+            audit(row, "missing_panel_rsid", 0)
+            continue
+
+        selected: pd.Series | None = None
+        flip = False
+        if allele_aware:
+            compatible: list[tuple[pd.Series, bool]] = []
+            for _, candidate in candidates.iterrows():
+                orientation = _legacy_allele_orientation(a1, a2, candidate["A1"], candidate["A2"])
+                if orientation is not None:
+                    compatible.append((candidate, orientation))
+            if not compatible:
+                audit(row, "incompatible_alleles", candidate_count)
+                continue
+            if len(compatible) != 1:
+                audit(row, "ambiguous_panel_mapping", candidate_count)
+                continue
+            selected, flip = compatible[0]
+        else:
+            if len(candidates) != 1:
+                audit(row, "ambiguous_panel_mapping", candidate_count)
+                continue
+            selected = candidates.iloc[0]
+
+        projected = row.copy()
+        for column in ("CHR", "POS", "SNP"):
+            projected[column] = selected[column]
+        if allele_aware:
+            projected["A1"] = selected["A1"]
+            projected["A2"] = selected["A2"]
+            if flip:
+                projected["Z"] = -float(projected["Z"])
+                if "FRQ" in projected.index and pd.notna(projected["FRQ"]):
+                    projected["FRQ"] = 1.0 - float(projected["FRQ"])
+        rows.append(projected)
+
+    if not rows:
+        counts = pd.Series([row["reason"] for row in drops], dtype="string").value_counts().to_dict()
+        raise LDSCInputError(
+            f"Legacy LDSC2 sumstats '{table.source_path or table.trait_name or 'sumstats'}' retained no SNPs "
+            f"after projection to the canonical LD-score panel (drop counts: {counts})."
+        )
+    projected_frame = pd.DataFrame(rows).reset_index(drop=True)
+    projected_frame["POS"] = pd.to_numeric(projected_frame["POS"], errors="raise").astype("int64")
+    drop_counts = pd.Series([row["reason"] for row in drops], dtype="string").value_counts(sort=False)
+    if not drop_counts.empty:
+        LOGGER.warning(
+            "Legacy sumstats '%s' projection dropped %d row(s): %s.",
+            table.source_path or table.trait_name or "sumstats",
+            len(drops),
+            ", ".join(f"{reason}={int(count)}" for reason, count in drop_counts.items()),
+        )
+    LOGGER.info(
+        "Projected %d legacy sumstats row(s) from '%s' onto panel identity mode %s; dropped %d.",
+        len(projected_frame),
+        table.source_path or table.trait_name or "sumstats",
+        panel_mode,
+        len(drops),
+    )
+    projected_table = replace(
+        table,
+        data=projected_frame,
+        has_alleles=True,
+        provenance={
+            **table.provenance,
+            "legacy_projection": {
+                "panel_snp_identifier": panel_mode,
+                "retained_rows": len(projected_frame),
+                "dropped_rows": len(drops),
+                "invalid_frq_values": invalid_frq_count,
+            },
+        },
+        config_snapshot=panel_snapshot,
+    )
+    return projected_table, tuple(drops)
+
+
+def _legacy_allele_orientation(source_a1: str, source_a2: str, panel_a1: str, panel_a2: str) -> bool | None:
+    """Return whether a compatible legacy allele relationship swaps A1."""
+    complement = {"A": "T", "T": "A", "C": "G", "G": "C"}
+    if (source_a1, source_a2) == (panel_a1, panel_a2):
+        return False
+    if (complement[source_a1], complement[source_a2]) == (panel_a1, panel_a2):
+        return False
+    if (source_a1, source_a2) == (panel_a2, panel_a1):
+        return True
+    if (complement[source_a1], complement[source_a2]) == (panel_a2, panel_a1):
+        return True
+    return None
+
+
 def _sumstats_identity_mode(
     sumstats_table: SumstatsTable,
     runner_config: GlobalConfig,
@@ -1194,13 +1466,28 @@ def _with_chr_pos_key(frame: pd.DataFrame, *, context: str) -> pd.DataFrame:
     return keyed
 
 
-def _select_count_key(count_totals: dict[str, np.ndarray], use_common_counts: bool) -> str:
+def _select_count_key(
+    count_totals: dict[str, np.ndarray],
+    use_common_counts: bool,
+    columns: Sequence[str] = (),
+) -> str:
     """Pick the regression count vector key, preferring common-SNP counts by default."""
     if use_common_counts and COMMON_COUNT_KEY in count_totals:
         return COMMON_COUNT_KEY
-    if ALL_COUNT_KEY in count_totals:
+    if use_common_counts and ALL_COUNT_KEY in count_totals:
         return ALL_COUNT_KEY
-    return sorted(count_totals.keys())[0]
+    if not use_common_counts and ALL_COUNT_KEY in count_totals:
+        return ALL_COUNT_KEY
+    if not use_common_counts:
+        raise LDSCInputError(
+            "Regression requested all-SNP counts, but all-SNP counts are unavailable for LD-score column(s) "
+            f"{list(columns)}. This is expected for an imported unpartitioned LDSC2 suite when one or more "
+            "chromosome .M files were missing. Use the default common counts or convert a suite with complete .M files."
+        )
+    raise LDSCInputError(
+        "Regression could not find a complete reference-SNP count vector for the requested LD-score columns. "
+        "Regenerate or reconvert the LD-score directory."
+    )
 
 
 def _validate_partitioned_query_columns(ldscore_result: LDScoreResult, query_columns: Sequence[str]) -> list[str]:
@@ -1265,13 +1552,24 @@ def _count_totals_for_columns(count_records: Sequence[dict[str, Any]], columns: 
             "Most likely the LD-score metadata was written by an older version or edited separately from "
             "the parquet tables. Regenerate the LD-score directory with the current `ldsc ldscore`."
         )
-    all_counts = [float(records_by_column[column]["all_reference_snp_count"]) for column in columns]
-    count_totals = {ALL_COUNT_KEY: np.asarray(all_counts, dtype=np.float64)}
+    count_totals: dict[str, np.ndarray] = {}
+    all_values = [records_by_column[column].get("all_reference_snp_count") for column in columns]
+    if all(value is not None and pd.notna(value) for value in all_values):
+        all_counts = np.asarray([float(value) for value in all_values], dtype=np.float64)
+        if not np.isfinite(all_counts).all():
+            raise LDSCInputError("Regression found non-finite all-SNP count metadata in the LD-score directory.")
+        count_totals[ALL_COUNT_KEY] = all_counts
     if all("common_reference_snp_count" in records_by_column[column] for column in columns):
-        count_totals[COMMON_COUNT_KEY] = np.asarray(
-            [float(records_by_column[column]["common_reference_snp_count"]) for column in columns],
-            dtype=np.float64,
-        )
+        common_values = [records_by_column[column].get("common_reference_snp_count") for column in columns]
+        if any(value is None or pd.isna(value) for value in common_values):
+            raise LDSCInputError(
+                "Regression found a malformed common-SNP count record with a missing value. "
+                "Reconvert or regenerate the LD-score directory; common counts never fall back silently."
+            )
+        common_counts = np.asarray([float(value) for value in common_values], dtype=np.float64)
+        if not np.isfinite(common_counts).all():
+            raise LDSCInputError("Regression found non-finite common-SNP count metadata in the LD-score directory.")
+        count_totals[COMMON_COUNT_KEY] = common_counts
     return count_totals
 
 
@@ -2106,7 +2404,11 @@ def run_h2_from_args(args):
         args,
         "h2",
         ["h2.tsv", "diagnostics/metadata.json"],
-        owned_output_names=["h2.tsv", "diagnostics/metadata.json"],
+        owned_output_names=[
+            "h2.tsv",
+            "diagnostics/metadata.json",
+            "diagnostics/dropped_snps/legacy_sumstats.tsv.gz",
+        ],
     )
     with workflow_logging("h2", log_path, log_level=getattr(args, "log_level", "INFO")):
         runner, config = _runner_from_args(args)
@@ -2115,9 +2417,14 @@ def run_h2_from_args(args):
         LOGGER.info(f"Starting h2 regression for '{args.sumstats_file}' using LD-score directory '{args.ldscore_dir}'.")
         sumstats_table = _load_sumstats_table(args.sumstats_file, getattr(args, "trait_name", None))
         ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
+        legacy_drops: tuple[dict[str, object], ...] = ()
+        if _is_legacy_sumstats(sumstats_table):
+            sumstats_table, legacy_drops = _project_legacy_sumstats_to_panel(sumstats_table, ldscore_result)
         _log_effective_regression_identity([sumstats_table], ldscore_result, runner.global_config, config)
         with suppress_global_config_banner():
             dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
+        if legacy_drops:
+            dataset = replace(dataset, legacy_sumstats_drops=legacy_drops)
         hsq = runner.estimate_h2(dataset, config=config)
         effective_chisq_max, n_snps_used = _effective_regression_filter(dataset, config)
         summary = summarize_total_h2(
@@ -2142,6 +2449,14 @@ def run_h2_from_args(args):
                     pop_prev=config.pop_prev,
                 ),
             )
+            audit_path = _write_or_remove_legacy_sumstats_audit(
+                Path(output_dir_arg),
+                legacy_used=_has_legacy_sumstats_source(sumstats_table),
+                drops=legacy_drops,
+                overwrite=getattr(args, "overwrite", False),
+            )
+            if audit_path is not None:
+                written["legacy_sumstats_drops"] = str(audit_path)
             log_outputs(**written)
         LOGGER.info(f"Finished h2 regression with {n_snps_used} regression SNPs.")
     return summary
@@ -2168,6 +2483,7 @@ def run_partitioned_h2_from_args(args):
             "partitioned_h2.tsv",
             "diagnostics/metadata.json",
             "diagnostics/query_annotations",
+            "diagnostics/dropped_snps/legacy_sumstats.tsv.gz",
         ],
     )
     with workflow_logging("partitioned-h2", log_path, log_level=getattr(args, "log_level", "INFO")):
@@ -2179,6 +2495,9 @@ def run_partitioned_h2_from_args(args):
         )
         sumstats_table = _load_sumstats_table(args.sumstats_file, getattr(args, "trait_name", None))
         ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
+        legacy_drops: tuple[dict[str, object], ...] = ()
+        if _is_legacy_sumstats(sumstats_table):
+            sumstats_table, legacy_drops = _project_legacy_sumstats_to_panel(sumstats_table, ldscore_result)
         query_bundle = SimpleNamespace(
             query_columns=_validate_partitioned_query_columns(ldscore_result, ldscore_result.query_columns)
         )
@@ -2229,6 +2548,14 @@ def run_partitioned_h2_from_args(args):
                 },
                 per_query_metadata=per_query_metadata,
             )
+            audit_path = _write_or_remove_legacy_sumstats_audit(
+                Path(output_dir_arg),
+                legacy_used=_has_legacy_sumstats_source(sumstats_table),
+                drops=legacy_drops,
+                overwrite=getattr(args, "overwrite", False),
+            )
+            if audit_path is not None:
+                written["legacy_sumstats_drops"] = str(audit_path)
             log_outputs(**written)
         LOGGER.info(
             f"Finished partitioned-h2 regression for {len(ldscore_result.query_columns)} query annotations "
@@ -2289,6 +2616,7 @@ def run_rg_from_args(args):
             "h2_per_trait.tsv",
             "diagnostics/metadata.json",
             "diagnostics/pairs",
+            "diagnostics/dropped_snps/legacy_sumstats.tsv.gz",
         ],
     )
     sumstats_paths = resolve_file_group(getattr(args, "sumstats_sources", ()), label="sumstats sources")
@@ -2331,6 +2659,14 @@ def run_rg_from_args(args):
             )
         anchor_index = _resolve_anchor_index(getattr(args, "anchor_trait", None), sumstats_paths, sumstats_tables)
         ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
+        legacy_drops: list[dict[str, object]] = []
+        projected_tables: list[SumstatsTable] = []
+        for table in sumstats_tables:
+            if _is_legacy_sumstats(table):
+                table, drops = _project_legacy_sumstats_to_panel(table, ldscore_result)
+                legacy_drops.extend(drops)
+            projected_tables.append(table)
+        sumstats_tables = projected_tables
         _log_effective_regression_identity(sumstats_tables, ldscore_result, runner.global_config, config)
         with suppress_global_config_banner():
             result = runner.estimate_rg_pairs(
@@ -2350,6 +2686,14 @@ def run_rg_from_args(args):
                     write_per_pair_detail=getattr(args, "write_per_pair_detail", False),
                 ),
             )
+            audit_path = _write_or_remove_legacy_sumstats_audit(
+                Path(output_dir_arg),
+                legacy_used=any(_has_legacy_sumstats_source(table) for table in sumstats_tables),
+                drops=tuple(legacy_drops),
+                overwrite=getattr(args, "overwrite", False),
+            )
+            if audit_path is not None:
+                written["legacy_sumstats_drops"] = str(audit_path)
             log_outputs(**written)
         LOGGER.info(
             f"Finished rg regression for {len(result.rg)} trait pairs "
@@ -2417,6 +2761,31 @@ def _preflight_regression_outputs(
         )
     log_path.parent.mkdir(parents=True, exist_ok=True)
     return str(output_dir), log_path
+
+
+def _write_or_remove_legacy_sumstats_audit(
+    output_dir: Path,
+    *,
+    legacy_used: bool,
+    drops: Sequence[dict[str, object]],
+    overwrite: bool,
+) -> Path | None:
+    """Write the stable legacy projection audit, or remove a stale owned copy."""
+    path = output_dir / "diagnostics" / "dropped_snps" / "legacy_sumstats.tsv.gz"
+    if not legacy_used:
+        if overwrite and path.exists():
+            path.unlink()
+        return None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = ["trait_name", "source_path", "SNP", "A1", "A2", "reason", "panel_candidate_count"]
+    pd.DataFrame(list(drops), columns=columns).to_csv(
+        path,
+        sep="\t",
+        index=False,
+        na_rep="",
+        compression={"method": "gzip", "mtime": 0},
+    )
+    return path
 
 
 def _validate_intercept_conflicts(args) -> None:
@@ -2612,6 +2981,7 @@ def load_ldscore_from_dir(
     baseline_columns = [str(column) for column in metadata.get("baseline_columns", [])]
     query_columns = [str(column) for column in metadata.get("query_columns", [])]
     count_records = [dict(record) for record in metadata.get("counts", [])]
+    _validate_count_overlap_config(metadata, root)
     overlap = None
     overlap_rel = files.get("overlap")
     if overlap_rel:
@@ -2672,6 +3042,30 @@ def load_ldscore_from_dir(
         f"{query_rows} query rows, and config provenance {'present' if config_snapshot is not None else 'unknown'}."
     )
     return result
+
+
+def _validate_count_overlap_config(metadata: dict[str, Any], root: Path) -> None:
+    """Require count and overlap metadata to describe one common-SNP universe."""
+    overlap_config = metadata.get("overlap_config")
+    if not overlap_config:
+        return
+    count_config = metadata.get("count_config") or {}
+    count_threshold = count_config.get("common_reference_snp_maf_min")
+    overlap_threshold = overlap_config.get("common_maf_min")
+    count_operator = count_config.get("common_reference_snp_maf_operator")
+    overlap_operator = overlap_config.get("common_maf_operator")
+    thresholds_agree = False
+    try:
+        thresholds_agree = float(count_threshold) == float(overlap_threshold)
+    except (TypeError, ValueError):
+        thresholds_agree = False
+    if not thresholds_agree or count_operator != overlap_operator:
+        raise LDSCInputError(
+            f"Regression cannot load LD-score directory '{root}': count_config and overlap_config disagree "
+            f"about common-SNP semantics (count threshold/operator {count_threshold!r}/{count_operator!r}, "
+            f"overlap {overlap_threshold!r}/{overlap_operator!r}). Reconvert or regenerate the directory so "
+            "counts and overlap use the same threshold and operator."
+        )
 
 
 def _global_config_from_metadata(metadata: dict[str, Any]) -> GlobalConfig | None:

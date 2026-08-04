@@ -512,8 +512,12 @@ class LDScoreDirectoryWriter:
                     else float(overlap.total_common_reference_snps)
                 ),
                 "common_maf_min": float(count_config.get("common_reference_snp_maf_min", 0.05)),
-                "common_maf_operator": ">=",
-                "stored_block": "baseline_rows_plus_query_diagonal",
+                "common_maf_operator": str(count_config.get("common_reference_snp_maf_operator", ">=")),
+                "stored_block": (
+                    "baseline_rows_plus_query_diagonal"
+                    if list(getattr(result, "query_columns", []))
+                    else "baseline_by_baseline"
+                ),
             }
         payload = {
             **identity_metadata,
@@ -549,6 +553,9 @@ class LDScoreDirectoryWriter:
         snp_universe_policy = getattr(result, "snp_universe_policy", None)
         if snp_universe_policy is not None:
             payload["snp_universe_policy"] = dict(snp_universe_policy)
+        legacy_import = getattr(result, "legacy_ldsc2_import", None)
+        if legacy_import is not None:
+            payload["legacy_ldsc2_import"] = dict(legacy_import)
         return payload
 
     def _validate_tables(self, result: Any) -> None:

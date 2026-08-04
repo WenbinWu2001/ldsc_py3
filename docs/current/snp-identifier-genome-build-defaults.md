@@ -1,6 +1,6 @@
 # SNP Identifier / Genome Build: Default Design
 
-Last updated on: 2026-08-03
+Last updated on: 2026-08-04
 
 ## Design Decisions
 
@@ -110,7 +110,8 @@ because they serve different user models.
 | `munge-sumstats` | `chr_pos_allele_aware` | source: `auto`; output: required for coordinate-family modes | Pass `--output-genome-build hg19` or `--output-genome-build hg38`; the raw source build is inferred unless `--source-genome-build hg19/hg38` is supplied. rsid-family modes reject source/output/liftover build flags and store `genome_build=None`. Requires usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. The removed `--no-alleles` flag is not accepted. |
 | `ldscore` | `chr_pos_allele_aware` | `None`; gene-list route treats omission as `auto` | Coordinate modes require a concrete/inferred build. Gene-list projection also requires a build in rsID modes, but shared rsID artifact metadata remains `genome_build=None`. |
 | `build-ref-panel` | registry or `--snp-identifier` | **ignored** | Uses `--source-genome-build` (separate field); `GlobalConfig.genome_build` is never consulted. |
-| `h2`, `partitioned-h2`, `rg` | registry at construction | registry at construction | On-disk provenance from the LD-score `metadata.json` and the sumstats parquet footer takes precedence over the runner's live config; a sumstats without footer metadata has its identifier mode inferred from the LD-score panel. |
+| `h2`, `partitioned-h2`, `rg` | registry at construction | registry at construction | Current Parquet uses footer provenance. Legacy LDSC2 `.sumstats[.gz]` is treated as rsID lookup input and projected onto the LD-score panel's identity; footerless Parquet is rejected. |
+| `convert-ldsc2-ldscores` | `rsid` | `auto` evidence | Output identity is restricted to allele-unaware `rsid` or `chr_pos`. rsID output remains buildless; chr_pos output requires inferred or explicit reference build. |
 | Python `run_ldscore()` wrapper | registry | registry (`"auto"`) | Inherits `chr_pos_allele_aware + auto` from the registry; `auto` is resolved to `hg19`/`hg38` during inference. |
 
 ### `build-ref-panel` isolation

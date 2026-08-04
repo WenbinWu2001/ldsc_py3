@@ -1,5 +1,7 @@
 # ldsc3_Jerry
 
+Last updated on: 2026-08-04
+
 This repository is the active refactored LDSC package.
 
 ## Structure
@@ -124,6 +126,7 @@ Subcommands:
 - `ldsc annotate`
 - `ldsc build-gene-ldscore-index`
 - `ldsc build-ref-panel`
+- `ldsc convert-ldsc2-ldscores`
 - `ldsc ldscore`
 - `ldsc munge-sumstats`
 - `ldsc h2`
@@ -141,8 +144,9 @@ metadata/comment lines are skipped before the real header is parsed. The
 `sumstats.parquet` is self-describing: its `snp_identifier`, `genome_build`, and
 optional `--trait-name` provenance ride in the Parquet footer, so later
 regression commands need only that one file -- no `metadata.json` sidecar is
-written. The legacy `sumstats.sumstats.gz` carries no embedded metadata; a file
-without footer metadata loads with its identifier mode inferred downstream.
+written. The legacy `sumstats.sumstats.gz` carries no embedded metadata and is
+treated as an rsID lookup artifact at regression time. Footerless Parquet is
+rejected rather than guessed.
 Detailed coordinate and liftover bookkeeping is written to `sumstats.log`. The default
 `snp_identifier` is `chr_pos_allele_aware`, which requires usable `A1/A2`; rerun
 with `--snp-identifier chr_pos` to use coordinate identity without
@@ -204,8 +208,10 @@ When no baseline and no query annotations are supplied, the workflow writes a
 synthetic all-ones baseline column named exactly `base` in
 `ldscore.baseline.parquet`.
 Query annotation inputs still require explicit `--baseline-annot-sources`.
-Use this synthetic `base` directory for `ldsc h2` or `ldsc rg`; `ldsc
-partitioned-h2` requires query annotations in the LD-score directory.
+Use this synthetic `base` directory for `ldsc h2` or `ldsc rg`. A baseline-only
+directory is also accepted by `ldsc partitioned-h2` in its functional-category
+regime, although a single all-ones `base` column is a degenerate one-category
+fit rather than a meaningful partitioned analysis.
 The LD-score parquet files remain flat `ldscore.baseline.parquet` and
 `ldscore.query.parquet` files, but they are written with one row group per chromosome. The metadata
 records `row_group_layout`, `baseline_row_groups`, and `query_row_groups` so
@@ -228,6 +234,36 @@ canonical LD-score directory. See
 [mathematical algorithm](docs/current/gene-ldscore-index-mathematics.md).
 Task-oriented walkthroughs cover [building the index](docs/wiki/utility-functionalities/build-gene-ldscore-index.md)
 and [using it for gene-list LD scores](docs/wiki/main-functionalities/ldscore.md).
+
+## LDSC2 compatibility boundary
+
+Backward compatibility is deliberately asymmetric and limited to artifacts
+that are costly or impractical for users to recreate:
+
+- Regression accepts genuine LDSC2 `.sumstats` and `.sumstats.gz` text files
+  automatically. Their `SNP` values are treated as rsID lookup keys and are
+  projected onto the canonical LDSC3 LD-score panel. `A1` and `A2` are required;
+  allele orientation is validated and `Z` is negated when a swap is needed.
+  `FRQ` is optional, is never imputed from the panel, and does not control SNP
+  retention. Footerless Parquet is not treated as a legacy artifact.
+- LDSC2 LD-score fragments are never accepted directly by regression. Run
+  `ldsc convert-ldsc2-ldscores` explicitly with a complete reference directory
+  and a complete regression-weight directory. The converter supports a
+  one-column unpartitioned suite or a complete baseline partitioned suite; the
+  latter also requires a frequency directory. Query/cell-type suites and thin
+  annotations are intentionally unsupported.
+- Converted suites remain allele-unaware (`rsid` by default, or `chr_pos`).
+  `.l2.M_5_50` is required and retains the fixed strict LDSC2 common-frequency
+  rule. There is no converter threshold flag. Missing `.l2.M` is tolerated only
+  under the documented count policy; requesting unavailable all-SNP counts
+  later is an error.
+- LDSC3 does not promise that its outputs can be fed back into LDSC2. The
+  `BP` header written in text `.annot.gz` files is a narrow interoperability
+  convenience, and LDSC3 accepts either `BP` or `POS` when reading them.
+
+See the complete policies for
+[legacy sumstats](docs/current/legacy-sumstats-compatibility.md) and
+[legacy LD-score conversion](docs/current/legacy-ldscore-conversion.md).
 
 ## Python API
 

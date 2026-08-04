@@ -14,6 +14,22 @@ pericentromeric exclusions.
 | `M`, `M_5_50`, and baseline-overlap counts | Broad retained reference/causal universe (with the ordinary MAF threshold for `M_5_50`), not only regression rows |
 | Final `h2`, `rg`, and `partitioned-h2` observations | Intersection of the filtered regression rows, written LD-score rows, regression weights, and munged summary statistics |
 
+## Exact gene LD-score index
+
+The v1 gene index fixes written/regression rows to bundled HapMap3 SNPs minus
+`mhc-and-centromeres`, intersected with retained PLINK rows. This is a fixed
+**regression-row policy**, not an HM3-only reference panel:
+
+- baseline and focal LD scores still receive contributions from the broad
+  retained PLINK universe;
+- non-HM3, MHC, and pericentromeric SNPs remain eligible contributors;
+- counts and overlap sufficient statistics use the broad retained universe;
+- only `regression_ld_scores`/`w_ld` uses the filtered regression set as both
+  rows and contributors.
+
+Indexed mode does not accept a custom regression-SNP file. A different
+regression-row policy requires direct `ldsc ldscore` mode.
+
 ## Consequence for region exclusions
 
 For canonical LDSC-compatible artifacts, MHC and pericentromeric exclusions

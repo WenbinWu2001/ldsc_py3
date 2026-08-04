@@ -144,6 +144,13 @@ The first indexed mode fixes the following separation:
 | `regression_ld_scores` / `w_ld` contributors and rows | The identical filtered regression set |
 | Final regression observations | Intersection of persisted rows, weights, and munged summary statistics |
 
+A description of v1 as “supporting only HapMap3 SNPs” is scientifically
+incorrect. Only the persisted regression-row policy is fixed to bundled,
+region-filtered HapMap3. The reference/contributor universe remains the broad
+retained PLINK set, and non-HapMap3 or excluded-region reference SNPs can
+contribute LD to a persisted HapMap3 row. Implementations and user
+documentation must preserve this distinction.
+
 A custom `--regression-snps-file` or an SNP `--exclude-regions` choice other than `mhc-and-centromeres` is outside the v1 indexed domain and remains available through the direct path. There is no v1 indexed override for the reference universe.
 
 ## Initial supported configurations

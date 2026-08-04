@@ -79,6 +79,10 @@ continues to fit supplied baseline plus `gene_control` plus one focal query.
 
 ## Scientific and resource invariants
 
+The index is not HM3-only. V1 fixes **persisted regression rows** to bundled
+HM3 minus `mhc-and-centromeres`, while LD-score construction and sufficient
+statistics retain the broader reference universe:
+
 - Baseline/query contributors, counts, and overlaps use the broad retained
   PLINK universe, including MHC and centromeric SNPs.
 - Persisted rows and `regression_ld_scores` use bundled HM3 minus
@@ -88,6 +92,10 @@ continues to fit supplied baseline plus `gene_control` plus one focal query.
   the diagonal once, and is neither clamped nor epsilon-pruned.
 - SNP and internal atom columns are built in bounded batches. `--threads`
   defaults to one and can multiply chromosome-local memory.
+
+A custom regression-SNP set is outside the v1 indexed domain and requires
+direct mode. This restriction must not be described as restricting the PLINK
+LD-reference universe to HM3.
 
 The chromosome-22 validation and measured tolerance are recorded in
 [the 2026-08-03 audit](../audits/2026-08-03-exact-gene-ldscore-index-chr22.md).

@@ -73,6 +73,26 @@ the documented source build of both suites before construction. Two hg38 files
 misdeclared as hg19 could agree with each other while projecting hg19 genes and
 region masks onto the wrong coordinates.
 
+## Distinguish reference SNPs from regression SNPs
+
+The v1 builder fixes the **written regression rows** to bundled HapMap3 (HM3)
+SNPs minus MHC and centromeric regions. It does **not** build LD scores from
+HM3 SNPs alone.
+
+- LD-score contributors are all retained SNPs in the PLINK reference panel,
+  including non-HM3, MHC, and pericentromeric SNPs.
+- `M`, `M_5_50`, annotation counts, and overlaps use that same broad retained
+  PLINK universe; only the common-MAF rule further restricts `M_5_50`.
+- Canonical baseline/query output rows are the bundled HM3 set minus MHC and
+  centromeres, intersected with retained PLINK SNPs.
+- `regression_ld_scores` (`w_ld`) uses that filtered regression set as both its
+  rows and contributors.
+
+Therefore, “the index supports only HapMap3 SNPs” is incorrect. The precise v1
+restriction is that the regression-row policy is fixed to bundled filtered HM3;
+a custom regression-SNP set is not supported in indexed mode. Use direct mode
+when a different regression-row policy is required.
+
 ## Set input paths
 
 ```bash

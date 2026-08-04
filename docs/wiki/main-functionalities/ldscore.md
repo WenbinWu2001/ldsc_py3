@@ -11,11 +11,7 @@ and the general tendency of SNPs near genes to carry heritability.
 
 LDSC-SEG used S-LDSC for exactly this kind of conditional gene-set test: a
 specifically expressed gene annotation was fitted with the baseline model and
-an all-genes annotation ([Finucane et al.,
-2018](https://doi.org/10.1038/s41588-018-0081-4); [local
-paper](../../../../docs/ldsc_papers/paper_ldsc-seg.pdf)). An exact index makes the LD-score
-stage fast to repeat across many focal gene lists; the downstream
-`partitioned-h2` model and interpretation remain S-LDSC.
+an all-genes annotation ([Finucane et al., 2018](https://doi.org/10.1038/s41588-018-0081-4). An exact index makes the LD-score stage fast to repeat across many focal gene lists; the downstream `partitioned-h2` model and interpretation remain S-LDSC.
 
 ## Goal
 
@@ -114,6 +110,13 @@ gene_set_ldscores/
   needed by partitioned regression.
 - `metadata.json` records annotation counts, profile identities, catalog and
   control provenance, and SNP-universe policies.
+
+The canonical rows are filtered HM3 regression SNPs, but their baseline and
+gene-set LD scores were accumulated from the broad retained PLINK reference
+universe. Non-HM3 SNPs—including SNPs in MHC and centromeric regions—can
+therefore contribute to an HM3 row's LD score even though they are not written
+as regression rows. Indexed mode fixes this regression-row policy; it is not an
+HM3-only LD-reference calculation.
 
 The output is self-contained. The index does not need to remain installed for
 downstream regression.

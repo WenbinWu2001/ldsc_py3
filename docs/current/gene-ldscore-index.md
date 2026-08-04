@@ -48,6 +48,23 @@ An individual chromosome may have zero regression rows after restriction and
 region subtraction, which produces a warning. The complete build fails if the
 selected chromosome set has zero regression rows in aggregate.
 
+### Baseline LD-score contributor caveat
+
+Protein-coding gene regions do not restrict recomputation of the supplied
+baseline LD scores. For baseline column $c$ and persisted row $j$, the builder
+computes
+
+$$
+l_c(j)=\sum_{k\in\text{retained reference SNPs within the LD window}}
+\widetilde r^2_{jk}A_{kc}.
+$$
+
+Thus, all SNPs in the retained baseline/PLINK intersection are eligible
+contributors; the value $A_{kc}$ determines a SNP's contribution to column
+$c$. Protein-coding intervals define only the disjoint atoms used for
+`gene_control` and focal gene-list annotations. They do not filter the supplied
+baseline matrix or its LD-reference universe.
+
 ## Artifact and identity contract
 
 One output directory contains one complete immutable index:

@@ -123,6 +123,13 @@ therefore contribute to an HM3 row's LD score even though they are not written
 as regression rows. Indexed mode fixes this regression-row policy; it is not an
 HM3-only LD-reference calculation.
 
+> **Caveat: the protein-coding catalog does not gate supplied baseline
+> columns.** Their stored LD scores were computed from the full retained
+> baseline/PLINK reference intersection, weighted by each baseline annotation.
+> Gene regions restrict only `gene_control` and focal gene-list annotations. A
+> SNP outside every protein-coding interval may still contribute to a supplied
+> baseline LD score.
+
 The output is self-contained. The index does not need to remain installed for
 downstream regression.
 

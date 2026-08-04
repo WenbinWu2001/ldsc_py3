@@ -35,6 +35,18 @@ The intersected baseline/PLINK SNPs are the LD-reference contributor, count,
 and overlap universe. Regression candidates and `--exclude-regions` select
 only persisted output rows and `regression_ld_scores` contributors.
 
+> **Caveat: protein-coding regions do not restrict baseline LD scores.** For
+> each supplied baseline column, the builder recomputes LD scores over the full
+> retained baseline/PLINK reference intersection. A retained SNP contributes
+> according to its value in that baseline column, whether or not it lies in a
+> protein-coding gene region. For an all-ones baseline column, every retained
+> reference SNP within the LD window contributes. Protein-coding intervals are
+> used only to construct the disjoint atoms for `gene_control` and focal
+> gene-list annotations; they never redefine the baseline LD-reference
+> universe. Do not prefilter the PLINK or baseline inputs to protein-coding
+> regions unless that narrower reference universe is intentionally the desired
+> scientific input.
+
 ## Prototype chromosome 22
 
 ```bash

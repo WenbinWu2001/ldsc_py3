@@ -26,6 +26,7 @@ import shutil
 import sys
 import tempfile
 import time
+import warnings
 from typing import Sequence
 
 import numpy as np
@@ -48,7 +49,7 @@ from ._kernel.regions import RegionIntervals
 from ._kernel.identifiers import read_snp_restriction_keys
 from ._kernel.snp_identity import RestrictionIdentityKeys
 from ._kernel import regions as kernel_regions
-from ._logging import log_inputs, log_outputs, workflow_logging
+from ._logging import log_inputs, log_outputs, set_workflow_log_path, workflow_logging
 from .annotation_builder import AnnotationBuilder
 from .chromosome_inference import normalize_chromosome
 from .config import AnnotationBuildConfig, GeneLDScoreIndexBuildConfig, GlobalConfig
@@ -156,9 +157,11 @@ def build_gene_ldscore_index(
         not support incremental updates or component reuse. Default is
         ``False``.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
-        Workflow logging threshold. The live log is written to the sibling
-        ``<output_dir>.build/build-gene-ldscore-index.log`` path so it is never
-        part of the replaceable index transaction. Default is ``"INFO"``.
+        Workflow logging threshold. The open log uses hidden sibling
+        ``.<output-name>.build-state/build-gene-ldscore-index.log`` so it is
+        never part of the replaceable index transaction. After success, the
+        closed log moves into ``<output_dir>/diagnostics``. Default is
+        ``"INFO"``.
 
     Returns
     -------
@@ -333,12 +336,14 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 process_id=os.getpid(),
                 hostname=socket.gethostname(),
             )
-            return _run_gene_ldscore_index_build(
+            published_path = _run_gene_ldscore_index_build(
                 args,
                 config,
                 chromosomes,
                 started=started,
             )
+        _finalize_gene_index_log(live_log_path, published_path)
+        return published_path
 
 
 def _run_gene_ldscore_index_build(
@@ -597,31 +602,49 @@ def _run_gene_ldscore_index_build(
 
 @contextmanager
 def _gene_index_build_lock(index_path: Path):
-    """Hold a nonblocking process lock for one absolute index destination."""
+    """Hold nonblocking legacy and current locks for one absolute destination."""
     destination = index_path.expanduser().resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = destination.parent / f".{destination.name}.build-gene-ldscore-index.lock"
-    handle = lock_path.open("a+", encoding="utf-8")
+    build_state = _gene_index_build_state_dir(destination)
+    build_state.mkdir(parents=True, exist_ok=True)
+    legacy_lock_path = destination.parent / f".{destination.name}.build-gene-ldscore-index.lock"
+    lock_paths = (legacy_lock_path, build_state / "build-gene-ldscore-index.lock")
+    handles = []
     try:
-        try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
+        for lock_path in lock_paths:
+            handle = lock_path.open("a+", encoding="utf-8")
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                handle.seek(0)
+                owner = handle.read().strip() or "unknown owner"
+                handle.close()
+                raise LDSCInputError(
+                    f"Another build-gene-ldscore-index process is active for {destination} ({owner}). "
+                    f"Monitor {_gene_index_build_state_dir(destination) / 'build-gene-ldscore-index.log'}."
+                ) from exc
             handle.seek(0)
-            owner = handle.read().strip() or "unknown owner"
-            raise LDSCInputError(
-                f"Another build-gene-ldscore-index process is active for {destination} ({owner}). "
-                f"Monitor {_gene_index_build_state_dir(destination) / 'build-gene-ldscore-index.log'}."
-            ) from exc
-        handle.seek(0)
-        handle.truncate()
-        handle.write(f"pid={os.getpid()} host={socket.gethostname()} target={destination}\n")
-        handle.flush()
+            handle.truncate()
+            handle.write(f"pid={os.getpid()} host={socket.gethostname()} target={destination}\n")
+            handle.flush()
+            handles.append(handle)
         yield
     finally:
-        try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-        finally:
-            handle.close()
+        if handles:
+            try:
+                legacy_lock_path.unlink(missing_ok=True)
+            except OSError as exc:
+                warnings.warn(
+                    f"The obsolete gene-index lock file could not be removed: {legacy_lock_path} "
+                    f"({type(exc).__name__}: {exc}). It is safe to remove when no build is active.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+        for handle in reversed(handles):
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                handle.close()
 
 
 def _preflight_gene_index_output(index_path: Path, *, overwrite: bool) -> None:
@@ -734,20 +757,99 @@ def _recover_gene_index_publication(index_path: Path) -> None:
 def _gene_index_build_state_dir(index_path: Path) -> Path:
     """Return the stable sibling directory for mutable build diagnostics."""
     destination = index_path.expanduser()
+    return destination.with_name(f".{destination.name}.build-state")
+
+
+def _legacy_gene_index_build_state_dir(index_path: Path) -> Path:
+    """Return the visible sidecar path used by the preceding log contract."""
+    destination = index_path.expanduser()
     return destination.with_name(f"{destination.name}.build")
 
 
+def _archive_gene_index_log(log_path: Path, history: Path, *, label: str = "") -> Path:
+    """Move one closed operational log to a collision-resistant history path."""
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    suffix = f".{label}" if label else ""
+    archived = history / f"build-gene-ldscore-index.{timestamp}{suffix}.log"
+    os.replace(log_path, archived)
+    return archived
+
+
+def _migrate_legacy_gene_index_build_state(index_path: Path, build_state: Path) -> None:
+    """Move recognized logs from the former visible ``<index>.build`` sidecar."""
+    legacy = _legacy_gene_index_build_state_dir(index_path)
+    if not legacy.is_dir():
+        return
+    history = build_state / "history"
+    history.mkdir(parents=True, exist_ok=True)
+    legacy_log = legacy / "build-gene-ldscore-index.log"
+    if legacy_log.is_file():
+        _archive_gene_index_log(legacy_log, history, label="legacy")
+    legacy_history = legacy / "history"
+    if legacy_history.is_dir():
+        for source in sorted(legacy_history.iterdir()):
+            if not source.is_file():
+                continue
+            destination = history / source.name
+            if destination.exists():
+                timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+                destination = history / f"{source.stem}.migrated.{timestamp}{source.suffix}"
+            os.replace(source, destination)
+        try:
+            legacy_history.rmdir()
+        except OSError:
+            pass
+    try:
+        legacy.rmdir()
+    except OSError:
+        warnings.warn(
+            f"The former gene-index build-state directory contains unrecognized files and was "
+            f"not removed: {legacy}. Recognized logs were migrated to {build_state}.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+
 def _prepare_gene_index_log(index_path: Path) -> Path:
-    """Archive the prior sidecar log and return the stable live log path."""
+    """Archive prior attempts and return the hidden stable live-log path."""
     build_state = _gene_index_build_state_dir(index_path)
     build_state.mkdir(parents=True, exist_ok=True)
+    _migrate_legacy_gene_index_build_state(index_path, build_state)
     log_path = build_state / "build-gene-ldscore-index.log"
     if log_path.exists():
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
         history = build_state / "history"
         history.mkdir(exist_ok=True)
-        os.replace(log_path, history / f"build-gene-ldscore-index.{timestamp}.log")
+        _archive_gene_index_log(log_path, history)
     return log_path
+
+
+def _finalize_gene_index_log(live_log_path: Path, published_path: Path) -> Path:
+    """Move one closed successful log into the published index diagnostics.
+
+    Log placement occurs after the workflow context writes its ``Finished``
+    footer and closes the file handler. Failure is warning-only because the
+    scientific index has already been published and reload-validated; the live
+    log remains at its hidden path for inspection and later manual movement.
+    """
+    final_log_path = published_path / "diagnostics" / live_log_path.name
+    try:
+        final_log_path.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(live_log_path, final_log_path)
+    except Exception as exc:
+        message = (
+            "The gene LD-score index was published and reload-validated, but the closed workflow "
+            f"log could not be moved into {final_log_path} ({type(exc).__name__}: {exc}). The "
+            f"published index remains valid; the complete log is retained at {live_log_path}."
+        )
+        try:
+            with live_log_path.open("a", encoding="utf-8") as handle:
+                handle.write(f"\n[WARNING] {message}\n")
+        except OSError:
+            pass
+        warnings.warn(message, UserWarning, stacklevel=2)
+        return live_log_path
+    set_workflow_log_path(final_log_path)
+    return final_log_path
 
 
 def _remove_gene_index_transaction(path: Path, *, published: bool) -> bool:
@@ -1082,10 +1184,12 @@ def publish_gene_ldscore_index(
     until their complete replacement has passed staged reload validation.
     Nonempty directories that are neither valid indexes nor recognized
     legacy diagnostics-only failed builds are rejected even with overwrite.
-    Mutable live logs are stored in a sibling build-state directory and never
-    enter the replaceable transaction. Once the destination has been replaced
-    and reload-validated, failure to remove the builder-owned transaction tree
-    is reported as a warning and does not change publication success.
+    Mutable live logs are stored in hidden sibling build state and never enter
+    the replaceable transaction. The workflow wrapper moves the closed
+    successful log into published diagnostics. Once the destination has been
+    replaced and reload-validated, failure to remove the builder-owned
+    transaction tree is reported as a warning and does not change publication
+    success.
     """
     destination = Path(index_dir)
     destination.parent.mkdir(parents=True, exist_ok=True)

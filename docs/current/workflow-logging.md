@@ -106,7 +106,7 @@ header is written and final work before the footer is written.
 | `annotate` | `<output_dir>/diagnostics/annotate.log` |
 | `ldscore` | `<output_dir>/diagnostics/ldscore.log` |
 | `build-ref-panel` | `<output_dir>/diagnostics/build-ref-panel.log`, or `<output_dir>/diagnostics/build-ref-panel.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
-| `build-gene-ldscore-index` | `<index_dir>.build/build-gene-ldscore-index.log`; prior attempts move to `<index_dir>.build/history/` |
+| `build-gene-ldscore-index` | completed success: `<index_dir>/diagnostics/build-gene-ldscore-index.log`; running/failed: `<parent>/.<index-name>.build-state/build-gene-ldscore-index.log`; prior failed attempts move to hidden `history/` |
 | `h2` | `<output_dir>/diagnostics/h2.log` |
 | `partitioned-h2` | `<output_dir>/diagnostics/partitioned-h2.log` |
 | `rg` | `<output_dir>/diagnostics/rg.log` |
@@ -129,8 +129,9 @@ same per-chromosome and aggregate measurements rather than recomputing them.
 
 For a successful run, the final lines identify `index_id`, staged reload
 validation, complete atomic replacement, payload bytes, peak RSS, and the
-validated index path. A failure keeps the `Failed` footer and traceback at the
-same stable sidecar path without creating or modifying an index destination; a
+validated index path. After the `Finished` footer closes the handler, the
+successful log moves into the published index's `diagnostics/`. A failure keeps
+the `Failed` footer and traceback at the hidden live path without creating or modifying an index destination; a
 failed overwrite leaves the old scientific index loadable. Once replacement
 and reload validation complete, cleanup failures are warnings that name the
 retained transaction directory and do not change the successful exit status.

@@ -47,9 +47,9 @@ under `diagnostics/` and then moved into final position as a unit; reruns that
 omit those optional details remove the old tree after a successful overwrite.
 Always-written audit sidecars such as workflow logs and dropped-SNP tables are
 included in the owned family for ordinary result-directory workflows. The
-gene-index builder is the deliberate exception: its mutable log/history family
-lives in sibling `<index-dir>.build/` state and never enters the atomically
-replaceable index artifact.
+gene-index builder is the deliberate exception while running: its open log,
+history, and lock live in hidden sibling `.<index-name>.build-state/`. Once the
+handler closes, the successful log moves into the published index diagnostics.
 
 ## Public Output Layouts
 

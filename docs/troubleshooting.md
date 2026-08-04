@@ -226,12 +226,15 @@ The builder uses the same identifier-key inner intersection as direct
 PLINK-backed `ldscore`. Baseline-only and PLINK-only rows are allowed, dropped,
 and counted. Duplicate effective IDs on either side remain an error because the
 join would be ambiguous; an empty result cannot define an LD universe. Under
-rsID matching, coordinate disagreements warn and use PLINK coordinates. Check
-`<index-dir>.build/build-gene-ldscore-index.log`, confirm the source
+rsID matching, coordinate disagreements warn and use PLINK coordinates. During
+a failed build, check
+`<parent>/.<index-name>.build-state/build-gene-ldscore-index.log`; after a
+successful build, check `<index-dir>/diagnostics/build-gene-ldscore-index.log`.
+Confirm the source
 PLINK panel is hg19, remove duplicate rsIDs, and verify that the two inputs
 actually overlap. A failed first build leaves the index destination absent or
 empty and can be retried directly; the previous log is archived under
-`<index-dir>.build/history/`.
+`<parent>/.<index-name>.build-state/history/`.
 
 ### build-gene-ldscore-index: transaction cleanup remains after success
 
@@ -246,6 +249,12 @@ confirming no build for the same destination is active, remove the reported
 builder-owned path manually or let the next invocation retry recognized
 cleanup. Never delete an unmarked neighboring directory based only on a similar
 name.
+
+The preceding release used a visible `<index-dir>.build/` log directory and a
+standalone hidden lock. On the next invocation, recognized logs/history migrate
+to `.<index-name>.build-state/`, and the obsolete standalone lock participates
+in that transition run before it is removed. Unrecognized files are preserved
+and reported rather than deleted.
 
 ### ldscore: an explicit gene index is missing, corrupt, or incompatible
 

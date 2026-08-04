@@ -148,10 +148,11 @@ duplicate source or target coordinate groups are dropped by default
 (`--duplicate-position-policy drop-all`), with details in `build-ref-panel.log`
 and duplicate-only sidecars under `dropped_snps/`.
 
-Artifact-writing workflows write per-run logs under their output directories,
-except that `build-gene-ldscore-index` keeps mutable logs in the sibling
-`<index-dir>.build/` directory so an open log is never part of an atomic index
-replacement. `munge-sumstats` keeps the historical `sumstats.log` name; other
+Artifact-writing workflows write completed per-run logs under their output
+directories. During `build-gene-ldscore-index`, the open log temporarily lives
+under hidden `.<index-name>.build-state/` so it is never part of an atomic index
+replacement; after its handler closes, a successful log moves into the index's
+`diagnostics/`. `munge-sumstats` keeps the historical `sumstats.log` name; other
 commands use `annotate.log`, `ldscore.log`, `build-ref-panel.log`,
 `build-gene-ldscore-index.log`,
 `h2.log`, `partitioned-h2.log`, or `rg.log`. Concrete single-chromosome

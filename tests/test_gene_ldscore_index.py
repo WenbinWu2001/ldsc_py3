@@ -403,9 +403,15 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
         log_level="INFO",
     )
 
+    legacy_state = tmp_path / "suite.build"
+    legacy_state.mkdir()
+    (legacy_state / "build-gene-ldscore-index.log").write_text(
+        "legacy build log\n", encoding="utf-8"
+    )
     index_dir = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
 
-    log_path = index_dir.with_name(f"{index_dir.name}.build") / "build-gene-ldscore-index.log"
+    build_state = tmp_path / ".suite.build-state"
+    log_path = index_dir / "diagnostics" / "build-gene-ldscore-index.log"
     json_path = index_dir / "diagnostics" / "build-gene-ldscore-index.json"
     log_text = log_path.read_text(encoding="utf-8")
     diagnostics = json.loads(json_path.read_text(encoding="utf-8"))
@@ -424,7 +430,10 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     assert diagnostics["chromosomes"]["22"]["operator_nnz"] == chromosome.operator.nnz
     assert f"operator_nnz={chromosome.operator.nnz}" in log_text
     assert captured_restriction["path"] == Path("custom-regression.tsv")
-    assert not (index_dir / "diagnostics" / "build-gene-ldscore-index.log").exists()
+    assert not (build_state / "build-gene-ldscore-index.log").exists()
+    assert (build_state / "build-gene-ldscore-index.lock").exists()
+    assert any((build_state / "history").glob("*.log"))
+    assert not legacy_state.exists()
 
 
 def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path, monkeypatch):
@@ -489,7 +498,8 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
         gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
 
     index_path = tmp_path / "suite"
-    log_path = tmp_path / "suite.build" / "build-gene-ldscore-index.log"
+    build_state = tmp_path / ".suite.build-state"
+    log_path = build_state / "build-gene-ldscore-index.log"
     log_text = log_path.read_text(encoding="utf-8")
     assert "LDSC build-gene-ldscore-index Started" in log_text
     assert "Chromosome 22 failed during baseline/PLINK identifier intersection" in log_text
@@ -506,7 +516,9 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
     monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", lambda *args, **kwargs: chromosome)
     index_dir = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     assert (index_dir / "metadata.json").exists()
-    assert any((tmp_path / "suite.build" / "history").glob("*.log"))
+    assert (index_dir / "diagnostics" / "build-gene-ldscore-index.log").exists()
+    assert not log_path.exists()
+    assert any((build_state / "history").glob("*.log"))
 
 
 def test_plink_operator_matches_independent_dense_adjusted_r2_reference():
@@ -745,9 +757,42 @@ def test_index_preflight_rejects_nonempty_invalid_directory_even_with_overwrite(
 def test_index_build_lock_rejects_a_second_builder_for_same_absolute_target(tmp_path):
     index_dir = tmp_path / "index"
     with gene_ldscore_index._gene_index_build_lock(index_dir):
-        with pytest.raises(LDSCInputError, match="Another build-gene-ldscore-index"):
+        with pytest.raises(
+            LDSCInputError,
+            match=r"\.index\.build-state/build-gene-ldscore-index\.log",
+        ):
             with gene_ldscore_index._gene_index_build_lock(index_dir):
                 pass
+    assert (
+        tmp_path / ".index.build-state" / "build-gene-ldscore-index.lock"
+    ).exists()
+    assert not (tmp_path / ".index.build-gene-ldscore-index.lock").exists()
+
+
+def test_final_log_move_failure_warns_and_retains_hidden_log(tmp_path, monkeypatch):
+    index_dir = tmp_path / "index"
+    (index_dir / "diagnostics").mkdir(parents=True)
+    build_state = tmp_path / ".index.build-state"
+    build_state.mkdir()
+    live_log = build_state / "build-gene-ldscore-index.log"
+    live_log.write_text("Finished\n", encoding="utf-8")
+    final_log = index_dir / "diagnostics" / live_log.name
+    real_replace = gene_ldscore_index.os.replace
+
+    def fail_final_log_move(source, destination):
+        if Path(source) == live_log and Path(destination) == final_log:
+            raise OSError(16, "injected device or resource busy", str(destination))
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(gene_ldscore_index.os, "replace", fail_final_log_move)
+    with pytest.warns(UserWarning, match="published index remains valid"):
+        authoritative_log = gene_ldscore_index._finalize_gene_index_log(
+            live_log, index_dir
+        )
+
+    assert authoritative_log == live_log
+    assert live_log.exists()
+    assert not final_log.exists()
 
 
 def test_index_publication_recovery_restores_one_valid_owned_backup(tmp_path):

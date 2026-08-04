@@ -30,9 +30,10 @@ Related docs:
 - **Run LDSC regression**: consume munged sumstats and LD-score artifacts to estimate `h2`, partitioned `h2`, or `rg`. Entry points: `ldsc h2`, `ldsc partitioned-h2`, `ldsc rg`, `ldsc.RegressionRunner`
 - **Audit workflow runs**: artifact-writing workflow wrappers create deterministic
   per-run logs around their owned work. The gene-index builder writes its log
-  to `<index-dir>.build/` before destination preflight/recovery so failures do
-  not create a partial index. Logs are audit artifacts and are not included in
-  result `output_paths`.
+  to hidden `.<index-name>.build-state/` before destination preflight/recovery
+  so failures do not create a partial index, then moves a closed successful log
+  into the published `diagnostics/`. Logs are audit artifacts and are not
+  included in result `output_paths`.
 
 ## Layer Structure
 
@@ -146,7 +147,7 @@ This module orchestrates chromosome-wise LD-score computation. It resolves annot
 
 ### `ldsc.gene_ldscore_index`, `ldsc._kernel.gene_ldscore_index`
 
-The workflow module owns the `build-gene-ldscore-index` command, pre-QC baseline/PLINK inner intersection by effective rsID, canonical `index_id`, sibling build-state logging, same-target locking, complete staged publication/recovery, full-index loading, and explicit indexed `ldscore` assembly. The live log stays under `<index-dir>.build/`, outside the replaceable artifact; a missing or empty destination is not mutated before commit, and post-commit transaction cleanup is warning-only. PLINK metadata is authoritative after intersection; duplicate effective IDs and empty intersections fail. The private kernel owns disjoint half-open atoms, Boolean gene-to-atom CSR membership, bounded SNP-by-atom blocks, sufficient statistics, and float64 `Y @ z` assembly. Each index directory is one immutable distribution artifact with no incremental update or component reuse. Indexed output is still a self-contained canonical LD-score directory written by `LDScoreDirectoryWriter`. Architecture invariant: online assembly uses only the explicitly named complete index and never discovers an index or falls back to live computation.
+The workflow module owns the `build-gene-ldscore-index` command, pre-QC baseline/PLINK inner intersection by effective rsID, canonical `index_id`, hidden build-state logging/locking, complete staged publication/recovery, full-index loading, and explicit indexed `ldscore` assembly. The open log stays under `.<index-name>.build-state/`, outside the replaceable artifact; after its handler closes, a successful log moves into the published `diagnostics/`. A missing or empty destination is not mutated before commit, and post-commit transaction or log-placement cleanup is warning-only. PLINK metadata is authoritative after intersection; duplicate effective IDs and empty intersections fail. The private kernel owns disjoint half-open atoms, Boolean gene-to-atom CSR membership, bounded SNP-by-atom blocks, sufficient statistics, and float64 `Y @ z` assembly. Each index directory is one immutable distribution artifact with no incremental update or component reuse. Indexed output is still a self-contained canonical LD-score directory written by `LDScoreDirectoryWriter`. Architecture invariant: online assembly uses only the explicitly named complete index and never discovers an index or falls back to live computation.
 
 ### `ldsc.sumstats_munger`
 
@@ -194,7 +195,8 @@ The kernel layer contains the actual numerical methods and low-level readers. It
   Most workflows create missing directories and reuse existing ones while
   checking fixed output files, including workflow logs, before writing. The
   gene-index builder instead leaves a missing or empty publication destination
-  untouched until commit and writes mutable diagnostics to `<index-dir>.build/`. By
+  untouched until commit and writes live state to hidden
+  `.<index-name>.build-state/`. By
   default an existing artifact raises `FileExistsError`; `--overwrite` or
   `overwrite=True` makes replacement explicit without deleting unrelated files
   or cleaning the directory. Sharded workflows may narrow ownership to the
@@ -211,8 +213,9 @@ The kernel layer contains the actual numerical methods and low-level readers. It
   timestamps and elapsed duration are derived from paired entry/exit timepoints
   so the footer reflects the interval covered by the log. A failed run also
   records the full traceback before the footer. Gene-index publication keeps
-  its open handler outside the replaceable tree and treats cleanup after
-  destination reload validation as warning-only garbage collection.
+  its open handler outside the replaceable tree, moves the closed successful
+  log into the published diagnostics, and treats cleanup after destination
+  reload validation as warning-only garbage collection.
 - **Dependency split**: base package dependencies cover core pandas/numpy/SciPy
   workflows and parquet I/O. PLINK-backed LD computation requires the
   `plink` extra (`bitarray`), BED projection requires the `bed` extra

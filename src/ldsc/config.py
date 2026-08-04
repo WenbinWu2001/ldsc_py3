@@ -559,8 +559,9 @@ class GeneLDScoreIndexBuildConfig:
         PLINK BED/BIM/FAM prefix; ``@`` may stand for chromosome number.
     output_dir : str
         Publication destination for one complete immutable gene LD-score index.
-        Mutable logs and history are written to the sibling
-        ``<output_dir>.build`` directory; a missing or empty destination is not
+        While running, mutable logs/history and locking use hidden sibling
+        ``.<output-name>.build-state``; the closed successful log moves into
+        ``<output_dir>/diagnostics``. A missing or empty destination is not
         mutated before successful publication.
     chromosomes : tuple of str, optional
         Canonical autosome coverage. Default is chromosomes 1 through 22.

@@ -85,11 +85,13 @@ and `--genetic-map-hg19-sources` when BIM cM values are uninformative.
     gene_catalog.parquet
     diagnostics/
         build-gene-ldscore-index.json
+        build-gene-ldscore-index.log
     chromosomes/
         chr1/ ... chr22/
 
-<index-dir>.build/
-    build-gene-ldscore-index.log
+.<index-name>.build-state/        # hidden operational state
+    build-gene-ldscore-index.lock
+    build-gene-ldscore-index.log # running or failed only
     history/
 ```
 
@@ -105,7 +107,7 @@ batch sizes do not define identity. There are no suite or profile IDs.
 
 - missing output: leave it absent until a complete index is published;
 - empty output: leave it empty until a complete index is published;
-- failed build: preserve the sidecar log without creating a partial index;
+- failed build: preserve the hidden live log without creating a partial index;
 - valid existing index: require `--overwrite` and rebuild everything;
 - nonempty invalid output: fail even with `--overwrite`;
 - same absolute target already building: fail immediately and point to the
@@ -122,11 +124,13 @@ failure; the warning reports the retained path for later cleanup.
 Monitor a running build with:
 
 ```bash
-tail -f "${INDEX_ROOT}/production.build/build-gene-ldscore-index.log"
+tail -f "${INDEX_ROOT}/.production.build-state/build-gene-ldscore-index.log"
 ```
 
-The log is the lifecycle status authority. The JSON file is written for a
-successful publication summary; no separate status file is needed.
+On success, the closed log moves to
+`${INDEX_ROOT}/production/diagnostics/build-gene-ldscore-index.log`. The log is
+the lifecycle status authority. The JSON file is written for a successful
+publication summary; no separate status file is needed.
 
 ## Validate from Python
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from argparse import Namespace
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -274,6 +275,180 @@ def test_build_index_command_registers_closed_v1_configuration():
     assert args.common_maf_min == 0.05
     assert args.threads == 1
     assert args.atom_batch_size > 0
+
+
+def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_path, monkeypatch):
+    chromosome, catalog, _suite_identity, _profile_identity = _artifact_payload()
+    identity_rows = chromosome.baseline_rows[["CHR", "POS", "SNP"]].copy()
+    public_bundle = SimpleNamespace(
+        metadata=identity_rows.assign(CM=[0.1, 0.2]),
+        baseline_annotations=pd.DataFrame({"base": [1.0, 1.0]}),
+        baseline_columns=["base"],
+    )
+    fake_catalog = SimpleNamespace(resource="catalog.tsv.gz", release="test", content_sha256="catalog")
+    embedded_catalog = catalog.copy()
+    suite_identity = {
+        "baseline_sources": [{"name": "baseline.22.annot.gz", "sha256": "baseline"}],
+        "plink_sources": [
+            {"chromosome": "22", "kind": kind, "sha256": kind}
+            for kind in ("bed", "bim", "fam")
+        ],
+        "chromosomes": ["22"],
+        "genome_build": "hg19",
+        "snp_identifier": "rsid",
+        "selected_individuals": {"source": "all", "selected_count": 3},
+        "maf_min": None,
+        "common_maf_min": 0.05,
+        "ld_window": {"unit": "cm", "value": 1.0},
+        "genetic_map": "bim_cm",
+        "regression_snps": {"kind": "bundled_hm3"},
+        "snp_exclude_regions": "mhc-and-centromeres",
+    }
+
+    class FakeAnnotationBuilder:
+        def __init__(self, _global_config):
+            pass
+
+        def run(self, _annotation_spec, *, chrom):
+            assert chrom == "22"
+            return public_bundle
+
+    monkeypatch.setattr(gene_ldscore_index, "AnnotationBuilder", FakeAnnotationBuilder)
+    monkeypatch.setattr(gene_ldscore_index.GeneCatalog, "load", lambda: fake_catalog)
+    monkeypatch.setattr(gene_ldscore_index, "_build_embedded_gene_catalog", lambda *args, **kwargs: embedded_catalog)
+    monkeypatch.setattr(gene_ldscore_index, "_load_builder_genetic_map", lambda _args: None)
+    monkeypatch.setattr(gene_ldscore_index, "read_snp_restriction_keys", lambda *args, **kwargs: {"rs1"})
+    monkeypatch.setattr(gene_ldscore_index.kernel_regions, "load_preset_intervals", lambda *args: None)
+    monkeypatch.setattr(gene_ldscore_index, "_read_bim_identity", lambda _prefix: identity_rows.copy())
+    monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", lambda *args, **kwargs: chromosome)
+    monkeypatch.setattr(gene_ldscore_index, "_builder_suite_identity", lambda *args, **kwargs: suite_identity)
+    monkeypatch.setattr(gene_ldscore_index.kernel_ldscore, "resolve_bfile_prefix", lambda *args, **kwargs: "fixture")
+
+    args = Namespace(
+        baseline_annot_sources="baseline.22.annot.gz",
+        plink_prefix="reference/1000G.EUR.QC.22",
+        output_dir=str(tmp_path / "suite"),
+        genome_build="hg19",
+        snp_identifier="rsid",
+        padding_bp=100000,
+        gene_exclude_regions="mhc",
+        ld_wind_cm=1.0,
+        maf_min=None,
+        common_maf_min=0.05,
+        keep_indivs_file=None,
+        genetic_map_hg19_sources=None,
+        genetic_map_hg38_sources=None,
+        chromosomes="22",
+        snp_batch_size=128,
+        atom_batch_size=64,
+        threads=1,
+        overwrite=False,
+        log_level="INFO",
+    )
+
+    profile_dir = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+
+    log_path = profile_dir / "diagnostics" / "build-gene-ldscore-index.log"
+    json_path = profile_dir / "diagnostics" / "build-gene-ldscore-index.json"
+    log_text = log_path.read_text(encoding="utf-8")
+    diagnostics = json.loads(json_path.read_text(encoding="utf-8"))
+
+    assert "LDSC build-gene-ldscore-index Started" in log_text
+    assert "Inputs:" in log_text
+    assert "genome_build" in log_text
+    assert "bundled HM3 minus MHC and centromeres" in log_text
+    assert "broad retained PLINK SNPs" in log_text
+    assert "filtered HM3 SNPs" in log_text
+    assert "Starting chromosome 22" in log_text
+    assert "Finished chromosome 22" in log_text
+    assert "protein-coding genes=2" in log_text
+    assert "Finished " in log_text
+    assert diagnostics["chromosomes"]["22"]["protein_coding_genes"] == 2
+    assert diagnostics["chromosomes"]["22"]["operator_nnz"] == chromosome.operator.nnz
+    assert f"operator_nnz={chromosome.operator.nnz}" in log_text
+
+
+def test_build_index_failure_keeps_phase_log_without_publishing_profile(tmp_path, monkeypatch):
+    chromosome, catalog, suite_identity, _profile_identity = _artifact_payload()
+    identity_rows = chromosome.baseline_rows[["CHR", "POS", "SNP"]].copy()
+    public_bundle = SimpleNamespace(
+        metadata=identity_rows.assign(CM=[0.1, 0.2]),
+        baseline_annotations=pd.DataFrame({"base": [1.0, 1.0]}),
+        baseline_columns=["base"],
+    )
+    fake_catalog = SimpleNamespace(resource="catalog.tsv.gz", release="test", content_sha256="catalog")
+    embedded_catalog = catalog.copy()
+
+    class FakeAnnotationBuilder:
+        def __init__(self, _global_config):
+            pass
+
+        def run(self, _annotation_spec, *, chrom):
+            return public_bundle
+
+    monkeypatch.setattr(gene_ldscore_index, "AnnotationBuilder", FakeAnnotationBuilder)
+    monkeypatch.setattr(gene_ldscore_index.GeneCatalog, "load", lambda: fake_catalog)
+    monkeypatch.setattr(gene_ldscore_index, "_build_embedded_gene_catalog", lambda *args, **kwargs: embedded_catalog)
+    monkeypatch.setattr(gene_ldscore_index, "_builder_suite_identity", lambda *args, **kwargs: suite_identity)
+    monkeypatch.setattr(gene_ldscore_index, "_load_builder_genetic_map", lambda _args: None)
+    monkeypatch.setattr(gene_ldscore_index, "read_snp_restriction_keys", lambda *args, **kwargs: {"rs1"})
+    monkeypatch.setattr(gene_ldscore_index.kernel_regions, "load_preset_intervals", lambda *args: None)
+    monkeypatch.setattr(gene_ldscore_index, "_read_bim_identity", lambda _prefix: identity_rows.copy())
+    monkeypatch.setattr(gene_ldscore_index.kernel_ldscore, "resolve_bfile_prefix", lambda *args, **kwargs: "fixture")
+
+    def fail_strict_identity(*args, **kwargs):
+        raise LDSCInputError("strict baseline/BIM mismatch in fixture")
+
+    monkeypatch.setattr(gene_ldscore_index, "validate_strict_baseline_plink_identity", fail_strict_identity)
+    args = Namespace(
+        baseline_annot_sources="baseline.22.annot.gz",
+        plink_prefix="reference/1000G.EUR.QC.22",
+        output_dir=str(tmp_path / "suite"),
+        genome_build="hg19",
+        snp_identifier="rsid",
+        padding_bp=100000,
+        gene_exclude_regions="mhc",
+        ld_wind_cm=1.0,
+        maf_min=None,
+        common_maf_min=0.05,
+        keep_indivs_file=None,
+        genetic_map_hg19_sources=None,
+        genetic_map_hg38_sources=None,
+        chromosomes="22",
+        snp_batch_size=128,
+        atom_batch_size=64,
+        threads=1,
+        overwrite=False,
+        log_level="INFO",
+    )
+
+    with pytest.raises(LDSCInputError, match="strict baseline/BIM mismatch"):
+        gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+
+    log_path = (
+        tmp_path
+        / "suite"
+        / "profiles"
+        / "padding-100000bp-mhc"
+        / "diagnostics"
+        / "build-gene-ldscore-index.log"
+    )
+    log_text = log_path.read_text(encoding="utf-8")
+    assert "LDSC build-gene-ldscore-index Started" in log_text
+    assert "Chromosome 22 failed during strict baseline/BIM validation" in log_text
+    assert "LDSCInputError" in log_text
+    assert "Failed " in log_text
+    assert not (tmp_path / "suite" / "metadata.json").exists()
+    assert not (tmp_path / "suite" / "profiles" / "padding-100000bp-mhc" / "metadata.json").exists()
+
+    monkeypatch.setattr(
+        gene_ldscore_index,
+        "validate_strict_baseline_plink_identity",
+        lambda baseline, plink, *, chrom: baseline,
+    )
+    monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", lambda *args, **kwargs: chromosome)
+    profile_dir = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+    assert (profile_dir / "metadata.json").exists()
 
 
 def test_plink_operator_matches_independent_dense_adjusted_r2_reference():

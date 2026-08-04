@@ -106,6 +106,7 @@ header is written and final work before the footer is written.
 | `annotate` | `<output_dir>/diagnostics/annotate.log` |
 | `ldscore` | `<output_dir>/diagnostics/ldscore.log` |
 | `build-ref-panel` | `<output_dir>/diagnostics/build-ref-panel.log`, or `<output_dir>/diagnostics/build-ref-panel.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
+| `build-gene-ldscore-index` | `<suite_dir>/profiles/<profile>/diagnostics/build-gene-ldscore-index.log` |
 | `h2` | `<output_dir>/diagnostics/h2.log` |
 | `partitioned-h2` | `<output_dir>/diagnostics/partitioned-h2.log` |
 | `rg` | `<output_dir>/diagnostics/rg.log` |
@@ -113,6 +114,24 @@ header is written and final work before the footer is written.
 Regression commands without `--output-dir` stay console-only and do not create
 log files; their progress records print to the console (stderr) via the routing
 described above.
+
+## Exact gene-index build log
+
+The exact gene-index builder uses the same lifecycle banner, `Call:`, `Inputs:`,
+`Outputs:`, and `Finished`/`Failed` footer as the other artifact-building
+commands. Its concise INFO narrative records resolved configuration and input
+counts, the broad retained-PLINK versus filtered-HM3 SNP universes, start and
+completion for each chromosome, protein-coding genes after exclusion, retained
+and regression rows, atom/operator nonzeros, component bytes, and publication
+state. The JSON sidecar is the machine-readable summary; the log renders the
+same per-chromosome and aggregate measurements rather than recomputing them.
+
+For a successful run, the final lines identify `suite_id`, `profile_id`, common
+creation/reuse, staged reload validation, targeted overwrite, preserved sibling
+profiles, atomic publication, total payload bytes, peak RSS, and the validated
+profile path. A failure keeps the `Failed` footer and traceback in the same
+profile diagnostics location while leaving scientific metadata unpublished; a
+diagnostics-only failed directory is safe for a subsequent retry.
 
 ## API Boundary
 

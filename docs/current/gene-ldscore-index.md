@@ -56,6 +56,24 @@ bind scientific inputs. Publication stages and reload-validates all components;
 `--overwrite` replaces only the targeted profile, preserves sibling profiles,
 and reuses common data only under the same suite identity.
 
+## Build diagnostics
+
+`diagnostics/build-gene-ldscore-index.log` follows the shared LDSC workflow
+format. It records the effective hg19/rsID configuration, resolved input counts,
+keep-individual and MAF policies, whether cM came from an explicit hg19 map or
+informative BIM cM, and the fixed bundled-HM3-minus-MHC-and-centromeres
+regression-row policy. Each participating chromosome has a concise start and
+finish record with protein-coding genes after exclusion and padding, pre-QC and
+retained-reference counts, genotype-QC/MAF removals, regression rows, atoms,
+`nnz(Y)`, and component bytes. The final summary reports the semantic IDs,
+publication validation, aggregate atoms/nonzeros, payload bytes, peak RSS, and
+validated profile path.
+
+`build-gene-ldscore-index.json` stores the same measurements for machine use.
+The log is retained with a failed footer and traceback when strict baseline/BIM
+validation or staged publication fails; no loadable scientific profile is
+published in that case.
+
 ## Assemble a gene-list run
 
 ```bash

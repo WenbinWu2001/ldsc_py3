@@ -303,6 +303,11 @@ class PreparedPlinkChromosome:
     metadata: pd.DataFrame
     annotation_matrix: np.ndarray
     block_left: np.ndarray
+    reference_rows_before_genotype_qc: int = 0
+    genotype_qc_removed: int = 0
+    maf_removed: int = 0
+    selected_individual_count: int = 0
+    cm_source: str = "bim_cm"
 
 
 # Basic configuration and shared helpers.
@@ -1753,8 +1758,8 @@ def prepare_plink_chromosome(
             f"ldscore retained no PLINK reference SNPs on chromosome {chrom} after genotype filtering."
         )
     require_reference_maf(geno_meta, chrom)
+    genetic_map = getattr(args, "genetic_map", None)
     if args.ld_wind_cm is not None:
-        genetic_map = getattr(args, "genetic_map", None)
         if genetic_map is not None:
             from .ref_panel_builder import interpolate_genetic_map_cm
 
@@ -1774,6 +1779,11 @@ def prepare_plink_chromosome(
         metadata=geno_meta.drop(columns="_key").reset_index(drop=True),
         annotation_matrix=annotation_matrix,
         block_left=np.asarray(block_left),
+        reference_rows_before_genotype_qc=len(metadata),
+        genotype_qc_removed=int(getattr(geno, "genotype_qc_removed", 0)),
+        maf_removed=int(getattr(geno, "maf_removed", 0)),
+        selected_individual_count=int(geno.n),
+        cm_source="explicit_genetic_map" if genetic_map is not None else "bim_cm",
     )
 
 

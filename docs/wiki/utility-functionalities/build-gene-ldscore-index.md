@@ -141,7 +141,17 @@ Check:
 ```
 
 The JSON records wall time, peak RSS, batch settings, row counts, atom count,
-operator nonzeros, and payload bytes.
+operator nonzeros, protein-coding gene counts, SNP-filter counts, component
+bytes, publication state, and payload bytes. The adjacent log is the concise
+human-readable operational record: it uses the shared LDSC lifecycle format,
+reports `Starting chromosome X`/`Finished chromosome X`, and explains that
+broad retained PLINK SNPs contribute to LD scores and counts while filtered HM3
+SNPs are persisted regression rows. It also reports the effective map source,
+keep-individual source, MAF policy, and validated profile path.
+
+On failure, inspect the same log for the failing phase, chromosome, exception,
+and traceback. Scientific metadata is not published; a diagnostics-only failed
+directory can be retried with the same output path.
 
 ## Build the chromosomes 1–22 suite
 

@@ -1,6 +1,7 @@
 # Exact gene LD-score index chromosome-22 gate
 
 Date: 2026-08-03
+Last updated on: 2026-08-03
 
 Status: passed locally for both approved baseline suites. This gate permits a
 separate production whole-genome construction; no production whole-genome suite
@@ -64,3 +65,37 @@ Deterministic unit tests cover chromosome-6 separation of gene MHC filtering
 from the broad LD-score contributor universe. A full chromosome-6 resource
 measurement and production chromosomes 1–22 construction remain HPC/distribution
 operations, not prerequisites hidden by this local gate.
+
+## Human-readable logging gate
+
+The fresh baseline chromosome-22 run at
+`/private/tmp/codex_gene_index_logging_fresh_chr22_20260803_baseline` confirms
+that the operational log is written through shared workflow logging and is
+reloaded beside the structured JSON summary:
+
+- [fresh log](/private/tmp/codex_gene_index_logging_fresh_chr22_20260803_baseline/profiles/padding-100000bp-mhc/diagnostics/build-gene-ldscore-index.log)
+- [fresh JSON](/private/tmp/codex_gene_index_logging_fresh_chr22_20260803_baseline/profiles/padding-100000bp-mhc/diagnostics/build-gene-ldscore-index.json)
+
+The log contains the shared lifecycle header/footer, resolved hg19/rsID and
+1 cM configuration, baseline/PLINK/map/sample resolution counts, the broad
+retained-PLINK versus filtered-HM3 SNP-universe explanation, and explicit
+`Starting chromosome 22`/`Finished chromosome 22` progress. The chromosome
+summary records 426 protein-coding genes after MHC exclusion and 100 kb padding,
+141,123 pre-QC and retained-reference rows, 17,380 regression rows, 838 atoms,
+and `nnz(Y)=614,523`. The JSON carries the same values; its log is 6,190 bytes
+versus 454 bytes for the previous summary-only log, while the scientific build
+completed successfully and the final profile reloaded.
+
+Representative excerpt:
+
+```text
+Starting chromosome 22.
+Finished chromosome 22: protein-coding genes=426, retained-reference=141123,
+regression-rows=17380, atoms=838, nnz(Y)=614523, elapsed=104.858s.
+SNP universe: broad retained PLINK SNPs are LD-score contributors and count/overlap members;
+filtered HM3 SNPs are persisted regression rows; w_ld uses the filtered regression set as rows and contributors.
+```
+
+The focused failure test also confirms that strict baseline/BIM failures retain
+the `Failed` footer, phase, exception, and traceback without publishing suite or
+profile metadata; diagnostics-only output is recoverable by a subsequent retry.

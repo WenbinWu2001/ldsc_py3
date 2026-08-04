@@ -18,6 +18,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import socket
 import shutil
 import sys
 import tempfile
@@ -44,6 +45,7 @@ from ._kernel.regions import RegionIntervals
 from ._kernel.identifiers import read_snp_restriction_keys
 from ._kernel.snp_identity import RestrictionIdentityKeys
 from ._kernel import regions as kernel_regions
+from ._logging import log_inputs, log_outputs, set_workflow_log_path, workflow_logging
 from .annotation_builder import AnnotationBuilder
 from .chromosome_inference import normalize_chromosome
 from .config import AnnotationBuildConfig, GeneLDScoreIndexBuildConfig, GlobalConfig
@@ -275,6 +277,64 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
         atom_batch_size=args.atom_batch_size,
         threads=args.threads,
     )
+
+    profile_name = f"padding-{config.padding_bp}bp-{config.gene_exclude_regions}"
+    final_log_path = (
+        Path(config.output_dir)
+        / "profiles"
+        / profile_name
+        / "diagnostics"
+        / "build-gene-ldscore-index.log"
+    )
+    Path(config.output_dir).parent.mkdir(parents=True, exist_ok=True)
+    log_stage_dir = Path(
+        tempfile.mkdtemp(prefix=f".{Path(config.output_dir).name}.gene-index-log-", dir=Path(config.output_dir).parent)
+    )
+    staged_log_path = log_stage_dir / final_log_path.name
+    try:
+        with workflow_logging("build-gene-ldscore-index", staged_log_path, log_level=args.log_level):
+            log_inputs(
+                output_dir=str(config.output_dir),
+                genome_build=config.genome_build,
+                snp_identifier=config.snp_identifier,
+                chromosomes=", ".join(chromosomes),
+                baseline_annot_sources=", ".join(config.baseline_annot_sources),
+                plink_prefix=config.plink_prefix,
+                ld_wind_cm=config.ld_wind_cm,
+                padding_bp=config.padding_bp,
+                gene_exclude_regions=config.gene_exclude_regions,
+                maf_min=config.maf_min,
+                common_maf_min=config.common_maf_min,
+                keep_indivs_file=config.keep_indivs_file or "all individuals",
+                genetic_map="explicit hg19 map" if getattr(args, "genetic_map_hg19_sources", None) else "BIM cM fallback",
+                regression_policy="bundled HM3 minus MHC and centromeres",
+                snp_batch_size=config.snp_batch_size,
+                atom_batch_size=config.atom_batch_size,
+                threads=config.threads,
+                effective_log_level=args.log_level,
+                process_id=os.getpid(),
+                hostname=socket.gethostname(),
+            )
+            return _run_gene_ldscore_index_build(
+                args,
+                config,
+                chromosomes,
+                started=started,
+                profile_name=profile_name,
+            )
+    finally:
+        _materialize_gene_index_log(staged_log_path, final_log_path, log_stage_dir)
+
+
+def _run_gene_ldscore_index_build(
+    args: argparse.Namespace,
+    config: GeneLDScoreIndexBuildConfig,
+    chromosomes: tuple[str, ...],
+    *,
+    started: float,
+    profile_name: str,
+) -> Path:
+    """Run the scientific builder inside its shared workflow log context."""
     catalog = GeneCatalog.load()
     embedded_catalog = _build_embedded_gene_catalog(
         catalog,
@@ -289,60 +349,97 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
     genetic_map = _load_builder_genetic_map(args)
 
     def build_one(chrom: str) -> tuple[str, IndexChromosomeData, dict]:
-        public_bundle = AnnotationBuilder(global_config).run(annotation_spec, chrom=chrom)
-        chrom_mask = public_bundle.metadata["CHR"].astype(str) == chrom
-        metadata = public_bundle.metadata.loc[chrom_mask].reset_index(drop=True)
-        baseline = public_bundle.baseline_annotations.loc[chrom_mask].reset_index(drop=True)
-        if metadata.empty:
-            raise LDSCInputError(f"No baseline annotation rows were found for chromosome {chrom}.")
-        kernel_bundle = kernel_ldscore.AnnotationBundle(
-            metadata=metadata,
-            annotations=baseline,
-            baseline_columns=list(public_bundle.baseline_columns),
-            query_columns=[],
-        )
-        kernel_args = argparse.Namespace(
-            bfile=config.plink_prefix,
-            keep=config.keep_indivs_file,
-            maf_min=config.maf_min,
-            maf=None,
-            snp_identifier="rsid",
-            ld_wind_snps=None,
-            ld_wind_kb=None,
-            ld_wind_cm=config.ld_wind_cm,
-            yes_really=False,
-            snp_batch_size=config.snp_batch_size,
-            common_maf_min=config.common_maf_min,
-            genetic_map=genetic_map,
-        )
-        prefix = kernel_ldscore.resolve_bfile_prefix(kernel_args, chrom=chrom)
-        if prefix is None:
-            raise LDSCInputError(f"Could not resolve PLINK prefix for chromosome {chrom}.")
-        bim_rows = _read_bim_identity(prefix)
-        validate_strict_baseline_plink_identity(metadata, bim_rows, chrom=chrom)
-        chrom_catalog = embedded_catalog.loc[embedded_catalog["CHR"].astype(str) == chrom].sort_values(
-            "chromosome_gene_row", kind="mergesort"
-        )
-        intervals = chrom_catalog[["start0", "end"]].to_numpy(dtype=np.int64)
-        included = chrom_catalog["included"].to_numpy(dtype=bool)
-        record = build_plink_index_chromosome(
-            chrom,
-            kernel_bundle,
-            kernel_args,
-            regression_keys=regression_keys,
-            regression_regions=regression_regions,
-            gene_intervals=intervals,
-            included=included,
-            padding_bp=config.padding_bp,
-            atom_batch_size=config.atom_batch_size,
-        )
+        chrom_started = time.perf_counter()
+        LOGGER.info(f"Starting chromosome {chrom}.")
+        phase = "baseline annotation resolution"
+        try:
+            public_bundle = AnnotationBuilder(global_config).run(annotation_spec, chrom=chrom)
+            chrom_mask = public_bundle.metadata["CHR"].astype(str) == chrom
+            metadata = public_bundle.metadata.loc[chrom_mask].reset_index(drop=True)
+            baseline = public_bundle.baseline_annotations.loc[chrom_mask].reset_index(drop=True)
+            if metadata.empty:
+                raise LDSCInputError(f"No baseline annotation rows were found for chromosome {chrom}.")
+            kernel_bundle = kernel_ldscore.AnnotationBundle(
+                metadata=metadata,
+                annotations=baseline,
+                baseline_columns=list(public_bundle.baseline_columns),
+                query_columns=[],
+            )
+            kernel_args = argparse.Namespace(
+                bfile=config.plink_prefix,
+                keep=config.keep_indivs_file,
+                maf_min=config.maf_min,
+                maf=None,
+                snp_identifier="rsid",
+                ld_wind_snps=None,
+                ld_wind_kb=None,
+                ld_wind_cm=config.ld_wind_cm,
+                yes_really=False,
+                snp_batch_size=config.snp_batch_size,
+                common_maf_min=config.common_maf_min,
+                genetic_map=genetic_map,
+            )
+            prefix = kernel_ldscore.resolve_bfile_prefix(kernel_args, chrom=chrom)
+            if prefix is None:
+                raise LDSCInputError(f"Could not resolve PLINK prefix for chromosome {chrom}.")
+            bim_rows = _read_bim_identity(prefix)
+            phase = "strict baseline/BIM validation"
+            validate_strict_baseline_plink_identity(metadata, bim_rows, chrom=chrom)
+            chrom_catalog = embedded_catalog.loc[embedded_catalog["CHR"].astype(str) == chrom].sort_values(
+                "chromosome_gene_row", kind="mergesort"
+            )
+            intervals = chrom_catalog[["start0", "end"]].to_numpy(dtype=np.int64)
+            included = chrom_catalog["included"].to_numpy(dtype=bool)
+            phase = "genotype QC and atomic LD-score construction"
+            record = build_plink_index_chromosome(
+                chrom,
+                kernel_bundle,
+                kernel_args,
+                regression_keys=regression_keys,
+                regression_regions=regression_regions,
+                gene_intervals=intervals,
+                included=included,
+                padding_bp=config.padding_bp,
+                atom_batch_size=config.atom_batch_size,
+            )
+        except Exception as exc:
+            LOGGER.error(
+                f"Chromosome {chrom} failed during {phase}: {type(exc).__name__}: {exc}"
+            )
+            raise
+        protein_coding_genes = int(included.sum())
+        genes_with_atoms = int(np.count_nonzero(np.diff(record.atom_model.gene_to_atom.indptr)))
+        rows_before_genotype_qc = int(record.reference_rows_before_genotype_qc or record.total_reference_snps_all)
+        genotype_qc_removed = int(record.genotype_qc_removed)
+        maf_removed = int(record.maf_removed)
         evidence = {
             "pre_qc_rows": int(len(bim_rows)),
+            "reference_rows_before_genotype_qc": rows_before_genotype_qc,
+            "annotation_intersection_removed": int(len(bim_rows) - rows_before_genotype_qc),
             "retained_reference_rows": int(record.total_reference_snps_all),
+            "retained_common_reference_rows": int(record.total_reference_snps_common),
+            "genotype_qc_removed": genotype_qc_removed,
+            "maf_removed": maf_removed,
+            "genotype_qc_or_maf_removed": genotype_qc_removed + maf_removed,
             "regression_rows": int(len(record.baseline_rows)),
+            "baseline_bim_identity": "exact",
+            "protein_coding_genes": protein_coding_genes,
+            "genes_with_padded_atoms": genes_with_atoms,
             "atom_count": int(record.atom_model.n_atoms),
             "operator_nnz": int(record.operator.nnz),
+            "nnz_Y": int(record.operator.nnz),
+            "snp_batch_size": int(config.snp_batch_size),
+            "atom_batch_size": int(config.atom_batch_size),
+            "maf_filter_policy": "disabled" if config.maf_min is None else f">={config.maf_min}",
+            "cm_source": record.cm_source,
+            "elapsed_seconds": time.perf_counter() - chrom_started,
         }
+        LOGGER.info(
+            f"Finished chromosome {chrom}: protein-coding genes={protein_coding_genes}, "
+            f"retained-reference={evidence['retained_reference_rows']}, "
+            f"regression-rows={evidence['regression_rows']}, atoms={evidence['atom_count']}, "
+            f"nnz(Y)={evidence['nnz_Y']}, elapsed={evidence['elapsed_seconds']:.3f}s."
+        )
         return chrom, record, evidence
 
     if config.threads == 1 or len(chromosomes) == 1:
@@ -366,16 +463,30 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
         "padding_bp": config.padding_bp,
         "gene_exclude_regions": config.gene_exclude_regions,
     }
-    profile_name = f"padding-{config.padding_bp}bp-{config.gene_exclude_regions}"
-    profile_path = publish_gene_ldscore_index(
-        config.output_dir,
-        profile_name=profile_name,
-        suite_identity=suite_identity,
-        profile_identity=profile_identity,
-        gene_catalog=embedded_catalog,
-        chromosomes=chromosome_data,
-        overwrite=bool(args.overwrite),
-    )
+    suite_path = Path(config.output_dir)
+    target_profile_path = suite_path / "profiles" / profile_name
+    suite_existed = suite_path.exists()
+    common_existed = (suite_path / "common").exists()
+    target_profile_existed = target_profile_path.exists()
+    sibling_profiles_before = _profile_names(suite_path, exclude=profile_name)
+    suite_id = calculate_suite_id(suite_identity)
+    profile_id = calculate_profile_id(suite_id, profile_identity)
+    try:
+        profile_path = publish_gene_ldscore_index(
+            config.output_dir,
+            profile_name=profile_name,
+            suite_identity=suite_identity,
+            profile_identity=profile_identity,
+            gene_catalog=embedded_catalog,
+            chromosomes=chromosome_data,
+            overwrite=bool(args.overwrite),
+        )
+    except Exception as exc:
+        LOGGER.error(
+            f"Gene LD-score index build failed during staged validation/publication: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        raise
     diagnostics = profile_path / "diagnostics"
     diagnostics.mkdir(exist_ok=True)
     elapsed = time.perf_counter() - started
@@ -384,46 +495,224 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
     peak_rss = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     if sys.platform != "darwin":
         peak_rss *= 1024
-    payload_bytes = sum(path.stat().st_size for path in profile_path.parent.parent.rglob("*") if path.is_file())
+    payload_bytes = _scientific_payload_bytes(suite_path)
+    for chrom, values in evidence_by_chrom.items():
+        values["common_payload_bytes"] = _directory_payload_bytes(suite_path / "common" / f"chr{chrom}")
+        values["profile_payload_bytes"] = _directory_payload_bytes(profile_path / f"chr{chrom}")
+    selected_individuals = suite_identity.get("selected_individuals", {})
+    plink_sources = suite_identity.get("plink_sources", [])
+    map_identity = suite_identity.get("genetic_map", "bim_cm")
+    if isinstance(map_identity, dict):
+        map_source = "explicit hg19 map"
+        map_file_count = len(map_identity.get("sources", []))
+    else:
+        map_source = "BIM cM fallback"
+        map_file_count = 0
+    publication = {
+        "suite_existed": suite_existed,
+        "common": "reused" if common_existed else "created",
+        "target_profile_existed": target_profile_existed,
+        "targeted_overwrite": bool(args.overwrite),
+        "staging_reload_validation": "passed",
+        "atomic_publication": "completed",
+        "sibling_profiles_preserved": sibling_profiles_before,
+        "profile_path": str(profile_path),
+    }
     diagnostic_payload = {
-        "suite_id": calculate_suite_id(suite_identity),
-        "profile_id": calculate_profile_id(calculate_suite_id(suite_identity), profile_identity),
+        "suite_id": suite_id,
+        "profile_id": profile_id,
         "elapsed_seconds": elapsed,
         "peak_rss_bytes": peak_rss,
         "payload_bytes": payload_bytes,
         "snp_batch_size": config.snp_batch_size,
         "atom_batch_size": config.atom_batch_size,
         "threads": config.threads,
+        "effective_log_level": args.log_level,
+        "configuration": {
+            "genome_build": config.genome_build,
+            "snp_identifier": config.snp_identifier,
+            "chromosomes": list(chromosomes),
+            "baseline_annot_sources": list(config.baseline_annot_sources),
+            "plink_prefix": config.plink_prefix,
+            "ld_window": {"unit": "cm", "value": config.ld_wind_cm},
+            "padding_bp": config.padding_bp,
+            "gene_exclude_regions": config.gene_exclude_regions,
+            "maf_min": config.maf_min,
+            "common_maf_min": config.common_maf_min,
+            "keep_individuals": "all" if config.keep_indivs_file is None else "keep_file",
+            "genetic_map": map_source,
+            "regression_policy": "bundled HM3 minus MHC and centromeres",
+        },
+        "input_resolution": {
+            "baseline_annotation_files": len(suite_identity.get("baseline_sources", [])),
+            "plink_bed_files": sum(source.get("kind") == "bed" for source in plink_sources),
+            "plink_bim_files": sum(source.get("kind") == "bim" for source in plink_sources),
+            "plink_fam_files": sum(source.get("kind") == "fam" for source in plink_sources),
+            "chromosome_shards": len(chromosomes),
+            "genetic_map_files": map_file_count,
+            "selected_individual_count": selected_individuals.get("selected_count"),
+            "keep_individual_source": selected_individuals.get("source", "all"),
+            "strict_baseline_bim_identity": {
+                chrom: values["baseline_bim_identity"] for chrom, values in evidence_by_chrom.items()
+            },
+            "map_validation": "passed and informative",
+        },
+        "publication": publication,
         "chromosomes": evidence_by_chrom,
+        "totals": {
+            "chromosome_count": len(chromosomes),
+            "protein_coding_genes": sum(values["protein_coding_genes"] for values in evidence_by_chrom.values()),
+            "atom_count": sum(values["atom_count"] for values in evidence_by_chrom.values()),
+            "operator_nnz": sum(values["operator_nnz"] for values in evidence_by_chrom.values()),
+            "regression_rows": sum(values["regression_rows"] for values in evidence_by_chrom.values()),
+            "retained_reference_rows": sum(values["retained_reference_rows"] for values in evidence_by_chrom.values()),
+        },
     }
     _write_json(
         diagnostics / "build-gene-ldscore-index.json",
         diagnostic_payload,
     )
-    strict_rows = ", ".join(
-        f"chr{chrom}={values['pre_qc_rows']}" for chrom, values in evidence_by_chrom.items()
-    )
-    (diagnostics / "build-gene-ldscore-index.log").write_text(
-        "\n".join(
-            [
-                "Gene LD-score index build completed and validated.",
-                f"suite_id: {diagnostic_payload['suite_id']}",
-                f"profile_id: {diagnostic_payload['profile_id']}",
-                f"chromosomes: {', '.join(chromosomes)}",
-                f"strict baseline/BIM rows: {strict_rows}",
-                f"snp_batch_size: {config.snp_batch_size}",
-                f"atom_batch_size: {config.atom_batch_size}",
-                f"threads: {config.threads}",
-                f"payload_bytes: {payload_bytes}",
-                f"peak_rss_bytes: {peak_rss}",
-                f"elapsed_seconds: {elapsed:.6f}",
-                "publication: staged, reloaded, validated, and atomically replaced",
-                "",
-            ]
-        ),
-        encoding="utf-8",
+    _log_gene_index_summary(diagnostic_payload)
+    log_outputs(
+        suite_id=suite_id,
+        profile_id=profile_id,
+        profile=str(profile_path),
+        summary_json=str(diagnostics / "build-gene-ldscore-index.json"),
+        publication="staged, reloaded, validated, and atomically replaced",
     )
     return profile_path
+
+
+def _materialize_gene_index_log(staged_log_path: Path, final_log_path: Path, stage_dir: Path) -> None:
+    """Copy the live workflow log into the published profile or failure location."""
+    try:
+        if staged_log_path.exists():
+            final_log_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(staged_log_path, final_log_path)
+            set_workflow_log_path(final_log_path)
+    finally:
+        if stage_dir.exists():
+            shutil.rmtree(stage_dir, ignore_errors=True)
+
+
+def _profile_names(suite_path: Path, *, exclude: str | None = None) -> list[str]:
+    """Return existing sibling profile names without reading profile payloads."""
+    profiles = suite_path / "profiles"
+    if not profiles.is_dir():
+        return []
+    return sorted(
+        path.name for path in profiles.iterdir() if path.is_dir() and path.name != exclude
+    )
+
+
+def _directory_payload_bytes(path: Path) -> int:
+    """Return the byte size of one scientific artifact component."""
+    if not path.exists():
+        return 0
+    return sum(file.stat().st_size for file in path.rglob("*") if file.is_file())
+
+
+def _scientific_payload_bytes(suite_path: Path) -> int:
+    """Return suite bytes excluding human-readable and JSON diagnostics."""
+    total = 0
+    for file in suite_path.rglob("*"):
+        if not file.is_file() or "diagnostics" in file.parts:
+            continue
+        total += file.stat().st_size
+    return total
+
+
+def _is_abandoned_gene_index_profile(path: Path) -> bool:
+    """Recognize a diagnostics-only profile left by a failed build."""
+    if not path.is_dir() or (path / "metadata.json").exists():
+        return False
+    files = [file for file in path.rglob("*") if file.is_file()]
+    return bool(files) and all(
+        file.relative_to(path).parts == ("diagnostics", "build-gene-ldscore-index.log")
+        for file in files
+    )
+
+
+def _is_abandoned_gene_index_suite(path: Path) -> bool:
+    """Recognize a diagnostics-only suite left by a failed first build."""
+    if not path.is_dir() or (path / "metadata.json").exists():
+        return False
+    files = [file for file in path.rglob("*") if file.is_file()]
+    if not files:
+        return False
+    for file in files:
+        relative = file.relative_to(path)
+        if (
+            len(relative.parts) != 4
+            or relative.parts[0] != "profiles"
+            or relative.parts[2] != "diagnostics"
+            or relative.parts[3] != "build-gene-ldscore-index.log"
+        ):
+            return False
+    return True
+
+
+def _log_gene_index_summary(payload: dict) -> None:
+    """Render the shared diagnostic payload as a concise operational narrative."""
+    config = payload["configuration"]
+    inputs = payload["input_resolution"]
+    publication = payload["publication"]
+    totals = payload["totals"]
+    LOGGER.info("Gene LD-score index build configuration resolved.")
+    LOGGER.info(
+        f"Build settings: build={config['genome_build']}, identity={config['snp_identifier']}, "
+        f"chromosomes={','.join(config['chromosomes'])}, ld-window={config['ld_window']['value']} "
+        f"{config['ld_window']['unit']}, padding={config['padding_bp']} bp, "
+        f"gene-exclusion={config['gene_exclude_regions']}, maf-min={config['maf_min']}, "
+        f"common-maf-min={config['common_maf_min']}, keep-individuals={config['keep_individuals']}, "
+        f"map={config['genetic_map']}."
+    )
+    LOGGER.info(
+        f"Resolved inputs: baseline-files={inputs['baseline_annotation_files']}, "
+        f"PLINK bed/bim/fam={inputs['plink_bed_files']}/{inputs['plink_bim_files']}/"
+        f"{inputs['plink_fam_files']}, map-files={inputs['genetic_map_files']}, "
+        f"chromosome-shards={inputs['chromosome_shards']}, "
+        f"selected-individuals={inputs['selected_individual_count']} "
+        f"({inputs['keep_individual_source']})."
+    )
+    LOGGER.info(
+        "SNP universe: broad retained PLINK SNPs are LD-score contributors and count/overlap members; "
+        "filtered HM3 SNPs are persisted regression rows; w_ld uses the filtered regression set as rows and contributors."
+    )
+    LOGGER.info("Regression-row policy: bundled HM3 minus MHC and centromeres.")
+    for chrom in payload["chromosomes"]:
+        values = payload["chromosomes"][chrom]
+        LOGGER.info(
+            f"Chromosome {chrom} metrics: pre-QC={values['pre_qc_rows']}, "
+            f"strict-baseline-BIM={values['baseline_bim_identity']}, "
+            f"annotation-intersection-removed={values['annotation_intersection_removed']}, "
+            f"genotype-QC-removed={values['genotype_qc_removed']}, "
+            f"MAF-removed={values['maf_removed']} (policy={values['maf_filter_policy']}), "
+            f"retained-reference={values['retained_reference_rows']}, "
+            f"common-reference={values['retained_common_reference_rows']}, "
+            f"regression-rows={values['regression_rows']}, "
+            f"protein-coding genes={values['protein_coding_genes']}, "
+            f"genes-with-padded-atoms={values['genes_with_padded_atoms']}, "
+            f"atoms={values['atom_count']}, nnz(Y)={values['nnz_Y']}, "
+            f"operator_nnz={values['operator_nnz']}, "
+            f"common-bytes={values['common_payload_bytes']}, "
+            f"profile-bytes={values['profile_payload_bytes']}, "
+            f"elapsed={values['elapsed_seconds']:.3f}s."
+        )
+    LOGGER.info(
+        f"Publication: suite_id={payload['suite_id']}, profile_id={payload['profile_id']}, "
+        f"common={publication['common']}, target-overwrite={publication['targeted_overwrite']}, "
+        f"sibling-profiles-preserved={len(publication['sibling_profiles_preserved'])}, "
+        f"staged-reload={publication['staging_reload_validation']}, "
+        f"atomic-publication={publication['atomic_publication']}."
+    )
+    LOGGER.info(
+        f"Gene LD-score index build completed and validated: chromosomes={totals['chromosome_count']}, "
+        f"protein-coding genes={totals['protein_coding_genes']}, atoms={totals['atom_count']}, "
+        f"operator_nnz={totals['operator_nnz']}, payload_bytes={payload['payload_bytes']}, "
+        f"peak_rss_bytes={payload['peak_rss_bytes']}, elapsed_seconds={payload['elapsed_seconds']:.6f}, "
+        f"profile={publication['profile_path']}."
+    )
 
 
 def _read_bim_identity(prefix: str) -> pd.DataFrame:
@@ -550,6 +839,11 @@ class IndexChromosomeData:
     operator: sparse.csr_matrix
     atom_statistics: AtomStatistics
     reference_metadata: pd.DataFrame
+    reference_rows_before_genotype_qc: int = 0
+    genotype_qc_removed: int = 0
+    maf_removed: int = 0
+    selected_individual_count: int = 0
+    cm_source: str = "bim_cm"
 
 
 @dataclass(frozen=True)
@@ -600,11 +894,13 @@ def publish_gene_ldscore_index(
     stage_parent = Path(tempfile.mkdtemp(prefix=f".{destination.name}.stage-", dir=destination.parent))
     staged_suite = stage_parent / destination.name
     try:
-        if destination.exists():
+        if destination.exists() and not _is_abandoned_gene_index_suite(destination):
             root = _read_json(destination / "metadata.json", "suite root")
             _validate_metadata_identity(root, suite_id=suite_id)
             shutil.copytree(destination, staged_suite)
         else:
+            if destination.exists():
+                shutil.rmtree(destination)
             staged_suite.mkdir()
             _write_json(
                 staged_suite / "metadata.json",
@@ -618,10 +914,13 @@ def publish_gene_ldscore_index(
             _write_common_layer(staged_suite, suite_id, suite_identity, chromosomes)
         profile_dir = staged_suite / "profiles" / profile_name
         if profile_dir.exists() and not overwrite:
-            raise FileExistsError(
-                f"Gene LD-score index profile already exists: {destination / 'profiles' / profile_name}. "
-                "Pass --overwrite to replace only this profile."
-            )
+            if _is_abandoned_gene_index_profile(profile_dir):
+                shutil.rmtree(profile_dir)
+            else:
+                raise FileExistsError(
+                    f"Gene LD-score index profile already exists: {destination / 'profiles' / profile_name}. "
+                    "Pass --overwrite to replace only this profile."
+                )
         if profile_dir.exists():
             shutil.rmtree(profile_dir)
         _write_profile_layer(
@@ -1165,6 +1464,11 @@ def build_plink_index_chromosome(
         operator=operator,
         atom_statistics=atom_statistics,
         reference_metadata=metadata.copy(),
+        reference_rows_before_genotype_qc=prepared.reference_rows_before_genotype_qc,
+        genotype_qc_removed=prepared.genotype_qc_removed,
+        maf_removed=prepared.maf_removed,
+        selected_individual_count=prepared.selected_individual_count,
+        cm_source=prepared.cm_source,
     )
 
 

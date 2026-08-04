@@ -24,6 +24,8 @@ class __GenotypeArrayInMemory__(object):
         self.n = n
         self.keep_snps = keep_snps
         self.keep_indivs = keep_indivs
+        self.genotype_qc_removed = 0
+        self.maf_removed = 0
         self.df = np.array(snp_list.df[["CHR", "SNP", "BP", "CM"]])
         self.colnames = ["CHR", "SNP", "POS", "CM"]
         self.mafMin = mafMin if mafMin is not None else 0
@@ -300,6 +302,8 @@ if ba is not None:
             if keep_snps is None:
                 keep_snps = range(m)
             m_poly = 0
+            genotype_qc_removed = 0
+            maf_removed = 0
             y = None if self._streaming else ba.bitarray()
             kept_snps = []
             freq = []
@@ -315,14 +319,20 @@ if ba is not None:
                 f = major_ct / (2 * n_nomiss) if n_nomiss > 0 else 0
                 het_miss_ct = a + b - 2 * c
                 maf = np.minimum(f, 1 - f)
-                # Drop monomorphic SNPs (folded MAF == 0; zero variance) always;
-                # apply the user MAF floor inclusively (MAF >= mafMin).
-                if maf > 0 and maf >= mafMin and het_miss_ct < n_eff:
+                # Drop monomorphic/missing SNPs as genotype QC, then apply the
+                # user MAF floor inclusively (MAF >= mafMin).
+                if maf <= 0 or het_miss_ct >= n_eff:
+                    genotype_qc_removed += 1
+                elif maf < mafMin:
+                    maf_removed += 1
+                else:
                     freq.append(f)
                     if not self._streaming:
                         y += z
                     m_poly += 1
                     kept_snps.append(int(j))
+            self.genotype_qc_removed = genotype_qc_removed
+            self.maf_removed = maf_removed
             return (y, m_poly, n_eff, kept_snps, freq)
 
         def nextSNPs(self, b, dtype=np.float64):

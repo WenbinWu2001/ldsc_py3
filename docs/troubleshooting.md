@@ -228,7 +228,11 @@ contain exactly the same genomic identity rows after canonical sorting.
 Reordering is allowed; intersection is not. Use baseline annotations generated
 for the same PLINK suite, inspect duplicates and position/rsID conflicts, and
 rebuild the mismatched source. Do not work around this check with a looser SNP
-identifier mode.
+identifier mode. The builder keeps
+`profiles/<profile>/diagnostics/build-gene-ldscore-index.log` with the failed
+phase and traceback, but does not publish a loadable profile. The log also
+distinguishes broad retained-PLINK contributors from filtered HM3 regression
+rows, so a successful log should not describe the index as HM3-only.
 
 ### ldscore: an explicit gene index is missing, corrupt, or incompatible
 

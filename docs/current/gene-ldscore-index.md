@@ -174,12 +174,6 @@ fallback.
 
 **`gene_control` is a binary baseline annotation consists of the selected (padded) control genes. Its default is `all-protein-coding` (all eligible protein-coding genes); use `none` to omit it or provide one custom control-list path.** It captures broad protein-coding-gene background enrichment; the focal gene-list regression coefficient (`tau`) represents the incremental per-SNP heritability beyond that background and the other baseline annotations, not a standalone causal effect. Overlapping, nested, duplicated, and alias-selected genes use Boolean union. The stored operator is float64, preserves negative adjusted-r-squared values, and is not clamped or epsilon-pruned.
 
-
-
-It captures the broad
-protein-coding-gene background enrichment, so focal gene-list effects are estimated conditional on that background rather than interpreted as standalone causal effects. Overlapping, nested, duplicated, and alias-selected genes use Boolean union. The stored operator is float64, preserves negative adjusted-r-squared values, and is not
-clamped or epsilon-pruned.
-
 The broader intersected PLINK/baseline universe supplies LD-score contributors,
 counts, and overlaps. Only the configured regression restriction and region
 policy select persisted rows and `regression_ld_scores` contributors.

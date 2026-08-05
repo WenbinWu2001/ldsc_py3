@@ -270,7 +270,7 @@ Indexes default to chromosomes 1-22. `--chromosomes` may build a prototype subse
 | `total_reference_snps_all` | scalar, int64 |
 | `total_reference_snps_common` | scalar, int64 |
 
-The baseline payload is produced by the builder; it is not copied byte-for-byte from the legacy baseline LD-score files. Source baseline annotation files are provenance-bearing offline inputs and are not required online.
+The baseline payload is produced by the builder; it is not copied byte-for-byte from the legacy baseline LD-score files. The builder consumes the baseline `.annot.gz` shards but does not consume colocated `.l2.ldscore.gz`/`.ldscore.gz`, `.M`, `.M_5_50`, or existing regression-weight LD-score files. It recomputes $L_A=PRA$, baseline counts and overlaps, and $w=PRp$ from the selected PLINK data and effective index configuration so that they share the same reference intersection, samples, filtering, map/window, adjusted-$r^2$ behavior, and regression-row policy as $Y=PRH$. Source baseline annotation files are provenance-bearing offline inputs and are not required online.
 
 ### Gene-index payload
 

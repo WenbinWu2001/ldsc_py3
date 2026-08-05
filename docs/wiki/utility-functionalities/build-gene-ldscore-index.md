@@ -47,6 +47,27 @@ only persisted output rows and `regression_ld_scores` contributors.
 > regions unless that narrower reference universe is intentionally the desired
 > scientific input.
 
+### Which baseline-suite files are used?
+
+The builder uses baseline **annotation** shards as the matrix to which the new
+PLINK LD operator is applied. It does not reuse LD scores or counts previously
+distributed beside those annotations.
+
+| Baseline-suite component | Used by index builder? |
+| --- | --- |
+| `baseline.N.annot.gz` | **Yes.** Supplies the baseline annotation matrix. |
+| `baseline.N.l2.ldscore.gz` or another precomputed `.ldscore.gz` | **No.** Baseline LD scores are recomputed from the selected PLINK genotypes and current index settings. |
+| `.M` and `.M_5_50` | **No.** Annotation counts are recomputed over the retained reference universe. |
+| PLINK BED/BIM/FAM | **Yes.** Supplies genotypes, variant identities, authoritative coordinates, alleles, and BIM cM values when used. |
+| Existing regression-weight LD scores | **No.** `regression_ld_scores` is recomputed for the selected regression rows. |
+
+This is intentional. Recalculation keeps the supplied baseline block, gene
+operator, counts, overlaps, and regression weights consistent with the same
+PLINK samples, genotype/MAF filtering, baseline/PLINK intersection, genetic
+map, LD window, adjusted-$r^2$ implementation, and regression-row policy. A
+legacy `.ldscore.gz` file may have been produced under different choices even
+when it is distributed in the same baseline suite.
+
 ## Prototype chromosome 22
 
 ```bash

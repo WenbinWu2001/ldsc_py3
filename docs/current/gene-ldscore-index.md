@@ -65,6 +65,25 @@ $c$. Protein-coding intervals define only the disjoint atoms used for
 `gene_control` and focal gene-list annotations. They do not filter the supplied
 baseline matrix or its LD-reference universe.
 
+### Baseline-suite component usage
+
+The builder consumes annotation values and reconstructs the numerical baseline
+payload; it does not import the suite's precomputed LD-score or count files.
+
+| Baseline-suite component | Used by index builder? |
+| --- | --- |
+| `baseline.N.annot.gz` | **Yes.** Supplies $A$, the baseline annotation matrix. |
+| `baseline.N.l2.ldscore.gz` or another precomputed `.ldscore.gz` | **No.** The builder recomputes $L_A=PRA$. |
+| `.M` and `.M_5_50` | **No.** Counts are recomputed over the retained reference and common-SNP universes. |
+| PLINK BED/BIM/FAM | **Yes.** Supplies genotypes and PLINK-authoritative SNP metadata. |
+| Existing regression-weight LD scores | **No.** The builder recomputes $w=PRp$. |
+
+Recomputation guarantees that $L_A$, the atom operator $Y=PRH$, counts,
+overlaps, and $w$ share the index's selected individuals, genotype and MAF
+filters, reference intersection, map/window, adjusted-$r^2$ implementation,
+and regression-row policy. Merely residing beside the annotation shards does
+not make a legacy `.ldscore.gz`, `.M`, or `.M_5_50` file an index input.
+
 ## Artifact and identity contract
 
 One output directory contains one complete immutable index:

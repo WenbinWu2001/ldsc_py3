@@ -58,6 +58,9 @@ OUTPUT_ROOT="/users/w/e/wenbinwu/Sullivan/LDSC/ldsc3_test_bundle/tutorial_output
 - Results and plots interpretation (which columns to use in each scenario, and what they mean).
 - How to reuse previously generated annotations for partitioned LDSC.
 - Refine memory and run-time numbers with proper benchmarking rather than guessing from log files. In particular, the SLURM memory figure for `ldscore` is inaccurate (it somehow always reports the allocated memory minus 2 MB).
+- complete main functionality wiki. add link in this guided tutorial. 
+- go with quarto?
+- User checklist: genome build, etc.
 
 ## Munge-sumstats
 

@@ -1,5 +1,7 @@
 # Partitioned LDSC Result Columns
 
+TODO: add an example output file str.
+
 This page describes the tabular outputs from `ldsc partitioned-h2`. The summaries
 are **overlap-aware**: they reproduce the legacy `--overlap-annot` math, in which
 each category's heritability is propagated through the annotation overlap matrix

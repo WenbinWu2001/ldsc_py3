@@ -12,7 +12,7 @@ import pytest
 from ldsc.config import GlobalConfig, RegressionConfig
 from ldsc.errors import LDSCInputError
 from ldsc.ldscore_calculator import LDScoreResult
-from ldsc.regression_runner import RegressionRunner
+from ldsc.regression_runner import RegressionRunner, _project_legacy_sumstats_to_panel
 from ldsc.sumstats_munger import SumstatsTable, load_sumstats
 
 
@@ -177,6 +177,132 @@ def test_legacy_allele_aware_projection_covers_all_four_safe_orientations() -> N
     assert dataset.merged["A2"].tolist() == ["C"] * 4
 
 
+def test_legacy_allele_aware_projection_matches_scalar_compatibility_snapshot() -> None:
+    """Lock the scalar implementation's finalized output and audit semantics."""
+    panel = _panel(
+        pd.DataFrame(
+            {
+                "CHR": ["1"] * 15,
+                "POS": [10, 20, 30, 40, 50, 51, 60, 61, 70, 80, 90, 100, 110, 120, 130],
+                "SNP": [
+                    "direct",
+                    "complement",
+                    "swap",
+                    "swap_complement",
+                    "disambiguated",
+                    "disambiguated",
+                    "ambiguous",
+                    "ambiguous",
+                    "incompatible",
+                    "invalid",
+                    "missing_allele",
+                    "palindromic",
+                    "duplicate",
+                    "invalid_frq",
+                    "missing_frq",
+                ],
+                "A1": ["A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A", "A"],
+                "A2": ["C", "C", "C", "C", "C", "G", "C", "C", "C", "C", "C", "T", "C", "C", "C"],
+                "regression_ld_scores": np.ones(15),
+                "base": np.arange(1.0, 16.0),
+            }
+        ),
+        "rsid_allele_aware",
+    )
+    source = pd.DataFrame(
+        {
+            "SNP": [
+                "direct",
+                "complement",
+                "swap",
+                "swap_complement",
+                "disambiguated",
+                "ambiguous",
+                "incompatible",
+                "invalid",
+                "missing_allele",
+                "palindromic",
+                "missing_panel",
+                "duplicate",
+                "duplicate",
+                "invalid_frq",
+                "missing_frq",
+            ],
+            "A1": ["a", "t", "c", "g", "a", "a", "a", "a", None, "a", "a", "a", "a", "a", "a"],
+            "A2": ["c", "g", "a", "t", "g", "c", "g", "n", "c", "t", "c", "c", "c", "c", "c"],
+            "Z": np.arange(1.0, 16.0),
+            "N": np.full(15, 1000.0),
+            "FRQ": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 1.5, None],
+            "EXTRA": np.arange(15),
+        }
+    )
+    original = source.copy(deep=True)
+
+    projected, drops = _project_legacy_sumstats_to_panel(_legacy(source), panel)
+
+    expected = pd.DataFrame(
+        {
+            "SNP": ["direct", "complement", "swap", "swap_complement", "disambiguated", "invalid_frq", "missing_frq"],
+            "A1": ["A"] * 7,
+            "A2": ["C", "C", "C", "C", "G", "C", "C"],
+            "Z": [1.0, 2.0, -3.0, -4.0, 5.0, 14.0, 15.0],
+            "N": [1000.0] * 7,
+            "FRQ": [0.1, 0.2, 0.7, 0.6, 0.5, np.nan, np.nan],
+            "EXTRA": [0, 1, 2, 3, 4, 13, 14],
+            "CHR": ["1"] * 7,
+            "POS": pd.Series([10, 20, 30, 40, 51, 120, 130], dtype="int64"),
+        }
+    )
+    pd.testing.assert_frame_equal(projected.data, expected)
+    audit = pd.DataFrame(drops).reset_index(drop=True)
+    assert audit["reason"].tolist() == [
+        "ambiguous_panel_mapping",
+        "incompatible_alleles",
+        "invalid_allele",
+        "missing_allele",
+        "strand_ambiguous",
+        "missing_panel_rsid",
+        "duplicate_source_rsid",
+        "duplicate_source_rsid",
+    ]
+    assert audit["panel_candidate_count"].tolist() == [2, 1, 1, 1, 1, 0, 1, 1]
+    pd.testing.assert_frame_equal(source, original)
+
+
+def test_legacy_allele_unaware_projection_requires_one_panel_row_per_rsid() -> None:
+    panel = _panel(
+        pd.DataFrame(
+            {
+                "CHR": ["1", "1", "1"],
+                "POS": [10, 11, 20],
+                "SNP": ["ambiguous", "ambiguous", "good"],
+                "regression_ld_scores": [1.0, 1.0, 1.0],
+                "base": [1.0, 2.0, 3.0],
+            }
+        ),
+        "rsid",
+    )
+    projected, drops = _project_legacy_sumstats_to_panel(
+        _legacy(
+            pd.DataFrame(
+                {
+                    "SNP": ["ambiguous", "good"],
+                    "A1": ["A", "G"],
+                    "A2": ["C", "T"],
+                    "Z": [1.0, 2.0],
+                    "N": [1000.0, 1000.0],
+                }
+            )
+        ),
+        panel,
+    )
+
+    assert projected.data["SNP"].tolist() == ["good"]
+    assert pd.DataFrame(drops)[["SNP", "reason", "panel_candidate_count"]].to_dict("records") == [
+        {"SNP": "ambiguous", "reason": "ambiguous_panel_mapping", "panel_candidate_count": 2}
+    ]
+
+
 def test_legacy_projection_drops_duplicate_source_clusters_and_records_stable_reasons() -> None:
     panel = _panel(
         pd.DataFrame(
@@ -209,7 +335,7 @@ def test_legacy_projection_drops_duplicate_source_clusters_and_records_stable_re
     # Projection returns a new working table; the caller-owned table is never mutated.
     assert reasons == []
     projected = dataset.legacy_sumstats_drops
-    assert pd.Series([row["reason"] for row in projected]).value_counts().to_dict() == {
+    assert projected["reason"].value_counts().to_dict() == {
         "duplicate_source_rsid": 2,
         "missing_panel_rsid": 1,
     }

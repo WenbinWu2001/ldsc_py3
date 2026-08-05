@@ -1,6 +1,6 @@
 # Exact gene LD-score index: mathematical algorithm
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-05
 
 This document gives the input-to-output mathematical specification for the
 exact gene-list index used by `ldsc ldscore`. It describes the online indexed
@@ -100,13 +100,17 @@ For each chromosome, the builder:
 
 1. reads and validates the baseline annotation shards;
 2. prepares the selected PLINK individuals and usable genotype rows;
-3. inner-joins baseline and PLINK SNPs by the configured effective identifier
-   (rsID in index format v1);
-4. orders the result by PLINK-authoritative metadata; and
+3. drops every duplicate effective-identity group independently in the mutable
+   baseline and PLINK sources, then inner-joins by `SNP` for `rsid` or normalized
+   `(CHR, POS)` for `chr_pos`;
+4. orders the result canonically by PLINK-authoritative `CHR`, `POS`, and `SNP`
+   while retaining the original BIM/BED column permutation for genotype reads; and
 5. forms $A$, $X$, the common mask $c$, and the persisted selector $p$.
 
-Baseline-only and PLINK-only SNPs are dropped. Duplicate effective identifiers
-are rejected because they would make this alignment ambiguous.
+Baseline-only and PLINK-only SNPs are dropped. A duplicate group is removed in
+full, warned, and recorded; no biologically ambiguous representative is chosen.
+PLINK supplies the persisted `CHR`, `POS`, `SNP`, `A1`, and `A2`, while `SNP`
+is a passive label rather than identity in `chr_pos` mode.
 
 ### 3.2 Precompute the fixed baseline and weight columns
 

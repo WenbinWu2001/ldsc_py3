@@ -1,6 +1,6 @@
 # LD Score Calculation
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-05
 
 Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-built SNP-level annotations, or from raw BED/gene-list queries plus an explicit baseline.
 
@@ -300,22 +300,35 @@ results.
 
 ## Case 5: Reuse an Exact Gene LD-Score Index
 
-For many gene sets under one fixed hg19/rsID/PLINK configuration, build the
-expensive reference calculation once:
+For many gene sets under one fixed hg19/PLINK configuration, build the
+expensive reference calculation once. The builder requires an explicit base
+identity mode and explicit hg19 assertion:
 
 ```bash
 ldsc build-gene-ldscore-index \
   --baseline-annot-sources "annotations/baseline.@.annot.gz" \
   --plink-prefix "reference/1000G.EUR.QC.@" \
   --output-dir "indexes/baseline_100kb" \
+  --genome-build hg19 \
+  --snp-identifier chr_pos \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
   --exclude-regions mhc-and-centromeres
 ```
 
-The baseline and PLINK sources are inner-joined by rsID. PLINK coordinates and
-genotypes are authoritative; duplicate rsIDs or an empty intersection fail.
-To replace bundled HapMap3 regression candidates, add
+Use exactly `rsid` or `chr_pos`; there is no default, `auto`, inference,
+liftover, hg38, or allele-aware index mode. `rsid` joins on `SNP`; `chr_pos`
+joins on normalized positive 1-based `(CHR, POS)` and treats baseline SNP labels
+as passive. PLINK publishes `CHR`, `POS`, `SNP`, `A1`, and `A2` after either
+match. Advanced callers must ensure the baseline, PLINK, restriction, and map
+coordinates all use hg19.
+
+Mutable baseline or PLINK duplicate effective-key groups are removed in full,
+with a warning and rows in `diagnostics/dropped_snps/`; no representative is
+selected. Baseline-only and PLINK-only keys are dropped and counted. An empty
+intersection fails. Repeated keys in an identity-only regression restriction
+collapse because restrictions are sets. To replace bundled HapMap3 regression
+candidates, add
 `--regression-snps-file custom.snplist`. Region subtraction still follows
 `--exclude-regions`.
 
@@ -329,6 +342,12 @@ ldsc ldscore \
   --control-gene-list-source all-protein-coding \
   --output-dir "tutorial_outputs/indexed_gene_ldscores"
 ```
+
+Indexed assembly inherits the validated index identity and hg19 provenance.
+Do not pass live `--snp-identifier` or `--genome-build` options; either option
+is rejected even when it equals the index. The resulting canonical directory is
+self-contained and can be consumed by `h2`, `rg`, and `partitioned-h2` without
+the source index.
 
 One directory is one complete index. It has a single `index_id` and cannot be
 extended with chromosomes or profiles. Rebuilding any input or setting requires

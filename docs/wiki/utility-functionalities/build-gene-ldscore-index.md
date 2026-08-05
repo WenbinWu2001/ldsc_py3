@@ -1,6 +1,6 @@
 # Build an exact gene LD-score index
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-05
 
 For the mathematical construction of the disjoint atoms, stored operator, and
 sufficient statistics—and the full downstream indexed-assembly derivation—see
@@ -15,7 +15,8 @@ offline artifact; it does not run regression.
 
 ## Supported scientific contract
 
-- hg19, rsID identity, and a PLINK BED/BIM/FAM reference;
+- explicit hg19 and either base `rsid` or base `chr_pos` identity, with a
+  PLINK BED/BIM/FAM reference;
 - a 1 cM window by default;
 - 100 kb gene padding and MHC gene exclusion by default;
 - bundled HapMap3 regression SNP candidates by default, or one custom
@@ -24,12 +25,33 @@ offline artifact; it does not run regression.
   default.
 
 Baseline and PLINK rows need not be identical. The builder inner-joins them by
-the configured effective identifier (rsID in v1), as ordinary PLINK-backed
-`ldscore` does. It fails on duplicate effective IDs or an empty intersection,
-drops and reports rows found on only one side, and uses PLINK metadata and
+the configured effective identifier, as ordinary PLINK-backed `ldscore` does.
+It drops every row in a duplicate effective-key group with a warning and audit
+record, drops and reports rows found on only one side, fails on an empty
+intersection, and uses PLINK metadata and
 genotypes for matched rows. Coordinate disagreement under a shared rsID is a
 warning; PLINK coordinates win. Verify independently that PLINK and gene/map
 inputs are hg19 because rsID matching cannot establish build.
+
+### Choose the explicit identity mode
+
+The builder has no identity or genome-build default. Always pass
+`--snp-identifier rsid --genome-build hg19` or
+`--snp-identifier chr_pos --genome-build hg19`. It does not accept `auto`, hg38,
+or allele-aware modes and performs no liftover. Advanced users are responsible
+for ensuring every baseline, PLINK, restriction, map, and catalog coordinate is
+hg19.
+
+`rsid` joins on `SNP`. `chr_pos` joins on normalized positive 1-based
+`(CHR, POS)`; baseline and restriction SNP labels are ignored and a baseline
+SNP column may be absent. PLINK supplies the published `CHR`, `POS`, `SNP`,
+`A1`, and `A2`, so differing labels at a matched coordinate are reported but
+the PLINK label is retained. Repeated restriction keys collapse because a
+restriction is a set; duplicate mutable variant-source groups instead use
+drop-all. Inspect `diagnostics/dropped_snps/chrN_dropped.tsv.gz`.
+
+Fast indexed assembly inherits the stored identity mode and build and therefore
+accepts neither live option, even when a supplied value would match.
 
 The intersected baseline/PLINK SNPs are the LD-reference contributor, count,
 and overlap universe. Regression candidates and `--exclude-regions` select
@@ -92,6 +114,19 @@ The prototype is a complete chromosome-22 index. It cannot be extended in
 place; use a different output directory for the production chromosomes-1–22
 index.
 
+For coordinate identity, keep the same explicit hg19 assertion and change only
+the mode and destination:
+
+```bash
+ldsc build-gene-ldscore-index \
+  --baseline-annot-sources "${RESOURCE_ROOT}/baseline/baseline.@.annot.gz" \
+  --plink-prefix "${RESOURCE_ROOT}/plink/1000G.EUR.QC.@" \
+  --output-dir "${INDEX_ROOT}/prototype_chr22_chr_pos" \
+  --chromosomes 22 \
+  --genome-build hg19 \
+  --snp-identifier chr_pos
+```
+
 To use custom regression SNPs while retaining the standard region subtraction:
 
 ```bash
@@ -99,6 +134,8 @@ ldsc build-gene-ldscore-index \
   --baseline-annot-sources "${RESOURCE_ROOT}/baseline/baseline.@.annot.gz" \
   --plink-prefix "${RESOURCE_ROOT}/plink/1000G.EUR.QC.@" \
   --output-dir "${INDEX_ROOT}/custom_regression_index" \
+  --genome-build hg19 \
+  --snp-identifier chr_pos \
   --regression-snps-file custom_regression_snps.tsv \
   --exclude-regions mhc-and-centromeres
 ```
@@ -123,6 +160,7 @@ and `--genetic-map-hg19-sources` when BIM cM values are uninformative.
     diagnostics/
         build-gene-ldscore-index.json
         build-gene-ldscore-index.log
+        dropped_snps/chr1_dropped.tsv.gz ... chr22_dropped.tsv.gz
     chromosomes/
         chr1/ ... chr22/
 

@@ -16,10 +16,11 @@ import pandas as pd
 import pytest
 from scipy import sparse
 
-from ldsc import cli, gene_ldscore_index
+from ldsc import cli, gene_ldscore_index, ldscore_calculator
+from ldsc.config import GeneLDScoreIndexBuildConfig, GlobalConfig
 from ldsc._kernel import ldscore as kernel_ldscore
 from ldsc._kernel.gene_ldscore_index import AtomStatistics, build_disjoint_atoms
-from ldsc.errors import LDSCInputError
+from ldsc.errors import LDSCInputError, LDSCUsageError
 from ldsc.gene_ldscore_index import (
     _build_embedded_gene_catalog,
     _genetic_map_identity,
@@ -34,6 +35,8 @@ from ldsc.gene_ldscore_index import (
     intersect_baseline_plink_by_identifier,
 )
 from ldsc.gene_list_resolver import GeneCatalog
+from ldsc.ldscore_calculator import LDScoreCalculator
+from ldsc.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 
 
 def _rows(*items: tuple[str, int, str]) -> pd.DataFrame:
@@ -46,6 +49,7 @@ def _artifact_payload():
         baseline_rows=pd.DataFrame(
             {
                 "CHR": ["22", "22"], "SNP": ["rs1", "rs2"], "POS": [1, 6],
+                "A1": ["A", "C"], "A2": ["G", "T"],
                 "regression_ld_scores": [1.0, 2.0], "base": [3.0, 4.0],
             }
         ),
@@ -70,6 +74,7 @@ def _artifact_payload():
     )
     index_identity = {
         "chromosomes": ["22"], "baseline": "fixture", "plink": "fixture",
+        "snp_identifier": "rsid", "genome_build": "hg19",
         "catalog": {"release": "GENCODE v49", "content_sha256": "fixture"},
         "projection_build": "hg19", "padding_bp": 100000, "gene_exclude_regions": "mhc",
     }
@@ -235,30 +240,83 @@ def test_baseline_plink_intersection_uses_identifier_mode_and_plink_order(caplog
     assert result.diagnostics == {
         "baseline_rows": 3,
         "plink_rows": 3,
+        "baseline_duplicate_rows_dropped": 0,
+        "plink_bim_duplicate_rows_dropped": 0,
         "matched_rows": 2,
         "baseline_only_rows": 1,
         "plink_only_rows": 1,
         "coordinate_discordant_rows": 1,
+        "snp_label_discordant_rows": 0,
     }
     assert "coordinate disagreement" in caplog.text
 
 
 @pytest.mark.parametrize("side", ["baseline", "PLINK BIM"])
-def test_baseline_plink_intersection_rejects_duplicate_effective_identifiers(side):
+def test_baseline_plink_intersection_drops_duplicate_effective_identifier_group(side, caplog):
     baseline = _rows(("22", 10, "rs1"), ("22", 20, "rs2"))
     plink = _rows(("22", 10, "rs1"), ("22", 20, "rs2"))
     if side == "baseline":
         baseline = pd.concat([baseline, baseline.iloc[[0]]], ignore_index=True)
     else:
         plink = pd.concat([plink, plink.iloc[[0]]], ignore_index=True)
-    with pytest.raises(LDSCInputError, match=f"duplicate {side}.*rsid"):
-        intersect_baseline_plink_by_identifier(
-            baseline,
-            pd.DataFrame({"base": np.ones(len(baseline))}),
-            plink,
-            snp_identifier="rsid",
-            chrom="22",
-        )
+    result = intersect_baseline_plink_by_identifier(
+        baseline,
+        pd.DataFrame({"base": np.arange(len(baseline), dtype=float)}),
+        plink,
+        snp_identifier="rsid",
+        chrom="22",
+    )
+    assert result.metadata["SNP"].tolist() == ["rs2"]
+    assert result.diagnostics[f"{side.lower().replace(' ', '_')}_duplicate_rows_dropped"] == 2
+    assert "duplicate_identity" in caplog.text
+
+
+def test_chr_pos_intersection_ignores_baseline_label_and_publishes_plink_label(caplog):
+    caplog.set_level("INFO")
+    baseline = _rows(("22", 20, "baseline_twenty"), ("22", 10, "baseline_ten"))
+    plink = _rows(("22", 10, "plink_ten"), ("22", 20, "plink_twenty"))
+    result = intersect_baseline_plink_by_identifier(
+        baseline,
+        pd.DataFrame({"base": [20.0, 10.0]}),
+        plink,
+        snp_identifier="chr_pos",
+        chrom="22",
+    )
+    assert result.metadata[["POS", "SNP"]].to_records(index=False).tolist() == [
+        (10, "plink_ten"), (20, "plink_twenty")
+    ]
+    assert result.annotations["base"].tolist() == [10.0, 20.0]
+    assert result.diagnostics["snp_label_discordant_rows"] == 2
+    assert "PLINK SNP labels are authoritative and will be published" in caplog.text
+
+
+def test_chr_pos_intersection_drops_all_rows_at_duplicate_coordinate():
+    baseline = _rows(("22", 10, "base_a"), ("22", 20, "base_b"))
+    plink = _rows(("22", 10, "plink_a"), ("22", 10, "plink_b"), ("22", 20, "plink_c"))
+    result = intersect_baseline_plink_by_identifier(
+        baseline,
+        pd.DataFrame({"base": [1.0, 2.0]}),
+        plink,
+        snp_identifier="chr_pos",
+        chrom="22",
+    )
+    assert result.metadata["SNP"].tolist() == ["plink_c"]
+    assert result.diagnostics["plink_bim_duplicate_rows_dropped"] == 2
+
+
+def test_chr_pos_intersection_allows_repeated_snp_labels_at_distinct_coordinates():
+    baseline = _rows(("22", 10, "baseline-a"), ("22", 20, "baseline-b"))
+    plink = _rows(("22", 10, "repeated-label"), ("22", 20, "repeated-label"))
+    result = intersect_baseline_plink_by_identifier(
+        baseline,
+        pd.DataFrame({"base": [1.0, 2.0]}),
+        plink,
+        snp_identifier="chr_pos",
+        chrom="22",
+    )
+
+    assert result.metadata["POS"].tolist() == [10, 20]
+    assert result.metadata["SNP"].tolist() == ["repeated-label", "repeated-label"]
 
 
 def test_baseline_plink_intersection_rejects_empty_result():
@@ -315,7 +373,86 @@ def test_prepared_plink_chromosome_is_reused_by_direct_ldscore():
     np.testing.assert_array_equal(reused_scores.astype(np.float32), direct.ld_scores)
 
 
-def test_plink_atom_operator_matches_direct_union_in_atom_batches():
+def test_canonical_sort_maps_back_to_original_bim_bed_columns_without_per_snp_loop():
+    panel = pd.DataFrame(
+        {
+            "_key": ["22:30", "22:10", "22:20"],
+            "_raw_index": [0, 1, 2],
+        }
+    )
+    canonical_rows = pd.DataFrame({"_key": ["22:10", "22:20", "22:30"]})
+
+    assert kernel_ldscore._plink_bed_column_indices(panel, canonical_rows) == [1, 2, 0]
+
+
+def test_direct_plink_output_writes_header_only_duplicate_audit_when_no_rows_drop(tmp_path):
+    prefix = Path(__file__).resolve().parent / "fixtures" / "plink" / "plink"
+    bim = pd.read_csv(
+        prefix.with_suffix(".bim"), sep=r"\s+", header=None,
+        names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
+    )
+    bundle = kernel_ldscore.AnnotationBundle(
+        bim[["CHR", "SNP", "CM", "POS"]],
+        pd.DataFrame({"base": np.ones(len(bim))}),
+        ["base"],
+        [],
+    )
+    args = Namespace(
+        bfile=str(prefix), keep=None, maf_min=None, maf=None,
+        ld_wind_snps=10, ld_wind_kb=None, ld_wind_cm=None,
+        yes_really=True, snp_batch_size=3, common_maf_min=0.05,
+        snp_identifier="rsid", genetic_map=None,
+    )
+    legacy_result = kernel_ldscore.compute_chrom_from_plink("1", bundle, args, None)
+    calculator = LDScoreCalculator()
+    chrom_result = calculator._wrap_legacy_chrom_result(
+        legacy_result, GlobalConfig(snp_identifier="rsid")
+    )
+    result = calculator._aggregate_chromosome_results(
+        [chrom_result], GlobalConfig(snp_identifier="rsid")
+    )
+
+    paths = LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmp_path / "out"))
+    sidecar = tmp_path / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
+    assert sidecar.exists()
+    assert pd.read_csv(sidecar, sep="\t").empty
+    assert paths["dropped_snps_chr1"] == str(sidecar)
+
+
+def test_direct_plink_duplicate_group_is_dropped_and_recorded(tmp_path):
+    fixture = Path(__file__).resolve().parent / "fixtures" / "plink" / "plink"
+    prefix = tmp_path / "duplicate_panel"
+    shutil.copyfile(fixture.with_suffix(".bed"), prefix.with_suffix(".bed"))
+    shutil.copyfile(fixture.with_suffix(".fam"), prefix.with_suffix(".fam"))
+    bim = pd.read_csv(
+        fixture.with_suffix(".bim"), sep=r"\s+", header=None,
+        names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
+    )
+    duplicate_key = str(bim.loc[0, "SNP"])
+    bim.loc[1, "SNP"] = duplicate_key
+    bim.to_csv(prefix.with_suffix(".bim"), sep="\t", header=False, index=False)
+    bundle = kernel_ldscore.AnnotationBundle(
+        bim[["CHR", "SNP", "CM", "POS"]],
+        pd.DataFrame({"base": np.ones(len(bim))}),
+        ["base"],
+        [],
+    )
+    args = Namespace(
+        bfile=str(prefix), keep=None, maf_min=None, maf=None,
+        ld_wind_snps=10, ld_wind_kb=None, ld_wind_cm=None,
+        yes_really=True, snp_batch_size=3, common_maf_min=0.05,
+        snp_identifier="rsid", genetic_map=None,
+    )
+
+    result = kernel_ldscore.compute_chrom_from_plink("1", bundle, args, None)
+
+    assert len(result.identity_drops) == 2
+    assert set(result.identity_drops["reason"]) == {"duplicate_identity"}
+    assert duplicate_key not in set(result.metadata["SNP"])
+
+
+@pytest.mark.parametrize("snp_identifier", ["rsid", "chr_pos"])
+def test_plink_atom_operator_matches_direct_union_in_atom_batches(snp_identifier):
     prefix = Path(__file__).resolve().parent / "fixtures" / "plink" / "plink"
     bim = pd.read_csv(
         prefix.with_suffix(".bim"),
@@ -330,9 +467,13 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches():
         bfile=str(prefix), keep=None, maf_min=None, maf=None,
         ld_wind_snps=10, ld_wind_kb=None, ld_wind_cm=None,
         yes_really=True, snp_batch_size=3, common_maf_min=0.05,
-        snp_identifier="rsid", genetic_map=None,
+        snp_identifier=snp_identifier, genetic_map=None,
     )
-    regression_keys = set(metadata["SNP"].astype(str))
+    regression_keys = (
+        set(metadata["SNP"].astype(str))
+        if snp_identifier == "rsid"
+        else set(metadata["CHR"].astype(str) + ":" + metadata["POS"].astype(str))
+    )
     gene_intervals = np.array([[0, 4], [2, 7], [3, 5]], dtype=np.int64)
 
     indexed_one = build_plink_index_chromosome(
@@ -370,7 +511,7 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches():
     )
     direct = kernel_ldscore.compute_chrom_from_plink("1", direct_bundle, args, regression_keys)
     persisted = kernel_ldscore.regression_mask_from_keys(
-        direct.metadata, regression_keys, "rsid"
+        direct.metadata, regression_keys, snp_identifier
     ).astype(bool)
 
     np.testing.assert_array_equal(indexed_one.operator.toarray(), indexed_many.operator.toarray())
@@ -381,7 +522,30 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches():
     assert int(indexed_one.atom_statistics.atom_count_all @ z.astype(np.int64)) == int(direct.M[1])
 
 
-def test_build_index_command_registers_closed_v1_configuration():
+def test_build_index_command_requires_explicit_identity_and_build(capsys):
+    parser = gene_ldscore_index.build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "--baseline-annot-sources", "baseline.@.annot.gz",
+                "--plink-prefix", "panel.@",
+                "--output-dir", "suite",
+            ]
+        )
+    error = capsys.readouterr().err
+    assert "--snp-identifier is required; choose rsid or chr_pos." in error
+    assert "--genome-build is required; choose hg19." in error
+
+
+def test_build_index_help_exposes_only_the_supported_hg19_genetic_map():
+    help_text = gene_ldscore_index.build_parser().format_help()
+
+    assert "--genetic-map-hg19-sources" in help_text
+    assert "--genetic-map-hg38-sources" not in help_text
+
+
+@pytest.mark.parametrize("snp_identifier", ["rsid", "chr_pos"])
+def test_build_index_command_registers_explicit_base_identity(snp_identifier):
     parser = cli.build_parser()
     args = parser.parse_args(
         [
@@ -389,12 +553,14 @@ def test_build_index_command_registers_closed_v1_configuration():
             "--baseline-annot-sources", "baseline.@.annot.gz",
             "--plink-prefix", "panel.@",
             "--output-dir", "suite",
+            "--genome-build", "hg19",
+            "--snp-identifier", snp_identifier,
         ]
     )
 
     assert args.command == "build-gene-ldscore-index"
     assert args.genome_build == "hg19"
-    assert args.snp_identifier == "rsid"
+    assert args.snp_identifier == snp_identifier
     assert args.padding_bp == 100000
     assert args.gene_exclude_regions == "mhc"
     assert args.ld_wind_cm == 1.0
@@ -412,12 +578,32 @@ def test_build_index_command_accepts_custom_regression_snps_and_region_policy():
             "--baseline-annot-sources", "baseline.@.annot.gz",
             "--plink-prefix", "panel.@",
             "--output-dir", "index",
+            "--genome-build", "hg19",
+            "--snp-identifier", "chr_pos",
             "--regression-snps-file", "custom.snplist",
             "--exclude-regions", "centromeres",
         ]
     )
     assert args.regression_snps_file == "custom.snplist"
     assert args.exclude_regions == "centromeres"
+
+
+def test_build_index_python_config_requires_identity_and_build():
+    with pytest.raises(TypeError):
+        GeneLDScoreIndexBuildConfig(
+            baseline_annot_sources=("baseline.@.annot.gz",),
+            plink_prefix="panel.@",
+            output_dir="index",
+        )
+
+    config = GeneLDScoreIndexBuildConfig(
+        baseline_annot_sources=("baseline.@.annot.gz",),
+        plink_prefix="panel.@",
+        output_dir="index",
+        genome_build="hg19",
+        snp_identifier="chr_pos",
+    )
+    assert config.snp_identifier == "chr_pos"
 
 
 def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_path, monkeypatch):
@@ -524,6 +710,9 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     assert diagnostics["chromosomes"]["22"]["operator_nnz"] == chromosome.operator.nnz
     assert f"operator_nnz={chromosome.operator.nnz}" in log_text
     assert captured_restriction["path"] == Path("custom-regression.tsv")
+    dropped_sidecar = index_dir / "diagnostics" / "dropped_snps" / "chr22_dropped.tsv.gz"
+    assert dropped_sidecar.exists()
+    assert pd.read_csv(dropped_sidecar, sep="\t").empty
     assert not (build_state / "build-gene-ldscore-index.log").exists()
     assert (build_state / "build-gene-ldscore-index.lock").exists()
     assert any((build_state / "history").glob("*.log"))
@@ -789,6 +978,28 @@ def test_semantic_id_uses_canonical_scientific_identity_only():
     assert index_id != calculate_index_id({**index_identity, "chromosomes": ["21", "22"]})
 
 
+def test_semantic_id_and_baseline_content_are_mode_aware():
+    rsid_identity = {
+        "chromosomes": ["22"], "snp_identifier": "rsid", "genome_build": "hg19"
+    }
+    assert calculate_index_id(rsid_identity) != calculate_index_id(
+        {**rsid_identity, "snp_identifier": "chr_pos"}
+    )
+    rows_a = _rows(("22", 10, "label-a"), ("22", 20, "label-b"))
+    rows_b = rows_a.assign(SNP=["different-a", "different-b"])
+    annotations = pd.DataFrame({"base": [1.0, 0.0]})
+    assert gene_ldscore_index._retained_baseline_content_sha256(
+        rows_a, annotations, "chr_pos"
+    ) == gene_ldscore_index._retained_baseline_content_sha256(
+        rows_b, annotations, "chr_pos"
+    )
+    assert gene_ldscore_index._retained_baseline_content_sha256(
+        rows_a, annotations, "rsid"
+    ) != gene_ldscore_index._retained_baseline_content_sha256(
+        rows_b, annotations, "rsid"
+    )
+
+
 def test_explicit_genetic_map_identity_is_content_bound(tmp_path):
     first = tmp_path / "map1.txt"
     second = tmp_path / "map2.txt"
@@ -831,6 +1042,8 @@ def test_index_artifact_round_trip_uses_approved_tree_and_payloads(tmp_path):
 
     assert index_dir == tmp_path / "index"
     assert loaded.index_id == calculate_index_id(index_identity)
+    assert loaded.snp_identifier == "rsid"
+    assert loaded.genome_build == "hg19"
     assert loaded.chromosomes == ("22",)
     np.testing.assert_array_equal(loaded.index_chromosomes["22"].operator.toarray(), chromosome.operator.toarray())
     root_metadata = (index_dir / "metadata.json").read_text(encoding="utf-8")
@@ -841,6 +1054,73 @@ def test_index_artifact_round_trip_uses_approved_tree_and_payloads(tmp_path):
     stored_rows = pd.read_parquet(index_dir / "chromosomes" / "chr22" / "baseline_rows.parquet")
     assert stored_rows["regression_ld_scores"].dtype == np.float32
     assert stored_rows["base"].dtype == np.float32
+    assert list(stored_rows.columns[:5]) == ["CHR", "SNP", "POS", "A1", "A2"]
+
+
+def test_chr_pos_index_round_trip_uses_coordinate_identity_and_publishes_plink_labels(tmp_path):
+    chromosome, catalog, index_identity = _artifact_payload()
+    chr_pos_identity = {**index_identity, "snp_identifier": "chr_pos"}
+    index_dir = publish_gene_ldscore_index(
+        tmp_path / "index", index_identity=chr_pos_identity, gene_catalog=catalog,
+        chromosomes={"22": chromosome}, overwrite=False,
+    )
+
+    loaded = load_gene_ldscore_index(index_dir)
+    assert loaded.snp_identifier == "chr_pos"
+    assert loaded.genome_build == "hg19"
+    assert loaded.index_chromosomes["22"].baseline_rows["SNP"].tolist() == ["rs1", "rs2"]
+
+    genes = tmp_path / "focal.txt"
+    genes.write_text("G1\n", encoding="utf-8")
+    result = run_indexed_ldscore(
+        index_dir, query_gene_list_sources=(genes,), output_dir=tmp_path / "out"
+    )
+    assert result.config_snapshot.snp_identifier == "chr_pos"
+    assert result.config_snapshot.genome_build == "hg19"
+    metadata = json.loads((tmp_path / "out" / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["snp_identifier"] == "chr_pos"
+    assert metadata["genome_build"] == "hg19"
+    assert metadata["index_snp_identifier"] == "chr_pos"
+    assert metadata["index_genome_build"] == "hg19"
+
+
+def test_index_loader_rejects_component_identity_metadata_and_published_row_tampering(tmp_path):
+    chromosome, catalog, index_identity = _artifact_payload()
+    index_dir = publish_gene_ldscore_index(
+        tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
+        chromosomes={"22": chromosome}, overwrite=False,
+    )
+    component_metadata_path = index_dir / "chromosomes" / "chr22" / "metadata.json"
+    component_metadata = json.loads(component_metadata_path.read_text(encoding="utf-8"))
+    component_metadata["snp_identifier"] = "chr_pos"
+    component_metadata_path.write_text(json.dumps(component_metadata), encoding="utf-8")
+    with pytest.raises(LDSCInputError, match="component identity"):
+        load_gene_ldscore_index(index_dir)
+
+    component_metadata["snp_identifier"] = "rsid"
+    component_metadata_path.write_text(json.dumps(component_metadata), encoding="utf-8")
+    rows_path = index_dir / "chromosomes" / "chr22" / "baseline_rows.parquet"
+    rows = pd.read_parquet(rows_path)
+    rows.loc[0, "A1"] = "T"
+    rows.to_parquet(rows_path, index=False)
+    with pytest.raises(LDSCInputError, match="published row metadata digest"):
+        load_gene_ldscore_index(index_dir)
+
+
+def test_chr_pos_index_loader_rejects_repeated_coordinates_even_when_labels_differ(tmp_path):
+    chromosome, catalog, index_identity = _artifact_payload()
+    chromosome = replace(
+        chromosome,
+        baseline_rows=chromosome.baseline_rows.assign(POS=[1, 1], SNP=["label-a", "label-b"]),
+    )
+    with pytest.raises(LDSCInputError, match="duplicate effective identities"):
+        publish_gene_ldscore_index(
+            tmp_path / "index",
+            index_identity={**index_identity, "snp_identifier": "chr_pos"},
+            gene_catalog=catalog,
+            chromosomes={"22": chromosome},
+            overwrite=False,
+        )
 
 
 def test_index_loader_rejects_semantic_id_and_sparse_dtype_corruption(tmp_path):
@@ -1168,6 +1448,8 @@ def test_explicit_indexed_cli_writes_the_canonical_workflow_log(tmp_path):
     ("--baseline-annot-sources", "baseline.annot.gz"),
     ("--plink-prefix", "panel"),
     ("--r2-dir", "r2"),
+    ("--snp-identifier", "chr_pos_allele_aware"),
+    ("--genome-build", "hg19"),
 ])
 def test_explicit_indexed_mode_rejects_live_inputs(forbidden, tmp_path):
     with pytest.raises(LDSCInputError, match="indexed mode"):
@@ -1179,6 +1461,16 @@ def test_explicit_indexed_mode_rejects_live_inputs(forbidden, tmp_path):
                 "--query-annot-gene-list-sources", "immune.txt",
                 *forbidden,
             ]
+        )
+
+
+def test_python_indexed_mode_rejects_explicit_identity_even_when_equal_to_ordinary_default(tmp_path):
+    with pytest.raises(LDSCUsageError, match="snp_identifier"):
+        ldscore_calculator.run_ldscore(
+            output_dir=tmp_path / "out",
+            gene_ldscore_index_dir=tmp_path / "index",
+            query_annot_gene_list_sources=(tmp_path / "genes.txt",),
+            snp_identifier="chr_pos_allele_aware",
         )
 
 

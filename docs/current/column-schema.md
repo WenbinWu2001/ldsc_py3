@@ -221,11 +221,36 @@ pairs `(A, C)`, `(C, A)`, `(G, T)`, or `(T, G)` at the same base key. The
 canonical label is not emitted as `A1/A2`; those columns keep their source
 allele order in output artifacts.
 
-Allele-aware artifact cleanup drops rows with missing alleles, invalid or
-non-SNP alleles, identical pairs, strand-ambiguous pairs, package-wide
-multi-allelic base-key clusters, and duplicate effective merge-key clusters.
-The duplicate policy is drop-all after computing the effective merge key for
-the active mode.
+### Duplicate SNP identity policy
+
+Mutable variant-source rows use one conservative duplicate policy in every SNP
+identifier mode: compute the effective identity key for the active mode, find
+every key that occurs more than once, and drop every row in each duplicate
+group. No row is selected as a representative and duplicate rows are not
+aggregated. The workflow emits a summarized warning and records the dropped
+rows and counts in its diagnostics.
+
+This policy applies independently to baseline annotation rows and PLINK BIM
+metadata before their intersection in direct PLINK-backed LD-score calculation
+and gene LD-score index construction. Consequently, `rsid` drops a complete
+duplicate-`SNP` group, while `chr_pos` drops a complete duplicate normalized
+`(CHR, POS)` group. Cleanup can therefore remove an ambiguous multiallelic
+coordinate without silently collapsing biologically distinct variants.
+
+Allele-aware artifact cleanup additionally drops rows with missing alleles,
+invalid or non-SNP alleles, identical pairs, strand-ambiguous pairs, and the
+package-wide multiallelic base-key clusters defined by the allele-aware
+identity contract. Duplicate effective-key groups still use the same drop-all
+rule after the effective key is computed.
+
+Restriction files have deliberately different semantics because they define a
+set of requested identities rather than variant metadata. Repeated restriction
+keys collapse to one retained membership key; they do not cause that identity
+to disappear. Package-written immutable artifacts must already contain unique
+effective identities. A duplicate found while validating or loading such an
+artifact is an integrity or compatibility error and is not repaired at load
+time.
+
 To munge raw summary statistics without allele columns, choose the base `rsid`
 or `chr_pos` SNP identifier mode; there is no separate allele-skip flag.
 

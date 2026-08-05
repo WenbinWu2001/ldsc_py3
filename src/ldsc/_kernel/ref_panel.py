@@ -317,6 +317,20 @@ class PlinkRefPanel(RefPanel):
                 "chromosome labels do not match the requested run. Pass a PLINK prefix "
                 "with matching chromosome rows."
             )
+        if self.global_config.snp_identifier in {"rsid", "chr_pos"}:
+            cleanup = clean_identity_artifact_table(
+                metadata,
+                self.global_config.snp_identifier,
+                context=f"PLINK reference-panel metadata chromosome {chrom}",
+                stage="plink_reference_identity_cleanup",
+                logger=LOGGER,
+            )
+            metadata = cleanup.cleaned
+            if metadata.empty:
+                raise LDSCInputError(
+                    f"Reference-panel loading retained no PLINK rows on chromosome {chrom} "
+                    "after duplicate SNP identity cleanup."
+                )
         metadata = self._apply_snp_restriction(metadata)
         validate_unique_snp_ids(metadata, self.global_config.snp_identifier, context=f"{type(self).__name__}[{chrom}]")
         metadata = self._load_genotype_metadata(chrom, metadata)

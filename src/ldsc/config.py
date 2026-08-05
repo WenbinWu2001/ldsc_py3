@@ -553,7 +553,7 @@ class GeneLDScoreIndexBuildConfig:
     ----------
     baseline_annot_sources : tuple of str
         Ordered baseline annotation paths or chromosome-suite tokens. Their
-        effective rsID keys are inner-joined to the selected PLINK BIM before
+        effective rsID or CHR/POS keys are inner-joined to the selected PLINK BIM before
         genotype QC; PLINK metadata is authoritative for matched rows.
     plink_prefix : str
         PLINK BED/BIM/FAM prefix; ``@`` may stand for chromosome number.
@@ -565,10 +565,12 @@ class GeneLDScoreIndexBuildConfig:
         mutated before successful publication.
     chromosomes : tuple of str, optional
         Canonical autosome coverage. Default is chromosomes 1 through 22.
-    genome_build : {"hg19"}, optional
-        Gene projection and coordinate build. V1 supports only hg19.
-    snp_identifier : {"rsid"}, optional
-        Variant identity mode. V1 supports only rsID identity.
+    genome_build : {"hg19"}
+        Explicit gene-projection and coordinate build. Required with no
+        default; the builder supports only hg19 and performs no inference.
+    snp_identifier : {"rsid", "chr_pos"}
+        Required base variant-identity mode. No default or automatic inference
+        is applied, and allele-aware modes are outside this builder contract.
     padding_bp : int, optional
         Base pairs added to each side of included transcribed gene intervals.
         Default is 100,000.
@@ -608,9 +610,9 @@ class GeneLDScoreIndexBuildConfig:
     baseline_annot_sources: tuple[str, ...]
     plink_prefix: str
     output_dir: str
+    genome_build: str
+    snp_identifier: str
     chromosomes: tuple[str, ...] = tuple(str(value) for value in range(1, 23))
-    genome_build: str = "hg19"
-    snp_identifier: str = "rsid"
     padding_bp: int = 100000
     gene_exclude_regions: str = "mhc"
     ld_wind_cm: float = 1.0
@@ -631,8 +633,11 @@ class GeneLDScoreIndexBuildConfig:
         object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
         if not self.baseline_annot_sources:
             raise LDSCConfigError("GeneLDScoreIndexBuildConfig requires baseline_annot_sources.")
-        if self.genome_build != "hg19" or self.snp_identifier != "rsid":
-            raise LDSCConfigError("The v1 gene LD-score index builder supports only hg19 with rsid identity.")
+        if self.genome_build != "hg19" or self.snp_identifier not in {"rsid", "chr_pos"}:
+            raise LDSCConfigError(
+                "GeneLDScoreIndexBuildConfig requires genome_build='hg19' and "
+                "snp_identifier equal to 'rsid' or 'chr_pos'."
+            )
         if self.gene_exclude_regions not in {"none", "mhc"}:
             raise LDSCConfigError("gene_exclude_regions must be 'none' or 'mhc'.")
         if self.exclude_regions not in {"none", "mhc", "centromeres", "mhc-and-centromeres"}:

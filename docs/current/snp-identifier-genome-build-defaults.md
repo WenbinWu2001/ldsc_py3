@@ -1,6 +1,6 @@
 # SNP Identifier / Genome Build: Default Design
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-05
 
 ## Design Decisions
 
@@ -18,6 +18,14 @@ Last updated on: 2026-08-04
 LD-score run is the narrow exception at the workflow level: it separately
 selects hg19 or hg38 for interval projection without changing rsID identity
 metadata.
+
+`build-gene-ldscore-index` is a second narrow workflow-level exception. New
+construction requires explicit `snp_identifier=rsid|chr_pos` and an explicit
+hg19 provenance assertion in its own `GeneLDScoreIndexBuildConfig`, with no
+defaults or inference. In rsID mode, ordinary `GlobalConfig` still carries
+`genome_build=None`; the index artifact independently binds hg19 because its
+gene projection, region masks, map, PLINK coordinates, and published rows are
+hg19-specific.
 
 ### Why `chr_pos_allele_aware` is the package default
 

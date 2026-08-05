@@ -222,20 +222,25 @@ bad provenance / missing A1-A2 / duplicate identity rows)
 
 ### build-gene-ldscore-index: baseline/PLINK identifier intersection fails
 
-**Symptom:** the builder reports duplicate effective rsIDs or an empty
-baseline/PLINK intersection before genotype QC.
+**Symptom:** the builder reports an empty `rsid` or `chr_pos` baseline/PLINK
+intersection before genotype QC, or warns that duplicate groups were dropped.
 
 The builder uses the same identifier-key inner intersection as direct
 PLINK-backed `ldscore`. Baseline-only and PLINK-only rows are allowed, dropped,
-and counted. Duplicate effective IDs on either side remain an error because the
-join would be ambiguous; an empty result cannot define an LD universe. Under
-rsID matching, coordinate disagreements warn and use PLINK coordinates. During
+and counted. For a duplicate effective identity, every row in that source group
+is dropped; no representative is selected. Inspect
+`<index-dir>/diagnostics/dropped_snps/chrN_dropped.tsv.gz` after success (or the
+live log during a failing build). An empty result cannot define an LD universe.
+Under rsID matching, coordinate disagreements warn and use PLINK coordinates.
+Under coordinate matching, differing SNP labels warn and the PLINK label is
+published. During
 a failed build, check
 `<parent>/.<index-name>.build-state/build-gene-ldscore-index.log`; after a
 successful build, check `<index-dir>/diagnostics/build-gene-ldscore-index.log`.
-Confirm the source
-PLINK panel is hg19, remove duplicate rsIDs, and verify that the two inputs
-actually overlap. A failed first build leaves the index destination absent or
+Confirm that all sources are hg19, that `--snp-identifier` matches the intended
+key, and that the inputs overlap after complete duplicate groups are removed.
+There is no build inference or liftover; `--genome-build hg19` is an advanced-user
+provenance assertion. A failed first build leaves the index destination absent or
 empty and can be retried directly; the previous log is archived under
 `<parent>/.<index-name>.build-state/history/`.
 
@@ -277,8 +282,9 @@ and reported rather than deleted.
 
 ### ldscore: an explicit gene index is missing, corrupt, or incompatible
 
-**Symptom:** indexed mode rejects metadata IDs, chromosome coverage, Parquet
-rows, NPZ members, CSR structure/dtypes, or dimensions.
+**Symptom:** indexed mode rejects metadata IDs, mode/build agreement, ordered
+row digests, chromosome coverage, duplicate effective identities, Parquet rows,
+NPZ members, CSR structure/dtypes, or dimensions.
 
 Pass the one complete index directory containing root `metadata.json` and
 `chromosomes/`. Do not add
@@ -286,7 +292,20 @@ live baseline, reference, build, padding, window, map, or region settings: those
 belong to the immutable index. A failed validation never falls back to direct
 mode and is completed before canonical scientific output publication. Restore
 or rebuild the index, or remove `--gene-ldscore-index-dir` and supply the
-full direct-mode inputs explicitly.
+full direct-mode inputs explicitly. Older gene-index metadata contracts are not
+loaded by the current strict reader and must be rebuilt; ordinary canonical
+LD-score directories already produced from them are unaffected.
+
+### build-gene-ldscore-index: required identity or build option is missing
+
+**Symptom:** parsing stops with `--snp-identifier is required; choose rsid or
+chr_pos.` or `--genome-build is required; choose hg19.`
+
+New construction has no default or inference for either decision. Pass exactly
+one of `--snp-identifier rsid` or `--snp-identifier chr_pos`, plus
+`--genome-build hg19`. Do not use `auto`, hg38, or an allele-aware mode. These
+options belong only to Stage 1 construction. Remove both options from Stage 2
+`ldsc ldscore --gene-ldscore-index-dir ...`, which inherits them from the index.
 
 ### ldscore: a BED or gene-list query is missing from results
 

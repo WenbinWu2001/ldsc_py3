@@ -173,7 +173,7 @@ from collections import OrderedDict
 import logging
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -221,6 +221,8 @@ from .overlap import OverlapContribution, compute_overlap
 from .plink_bed import __GenotypeArrayInMemory__, PlinkBEDFile  # noqa: F401
 from .snp_identity import (
     RestrictionIdentityKeys,
+    clean_identity_artifact_table,
+    empty_identity_drop_frame,
     effective_merge_key_series,
     identity_base_mode,
     identity_mode_family,
@@ -290,6 +292,7 @@ class ChromComputationResult:
     baseline_columns: list[str]
     query_columns: list[str]
     overlap: OverlapContribution | None = None
+    identity_drops: pd.DataFrame = field(default_factory=empty_identity_drop_frame)
 
 
 @dataclass
@@ -305,6 +308,7 @@ class PreparedPlinkChromosome:
     maf_removed: int = 0
     selected_individual_count: int = 0
     cm_source: str = "bim_cm"
+    identity_drops: pd.DataFrame = field(default_factory=empty_identity_drop_frame)
 
 
 # Shared computational helpers.
@@ -474,13 +478,16 @@ def build_index_remap(
 
 
 def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
-    """Sort a metadata-like frame by chromosome, position, and SNP name."""
+    """Sort by chromosome/position and use a present SNP label as a stable tie-breaker."""
     pos_col = find_column(df.columns, POS_ALIASES)
     if pos_col is None:
         raise KeyError("No POS-like column available for genomic sorting.")
     sort_df = df.copy()
     sort_df["_chrom_key"] = sort_df["CHR"].map(chrom_sort_key)
-    sort_df = sort_df.sort_values(by=["_chrom_key", pos_col, "SNP"], kind="mergesort")
+    sort_columns = ["_chrom_key", pos_col]
+    if "SNP" in sort_df.columns:
+        sort_columns.append("SNP")
+    sort_df = sort_df.sort_values(by=sort_columns, kind="mergesort")
     return sort_df.drop(columns="_chrom_key").reset_index(drop=True)
 
 
@@ -664,7 +671,11 @@ def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_m
 
 
 # Annotation loading and normalization.
-def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+def parse_annotation_file(
+    path: str,
+    chrom: str | None = None,
+    identifier_mode: str = "rsid",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Parse one SNP-level annotation table into normalized metadata and values.
 
     When ``chrom`` is provided, the returned tables are restricted to rows whose
@@ -679,7 +690,14 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
     context = path
     chr_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CHR"], context=context)
     pos_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["POS"], context=context)
-    snp_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["SNP"], context=context)
+    if identity_mode_family(identifier_mode) == "rsid":
+        snp_col = resolve_required_column(
+            df.columns, ANNOTATION_METADATA_SPEC_MAP["SNP"], context=context
+        )
+    else:
+        snp_col = resolve_optional_column(
+            df.columns, ANNOTATION_METADATA_SPEC_MAP["SNP"], context=context
+        )
     # CM/MAF are population-specific; the reference panel is authoritative. They are
     # resolved only to exclude them from annotation value columns, never used as values.
     cm_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CM"], context=context)
@@ -693,16 +711,14 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
             "Provide both allele columns, or remove both and run with a base SNP identifier mode."
         )
 
-    meta = pd.DataFrame(
-        {
-            "CHR": df[chr_col],
-            "POS": df[pos_col],
-            "SNP": df[snp_col],
-        }
-    )
+    metadata_columns = {"CHR": df[chr_col], "POS": df[pos_col]}
+    if snp_col is not None:
+        metadata_columns["SNP"] = df[snp_col]
+    meta = pd.DataFrame(metadata_columns)
     meta["CHR"] = meta["CHR"].map(lambda value: normalize_chromosome(value, context=path))
     meta["POS"] = pd.to_numeric(meta["POS"], errors="raise").astype(np.int64)
-    meta["SNP"] = meta["SNP"].astype(str)
+    if "SNP" in meta.columns:
+        meta["SNP"] = meta["SNP"].astype(str)
     # CM is a population-agnostic placeholder (NaN); any input value is discarded.
     meta["CM"] = np.nan
     if a1_col is not None and a2_col is not None:
@@ -772,7 +788,9 @@ def combine_annotation_groups(
 
     for group_name, files in (("baseline", baseline_files), ("query", query_files)):
         for path in files:
-            meta, annotations = parse_annotation_file(path, chrom=chrom)
+            meta, annotations = parse_annotation_file(
+                path, chrom=chrom, identifier_mode=identifier_mode
+            )
             if len(meta) == 0:
                 continue
             meta = meta.copy()
@@ -1666,6 +1684,19 @@ def regression_mask_from_keys(
     return keep.astype(np.float32)
 
 
+def _plink_bed_column_indices(panel_df: pd.DataFrame, retained_metadata: pd.DataFrame) -> list[int]:
+    """Map retained canonical row order back to physical BIM/BED column indices."""
+    panel_index = panel_df.set_index("_key", verify_integrity=True)["_raw_index"]
+    try:
+        indices = panel_index.loc[retained_metadata["_key"]].to_numpy(dtype=np.int64)
+    except KeyError as exc:
+        raise LDSCInternalError(
+            "ldscore could not map canonical retained SNP rows back to physical BED columns. "
+            "Most likely row sorting discarded or changed an effective identity key."
+        ) from exc
+    return indices.tolist()
+
+
 # Per-chromosome compute backends.
 def prepare_plink_chromosome(
     chrom: str,
@@ -1694,13 +1725,33 @@ def prepare_plink_chromosome(
         raise LDSCInputError(
             f"ldscore found no PLINK SNPs for chromosome {chrom} in prefix '{prefix}'."
         )
+    panel_df["_raw_index"] = panel_df.index.to_numpy(dtype=np.int64)
+    panel_drops = empty_identity_drop_frame()
+    if args.snp_identifier in {"rsid", "chr_pos"}:
+        panel_cleanup = clean_identity_artifact_table(
+            panel_df,
+            args.snp_identifier,
+            context=f"direct PLINK metadata chromosome {chrom}",
+            stage="plink_reference_identity_cleanup",
+            logger=(
+                None
+                if getattr(args, "_plink_identity_cleanup_already_logged", False)
+                else LOGGER
+            ),
+        )
+        panel_df = panel_cleanup.cleaned
+        panel_drops = panel_cleanup.dropped
+        if panel_df.empty:
+            raise LDSCInputError(
+                f"ldscore retained no PLINK SNPs for chromosome {chrom} after duplicate identity cleanup."
+            )
     panel_df["_key"] = identifier_keys(panel_df, args.snp_identifier)
 
     metadata = bundle.metadata.copy()
     annotations = bundle.annotations.copy()
     metadata["_key"] = identifier_keys(metadata, args.snp_identifier)
-    key_to_panel_index = {key: idx for key, idx in zip(panel_df["_key"], panel_df.index)}
-    keep = metadata["_key"].isin(key_to_panel_index)
+    panel_keys = pd.Index(panel_df["_key"])
+    keep = metadata["_key"].isin(panel_keys)
     removed = int((~keep).sum())
     if removed:
         LOGGER.warning(
@@ -1715,7 +1766,7 @@ def prepare_plink_chromosome(
         )
 
     keep_indivs = resolve_keep_individuals(getattr(args, "keep", None), fam)
-    keep_snps = [key_to_panel_index[key] for key in metadata["_key"]]
+    keep_snps = _plink_bed_column_indices(panel_df, metadata)
     geno = legacy_ld.PlinkBEDFile(
         prefix + ".bed",
         len(fam.IDList),
@@ -1771,6 +1822,7 @@ def prepare_plink_chromosome(
         maf_removed=int(getattr(geno, "maf_removed", 0)),
         selected_individual_count=int(geno.n),
         cm_source="explicit_genetic_map" if genetic_map is not None else "bim_cm",
+        identity_drops=panel_drops,
     )
 
 
@@ -1928,6 +1980,7 @@ def compute_chrom_from_plink(
         baseline_columns=bundle.baseline_columns,
         query_columns=bundle.query_columns,
         overlap=overlap,
+        identity_drops=prepared.identity_drops,
     )
 
 

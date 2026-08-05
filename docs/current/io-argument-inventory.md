@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-05
 
 This document records the current public input/output naming contract after the
 LD-score result-directory refactor. The LD-score workflow uses a canonical
@@ -290,24 +290,25 @@ inside the owned package are removed after the successful write.
 
 ### `ldsc build-gene-ldscore-index`
 
-This advanced, deliberately closed command builds an immutable hg19/rsID gene
-LD-score index. It is not a legacy compatibility command.
+This advanced, deliberately closed command builds an immutable hg19 gene
+LD-score index under an explicitly selected base `rsid` or `chr_pos` identity.
+It is not a legacy compatibility command and performs no inference or liftover.
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--baseline-annot-sources` | input | yes | full baseline annotation suite | Canonical baseline used by later indexed LD-score assembly. |
 | `--plink-prefix` | input | yes | PLINK reference panel | Exact prefix or supported chromosome suite. |
 | `--output-dir` | output | yes | immutable index directory | Publishes one complete index artifact; no incremental update or component reuse. |
-| `--genome-build` | config | no | coordinate build | Closed to `hg19`. |
-| `--snp-identifier` | config | no | SNP identity | Closed to `rsid`. |
+| `--genome-build` | config | yes | coordinate build assertion | Closed to explicit `hg19` in both modes; no default or inference. |
+| `--snp-identifier` | config | yes | SNP identity | Exactly `rsid` or `chr_pos`; no default, `auto`, or allele-aware mode. |
 | `--padding-bp` | model | no | gene interval padding | Padding used when constructing disjoint gene atoms. |
 | `--gene-exclude-regions` | model | no | gene exclusion policy | `none` or `mhc`. |
 | `--ld-wind-cm` | model | no | LD window | cM window used by the PLINK-backed operator. |
 | `--maf-min`, `--common-maf-min` | QC/counts | no | reference MAF thresholds | Retained-reference and common-count thresholds stored in index identity. |
 | `--keep-indivs-file` | input | no | PLINK sample restriction | Restricts individuals used during index construction. |
-| `--regression-snps-file` | input | no | regression SNP override | Identity-only list; otherwise the bundled HM3 set is used. |
+| `--regression-snps-file` | input | no | regression SNP override | Identity-only list; repeated effective keys collapse; otherwise the bundled hg19 HM3 set is used. |
 | `--exclude-regions` | input transform | no | regression-region subtraction | `none`, `mhc`, `centromeres`, or `mhc-and-centromeres`. |
-| `--genetic-map-hg19-sources`, `--genetic-map-hg38-sources` | input | no | genetic maps | Map sources accepted by the shared PLINK preparation path; the closed index build is hg19. |
+| `--genetic-map-hg19-sources` | input | no | genetic map | Optional explicit hg19 map; hg38 maps are not a builder CLI input. |
 | `--chromosomes` | input selector | no | chromosome set | Explicit chromosome selection. |
 | `--snp-batch-size`, `--atom-batch-size` | performance | no | computation batches | Bounds SNP and disjoint-atom matrix work. |
 | `--threads` | performance | no | chromosome workers | Cross-chromosome process count. |
@@ -571,6 +572,7 @@ LD-score `chunk_size`; `use_hm3_ref_panel_snps`, `use_hm3_regression_snps`,
 |---|---:|---:|---|
 | `GeneLDScoreIndexBuildConfig` | `baseline_annot_sources`, `plink_prefix` | input | baseline suite and PLINK panel |
 | `GeneLDScoreIndexBuildConfig` | `output_dir` | output | complete immutable index directory |
+| `GeneLDScoreIndexBuildConfig` | `genome_build`, `snp_identifier` | config | required explicit `hg19` and base `rsid|chr_pos` semantic identity |
 | `GeneLDScoreIndexBuildConfig` | `padding_bp`, `gene_exclude_regions`, `ld_wind_cm` | model | closed index scientific identity |
 | `GeneLDScoreIndexBuildConfig` | `regression_snps_file`, `exclude_regions` | input | regression row universe |
 | `GeneLDScoreIndexBuildConfig` | `snp_batch_size`, `atom_batch_size`, `threads` | performance | bounded index computation |

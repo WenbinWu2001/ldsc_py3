@@ -52,7 +52,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ._row_alignment import assert_same_snp_rows
-from ._kernel.snp_identity import effective_merge_key_series, identity_artifact_metadata, is_allele_aware_mode
+from ._kernel.snp_identity import coerce_identity_drop_frame, effective_merge_key_series, identity_artifact_metadata, is_allele_aware_mode
 from .config import _normalize_required_path
 from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError
 from .path_resolution import (
@@ -403,6 +403,11 @@ class LDScoreDirectoryWriter:
             paths["query"] = output_dir / "ldscore.query.parquet"
         if overlap is not None:
             paths["overlap"] = output_dir / "ldscore.overlap.parquet"
+        identity_drops_by_chrom = dict(getattr(result, "identity_drops_by_chrom", {}) or {})
+        for chrom in identity_drops_by_chrom:
+            paths[f"dropped_snps_chr{chrom}"] = (
+                output_dir / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
+            )
         paths.update(self._query_diagnostic_paths(result, output_dir))
         stale_paths = preflight_output_artifact_family(
             paths.values(),
@@ -419,11 +424,17 @@ class LDScoreDirectoryWriter:
         if overlap is not None:
             from .overlap_matrix import overlap_to_long_frame
             overlap_to_long_frame(overlap).to_parquet(paths["overlap"], index=False)
+        for chrom, frame in identity_drops_by_chrom.items():
+            drop_path = paths[f"dropped_snps_chr{chrom}"]
+            drop_path.parent.mkdir(parents=True, exist_ok=True)
+            coerce_identity_drop_frame(frame).to_csv(
+                drop_path, sep="\t", index=False, compression="gzip", na_rep=""
+            )
         self._write_query_diagnostic_files(result, paths)
         metadata = self.build_metadata(
             result,
             files={
-                name: path.name
+                name: str(path.relative_to(output_dir))
                 for name, path in paths.items()
                 if name not in {"metadata", "query_status", "gene_list_unresolved"}
             },
@@ -1105,6 +1116,7 @@ def _ldscore_output_family(output_dir: Path) -> list[Path]:
         output_dir / "ldscore.overlap.parquet",
         output_dir / "diagnostics" / "query_annotation_status.tsv",
         output_dir / "diagnostics" / "gene_list_unresolved.tsv.gz",
+        *sorted((output_dir / "diagnostics" / "dropped_snps").glob("chr*_dropped.tsv.gz")),
     ]
 
 

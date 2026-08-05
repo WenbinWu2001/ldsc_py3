@@ -1,6 +1,6 @@
 # Exact gene LD-score indexes
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-05
 
 An exact gene LD-score index moves the repeated PLINK calculation for one
 baseline, reference panel, regression-row policy, and gene projection offline.
@@ -27,22 +27,40 @@ ldsc build-gene-ldscore-index \
   --exclude-regions mhc-and-centromeres
 ```
 
-The builder is hg19/rsID/PLINK-only. The default persisted regression/output
+The builder is hg19/PLINK-only and supports the base `rsid` and `chr_pos`
+identity modes. Both `--genome-build hg19` and `--snp-identifier` are required;
+there is no default, `auto`, inference, or liftover. The default persisted regression/output
 rows are bundled HapMap3 SNPs with MHC and centromere regions removed. Supply
 `--regression-snps-file custom.snplist` to replace the HapMap3 candidate set;
 `--exclude-regions` is still applied afterward. Its choices are `none`, `mhc`,
 `centromeres`, and `mhc-and-centromeres`.
 
 The LD-reference universe is the inner intersection of baseline and PLINK SNPs
-under the configured identifier mode (rsID in v1), matching ordinary PLINK
-`ldscore` behavior. Duplicate effective identifiers in either source are
-ambiguous and fail. Baseline-only and PLINK-only SNPs are dropped and counted.
+under the configured identifier mode, matching ordinary PLINK `ldscore`
+behavior. Every row in a duplicate effective-identity group is dropped, warned,
+and recorded under `diagnostics/dropped_snps/`; no representative is selected.
+Baseline-only and PLINK-only SNPs are dropped and counted.
 PLINK supplies chromosome, position, alleles, cM, genotypes, output identity,
 and gene projection coordinates. A matched rsID with different baseline and
 PLINK coordinates is warned and counted, but PLINK coordinates win. This is
 scientifically valid only when rsID is the intended identity contract and the
 caller has independently verified that the PLINK panel is hg19; rsID matching
 cannot prove genome build.
+
+### SNP identity contract
+
+`rsid` uses `SNP` as the effective join key. `chr_pos` uses exactly normalized
+`(CHR, POS)` with positive 1-based positions; a baseline `SNP` column is
+optional and never participates in coordinate matching. After either join,
+PLINK supplies the published `CHR`, `POS`, `SNP`, `A1`, and `A2`. Thus differing
+labels at one matched coordinate are allowed and reported, and the PLINK label
+is authoritative. `rsid_allele_aware` and `chr_pos_allele_aware` are not builder
+choices.
+
+The completed `index_id` binds the literal mode and explicit hg19 build. Online
+indexed assembly does not rematch sources and rejects live `--snp-identifier`
+and `--genome-build` options even when they equal the index. A matching direct
+run must explicitly use the index's mode and hg19 build.
 
 An individual chromosome may have zero regression rows after restriction and
 region subtraction, which produces a warning. The complete build fails if the
@@ -95,6 +113,8 @@ One output directory contains one complete immutable index:
     diagnostics/
         build-gene-ldscore-index.json
         build-gene-ldscore-index.log
+        dropped_snps/
+            chrN_dropped.tsv.gz
     chromosomes/
         chrN/
             metadata.json
@@ -122,6 +142,14 @@ region policy, genetic map, gene catalog, chromosome coverage, build/identifier,
 window and MAF rules, padding, and gene-region policy. Batching, threads,
 logging, output path, and overwrite are resource or publication controls and do
 not change the identity.
+
+Root and chromosome metadata repeat the immutable identity mode and hg19 build.
+Each chromosome also records ordered effective-identity and published-row
+metadata digests. New PLINK-backed indexes require both allele columns and
+persist canonical `CHR SNP POS A1 A2` metadata for regression rows only. The
+strict loader rejects mode/build disagreement, duplicate effective identities,
+row tampering, and older gene-index metadata contracts before indexed output is
+published; rebuild older gene indexes with the current builder.
 
 Gene indexes do not support incremental updates, chromosome append, profile
 addition, or common-layer reuse. Any input, configuration, or coverage change
@@ -190,6 +218,11 @@ control source, output/overwrite, and logging controls; it does not accept live
 baseline, PLINK/R2, build, identity, window, map, region, or regression-SNP
 overrides. A missing or corrupt index never triggers discovery or direct-mode
 fallback.
+
+The assembled LD-score directory is self-contained and records the inherited
+mode/build plus `index_id`; downstream `h2`, `rg`, and `partitioned-h2` use the
+ordinary summary-statistics identity, genome-build, and explicit downgrade
+rules. The source index is not needed after successful assembly.
 
 **`gene_control` is a binary baseline annotation consists of the selected (padded) control genes. Its default is `all-protein-coding` (all eligible protein-coding genes); use `none` to omit it or provide one custom control-list path.** It captures broad protein-coding-gene background enrichment; the focal gene-list regression coefficient (`tau`) represents the incremental per-SNP heritability beyond that background and the other baseline annotations, not a standalone causal effect. Overlapping, nested, duplicated, and alias-selected genes use Boolean union. The stored operator is float64, preserves negative adjusted-r-squared values, and is not clamped or epsilon-pruned.
 

@@ -29,6 +29,7 @@ import logging
 import multiprocessing as mp
 import os
 from pathlib import Path
+import sys
 from typing import Any, Sequence
 import warnings
 
@@ -36,7 +37,7 @@ import numpy as np
 import pandas as pd
 
 from ._chr_sampler import sample_frame_from_chr_pattern
-from ._kernel.snp_identity import clean_identity_artifact_table, identity_base_mode, identity_mode_family, is_allele_aware_mode
+from ._kernel.snp_identity import clean_identity_artifact_table, empty_identity_drop_frame, identity_base_mode, identity_mode_family, is_allele_aware_mode
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from .config import (
     ConfigMismatchError,
@@ -150,6 +151,7 @@ class ChromLDScoreResult:
     reference_snp_count: int = 0
     regression_selected_snp_count: int = 0
     regression_region_removed_snp_count: int = 0
+    identity_drops: pd.DataFrame = field(default_factory=empty_identity_drop_frame, repr=False)
 
     def validate(self) -> None:
         """Check the normalized public contract for chromosome-level results."""
@@ -254,6 +256,7 @@ class LDScoreResult:
     snp_universe_policy: dict[str, Any] | None = None
     index_provenance: dict[str, str] | None = None
     legacy_ldsc2_import: dict[str, Any] | None = None
+    identity_drops_by_chrom: dict[str, pd.DataFrame] = field(default_factory=dict, repr=False)
 
     def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""
@@ -648,6 +651,11 @@ class LDScoreCalculator:
             ldscore_config=ldscore_config,
             global_config=global_config,
         )
+        if backend == "plink":
+            # RefPanel.load_metadata() already emitted the one user-facing
+            # duplicate summary. The kernel repeats cleanup to recover the
+            # physical BED-column mapping and audit rows, but does not log it twice.
+            args._plink_identity_cleanup_already_logged = True
         legacy_bundle = kernel_ldscore.AnnotationBundle(
             metadata=annotation_bundle.metadata.copy(),
             annotations=annotation_bundle.annotation_matrix(include_query=True).copy(),
@@ -748,6 +756,7 @@ class LDScoreCalculator:
             reference_snp_count=len(reference_metadata),
             regression_selected_snp_count=int(regression_selected.sum()),
             regression_region_removed_snp_count=int((regression_selected & ~regression_keep).sum()),
+            identity_drops=getattr(legacy_result, "identity_drops", empty_identity_drop_frame()),
         )
         result.validate()
         return result
@@ -838,6 +847,10 @@ class LDScoreCalculator:
             count_config=dict(count_config or {}),
             config_snapshot=snapshots[0] if snapshots else None,
             overlap=aggregated_overlap,
+            identity_drops_by_chrom={
+                result.chrom: result.identity_drops.copy()
+                for result in chromosome_results
+            },
         )
         result.validate()
         return result
@@ -1307,6 +1320,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
 
 def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
     """Validate and dispatch the closed indexed gene-list mode."""
+    explicit_options = set(getattr(args, "_explicit_cli_options", ()))
     forbidden = {
         "--baseline-annot-sources": getattr(args, "baseline_annot_sources", None),
         "--query-annot-sources": getattr(args, "query_annot_sources", None),
@@ -1327,9 +1341,12 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
         forbidden["--padding-bp"] = getattr(args, "padding_bp")
     if getattr(args, "gene_exclude_regions", "none") != "none":
         forbidden["--gene-exclude-regions"] = getattr(args, "gene_exclude_regions")
-    if getattr(args, "genome_build", None) is not None:
+    if "--genome-build" in explicit_options or getattr(args, "genome_build", None) is not None:
         forbidden["--genome-build"] = getattr(args, "genome_build")
-    if getattr(args, "snp_identifier", "chr_pos_allele_aware") != "chr_pos_allele_aware":
+    if (
+        "--snp-identifier" in explicit_options
+        or getattr(args, "snp_identifier", "chr_pos_allele_aware") != "chr_pos_allele_aware"
+    ):
         forbidden["--snp-identifier"] = getattr(args, "snp_identifier")
     if getattr(args, "exclude_regions", "mhc-and-centromeres") != "mhc-and-centromeres":
         forbidden["--exclude-regions"] = getattr(args, "exclude_regions")
@@ -1340,8 +1357,10 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
     supplied = [option for option, value in forbidden.items() if value not in {None, ""}]
     if supplied:
         raise LDSCInputError(
-            "ldscore indexed mode uses the profile's immutable scientific inputs and cannot accept live inputs: "
+            "ldscore indexed mode inherits immutable scientific inputs, SNP identity, and genome build "
+            "from the index and cannot accept live overrides: "
             + ", ".join(supplied)
+            + ". Remove these options, or remove --gene-ldscore-index-dir to run direct mode."
         )
     gene_lists = split_cli_path_tokens(getattr(args, "query_annot_gene_list_sources", None))
     if not gene_lists:
@@ -1658,13 +1677,20 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     defaults["log_level"] = global_config.log_level
     defaults.update(kwargs)
     args = argparse.Namespace(**defaults)
+    args._explicit_cli_options = frozenset(
+        "--" + key.replace("_", "-") for key in kwargs
+    )
     return run_ldscore_from_args(args)
 
 
 def main(argv: Sequence[str] | None = None) -> LDScoreResult:
     """Command-line entry point for the LD-score workflow."""
     parser = build_parser()
-    args = parser.parse_args(argv)
+    argv_list = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(argv_list)
+    args._explicit_cli_options = frozenset(
+        token.split("=", 1)[0] for token in argv_list if token.startswith("--")
+    )
     return run_ldscore_from_args(args)
 
 

@@ -1,6 +1,6 @@
 # Calculate LD scores for gene lists with an index
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-05
 
 ## Motivation
 
@@ -58,16 +58,33 @@ ldsc ldscore \
   --output-dir "${LDSCORE_OUTPUT_DIR}"
 ```
 
+**Equivalent direct mode:** the same scientific analysis can be run without an
+index by supplying the original baseline annotations and PLINK panel and
+repeating the index's scientific settings. See the
+[matched direct-mode command](#equivalent-direct-mode-and-when-to-use-it).
+Direct mode recomputes the baseline and gene-list LD scores; indexed mode
+reuses the stored baseline block and exact gene operator, so matching inputs
+should produce equivalent canonical results.
+
 The explicit index owns the baseline, reference panel, genome build, SNP
 identity, LD window, MAF settings, padding, and region policies. Do not pass
 live `--baseline-annot-sources`, `--plink-prefix`, `--r2-dir`, build/window/map,
 padding, or SNP-filter options in indexed mode.
 
-V1 indexes and their canonical LD-score rows are hg19. Indexed assembly does
-not offer output-build conversion: it reuses the index's hg19 coordinates,
-gene projection, regression masks, and map/window identity. Use direct mode for
-a supported configuration outside the index compatibility domain; do not treat
-rsID matching as permission to mix coordinate builds.
+**SNP identity in fast mode:** an index stores either `rsid` or `chr_pos` and
+explicit hg19 provenance. Fast assembly does not repeat source matching; it
+loads the immutable mode/build, aligned rows, and operator. Therefore, do not
+pass either `--snp-identifier` or `--genome-build` to an indexed command. Their
+presence is rejected even when the values equal the index. A matching direct
+command must pass both explicitly because it rebuilds the source alignment.
+
+In `chr_pos` output, normalized `CHR/POS` are identity and PLINK `SNP` remains
+a useful published label, not a merge key. Both supported base modes also retain
+PLINK `A1/A2` as passive metadata. Indexed assembly performs no liftover or
+output-build conversion and writes a self-contained canonical LD-score
+directory. Downstream `h2`, `rg`, and `partitioned-h2` apply the same ordinary
+summary-statistics identity, build, and explicit downgrade rules as direct
+outputs; they do not need the source index after assembly.
 
 Use `--overwrite` to replace an existing output family.
 
@@ -164,7 +181,7 @@ p-value as conditional on that model. Correlated or overlapping gene sets can
 therefore produce related results and should not be read as mutually
 independent discoveries.
 
-## When to use direct mode instead
+## Equivalent direct mode and when to use it
 
 Use direct gene-list mode when no compatible index exists or when the desired
 reference, baseline, build, padding, gene-region policy, or control design
@@ -178,8 +195,10 @@ ldsc ldscore \
   --snp-identifier rsid \
   --genome-build hg19 \
   --ld-wind-cm 1.0 \
+  --common-maf-min 0.05 \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
+  --exclude-regions mhc-and-centromeres \
   --control-gene-list-source all-protein-coding \
   --output-dir "${LDSCORE_OUTPUT_DIR}"
 ```

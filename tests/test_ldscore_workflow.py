@@ -918,6 +918,17 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertNotIn("MAF", metadata.columns)  # MAF never carried
         self.assertEqual(list(annotations.columns), ["base_a"])
 
+    def test_kernel_chr_pos_annotation_file_accepts_missing_snp_label(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "coordinate_only.annot"
+            path.write_text("CHR\tBP\tbase_a\n22\t10\t1\n22\t20\t0\n", encoding="utf-8")
+            metadata, annotations = kernel_ldscore.parse_annotation_file(
+                str(path), identifier_mode="chr_pos"
+            )
+
+        self.assertEqual(list(metadata.columns), ["CHR", "POS", "CM"])
+        self.assertEqual(annotations["base_a"].tolist(), [1.0, 0.0])
+
     def test_kernel_parse_annotation_file_rejects_single_allele_column(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "one_allele.annot"

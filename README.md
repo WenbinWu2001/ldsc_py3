@@ -226,10 +226,7 @@ ldsc ldscore \
   --output-dir gene_ldscores
 ```
 
-Build complete indexes offline with `ldsc build-gene-ldscore-index`. Indexed mode is
-explicit and fail-closed: it validates the complete index, accepts no live
-baseline/reference/window settings, and writes the same self-contained
-canonical LD-score directory. See
+Build complete indexes offline with `ldsc build-gene-ldscore-index`. Indexed mode is explicit and fail-closed: it validates the complete index, accepts no live baseline/reference/window settings, and writes the same self-contained canonical LD-score directory. During the offline build, each completed chromosome is atomically persisted in a hidden run-specific stage, allowing its large in-memory payload to be released while later chromosomes continue. A `Finished chromosome N` log line reports that private durability boundary; the public destination remains absent, empty, or at its prior complete version until every chromosome and shared metadata pass reload validation. These private shards are not resumable checkpoints and never support chromosome append or incremental index updates. See
 [the exact gene-index guide](docs/current/gene-ldscore-index.md) and its
 [mathematical algorithm](docs/current/gene-ldscore-index-mathematics.md).
 Task-oriented walkthroughs cover [building the index](docs/wiki/utility-functionalities/build-gene-ldscore-index.md)

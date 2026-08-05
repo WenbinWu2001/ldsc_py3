@@ -5,7 +5,9 @@ baseline, reference panel, regression-row policy, and gene projection. The onlin
 workflow resolves gene lists against the embedded catalog, assembles their
 Boolean union from the stored operator, and writes an ordinary self-contained
 LD-score directory. It never discovers an index or silently falls back to live
-LD calculation.
+LD calculation. During an offline build, completed chromosome payloads become
+durable inside one private run transaction and are released from memory; only a
+complete reload-validated transaction is published as an index.
 """
 
 from __future__ import annotations
@@ -288,7 +290,7 @@ def _build_embedded_gene_catalog(
 
 
 def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
-    """Build, validate, and publish one complete exact v1 index."""
+    """Build one exact v1 index through locked preflight and staged publication."""
     started = time.perf_counter()
     chromosomes = _parse_chromosomes(args.chromosomes)
     baseline_sources = tuple(split_cli_path_tokens(args.baseline_annot_sources))
@@ -1192,7 +1194,19 @@ class IndexChromosomeData:
 
 @dataclass(frozen=True)
 class StagedIndexChromosome:
-    """Compact evidence returned after one chromosome shard is durable."""
+    """Compact worker result returned after one chromosome shard is durable.
+
+    Attributes
+    ----------
+    chromosome : str
+        Canonical chromosome label for the staged shard.
+    evidence : dict
+        Scalar identity inputs and build diagnostics used by the coordinator.
+        This mapping contains no chromosome payload tables or sparse matrices.
+    component_metadata : dict
+        Dimensions, ordered baseline columns, and sparse-format declarations
+        that receive the complete ``index_id`` during coordinator finalization.
+    """
 
     chromosome: str
     evidence: dict
@@ -1238,6 +1252,39 @@ def publish_gene_ldscore_index(
 ) -> Path:
     """Stage, reload, and atomically publish one complete in-memory index.
 
+    Parameters
+    ----------
+    index_dir : path-like
+        Public destination for one complete immutable index.
+    index_identity : dict
+        Canonical scientific identity payload used to calculate ``index_id``.
+    gene_catalog : pandas.DataFrame
+        Complete embedded catalog in canonical ``gene_index`` order.
+    chromosomes : dict of str to IndexChromosomeData
+        Ordered chromosome records to persist in the index.
+    overwrite : bool
+        Replace an existing valid complete index when true. Invalid nonempty
+        destinations are never replaced.
+    diagnostic_payload : dict, optional
+        Successful-build diagnostic record. When supplied, payload-byte fields
+        are added in place before the record is written.
+
+    Returns
+    -------
+    pathlib.Path
+        Published index directory after staged and destination reload
+        validation.
+
+    Raises
+    ------
+    FileExistsError
+        If the destination is an existing valid index without ``overwrite``,
+        or is a nonempty unrecognized directory.
+    LDSCInputError
+        If the complete staged or published index fails reload validation.
+
+    Notes
+    -----
     Existing valid indexes require ``overwrite=True`` and are kept loadable
     until their complete replacement has passed staged reload validation.
     Nonempty directories that are neither valid indexes nor recognized
@@ -1303,7 +1350,7 @@ def publish_gene_ldscore_index(
 
 
 def _create_gene_index_transaction(destination: Path) -> Path:
-    """Create one marked hidden transaction beside a publication target."""
+    """Create one marked run-specific sibling stage without touching the target."""
     destination = destination.expanduser()
     destination.parent.mkdir(parents=True, exist_ok=True)
     stage_parent = Path(
@@ -1319,7 +1366,12 @@ def _create_gene_index_transaction(destination: Path) -> Path:
 
 
 def _commit_staged_gene_ldscore_index(stage_parent: Path, destination: Path) -> Path:
-    """Reload-validate and atomically install an already-written complete index."""
+    """Validate and install an already-written index without recopying payloads.
+
+    The prior valid destination is held as a transaction-local backup until the
+    replacement reloads successfully. Cleanup after that commit point is
+    warning-only; pre-commit failure restores the backup and remains fatal.
+    """
     staged_index = stage_parent / destination.name
     marker = _read_json(stage_parent / ".gene-index-publication.json", "publication marker")
     committed = False
@@ -2042,7 +2094,14 @@ def _stage_index_chromosome(
     chrom: str,
     record: IndexChromosomeData,
 ) -> Path:
-    """Write one private shard and atomically make it durable in the run stage."""
+    """Atomically install one payload-only shard in the private run stage.
+
+    All payload files are first closed in a chromosome-private temporary
+    directory. Renaming that directory to ``chrN`` is the durability boundary
+    observed by the worker's subsequent ``Finished chromosome N`` log record.
+    Shared and component identity metadata are intentionally deferred to the
+    coordinator.
+    """
     chromosomes_path = staged_index / "chromosomes"
     chromosomes_path.mkdir(parents=True, exist_ok=True)
     temporary = Path(
@@ -2067,7 +2126,12 @@ def _finalize_staged_index_artifact(
     chromosomes: dict[str, StagedIndexChromosome],
     diagnostic_payload: dict | None = None,
 ) -> None:
-    """Write coordinator-owned metadata after every chromosome is staged."""
+    """Finalize coordinator-owned metadata for a complete staged index.
+
+    ``chromosomes`` is already in canonical requested order. This function
+    writes root identity, component identity, the gene catalog, and successful
+    diagnostics only after every payload-only shard is durable.
+    """
     _write_json(
         index_path / "metadata.json",
         {

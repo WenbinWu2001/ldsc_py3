@@ -127,12 +127,12 @@ and regression rows, atom/operator nonzeros, component bytes, and publication
 state. The JSON sidecar is the machine-readable summary; the log renders the
 same per-chromosome and aggregate measurements rather than recomputing them.
 
+For this builder, `Finished chromosome N` is emitted only after the worker has closed every chromosome payload and atomically installed the shard in the hidden run-specific stage. It means the internal shard is durable and its in-memory record can be released; it does not report partial public publication. The public destination changes only after all chromosome and shared metadata are finalized and the complete stage reloads successfully.
+
 For a successful run, the final lines identify `index_id`, staged reload
 validation, complete atomic replacement, payload bytes, peak RSS, and the
 validated index path. After the `Finished` footer closes the handler, the
-successful log moves into the published index's `diagnostics/`. A failure keeps
-the `Failed` footer and traceback at the hidden live path without creating or modifying an index destination; a
-failed overwrite leaves the old scientific index loadable. Once replacement
+successful log moves into the published index's `diagnostics/`. A failure keeps the `Failed` footer and traceback at the hidden live path without creating or modifying an index destination; a failed overwrite leaves the old scientific index loadable. A retained interrupted stage is never a resumable checkpoint and is discarded on retry. Once replacement
 and reload validation complete, cleanup failures are warnings that name the
 retained transaction directory and do not change the successful exit status.
 The lifecycle log is the status authority, so no separate status JSON is

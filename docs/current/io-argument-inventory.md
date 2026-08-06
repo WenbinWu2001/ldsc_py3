@@ -360,7 +360,7 @@ annotations and frequencies. See
 | `--snp` | input metadata | no | raw SNP column hint | Identifies the raw SNP/variant identifier column; defaults to omitted/`None`, so common aliases are inferred. |
 | `--chr` | input metadata | no | raw chromosome column hint | Identifies the raw chromosome column; defaults to omitted/`None`, so common aliases such as `#CHROM`, `CHROM`, and `CHR` are inferred. |
 | `--pos` | input metadata | no | raw position column hint | Identifies the raw position column; defaults to omitted/`None`, so common aliases such as `POS` and `BP` are inferred. |
-| `--N-col`, `--N-cas-col`, `--N-con-col` | input metadata | no | sample-size column hints | Identify raw total, case, and control sample-size columns; each defaults to `None`. |
+| `--N-col`, `--N-cas-col`, `--N-con-col` | input metadata | no | sample-size column hints | `--N-col` selects direct N and suppresses inferred case/control columns. `--N-cas-col` and `--N-con-col` must be supplied together, select case/control N, and suppress inferred direct N. The two strategies are mutually exclusive; fully automatic discovery of both is an actionable ambiguity error. |
 | `--a1`, `--a2` | input metadata | no | allele column hints | Identify raw effect and other allele columns; each defaults to `None`. Allele-aware modes require usable alleles after parsing. |
 | `--p` | input metadata | no | p-value column hint | Identifies the raw p-value column; defaults to `None`. |
 | `--frq` | input metadata | no | allele-frequency column hint | Identifies the raw allele-frequency column used by munger QC and optional output preservation; defaults to `None`. |

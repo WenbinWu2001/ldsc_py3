@@ -2242,6 +2242,140 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data["CHR"].tolist(), [1])
             self.assertEqual(table.data["POS"].tolist(), [123])
 
+    def test_explicit_n_col_suppresses_inferred_case_control_columns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA NEFF NCAS NCON\n"
+                "rs1 A G 0.05 0.1 777 400 600\n"
+                "rs2 C T 0.10 -0.1 888 400 600\n",
+                encoding="utf-8",
+            )
+            (tmpdir / "munged").mkdir()
+
+            with self.assertWarnsRegex(UserWarning, "--N-col NEFF.*ignored automatically inferred.*NCAS.*NCON"):
+                table = SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path, column_hints={"N_col": "NEFF"}),
+                    MungeConfig(output_dir=tmpdir / "munged"),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+            self.assertEqual(table.data["N"].tolist(), [777.0, 888.0])
+
+    def test_explicit_case_control_columns_suppress_inferred_direct_n(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA N CASES CONTROLS\n"
+                "rs1 A G 0.05 0.1 777 400 600\n",
+                encoding="utf-8",
+            )
+            (tmpdir / "munged").mkdir()
+
+            with self.assertWarnsRegex(
+                UserWarning,
+                "--N-cas-col CASES.*--N-con-col CONTROLS.*ignored automatically inferred.*N",
+            ):
+                table = SumstatsMunger().run(
+                    MungeConfig(
+                        raw_sumstats_file=raw_path,
+                        column_hints={"N_cas_col": "CASES", "N_con_col": "CONTROLS"},
+                    ),
+                    MungeConfig(output_dir=tmpdir / "munged"),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+            self.assertEqual(table.data["N"].tolist(), [1000.0])
+
+    def test_explicit_direct_and_case_control_column_strategies_conflict(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA NEFF NCAS NCON\n"
+                "rs1 A G 0.05 0.1 777 400 600\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                ldsc.LDSCUsageError,
+                "--N-col.*cannot be combined with --N-cas-col and --N-con-col.*Choose one sample-size strategy",
+            ):
+                SumstatsMunger().run(
+                    MungeConfig(
+                        raw_sumstats_file=raw_path,
+                        column_hints={"N_col": "NEFF", "N_cas_col": "NCAS", "N_con_col": "NCON"},
+                    ),
+                    MungeConfig(output_dir=tmpdir / "munged"),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+    def test_explicit_case_control_column_hints_must_be_a_pair(self):
+        incomplete_hints = (
+            ({"N_cas_col": "NCAS"}, "--N-con-col"),
+            ({"N_con_col": "NCON"}, "--N-cas-col"),
+        )
+        for hint, expected_missing in incomplete_hints:
+            with self.subTest(hint=hint), tempfile.TemporaryDirectory() as tmpdir:
+                tmpdir = Path(tmpdir)
+                raw_path = tmpdir / "raw.tsv"
+                raw_path.write_text(
+                    "SNP A1 A2 P BETA N NCAS NCON\n"
+                    "rs1 A G 0.05 0.1 777 400 600\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(
+                    ldsc.LDSCUsageError,
+                    f"--N-cas-col and --N-con-col must be provided together.*{expected_missing}",
+                ):
+                    SumstatsMunger().run(
+                        MungeConfig(raw_sumstats_file=raw_path, column_hints=hint),
+                        MungeConfig(output_dir=tmpdir / "munged"),
+                        GlobalConfig(snp_identifier="rsid"),
+                    )
+
+    def test_automatic_direct_and_case_control_inference_is_ambiguous(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA N NCAS NCON\n"
+                "rs1 A G 0.05 0.1 777 400 600\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                ldsc.LDSCInputError,
+                "multiple sample-size strategies.*--N-col N.*--N-cas-col NCAS --N-con-col NCON",
+            ):
+                SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path),
+                    MungeConfig(output_dir=tmpdir / "munged"),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+    def test_unambiguous_direct_and_case_control_sample_size_workflows(self):
+        fixtures = (
+            ("SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 777\n", 777.0),
+            ("SNP A1 A2 P BETA NCAS NCON\nrs1 A G 0.05 0.1 400 600\n", 1000.0),
+        )
+        for raw_text, expected_n in fixtures:
+            with self.subTest(expected_n=expected_n), tempfile.TemporaryDirectory() as tmpdir:
+                tmpdir = Path(tmpdir)
+                raw_path = tmpdir / "raw.tsv"
+                raw_path.write_text(raw_text, encoding="utf-8")
+
+                table = SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path),
+                    MungeConfig(output_dir=tmpdir / "munged"),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+                self.assertEqual(table.data["N"].tolist(), [expected_n])
+
     def test_run_auto_detects_old_daner_sample_sizes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

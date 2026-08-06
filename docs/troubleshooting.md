@@ -123,6 +123,32 @@ artifact reload guards · **Exception:** `LDSCInputError`
    if broadly useful.
 3. Verify the delimiter is whitespace/tab as expected for `.sumstats`/`.txt` inputs.
 
+### munge-sumstats: multiple or conflicting sample-size column strategies
+
+**Raised by:** `_kernel/sumstats_munger` sample-size column resolution
+· **Exception:** `LDSCInputError` or `LDSCUsageError`
+**Symptom:** `munge-sumstats found multiple sample-size strategies...`, an
+incomplete `--N-cas-col`/`--N-con-col` pair, or a conflict with `--N-col`.
+
+**Likely causes & how to check:**
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The header auto-maps both direct N and case/control counts | Inspect the header for `N` (or another direct-N alias) together with aliases such as `NCAS` and `NCON` |
+| 2 | Both explicit strategies were supplied | Check whether the command contains `--N-col` plus `--N-cas-col`/`--N-con-col` |
+| 3 | Only one case/control column flag was supplied | Confirm both `--N-cas-col` and `--N-con-col` are present |
+
+**Remedies:**
+
+1. Choose direct N with `--N-col <column>`; inferred case/control columns are
+   suppressed with a warning.
+2. Or choose case/control N with
+   `--N-cas-col <cases> --N-con-col <controls>`; inferred direct N is
+   suppressed with a warning.
+3. Do not combine the two strategies. For `NEFF + NCAS + NCON`, use
+   `--N-col NEFF` when those exact effective-N values are intended; no
+   `--ignore` flag is required.
+
 ### munge-sumstats: no SNPs remain after filtering
 
 **Raised by:** `_kernel/sumstats_munger` (post-filter and keep-list paths)

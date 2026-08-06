@@ -1938,26 +1938,25 @@ def build_plink_index_chromosome(
     baseline = np.asarray(prepared.annotation_matrix, dtype=np.float64)
     geno = prepared.geno
 
-    geno._currentSNP = 0
-    baseline_scores = np.asarray(
-        geno.ldScoreVarBlocks(prepared.block_left, args.snp_batch_size, annot=baseline),
-        dtype=np.float64,
-    )
     persisted = kernel_ldscore.regression_mask_from_keys(
         metadata,
         regression_keys,
         args.snp_identifier,
         region_intervals=regression_regions,
     ).astype(bool)
+    n_baseline_columns = baseline.shape[1]
+    combined_annotation = np.column_stack([baseline, persisted])
     geno._currentSNP = 0
-    regression_scores = np.asarray(
+    combined_scores = np.asarray(
         geno.ldScoreVarBlocks(
             prepared.block_left,
             args.snp_batch_size,
-            annot=persisted.reshape(-1, 1),
+            annot=combined_annotation,
         ),
         dtype=np.float64,
-    ).reshape(-1)
+    )
+    baseline_scores = combined_scores[:, :n_baseline_columns]
+    regression_scores = combined_scores[:, n_baseline_columns]
 
     baseline_frame = pd.DataFrame(baseline, columns=baseline_bundle.baseline_columns)
     baseline_count_all, baseline_count_common = kernel_ldscore.compute_counts(

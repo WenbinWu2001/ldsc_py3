@@ -373,6 +373,150 @@ def test_prepared_plink_chromosome_is_reused_by_direct_ldscore():
     np.testing.assert_array_equal(reused_scores.astype(np.float32), direct.ld_scores)
 
 
+def test_direct_plink_projects_annotations_and_regression_weights_in_one_traversal(monkeypatch):
+    prefix = Path(__file__).resolve().parent / "fixtures" / "plink" / "plink"
+    bim = pd.read_csv(
+        prefix.with_suffix(".bim"),
+        sep=r"\s+",
+        header=None,
+        names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
+    )
+    metadata = bim[["CHR", "SNP", "CM", "POS"]].copy()
+    annotations = pd.DataFrame(
+        {
+            "base": np.ones(len(metadata), dtype=np.float32),
+            "baseline_aux": (metadata["POS"] % 2).to_numpy(dtype=np.float32),
+            "query": (metadata["POS"] >= 4).to_numpy(dtype=np.float32),
+        }
+    )
+    bundle = kernel_ldscore.AnnotationBundle(
+        metadata,
+        annotations,
+        ["base", "baseline_aux"],
+        ["query"],
+    )
+    args = Namespace(
+        bfile=str(prefix), keep=None, maf_min=None, maf=None,
+        ld_wind_snps=10, ld_wind_kb=None, ld_wind_cm=None,
+        yes_really=True, snp_batch_size=3, common_maf_min=0.05,
+        snp_identifier="rsid", genetic_map=None,
+    )
+
+    # The former two-pass calculation is the numerical oracle for this
+    # optimization: only traversal reuse may change, never the score values.
+    prepared = kernel_ldscore.prepare_plink_chromosome("1", bundle, args)
+    regression_keys = set(prepared.metadata.loc[::2, "SNP"].astype(str))
+    regression_mask = kernel_ldscore.regression_mask_from_keys(
+        prepared.metadata, regression_keys, args.snp_identifier
+    )
+    prepared.geno._currentSNP = 0
+    expected_ld_scores = prepared.geno.ldScoreVarBlocks(
+        prepared.block_left, args.snp_batch_size, annot=prepared.annotation_matrix
+    )
+    assert prepared.geno._currentSNP == prepared.geno.m
+    prepared.geno._currentSNP = 0
+    expected_w_ld = prepared.geno.ldScoreVarBlocks(
+        prepared.block_left, args.snp_batch_size, annot=regression_mask.reshape(-1, 1)
+    )
+    assert prepared.geno._currentSNP == prepared.geno.m
+
+    calls = []
+    geno_type = type(prepared.geno)
+    original = geno_type.ldScoreVarBlocks
+
+    def traced_ldscore(self, block_left, batch_size, annot=None):
+        start_cursor = self._currentSNP
+        scores = original(self, block_left, batch_size, annot=annot)
+        calls.append((start_cursor, self._currentSNP, np.asarray(annot).copy()))
+        return scores
+
+    monkeypatch.setattr(geno_type, "ldScoreVarBlocks", traced_ldscore)
+    result = kernel_ldscore.compute_chrom_from_plink(
+        "1", bundle, args, regression_keys
+    )
+
+    assert len(calls) == 1
+    start_cursor, end_cursor, projected = calls[0]
+    assert (start_cursor, end_cursor) == (0, len(result.metadata))
+    assert projected.dtype == np.float32
+    np.testing.assert_array_equal(
+        projected,
+        np.column_stack([prepared.annotation_matrix, regression_mask]),
+    )
+    assert result.ldscore_columns == ["base", "baseline_aux", "query"]
+    assert result.baseline_columns == ["base", "baseline_aux"]
+    assert result.query_columns == ["query"]
+    assert result.ld_scores.dtype == np.float32
+    assert result.w_ld.dtype == np.float32
+    np.testing.assert_allclose(
+        result.ld_scores,
+        expected_ld_scores.astype(np.float32),
+        rtol=0.0,
+        atol=np.finfo(np.float32).eps,
+    )
+    np.testing.assert_allclose(
+        result.w_ld,
+        expected_w_ld.astype(np.float32),
+        rtol=0.0,
+        atol=np.finfo(np.float32).eps,
+    )
+    pd.testing.assert_frame_equal(result.metadata, prepared.metadata)
+    expected_frame = pd.DataFrame(
+        prepared.annotation_matrix,
+        columns=["base", "baseline_aux", "query"],
+    )
+    expected_M, expected_M_5_50 = kernel_ldscore.compute_counts(
+        prepared.metadata, expected_frame, common_maf_min=args.common_maf_min
+    )
+    expected_overlap = kernel_ldscore.compute_overlap(
+        prepared.metadata,
+        expected_frame,
+        n_baseline=2,
+        common_maf_min=args.common_maf_min,
+    )
+    np.testing.assert_array_equal(result.M, expected_M)
+    np.testing.assert_array_equal(result.M_5_50, expected_M_5_50)
+    np.testing.assert_array_equal(
+        result.overlap.baseline_block_all, expected_overlap.baseline_block_all
+    )
+    np.testing.assert_array_equal(
+        result.overlap.baseline_block_common, expected_overlap.baseline_block_common
+    )
+    np.testing.assert_array_equal(
+        result.overlap.query_diagonal_all, expected_overlap.query_diagonal_all
+    )
+    np.testing.assert_array_equal(
+        result.overlap.query_diagonal_common, expected_overlap.query_diagonal_common
+    )
+    public = LDScoreCalculator()._wrap_legacy_chrom_result(
+        result,
+        GlobalConfig(snp_identifier="rsid"),
+        regression_keys,
+    )
+    assert public.baseline_table.columns.tolist() == [
+        "CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores", "base", "baseline_aux"
+    ]
+    assert public.query_table.columns.tolist() == [
+        "CHR", "SNP", "POS", "A1", "A2", "query"
+    ]
+    assert public.baseline_table["SNP"].tolist() == prepared.metadata.loc[
+        regression_mask.astype(bool), "SNP"
+    ].tolist()
+    assert public.query_table["SNP"].tolist() == public.baseline_table["SNP"].tolist()
+    np.testing.assert_array_equal(
+        public.baseline_table["regression_ld_scores"].to_numpy(dtype=np.float32),
+        result.w_ld[regression_mask.astype(bool), 0],
+    )
+    assert public.reference_snp_count == len(prepared.metadata)
+    assert public.regression_selected_snp_count == int(regression_mask.sum())
+    assert public.regression_region_removed_snp_count == 0
+    assert [(record["group"], record["column"]) for record in public.count_records] == [
+        ("baseline", "base"),
+        ("baseline", "baseline_aux"),
+        ("query", "query"),
+    ]
+
+
 def test_canonical_sort_maps_back_to_original_bim_bed_columns_without_per_snp_loop():
     panel = pd.DataFrame(
         {
@@ -520,6 +664,97 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches(snp_identifier
         direct.ld_scores[persisted, 1],
     )
     assert int(indexed_one.atom_statistics.atom_count_all @ z.astype(np.int64)) == int(direct.M[1])
+
+
+def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batches(monkeypatch):
+    prefix = Path(__file__).resolve().parent / "fixtures" / "plink" / "plink"
+    bim = pd.read_csv(
+        prefix.with_suffix(".bim"),
+        sep=r"\s+",
+        header=None,
+        names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
+    )
+    metadata = bim[["CHR", "SNP", "CM", "POS"]].copy()
+    baseline_frame = pd.DataFrame(
+        {
+            "base": np.ones(len(metadata), dtype=np.float32),
+            "baseline_aux": (metadata["POS"] % 2).to_numpy(dtype=np.float32),
+        }
+    )
+    bundle = kernel_ldscore.AnnotationBundle(
+        metadata, baseline_frame, ["base", "baseline_aux"], []
+    )
+    args = Namespace(
+        bfile=str(prefix), keep=None, maf_min=None, maf=None,
+        ld_wind_snps=10, ld_wind_kb=None, ld_wind_cm=None,
+        yes_really=True, snp_batch_size=3, common_maf_min=0.05,
+        snp_identifier="rsid", genetic_map=None,
+    )
+
+    prepared = kernel_ldscore.prepare_plink_chromosome("1", bundle, args)
+    regression_keys = set(prepared.metadata.loc[::2, "SNP"].astype(str))
+    persisted = kernel_ldscore.regression_mask_from_keys(
+        prepared.metadata, regression_keys, args.snp_identifier
+    ).astype(bool)
+    baseline64 = np.asarray(prepared.annotation_matrix, dtype=np.float64)
+    prepared.geno._currentSNP = 0
+    expected_baseline = prepared.geno.ldScoreVarBlocks(
+        prepared.block_left, args.snp_batch_size, annot=baseline64
+    )
+    prepared.geno._currentSNP = 0
+    expected_weights = prepared.geno.ldScoreVarBlocks(
+        prepared.block_left, args.snp_batch_size, annot=persisted.reshape(-1, 1)
+    ).reshape(-1)
+
+    calls = []
+    geno_type = type(prepared.geno)
+    original = geno_type.ldScoreVarBlocks
+
+    def traced_ldscore(self, block_left, batch_size, annot=None):
+        start_cursor = self._currentSNP
+        scores = original(self, block_left, batch_size, annot=annot)
+        calls.append((start_cursor, self._currentSNP, np.asarray(annot).copy()))
+        return scores
+
+    monkeypatch.setattr(geno_type, "ldScoreVarBlocks", traced_ldscore)
+    result = build_plink_index_chromosome(
+        "1",
+        bundle,
+        args,
+        regression_keys=regression_keys,
+        regression_regions=None,
+        gene_intervals=np.array([[0, 4], [2, 7], [3, 5]], dtype=np.int64),
+        included=np.array([True, True, True]),
+        padding_bp=0,
+        atom_batch_size=1,
+    )
+
+    # One common pass contains baseline columns followed by the regression mask;
+    # each remaining call is the intentional one-column gene-atom operator batch.
+    assert len(calls) == 1 + result.atom_model.n_atoms
+    assert all((start, end) == (0, len(result.reference_metadata)) for start, end, _ in calls)
+    np.testing.assert_array_equal(
+        calls[0][2], np.column_stack([baseline64, persisted])
+    )
+    assert calls[0][2].dtype == np.float64
+    assert all(projected.shape == (len(result.reference_metadata), 1) for _, _, projected in calls[1:])
+    assert all(projected.dtype == np.bool_ for _, _, projected in calls[1:])
+
+    expected_rows = prepared.metadata.loc[
+        persisted, ["CHR", "SNP", "POS", "A1", "A2"]
+    ].reset_index(drop=True)
+    expected_rows["regression_ld_scores"] = expected_weights[persisted]
+    expected_rows["base"] = expected_baseline[persisted, 0]
+    expected_rows["baseline_aux"] = expected_baseline[persisted, 1]
+    pd.testing.assert_frame_equal(result.baseline_rows, expected_rows)
+    pd.testing.assert_frame_equal(result.reference_metadata, prepared.metadata)
+    expected_counts = kernel_ldscore.compute_counts(
+        prepared.metadata,
+        pd.DataFrame(baseline64, columns=bundle.baseline_columns),
+        common_maf_min=args.common_maf_min,
+    )
+    np.testing.assert_array_equal(result.baseline_count_all, expected_counts[0])
+    np.testing.assert_array_equal(result.baseline_count_common, expected_counts[1])
 
 
 def test_build_index_command_requires_explicit_identity_and_build(capsys):

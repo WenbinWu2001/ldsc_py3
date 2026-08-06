@@ -1,4 +1,9 @@
 
+## Regression-weight LD scores belong in the shared PLINK projection pass
+- Summary: Direct PLINK LD-score calculation and gene-index construction projected baseline/query annotations first, then reset the genotype cursor and recomputed the same correlation blocks for the one-column regression-SNP mask.
+- Root cause: The regression-weight output was treated as a separate result family instead of one more annotation projection, obscuring that `ldScoreVarBlocks` recomputes genotype correlations on every call.
+- Correction: Append the binary regression mask after all ordinary annotation columns, call `ldScoreVarBlocks` once, then split partitioned scores from `w_ld`; keep the separately reset gene-atom batch calls because those bound index-builder memory.
+
 ## ldsc:schema_version is a shared identity contract, not a file-layout version
 - Summary: Bumping `ldsc:schema_version` to 2 to mark the new index R2 layout broke `build_reader`'s `validate_identity_artifact_metadata`, which pins `schema_version == SCHEMA_VERSION` (=1) across all artifact types.
 - Root cause: `schema_version` is the cross-artifact provenance-contract version (sumstats/ldscore/ref-panel share it), enforced equal to the package constant. It is not a per-format layout marker.

@@ -1,6 +1,6 @@
 # Exact gene LD-score index: mathematical algorithm
 
-Last updated on: 2026-08-05
+Last updated on: 2026-08-06
 
 This document gives the input-to-output mathematical specification for the
 exact gene-list index used by `ldsc ldscore`. It describes the online indexed
@@ -126,6 +126,17 @@ $$
 w=PRp\in\mathbb{R}^{r}.
 $$
 
+They are evaluated together. The builder appends $p$ after the baseline
+columns and makes one PLINK-kernel call,
+
+$$
+R[A\;p]=[RA\;Rp],
+$$
+
+then selects the persisted rows and splits the result into $L_A$ and $w$.
+Thus baseline and regression-weight construction share one genotype-correlation
+traversal without changing either numerical definition.
+
 These columns, together with the persisted SNP identity rows, become
 `baseline_rows.parquet`. Online gene-list runs reuse them without reading the
 source baseline, PLINK, or regression-SNP inputs.
@@ -159,6 +170,11 @@ persisted rows with $P$, and stores the result as a float64 CSR matrix in
 `ldscore_operator.npz`. Atom blocking changes memory use only; linearity makes
 it numerically the same operation as evaluating all columns together under the
 same PLINK kernel.
+
+These repeated atom-block kernel calls are distinct from the fixed
+$R[A\;p]$ pass above and are intentional. They bound the dense working matrix
+by the configured atom batch size; the builder does not fuse or materialize all
+columns of $H$ in the baseline/weight pass.
 
 ### 3.5 Store count and overlap sufficient statistics
 

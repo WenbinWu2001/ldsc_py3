@@ -1,6 +1,6 @@
 # Exact gene LD-score indexes
 
-Last updated on: 2026-08-05
+Last updated on: 2026-08-06
 
 An exact gene LD-score index moves the repeated PLINK calculation for one
 baseline, reference panel, regression-row policy, and gene projection offline.
@@ -101,6 +101,13 @@ overlaps, and $w$ share the index's selected individuals, genotype and MAF
 filters, reference intersection, map/window, adjusted-$r^2$ implementation,
 and regression-row policy. Merely residing beside the annotation shards does
 not make a legacy `.ldscore.gz`, `.M`, or `.M_5_50` file an index input.
+
+The fixed baseline and weight payload is projected in one PLINK traversal: the
+builder appends the binary regression selector $p$ after the supplied baseline
+matrix $A$, evaluates $R[A\;p]$ once, then splits $L_A=PRA$ from $w=PRp$ on the
+persisted rows. Construction of $Y=PRH$ remains separate and intentionally
+evaluates bounded atom-column batches, resetting the genotype cursor for each
+batch to keep peak memory independent of the total atom count.
 
 ## Artifact and identity contract
 

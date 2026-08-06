@@ -1940,7 +1940,8 @@ def compute_chrom_from_plink(
     Main steps:
     1. Align annotation SNPs to the PLINK BIM table.
     2. Reuse the legacy PLINK genotype reader and LD-score kernel.
-    3. Compute partitioned reference LD scores and one-column regression-universe LD scores.
+    3. Compute partitioned reference LD scores and the one-column regression-universe
+       LD scores together in one genotype-correlation traversal.
     4. Return chromosome-level LD scores plus all-SNP and common-SNP counts.
     """
     prepared = prepare_plink_chromosome(chrom, bundle, args)
@@ -1951,12 +1952,19 @@ def compute_chrom_from_plink(
         columns=[*bundle.baseline_columns, *bundle.query_columns],
     )
     block_left = prepared.block_left
-    ld_scores = geno.ldScoreVarBlocks(block_left, args.snp_batch_size, annot=prepared.annotation_matrix)
     regression_mask = regression_mask_from_keys(
         geno_meta, regression_keys, args.snp_identifier, region_intervals=regression_regions
     )
+    n_annotation_columns = prepared.annotation_matrix.shape[1]
+    combined_annotation = np.column_stack([prepared.annotation_matrix, regression_mask])
     geno._currentSNP = 0
-    w_ld = geno.ldScoreVarBlocks(block_left, args.snp_batch_size, annot=regression_mask.reshape(-1, 1))
+    combined_scores = geno.ldScoreVarBlocks(
+        block_left,
+        args.snp_batch_size,
+        annot=combined_annotation,
+    )
+    ld_scores = combined_scores[:, :n_annotation_columns]
+    w_ld = combined_scores[:, n_annotation_columns:]
     out_metadata = geno_meta.reset_index(drop=True)
     M, M_5_50 = compute_counts(
         out_metadata,

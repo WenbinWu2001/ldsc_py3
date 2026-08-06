@@ -1,6 +1,8 @@
 # LD Score Calculation
 
-Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-built SNP-level annotation files, or from raw BED intervals plus an explicit baseline.
+Last updated on: 2026-08-05
+
+Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-built SNP-level annotations, or from raw BED/gene-list queries plus an explicit baseline.
 
 The examples below assume chromosome-pattern annotation inputs such as
 `annotations/baseline.1.annot.gz` and a package-built R2 directory such as
@@ -32,6 +34,13 @@ identity-only filters. Duplicate restriction keys collapse to one retained key,
 and non-identity columns such as `CM` or `MAF` are ignored rather than carried
 into LD-score metadata.
 
+The retained reference panel is the LD-score contributor and annotation-count
+universe unless `--ref-panel-snps-file` explicitly restricts it. Regression
+rows use the bundled HM3 map by default; `--regression-snps-file` replaces that
+selection. Named `--exclude-regions` presets are then subtracted only from the
+regression/output rows and `w_ld` contributors, not from LD-score contributors,
+`M`, `M_5_50`, or overlap counts.
+
 `CM` and `MAF` are population-specific and always come from the **reference
 panel**, never the annotation: annotation `CM`/`MAF` are ignored. For the parquet
 backend the `chr*_meta.tsv.gz` sidecar is authoritative; for the PLINK backend
@@ -45,7 +54,7 @@ backends.
 Resolution behavior:
 
 - there is no separate `*_chr` argument anymore; the same public argument now accepts exact paths, globs, or explicit `@` suite tokens
-- group inputs such as `--baseline-annot-sources`, `--query-annot-sources`, and `--query-annot-bed-sources` may resolve to many files; package-built parquet panels are supplied as one build directory with `--r2-dir`
+- group inputs such as `--baseline-annot-sources`, `--query-annot-sources`, `--query-annot-bed-sources`, and `--query-annot-gene-list-sources` may resolve to many files; package-built parquet panels are supplied as one build directory with `--r2-dir`
 - when a group token resolves to chromosome-sharded files, the workflow tries to keep only the files whose names match the active chromosome
 - if filename-based chromosome filtering is not possible, the workflow reads the matched files and filters rows by `CHR` internally
 - scalar inputs still must resolve to exactly one file
@@ -75,7 +84,8 @@ Important output behavior:
 - regression-universe LD scores live in the `regression_ld_scores` column of `ldscore.baseline.parquet`; there is no separate `.w.l2.ldscore.gz` output
 - annotation counts are stored as metadata records, not as separate `.M` files
 - if both baseline and query inputs are omitted, the workflow synthesizes an all-ones baseline column named exactly `base` over retained reference-panel metadata
-- query `.annot` and BED inputs require explicit baseline annotations; create an explicit all-ones `base` baseline annotation yourself if you intentionally want query annotations tested against that universe
+- prebuilt, BED, and gene-list queries are mutually exclusive and require explicit baseline annotations; create an explicit all-ones `base` baseline yourself if you intentionally want that query universe
+- BED/gene runs write `diagnostics/query_annotation_status.tsv`; gene runs also write `diagnostics/gene_list_unresolved.tsv.gz`
 - missing output directories are created and existing directories are reused
 - existing owned LD-score artifacts, including unselected siblings such as a
   stale `ldscore.query.parquet`, fail before writing starts; reruns that should
@@ -112,8 +122,6 @@ set_global_config(
 result = run_ldscore(
     output_dir="tutorial_outputs/unpartitioned_ldscores",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-    use_hm3_ref_panel_snps=True,
-    use_hm3_regression_snps=True,
     common_maf_min=0.05,
     ld_wind_cm=1.0,
     # snp_batch_size=128,  # optional; also controls parquet cache sizing
@@ -129,8 +137,6 @@ print(result.baseline_table.loc[:, ["CHR", "SNP", "POS", "regression_ld_scores",
 ldsc ldscore \
   --output-dir tutorial_outputs/unpartitioned_ldscores \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --use-hm3-ref-panel-snps \
-  --use-hm3-regression-snps \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg38 \
   --common-maf-min 0.05 \
@@ -156,8 +162,6 @@ result = run_ldscore(
     output_dir="tutorial_outputs/r2_ldscores",
     baseline_annot_sources="annotations/baseline.@.annot.gz",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-    use_hm3_ref_panel_snps=True,
-    use_hm3_regression_snps=True,
     common_maf_min=0.05,
     ld_wind_cm=1.0,
     # overwrite=True,  # also removes stale LD-score siblings not produced by this run
@@ -177,8 +181,6 @@ ldsc ldscore \
   --output-dir tutorial_outputs/r2_ldscores \
   --baseline-annot-sources "annotations/baseline.@.annot.gz" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --use-hm3-ref-panel-snps \
-  --use-hm3-regression-snps \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg38 \
   --common-maf-min 0.05 \
@@ -207,8 +209,6 @@ result = run_ldscore(
     baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     query_annot_bed_sources="beds/*.bed",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-    use_hm3_ref_panel_snps=True,
-    use_hm3_regression_snps=True,
     common_maf_min=0.05,
     ld_wind_cm=1.0,
 )
@@ -225,13 +225,44 @@ ldsc ldscore \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-bed-sources "beds/*.bed" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --use-hm3-ref-panel-snps \
-  --use-hm3-regression-snps \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg38 \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 ```
+
+## Case 4: Use Gene Lists Directly
+
+Gene-list inputs are one-column, headerless plain or gzip files containing exact
+Ensembl gene IDs, exact case-sensitive gene names, or a mixture. The source
+basename becomes the query name: `immune_genes.txt.gz` becomes `immune_genes`.
+
+```bash
+ldsc ldscore \
+  --output-dir tutorial_outputs/gene_list_ldscores \
+  --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
+  --query-annot-gene-list-sources "gene_lists/*.txt.gz" \
+  --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
+  --snp-identifier chr_pos_allele_aware \
+  --genome-build auto \
+  --common-maf-min 0.05 \
+  --ld-wind-cm 1.0
+```
+
+The packaged GENCODE v49 protein-coding catalog supplies hg19/hg38 intervals;
+`--genome-build auto` selects the interval set from baseline/reference-panel
+evidence and reports the inferred build in `diagnostics/ldscore.log`.
+
+Each BED or gene-list query is processed independently. If any input query gene
+list or BED file is absent from `ldscore.query.parquet` or downstream results,
+that query hit a failure. Check
+`diagnostics/query_annotation_status.tsv` for the reason. For gene lists, check
+`diagnostics/gene_list_unresolved.tsv.gz` for the exact unresolved or invalid
+gene rows. Valid sibling queries continue; when every query is skipped, only
+diagnostics are written and the command exits with an error.
+
+See [Gene-List Query Input](../docs/current/gene-list-input-format.md) for exact
+resolution, coordinate, naming, and partial-success rules.
 
 ## Optional: Read One Chromosome From A Result Directory
 
@@ -266,6 +297,66 @@ print(baseline_chr22.head())
 If query annotations were supplied, `metadata["query_row_groups"]` has the same
 shape for `ldscore.query.parquet`. It is `None` for baseline-only LD-score
 results.
+
+## Case 5: Reuse an Exact Gene LD-Score Index
+
+For many gene sets under one fixed hg19/PLINK configuration, build the
+expensive reference calculation once. The builder requires an explicit base
+identity mode and explicit hg19 assertion:
+
+```bash
+ldsc build-gene-ldscore-index \
+  --baseline-annot-sources "annotations/baseline.@.annot.gz" \
+  --plink-prefix "reference/1000G.EUR.QC.@" \
+  --output-dir "indexes/baseline_100kb" \
+  --genome-build hg19 \
+  --snp-identifier chr_pos \
+  --padding-bp 100000 \
+  --gene-exclude-regions mhc \
+  --exclude-regions mhc-and-centromeres
+```
+
+Use exactly `rsid` or `chr_pos`; there is no default, `auto`, inference,
+liftover, hg38, or allele-aware index mode. `rsid` joins on `SNP`; `chr_pos`
+joins on normalized positive 1-based `(CHR, POS)` and treats baseline SNP labels
+as passive. PLINK publishes `CHR`, `POS`, `SNP`, `A1`, and `A2` after either
+match. Advanced callers must ensure the baseline, PLINK, restriction, and map
+coordinates all use hg19.
+
+Mutable baseline or PLINK duplicate effective-key groups are removed in full,
+with a warning and rows in `diagnostics/dropped_snps/`; no representative is
+selected. Baseline-only and PLINK-only keys are dropped and counted. An empty
+intersection fails. Repeated keys in an identity-only regression restriction
+collapse because restrictions are sets. To replace bundled HapMap3 regression
+candidates, add
+`--regression-snps-file custom.snplist`. Region subtraction still follows
+`--exclude-regions`.
+
+Then assemble any number of gene-list query columns without the source PLINK or
+baseline files:
+
+```bash
+ldsc ldscore \
+  --gene-ldscore-index-dir "indexes/baseline_100kb" \
+  --query-annot-gene-list-sources "gene_lists/*.txt" \
+  --control-gene-list-source all-protein-coding \
+  --output-dir "tutorial_outputs/indexed_gene_ldscores"
+```
+
+Indexed assembly inherits the validated index identity and hg19 provenance.
+Do not pass live `--snp-identifier` or `--genome-build` options; either option
+is rejected even when it equals the index. The resulting canonical directory is
+self-contained and can be consumed by `h2`, `rg`, and `partitioned-h2` without
+the source index.
+
+One directory is one complete index. It has a single `index_id` and cannot be
+extended with chromosomes or profiles. Rebuilding any input or setting requires
+a complete replacement with `--overwrite`. The live build log is
+`indexes/.baseline_100kb.build-state/build-gene-ldscore-index.log`. On success
+the closed log moves to
+`indexes/baseline_100kb/diagnostics/build-gene-ldscore-index.log`; failed logs
+remain in hidden state and are archived on retry. This keeps the destination
+absent or empty until a complete index is published.
 
 ## Optional: Materialize BED Projections for Reuse
 
@@ -364,9 +455,9 @@ For Python workflows, `GlobalConfig` now carries only shared runtime settings su
 
 Per-run SNP-universe controls are owned by the workflow-specific configs instead:
 
-- `ref_panel_snps_file` or `use_hm3_ref_panel_snps` belongs to the LD-score reference-panel input and is passed through `run_ldscore(...)` into `RefPanelConfig`
+- `ref_panel_snps_file` optionally restricts the LD-score reference-panel input and is passed through `run_ldscore(...)` into `RefPanelConfig`; without it, the full retained reference panel remains the contributor universe
 - the LD-score workflow intersects each chromosome bundle with `ref_panel.load_metadata(chrom)`, so reference-panel SNP restriction shrinks the sidecar-defined compute-time universe from `B` to `B ∩ A'`; in the no-annotation unpartitioned case, synthetic `B` is the retained reference-panel metadata itself
-- `regression_snps_file` or `use_hm3_regression_snps` belongs to the LD-score calculation config and further restricts the normalized `baseline_table` rows from `B ∩ A'` to `B ∩ A' ∩ C`
+- `regression_snps_file` replaces the bundled HM3 regression-row default; named region exclusions are subsequently subtracted from those rows and from `w_ld` contributors without changing `B ∩ A'` LD-score contributors or annotation counts
 
 Both explicit restriction files are interpreted only through their active SNP
 identity keys. Repeated keys collapse to one retained key, while metadata-like

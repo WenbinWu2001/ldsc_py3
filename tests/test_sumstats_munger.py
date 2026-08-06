@@ -603,7 +603,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data.loc[0, "SNP"], "rs1")
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
-    def test_load_sumstats_footerless_parquet_has_no_config(self):
+    def test_load_sumstats_rejects_footerless_parquet(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             sumstats_file = tmpdir / "plain.parquet"
@@ -611,10 +611,8 @@ class SumstatsMungerTest(unittest.TestCase):
                 sumstats_file, index=False
             )
 
-            table = ldsc.load_sumstats(sumstats_file)
-
-            self.assertIsNone(table.config_snapshot)
-            self.assertEqual(table.trait_name, "plain.parquet")
+            with self.assertRaisesRegex(ldsc.LDSCInputError, "missing required LDSC3 identity footer"):
+                ldsc.load_sumstats(sumstats_file)
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_recovers_trait_name_from_footer(self):
@@ -1469,7 +1467,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "munge-sumstats could not determine sample size \\(N\\).*"
                 "--N.*--N-cas.*--N-con.*N column",
             ):
-                kernel_munge.munge_sumstats(args, p=True)
+                kernel_munge.munge_sumstats(args)
 
     def test_sumstats_table_missing_required_columns_uses_input_error(self):
         table = sumstats_workflow.SumstatsTable(
@@ -1496,7 +1494,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             with contextlib.redirect_stdout(stdout):
                 with self.assertRaisesRegex(ldsc.LDSCInputError, "munge-sumstats could not determine sample size"):
-                    kernel_munge.munge_sumstats(args, p=True)
+                    kernel_munge.munge_sumstats(args)
 
             self.assertEqual(stdout.getvalue(), "")
 
@@ -1520,7 +1518,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 ldsc.LDSCInputError,
                 "snp_identifier='chr_pos_allele_aware'.*--snp-identifier chr_pos",
             ):
-                kernel_munge.munge_sumstats(args, p=True)
+                kernel_munge.munge_sumstats(args)
 
     def test_kernel_parser_rejects_removed_no_alleles_flag(self):
         with self.assertRaises(SystemExit):
@@ -1551,7 +1549,7 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(ldsc.LDSCInputError, "--a1 REF --a2 ALT"):
-                kernel_munge.munge_sumstats(args, p=True)
+                kernel_munge.munge_sumstats(args)
 
     def test_rsid_allele_aware_requires_alleles(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1573,7 +1571,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 ldsc.LDSCInputError,
                 "snp_identifier='rsid_allele_aware'.*--snp-identifier rsid",
             ):
-                kernel_munge.munge_sumstats(args, p=True)
+                kernel_munge.munge_sumstats(args)
 
     def test_base_modes_run_without_alleles_without_extra_flag(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1606,8 +1604,8 @@ class SumstatsMungerTest(unittest.TestCase):
                 ]
             )
 
-            self.assertEqual(kernel_munge.munge_sumstats(rsid_args, p=False)["SNP"].tolist(), ["rs1"])
-            self.assertEqual(kernel_munge.munge_sumstats(chr_pos_args, p=False)["SNP"].tolist(), ["rs1"])
+            self.assertEqual(kernel_munge.munge_sumstats(rsid_args)["SNP"].tolist(), ["rs1"])
+            self.assertEqual(kernel_munge.munge_sumstats(chr_pos_args)["SNP"].tolist(), ["rs1"])
 
     def test_base_modes_keep_singletons_with_bad_allele_columns(self):
         rows = (
@@ -1635,7 +1633,7 @@ class SumstatsMungerTest(unittest.TestCase):
                     ]
                 )
 
-                munged = kernel_munge.munge_sumstats(args, p=False)
+                munged = kernel_munge.munge_sumstats(args)
 
                 self.assertEqual(munged["SNP"].tolist(), ["missing", "ambiguous", "multibase", "identical"])
 
@@ -1858,7 +1856,7 @@ class SumstatsMungerTest(unittest.TestCase):
             args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
 
             with self.assertRaisesRegex(ldsc.LDSCInputError, "NEFF is not treated as N.*--N-col NEFF"):
-                kernel_munge.munge_sumstats(args, p=True)
+                kernel_munge.munge_sumstats(args)
 
     def test_kernel_missing_signed_stat_error_suggests_likely_effect_column(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1868,7 +1866,7 @@ class SumstatsMungerTest(unittest.TestCase):
             args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
 
             with self.assertRaisesRegex(ldsc.LDSCInputError, "--signed-sumstats EFFECT_SIZE,0"):
-                kernel_munge.munge_sumstats(args, p=True)
+                kernel_munge.munge_sumstats(args)
 
     def test_kernel_parser_rejects_removed_merge_alleles(self):
         with self.assertRaises(SystemExit):
@@ -2243,6 +2241,140 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data["N"].tolist(), [1000.0])
             self.assertEqual(table.data["CHR"].tolist(), [1])
             self.assertEqual(table.data["POS"].tolist(), [123])
+
+    def test_explicit_n_col_suppresses_inferred_case_control_columns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA NEFF NCAS NCON\n"
+                "rs1 A G 0.05 0.1 777 400 600\n"
+                "rs2 C T 0.10 -0.1 888 400 600\n",
+                encoding="utf-8",
+            )
+            (tmpdir / "munged").mkdir()
+
+            with self.assertWarnsRegex(UserWarning, "--N-col NEFF.*ignored automatically inferred.*NCAS.*NCON"):
+                table = SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path, column_hints={"N_col": "NEFF"}),
+                    MungeConfig(output_dir=tmpdir / "munged"),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+            self.assertEqual(table.data["N"].tolist(), [777.0, 888.0])
+
+    def test_explicit_case_control_columns_suppress_inferred_direct_n(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA N CASES CONTROLS\n"
+                "rs1 A G 0.05 0.1 777 400 600\n",
+                encoding="utf-8",
+            )
+            (tmpdir / "munged").mkdir()
+
+            with self.assertWarnsRegex(
+                UserWarning,
+                "--N-cas-col CASES.*--N-con-col CONTROLS.*ignored automatically inferred.*N",
+            ):
+                table = SumstatsMunger().run(
+                    MungeConfig(
+                        raw_sumstats_file=raw_path,
+                        column_hints={"N_cas_col": "CASES", "N_con_col": "CONTROLS"},
+                    ),
+                    MungeConfig(output_dir=tmpdir / "munged"),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+            self.assertEqual(table.data["N"].tolist(), [1000.0])
+
+    def test_explicit_direct_and_case_control_column_strategies_conflict(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA NEFF NCAS NCON\n"
+                "rs1 A G 0.05 0.1 777 400 600\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                ldsc.LDSCUsageError,
+                "--N-col.*cannot be combined with --N-cas-col and --N-con-col.*Choose one sample-size strategy",
+            ):
+                SumstatsMunger().run(
+                    MungeConfig(
+                        raw_sumstats_file=raw_path,
+                        column_hints={"N_col": "NEFF", "N_cas_col": "NCAS", "N_con_col": "NCON"},
+                    ),
+                    MungeConfig(output_dir=tmpdir / "munged"),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+    def test_explicit_case_control_column_hints_must_be_a_pair(self):
+        incomplete_hints = (
+            ({"N_cas_col": "NCAS"}, "--N-con-col"),
+            ({"N_con_col": "NCON"}, "--N-cas-col"),
+        )
+        for hint, expected_missing in incomplete_hints:
+            with self.subTest(hint=hint), tempfile.TemporaryDirectory() as tmpdir:
+                tmpdir = Path(tmpdir)
+                raw_path = tmpdir / "raw.tsv"
+                raw_path.write_text(
+                    "SNP A1 A2 P BETA N NCAS NCON\n"
+                    "rs1 A G 0.05 0.1 777 400 600\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(
+                    ldsc.LDSCUsageError,
+                    f"--N-cas-col and --N-con-col must be provided together.*{expected_missing}",
+                ):
+                    SumstatsMunger().run(
+                        MungeConfig(raw_sumstats_file=raw_path, column_hints=hint),
+                        MungeConfig(output_dir=tmpdir / "munged"),
+                        GlobalConfig(snp_identifier="rsid"),
+                    )
+
+    def test_automatic_direct_and_case_control_inference_is_ambiguous(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA N NCAS NCON\n"
+                "rs1 A G 0.05 0.1 777 400 600\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                ldsc.LDSCInputError,
+                "multiple sample-size strategies.*--N-col N.*--N-cas-col NCAS --N-con-col NCON",
+            ):
+                SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path),
+                    MungeConfig(output_dir=tmpdir / "munged"),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+    def test_unambiguous_direct_and_case_control_sample_size_workflows(self):
+        fixtures = (
+            ("SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 777\n", 777.0),
+            ("SNP A1 A2 P BETA NCAS NCON\nrs1 A G 0.05 0.1 400 600\n", 1000.0),
+        )
+        for raw_text, expected_n in fixtures:
+            with self.subTest(expected_n=expected_n), tempfile.TemporaryDirectory() as tmpdir:
+                tmpdir = Path(tmpdir)
+                raw_path = tmpdir / "raw.tsv"
+                raw_path.write_text(raw_text, encoding="utf-8")
+
+                table = SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path),
+                    MungeConfig(output_dir=tmpdir / "munged"),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+                self.assertEqual(table.data["N"].tolist(), [expected_n])
 
     def test_run_auto_detects_old_daner_sample_sizes(self):
         with tempfile.TemporaryDirectory() as tmpdir:

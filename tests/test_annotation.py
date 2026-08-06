@@ -33,6 +33,207 @@ def _write_annot(path: Path, rows: list[tuple], annotation_columns: dict[str, li
 
 
 class AnnotationBuilderTest(unittest.TestCase):
+    def test_gene_list_projection_matches_catalog_intervals_and_retains_resolution_status(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            genes = tmpdir / "immune_genes.txt"
+            baseline.write_text(
+                "CHR\tPOS\tSNP\tCM\tbase\n"
+                "1\t65419\trs1\t0\t1\n"
+                "1\t71586\trs2\t0\t1\n"
+                "1\t70000\trs3\t0\t1\n",
+                encoding="utf-8",
+            )
+            genes.write_text("OR4F5\nNOT_A_GENE\n", encoding="utf-8")
+
+            bundle = AnnotationBuilder(
+                GlobalConfig(snp_identifier="rsid"),
+                projection_genome_build="hg38",
+            ).run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(baseline,),
+                    query_annot_gene_list_sources=(genes,),
+                )
+            )
+
+        self.assertEqual(bundle.query_columns, ["immune_genes"])
+        self.assertEqual(bundle.baseline_columns, ["base", "gene_control"])
+        self.assertEqual(bundle.baseline_annotations["gene_control"].tolist(), [1.0, 0.0, 1.0])
+        self.assertEqual(bundle.query_annotations["immune_genes"].tolist(), [1.0, 0.0, 1.0])
+        self.assertEqual(len(bundle.query_statuses), 1)
+        self.assertEqual(bundle.query_statuses[0].status, "warning")
+        self.assertEqual(bundle.query_statuses[0].reason, "partial_resolution")
+        self.assertEqual(bundle.gene_list_resolutions[0].canonical_ensembl_ids, ("ENSG00000186092",))
+        self.assertEqual(bundle.gene_list_resolutions[0].unresolved[0].input_gene, "NOT_A_GENE")
+
+    def test_gene_control_can_be_disabled(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            genes = tmpdir / "genes.txt"
+            baseline.write_text(
+                "CHR\tPOS\tSNP\tCM\tbase\n1\t65419\trs1\t0\t1\n",
+                encoding="utf-8",
+            )
+            genes.write_text("OR4F5\n", encoding="utf-8")
+
+            bundle = AnnotationBuilder(
+                GlobalConfig(snp_identifier="rsid"),
+                projection_genome_build="hg38",
+            ).run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(baseline,),
+                    query_annot_gene_list_sources=(genes,),
+                    control_gene_list_source="none",
+                )
+            )
+
+        self.assertEqual(bundle.baseline_columns, ["base"])
+        self.assertIsNone(bundle.control_gene_list_resolution)
+
+    def test_custom_gene_control_uses_the_same_resolution_and_projection_rules(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            genes = tmpdir / "focal.txt"
+            control = tmpdir / "control.txt"
+            baseline.write_text(
+                "CHR\tPOS\tSNP\tCM\tbase\n"
+                "1\t65410\trs1\t0\t1\n"
+                "1\t65419\trs2\t0\t1\n"
+                "1\t71590\trs3\t0\t1\n",
+                encoding="utf-8",
+            )
+            genes.write_text("OR4F5\n", encoding="utf-8")
+            control.write_text("OR4F5\nNOT_A_GENE\n", encoding="utf-8")
+
+            bundle = AnnotationBuilder(
+                GlobalConfig(snp_identifier="rsid"),
+                projection_genome_build="hg38",
+            ).run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(baseline,),
+                    query_annot_gene_list_sources=(genes,),
+                    control_gene_list_source=control,
+                    padding_bp=10,
+                )
+            )
+
+        self.assertEqual(bundle.baseline_annotations["gene_control"].tolist(), [1.0, 1.0, 1.0])
+        self.assertEqual(bundle.control_gene_list_resolution.status, "warning")
+        self.assertEqual(bundle.control_gene_list_resolution.reason, "partial_resolution")
+
+    def test_unusable_custom_gene_control_aborts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            genes = tmpdir / "focal.txt"
+            control = tmpdir / "control.txt"
+            baseline.write_text(
+                "CHR\tPOS\tSNP\tCM\tbase\n1\t65419\trs1\t0\t1\n",
+                encoding="utf-8",
+            )
+            genes.write_text("OR4F5\n", encoding="utf-8")
+            control.write_text("NOT_A_GENE\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(Exception, "control gene list is unusable"):
+                AnnotationBuilder(
+                    GlobalConfig(snp_identifier="rsid"),
+                    projection_genome_build="hg38",
+                ).run(
+                    AnnotationBuildConfig(
+                        baseline_annot_sources=(baseline,),
+                        query_annot_gene_list_sources=(genes,),
+                        control_gene_list_source=control,
+                    )
+                )
+
+    def test_gene_control_rejects_reserved_baseline_column_collision(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            genes = tmpdir / "genes.txt"
+            baseline.write_text(
+                "CHR\tPOS\tSNP\tCM\tgene_control\n1\t65419\trs1\t0\t1\n",
+                encoding="utf-8",
+            )
+            genes.write_text("OR4F5\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(Exception, "gene_control"):
+                AnnotationBuilder(
+                    GlobalConfig(snp_identifier="rsid"),
+                    projection_genome_build="hg38",
+                ).run(
+                    AnnotationBuildConfig(
+                        baseline_annot_sources=(baseline,),
+                        query_annot_gene_list_sources=(genes,),
+                    )
+                )
+
+    def test_bed_query_local_parse_failure_does_not_abort_valid_sibling(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            valid = tmpdir / "valid.bed"
+            malformed = tmpdir / "malformed.bed"
+            baseline.write_text("CHR\tPOS\tSNP\tCM\tbase\n1\t10\trs1\t0\t1\n", encoding="utf-8")
+            valid.write_text("chr1\t9\t11\n", encoding="utf-8")
+            malformed.write_text("chr1\tbad\t11\n", encoding="utf-8")
+
+            bundle = AnnotationBuilder(GlobalConfig(snp_identifier="rsid")).run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(baseline,),
+                    query_annot_bed_sources=(valid, malformed),
+                )
+            )
+
+        self.assertEqual(bundle.query_columns, ["valid"])
+        self.assertEqual(bundle.query_annotations["valid"].tolist(), [1.0])
+        self.assertEqual(
+            [(row.query, row.status, row.reason) for row in bundle.query_statuses],
+            [("valid", "ok", ""), ("malformed", "skipped", "malformed_input")],
+        )
+
+    def test_gene_list_projection_is_identical_to_equivalent_bed_with_padding(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            genes = tmpdir / "or4f5.txt"
+            bed = tmpdir / "or4f5.bed"
+            baseline.write_text(
+                "CHR\tPOS\tSNP\tCM\tbase\n"
+                "1\t65410\trs1\t0\t1\n"
+                "1\t65419\trs2\t0\t1\n"
+                "1\t71590\trs3\t0\t1\n"
+                "1\t71600\trs4\t0\t1\n",
+                encoding="utf-8",
+            )
+            genes.write_text("OR4F5\n", encoding="utf-8")
+            bed.write_text("chr1\t65418\t71585\n", encoding="utf-8")
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), projection_genome_build="hg38")
+
+            gene_bundle = builder.run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(baseline,),
+                    query_annot_gene_list_sources=(genes,),
+                    padding_bp=10,
+                )
+            )
+            bed_bundle = builder.run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(baseline,),
+                    query_annot_bed_sources=(bed,),
+                    padding_bp=10,
+                )
+            )
+
+        self.assertEqual(gene_bundle.query_annotations["or4f5"].tolist(), [1.0, 1.0, 1.0, 0.0])
+        self.assertEqual(
+            gene_bundle.query_annotations["or4f5"].tolist(),
+            bed_bundle.query_annotations["or4f5"].tolist(),
+        )
+
     def test_bed_to_annot_parser_genome_build_help_documents_chr_pos_requirement(self):
         stdout = io.StringIO()
         with self.assertRaises(SystemExit):
@@ -61,7 +262,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
         self.assertIn("unrecognized arguments: --no-batch", stderr.getvalue())
 
-    def test_bed_to_annot_parser_accepts_bed_padding_bp(self):
+    def test_bed_to_annot_parser_accepts_padding_bp(self):
         args = annotation_builder.parse_bed_to_annot_args(
             [
                 "--query-annot-bed-sources",
@@ -70,34 +271,52 @@ class AnnotationBuilderTest(unittest.TestCase):
                 "baseline.annot.gz",
                 "--output-dir",
                 "out",
-                "--bed-padding-bp",
+                "--padding-bp",
                 "100000",
                 "--snp-identifier",
                 "rsid",
             ]
         )
 
-        self.assertEqual(args.bed_padding_bp, 100000)
+        self.assertEqual(args.padding_bp, 100000)
+
+    def test_bed_to_annot_parser_rejects_removed_bed_padding_option(self):
+        with self.assertRaises(SystemExit):
+            annotation_builder.parse_bed_to_annot_args(
+                [
+                    "--query-annot-bed-sources",
+                    "query.bed",
+                    "--baseline-annot-sources",
+                    "baseline.annot.gz",
+                    "--output-dir",
+                    "out",
+                    "--bed-padding-bp",
+                    "100000",
+                ]
+            )
+
+        with self.assertRaises(TypeError):
+            AnnotationBuildConfig(bed_padding_bp=100000)
 
     def test_annotation_build_config_defaults_to_no_bed_padding(self):
         spec = AnnotationBuildConfig(baseline_annot_sources=("baseline.1.annot.gz",))
 
-        self.assertEqual(spec.bed_padding_bp, 0)
+        self.assertEqual(spec.padding_bp, 0)
 
     def test_annotation_build_config_accepts_integer_string_bed_padding(self):
-        spec = AnnotationBuildConfig(bed_padding_bp="100000")
+        spec = AnnotationBuildConfig(padding_bp="100000")
 
-        self.assertEqual(spec.bed_padding_bp, 100000)
+        self.assertEqual(spec.padding_bp, 100000)
 
     def test_annotation_build_config_rejects_negative_bed_padding(self):
-        with self.assertRaisesRegex(Exception, "bed_padding_bp"):
-            AnnotationBuildConfig(bed_padding_bp=-1)
+        with self.assertRaisesRegex(Exception, "padding_bp"):
+            AnnotationBuildConfig(padding_bp=-1)
 
     def test_annotation_build_config_rejects_non_integer_bed_padding(self):
         for value in (1.2, "10.5", "abc"):
             with self.subTest(value=value):
-                with self.assertRaisesRegex(Exception, "bed_padding_bp"):
-                    AnnotationBuildConfig(bed_padding_bp=value)
+                with self.assertRaisesRegex(Exception, "padding_bp"):
+                    AnnotationBuildConfig(padding_bp=value)
 
     def test_annotation_build_config_has_no_gene_set_paths(self):
         spec = AnnotationBuildConfig(baseline_annot_sources=("baseline.1.annot.gz",))
@@ -383,7 +602,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            kernel_annotation._write_normalized_bed(bed, normalized, bed_padding_bp=25)
+            kernel_annotation._write_normalized_bed(bed, normalized, padding_bp=25)
 
             self.assertEqual(
                 normalized.read_text(encoding="utf-8"),
@@ -678,7 +897,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 query_annot_bed_sources=(str(bed),),
                 baseline_annot_sources=(str(base),),
                 output_dir=output_dir,
-                bed_padding_bp=100000,
+                padding_bp=100000,
             )
 
             sidecar = output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
@@ -688,7 +907,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(metadata["artifact_type"], "annotation_projection")
             self.assertEqual(metadata["snp_identifier"], "chr_pos")
             self.assertEqual(metadata["genome_build"], "hg38")
-            self.assertEqual(metadata["bed_padding_bp"], 100000)
+            self.assertEqual(metadata["padding_bp"], 100000)
             self.assertEqual(
                 metadata["files"],
                 {"query_annotations": ["query.1.annot.gz"], "dropped_snps": "diagnostics/dropped_snps/dropped.tsv.gz"},
@@ -715,6 +934,8 @@ class AnnotationBuilderTest(unittest.TestCase):
                 output_dir=output_dir,
             )
             out = pd.read_csv(output_dir / "query.1.annot.gz", sep="\t", compression="gzip")
+            self.assertEqual(out.columns[:4].tolist(), ["CHR", "BP", "SNP", "CM"])
+            self.assertNotIn("POS", out.columns)
             self.assertIn("CM", out.columns)  # legacy CHR/BP/SNP/CM layout column present
             self.assertTrue(out["CM"].isna().all())  # CM is empty/NaN placeholder
             self.assertNotIn("MAF", out.columns)  # MAF is never written
@@ -1160,7 +1381,7 @@ class AnnotationWrapperTest(unittest.TestCase):
 
             self.assertIsInstance(result, AnnotationBundle)
             self.assertEqual(result.query_columns, ["query"])
-            self.assertEqual(result.source_summary["bed_padding_bp"], 0)
+            self.assertEqual(result.source_summary["padding_bp"], 0)
 
     def test_main_chr_pos_auto_resolves_build_before_running(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -1,5 +1,7 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
+Last updated on: 2026-08-04
+
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `column_inference.py`, all
 kernel output routines, and any doc or test that asserts column layout.
@@ -219,11 +221,36 @@ pairs `(A, C)`, `(C, A)`, `(G, T)`, or `(T, G)` at the same base key. The
 canonical label is not emitted as `A1/A2`; those columns keep their source
 allele order in output artifacts.
 
-Allele-aware artifact cleanup drops rows with missing alleles, invalid or
-non-SNP alleles, identical pairs, strand-ambiguous pairs, package-wide
-multi-allelic base-key clusters, and duplicate effective merge-key clusters.
-The duplicate policy is drop-all after computing the effective merge key for
-the active mode.
+### Duplicate SNP identity policy
+
+Mutable variant-source rows use one conservative duplicate policy in every SNP
+identifier mode: compute the effective identity key for the active mode, find
+every key that occurs more than once, and drop every row in each duplicate
+group. No row is selected as a representative and duplicate rows are not
+aggregated. The workflow emits a summarized warning and records the dropped
+rows and counts in its diagnostics.
+
+This policy applies independently to baseline annotation rows and PLINK BIM
+metadata before their intersection in direct PLINK-backed LD-score calculation
+and gene LD-score index construction. Consequently, `rsid` drops a complete
+duplicate-`SNP` group, while `chr_pos` drops a complete duplicate normalized
+`(CHR, POS)` group. Cleanup can therefore remove an ambiguous multiallelic
+coordinate without silently collapsing biologically distinct variants.
+
+Allele-aware artifact cleanup additionally drops rows with missing alleles,
+invalid or non-SNP alleles, identical pairs, strand-ambiguous pairs, and the
+package-wide multiallelic base-key clusters defined by the allele-aware
+identity contract. Duplicate effective-key groups still use the same drop-all
+rule after the effective key is computed.
+
+Restriction files have deliberately different semantics because they define a
+set of requested identities rather than variant metadata. Repeated restriction
+keys collapse to one retained membership key; they do not cause that identity
+to disappear. Package-written immutable artifacts must already contain unique
+effective identities. A duplicate found while validating or loading such an
+artifact is an integrity or compatibility error and is not repaired at load
+time.
+
 To munge raw summary statistics without allele columns, choose the base `rsid`
 or `chr_pos` SNP identifier mode; there is no separate allele-skip flag.
 
@@ -249,7 +276,9 @@ the reference panel: the parquet sidecar (`chrN_meta.tsv.gz`) for the parquet
 backend, and the `.bim`/genotypes (or an interpolated genetic map) for the PLINK
 backend. `annotate` output keeps the legacy positional `CHR BP SNP CM` layout but
 writes an **empty** `CM` placeholder and **no** `MAF` column, so the artifacts
-stay population-agnostic and remain consumable by legacy ldsc2 (`iloc[:, 4:]`).
+stay population-agnostic. This `BP` spelling is a narrow text-interoperability
+choice, not a promise that LDSC3 output is supported as LDSC2 input. LDSC3
+normalizes `BP` back to canonical internal `POS` when reading annotations.
 
 ### `CHR` format
 `normalize_chromosome` (in `chromosome_inference.py`) strips the `chr` prefix on
@@ -262,7 +291,8 @@ normalized on read; their on-disk format is not changed.
 ## 3. Column Ordering in Written Artifacts
 
 **Rule:** SNP metadata columns appear in a stable workflow-specific order.
-Annotation artifacts use **(CHR, POS, SNP, ...)**. Munged sumstats use
+Annotation text artifacts use **(CHR, BP, SNP, ...)** on disk and canonical
+**(CHR, POS, SNP, ...)** in memory. Munged sumstats use
 **(SNP, CHR, POS, ...)** to keep the legacy leading `SNP` convention while
 adding coordinates. Pairwise R2 uses the documented pairwise coordinate
 variant. Public LD-score result tables currently use **(CHR, SNP, POS, ...)** to
@@ -279,15 +309,15 @@ This applies to artifacts **written by this package**. External input files
 normalized on read regardless of their on-disk column order; the input order is
 not preserved in any output.
 
-For annotation output files specifically: the kernel always reconstructs the
+For annotation output files specifically, the workflow writer reconstructs the
 column layout from its internal representation rather than passing through the
-input file unchanged. This means the leading metadata columns (`CHR, POS, SNP,
-CM`) follow the annotation rule unconditionally. The annotation-specific columns that follow
+input file unchanged. The leading on-disk columns (`CHR, BP, SNP, CM`) follow
+the annotation rule unconditionally. The annotation-specific columns that follow
 `CM` retain their input order (the kernel does not reorder them).
 
 | Artifact | Leading columns | Remaining columns |
 |----------|----------------|-------------------|
-| Annotation (`.annot.gz`) | `CHR, POS, SNP, CM` | annotation columns (input order preserved) |
+| Annotation (`.annot.gz`) | `CHR, BP, SNP, CM` | annotation columns (input order preserved); `BP` normalizes to internal `POS` on read |
 | LD-score output (`ldscore.baseline.parquet`) | `CHR, SNP, POS, regression_ld_scores` | baseline LD-score columns |
 | LD-score output (`ldscore.query.parquet`) | `CHR, SNP, POS` | query LD-score columns |
 | LD-score overlap (`ldscore.overlap.parquet`) | `row_annotation, col_annotation` | `overlap_all_snps, overlap_common_snps` (long-form annotation overlap matrix) |

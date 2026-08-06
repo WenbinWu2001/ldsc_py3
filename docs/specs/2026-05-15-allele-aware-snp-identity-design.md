@@ -1,6 +1,7 @@
 # Allele-Aware SNP Identity Design
 
 Date: 2026-05-15
+Last clarified: 2026-08-05
 Branch: `restructure`
 
 ## General Policies
@@ -26,7 +27,9 @@ Effective merge keys are:
 | `chr_pos` | `CHR:POS` |
 | `chr_pos_allele_aware` | `CHR:POS:<allele_set>` |
 
-Duplicate policy: compute the effective merge key for the active mode, then drop all rows in duplicate-key clusters. For any artifact-like table, compute the merge key for the active SNP identifier mode and drop all rows in duplicate-key clusters.
+Duplicate policy: compute the effective merge key for the active mode, then drop all rows in duplicate-key clusters. For any mutable artifact-like source table, compute the merge key for the active SNP identifier mode and drop all rows in duplicate-key clusters. This includes baseline annotation rows and PLINK BIM metadata before either direct PLINK-backed LD-score calculation or gene LD-score index construction. Cleanup occurs before source intersection: every row in an ambiguous group is removed, no representative is selected or aggregated, a summarized warning is emitted, and dropped rows and counts are retained in workflow diagnostics.
+
+This source-row cleanup policy is distinct from two other contracts. Restriction files are set-like, so repeated restriction keys collapse to one requested membership key. Package-written immutable artifacts must already satisfy their uniqueness invariant; a duplicate discovered while validating or loading such an artifact is treated as corruption, tampering, or an incompatible artifact and remains an error rather than being repaired at load time.
 
 `<allele_set>` is an unordered, strand-aware biallelic SNP allele token. For
 identity, `A:C`, `C:A`, `T:G`, and `G:T` normalize to the same allele set.

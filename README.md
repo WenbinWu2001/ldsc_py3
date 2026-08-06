@@ -1,4 +1,6 @@
-# ldsc_py3_Jerry
+# ldsc3_Jerry
+
+Last updated on: 2026-08-05
 
 This repository is the active refactored LDSC package.
 
@@ -18,11 +20,11 @@ local source changes are picked up immediately.
 
 ### Stable version
 
-Clone the default `main` branch:
+Clone the default `main` branch to a directory `ldsc3`:
 
 ```bash
-git clone https://github.com/WenbinWu2001/ldsc_py3.git
-cd ldsc_py3
+git clone https://github.com/WenbinWu2001/ldsc_py3.git ldsc3
+cd ldsc3
 ```
 
 Create the conda environment and install the package with development extras:
@@ -33,20 +35,36 @@ conda activate ldsc3
 python -m pip install -e ".[dev]"
 ```
 
-For later runs, activate the environment before launching LDSC commands or
-scripts:
+**For later runs,** activate the environment before launching LDSC commands or scripts:
 
 ```bash
 conda activate ldsc3
 ```
 
-### Development version
-
-Clone the `restructure` branch:
+To update the package, enter the repository and pull the latest changes from the `main` branch:
 
 ```bash
-git clone --branch restructure https://github.com/WenbinWu2001/ldsc_py3.git
-cd ldsc_py3
+cd ldsc3
+git pull origin main
+conda activate ldsc3
+```
+
+Because the package is installed in editable mode, source-code updates take effect immediately. 
+If `environment.yml` or the package dependencies have changed, also update the environment and reinstall the package:
+
+```bash
+conda env update -f environment.yml --prune
+python -m pip install -e ".[dev]"
+```
+
+
+### Development version
+
+Clone the `restructure` branch to a directory `ldsc3-dev/`:
+
+```bash
+git clone --branch restructure https://github.com/WenbinWu2001/ldsc_py3.git ldsc3-dev
+cd ldsc3-dev
 ```
 
 Create a separate development environment and install the package with
@@ -58,11 +76,26 @@ conda activate ldsc3-dev
 python -m pip install -e ".[dev]"
 ```
 
-For later runs, activate the development environment before launching LDSC
-commands or scripts:
+**For later runs,** activate the environment before launching LDSC commands or scripts:
 
 ```bash
 conda activate ldsc3-dev
+```
+
+To update the development version, enter the repository and pull the latest changes from the `restructure` branch:
+
+```bash
+cd ldsc3-dev
+git pull origin restructure
+conda activate ldsc3-dev
+```
+
+Because the package is installed in editable mode, source-code updates take effect immediately.
+If `environment.yml` or the package dependencies have changed, also update the development environment and reinstall the package:
+
+```bash
+conda env update -f environment.yml -n ldsc3-dev --prune
+python -m pip install -e ".[dev]"
 ```
 
 The package supports Python 3.11 through 3.13. The base install includes the
@@ -91,7 +124,9 @@ python -m ldsc --help
 Subcommands:
 
 - `ldsc annotate`
+- `ldsc build-gene-ldscore-index`
 - `ldsc build-ref-panel`
+- `ldsc convert-ldsc2-ldscores`
 - `ldsc ldscore`
 - `ldsc munge-sumstats`
 - `ldsc h2`
@@ -109,8 +144,9 @@ metadata/comment lines are skipped before the real header is parsed. The
 `sumstats.parquet` is self-describing: its `snp_identifier`, `genome_build`, and
 optional `--trait-name` provenance ride in the Parquet footer, so later
 regression commands need only that one file -- no `metadata.json` sidecar is
-written. The legacy `sumstats.sumstats.gz` carries no embedded metadata; a file
-without footer metadata loads with its identifier mode inferred downstream.
+written. The legacy `sumstats.sumstats.gz` carries no embedded metadata and is
+treated as an rsID lookup artifact at regression time. Footerless Parquet is
+rejected rather than guessed.
 Detailed coordinate and liftover bookkeeping is written to `sumstats.log`. The default
 `snp_identifier` is `chr_pos_allele_aware`, which requires usable `A1/A2`; rerun
 with `--snp-identifier chr_pos` to use coordinate identity without
@@ -138,19 +174,22 @@ positions are not the row identity there.
 
 `ldsc build-ref-panel` keeps a separate source-build contract for PLINK input:
 provide or infer `--source-genome-build`, and a matching chain file emits the
-opposite build. `--use-hm3-snps` restricts the emitted SNP universe to the
-packaged curated HM3 map, and `--use-hm3-quick-liftover` can emit the opposite
-build for that HM3-restricted coordinate universe without a chain file.
-Chain-file and HM3 quick liftover are invalid when the active `snp_identifier`
-is in the `rsid` family; omit liftover for source-build-only rsID panels. In
+opposite build. Deliberate reference-universe restriction uses an explicit
+`--ref-panel-snps-file`; the builder has no HM3-only restriction or quick-liftover
+mode. Chain-file liftover is invalid when the active
+`snp_identifier` is in the `rsid` family; omit liftover for source-build-only rsID panels. In
 `chr_pos`-family modes,
 duplicate source or target coordinate groups are dropped by default
 (`--duplicate-position-policy drop-all`), with details in `build-ref-panel.log`
 and duplicate-only sidecars under `dropped_snps/`.
 
-Artifact-writing workflows also write per-run logs under their output
-directories. `munge-sumstats` keeps the historical `sumstats.log` name; other
+Artifact-writing workflows write completed per-run logs under their output
+directories. During `build-gene-ldscore-index`, the open log temporarily lives
+under hidden `.<index-name>.build-state/` so it is never part of an atomic index
+replacement; after its handler closes, a successful log moves into the index's
+`diagnostics/`. `munge-sumstats` keeps the historical `sumstats.log` name; other
 commands use `annotate.log`, `ldscore.log`, `build-ref-panel.log`,
+`build-gene-ldscore-index.log`,
 `h2.log`, `partitioned-h2.log`, or `rg.log`. Concrete single-chromosome
 `build-ref-panel` runs use `build-ref-panel.chr<chrom>.log` so parallel
 per-chromosome jobs can share an output directory without sharing one log file.
@@ -166,14 +205,62 @@ ldsc h2 --sumstats-file trait/sumstats.parquet --ldscore-dir ldscores --output-d
 ```
 
 When no baseline and no query annotations are supplied, the workflow writes a
-synthetic all-ones baseline column named exactly `base` in `baseline.parquet`.
+synthetic all-ones baseline column named exactly `base` in
+`ldscore.baseline.parquet`.
 Query annotation inputs still require explicit `--baseline-annot-sources`.
-Use this synthetic `base` directory for `ldsc h2` or `ldsc rg`; `ldsc
-partitioned-h2` requires query annotations in the LD-score directory.
-The LD-score parquet files remain flat `baseline.parquet` and `query.parquet`
-files, but they are written with one row group per chromosome. The manifest
+Use this synthetic `base` directory for `ldsc h2` or `ldsc rg`. A baseline-only
+directory is also accepted by `ldsc partitioned-h2` in its functional-category
+regime, although a single all-ones `base` column is a degenerate one-category
+fit rather than a meaningful partitioned analysis.
+The LD-score parquet files remain flat `ldscore.baseline.parquet` and
+`ldscore.query.parquet` files, but they are written with one row group per chromosome. The metadata
 records `row_group_layout`, `baseline_row_groups`, and `query_row_groups` so
 callers can load a single chromosome by row-group index when needed.
+
+Gene-list LD scores may also use an explicitly installed exact profile:
+
+```bash
+ldsc ldscore \
+  --gene-ldscore-index-dir indexes/1000G_EUR_baseline_100kb \
+  --query-annot-gene-list-sources gene_lists/immune.txt \
+  --output-dir gene_ldscores
+```
+
+Build complete indexes offline with `ldsc build-gene-ldscore-index`. Construction requires both `--genome-build hg19` and an explicit `--snp-identifier rsid|chr_pos`; there is no default, inference, hg38, liftover, or allele-aware index mode. Indexed mode is explicit and fail-closed: it validates and inherits the complete index's identity/build, rejects live identity/build or baseline/reference/window overrides, and writes the same self-contained canonical LD-score directory. During the offline build, each completed chromosome is atomically persisted in a hidden run-specific stage, allowing its large in-memory payload to be released while later chromosomes continue. A `Finished chromosome N` log line reports that private durability boundary; the public destination remains absent, empty, or at its prior complete version until every chromosome and shared metadata pass reload validation. These private shards are not resumable checkpoints and never support chromosome append or incremental index updates. See
+[the exact gene-index guide](docs/current/gene-ldscore-index.md) and its
+[mathematical algorithm](docs/current/gene-ldscore-index-mathematics.md).
+Task-oriented walkthroughs cover [building the index](docs/wiki/utility-functionalities/build-gene-ldscore-index.md)
+and [using it for gene-list LD scores](docs/wiki/main-functionalities/ldscore.md).
+
+## LDSC2 compatibility boundary
+
+Backward compatibility is deliberately asymmetric and limited to artifacts
+that are costly or impractical for users to recreate:
+
+- Regression accepts genuine LDSC2 `.sumstats` and `.sumstats.gz` text files
+  automatically. Their `SNP` values are treated as rsID lookup keys and are
+  projected onto the canonical LDSC3 LD-score panel. `A1` and `A2` are required;
+  allele orientation is validated and `Z` is negated when a swap is needed.
+  `FRQ` is optional, is never imputed from the panel, and does not control SNP
+  retention. Footerless Parquet is not treated as a legacy artifact.
+- LDSC2 LD-score fragments are never accepted directly by regression. Run
+  `ldsc convert-ldsc2-ldscores` explicitly with a complete reference directory
+  and a complete regression-weight directory. The converter supports a
+  one-column unpartitioned suite or a complete baseline partitioned suite; the
+  latter also requires a frequency directory. Query/cell-type suites and thin
+  annotations are intentionally unsupported.
+- Converted suites remain allele-unaware (`rsid` by default, or `chr_pos`).
+  `.l2.M_5_50` is required and retains the fixed strict LDSC2 common-frequency
+  rule. There is no converter threshold flag. Missing `.l2.M` is tolerated only
+  under the documented count policy; requesting unavailable all-SNP counts
+  later is an error.
+- LDSC3 does not promise that its outputs can be fed back into LDSC2. The
+  `BP` header written in text `.annot.gz` files is a narrow interoperability
+  convenience, and LDSC3 accepts either `BP` or `POS` when reading them.
+
+See the complete policies for
+[legacy sumstats](docs/current/legacy-sumstats-compatibility.md) and
+[legacy LD-score conversion](docs/current/legacy-ldscore-conversion.md).
 
 ## Python API
 
@@ -181,11 +268,14 @@ callers can load a single chromosome by row-group index when needed.
 from ldsc import (
     AnnotationBuilder,
     ChrPosBuildInference,
+    GeneLDScoreIndexBuildConfig,
     LDScoreCalculator,
     ReferencePanelBuilder,
     RegressionRunner,
     SumstatsMunger,
+    build_gene_ldscore_index,
     infer_chr_pos_build,
+    load_gene_ldscore_index,
     load_sumstats,
     resolve_chr_pos_table,
 )

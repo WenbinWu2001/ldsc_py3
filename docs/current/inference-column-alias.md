@@ -94,6 +94,13 @@ sample size are different quantities. If a user decides a particular analysis
 should use `NEFF` as the munger's `N`, they must pass `--N-col NEFF`
 explicitly.
 
+Direct N and paired case/control counts are alternative sample-size strategies.
+An explicit `--N-col` suppresses inferred `N_CAS`/`N_CON`; an explicit paired
+`--N-cas-col`/`--N-con-col` suppresses inferred direct N. The case/control
+flags must be provided together, and the two explicit strategies cannot be
+combined. If aliases for both strategies are discovered automatically, the
+munger requires an explicit choice instead of silently choosing one.
+
 Signed statistic aliases:
 
 | Canonical field | Accepted aliases |

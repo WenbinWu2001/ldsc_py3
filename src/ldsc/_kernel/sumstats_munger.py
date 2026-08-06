@@ -10,9 +10,9 @@ This module contains the low-level munging implementation reused by the public
 ``ldsc.sumstats_munger`` workflow wrapper. It stays close to the historical
 LDSC behavior so filtering semantics and output formats remain stable while the
 rest of the refactored package gains a cleaner public interface. Public CLI
-orchestration, output preflight, metadata sidecars, and log-file ownership live
-in ``ldsc.sumstats_munger``; this module emits ordinary package logger records
-while retaining the legacy-compatible `.sumstats.gz` writer.
+orchestration, output preflight, metadata sidecars, and file ownership live in
+``ldsc.sumstats_munger``. This module emits ordinary package logger records and
+returns an in-memory table; it does not write user-facing artifacts.
 
 The physical raw-input reader accepts plain, gzip-compressed, or bzip2-compressed
 whitespace-delimited text. DANER inputs are distinguished by schema flags rather
@@ -27,10 +27,10 @@ are not retained for the full-table concatenation step.
 import pandas as pd
 import numpy as np
 #import os
-import gzip
 import bz2
 import argparse
 import logging
+import warnings
 from dataclasses import dataclass
 from scipy.stats import chi2
 from .._coordinates import (
@@ -765,6 +765,76 @@ def parse_flag_cnames(args):
     return [flag_cnames, null_value]
 
 
+def _validate_explicit_sample_size_column_strategy(args):
+    """Validate mutually exclusive direct-N and case/control column hints."""
+    has_direct_n = args.N_col is not None
+    has_n_cas = args.N_cas_col is not None
+    has_n_con = args.N_con_col is not None
+    if has_n_cas != has_n_con:
+        missing = '--N-con-col' if has_n_cas else '--N-cas-col'
+        raise LDSCUsageError(
+            f"munge-sumstats --N-cas-col and --N-con-col must be provided together; {missing} is missing. "
+            "Pass both case/control column names, or drop the incomplete case/control hint and use --N-col."
+        )
+    if has_direct_n and has_n_cas:
+        raise LDSCUsageError(
+            "munge-sumstats --N-col cannot be combined with --N-cas-col and --N-con-col. "
+            "Choose one sample-size strategy: a direct per-variant N column, or a paired case/control column strategy."
+        )
+
+
+def _warn_sample_size_column_suppression(message):
+    """Emit one visible and logged warning for explicit sample-size precedence."""
+    warnings.warn(message, UserWarning, stacklevel=3)
+    LOGGER.warning(message)
+
+
+def _resolve_sample_size_column_strategy(args, cname_translation):
+    """Apply explicit sample-size precedence and reject ambiguous inference."""
+    if args.N_col is not None:
+        suppressed = [
+            source for source, target in cname_translation.items()
+            if target in {'N_CAS', 'N_CON'}
+        ]
+        for source in suppressed:
+            del cname_translation[source]
+        if suppressed:
+            _warn_sample_size_column_suppression(
+                f"--N-col {args.N_col} selected the direct-N sample-size strategy; ignored automatically inferred "
+                f"N_CAS/N_CON column(s): {', '.join(suppressed)}."
+            )
+        return
+
+    if args.N_cas_col is not None:
+        suppressed = [
+            source for source, target in cname_translation.items()
+            if target == 'N'
+        ]
+        for source in suppressed:
+            del cname_translation[source]
+        if suppressed:
+            _warn_sample_size_column_suppression(
+                f"--N-cas-col {args.N_cas_col} and --N-con-col {args.N_con_col} selected the case/control "
+                f"sample-size strategy; ignored automatically inferred direct-N column(s): {', '.join(suppressed)}."
+            )
+        return
+
+    sources_by_target = {
+        target: [source for source, mapped_target in cname_translation.items() if mapped_target == target]
+        for target in ('N', 'N_CAS', 'N_CON')
+    }
+    if all(sources_by_target[target] for target in ('N', 'N_CAS', 'N_CON')):
+        direct = sources_by_target['N'][0]
+        n_cas = sources_by_target['N_CAS'][0]
+        n_con = sources_by_target['N_CON'][0]
+        raise LDSCInputError(
+            f"munge-sumstats found multiple sample-size strategies through automatic inference in '{args.sumstats}': "
+            f"direct N column '{direct}' and case/control columns '{n_cas}'/'{n_con}'. "
+            "LDSC3 will not choose one silently because the values can differ. Choose one explicitly with "
+            f"--N-col {direct} or --N-cas-col {n_cas} --N-con-col {n_con}."
+        )
+
+
 def _suggest_allele_fix(file_cnames):
     clean_to_original = {clean_header(column): column for column in file_cnames}
     if 'REF' in clean_to_original and 'ALT' in clean_to_original:
@@ -1068,11 +1138,14 @@ parser.add_argument('--chr', default=None, type=str,
 parser.add_argument('--pos', default=None, type=str,
                     help='Name of base-pair position column (if not a name that ldsc understands). NB: case insensitive.')
 parser.add_argument('--N-col', default=None, type=str,
-                    help='Name of N column (if not a name that ldsc understands). NB: case insensitive.')
+                    help='Name of the direct per-variant N column. Suppresses inferred case/control columns; '
+                    'mutually exclusive with --N-cas-col/--N-con-col. NB: case insensitive.')
 parser.add_argument('--N-cas-col', default=None, type=str,
-                    help='Name of N column (if not a name that ldsc understands). NB: case insensitive.')
+                    help='Name of the per-variant case-count column. Must be paired with --N-con-col; the pair '
+                    'suppresses inferred direct N. NB: case insensitive.')
 parser.add_argument('--N-con-col', default=None, type=str,
-                    help='Name of N column (if not a name that ldsc understands). NB: case insensitive.')
+                    help='Name of the per-variant control-count column. Must be paired with --N-cas-col; the pair '
+                    'suppresses inferred direct N. NB: case insensitive.')
 parser.add_argument('--a1', default=None, type=str,
                     help='Name of A1 column: the allele that the signed statistic is relative to. NB: case insensitive.')
 parser.add_argument('--a2', default=None, type=str,
@@ -1105,7 +1178,7 @@ parser.add_argument('--genome-build', default=None, choices=('auto', 'hg19', 'hg
 
 
 # set p = False for testing in order to prevent printing
-def munge_sumstats(args, p=True):
+def munge_sumstats(args):
     """Run the historical LDSC munging pipeline.
 
     Parameters
@@ -1145,6 +1218,7 @@ def munge_sumstats(args, p=True):
             "munge-sumstats cannot use --daner-old and --daner-new together. Most likely both DANER "
             "formats were selected. Use --daner-old for FRQ_A/FRQ_U headers or --daner-new for Nca/Nco columns."
         )
+    _validate_explicit_sample_size_column_strategy(args)
 
     file_cnames = read_header(args.sumstats)  # note keys not cleaned
     flag_cnames, signed_sumstat_null = parse_flag_cnames(args)
@@ -1202,6 +1276,7 @@ def munge_sumstats(args, p=True):
 
     cname_translation = {x: cname_map[clean_header(x)] for x in file_cnames if
                          clean_header(x) in cname_map}  # note keys not cleaned
+    _resolve_sample_size_column_strategy(args, cname_translation)
     args._coordinate_source_columns = {
         target: source for source, target in cname_translation.items()
         if target in {'CHR', 'POS'}
@@ -1339,22 +1414,9 @@ def munge_sumstats(args, p=True):
         dat.drop('SIGNED_SUMSTAT', inplace=True, axis=1)
     dat = _apply_liftover_if_requested(dat, args)
 
-    out_fname = args.out + '.sumstats'
-    print_colnames = [
-        c for c in ['SNP', 'CHR', 'POS', 'A1', 'A2', 'Z', 'N'] if c in dat.columns]
-    if args.keep_maf and 'FRQ' in dat.columns:
-        print_colnames.append('FRQ')
-    if p:
-        LOGGER.info(
-            f"Writing summary statistics for {len(dat)} SNPs ({dat.N.notnull().sum()} with nonmissing beta) "
-            f"to {out_fname + '.gz'}."
-        )
-        dat.to_csv(out_fname + '.gz', sep="\t", index=False,
-                   columns=print_colnames, float_format='%.3f', compression = 'gzip')
-    else:
-        LOGGER.info(
-            f"Prepared summary statistics for {len(dat)} SNPs ({dat.N.notnull().sum()} with nonmissing beta)."
-        )
+    LOGGER.info(
+        f"Prepared summary statistics for {len(dat)} SNPs ({dat.N.notnull().sum()} with nonmissing beta)."
+    )
 
     LOGGER.info('\nMetadata:')
     CHISQ = (dat.Z ** 2)

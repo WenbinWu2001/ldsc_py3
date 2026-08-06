@@ -1,5 +1,7 @@
 # Workflow Logging
 
+Last updated on: 2026-08-04
+
 Public workflow entry points share one logging policy:
 
 - Per-run file handlers attach to the `LDSC` logger, so workflow and kernel
@@ -16,6 +18,9 @@ Public workflow entry points share one logging policy:
   always appear in the file. Supported levels are `DEBUG`, `INFO`, `WARNING`, and
   `ERROR`.
 - Workflow result objects and `output_paths` mappings do not include log files.
+- LD-score BED/gene-list runs log the effective catalog projection build, one
+  warning for every non-`ok` query, and a final query-status summary. Row-level
+  unresolved genes remain in the compressed audit rather than the log.
 
 ## Console vs File Routing
 
@@ -101,6 +106,7 @@ header is written and final work before the footer is written.
 | `annotate` | `<output_dir>/diagnostics/annotate.log` |
 | `ldscore` | `<output_dir>/diagnostics/ldscore.log` |
 | `build-ref-panel` | `<output_dir>/diagnostics/build-ref-panel.log`, or `<output_dir>/diagnostics/build-ref-panel.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
+| `build-gene-ldscore-index` | completed success: `<index_dir>/diagnostics/build-gene-ldscore-index.log`; running/failed: `<parent>/.<index-name>.build-state/build-gene-ldscore-index.log`; prior failed attempts move to hidden `history/` |
 | `h2` | `<output_dir>/diagnostics/h2.log` |
 | `partitioned-h2` | `<output_dir>/diagnostics/partitioned-h2.log` |
 | `rg` | `<output_dir>/diagnostics/rg.log` |
@@ -108,6 +114,29 @@ header is written and final work before the footer is written.
 Regression commands without `--output-dir` stay console-only and do not create
 log files; their progress records print to the console (stderr) via the routing
 described above.
+
+## Exact gene-index build log
+
+The exact gene-index builder uses the same lifecycle banner, `Call:`, `Inputs:`,
+`Outputs:`, and `Finished`/`Failed` footer as the other artifact-building
+commands. Its stable path is created before chromosome work so it can be
+monitored live. Its concise INFO narrative records resolved configuration and input
+counts, the baseline/PLINK identifier intersection and configured regression-row universe, start and
+completion for each chromosome, protein-coding genes after exclusion, retained
+and regression rows, atom/operator nonzeros, component bytes, and publication
+state. The JSON sidecar is the machine-readable summary; the log renders the
+same per-chromosome and aggregate measurements rather than recomputing them.
+
+For this builder, `Finished chromosome N` is emitted only after the worker has closed every chromosome payload and atomically installed the shard in the hidden run-specific stage. It means the internal shard is durable and its in-memory record can be released; it does not report partial public publication. The public destination changes only after all chromosome and shared metadata are finalized and the complete stage reloads successfully.
+
+For a successful run, the final lines identify `index_id`, staged reload
+validation, complete atomic replacement, payload bytes, peak RSS, and the
+validated index path. After the `Finished` footer closes the handler, the
+successful log moves into the published index's `diagnostics/`. A failure keeps the `Failed` footer and traceback at the hidden live path without creating or modifying an index destination; a failed overwrite leaves the old scientific index loadable. A retained interrupted stage is never a resumable checkpoint and is discarded on retry. Once replacement
+and reload validation complete, cleanup failures are warnings that name the
+retained transaction directory and do not change the successful exit status.
+The lifecycle log is the status authority, so no separate status JSON is
+written.
 
 ## API Boundary
 

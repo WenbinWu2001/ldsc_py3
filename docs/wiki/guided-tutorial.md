@@ -1,5 +1,7 @@
 # LDSC3 - Guided Analysis Tutorial
 
+Last updated on: 2026-08-04
+
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
 The analysis pipeline involves:
@@ -20,7 +22,7 @@ The files you will need are:
 - raw GWAS summary statistics files for the traits of interest (or munged sumstats from the legacy ldsc python2 codebase);
 - a reference panel for LD score calculation (either R2 parquets or the PLINK suite);
 - a set of baseline annotations;
-- raw BED files for the pathways / cell types whose h2 contribution you want to test (the "query annotations").
+- raw BED files or one-column gene lists for the pathways / cell types whose h2 contribution you want to test (the "query annotations").
 
 
 As a motivating example, we study the `mdd2025` trait, using 1000 Genomes Phase 3 as the reference panel and `1000G_EUR_Phase3_baseline` as the baseline annotations, with `Hippocampus_PP1.bed`, `Cerebellum_PC16.bed`, `Cerebellum_PP3.bed`, and `Cerebellum_PP1.bed` as the pathways whose heritability contribution we test after controlling for the baseline annotations.
@@ -56,6 +58,9 @@ OUTPUT_ROOT="/users/w/e/wenbinwu/Sullivan/LDSC/ldsc3_test_bundle/tutorial_output
 - Results and plots interpretation (which columns to use in each scenario, and what they mean).
 - How to reuse previously generated annotations for partitioned LDSC.
 - Refine memory and run-time numbers with proper benchmarking rather than guessing from log files. In particular, the SLURM memory figure for `ldscore` is inaccurate (it somehow always reports the allocated memory minus 2 MB).
+- complete main functionality wiki. add link in this guided tutorial. 
+- go with quarto?
+- User checklist: genome build, etc.
 
 ## Munge-sumstats
 
@@ -142,7 +147,6 @@ ldsc ldscore \
   --snp-identifier chr_pos \
   --genome-build hg19 \
   --r2-dir "${R2_DIR}/hg19" \
-  --use-hm3-regression-snps \
   --output-dir "${LDSCORE_OUTPUT_DIR}" \
   --ld-wind-cm 1.0 \
   --overwrite
@@ -270,6 +274,15 @@ rg/mdd2025_scz2022_adhd2019/
 
 **Goal:** partition a trait's heritability into the contributions of a set of pathways / cell types, testing whether each query annotation contributes to heritability after controlling for the baseline annotations.
 
+Many hypotheses in this analysis are gene sets: genes differentially expressed
+in a tissue or cell type, genes prioritized by proteomics, or genes sharing a
+GO or SynGO term. LDSC-SEG demonstrated that S-LDSC can test whether
+heritability is enriched near specifically expressed genes conditional on both
+the baseline model and an all-genes annotation
+([Finucane et al., 2018](https://doi.org/10.1038/s41588-018-0081-4)). For a
+large collection of gene sets, an exact gene LD-score index computes the fixed
+PLINK/reference work once and reuses it without changing the downstream model.
+
 **Recommended memory allocation:** Step 1: 24 GB (generous, for safety); Step 2: < 4 GB
 
 **Expected running time:** Step 1: < 2 h; Step 2: < 5 min (depends on the number of query annotations)
@@ -296,7 +309,6 @@ ldsc ldscore \
   --query-annot-bed-sources "${RAW_QUERY_BED_SOURCES}" \
   --baseline-annot-sources "${BASELINE_ANNOT_SOURCES}" \
   --r2-dir "${R2_DIR}/hg19" \
-  --use-hm3-regression-snps \
   --output-dir "${PARTITIONED_LDSCORE_OUTPUT_DIR}" \
   --ld-wind-cm 1.0 \
   --overwrite
@@ -306,6 +318,26 @@ ldsc ldscore \
 
 - For PLINK input, replace `--r2-dir ...` with `--plink-prefix "${PLINK_PREFIX}"`.
 - For partitioned h2 analysis, `ldsc ldscore` accepts BED files directly, so you do not need to build the annotations yourself to run this analysis. If you do want to generate annotations for other purposes, follow the *Make annotations* section below.
+- Alternatively, pass one-column plain/gzip lists through
+  `--query-annot-gene-list-sources`; exact Ensembl IDs and case-sensitive gene
+  names are resolved against the packaged protein-coding catalog. The BED and
+  gene-list flags are mutually exclusive.
+- If any input query gene list or BED file is not found in the scientific
+  results, that query hit a failure. Check
+  `diagnostics/query_annotation_status.tsv` for the reason. For gene lists,
+  `diagnostics/gene_list_unresolved.tsv.gz` lists the problematic genes.
+- For a prebuilt exact gene index, use
+  `--gene-ldscore-index-dir <index-dir>` with
+  `--query-annot-gene-list-sources` and omit live baseline, PLINK/R²,
+  genome-build, window, padding, and region arguments. The indexed run writes
+  the same canonical output directory and defaults to the fixed
+  `gene_control` baseline column.
+- For the complete indexed workflow, see [Build an exact gene LD-score
+  index](utility-functionalities/build-gene-ldscore-index.md) and [Calculate LD
+  scores for gene lists with an index](main-functionalities/ldscore.md).
+  Per-chromosome `Finished` lines report durable private staging; the index
+  becomes public only after complete reload validation. Stages cannot be
+  resumed or used for incremental chromosome updates.
 
 **Caveat:** if you use `--ld-wind-cm`, make sure your PLINK suite has non-missing genetic coordinates (the third column in the `.bim` file). If they are missing (e.g., all zeros), the program will raise an error.
 

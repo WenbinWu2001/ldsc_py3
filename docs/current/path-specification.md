@@ -1,5 +1,7 @@
 # Input Path Specification
 
+Last updated on: 2026-08-04
+
 This note explains how to specify filesystem inputs in the refactored package.
 The goal is practical: help you choose the right path form for each workflow and
 avoid ambiguous inputs.
@@ -51,6 +53,12 @@ independent optional files:
 - `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional
   `ldscore.query.parquet`, optional `ldscore.overlap.parquet`, and
   `diagnostics/ldscore.log` for CLI/workflow runs
+- `convert-ldsc2-ldscores`: canonical `metadata.json`,
+  `ldscore.baseline.parquet`, optional `ldscore.overlap.parquet`,
+  `diagnostics/conversion_issues.tsv.gz`, and
+  `diagnostics/convert-ldsc2-ldscores.log`. This command deliberately accepts
+  directory inputs and performs its own strict chromosomes 1-22 family
+  discovery; that exception does not enable directory discovery elsewhere.
 - `build-ref-panel`: `{hg19,hg38}/chr*_r2.parquet`,
   `{hg19,hg38}/chr*_meta.tsv.gz`,
   `diagnostics/metadata.json`, `diagnostics/metadata.chr*.json`,
@@ -195,7 +203,7 @@ How files are handled:
   suffix removed (`pathlib.Path.stem`); directory names are ignored, so
   `/path1/annot.bed` and `/path2/annot.bed` both become `annot`
 - every resolved baseline annotation file is used as a SNP template
-- `bed_padding_bp` / `--bed-padding-bp` expands each BED interval on both
+- `padding_bp` / `--padding-bp` expands each BED interval on both
   sides before projection and clips starts at zero; the default `0` leaves
   intervals unchanged
 - CLI dispatch through `ldsc annotate` calls the same workflow module directly;
@@ -215,7 +223,7 @@ run_bed_to_annot(
     query_annot_bed_sources="beds/*.bed",
     baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     output_dir="annotations/query_from_beds",
-    bed_padding_bp=0,
+    padding_bp=0,
     overwrite=True,
 )
 ```
@@ -261,10 +269,9 @@ keys for base `chr_pos` keep-lists, but it still keeps the complete restriction
 key set in memory; `ldscore` and reference-panel workflows likewise do not
 lazy-load restriction rows by chromosome.
 
-Packaged HM3 convenience flags:
-
-- `use_hm3_ref_panel_snps`
-- `use_hm3_regression_snps`
+Bundled HM3 is the default `ldscore` regression set. Supply
+`regression_snps_file` only to replace that selected set; it never changes the
+reference-panel universe.
 
 PLINK prefix input:
 
@@ -345,14 +352,11 @@ Accepted path forms:
 - `ref_panel_snps_file`, when provided: scalar file-like token interpreted
   using `GlobalConfig.snp_identifier`; restriction files may omit alleles and
   then match by base key, while allele-bearing restrictions in allele-aware
-  modes match by the effective allele-aware key; packaged HM3 is allele-bearing
-  and participates in allele-aware matching; duplicate restriction keys collapse
+  modes match by the effective allele-aware key; duplicate restriction keys collapse
   to one retained key and non-identity columns such as `CM` or `MAF` are ignored;
   `chr_pos`-family coordinates must be aligned to the PLINK source build; the
   resolved restriction is loaded into an in-memory key set before per-chromosome
   PLINK filtering, so very large custom keep-lists can become a memory input
-- `use_hm3_snps`, when set: uses the packaged curated HM3 map instead of an
-  explicit `ref_panel_snps_file`
 
 How they are handled:
 
@@ -360,9 +364,8 @@ How they are handled:
 - a chromosome suite such as `panel_chr@` is expanded one chromosome at a time
 - liftover chains are optional; the matching source-to-target chain enables
   cross-build R2 and metadata outputs in `chr_pos`-family modes, while no matching
-  chain produces source-build-only outputs; `use_hm3_quick_liftover` also emits
-  the opposite build for the HM3-restricted coordinate universe and requires
-  `use_hm3_snps`; all reference-panel liftover is rejected in `rsid`-family modes
+  chain produces source-build-only outputs; all reference-panel liftover is
+  rejected in `rsid`-family modes
 - genetic maps are required for every emitted build when `--ld-wind-cm` is set;
   SNP- and kb-window builds may omit maps and write emitted metadata `CM` as
   `NA`

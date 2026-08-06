@@ -1,5 +1,7 @@
 # Data Flow
 
+Last updated on: 2026-08-04
+
 This document summarizes the user-visible file streams for each public workflow. The diagrams use Mermaid `flowchart LR` because it maps cleanly onto the package's left-to-right data movement and layered module boundaries.
 
 ## Layer Legend
@@ -16,7 +18,7 @@ This document summarizes the user-visible file streams for each public workflow.
 
 ```mermaid
 flowchart LR
-  IN1[BED intervals]
+  IN1[BED intervals or gene lists]
   IN2[PLINK or parquet R2 reference]
   IN3[Raw GWAS sumstats]
 
@@ -180,9 +182,8 @@ not produced by the successful run are removed.
 Reference-panel liftover is coordinate behavior: chain-file liftover and HM3
 quick liftover are valid only when the active SNP identifier mode is in the
 `chr_pos` family.
-HM3 quick liftover requires the packaged HM3 SNP restriction flag and emits the
-opposite build only for the retained HM3 coordinate universe. Duplicate-position
-filtering also applies only in `chr_pos`-family modes and always drops all colliding
+Reference-panel liftover requires a matching chain file. Duplicate-position
+filtering applies only in `chr_pos`-family modes and always drops all colliding
 source or target coordinate groups. The sidecar also records unmapped and
 cross-chromosome liftover drops; clean processed chromosomes get a header-only
 sidecar.
@@ -195,8 +196,8 @@ sidecar.
 | `.bim` row | `22 rs123 0.0 16050075 A G` | variant metadata |
 | `.fam` row | `fam1 iid1 0 0 0 -9` | sample metadata |
 | genetic map, conditional | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | required for every emitted build when cM windows are used; optional for SNP/kb windows |
-| liftover method, optional | `hg38ToHg19.over.chain.gz` or `--use-hm3-snps --use-hm3-quick-liftover` | matching source-to-target chain enables cross-build R2 and metadata in chr_pos-family modes (`chr_pos`, `chr_pos_allele_aware`); HM3 quick liftover uses the packaged map and requires HM3 restriction; omitted liftover produces source-build-only output; liftover is rejected in rsID-family modes (`rsid`, `rsid_allele_aware`) |
-| keep or restrict file, optional | one IID per row, a headered SNP table, or `--use-hm3-snps` | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos`-family restrictions must match the source PLINK build; allele-free restrictions match by base key; allele-bearing restrictions, including packaged HM3, match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
+| liftover method, optional | `hg38ToHg19.over.chain.gz` | matching source-to-target chain enables cross-build R2 and metadata in chr_pos-family modes (`chr_pos`, `chr_pos_allele_aware`); omitted liftover produces source-build-only output; liftover is rejected in rsID-family modes (`rsid`, `rsid_allele_aware`) |
+| keep or restrict file, optional | one IID per row or a headered SNP table through `--ref-panel-snps-file` | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos`-family restrictions must match the source PLINK build; allele-free restrictions match by base key; allele-bearing restrictions match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
 
 ### Flow
 
@@ -329,10 +330,11 @@ For ordinary unpartitioned LD scores, callers may omit both baseline and query
 inputs. The workflow then creates a synthetic baseline annotation named exactly
 `base`, with value `1.0` for every row returned by the retained reference-panel
 metadata. Query annotations are partitioned-LDSC inputs and require explicit
-baseline annotations. Query BED inputs are projected to the baseline SNP
-universe as supplied unless `bed_padding_bp` / `--bed-padding-bp` is set; that
-option expands each interval on both sides in base pairs before overlap
-projection and clips starts at zero.
+baseline annotations. Query BED inputs and packaged-catalog gene intervals are
+projected to the same baseline SNP universe. `padding_bp` /
+`--padding-bp` expands either interval type on both sides before overlap
+projection and clips starts at zero. Each concrete BED or gene list receives a
+status; unusable queries are omitted while usable siblings continue.
 
 ### Required inputs
 
@@ -340,6 +342,7 @@ projection and clips starts at zero.
 | --- | --- | --- |
 | baseline annotation shard, optional | `CHR POS SNP CM base`<br/>`1 10583 rs58108140 0.0 1` | optional for unpartitioned runs; required when query annotations are supplied |
 | query annotation shard, optional | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | optional extra annotation columns; valid only with explicit baseline annotations |
+| query BED or gene list, optional | `chr1 1000 2000` or `ENSG00000141510` | mutually exclusive query source routes projected in memory; valid only with explicit baseline annotations |
 | PLINK prefix or parquet R2 panel | `panel_chr@` or build directory `ref_panel/hg38` | choose one backend |
 | frequency / metadata sidecar, optional | `CHR POS SNP CM MAF A1 A2` | used for MAF and runtime metadata; `A1/A2` are required for allele-aware modes |
 | regression SNP list, optional | `rs123` or `CHR POS` table | restricts the weight-table SNP set using identity keys only; allele columns may be omitted and then match by base key; allele-bearing restrictions in allele-aware modes match by effective allele-aware key; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
@@ -348,7 +351,7 @@ projection and clips starts at zero.
 
 ```mermaid
 flowchart LR
-  I1[Optional .annot(.gz) shards]
+  I1[Optional .annot shards, BEDs, or gene lists]
   I2[PLINK or parquet R2 reference]
   I3[Metadata / restriction files]
 
@@ -358,7 +361,7 @@ flowchart LR
   end
 
   subgraph W3[Workflow (public)<br/>ldsc.ldscore_calculator]
-    C3[Bundle annotations or synthesize base]
+    C3[Resolve/project queries or synthesize base]
     C4[Select backend]
     C5[Aggregate chromosome results]
   end
@@ -386,6 +389,8 @@ flowchart LR
 | annotation overlap matrix | `row_annotation col_annotation overlap_all_snps overlap_common_snps`<br/>`base enhancer_A 9000 7500` | `ldscore.overlap.parquet` inside `output_dir`; long-form `AᵀA` baseline-rows block + query self-overlaps; consumed by `partitioned-h2` |
 | metadata | JSON metadata with files, columns, counts, chromosomes, config, row counts, and row-group metadata | `metadata.json` inside `output_dir`; consumed by downstream regression |
 | workflow log | plain-text lifecycle and package records | `diagnostics/ldscore.log` inside `output_dir`; not included in `LDScoreResult.output_paths` |
+| query status | `query source input_type status reason n_annotation_snps details` | `diagnostics/query_annotation_status.tsv`; written for BED/gene-list runs, including skipped inputs |
+| unresolved genes | problematic input gene rows and reasons | `diagnostics/gene_list_unresolved.tsv.gz`; written for gene-list runs and header-only when clean |
 
 ### Modules used
 
@@ -394,80 +399,59 @@ flowchart LR
 - Kernel: `ldsc._kernel.ldscore`
 - Postprocessing: `ldsc.outputs`
 
+## 4A. `convert-ldsc2-ldscores`: Selected LDSC2 Suites To Canonical LDSC3
+
+This explicit migration boundary accepts complete chromosomes 1-22 reference
+and regression-weight directories. A complete baseline partitioned suite also
+requires its full annotation family and a frequency-suite directory. Query
+annotations, thin annotations, and general partitioned suites are not accepted.
+
+All source relationships and reference/weight retention use rsID. The reference
+suite supplies output coordinates; coordinate disagreements elsewhere are
+diagnostics. Output identity is restricted to `rsid` or `chr_pos`, and no
+alleles are manufactured.
+
+```mermaid
+flowchart LR
+  R["Legacy reference directory"] --> C["convert-ldsc2-ldscores"]
+  W["Legacy weight directory"] --> C
+  F["Frequency directory (baseline only)"] --> C
+  C --> O["Canonical LDSC3 LD-score directory"]
+  C --> D["conversion log and issue audit"]
+```
+
+Unpartitioned conversion requires every `.l2.M_5_50`; `.l2.M` may be missing,
+making all-SNP regression unavailable. Baseline conversion reconstructs counts
+and full overlap from annotations and frequencies, validates present legacy
+counts, and reconstructs only missing `.M`. The strict legacy common rule is
+fixed at `0.05`. See
+[`legacy-ldscore-conversion.md`](legacy-ldscore-conversion.md).
+
 ## Region Exclusion
 
-Region exclusion filters SNPs by genomic coordinates before LD computation or
-panel emission. Two input sources are supported and may be combined.
+`ldscore --exclude-regions {none,mhc,centromeres,mhc-and-centromeres}` selects
+named intervals that are subtracted from the regression SNP set only. The
+default is `mhc-and-centromeres`; `none` opts out. Bundled HM3 is the default
+regression set, and `--regression-snps-file` replaces it before the selected
+intervals are subtracted. The full retained reference panel remains the
+baseline/query LD-score contributor universe and the universe for `M`,
+`M_5_50`, and annotation-overlap counts.
 
-**Preset regions** (`--exclude-regions`) are selected from a fixed single-choice
-vocabulary `EXCLUDE_REGIONS_CHOICES` = `none | mhc | centromeres |
-mhc-and-centromeres`, **defaulting to `mhc-and-centromeres`** (exclusion is on by
-default; `none` opts out). Each choice maps to packaged BED files under
-`src/ldsc/data/regions/` keyed by preset name and genome build (e.g.
-`mhc.hg19.bed`). The active **`mhc`** preset is the broad `chr6:25-35Mb` window
-(build-consistent) and the active **`centromeres`** preset is the
-**pericentromeric ±3 cM** region (LDSC parity, Bulik-Sullivan 2015). The
-raw-gap reference definition **`centromeres_core`** is loadable via the Python
-API but not wired to the CLI. **User BEDs** (`--exclude-regions-bed <file>`) read any
-standard 0-based half-open BED file and apply intervals as-is against panel
-`CHR/POS`. The full preset/build/coordinate/provenance table is at
-[`region-exclusion-presets.md`](region-exclusion-presets.md).
+Preset intervals are packaged BED3 files under `src/ldsc/data/regions/`. The
+`mhc` preset is chr6:25–35 Mb and `centromeres` is the pericentromeric ±3 cM
+mask. A 1-based position `p` is excluded when `start < p <= end` for BED
+interval `[start, end)`. `--genome-build` is the sole build declaration for
+these named intervals; it must be concrete when artifact metadata cannot
+reliably supply a build.
 
-The keep rule in `region_exclusion_keep_mask` (`src/ldsc/_kernel/regions.py`)
-is: a 1-based SNP position `p` is excluded iff `start < p <= end` for some
-BED interval `[start, end)`. Overlapping intervals per chromosome are coalesced
-by the loaders before masking.
-
-### Build-resolution asymmetry
-
-`ldscore` excludes MHC + centromeres by default (`--exclude-regions` defaults to
-`mhc-and-centromeres`; pass `none` to opt out). It resolves the preset build in
-the workflow layer (`_resolve_exclude_regions_build`): in `chr_pos`-family modes
-it reuses the panel build `ldscore` already operates in (the parquet
-`ldsc:genome_build` / PLINK panel / `--genome-build`, i.e.
-`GlobalConfig.genome_build`); in `rsid`-family modes no build is in scope, so
-presets require an explicit `--exclude-regions-build {hg19,hg38}`. An explicit
-`--exclude-regions-build` always wins. The resolved build is passed into
-`RefPanelConfig`, preserving its invariant that presets imply a build.
-
-> **Note: the MHC + centromere default applies only to the CLI and the
-> `run_ldscore()` / `run_build_ref_panel()` wrappers.** Direct
-> `RefPanelConfig(...)` / `ReferencePanelBuildConfig(...)` construction defaults
-> `exclude_regions` to `()` — **no exclusion** — and you must pass both
-> `exclude_regions` and `exclude_regions_build` yourself. See
-> `config-design.md` → "Region exclusion default depends on the entry point".
-
-`build-ref-panel` (`ReferencePanelBuildConfig`) has **no** `--exclude-regions-build`
-flag. It reuses the resolved `source_genome_build` automatically, so exclusion
-always operates on source coordinates before liftover. A SNP excluded from the
-source build is absent from every emitted build artifact. The build *may* be
-auto-resolved, but only via the panel's own inference: when
-`--source-genome-build auto` (the default), `_resolve_source_genome_build`
-infers `hg19`/`hg38` from the PLINK `.bim` coordinates *before*
-`_prepare_build_state` loads the preset, so `load_preset_intervals` always
-receives a concrete build. The preset performs no build inference of its own —
-`build-ref-panel` is the only workflow where an auto-inferred build selects a
-preset BED.
-
-### Chokepoints
-
-| Workflow | Chokepoint | Location |
-| --- | --- | --- |
-| `ldscore` (PLINK and parquet backends) | `RefPanel._apply_region_exclusion` | `src/ldsc/_kernel/ref_panel.py` |
-| `build-ref-panel` | `ReferencePanelBuilder._build_chromosome` | `src/ldsc/ref_panel_builder.py` |
-
-`RefPanel._apply_region_exclusion` is called once per chromosome load inside
-`RefPanel.load_metadata` and covers both the PLINK and parquet ldscore
-backends. `ReferencePanelBuilder._build_chromosome` applies exclusion on the
-source-build metadata frame immediately after PLINK `.bim` loading, before
-identity cleanup, restriction, and liftover.
-
-The build-state object `_BuildState.region_intervals` (a `RegionIntervals`
-instance) is constructed once in `ReferencePanelBuilder._prepare_build_state`
-for the full run and shared across all chromosome invocations.
-
-See `docs/superpowers/specs/2026-06-06-region-exclusion-design.md` for the
-full design rationale and preset catalog.
+There is no public arbitrary-region BED option. To use custom intervals,
+prefilter a custom regression list and pass it with `--regression-snps-file`.
+`build-ref-panel` has no region-exclusion option: deliberate LD-reference
+pruning is expressed only through `--ref-panel-snps-file`. Artifact
+`metadata.json` records the reference-universe policy separately from the
+regression-row/weight policy and its region-removal counts. See
+[`region-exclusion-presets.md`](region-exclusion-presets.md) for coordinates
+and migration guidance.
 
 ## 5. `munge-sumstats`: Raw GWAS Table To Curated Sumstats
 
@@ -547,7 +531,7 @@ flowchart LR
 | --- | --- | --- |
 | curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
 | log file | plain-text lifecycle, QC log, coordinate provenance, readable liftover reports, HM3 provenance, output bookkeeping, and count-level drop summaries | workflow-owned `diagnostics/sumstats.log` under `output_dir`, populated from package logger messages emitted during workflow orchestration and kernel QC; excluded from `MungeRunSummary.output_paths` |
-| embedded identity metadata | discrete footer keys `ldsc:artifact_type`, `ldsc:snp_identifier`, `ldsc:genome_build`, and optional `ldsc:trait_name` | written into the `sumstats.parquet` footer (no `metadata.json` sidecar); used by `load_sumstats()` to reconstruct config provenance and trait labels, or `None` when absent |
+| embedded identity metadata | discrete footer keys `ldsc:artifact_type`, `ldsc:snp_identifier`, `ldsc:genome_build`, and optional `ldsc:trait_name` | written into the `sumstats.parquet` footer (no `metadata.json` sidecar); used by `load_sumstats()` to reconstruct config provenance and trait labels. Footerless Parquet is rejected; legacy text is marked explicitly. |
 | dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `diagnostics/dropped_snps/dropped.tsv.gz`; header-only when no rows were dropped; reasons may include identity drops (`missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, `duplicate_identity`) and liftover drops (`missing_coordinate`, `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`) |
 
 ### Modules used
@@ -599,14 +583,14 @@ merge. rsID-family and coordinate-family modes never mix.
 
 | File | Example | Notes |
 | --- | --- | --- |
-| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; the `sumstats.parquet` footer recovers config provenance and `trait_name` when present, otherwise the identifier mode is inferred from the LD-score panel |
+| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; current Parquet recovers footer provenance. Legacy LDSC2 `.sumstats[.gz]` requires `SNP/A1/A2/Z/N` and is projected by rsID onto the panel. |
 | LD-score directory | `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, optional `ldscore.overlap.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; the overlap sidecar is written only for runs with >=2 annotation columns; `partitioned-h2` requires `ldscore.overlap.parquet` (baseline-only = functional regime, query columns = cell-type regime) and rejects directories that lack it; current parquet files have chromosome-aligned row groups; package-written directories without current metadata identity provenance are rejected and must be regenerated |
 
 ### Flow
 
 ```mermaid
 flowchart LR
-  I1[Curated sumstats parquet or .sumstats.gz]
+  I1[Current Parquet or legacy LDSC2 sumstats text]
   I2[LD-score artifacts]
 
   subgraph P5[Preprocessing (public)<br/>path_resolution + column_inference]

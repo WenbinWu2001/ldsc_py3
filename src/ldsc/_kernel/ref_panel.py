@@ -28,10 +28,8 @@ from ..column_inference import (
 from ..config import GlobalConfig, RefPanelConfig, validate_config_compatibility
 from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from ..genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
-from ..hm3 import packaged_hm3_curated_map_path
 from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group, resolve_scalar_path
 from . import formats as legacy_parse
-from . import regions
 from . import ldscore as kernel_ldscore
 from .identifiers import (
     build_snp_id_series,
@@ -210,7 +208,6 @@ class RefPanel(ABC):
         self.global_config = global_config
         self.spec = spec
         self._metadata_cache: dict[str, pd.DataFrame] = {}
-        self._region_intervals_cache: "regions.RegionIntervals | None" = None
 
     @abstractmethod
     def available_chromosomes(self) -> list[str]:
@@ -264,23 +261,14 @@ class RefPanel(ABC):
         return metadata.loc[keep].reset_index(drop=True)
 
     def _apply_snp_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
-        """Apply the keep-restriction, then drop excluded regions.
-
-        The keep-restriction (``ref_panel_snps_file`` / HM3) runs first so region
-        exclusion operates on the already-restricted SNP set. Region exclusion
-        always runs, even when no keep-restriction is configured.
-        """
-        metadata = self._apply_keep_restriction(metadata)
-        metadata = self._apply_region_exclusion(metadata)
-        return metadata
+        """Apply the explicit custom LD-reference SNP restriction when configured."""
+        return self._apply_keep_restriction(metadata)
 
     def _apply_keep_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
         """Filter metadata rows to ``RefPanelConfig.ref_panel_snps_file`` when set."""
-        restrict_path = packaged_hm3_curated_map_path() if self.spec.use_hm3_ref_panel_snps else self.spec.ref_panel_snps_file
+        restrict_path = self.spec.ref_panel_snps_file
         if restrict_path is None or len(metadata) == 0:
             return metadata
-        if self.spec.use_hm3_ref_panel_snps:
-            LOGGER.info(f"Using packaged curated HM3 map for reference-panel SNP restriction: {restrict_path}.")
         restriction = read_snp_restriction_keys(
             restrict_path,
             self.global_config.snp_identifier,
@@ -293,40 +281,6 @@ class RefPanel(ABC):
             self.global_config.snp_identifier,
             context=f"reference-panel restriction matching for {restrict_path}",
         )
-        return metadata.loc[keep].reset_index(drop=True)
-
-    def _region_intervals(self) -> regions.RegionIntervals:
-        """Resolve and cache region-exclusion intervals for this panel."""
-        if self._region_intervals_cache is not None:
-            return self._region_intervals_cache
-        groups: list[regions.RegionIntervals] = []
-        if self.spec.exclude_regions:
-            groups.append(
-                regions.load_preset_intervals(list(self.spec.exclude_regions), self.spec.exclude_regions_build)
-            )
-        if self.spec.exclude_regions_bed:
-            paths = [
-                resolve_scalar_path(token, suffixes=("", ".bed"), label="region exclusion BED")
-                for token in self.spec.exclude_regions_bed
-            ]
-            groups.append(regions.load_bed_intervals(paths))
-        merged = regions.merge_intervals(*groups) if groups else regions.RegionIntervals(intervals={}, source_labels=())
-        self._region_intervals_cache = merged
-        return merged
-
-    def _apply_region_exclusion(self, metadata: pd.DataFrame) -> pd.DataFrame:
-        """Drop SNPs inside any configured exclusion region (CHR/POS based)."""
-        intervals = self._region_intervals()
-        if not intervals.intervals or len(metadata) == 0:
-            return metadata
-        pos_col = "POS" if "POS" in metadata.columns else "BP"
-        keep = regions.region_exclusion_keep_mask(metadata, intervals, pos_col=pos_col)
-        dropped = int((~keep).sum())
-        if dropped:
-            LOGGER.info(
-                f"Region exclusion dropped {dropped} reference-panel SNPs via "
-                f"{', '.join(intervals.source_labels)}."
-            )
         return metadata.loc[keep].reset_index(drop=True)
 
     def _validate_metadata(self, metadata: pd.DataFrame, chrom: str) -> pd.DataFrame:
@@ -363,6 +317,20 @@ class PlinkRefPanel(RefPanel):
                 "chromosome labels do not match the requested run. Pass a PLINK prefix "
                 "with matching chromosome rows."
             )
+        if self.global_config.snp_identifier in {"rsid", "chr_pos"}:
+            cleanup = clean_identity_artifact_table(
+                metadata,
+                self.global_config.snp_identifier,
+                context=f"PLINK reference-panel metadata chromosome {chrom}",
+                stage="plink_reference_identity_cleanup",
+                logger=LOGGER,
+            )
+            metadata = cleanup.cleaned
+            if metadata.empty:
+                raise LDSCInputError(
+                    f"Reference-panel loading retained no PLINK rows on chromosome {chrom} "
+                    "after duplicate SNP identity cleanup."
+                )
         metadata = self._apply_snp_restriction(metadata)
         validate_unique_snp_ids(metadata, self.global_config.snp_identifier, context=f"{type(self).__name__}[{chrom}]")
         metadata = self._load_genotype_metadata(chrom, metadata)
@@ -780,7 +748,7 @@ class RefPanelLoader:
         mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
         if identity_mode_family(mode) != "chr_pos" or self.global_config.genome_build != "auto":
             return self.global_config
-        if not (ref_panel_spec.ref_panel_snps_file or ref_panel_spec.use_hm3_ref_panel_snps):
+        if not ref_panel_spec.ref_panel_snps_file:
             return self.global_config
         resolved_build = _infer_restricted_ref_panel_build(ref_panel_spec)
         return GlobalConfig(

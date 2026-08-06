@@ -170,10 +170,10 @@ class SumstatsTable:
         Default is an empty dict.
     config_snapshot : GlobalConfig or None, optional
         Shared configuration captured when the table was produced in-process or
-        recovered from the ``sumstats.parquet`` footer. It is ``None`` when the
-        artifact carries no embedded identity metadata (a legacy ``.sumstats.gz``
-        or a footer-less parquet), in which case the identifier mode is inferred
-        downstream. Coordinate-family munged artifacts store the final output
+        recovered from the ``sumstats.parquet`` footer. It is ``None`` for a
+        legacy LDSC2 ``.sumstats`` or ``.sumstats.gz`` input, whose rsIDs are
+        projected onto the canonical LD-score panel downstream. Footerless
+        Parquet is rejected. Coordinate-family munged artifacts store the final output
         genome build here; rsID-family artifacts store ``genome_build=None``
         because their merge identity is independent of coordinate build.
     """
@@ -313,9 +313,8 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
         Validated in-memory table with canonical LDSC columns such as ``SNP``,
         ``CHR``, ``POS``, ``N``, and ``Z`` when present in the artifact. When the
         ``sumstats.parquet`` footer carries identity metadata, the returned table
-        also recovers its munge-time ``GlobalConfig`` snapshot; otherwise
-        ``config_snapshot`` is ``None`` and the identifier mode is inferred
-        downstream.
+        also recovers its munge-time ``GlobalConfig`` snapshot. Legacy text
+        inputs have ``config_snapshot=None`` and are marked for panel projection.
 
     Raises
     ------
@@ -332,10 +331,9 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     accidentally parse CSV or raw GWAS input as curated sumstats.
 
     Identity metadata is read from the parquet footer (discrete ``ldsc:*``
-    keys). No ``metadata.json`` sidecar is consulted. Artifacts without footer
-    metadata -- legacy ``.sumstats.gz`` files or footer-less parquet -- load
-    with ``config_snapshot=None`` rather than being rejected; their identifier
-    mode is inferred from the LD-score panel during regression.
+    keys). No ``metadata.json`` sidecar is consulted. Legacy ``.sumstats`` and
+    ``.sumstats.gz`` inputs load with ``config_snapshot=None`` and explicit
+    LDSC2 provenance. A Parquet artifact without the required footer is rejected.
     """
     resolved = resolve_scalar_path(path, label="munged sumstats")
     df = _read_curated_sumstats_artifact(resolved)
@@ -353,16 +351,25 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     )
     metadata = _read_sumstats_parquet_footer(resolved)
     if metadata is None:
+        if str(resolved).lower().endswith(".parquet"):
+            raise LDSCInputError(
+                _curated_sumstats_artifact_message(
+                    resolved,
+                    "the parquet file is missing required LDSC3 identity footer metadata",
+                    "Footerless parquet is not an LDSC2 compatibility artifact. Re-run `ldsc munge-sumstats` "
+                    "from the raw GWAS input to create a self-describing sumstats.parquet file.",
+                )
+            )
         LOGGER.info(
-            f"No embedded identity metadata in '{resolved}'. The SNP identifier mode will be "
-            "inferred from the LD-score panel during regression."
+            f"Recognized legacy LDSC2 munged sumstats '{resolved}'. SNP values will be used as rsID "
+            "lookup keys and projected onto the canonical LD-score panel during regression."
         )
         table = SumstatsTable(
             data=df.reset_index(drop=True),
             has_alleles={"A1", "A2"}.issubset(df.columns),
             source_path=resolved,
             trait_name=_resolve_sumstats_trait_name(trait_name, None, resolved),
-            provenance={},
+            provenance={"source_format": "ldsc2_sumstats", "legacy_ldsc2": True},
             config_snapshot=None,
         )
         table.validate()
@@ -554,7 +561,7 @@ class SumstatsMunger:
                 f"output_genome_build='{liftover_request.target_build}', "
                 f"liftover_method='{liftover_request.method}'."
             )
-            data = kernel_munge.munge_sumstats(args, p=False)
+            data = kernel_munge.munge_sumstats(args)
             coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
             drop_frame = _coerce_sumstats_dropped_snps_frame(
                 coordinate_metadata.pop("liftover_drop_frame", None)
@@ -1798,11 +1805,11 @@ def _resolve_curated_sumstats_columns(columns: list[str], *, context: str) -> di
 
 
 def _read_sumstats_parquet_footer(path: str) -> dict[str, Any] | None:
-    """Return the embedded sumstats identity payload, or ``None`` when absent.
+    """Return embedded Parquet identity metadata, or ``None`` when absent.
 
-    Only Parquet artifacts carry a footer. ``.sumstats(.gz)`` and footer-less
-    Parquet files return ``None``. Empty ``genome_build``/``trait_name`` footer
-    values decode back to ``None``.
+    Text sumstats and footerless Parquet both return ``None`` here; the public
+    loader distinguishes them and rejects the footerless Parquet case. Empty
+    ``genome_build`` and ``trait_name`` values decode to ``None``.
     """
     if not str(path).endswith(".parquet"):
         return None

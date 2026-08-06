@@ -1,5 +1,7 @@
 # Code Structure
 
+Last updated on: 2026-08-04
+
 This is the contributor-facing module map for `ldsc_py3_Jerry`.
 
 ## Repository Map
@@ -17,10 +19,13 @@ ldsc_py3_Jerry/
 │   ├── column_inference.py
 │   ├── chromosome_inference.py
 │   ├── genome_build_inference.py
+│   ├── gene_list_resolver.py
+│   ├── query_annotations.py
 │   ├── annotation_builder.py
 │   ├── ref_panel_builder.py
 │   ├── r2_query.py
 │   ├── ldscore_calculator.py
+│   ├── legacy_ldscore_converter.py
 │   ├── sumstats_munger.py
 │   ├── regression_runner.py
 │   ├── prevalence.py
@@ -51,29 +56,32 @@ ldsc_py3_Jerry/
 | `ldsc.chromosome_inference` | canonical chromosome normalization and ordering |
 | `ldsc.genome_build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
 | `ldsc.hm3` | public packaged curated HM3 map loader and installed map path helper for workflow internals |
+| `ldsc.gene_list_resolver` | internal packaged-catalog validation and exact gene-list resolution into canonical Ensembl IDs and build intervals |
+| `ldsc.query_annotations` | internal ordered BED/gene query status record shared by annotation, LD-score, and output layers |
 | `tools/hm3/build_hm3_chr_pos_reference.py` | maintenance tool (outside the package) that rebuilds the compact HM3 coordinate reference used by genome-build inference |
 | `ldsc._kernel.liftover` | shared hg19/hg38 liftover helpers, chain-file translation, curated HM3 dual-build coordinate conversion, drop-all coordinate collision helpers, and readable drop reports |
 | `ldsc._kernel.regions` | packaged and user BED interval loading plus region-exclusion masks |
 | `ldsc._kernel.plink_bed` | PLINK genotype reader (`PlinkBEDFile` and its `__GenotypeArrayInMemory__` base, incl. the in-class LD-score block sums): lazy header read, per-SNP selective decode with fused individual filter, and opt-in disk streaming for unrestricted builds; never materializes the whole-chromosome bitarray |
-| `ldsc.annotation_builder` | public annotation workflow: CLI args, parser entry point, path resolution, bundle loading, BED projection, and query `.annot.gz` writing |
+| `ldsc.annotation_builder` | public annotation workflow: path resolution, bundle loading, BED/gene interval projection, query-local source isolation, and query `.annot.gz` writing for `annotate` |
 | `ldsc.ref_panel_builder` | parquet reference-panel build workflow, including source-build region exclusion and optional `min_r2` pair-emission threshold |
 | `ldsc.r2_query` | public `query-r2` CLI/API, `R2Panel`, one-shot `query_r2()`, sidecar-binding validation, endpoint key resolution, sign harmonization, and optional adjusted-R2-to-Pearson-r conversion |
-| `ldsc.ldscore_calculator` | LD-score orchestration, optional synthetic `base` annotation construction, aggregation, and output routing |
+| `ldsc.ldscore_calculator` | LD-score orchestration, catalog-build selection, optional synthetic `base`, query-status finalization/pruning, aggregation, and output routing |
+| `ldsc.legacy_ldscore_converter` | sole LDSC2 LD-score-suite import boundary: deterministic family discovery, rsID joins, count/overlap validation or reconstruction, provenance hashing, diagnostics, and canonical LDSC3 directory writing |
 | `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, `--format auto` / `--infer-only` header inference, Parquet/TSV curated output writing, self-describing `sumstats.parquet` footer identity metadata, diagnostics under `diagnostics/`, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
-| `ldsc.regression_runner` | file-driven regression dataset assembly, active effective identity-key merging (`SNP`, `SNP:<allele_set>`, `CHR:POS`, or `CHR:POS:<allele_set>`), h2/partitioned-h2/rg estimator dispatch (including the two overlap-aware partitioned-h2 regimes), observed/liability-scale summary columns, and rg result-family writing |
+| `ldsc.regression_runner` | file-driven regression dataset assembly, automatic legacy LDSC2 sumstats rsID-to-panel projection and allele harmonization, active effective identity-key merging (`SNP`, `SNP:<allele_set>`, `CHR:POS`, or `CHR:POS:<allele_set>`), h2/partitioned-h2/rg estimator dispatch (including the two overlap-aware partitioned-h2 regimes), observed/liability-scale summary columns, and rg result-family writing |
 | `ldsc.prevalence` | parse and validate binary-trait prevalence inputs (scalar `--samp-prev`/`--pop-prev` for h2/partitioned-h2; comma-separated lists or a `--prevalence-manifest` TSV for rg) into a normalized per-trait `(samp_prev, pop_prev)` structure for observed-to-liability conversion |
 | `ldsc.overlap_matrix` | public-layer overlap container (`LDScoreOverlap`), long-form parquet (de)serialization, per-model overlap assembly, the overlap-aware category table (ported `_overlap_output` + augmentation), and the collinearity hard-error check (`model_collinearity_error`) |
-| `ldsc.outputs` | artifact naming, LD-score parquet layout (including `ldscore.overlap.parquet`), partitioned-h2 per-query layout, rg result-family layout, metadata JSON payloads, and serialization |
+| `ldsc.outputs` | artifact naming, LD-score parquet and query-diagnostic layout, partitioned-h2 per-query layout, rg result-family layout, metadata JSON payloads, and serialization |
 | `ldsc._kernel.overlap` | low-level annotation overlap-block computation (`OverlapContribution`, `compute_overlap`, `sum_overlap_contributions`) |
 | `ldsc._kernel.annotation` | low-level annotation table reading and BED intersection helpers |
 | `ldsc._kernel.ref_panel_builder` | optional genetic-map parsing, optional liftover, parquet schemas, pairwise LD emission |
 | `ldsc._kernel.ref_panel` | runtime PLINK/parquet reference-panel adapters |
 | `ldsc._kernel.r2_query` | low-level index-format parquet pair lookup used by `ldsc.r2_query` |
-| `ldsc._kernel.ldscore` | LD-score math and legacy-compatible computation helpers |
-| `ldsc._kernel.sumstats_munger` | legacy-compatible raw summary-statistics QC, normalization, optional coordinate liftover, and `.sumstats.gz` writing without public CLI or log-file ownership |
+| `ldsc._kernel.ldscore` | LD-score math, PLINK/parquet readers, chromosome computation, and count primitives; no LDSC2 artifact emitters |
+| `ldsc._kernel.sumstats_munger` | legacy-compatible raw summary-statistics QC, normalization, and optional coordinate liftover; returns in-memory tables and owns no output files |
 | `ldsc._kernel.regression` | LDSC estimators for `Hsq` and `RG` |
 | `ldsc._kernel._jackknife`, `ldsc._kernel._irwls` | supporting numerical routines used by regression |
-| `ldsc._kernel.formats`, `ldsc._kernel.identifiers` | file-format readers and SNP identifier helpers |
+| `ldsc._kernel.formats`, `ldsc._kernel.identifiers` | retained PLINK/list primitives and SNP identifier helpers; obsolete legacy regression-artifact readers are removed |
 
 ## Where To Change Code
 
@@ -86,6 +94,8 @@ ldsc_py3_Jerry/
 | change header aliases or identifier/build normalization | `src/ldsc/column_inference.py` |
 | change automatic `chr_pos` genome-build inference | `src/ldsc/genome_build_inference.py` |
 | change annotation loading, `ldsc annotate` behavior, or BED projection | `src/ldsc/annotation_builder.py`, then `src/ldsc/_kernel/annotation.py` |
+| change gene catalog validation, identifier resolution, or list naming | `src/ldsc/gene_list_resolver.py`, then `src/ldsc/annotation_builder.py` |
+| change BED/gene partial-success statuses or diagnostic schemas | `src/ldsc/query_annotations.py`, `src/ldsc/ldscore_calculator.py`, `src/ldsc/outputs.py` |
 | change parquet reference-panel build logic | `src/ldsc/ref_panel_builder.py`, then `src/ldsc/_kernel/ref_panel_builder.py` |
 | change source-build region exclusion for panel building or LD-score runtime | `src/ldsc/config.py`, `src/ldsc/_kernel/regions.py`, then `src/ldsc/ref_panel_builder.py` or `src/ldsc/_kernel/ref_panel.py` |
 | change R2 pair lookup CLI/API behavior | `src/ldsc/r2_query.py`, then `src/ldsc/_kernel/r2_query.py` |
@@ -106,7 +116,7 @@ ldsc_py3_Jerry/
 - Treat package-built index-format R2 panels as the only public R2 parquet
   format. Both `ldsc ldscore --r2-dir` and `ldsc query-r2` depend on the paired
   `chr*_r2.parquet` / `chr*_meta.tsv.gz` layout and sidecar identity binding.
-- Keep optional-baseline behavior in the public LD-score workflow layer: no baseline and no query means a synthetic all-ones `base`; query annotations require explicit baseline annotations. Regression treats that synthetic `base` path as an `h2`/`rg` input only; `partitioned-h2` requires explicit query LD-score columns.
+- Keep optional-baseline behavior in the public LD-score workflow layer: no baseline and no query means a synthetic all-ones `base`; prebuilt, BED, and gene-list queries require explicit baseline annotations. Skipped BED/gene queries never become placeholder scientific columns.
 - Keep `ldsc annotate` orchestration in `ldsc.annotation_builder`. The CLI
   registers annotation flags from that module and dispatches parsed namespaces
   to `run_annotate_from_args()`; `_kernel.annotation` must not own parser
@@ -130,7 +140,10 @@ ldsc_py3_Jerry/
   `annotate`, and summary-table regression commands.
 - Treat workflow logs as audit artifacts. Do not include log paths in
   `output_paths` mappings or thin metadata sidecars that downstream code
-  interprets as scientific data artifacts.
+  interprets as scientific data artifacts. Whole-directory transactional
+  publishers must keep open workflow logs outside the replaceable tree; the
+  gene-index builder uses hidden sibling `.<index-name>.build-state/` and moves
+  only the closed successful log into the published diagnostics.
 - Keep regression file-driven: it should be able to rebuild state from written artifacts without recomputing LD scores.
 - Prefer extending shared helpers or the workflow-owned writer over duplicating local parsing or writing logic.
 
@@ -143,6 +156,7 @@ ldsc_py3_Jerry/
 | reference-panel builder | `tests/test_ref_panel_builder.py` |
 | R2 pair query | `tests/test_r2_query.py` |
 | LD-score workflow | `tests/test_ldscore_workflow.py` |
+| gene-list catalog and resolution | `tests/test_gene_list_resolver.py` |
 | sumstats munging | `tests/test_sumstats_munger.py` |
 | regression workflow | `tests/test_regression_workflow.py` |
 | path and config contracts | `tests/test_path_resolution.py`, `tests/test_config_identifiers.py`, `tests/test_column_inference.py`, `tests/test_genome_build_inference.py` |

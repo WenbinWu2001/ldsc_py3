@@ -10,9 +10,9 @@ Overview
 This module is the top-level public API for the refactored package. Import from
 ``ldsc`` when you want the supported package surface rather than the internal
 ``ldsc._kernel`` implementation modules. The exports here mirror the main user
-workflows: annotation building, parquet reference-panel building, LD-score
-calculation, summary-statistics munging, regression, output writing, and
-genome-build inference for ``chr_pos`` inputs.
+workflows: annotation building, parquet reference-panel building, exact gene
+LD-score index construction, LD-score calculation, summary-statistics munging,
+regression, output writing, and genome-build inference for ``chr_pos`` inputs.
 
 Design Notes
 ------------
@@ -40,6 +40,7 @@ from .config import (
     AnnotationBuildConfig,
     ConfigMismatchError,
     GlobalConfig,
+    GeneLDScoreIndexBuildConfig,
     LDScoreConfig,
     MungeConfig,
     ReferencePanelBuildConfig,
@@ -67,6 +68,7 @@ from .genome_build_inference import (
 )
 from .hm3 import load_hm3_curated_map
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
+from .gene_ldscore_index import build_gene_ldscore_index, load_gene_ldscore_index
 from .outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
@@ -89,6 +91,9 @@ _LAZY_EXPORTS = {
     "infer_raw_sumstats": (".sumstats_munger", "infer_raw_sumstats"),
     "load_sumstats": (".sumstats_munger", "load_sumstats"),
     "load_ldscore_from_dir": (".regression_runner", "load_ldscore_from_dir"),
+    "LegacyLDScoreConverter": (".legacy_ldscore_converter", "LegacyLDScoreConverter"),
+    "LegacyLDScoreConversionResult": (".legacy_ldscore_converter", "LegacyLDScoreConversionResult"),
+    "convert_ldsc2_ldscores": (".legacy_ldscore_converter", "convert_ldsc2_ldscores"),
     "RegressionDataset": (".regression_runner", "RegressionDataset"),
     "RegressionRunner": (".regression_runner", "RegressionRunner"),
     "RgResultFamily": (".regression_runner", "RgResultFamily"),
@@ -113,6 +118,7 @@ __all__ = [
     "ChrPosBuildInference",
     "ConfigMismatchError",
     "GlobalConfig",
+    "GeneLDScoreIndexBuildConfig",
     "get_global_config",
     "infer_chr_pos_build",
     "H2DirectoryWriter",
@@ -122,6 +128,8 @@ __all__ = [
     "LDScoreDirectoryWriter",
     "LDScoreOutputConfig",
     "LDScoreResult",
+    "LegacyLDScoreConverter",
+    "LegacyLDScoreConversionResult",
     "LDSCConfigError",
     "LDSCDependencyError",
     "LDSCError",
@@ -131,6 +139,7 @@ __all__ = [
     "LDSCUserError",
     "load_ldscore_from_dir",
     "load_hm3_curated_map",
+    "load_gene_ldscore_index",
     "MungeConfig",
     "MungeRunSummary",
     "RawSumstatsInference",
@@ -156,8 +165,10 @@ __all__ = [
     "SumstatsMunger",
     "SumstatsTable",
     "load_sumstats",
+    "convert_ldsc2_ldscores",
     "infer_raw_sumstats",
     "run_build_ref_panel",
+    "build_gene_ldscore_index",
     "run_bed_to_annot",
     "run_ldscore",
     "resolve_chr_pos_table",

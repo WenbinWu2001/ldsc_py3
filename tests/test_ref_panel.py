@@ -726,23 +726,21 @@ def _chr22_available() -> bool:
     return all(Path(str(_CHR22) + ext).exists() for ext in (".bed", ".bim", ".fam"))
 
 
-def test_ldscore_panel_excludes_user_bed_region(tmp_path):
+def test_ref_panel_has_no_region_exclusion_configuration(tmp_path):
     if not _chr22_available():
         pytest.skip("chr22 PLINK fixture unavailable; run tests/fixtures/generate_minimal_external_resources.py")
     gc = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
 
     base_panel = PlinkRefPanel(gc, RefPanelConfig(backend="plink", plink_prefix=str(_CHR22)))
     base_meta = base_panel.load_metadata("22")
-    # base_panel has no exclusion configured, so target_pos is guaranteed present in base_meta.
+    # The reference panel always retains this SNP unless explicitly filtered by
+    # a reference SNP list.
     target_pos = int(base_meta["POS"].iloc[0])
 
-    # BED [target_pos-1, target_pos) (0-based half-open) excludes 1-based POS == target_pos.
+    # Region pruning is no longer a reference-panel operation.
     bed = tmp_path / "exclude.bed"
     bed.write_text(f"22\t{target_pos - 1}\t{target_pos}\n", encoding="utf-8")
 
-    panel = PlinkRefPanel(
-        gc, RefPanelConfig(backend="plink", plink_prefix=str(_CHR22), exclude_regions_bed=(str(bed),))
-    )
-    meta = panel.load_metadata("22")
-    assert target_pos not in set(meta["POS"])
-    assert len(meta) == len(base_meta) - int((base_meta["POS"] == target_pos).sum())
+    with pytest.raises(TypeError, match="exclude_regions_bed"):
+        RefPanelConfig(backend="plink", plink_prefix=str(_CHR22), exclude_regions_bed=(str(bed),))
+    assert target_pos in set(base_meta["POS"])

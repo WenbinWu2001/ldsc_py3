@@ -92,14 +92,14 @@ def _write_baseline_bed(rows: Sequence[_BaselineRow], path: Path) -> Path:
     return path
 
 
-def _write_normalized_bed(in_path: Path, out_path: Path, *, bed_padding_bp: int = 0) -> Path:
+def _write_normalized_bed(in_path: Path, out_path: Path, *, padding_bp: int = 0) -> Path:
     """Normalize one BED input into a plain tab-delimited UCSC-style BED file."""
     with (gzip.open(in_path, "rt") if in_path.suffix.lower() == ".gz" else open(in_path, "rt")) as src:
         with out_path.open("w", encoding="utf-8") as dst:
             for row in kernel_regions.parse_bed_text(src.read(), label=str(in_path)):
                 chrom = _to_bed_chromosome(row.chrom)
-                start = max(0, row.start - bed_padding_bp)
-                end = row.end + bed_padding_bp
+                start = max(0, row.start - padding_bp)
+                end = row.end + padding_bp
                 dst.write("\t".join([chrom, str(start), str(end), *row.extra_fields]) + "\n")
     return out_path
 

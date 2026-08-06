@@ -2,91 +2,30 @@
 formats.py
 
 Core functionality:
-    Parse the legacy LDSC on-disk file formats used by the regression kernel.
+    Parse PLINK metadata and identifier-list formats used by low-level kernels.
 
 Overview
 --------
-This module is the compatibility layer for the original LDSC text formats such
-as ``.sumstats``, ``.l2.ldscore``, ``.M``, and ``.annot``. The refactored
-workflow still depends on these parsers when reproducing legacy regression
-behavior, so the functions here remain intentionally file-format oriented
-rather than domain-model oriented.
-
-Key Functions
--------------
-sumstats :
-    Read a munged summary-statistics file into the columns expected by the
-    regression stack.
-ldscore :
-    Read one or more ``.l2.ldscore`` files into one SNP-aligned table.
-M_fromlist :
-    Read and horizontally concatenate one or more ``.M`` or ``.M_5_50`` count
-    vectors.
+This module retains only PLINK ``.bim``/``.fam`` and small identifier-list
+primitives still required by reference-panel and LD-score computation. Legacy
+sumstats and LD-score suite parsing belongs to public workflow modules.
 
 Design Notes
 ------------
-- This module preserves the old filename conventions and compression
-  auto-detection behavior because the regression stack still consumes those
-  artifacts directly.
-- Parsing functions prefer permissive whitespace-delimited reads to remain
-  compatible with historical LDSC outputs.
+- Public regression never imports LDSC2 LD-score/count/annotation fragments.
+- The explicit converter owns those compatibility formats outside ``_kernel``.
 """
 
 from __future__ import division
 import numpy as np
 import pandas as pd
-import os
-import glob
 
 from ..errors import LDSCInputError
-
-
-def series_eq(x, y):
-    '''Compare series, return False if lengths not equal.'''
-    return len(x) == len(y) and (x == y).all()
 
 
 def read_csv(fh, **kwargs):
     """Read a whitespace-delimited LDSC text file with legacy missing-value rules."""
     return pd.read_csv(fh, sep=r'\s+', na_values='.', **kwargs)
-
-
-def sub_chr(s, chrom):
-    '''Substitute chr for @, else append chr to the end of str.'''
-    if '@' not in s:
-        s += '@'
-
-    return s.replace('@', str(chrom))
-
-
-def get_present_chrs(fh, num):
-    '''Checks which chromosomes exist, assuming that the file base will be appended by a dot in any suffix.'''
-    chrs = []
-    for chrom in range(1,num):
-        if glob.glob(sub_chr(fh, chrom) + '.*'):
-            chrs.append(chrom)
-    return chrs
-
-
-def which_compression(fh):
-    '''Given a file prefix, figure out what sort of compression to use.'''
-    if os.access(fh + '.bz2', 4):
-        suffix = '.bz2'
-        compression = 'bz2'
-    elif os.access(fh + '.gz', 4):
-        suffix = '.gz'
-        compression = 'gzip'
-    elif os.access(fh, 4):
-        suffix = ''
-        compression = None
-    else:
-        raise LDSCInputError(
-            f"Legacy LDSC format reader could not open '{fh}' with no suffix, .gz, or .bz2. "
-            "Most likely the file prefix is wrong or the compressed file has a different suffix. "
-            "Pass the exact existing LDSC text artifact path or prefix."
-        )
-
-    return suffix, compression
 
 
 def get_compression(fh):
@@ -99,201 +38,6 @@ def get_compression(fh):
         compression = None
 
     return compression
-
-
-def read_cts(fh, match_snps):
-    '''Reads files for --cts-bin.'''
-    compression = get_compression(fh)
-    cts = read_csv(fh, compression=compression, header=None, names=['SNP', 'ANNOT'])
-    if not series_eq(cts.SNP, match_snps):
-        raise LDSCInputError(
-            f"Legacy LDSC format reader could not use cts-bin file '{fh}' because its SNP column does not "
-            "match the .bim SNP order. Most likely the cts-bin file was built for a different PLINK panel. "
-            "Regenerate the cts-bin file from the same .bim file."
-        )
-
-    return cts.ANNOT.values
-
-
-def sumstats(fh, alleles=False, dropna=True):
-    '''Parses .sumstats files. See docs/file_formats_sumstats.txt.'''
-    dtype_dict = {'SNP': str,   'Z': float, 'N': float, 'A1': str, 'A2': str}
-    compression = get_compression(fh)
-    usecols = ['SNP', 'Z', 'N']
-    if alleles:
-        usecols += ['A1', 'A2']
-
-    try:
-        x = read_csv(fh, usecols=usecols, dtype=dtype_dict, compression=compression)
-    except (AttributeError, ValueError) as e:
-        raise LDSCInputError(
-            f"Legacy LDSC format reader could not parse sumstats file '{fh}' with required columns {usecols}. "
-            "Most likely the file is not a munged LDSC .sumstats file or its header/delimiter is malformed. "
-            "Regenerate it with `ldsc munge-sumstats`."
-        ) from e
-
-    if dropna:
-        x = x.dropna(how='any')
-
-    return x
-
-
-def ldscore_fromlist(flist, num=None):
-    '''Sideways concatenation of a list of LD Score files.'''
-    ldscore_array = []
-    for i, fh in enumerate(flist):
-        y = ldscore(fh, num)
-        if i > 0:
-            if not series_eq(y.SNP, ldscore_array[0].SNP):
-                raise LDSCInputError(
-                    "Legacy LDSC format reader could not concatenate LD-score files because their SNP columns "
-                    "do not match in order. Most likely the files were generated from different SNP universes "
-                    "or chromosome shards. Regenerate them from the same reference SNP set."
-                )
-            else:  # keep SNP column from only the first file
-                y = y.drop(['SNP'], axis=1)
-
-        new_col_dict = {c: c + '_' + str(i) for c in y.columns if c != 'SNP'}
-        y.rename(columns=new_col_dict, inplace=True)
-        ldscore_array.append(y)
-
-    return pd.concat(ldscore_array, axis=1)
-
-
-def l2_parser(fh, compression):
-    '''Parse LD Score files'''
-    x = read_csv(fh, header=0, compression=compression)
-    if 'MAF' in x.columns and 'CM' in x.columns:  # for backwards compatibility w/ v<1.0.0
-        x = x.drop(['MAF', 'CM'], axis=1)
-    return x
-
-
-def annot_parser(fh, compression, frqfile_full=None, compression_frq=None):
-    '''Parse annot files'''
-    df_annot = read_csv(fh, header=0, compression=compression)
-    if frqfile_full is not None:
-        df_frq = frq_parser(frqfile_full, compression_frq)
-        # Create boolean mask using values to avoid index alignment issues
-        frq_filter = (.95 > df_frq.FRQ.values) & (df_frq.FRQ.values > 0.05)
-        df_annot = df_annot[frq_filter]
-    df_annot = df_annot.drop(['SNP','CHR', 'BP', 'CM'], axis=1, errors='ignore').astype(float)
-    return df_annot
-
-
-def frq_parser(fh, compression):
-    '''Parse frequency files.'''
-    df = read_csv(fh, header=0, compression=compression)
-    if 'MAF' in df.columns:
-        df.rename(columns={'MAF': 'FRQ'}, inplace=True)
-    return df[['SNP', 'FRQ']]
-
-
-def ldscore(fh, num=None):
-    '''Parse .l2.ldscore files, split across num chromosomes. See docs/file_formats_ld.txt.'''
-    suffix = '.l2.ldscore'
-    if num is not None:  # num files, e.g., one per chromosome
-        chrs = get_present_chrs(fh, num+1)
-        first_fh = sub_chr(fh, chrs[0]) + suffix
-        s, compression = which_compression(first_fh)
-        chr_ld = [l2_parser(sub_chr(fh, i) + suffix + s, compression) for i in chrs]
-        x = pd.concat(chr_ld)  # automatically sorted by chromosome
-    else:  # just one file
-        s, compression = which_compression(fh + suffix)
-        x = l2_parser(fh + suffix + s, compression)
-
-    x = x.sort_values(by=['CHR', 'BP']) # SEs will be wrong unless sorted
-    x = x.drop(['CHR', 'BP'], axis=1).drop_duplicates(subset='SNP')
-    return x
-
-
-def M(fh, num=None, N=2, common=False):
-    '''Parses .l{N}.M files, split across num chromosomes. See docs/file_formats_ld.txt.'''
-    def parsefunc(path):
-        """Read one whitespace-delimited count vector from disk."""
-        with open(path, 'r') as handle:
-            return [float(z) for z in handle.readline().split()]
-    suffix = '.l' + str(N) + '.M'
-    if common:
-        suffix += '_5_50'
-
-    if num is not None:
-        x = np.sum([parsefunc(sub_chr(fh, i) + suffix) for i in get_present_chrs(fh, num+1)], axis=0)
-    else:
-        x = parsefunc(fh + suffix)
-
-    return np.array(x).reshape((1, len(x)))
-
-
-def M_fromlist(flist, num=None, N=2, common=False):
-    '''Read a list of .M* files and concatenate sideways.'''
-    return np.hstack([M(fh, num, N, common) for fh in flist])
-
-
-def annot(fh_list, num=None, frqfile=None):
-    '''
-    Parses .annot files and returns an overlap matrix. See docs/file_formats_ld.txt.
-    If num is not None, parses .annot files split across [num] chromosomes (e.g., the
-    output of parallelizing ldsc.py --l2 across chromosomes).
-
-    '''
-    annot_suffix = ['.annot' for fh in fh_list]
-    annot_compression = []
-    if num is not None:  # 22 files, one for each chromosome
-        ##below: fh_list was fh but is not defined inside annot()
-        chrs = get_present_chrs(fh_list[0], num+1)
-        for i, fh in enumerate(fh_list):
-            first_fh = sub_chr(fh, chrs[0]) + annot_suffix[i]
-            annot_s, annot_comp_single = which_compression(first_fh)
-            annot_suffix[i] += annot_s
-            annot_compression.append(annot_comp_single)
-
-        if frqfile is not None:
-            frq_suffix = '.frq'
-            first_frqfile = sub_chr(frqfile, 1) + frq_suffix
-            frq_s, frq_compression = which_compression(first_frqfile)
-            frq_suffix += frq_s
-
-        y = []
-        M_tot = 0
-        for chrom in chrs:
-            if frqfile is not None:
-                df_annot_chr_list = [annot_parser(sub_chr(fh, chrom) + annot_suffix[i], annot_compression[i],
-                                                  sub_chr(frqfile, chrom) + frq_suffix, frq_compression)
-                                     for i, fh in enumerate(fh_list)]
-            else:
-                df_annot_chr_list = [annot_parser(sub_chr(fh, chrom) + annot_suffix[i], annot_compression[i])
-                                     for i, fh in enumerate(fh_list)]
-
-            annot_matrix_chr_list = [np.asarray(df_annot_chr) for df_annot_chr in df_annot_chr_list]
-            annot_matrix_chr = np.hstack(annot_matrix_chr_list)
-            y.append(np.dot(annot_matrix_chr.T, annot_matrix_chr))
-            M_tot += len(df_annot_chr_list[0])
-
-        x = sum(y)
-    else:  # just one file
-        for i, fh in enumerate(fh_list):
-            annot_s, annot_comp_single = which_compression(fh + annot_suffix[i])
-            annot_suffix[i] += annot_s
-            annot_compression.append(annot_comp_single)
-
-        if frqfile is not None:
-            frq_suffix = '.frq'
-            frq_s, frq_compression = which_compression(frqfile + frq_suffix)
-            frq_suffix += frq_s
-
-            df_annot_list = [annot_parser(fh + annot_suffix[i], annot_compression[i],
-                                          frqfile + frq_suffix, frq_compression) for i, fh in enumerate(fh_list)]
-
-        else:
-            df_annot_list = [annot_parser(fh + annot_suffix[i], annot_compression[i])
-                             for i, fh in enumerate(fh_list)]
-
-        annot_matrix_list = [np.asarray(y) for y in df_annot_list]
-        annot_matrix = np.hstack(annot_matrix_list)
-        x = np.dot(annot_matrix.T, annot_matrix)
-        M_tot = len(df_annot_list[0])
-
-    return x, M_tot
 
 
 def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None):

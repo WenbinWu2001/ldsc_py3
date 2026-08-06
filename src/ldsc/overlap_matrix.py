@@ -32,6 +32,26 @@ class LDScoreOverlap:
     total_all_reference_snps: float
     total_common_reference_snps: float | None
 
+    def select_queries(self, query_columns: list[str]) -> "LDScoreOverlap":
+        """Return the same labeled overlap data restricted to selected queries."""
+        all_columns = [*self.baseline_block_all.index.tolist(), *query_columns]
+        block_all = self.baseline_block_all.loc[:, all_columns].copy()
+        block_common = None
+        if self.baseline_block_common is not None:
+            block_common = self.baseline_block_common.loc[:, all_columns].copy()
+        diagonal_all = self.query_diagonal_all.reindex(query_columns).copy()
+        diagonal_common = None
+        if self.query_diagonal_common is not None:
+            diagonal_common = self.query_diagonal_common.reindex(query_columns).copy()
+        return LDScoreOverlap(
+            block_all,
+            block_common,
+            diagonal_all,
+            diagonal_common,
+            self.total_all_reference_snps,
+            self.total_common_reference_snps,
+        )
+
     @classmethod
     def from_contribution(
         cls,

@@ -1,5 +1,7 @@
 # Troubleshooting
 
+Last updated on: 2026-08-04
+
 This reference explains `ldsc` errors that can **abort a run** and have more than
 one likely cause. It is organized by command. Each entry lists the likely causes
 (ranked most-probable first), how to confirm each, and how to fix it.
@@ -121,6 +123,32 @@ artifact reload guards · **Exception:** `LDSCInputError`
    if broadly useful.
 3. Verify the delimiter is whitespace/tab as expected for `.sumstats`/`.txt` inputs.
 
+### munge-sumstats: multiple or conflicting sample-size column strategies
+
+**Raised by:** `_kernel/sumstats_munger` sample-size column resolution
+· **Exception:** `LDSCInputError` or `LDSCUsageError`
+**Symptom:** `munge-sumstats found multiple sample-size strategies...`, an
+incomplete `--N-cas-col`/`--N-con-col` pair, or a conflict with `--N-col`.
+
+**Likely causes & how to check:**
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The header auto-maps both direct N and case/control counts | Inspect the header for `N` (or another direct-N alias) together with aliases such as `NCAS` and `NCON` |
+| 2 | Both explicit strategies were supplied | Check whether the command contains `--N-col` plus `--N-cas-col`/`--N-con-col` |
+| 3 | Only one case/control column flag was supplied | Confirm both `--N-cas-col` and `--N-con-col` are present |
+
+**Remedies:**
+
+1. Choose direct N with `--N-col <column>`; inferred case/control columns are
+   suppressed with a warning.
+2. Or choose case/control N with
+   `--N-cas-col <cases> --N-con-col <controls>`; inferred direct N is
+   suppressed with a warning.
+3. Do not combine the two strategies. For `NEFF + NCAS + NCON`, use
+   `--N-col NEFF` when those exact effective-N values are intended; no
+   `--ignore` flag is required.
+
 ### munge-sumstats: no SNPs remain after filtering
 
 **Raised by:** `_kernel/sumstats_munger` (post-filter and keep-list paths)
@@ -154,7 +182,7 @@ bad provenance / missing A1-A2 / duplicate identity rows)
 | # | Likely cause | How to check |
 |---|--------------|--------------|
 | 1 | Artifact predates the current self-describing parquet schema | Inspect the parquet footer for `ldsc:artifact_type`, `ldsc:snp_identifier`, and `ldsc:genome_build` |
-| 2 | The artifact is a legacy `.sumstats.gz` or footer-less parquet | Re-munge from the raw GWAS input to produce `sumstats.parquet` |
+| 2 | The artifact is footerless Parquet | Re-munge from the raw GWAS input to produce self-describing `sumstats.parquet`; footerless Parquet is not an LDSC2 compatibility format |
 | 3 | Identity provenance in the parquet footer is invalid/corrupt | Inspect the footer identity fields against the current contract |
 | 4 | An allele-aware `snp_identifier` artifact lacks A1/A2 columns | `python -c "import pandas; print(pandas.read_parquet('<f>').columns)"` |
 | 5 | Duplicate/invalid SNP-identity rows survived in the artifact | Re-munge from raw input; the loader reports the dropped-row reasons |
@@ -163,7 +191,10 @@ bad provenance / missing A1-A2 / duplicate identity rows)
 
 1. Re-run `ldsc munge-sumstats` from the **raw** GWAS file to regenerate the
    artifact with the current schema.
-2. Do not hand-edit curated `.sumstats`/`.parquet` artifacts; treat them as outputs.
+2. A genuine LDSC2 `.sumstats` or `.sumstats.gz` text artifact is accepted
+   directly by regression when it contains `SNP`, `A1`, `A2`, `Z`, and `N`;
+   see `docs/current/legacy-sumstats-compatibility.md`.
+3. Do not hand-edit curated `.sumstats`/`.parquet` artifacts; treat them as outputs.
 
 ### munge-sumstats: liftover dropped all rows
 
@@ -214,6 +245,114 @@ bad provenance / missing A1-A2 / duplicate identity rows)
 3. Match `--snp-identifier` and `--genome-build` to the annotation identity columns, then rerun.
 
 ## ldscore
+
+### build-gene-ldscore-index: baseline/PLINK identifier intersection fails
+
+**Symptom:** the builder reports an empty `rsid` or `chr_pos` baseline/PLINK
+intersection before genotype QC, or warns that duplicate groups were dropped.
+
+The builder uses the same identifier-key inner intersection as direct
+PLINK-backed `ldscore`. Baseline-only and PLINK-only rows are allowed, dropped,
+and counted. For a duplicate effective identity, every row in that source group
+is dropped; no representative is selected. Inspect
+`<index-dir>/diagnostics/dropped_snps/chrN_dropped.tsv.gz` after success (or the
+live log during a failing build). An empty result cannot define an LD universe.
+Under rsID matching, coordinate disagreements warn and use PLINK coordinates.
+Under coordinate matching, differing SNP labels warn and the PLINK label is
+published. During
+a failed build, check
+`<parent>/.<index-name>.build-state/build-gene-ldscore-index.log`; after a
+successful build, check `<index-dir>/diagnostics/build-gene-ldscore-index.log`.
+Confirm that all sources are hg19, that `--snp-identifier` matches the intended
+key, and that the inputs overlap after complete duplicate groups are removed.
+There is no build inference or liftover; `--genome-build hg19` is an advanced-user
+provenance assertion. A failed first build leaves the index destination absent or
+empty and can be retried directly; the previous log is archived under
+`<parent>/.<index-name>.build-state/history/`.
+
+### build-gene-ldscore-index: a partial hidden stage remains after failure
+
+**Symptom:** a marked `.<index-name>.stage-<run-id>/` sibling contains one or
+more `chromosomes/chrN` directories, but the public index is absent, empty, or
+still contains its prior complete version.
+
+`Finished chromosome N` means that shard was durably written inside the private
+run transaction; it never means partial chromosome coverage was published. A
+graceful failure removes the transaction best-effort. Abrupt termination or a
+filesystem cleanup error can retain it, but it is not a restart checkpoint and
+must not be copied into the public destination. Retry the full command. The
+next invocation removes a recognized computation-only stage before starting a
+new transaction. If cleanup warns again, confirm that no builder for the same
+destination is active, then remove only the exact marked path named in the
+warning. Unrecognized neighboring directories are never cleanup candidates.
+
+### build-gene-ldscore-index: transaction cleanup remains after success
+
+**Symptom:** the command finishes successfully but warns that a builder-owned
+`.stage-*` transaction path could not be removed, commonly with `Directory not
+empty` or `Device or resource busy` on a shared filesystem.
+
+The destination was already replaced and reload-validated. It is a successful,
+loadable index; cleanup is garbage collection and the warning reports the exact
+retained path. Do not rerun the expensive build solely for this warning. After
+confirming no build for the same destination is active, remove the reported
+builder-owned path manually or let the next invocation retry recognized
+cleanup. Never delete an unmarked neighboring directory based only on a similar
+name.
+
+The preceding release used a visible `<index-dir>.build/` log directory and a
+standalone hidden lock. On the next invocation, recognized logs/history migrate
+to `.<index-name>.build-state/`, and the obsolete standalone lock participates
+in that transition run before it is removed. Unrecognized files are preserved
+and reported rather than deleted.
+
+### ldscore: an explicit gene index is missing, corrupt, or incompatible
+
+**Symptom:** indexed mode rejects metadata IDs, mode/build agreement, ordered
+row digests, chromosome coverage, duplicate effective identities, Parquet rows,
+NPZ members, CSR structure/dtypes, or dimensions.
+
+Pass the one complete index directory containing root `metadata.json` and
+`chromosomes/`. Do not add
+live baseline, reference, build, padding, window, map, or region settings: those
+belong to the immutable index. A failed validation never falls back to direct
+mode and is completed before canonical scientific output publication. Restore
+or rebuild the index, or remove `--gene-ldscore-index-dir` and supply the
+full direct-mode inputs explicitly. Older gene-index metadata contracts are not
+loaded by the current strict reader and must be rebuilt; ordinary canonical
+LD-score directories already produced from them are unaffected.
+
+### build-gene-ldscore-index: required identity or build option is missing
+
+**Symptom:** parsing stops with `--snp-identifier is required; choose rsid or
+chr_pos.` or `--genome-build is required; choose hg19.`
+
+New construction has no default or inference for either decision. Pass exactly
+one of `--snp-identifier rsid` or `--snp-identifier chr_pos`, plus
+`--genome-build hg19`. Do not use `auto`, hg38, or an allele-aware mode. These
+options belong only to Stage 1 construction. Remove both options from Stage 2
+`ldsc ldscore --gene-ldscore-index-dir ...`, which inherits them from the index.
+
+### ldscore: a BED or gene-list query is missing from results
+
+**Raised by:** query annotation status handling · **Symptom:** one requested
+query is absent from `ldscore.query.parquet` or downstream partitioned-h2 rows,
+or the run reports that every query was skipped.
+
+This is intentional batch behavior. A bad concrete BED or gene list does not
+interrupt valid siblings. Inspect
+`diagnostics/query_annotation_status.tsv`; its `reason` distinguishes empty,
+malformed, unreadable, ambiguous, fully unresolved, zero-annotation-SNP, and
+zero-variance queries. For gene lists,
+`diagnostics/gene_list_unresolved.tsv.gz` names each problematic input gene and
+line. `diagnostics/ldscore.log` contains the corresponding warnings and the
+effective catalog projection build.
+
+For a `warning/partial_resolution`, correct the listed genes if completeness is
+required; the resolved subset was used. For `skipped`, fix the source/build or
+broaden the retained reference/regression SNP universes, then rerun with
+`--overwrite` because the diagnostics are owned artifacts. When all queries are
+skipped, no root metadata or canonical parquet result is written.
 
 ### ldscore: no annotation SNPs remain after reference-panel intersection
 
@@ -401,6 +540,31 @@ restriction build/column readers · **Exception:** `LDSCInputError`
 1. Keep R2 parquet files and metadata sidecars together as one artifact family.
 2. Regenerate the reference panel with the current `ldsc build-ref-panel`.
 3. Pass a concrete build-specific R2 directory or set the matching genome build.
+
+## convert-ldsc2-ldscores
+
+### conversion rejected the legacy suite
+
+**Raised by:** `legacy_ldscore_converter.LegacyLDScoreConverter`
+· **Exception:** `LDSCInputError`
+
+Inspect `diagnostics/conversion_issues.tsv.gz`; conversion failures intentionally
+leave diagnostics but no canonical `metadata.json` or Parquet result.
+
+Common causes are a missing or ambiguous chromosome 1-22 family, duplicate
+rsIDs within or across shards, non-finite LD-score/annotation/frequency values,
+a partial or thin annotation family, missing `.l2.M_5_50`, non-bijective
+annotation-to-score names, or baseline `.M`/`.M_5_50` values that disagree with
+the full annotation/frequency reconstruction. The converter reports causal SNPs
+or annotation names in the exception and full available issue rows in the
+sidecar. Do not mix releases or edit the source suite in place; supply coherent
+reference, weight, and (for baseline) frequency directories and rerun with
+`--overwrite` because the first failure already owns its diagnostic files.
+
+For `chr_pos`, `--genome-build auto` must find decisive reference evidence. Use
+an explicit build only when it is known; an explicit declaration that conflicts
+with decisive evidence is rejected. See
+`docs/current/legacy-ldscore-conversion.md` for the complete contract.
 
 ## regression
 

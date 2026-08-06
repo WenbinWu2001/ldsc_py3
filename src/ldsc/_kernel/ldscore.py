@@ -63,10 +63,9 @@ Identifier and Genome-Build Rules
 
 Outputs
 -------
-This module is the internal compute kernel. Its historical writer can still
-materialize legacy prefix-based files for compatibility tests, but the public
-``ldsc ldscore`` workflow wraps kernel results in ``LDScoreResult`` and writes a
-canonical directory:
+This module is an internal compute kernel and does not write artifacts. The
+public ``ldsc ldscore`` workflow wraps kernel results in ``LDScoreResult`` and
+writes a canonical directory:
 
 - ``metadata.json``
 - ``ldscore.baseline.parquet``, containing ``CHR``, ``POS``, ``SNP``, ``regression_ld_scores``,
@@ -75,8 +74,7 @@ canonical directory:
   LD-score columns
 
 Count records are stored in root metadata rather than as public ``.M`` sidecar
-files. Outputs retain ``CM`` and ``MAF`` internally when available, with missing
-values represented as ``NA`` by the legacy serializers.
+files. LDSC2 suites are handled only by the explicit workflow-layer converter.
 
 Example Usage
 -------------
@@ -172,11 +170,10 @@ from __future__ import annotations
 
 import argparse
 from collections import OrderedDict
-import gzip
 import logging
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -224,6 +221,8 @@ from .overlap import OverlapContribution, compute_overlap
 from .plink_bed import __GenotypeArrayInMemory__, PlinkBEDFile  # noqa: F401
 from .snp_identity import (
     RestrictionIdentityKeys,
+    clean_identity_artifact_table,
+    empty_identity_drop_frame,
     effective_merge_key_series,
     identity_base_mode,
     identity_mode_family,
@@ -231,6 +230,7 @@ from .snp_identity import (
     restriction_membership_mask,
     sidecar_identity_sha256,
 )
+from .regions import RegionIntervals, region_exclusion_keep_mask
 
 try:  # pragma: no cover - optional dependency
     import bitarray as ba
@@ -292,19 +292,26 @@ class ChromComputationResult:
     baseline_columns: list[str]
     query_columns: list[str]
     overlap: OverlapContribution | None = None
+    identity_drops: pd.DataFrame = field(default_factory=empty_identity_drop_frame)
 
 
-# Basic configuration and shared helpers.
-def configure_logging(level: str) -> None:
-    """Set the ``LDSC`` logger threshold for kernel-side execution.
+@dataclass
+class PreparedPlinkChromosome:
+    """One filtered PLINK chromosome reused across annotation-column batches."""
 
-    Console and file routing is owned by the public workflow boundary
-    (``ldsc._logging`` / ``ldsc.cli``); the kernel only adjusts the level so
-    direct kernel invocation does not install a root console handler.
-    """
-    logging.getLogger("LDSC").setLevel(getattr(logging, level.upper()))
+    geno: object
+    metadata: pd.DataFrame
+    annotation_matrix: np.ndarray
+    block_left: np.ndarray
+    reference_rows_before_genotype_qc: int = 0
+    genotype_qc_removed: int = 0
+    maf_removed: int = 0
+    selected_individual_count: int = 0
+    cm_source: str = "bim_cm"
+    identity_drops: pd.DataFrame = field(default_factory=empty_identity_drop_frame)
 
 
+# Shared computational helpers.
 def get_legacy_ld_module():
     """Return the bitarray-backed LD kernel or raise a dependency error."""
     if ba is None:
@@ -471,13 +478,16 @@ def build_index_remap(
 
 
 def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
-    """Sort a metadata-like frame by chromosome, position, and SNP name."""
+    """Sort by chromosome/position and use a present SNP label as a stable tie-breaker."""
     pos_col = find_column(df.columns, POS_ALIASES)
     if pos_col is None:
         raise KeyError("No POS-like column available for genomic sorting.")
     sort_df = df.copy()
     sort_df["_chrom_key"] = sort_df["CHR"].map(chrom_sort_key)
-    sort_df = sort_df.sort_values(by=["_chrom_key", pos_col, "SNP"], kind="mergesort")
+    sort_columns = ["_chrom_key", pos_col]
+    if "SNP" in sort_df.columns:
+        sort_columns.append("SNP")
+    sort_df = sort_df.sort_values(by=sort_columns, kind="mergesort")
     return sort_df.drop(columns="_chrom_key").reset_index(drop=True)
 
 
@@ -661,7 +671,11 @@ def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_m
 
 
 # Annotation loading and normalization.
-def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+def parse_annotation_file(
+    path: str,
+    chrom: str | None = None,
+    identifier_mode: str = "rsid",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Parse one SNP-level annotation table into normalized metadata and values.
 
     When ``chrom`` is provided, the returned tables are restricted to rows whose
@@ -676,7 +690,14 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
     context = path
     chr_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CHR"], context=context)
     pos_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["POS"], context=context)
-    snp_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["SNP"], context=context)
+    if identity_mode_family(identifier_mode) == "rsid":
+        snp_col = resolve_required_column(
+            df.columns, ANNOTATION_METADATA_SPEC_MAP["SNP"], context=context
+        )
+    else:
+        snp_col = resolve_optional_column(
+            df.columns, ANNOTATION_METADATA_SPEC_MAP["SNP"], context=context
+        )
     # CM/MAF are population-specific; the reference panel is authoritative. They are
     # resolved only to exclude them from annotation value columns, never used as values.
     cm_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CM"], context=context)
@@ -690,16 +711,14 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
             "Provide both allele columns, or remove both and run with a base SNP identifier mode."
         )
 
-    meta = pd.DataFrame(
-        {
-            "CHR": df[chr_col],
-            "POS": df[pos_col],
-            "SNP": df[snp_col],
-        }
-    )
+    metadata_columns = {"CHR": df[chr_col], "POS": df[pos_col]}
+    if snp_col is not None:
+        metadata_columns["SNP"] = df[snp_col]
+    meta = pd.DataFrame(metadata_columns)
     meta["CHR"] = meta["CHR"].map(lambda value: normalize_chromosome(value, context=path))
     meta["POS"] = pd.to_numeric(meta["POS"], errors="raise").astype(np.int64)
-    meta["SNP"] = meta["SNP"].astype(str)
+    if "SNP" in meta.columns:
+        meta["SNP"] = meta["SNP"].astype(str)
     # CM is a population-agnostic placeholder (NaN); any input value is discarded.
     meta["CM"] = np.nan
     if a1_col is not None and a2_col is not None:
@@ -769,7 +788,9 @@ def combine_annotation_groups(
 
     for group_name, files in (("baseline", baseline_files), ("query", query_files)):
         for path in files:
-            meta, annotations = parse_annotation_file(path, chrom=chrom)
+            meta, annotations = parse_annotation_file(
+                path, chrom=chrom, identifier_mode=identifier_mode
+            )
             if len(meta) == 0:
                 continue
             meta = meta.copy()
@@ -1639,27 +1660,178 @@ def regression_mask_from_keys(
     metadata: pd.DataFrame,
     regression_keys: set[str] | RestrictionIdentityKeys | None,
     identifier_mode: str,
+    region_intervals: RegionIntervals | None = None,
 ) -> np.ndarray:
-    """Build the binary mask column used to compute regression-weight LD scores."""
+    """Build the selected-regression-set mask after named region subtraction.
+
+    This is deliberately separate from the LD-reference universe: callers use
+    the returned mask only for written regression rows and ``w_ld`` contributors.
+    """
     if regression_keys is None:
-        return np.ones(len(metadata), dtype=np.float32)
-    if isinstance(regression_keys, RestrictionIdentityKeys):
-        return restriction_membership_mask(
+        keep = np.ones(len(metadata), dtype=bool)
+    elif isinstance(regression_keys, RestrictionIdentityKeys):
+        keep = restriction_membership_mask(
             metadata,
             regression_keys,
             identifier_mode,
             context="LD-score regression SNP restriction matching",
-        ).to_numpy(dtype=np.float32)
-    keys = identifier_keys(metadata, identifier_mode)
-    return keys.isin(regression_keys).to_numpy(dtype=np.float32)
+        ).to_numpy(dtype=bool)
+    else:
+        keys = identifier_keys(metadata, identifier_mode)
+        keep = keys.isin(regression_keys).to_numpy(dtype=bool)
+    if region_intervals is not None and region_intervals.intervals:
+        keep &= np.asarray(region_exclusion_keep_mask(metadata, region_intervals), dtype=bool)
+    return keep.astype(np.float32)
+
+
+def _plink_bed_column_indices(panel_df: pd.DataFrame, retained_metadata: pd.DataFrame) -> list[int]:
+    """Map retained canonical row order back to physical BIM/BED column indices."""
+    panel_index = panel_df.set_index("_key", verify_integrity=True)["_raw_index"]
+    try:
+        indices = panel_index.loc[retained_metadata["_key"]].to_numpy(dtype=np.int64)
+    except KeyError as exc:
+        raise LDSCInternalError(
+            "ldscore could not map canonical retained SNP rows back to physical BED columns. "
+            "Most likely row sorting discarded or changed an effective identity key."
+        ) from exc
+    return indices.tolist()
 
 
 # Per-chromosome compute backends.
+def prepare_plink_chromosome(
+    chrom: str,
+    bundle: AnnotationBundle,
+    args: argparse.Namespace,
+) -> PreparedPlinkChromosome:
+    """Prepare aligned, genotype-filtered PLINK state without computing scores."""
+    legacy_ld = get_legacy_ld_module()
+    prefix = resolve_bfile_prefix(args, chrom=chrom)
+    if prefix is None:
+        raise LDSCUsageError(
+            "ldscore cannot run PLINK mode without a PLINK prefix. Most likely PLINK "
+            "mode was selected but `--plink-prefix`/`--bfile` was omitted."
+        )
+    bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
+    fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
+    panel_df = bim.df.loc[:, ["CHR", "SNP", "CM", "BP", "A1", "A2"]].copy().rename(columns={"BP": "POS"})
+    panel_df["CHR"] = panel_df["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
+    panel_df["SNP"] = panel_df["SNP"].astype(str)
+    panel_df["POS"] = pd.to_numeric(panel_df["POS"], errors="raise").astype(np.int64)
+    panel_df["CM"] = pd.to_numeric(panel_df["CM"], errors="coerce")
+    panel_df["A1"] = panel_df["A1"].astype(str)
+    panel_df["A2"] = panel_df["A2"].astype(str)
+    panel_df = panel_df.loc[panel_df["CHR"] == normalize_chromosome(chrom, context=prefix + ".bim")].copy()
+    if len(panel_df) == 0:
+        raise LDSCInputError(
+            f"ldscore found no PLINK SNPs for chromosome {chrom} in prefix '{prefix}'."
+        )
+    panel_df["_raw_index"] = panel_df.index.to_numpy(dtype=np.int64)
+    panel_drops = empty_identity_drop_frame()
+    if args.snp_identifier in {"rsid", "chr_pos"}:
+        panel_cleanup = clean_identity_artifact_table(
+            panel_df,
+            args.snp_identifier,
+            context=f"direct PLINK metadata chromosome {chrom}",
+            stage="plink_reference_identity_cleanup",
+            logger=(
+                None
+                if getattr(args, "_plink_identity_cleanup_already_logged", False)
+                else LOGGER
+            ),
+        )
+        panel_df = panel_cleanup.cleaned
+        panel_drops = panel_cleanup.dropped
+        if panel_df.empty:
+            raise LDSCInputError(
+                f"ldscore retained no PLINK SNPs for chromosome {chrom} after duplicate identity cleanup."
+            )
+    panel_df["_key"] = identifier_keys(panel_df, args.snp_identifier)
+
+    metadata = bundle.metadata.copy()
+    annotations = bundle.annotations.copy()
+    metadata["_key"] = identifier_keys(metadata, args.snp_identifier)
+    panel_keys = pd.Index(panel_df["_key"])
+    keep = metadata["_key"].isin(panel_keys)
+    removed = int((~keep).sum())
+    if removed:
+        LOGGER.warning(
+            f"Dropping {removed} annotated SNPs on chromosome {chrom} because they are absent from the PLINK reference panel."
+        )
+    metadata = metadata.loc[keep].reset_index(drop=True)
+    annotations = annotations.loc[keep].reset_index(drop=True)
+    if len(metadata) == 0:
+        raise LDSCInputError(
+            f"ldscore retained no annotation SNPs on chromosome {chrom} after PLINK intersection. "
+            f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
+        )
+
+    keep_indivs = resolve_keep_individuals(getattr(args, "keep", None), fam)
+    keep_snps = _plink_bed_column_indices(panel_df, metadata)
+    geno = legacy_ld.PlinkBEDFile(
+        prefix + ".bed",
+        len(fam.IDList),
+        bim,
+        keep_snps=keep_snps,
+        keep_indivs=keep_indivs,
+        mafMin=getattr(args, "maf_min", getattr(args, "maf", None)),
+    )
+    geno_meta = pd.DataFrame(geno.df, columns=geno.colnames)
+    if "BP" in geno_meta.columns:
+        geno_meta = geno_meta.rename(columns={"BP": "POS"})
+    geno_meta["CHR"] = geno_meta["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
+    geno_meta["SNP"] = geno_meta["SNP"].astype(str)
+    geno_meta["POS"] = pd.to_numeric(geno_meta["POS"], errors="raise").astype(np.int64)
+    geno_meta["CM"] = pd.to_numeric(geno_meta["CM"], errors="coerce")
+    geno_meta["MAF"] = pd.to_numeric(geno_meta["MAF"], errors="coerce")
+    geno_meta = geno_meta.merge(
+        panel_df.loc[:, ["CHR", "SNP", "POS", "A1", "A2"]],
+        how="left",
+        on=["CHR", "SNP", "POS"],
+        sort=False,
+    )
+    geno_meta["_key"] = identifier_keys(geno_meta, args.snp_identifier)
+    annotation_matrix = annotations.set_index(metadata["_key"]).loc[geno_meta["_key"]].to_numpy(dtype=np.float32)
+    if len(geno_meta) == 0:
+        raise LDSCInputError(
+            f"ldscore retained no PLINK reference SNPs on chromosome {chrom} after genotype filtering."
+        )
+    require_reference_maf(geno_meta, chrom)
+    genetic_map = getattr(args, "genetic_map", None)
+    if args.ld_wind_cm is not None:
+        if genetic_map is not None:
+            from .ref_panel_builder import interpolate_genetic_map_cm
+
+            geno_meta["CM"] = interpolate_genetic_map_cm(
+                normalize_chromosome(chrom, context=prefix + ".bim"),
+                geno_meta["POS"].to_numpy(dtype=np.int64),
+                genetic_map,
+            )
+        else:
+            assert_cm_usable(geno_meta["CM"], chrom)
+    validate_window_positions_sorted(geno_meta, chrom)
+    coords, max_dist = build_window_coordinates(geno_meta.drop(columns="_key"), args)
+    block_left = legacy_ld.getBlockLefts(coords, max_dist)
+    check_whole_chromosome_window(block_left, args, chrom)
+    return PreparedPlinkChromosome(
+        geno=geno,
+        metadata=geno_meta.drop(columns="_key").reset_index(drop=True),
+        annotation_matrix=annotation_matrix,
+        block_left=np.asarray(block_left),
+        reference_rows_before_genotype_qc=len(metadata),
+        genotype_qc_removed=int(getattr(geno, "genotype_qc_removed", 0)),
+        maf_removed=int(getattr(geno, "maf_removed", 0)),
+        selected_individual_count=int(geno.n),
+        cm_source="explicit_genetic_map" if genetic_map is not None else "bim_cm",
+        identity_drops=panel_drops,
+    )
+
+
 def compute_chrom_from_parquet(
     chrom: str,
     bundle: AnnotationBundle,
     args: argparse.Namespace,
     regression_keys: set[str] | RestrictionIdentityKeys | None,
+    regression_regions: RegionIntervals | None = None,
 ) -> ChromComputationResult:
     """
     Compute all LD-score outputs for one chromosome from sorted parquet R2 input.
@@ -1699,7 +1871,9 @@ def compute_chrom_from_parquet(
         coords,
         max_dist,
     )
-    regression_mask = regression_mask_from_keys(metadata, regression_keys, args.snp_identifier).reshape(-1, 1)
+    regression_mask = regression_mask_from_keys(
+        metadata, regression_keys, args.snp_identifier, region_intervals=regression_regions
+    ).reshape(-1, 1)
     annot_matrix = annotations.to_numpy(dtype=np.float32, copy=True)
     combined_annot = np.c_[annot_matrix, regression_mask]
     parquet_paths = resolve_parquet_files(args, chrom=chrom)
@@ -1758,6 +1932,7 @@ def compute_chrom_from_plink(
     bundle: AnnotationBundle,
     args: argparse.Namespace,
     regression_keys: set[str] | RestrictionIdentityKeys | None,
+    regression_regions: RegionIntervals | None = None,
 ) -> ChromComputationResult:
     """
     Compute all LD-score outputs for one chromosome from a PLINK reference panel.
@@ -1765,125 +1940,32 @@ def compute_chrom_from_plink(
     Main steps:
     1. Align annotation SNPs to the PLINK BIM table.
     2. Reuse the legacy PLINK genotype reader and LD-score kernel.
-    3. Compute partitioned reference LD scores and one-column regression-universe LD scores.
+    3. Compute partitioned reference LD scores and the one-column regression-universe
+       LD scores together in one genotype-correlation traversal.
     4. Return chromosome-level LD scores plus all-SNP and common-SNP counts.
     """
-    legacy_ld = get_legacy_ld_module()
-    prefix = resolve_bfile_prefix(args, chrom=chrom)
-    if prefix is None:
-        raise LDSCUsageError(
-            "ldscore cannot run PLINK mode without a PLINK prefix. Most likely PLINK "
-            "mode was selected but `--plink-prefix`/`--bfile` was omitted. Pass the "
-            "prefix shared by the `.bed`, `.bim`, and `.fam` files, or use parquet "
-            "mode with `--r2-dir`."
-        )
-
-    bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
-    fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
-    panel_df = bim.df.loc[:, ["CHR", "SNP", "CM", "BP", "A1", "A2"]].copy().rename(columns={"BP": "POS"})
-    panel_df["CHR"] = panel_df["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
-    panel_df["SNP"] = panel_df["SNP"].astype(str)
-    panel_df["POS"] = pd.to_numeric(panel_df["POS"], errors="raise").astype(np.int64)
-    panel_df["CM"] = pd.to_numeric(panel_df["CM"], errors="coerce")
-    panel_df["A1"] = panel_df["A1"].astype(str)
-    panel_df["A2"] = panel_df["A2"].astype(str)
-    panel_df = panel_df.loc[panel_df["CHR"] == normalize_chromosome(chrom, context=prefix + ".bim")].copy()
-    if len(panel_df) == 0:
-        raise LDSCInputError(
-            f"ldscore found no PLINK SNPs for chromosome {chrom} in prefix '{prefix}'. "
-            "Most likely the `.bim` file does not contain that chromosome or the chromosome "
-            "labels do not match the annotation inputs. Pass the correct chromosome-specific "
-            "PLINK prefix or rebuild the reference panel with matching chromosome labels."
-        )
-    panel_df["_key"] = identifier_keys(panel_df, args.snp_identifier)
-
-    metadata = bundle.metadata.copy()
-    annotations = bundle.annotations.copy()
-    metadata["_key"] = identifier_keys(metadata, args.snp_identifier)
-
-    key_to_panel_index = {key: idx for key, idx in zip(panel_df["_key"], panel_df.index)}
-    keep = metadata["_key"].isin(key_to_panel_index)
-    removed = int((~keep).sum())
-    if removed:
-        LOGGER.warning(
-            f"Dropping {removed} annotated SNPs on chromosome {chrom} "
-            "because they are absent from the PLINK reference panel."
-        )
-    metadata = metadata.loc[keep].reset_index(drop=True)
-    annotations = annotations.loc[keep].reset_index(drop=True)
-    if regression_keys is not None and not isinstance(regression_keys, RestrictionIdentityKeys):
-        regression_keys = regression_keys.intersection(set(metadata["_key"]))
-    if len(metadata) == 0:
-        raise LDSCInputError(
-            f"ldscore retained no annotation SNPs on chromosome {chrom} after PLINK "
-            "intersection. Most likely the annotation SNP identifiers, genome build, "
-            "or allele-aware identifier mode do not match the PLINK `.bim` file. Use "
-            "annotation and PLINK reference files built with the same SNP identifier mode "
-            "and genome build. "
-            f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
-        )
-
-    keep_indivs = resolve_keep_individuals(getattr(args, "keep", None), fam)
-    keep_snps = [key_to_panel_index[key] for key in metadata["_key"]]
-    geno = legacy_ld.PlinkBEDFile(
-        prefix + ".bed",
-        len(fam.IDList),
-        bim,
-        keep_snps=keep_snps,
-        keep_indivs=keep_indivs,
-        mafMin=getattr(args, "maf_min", getattr(args, "maf", None)),
+    prepared = prepare_plink_chromosome(chrom, bundle, args)
+    geno = prepared.geno
+    geno_meta = prepared.metadata
+    annotation_matrix = pd.DataFrame(
+        prepared.annotation_matrix,
+        columns=[*bundle.baseline_columns, *bundle.query_columns],
     )
-
-    geno_meta = pd.DataFrame(geno.df, columns=geno.colnames)
-    if "BP" in geno_meta.columns:
-        geno_meta = geno_meta.rename(columns={"BP": "POS"})
-    geno_meta["CHR"] = geno_meta["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
-    geno_meta["SNP"] = geno_meta["SNP"].astype(str)
-    geno_meta["POS"] = pd.to_numeric(geno_meta["POS"], errors="raise").astype(np.int64)
-    geno_meta["CM"] = pd.to_numeric(geno_meta["CM"], errors="coerce")
-    geno_meta["MAF"] = pd.to_numeric(geno_meta["MAF"], errors="coerce")
-    geno_meta = geno_meta.merge(
-        panel_df.loc[:, ["CHR", "SNP", "POS", "A1", "A2"]],
-        how="left",
-        on=["CHR", "SNP", "POS"],
-        sort=False,
+    block_left = prepared.block_left
+    regression_mask = regression_mask_from_keys(
+        geno_meta, regression_keys, args.snp_identifier, region_intervals=regression_regions
     )
-    geno_meta["_key"] = identifier_keys(geno_meta, args.snp_identifier)
-
-    annotation_matrix = annotations.set_index(metadata["_key"]).loc[geno_meta["_key"]]
-
-    if len(geno_meta) == 0:
-        raise LDSCInputError(
-            f"ldscore retained no PLINK reference SNPs on chromosome {chrom} after genotype "
-            "filtering. Most likely every candidate SNP is monomorphic, --maf-min is too high, "
-            "or no annotation SNPs overlap the panel. Lower --maf-min, or check the SNP "
-            "overlap and genome build."
-        )
-    require_reference_maf(geno_meta, chrom)
-    if args.ld_wind_cm is not None:
-        genetic_map = getattr(args, "genetic_map", None)
-        if genetic_map is not None:
-            # An explicit genetic map always wins: interpolate CM at the .bim positions
-            # for all chromosomes, ignoring any (often all-zero) .bim CM column.
-            from .ref_panel_builder import interpolate_genetic_map_cm
-
-            geno_meta["CM"] = interpolate_genetic_map_cm(
-                normalize_chromosome(chrom, context=prefix + ".bim"),
-                geno_meta["POS"].to_numpy(dtype=np.int64),
-                genetic_map,
-            )
-        else:
-            assert_cm_usable(geno_meta["CM"], chrom)
-    validate_window_positions_sorted(geno_meta, chrom)
-    coords, max_dist = build_window_coordinates(geno_meta.drop(columns="_key"), args)
-    block_left = legacy_ld.getBlockLefts(coords, max_dist)
-    check_whole_chromosome_window(block_left, args, chrom)
-
-    ld_scores = geno.ldScoreVarBlocks(block_left, args.snp_batch_size, annot=annotation_matrix.to_numpy(dtype=np.float32))
-    regression_mask = regression_mask_from_keys(geno_meta.drop(columns="_key"), regression_keys, args.snp_identifier)
+    n_annotation_columns = prepared.annotation_matrix.shape[1]
+    combined_annotation = np.column_stack([prepared.annotation_matrix, regression_mask])
     geno._currentSNP = 0
-    w_ld = geno.ldScoreVarBlocks(block_left, args.snp_batch_size, annot=regression_mask.reshape(-1, 1))
-    out_metadata = geno_meta.drop(columns="_key").reset_index(drop=True)
+    combined_scores = geno.ldScoreVarBlocks(
+        block_left,
+        args.snp_batch_size,
+        annot=combined_annotation,
+    )
+    ld_scores = combined_scores[:, :n_annotation_columns]
+    w_ld = combined_scores[:, n_annotation_columns:]
+    out_metadata = geno_meta.reset_index(drop=True)
     M, M_5_50 = compute_counts(
         out_metadata,
         annotation_matrix.reset_index(drop=True),
@@ -1906,6 +1988,7 @@ def compute_chrom_from_plink(
         baseline_columns=bundle.baseline_columns,
         query_columns=bundle.query_columns,
         overlap=overlap,
+        identity_drops=prepared.identity_drops,
     )
 
 
@@ -1921,394 +2004,3 @@ def resolve_keep_individuals(keep_path: str | None, fam) -> list[int] | None:
             "columns in the keep file and pass a keep list from the same PLINK sample set."
         )
     return keep_indivs.tolist()
-
-
-def result_to_dataframe(result: ChromComputationResult) -> pd.DataFrame:
-    """Materialize one chromosome result as a standard ``.l2.ldscore`` table."""
-    df = result.metadata.copy()
-    for idx, column in enumerate(result.ldscore_columns):
-        df[column + "L2"] = result.ld_scores[:, idx]
-    return df
-
-
-def weight_result_to_dataframe(result: ChromComputationResult) -> pd.DataFrame:
-    """Materialize one chromosome regression-weight result as a one-column table."""
-    df = result.metadata.copy()
-    df["L2"] = np.ravel(result.w_ld)
-    return df
-
-
-# Output assembly.
-def write_ldscore_file(df: pd.DataFrame, path: str) -> None:
-    """Write one LDSC-compatible LD-score table, preserving metadata columns first."""
-    out = df.copy()
-    out = out.loc[:, [col for col in ANNOT_META_COLUMNS if col in out.columns] + [col for col in out.columns if col not in ANNOT_META_COLUMNS]]
-    with gzip.open(path, "wt") as handle:
-        out.to_csv(handle, sep="\t", index=False, na_rep="NA", float_format="%.6g")
-
-
-def write_counts(path: str, counts: np.ndarray) -> None:
-    """Write one LDSC ``.M``-style count vector to disk."""
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write("\t".join(str(x) for x in counts))
-
-
-def write_annotation_groups(path: str, baseline_columns: Sequence[str], query_columns: Sequence[str]) -> None:
-    """Write the baseline/query annotation-group manifest used by downstream tools."""
-    rows = [{"annotation": col, "group": "baseline"} for col in baseline_columns]
-    rows.extend({"annotation": col, "group": "query"} for col in query_columns)
-    pd.DataFrame(rows).to_csv(path, sep="\t", index=False)
-
-
-def aggregate_results(results: Sequence[ChromComputationResult]) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray, np.ndarray | None]:
-    """
-    Combine chromosome-level results into one genome-wide LD-score output set.
-
-    Returns the aggregated reference LD-score table, regression-weight table,
-    and the chromosome-summed all-SNP / common-SNP count vectors.
-    """
-    ld_frames = [result_to_dataframe(result) for result in results]
-    weight_frames = [weight_result_to_dataframe(result) for result in results]
-    ld_df = pd.concat(ld_frames, axis=0, ignore_index=True)
-    weight_df = pd.concat(weight_frames, axis=0, ignore_index=True)
-    ld_df = sort_frame_by_genomic_position(ld_df)
-    weight_df = sort_frame_by_genomic_position(weight_df)
-    M = np.sum(np.vstack([result.M for result in results]), axis=0)
-    all_have_m_5_50 = all(result.M_5_50 is not None for result in results)
-    M_5_50 = np.sum(np.vstack([result.M_5_50 for result in results]), axis=0) if all_have_m_5_50 else None
-    return ld_df, weight_df, M, M_5_50
-
-
-def emit_outputs(results: Sequence[ChromComputationResult], args: argparse.Namespace) -> None:
-    """Write either per-chromosome outputs or one aggregated LDSC-compatible result set."""
-    if not results:
-        raise LDSCInternalError(
-            "LD-score output emission failed in emit_outputs(): no chromosome results were "
-            "provided. Most likely all chromosomes were skipped before output writing. "
-            "Re-run with DEBUG logging and report the traceback."
-        )
-
-    write_annotation_groups(
-        args.out + ".annotation_groups.tsv",
-        results[0].baseline_columns,
-        results[0].query_columns,
-    )
-
-    if args.per_chr_output:
-        for result in results:
-            prefix = f"{args.out}.{result.chrom}"
-            write_ldscore_file(result_to_dataframe(result), prefix + ".l2.ldscore.gz")
-            write_ldscore_file(weight_result_to_dataframe(result), prefix + ".w.l2.ldscore.gz")
-            write_counts(prefix + ".l2.M", result.M)
-            if result.M_5_50 is not None:
-                write_counts(prefix + ".l2.M_5_50", result.M_5_50)
-            else:
-                LOGGER.warning(f"Skipping {prefix}.l2.M_5_50 because MAF is unavailable.")
-        return
-
-    ld_df, weight_df, M, M_5_50 = aggregate_results(results)
-    write_ldscore_file(ld_df, args.out + ".l2.ldscore.gz")
-    write_ldscore_file(weight_df, args.out + ".w.l2.ldscore.gz")
-    write_counts(args.out + ".l2.M", M)
-    if M_5_50 is not None:
-        write_counts(args.out + ".l2.M_5_50", M_5_50)
-    else:
-        LOGGER.warning(f"Skipping {args.out}.l2.M_5_50 because MAF is unavailable.")
-
-
-def _first_resolved_r2_parquet(args: argparse.Namespace) -> str | None:
-    """
-    Return the first existing R2 parquet path available during validation.
-
-    Validation remains permissive for legacy tests and callers that pass paths
-    not yet present on disk. When a direct parquet file or package-built R2
-    directory is resolvable, the caller can inspect its Arrow schema metadata
-    before applying default R2 bias settings.
-    """
-    try:
-        paths = resolve_parquet_files(args)
-    except (FileNotFoundError, LDSCInputError):
-        return None
-    for path in paths:
-        candidate = Path(path)
-        if candidate.is_dir():
-            matches = sorted(candidate.glob("chr*_r2.parquet"))
-            if matches:
-                return str(matches[0])
-            continue
-        if candidate.is_file():
-            return str(candidate)
-    return None
-
-
-def validate_args(args: argparse.Namespace) -> None:
-    """Validate top-level LD-score CLI arguments before any heavy work starts."""
-    for attr in ("query_annot_chr", "baseline_annot_chr", "bfile_chr", "r2_table_chr", "frqfile_chr"):
-        if not hasattr(args, attr):
-            setattr(args, attr, None)
-    args.snp_identifier = normalize_snp_identifier_mode(args.snp_identifier)
-    args.genome_build = normalize_genome_build(args.genome_build)
-    assert args.genome_build in {"hg19", "hg38", None}, (
-        f"genome_build={args.genome_build!r} must be concrete by this point."
-    )
-    keep = getattr(args, "keep", None)
-    if not (args.query_annot or args.baseline_annot):
-        raise LDSCUsageError(
-            "ldscore cannot run without annotation inputs. Most likely neither "
-            "`--baseline-annot` nor `--query-annot` was supplied to the standalone "
-            "kernel CLI. Pass at least one annotation input path."
-        )
-    if bool(args.r2_table) == bool(args.bfile):
-        raise LDSCUsageError(
-            "ldscore could not choose a reference-panel backend. Most likely both parquet "
-            "R2 input and PLINK input were supplied, or neither was supplied. Pass exactly "
-            "one of `--r2-table` for parquet mode or `--bfile` for PLINK mode."
-        )
-    if args.r2_table:
-        if keep:
-            raise LDSCUsageError(
-                "ldscore cannot apply `--keep-indivs-file` in parquet R2 mode. Most likely "
-                "`--keep-indivs-file` was combined with parquet R2 input, but individual-level "
-                "filtering only exists before PLINK genotype LD calculation. Remove "
-                "`--keep-indivs-file`, or rerun in PLINK mode with `--bfile`."
-            )
-        first_r2 = _first_resolved_r2_parquet(args)
-        if first_r2 is not None:
-            from . import ref_panel as ref_panel_mod
-
-            stored = ref_panel_mod._read_r2_schema_meta(first_r2)
-            # R2 bias mode and sample size come from parquet schema metadata
-            # (ldsc:r2_bias / ldsc:n_samples); there is no CLI override.
-            args.r2_bias_mode, args.r2_sample_size = ref_panel_mod._resolve_r2_bias_from_meta(
-                getattr(args, "r2_bias_mode", None),
-                getattr(args, "r2_sample_size", None),
-                stored,
-            )
-        if getattr(args, "r2_bias_mode", None) is None:
-            args.r2_bias_mode = "unbiased"
-            args.r2_sample_size = getattr(args, "r2_sample_size", None)
-        if identity_mode_family(args.snp_identifier) == "chr_pos" and args.genome_build is None:
-            raise LDSCUsageError(
-                "ldscore cannot run parquet R2 mode with chr_pos-family SNP identifiers "
-                "without a genome build. Most likely `--snp-identifier chr_pos` or an "
-                "allele-aware chr_pos mode was supplied without `--genome-build`. Pass "
-                "`--genome-build hg19`, `--genome-build hg38`, or `--genome-build auto`."
-            )
-    if args.ld_wind_cm is not None and args.ld_wind_cm <= 0:
-        raise LDSCConfigError(
-            f"ldscore received invalid `--ld-wind-cm={args.ld_wind_cm}`. Most likely "
-            "the LD window was set to zero or a negative value. Pass a positive "
-            "centimorgan window."
-        )
-    if args.ld_wind_kb is not None and args.ld_wind_kb <= 0:
-        raise LDSCConfigError(
-            f"ldscore received invalid `--ld-wind-kb={args.ld_wind_kb}`. Most likely "
-            "the LD window was set to zero or a negative value. Pass a positive "
-            "kilobase window."
-        )
-    if args.ld_wind_snps is not None and args.ld_wind_snps <= 0:
-        raise LDSCConfigError(
-            f"ldscore received invalid `--ld-wind-snps={args.ld_wind_snps}`. Most likely "
-            "the LD window was set to zero or a negative SNP count. Pass a positive "
-            "SNP-count window."
-        )
-    if getattr(args, "maf_min", None) is not None and not 0 <= args.maf_min <= 0.5:
-        raise LDSCConfigError(
-            f"ldscore received invalid `--maf-min={args.maf_min}`. Most likely the "
-            "minor-allele frequency threshold was entered outside the valid [0, 0.5] "
-            "range. Pass a value between 0 and 0.5, or omit the option."
-        )
-    if not 0 <= getattr(args, "common_maf_min", 0.05) <= 0.5:
-        raise LDSCConfigError(
-            f"ldscore received invalid `--common-maf-min={args.common_maf_min}`. Most "
-            "likely the common-SNP MAF threshold was entered outside the valid [0, 0.5] "
-            "range. Pass a value between 0 and 0.5."
-        )
-    if args.snp_batch_size <= 0:
-        raise LDSCConfigError(
-            f"ldscore received invalid `--snp-batch-size={args.snp_batch_size}`. Most "
-            "likely the parquet query batch size was set to zero or a negative value. "
-            "Pass a positive integer batch size."
-        )
-
-
-def build_parser() -> argparse.ArgumentParser:
-    """Build the standalone LD-score kernel CLI parser."""
-    parser = argparse.ArgumentParser(
-        description="Estimate LDSC-compatible LD scores from SNP-level annotation files using PLINK or sorted parquet R2 input.",
-        allow_abbrev=False,
-    )
-    parser.add_argument("--out", required=True, help="Output prefix.")
-    parser.add_argument("--query-annot", default=None, help="Comma-separated SNP-level query annotation inputs. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
-    parser.add_argument("--baseline-annot", default=None, help="Comma-separated SNP-level baseline annotation inputs. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
-    parser.add_argument("--bfile", default=None, help="PLINK reference-panel prefix or explicit @ chromosome-suite token.")
-    parser.add_argument("--r2-table", default=None, help="Comma-separated sorted parquet R2 inputs. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
-    parser.add_argument(
-        "--snp-identifier",
-        default="chr_pos_allele_aware",
-        choices=("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"),
-        help="Identifier mode used to match annotations to the reference panel.",
-    )
-    parser.add_argument(
-        "--genome-build",
-        default=None,
-        choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
-        help="Genome build assumed for the sorted parquet R2 file and chr_pos-family matching. Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates.",
-    )
-    parser.add_argument(
-        "--regression-snps-file",
-        default=None,
-        help=(
-            "Optional identity-only SNP list defining the regression SNP set for weight LD computation and written LD-score rows. "
-            "Duplicate restriction keys collapse to one retained key; non-identity columns such as CM or MAF are ignored."
-        ),
-    )
-    parser.add_argument(
-        "--frqfile",
-        default=None,
-        help=(
-            "Optional frequency/metadata inputs for MAF and CM. Each token may be an exact path, glob, or explicit @ "
-            "chromosome-suite token. Duplicate effective SNP identity clusters are dropped entirely before metadata fill."
-        ),
-    )
-    parser.add_argument("--keep", default=None, help="File with individuals to include in LD Score estimation. The file should contain one IID per row.")
-    parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
-    parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
-    parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
-    parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained SNPs when MAF is available.")
-    parser.add_argument("--common-maf-min", default=0.05, type=float, help="MAF threshold used only for common-SNP annotation count vectors.")
-    parser.add_argument("--snp-batch-size", default=128, type=int, help="Genotype batch size for the PLINK reference-panel backend; ignored by the parquet-R2 backend, which streams stored pairs. Defaults to 128.")
-    parser.add_argument("--per-chr-output", default=False, action="store_true", help="Emit per-chromosome outputs instead of an aggregated output.")
-    parser.add_argument("--yes-really", default=False, action="store_true", help="Allow whole-chromosome LD windows.")
-    parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
-    return parser
-
-
-# Top-level workflow.
-def run_ldscore_from_args(args: argparse.Namespace) -> list[ChromComputationResult]:
-    """
-    Execute the end-to-end LD-score workflow from parsed CLI-style arguments.
-
-    Main steps:
-    1. Validate CLI arguments and discover the chromosomes to process.
-    2. Load and align baseline/query annotations for each chromosome.
-    3. Dispatch to either the parquet or PLINK chromosome backend.
-    4. Aggregate and write LDSC-compatible outputs.
-    """
-    validate_args(args)
-    chromosomes = chromosome_set_from_annotation_inputs(args)
-    regression_keys = load_regression_keys(args)
-    results: list[ChromComputationResult] = []
-
-    for chrom in chromosomes:
-        # Resolve all annotation files contributing columns for this chromosome.
-        baseline_files = resolve_chromosome_group(
-            split_arg_list(args.baseline_annot),
-            chrom=chrom,
-            label="baseline_annot",
-            suffixes=ANNOTATION_SUFFIXES,
-        )
-        query_files = resolve_chromosome_group(
-            split_arg_list(args.query_annot),
-            chrom=chrom,
-            label="query_annot",
-            suffixes=ANNOTATION_SUFFIXES,
-        )
-
-        bundle = combine_annotation_groups(
-            baseline_files=baseline_files,
-            query_files=query_files,
-            chrom=chrom,
-            identifier_mode=args.snp_identifier,
-        )
-        if bundle is None:
-            continue
-
-        LOGGER.info(
-            f"Processing chromosome {chrom} with {len(bundle.baseline_columns)} baseline "
-            f"and {len(bundle.query_columns)} query annotation columns."
-        )
-
-        # Compute LD scores from the selected reference-panel backend.
-        if args.r2_table:
-            result = compute_chrom_from_parquet(chrom, bundle, args, regression_keys)
-        else:
-            result = compute_chrom_from_plink(chrom, bundle, args, regression_keys)
-        results.append(result)
-
-    emit_outputs(results, args)
-    return results
-
-
-def run_ldscore(
-    *,
-    out: str,
-    query_annot: str | None = None,
-    baseline_annot: str | None = None,
-    bfile: str | None = None,
-    r2_table: str | None = None,
-    snp_identifier: str = "chr_pos_allele_aware",
-    genome_build: str | None = None,
-    r2_bias_mode: str | None = None,
-    r2_sample_size: float | None = None,
-    regression_snps_file: str | None = None,
-    frqfile: str | None = None,
-    keep: str | None = None,
-    ld_wind_snps: int | None = None,
-    ld_wind_kb: float | None = None,
-    ld_wind_cm: float | None = None,
-    maf_min: float | None = None,
-    common_maf_min: float = 0.05,
-    snp_batch_size: int = 128,
-    per_chr_output: bool = False,
-    yes_really: bool = False,
-    log_level: str = "INFO",
-) -> list[ChromComputationResult]:
-    """
-    Execute the end-to-end LD-score workflow through a normal Python API.
-
-    This is the package-level function entrypoint. It mirrors the CLI options
-    with keyword arguments and writes the same outputs as the command-line path.
-    """
-    args = argparse.Namespace(
-        out=out,
-        query_annot=query_annot,
-        baseline_annot=baseline_annot,
-        bfile=bfile,
-        r2_table=r2_table,
-        snp_identifier=snp_identifier,
-        genome_build=genome_build,
-        r2_bias_mode=r2_bias_mode,
-        r2_sample_size=r2_sample_size,
-        regression_snps_file=regression_snps_file,
-        frqfile=frqfile,
-        query_annot_chr=None,
-        baseline_annot_chr=None,
-        bfile_chr=None,
-        r2_table_chr=None,
-        frqfile_chr=None,
-        keep=keep,
-        ld_wind_snps=ld_wind_snps,
-        ld_wind_kb=ld_wind_kb,
-        ld_wind_cm=ld_wind_cm,
-        maf_min=maf_min,
-        common_maf_min=common_maf_min,
-        snp_batch_size=snp_batch_size,
-        per_chr_output=per_chr_output,
-        yes_really=yes_really,
-        log_level=log_level,
-    )
-    configure_logging(log_level)
-    return run_ldscore_from_args(args)
-
-
-def main(argv: Sequence[str] | None = None) -> list[ChromComputationResult]:
-    """CLI entrypoint for the standalone LD-score kernel module."""
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    configure_logging(args.log_level)
-    return run_ldscore_from_args(args)
-
-
-if __name__ == "__main__":
-    main()

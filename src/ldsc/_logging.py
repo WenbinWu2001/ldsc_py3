@@ -116,6 +116,11 @@ def last_workflow_log_path() -> str | None:
     return getattr(_CURRENT, "last_log_path", None)
 
 
+def set_workflow_log_path(path: str | PathLike[str]) -> None:
+    """Update the most recent workflow log path after atomic log publication."""
+    _CURRENT.last_log_path = str(path)
+
+
 def workflow_logging(
     workflow_name: str,
     log_path: str | PathLike[str] | None,
@@ -386,5 +391,6 @@ __all__ = [
     "log_outputs",
     "remove_cli_console_handler",
     "reset_workflow_log_path",
+    "set_workflow_log_path",
     "workflow_logging",
 ]

@@ -1,8 +1,32 @@
 
+## Cleanup-capable preflights must declare every artifact the current run will write
+- Summary: A direct partitioned LD-score overwrite successfully wrote
+  `ldscore.overlap.parquet`, then the workflow's post-success stale-artifact
+  cleanup deleted that newly written file while `metadata.json` still pointed
+  to it.
+- Root cause: The direct workflow performs an early preflight before expensive
+  computation and the canonical writer performs a second exact preflight. The
+  early preflight's `owned_paths` included overlap, but its `produced_paths`
+  prediction omitted overlap. With overwrite enabled, the pre-existing overlap
+  was therefore captured as stale; path identity meant the later cleanup
+  unlinked the replacement written at the same location.
+- Correction: Derive the early overlap prediction from the same public rule as
+  aggregation and writing (at least two baseline-plus-query LD-score columns),
+  and cover a full write-then-overwrite run by asserting every metadata-listed
+  path still exists and the result reloads with counts and overlap intact.
+
+## Regression-weight LD scores belong in the shared PLINK projection pass
+- Summary: Direct PLINK LD-score calculation and gene-index construction projected baseline/query annotations first, then reset the genotype cursor and recomputed the same correlation blocks for the one-column regression-SNP mask.
+- Root cause: The regression-weight output was treated as a separate result family instead of one more annotation projection, obscuring that `ldScoreVarBlocks` recomputes genotype correlations on every call.
+- Correction: Append the binary regression mask after all ordinary annotation columns, call `ldScoreVarBlocks` once, then split partitioned scores from `w_ld`; keep the separately reset gene-atom batch calls because those bound index-builder memory.
+
 ## ldsc:schema_version is a shared identity contract, not a file-layout version
 - Summary: Bumping `ldsc:schema_version` to 2 to mark the new index R2 layout broke `build_reader`'s `validate_identity_artifact_metadata`, which pins `schema_version == SCHEMA_VERSION` (=1) across all artifact types.
 - Root cause: `schema_version` is the cross-artifact provenance-contract version (sumstats/ldscore/ref-panel share it), enforced equal to the package constant. It is not a per-format layout marker.
 - Correction: Keep `schema_version=1`; identify the index layout structurally (presence of `IDX_1/IDX_2/SIGN` columns + `ldsc:n_snps` + `ldsc:sidecar_identity_sha256`). The build->read parity test missed this because it uses `compute_chrom_from_parquet`, not `build_reader`; the autofill test (build_reader path) caught it.
+
+## Inferred projection builds must reach coordinate-based sibling features
+- Summary/root cause/correction: rsID gene-list runs inferred `gene_catalog_build` but default region exclusions consulted only build-independent identity metadata, so reuse the concrete projection build for named regions and cover the combined path rather than testing normalization and exclusion resolution separately.
 
 ## scipy CSR @ dense accumulates in the operand dtype — use float64 for LD-score scatter
 - Summary: Replacing `np.add.at` with a scipy.sparse CSR `U @ annot` for the parquet LD-score scatter lost ~3e-3 precision (above the int16 quantization floor) when `U.data`/`annot` were float32.
@@ -59,3 +83,19 @@
   (two-pointer windows, contiguous jackknife blocks), assert it at the boundary or
   establish it by construction at the point of use; do not infer it from an
   upstream sort you did not trace.
+
+## Squash-merging `restructure` into `main`: apply the diff, not `git merge --squash`
+- **Summary:** A plain `git merge --squash restructure` onto `main` produced
+  spurious conflicts and resurrected files that `restructure` had deleted.
+- **Root cause:** `main` is a chain of independent squash commits, so it shares
+  no real ancestry with `restructure`. The 3-way merge base is stale, so git
+  treats `restructure`'s deletions as `main`-side additions and re-adds them
+  (e.g. `misc/generate_pgc_top50_munge_commands.py`).
+- **Correction:** Reset `main` to `origin/main`, then make its tree exactly equal
+  the authoritative `restructure` tip via
+  `git diff --binary origin/main restructure | git apply --index`, verify
+  `git diff restructure` is empty, and commit one `Squash merge restructure`.
+  Full runbook in `docs/release.md`.
+- **Takeaway:** When two branches share content but not history (squash/rebase
+  workflows), do not rely on 3-way merge; reconstruct the target tree
+  deterministically from the authoritative side and assert tree-equality.

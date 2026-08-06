@@ -100,9 +100,9 @@ the floor each is bounded by differs (genotype read vs. `cor_sum`).
 
 ### Build side (`build-ref-panel`)
 
-The builder never loads the whole chromosome's genotypes into RAM. When a SNP
-restriction is supplied (`--ref-panel-snps-file` / `--use-hm3-snps`) it reads only
-the kept SNP blocks from the `.bed`; the default unrestricted build streams a
+The builder never loads the whole chromosome's genotypes into RAM. When an
+explicit SNP restriction is supplied (`--ref-panel-snps-file`) it reads only the
+kept SNP blocks from the `.bed`; the default unrestricted build streams a
 sliding window directly from disk. Individual filtering (`--keep-indivs-file`) is
 fused into the per-SNP read, so the raw and filtered bitarrays never coexist.
 

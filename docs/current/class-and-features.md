@@ -1,15 +1,18 @@
 # Classes And Features
 
+Last updated on: 2026-08-05
+
 This document summarizes the public package surface. For workflow-level file streams, see [data-flow.md](data-flow.md).
 
 ## Feature Inventory
 
 | Feature | CLI | Python entry points | Main inputs | Main outputs |
 | --- | --- | --- | --- | --- |
-| Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_bed_to_annot()`, `run_annotate_from_args()`, `annotation_builder.main()` | baseline `.annot(.gz)`, BED inputs with optional `bed_padding_bp` / `--bed-padding-bp`; duplicate effective-key rows are dropped before BED projection | root `query.<chrom>.annot.gz`; diagnostics under `diagnostics/` include `metadata.json`, `dropped_snps/dropped.tsv.gz`, and `annotate.log` |
-| Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, source build defaults to `auto` and is inferred from `.bim`, optional liftover chains or HM3 quick liftover in `chr_pos`-family modes, conditional genetic maps, optional keep/restrict files or `--use-hm3-snps`, optional source-build region exclusions, optional `min_r2`; restriction identifier read from `GlobalConfig` and coordinates interpreted in the source build; restriction files are identity-only filters with duplicate keys collapsed; duplicate coordinate groups drop-all in `chr_pos`-family modes | root per-build `chr*_r2.parquet` and `chr*_meta.tsv.gz` artifacts; diagnostics under `diagnostics/` include full-suite `metadata.json` or per-chromosome `metadata.chr<chrom>.json`, `dropped_snps/chr*_dropped.tsv.gz`, and build logs |
+| Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_bed_to_annot()`, `run_annotate_from_args()`, `annotation_builder.main()` | baseline `.annot(.gz)`, BED inputs with optional `padding_bp` / `--padding-bp`; duplicate effective-key rows are dropped before BED projection | root `query.<chrom>.annot.gz`; diagnostics under `diagnostics/` include `metadata.json`, `dropped_snps/dropped.tsv.gz`, and `annotate.log` |
+| Build a gene LD-score index | `ldsc build-gene-ldscore-index` | `GeneLDScoreIndexBuildConfig`, `build_gene_ldscore_index()`, `load_gene_ldscore_index()` | required explicit `hg19` plus base `rsid` or `chr_pos`; baseline annotations inner-joined to PLINK by the effective key; mutable duplicate groups drop-all with diagnostics; optional identity-only regression restriction | workers durably stage distinct chromosome payloads and release their records; the coordinator publishes one complete strictly validated mode/build-bearing index with `index_id`, PLINK-authored `CHR/POS/SNP/A1/A2`, catalog, canonical chromosome order, successful-build JSON, completed log, and duplicate-drop sidecars; private stages are never resumable, and live/failed logs plus locking use hidden sibling build state |
+| Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, source build defaults to `auto` and is inferred from `.bim`, optional chain-file liftover in `chr_pos`-family modes, conditional genetic maps, optional keep/restrict files including an explicit `--ref-panel-snps-file`, optional `min_r2`; restriction identifier read from `GlobalConfig` and coordinates interpreted in the source build; restriction files are identity-only filters with duplicate keys collapsed; duplicate coordinate groups drop-all in `chr_pos`-family modes | root per-build `chr*_r2.parquet` and `chr*_meta.tsv.gz` artifacts; diagnostics under `diagnostics/` include full-suite `metadata.json` or per-chromosome `metadata.chr<chrom>.json`, `dropped_snps/chr*_dropped.tsv.gz`, and build logs |
 | Query reference-panel R2 | `ldsc query-r2` | `R2Panel`, `query_r2()`, `unbiased_r2_to_pearson_r()` | package-built panel directory, endpoint-suffixed pair table | input pairs plus `r2`, nullable `sign`, always-emitted signed Pearson `r`, and `status`; streamed to stdout, or written to an `--output-dir` result directory (`query_r2.tsv` plus `diagnostics/`) |
-| Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | optional baseline annotation shards, optional query annotations only when baseline is explicit, PLINK or parquet reference panel, optional frequency metadata, optional region exclusions; duplicate frequency metadata identity clusters are dropped before filling `CM`/`MAF` | root `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, and optional `ldscore.overlap.parquet` (annotation overlap matrix for partitioned-h2; written only for runs with >=2 annotation columns) under `output_dir`; parquet row groups are chromosome-aligned; no-annotation runs write synthetic `base` and omit the overlap matrix; workflow wrappers also write `diagnostics/ldscore.log` |
+| Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | optional baseline shards; mutually exclusive prebuilt, BED, or gene-list query sources when baseline is explicit; PLINK or parquet panel; restrictions/exclusions | canonical root LD-score artifacts for usable queries; BED/gene runs also write `diagnostics/query_annotation_status.tsv`, gene runs write `diagnostics/gene_list_unresolved.tsv.gz`, and wrappers write `diagnostics/ldscore.log` |
 | Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_genome_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, resolved `GlobalConfig`, and optionally a normalized 1-based table |
 | Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `infer_raw_sumstats()`, `load_sumstats()` | raw sumstats via `--raw-sumstats-file` or `MungeConfig.raw_sumstats_file`, optional `--trait-name`, default `--format auto`, optional `--infer-only`, column hints only when inference cannot decide safely, QC thresholds, optional `--chr`/`--pos`, `--source-genome-build auto` by default, required `--output-genome-build` in `chr_pos`-family modes, optional explicit DANER format profile, VCF-style headers handled as `plain`, optional `--sumstats-snps-file` keep-list or `--use-hm3-snps`, optional `chr_pos`-family liftover via `--liftover-chain-file` or `--use-hm3-snps --use-hm3-quick-liftover` when source and output builds differ, optional `--output-format parquet\|tsv.gz\|both` | self-describing `sumstats.parquet` (identity in its footer; no `metadata.json`) by default, optional `sumstats.sumstats.gz`; diagnostics under `diagnostics/` include `sumstats.log` and `dropped_snps/dropped.tsv.gz`; `--infer-only` writes nothing |
 | Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()`, `H2DirectoryWriter` | munged `sumstats.parquet` or `.sumstats.gz`, LD-score directory | `h2.tsv` when `output_dir` is supplied; `diagnostics/metadata.json` and `diagnostics/h2.log` are provenance only; without `output_dir`, CLI prints compact TSV to stdout |
@@ -58,14 +61,14 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 
 | Type | Role |
 | --- | --- |
-| `AnnotationBuilder` | load aligned annotation bundles or project BED inputs to SNP-level annotations |
+| `AnnotationBuilder` | load aligned annotation bundles or project BED and resolved gene intervals to SNP-level annotations |
 | `ReferencePanelBuilder` | emit standard parquet reference artifacts from PLINK |
 | `R2Panel` | open package-built index-format panels and query adjusted R2/sign for SNP pairs |
 | `RefPanelLoader` | load runtime PLINK or parquet reference-panel adapters |
 | `LDScoreCalculator` | run per-chromosome LD-score computation and aggregate outputs; cross-chromosome parallelism is controlled by a single `--threads` flag (joblib `n_jobs` convention: `1`=sequential default, `N`=N worker processes, `-1`=all cores, `-2`=all but one), core counts respect CPU affinity (SLURM/cgroup), capped at the chromosome count, with identical aggregated output regardless of the setting |
 | `SumstatsMunger` | normalize raw GWAS tables into curated LDSC-ready tables |
 | `RegressionRunner` | build regression datasets and run `h2`, partitioned `h2`, and `rg` |
-| `LDScoreDirectoryWriter` | write the canonical LD-score result directory, including chromosome-aligned parquet row groups and root `metadata.json` row-group metadata |
+| `LDScoreDirectoryWriter` | write canonical chromosome-aligned LD-score artifacts plus conditional query diagnostics and compact gene provenance |
 | `H2DirectoryWriter` | write unpartitioned h2 result tables and diagnostic metadata sidecars |
 | `PartitionedH2DirectoryWriter` | write compact and optional per-query partitioned-h2 result trees |
 | `RgDirectoryWriter` | write the genetic-correlation result family and optional per-pair detail tree |
@@ -74,10 +77,10 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 
 | Type | Role |
 | --- | --- |
-| `AnnotationBundle` | aligned SNP metadata plus baseline/query annotation matrices |
+| `AnnotationBundle` | aligned SNP metadata, baseline/query matrices, and ordered BED/gene resolution statuses |
 | `ReferencePanelBuildResult` | summary of parquet panel artifacts written by one build |
 | `ChromLDScoreResult` | one chromosome’s LD-score and weight tables, plus `config_snapshot` provenance |
-| `LDScoreResult` | aggregated cross-chromosome LD-score artifacts, plus `config_snapshot` provenance |
+| `LDScoreResult` | aggregated cross-chromosome artifacts plus config, final query statuses, and optional compact gene-catalog provenance |
 | `SumstatsTable` | validated LDSC-ready summary-statistics table with canonical `SNP`, `CHR`, `POS`, `Z`, and `N` when available, plus known or unknown `config_snapshot` provenance |
 | `RawSumstatsInference` | header-level `munge-sumstats` inference report with detected format, safe column hints, missing fields, notes, and suggested command arguments |
 | `MungeRunSummary` | compact record of a munging run |
@@ -100,8 +103,9 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 - Public dataclasses normalize `PathLike` objects to strings but do not expand inputs immediately.
 - Workflow modules resolve input tokens before calling `_kernel`.
 - `ldsc ldscore` accepts no baseline/query inputs for ordinary unpartitioned LD-score generation; the workflow creates a synthetic all-ones baseline column named exactly `base` from retained reference-panel metadata.
-- `query_annot_sources` and `query_annot_bed_sources` require explicit `baseline_annot_sources`; users who want to test query annotations against an all-ones universe must materialize that `base` baseline annotation themselves and run the partitioned workflow.
-- `bed_padding_bp` / `--bed-padding-bp` defaults to `0`; when set, it expands query BED intervals on both sides before projection and clips starts at zero.
+- `query_annot_sources`, `query_annot_bed_sources`, and `query_annot_gene_list_sources` are mutually exclusive and require explicit `baseline_annot_sources`; users who want an all-ones query universe must materialize that baseline themselves.
+- BED and gene-list query failures are isolated per source. Skipped queries are absent from scientific outputs and are explained in `diagnostics/query_annotation_status.tsv`.
+- `padding_bp` / `--padding-bp` defaults to `0`; when set, it expands query BED intervals on both sides before projection and clips starts at zero.
 - `ldsc partitioned-h2` produces overlap-aware category summaries and
   auto-detects two regimes: baseline-only directories run the functional-category
   joint fit (one row per baseline category, `enrichment` headline), and

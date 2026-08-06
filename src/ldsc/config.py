@@ -149,18 +149,6 @@ def _one_ld_window_message(config_name: str) -> str:
     )
 
 
-def _validate_region_presets(class_name: str, names: tuple[str, ...]) -> None:
-    """Raise if any preset name is outside the supported region menu."""
-    from ._kernel.regions import REGION_PRESETS
-
-    unknown = sorted(set(names) - REGION_PRESETS)
-    if unknown:
-        raise LDSCConfigError(
-            f"Could not construct {class_name}: unknown region preset(s) {unknown}. "
-            f"Most likely a name was misspelled. Valid presets are {sorted(REGION_PRESETS)}."
-        )
-
-
 @dataclass(frozen=True, init=False)
 class GlobalConfig:
     """Shared configuration used across the refactored workflows.
@@ -337,7 +325,16 @@ class AnnotationBuildConfig:
     query_annot_bed_sources : str, os.PathLike[str], or sequence of those, optional
         BED inputs that should be projected to SNP-level annotations. Default is
         ``()``.
-    bed_padding_bp : int, optional
+    query_annot_gene_list_sources : str, os.PathLike[str], or sequence of those, optional
+        One-column gene lists that should be resolved and projected to SNP-level
+        query annotations. Default is ``()``.
+    control_gene_list_source : str or os.PathLike[str], optional
+        Fixed gene control for gene-list workflows. ``"all-protein-coding"``
+        selects every eligible catalog gene and ``"none"`` disables it.
+    gene_exclude_regions : {"none", "mhc"}, optional
+        Named gene-region policy applied to unpadded gene intervals. Default is
+        ``"none"``.
+    padding_bp : int, optional
         Number of base pairs to add to both sides of each BED interval before
         SNP overlap projection. Starts are clipped at zero. Default is ``0``.
     output_dir : str or os.PathLike[str] or None, optional
@@ -354,7 +351,10 @@ class AnnotationBuildConfig:
     baseline_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_bed_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    bed_padding_bp: int = 0
+    query_annot_gene_list_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    control_gene_list_source: str | PathLike[str] = "all-protein-coding"
+    gene_exclude_regions: str = "none"
+    padding_bp: int = 0
     output_dir: str | PathLike[str] | None = None
     compression: CompressionMode = "gzip"
     allow_missing_query: bool = True
@@ -365,32 +365,48 @@ class AnnotationBuildConfig:
         object.__setattr__(self, "baseline_annot_sources", _normalize_path_tuple(self.baseline_annot_sources))
         object.__setattr__(self, "query_annot_sources", _normalize_path_tuple(self.query_annot_sources))
         object.__setattr__(self, "query_annot_bed_sources", _normalize_path_tuple(self.query_annot_bed_sources))
-        object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
-        if isinstance(self.bed_padding_bp, bool):
+        object.__setattr__(self, "query_annot_gene_list_sources", _normalize_path_tuple(self.query_annot_gene_list_sources))
+        object.__setattr__(self, "control_gene_list_source", str(self.control_gene_list_source))
+        if self.gene_exclude_regions not in {"none", "mhc"}:
             raise LDSCConfigError(
-                f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be an integer. "
-                "Most likely a boolean padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+                "Could not construct AnnotationBuildConfig: gene_exclude_regions must be 'none' or 'mhc'."
             )
-        if isinstance(self.bed_padding_bp, Integral):
-            bed_padding_bp = int(self.bed_padding_bp)
-        elif isinstance(self.bed_padding_bp, str):
-            stripped_padding = self.bed_padding_bp.strip()
+        query_groups = (
+            self.query_annot_sources,
+            self.query_annot_bed_sources,
+            self.query_annot_gene_list_sources,
+        )
+        if sum(bool(group) for group in query_groups) > 1:
+            raise LDSCConfigError(
+                "Could not construct AnnotationBuildConfig: prebuilt, BED, and gene-list query sources "
+                "are mutually exclusive. Supply exactly one query source type per run."
+            )
+        object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
+        if isinstance(self.padding_bp, bool):
+            raise LDSCConfigError(
+                f"Could not construct AnnotationBuildConfig: padding_bp={self.padding_bp!r} must be an integer. "
+                "Most likely a boolean padding value was supplied. Set padding_bp to 0 or a positive integer."
+            )
+        if isinstance(self.padding_bp, Integral):
+            padding_bp = int(self.padding_bp)
+        elif isinstance(self.padding_bp, str):
+            stripped_padding = self.padding_bp.strip()
             if not stripped_padding or stripped_padding in {"+", "-"} or not stripped_padding.lstrip("+-").isdigit():
                 raise LDSCConfigError(
-                    f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be an integer. "
-                    "Most likely a non-integer padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+                    f"Could not construct AnnotationBuildConfig: padding_bp={self.padding_bp!r} must be an integer. "
+                    "Most likely a non-integer padding value was supplied. Set padding_bp to 0 or a positive integer."
                 )
-            bed_padding_bp = int(stripped_padding)
+            padding_bp = int(stripped_padding)
         else:
             raise LDSCConfigError(
-                f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be an integer. "
-                "Most likely a non-integer padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+                f"Could not construct AnnotationBuildConfig: padding_bp={self.padding_bp!r} must be an integer. "
+                "Most likely a non-integer padding value was supplied. Set padding_bp to 0 or a positive integer."
             )
-        object.__setattr__(self, "bed_padding_bp", bed_padding_bp)
-        if self.bed_padding_bp < 0:
+        object.__setattr__(self, "padding_bp", padding_bp)
+        if self.padding_bp < 0:
             raise LDSCConfigError(
-                f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be non-negative. "
-                "Most likely a negative padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+                f"Could not construct AnnotationBuildConfig: padding_bp={self.padding_bp!r} must be non-negative. "
+                "Most likely a negative padding value was supplied. Set padding_bp to 0 or a positive integer."
             )
         if self.compression not in {"auto", "gzip", "bz2", "none"}:
             raise LDSCConfigError(
@@ -420,19 +436,6 @@ class RefPanelConfig:
     keep_indivs_file : str or os.PathLike[str] or None, optional
         Optional path to a one-column IID keep file applied in PLINK mode before
         genotype-derived MAF is computed. Default is ``None``.
-    use_hm3_ref_panel_snps : bool, optional
-        If ``True``, restrict the runtime reference-panel universe to the
-        packaged curated HM3 SNP map. Mutually exclusive with
-        ``ref_panel_snps_file``. Default is ``False``.
-    exclude_regions : tuple of str, optional
-        Named region presets to exclude (e.g. ``"mhc"``, ``"centromeres"``).
-        Requires ``exclude_regions_build``. Default is ``()``.
-    exclude_regions_bed : tuple of str, optional
-        Paths to user-supplied BED files whose intervals are excluded.
-        Build-agnostic; may be combined with ``exclude_regions``. Default is ``()``.
-    exclude_regions_build : {"hg19", "hg38"} or None, optional
-        Genome build used to resolve preset intervals. Required when
-        ``exclude_regions`` is non-empty. Default is ``None``.
     """
     backend: RefPanelBackend = "auto"
     plink_prefix: str | PathLike[str] | None = None
@@ -442,10 +445,6 @@ class RefPanelConfig:
     keep_indivs_file: str | PathLike[str] | None = None
     sample_size: int | None = None
     ref_panel_snps_file: str | PathLike[str] | None = None
-    use_hm3_ref_panel_snps: bool = False
-    exclude_regions: tuple[str, ...] = ()
-    exclude_regions_bed: tuple[str, ...] = ()
-    exclude_regions_build: Literal["hg19", "hg38"] | None = None
     genetic_map_hg19_sources: str | PathLike[str] | None = None
     genetic_map_hg38_sources: str | PathLike[str] | None = None
 
@@ -463,31 +462,10 @@ class RefPanelConfig:
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
         object.__setattr__(self, "genetic_map_hg19_sources", _normalize_optional_path(self.genetic_map_hg19_sources))
         object.__setattr__(self, "genetic_map_hg38_sources", _normalize_optional_path(self.genetic_map_hg38_sources))
-        if self.ref_panel_snps_file is not None and self.use_hm3_ref_panel_snps:
-            raise LDSCConfigError(_mutually_exclusive_message("RefPanelConfig", "ref_panel_snps_file", "use_hm3_ref_panel_snps"))
         if self.chromosomes is not None:
             from .chromosome_inference import normalize_chromosome
 
             object.__setattr__(self, "chromosomes", tuple(normalize_chromosome(chrom) for chrom in self.chromosomes))
-        object.__setattr__(self, "exclude_regions", tuple(self.exclude_regions))
-        object.__setattr__(
-            self,
-            "exclude_regions_bed",
-            tuple(_normalize_optional_path(token) for token in self.exclude_regions_bed if token),
-        )
-        _validate_region_presets("RefPanelConfig", self.exclude_regions)
-        if self.exclude_regions_build not in {None, "hg19", "hg38"}:
-            raise LDSCConfigError(
-                _invalid_choice_message(
-                    "RefPanelConfig", "exclude_regions_build", self.exclude_regions_build, "None, 'hg19', or 'hg38'"
-                )
-            )
-        if self.exclude_regions and self.exclude_regions_build is None:
-            raise LDSCConfigError(
-                "RefPanelConfig received exclude_regions presets without exclude_regions_build. "
-                "Most likely --exclude-regions was passed without --exclude-regions-build. "
-                "Region presets are build-specific; pass --exclude-regions-build hg19 or hg38."
-            )
 
 
 @dataclass(frozen=True)
@@ -510,10 +488,6 @@ class LDScoreConfig:
         the persisted ``ldscore.baseline.parquet`` row set and, when query
         annotations are present, the aligned ``ldscore.query.parquet`` row set.
         Default is ``None``.
-    use_hm3_regression_snps : bool, optional
-        If ``True``, use the packaged curated HM3 SNP map as the persisted
-        regression SNP set. Mutually exclusive with ``regression_snps_file``.
-        Default is ``False``.
     snp_batch_size : int, optional
         Number of SNPs processed per LD-score sliding batch. Default is
         ``128``.
@@ -540,7 +514,6 @@ class LDScoreConfig:
     ld_wind_kb: float | None = None
     ld_wind_cm: float | None = None
     regression_snps_file: str | PathLike[str] | None = None
-    use_hm3_regression_snps: bool = False
     snp_batch_size: int = 128
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
@@ -570,8 +543,117 @@ class LDScoreConfig:
                 "but one."
             )
         object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
-        if self.regression_snps_file is not None and self.use_hm3_regression_snps:
-            raise LDSCConfigError(_mutually_exclusive_message("LDScoreConfig", "regression_snps_file", "use_hm3_regression_snps"))
+
+
+@dataclass(frozen=True)
+class GeneLDScoreIndexBuildConfig:
+    """Scientific and resource settings for the v1 gene-index builder.
+
+    Parameters
+    ----------
+    baseline_annot_sources : tuple of str
+        Ordered baseline annotation paths or chromosome-suite tokens. Their
+        effective rsID or CHR/POS keys are inner-joined to the selected PLINK BIM before
+        genotype QC; PLINK metadata is authoritative for matched rows.
+    plink_prefix : str
+        PLINK BED/BIM/FAM prefix; ``@`` may stand for chromosome number.
+    output_dir : str
+        Publication destination for one complete immutable gene LD-score index.
+        While running, mutable logs/history and locking use hidden sibling
+        ``.<output-name>.build-state``; the closed successful log moves into
+        ``<output_dir>/diagnostics``. A missing or empty destination is not
+        mutated before successful publication.
+    chromosomes : tuple of str, optional
+        Canonical autosome coverage. Default is chromosomes 1 through 22.
+    genome_build : {"hg19"}
+        Explicit gene-projection and coordinate build. Required with no
+        default; the builder supports only hg19 and performs no inference.
+    snp_identifier : {"rsid", "chr_pos"}
+        Required base variant-identity mode. No default or automatic inference
+        is applied, and allele-aware modes are outside this builder contract.
+    padding_bp : int, optional
+        Base pairs added to each side of included transcribed gene intervals.
+        Default is 100,000.
+    gene_exclude_regions : {"none", "mhc"}, optional
+        Gene-region exclusion applied to unpadded intervals before padding.
+        Default is ``"mhc"``.
+    ld_wind_cm : float, optional
+        Positive LD window in centiMorgans. The supported default is 1.0.
+    maf_min : float, optional
+        Inclusive retained-reference MAF threshold. Default is no explicit
+        filter.
+    common_maf_min : float, optional
+        Inclusive MAF threshold for common-SNP count statistics. Default 0.05.
+    keep_indivs_file : str, optional
+        One-IID-per-row PLINK individual restriction.
+    regression_snps_file : str, optional
+        Identity-only output/regression SNP restriction. When omitted, the
+        bundled HapMap3 restriction is used.
+    exclude_regions : {"none", "mhc", "centromeres", "mhc-and-centromeres"}, optional
+        Named regions subtracted after regression-SNP selection. Default is
+        ``"mhc-and-centromeres"``.
+    snp_batch_size : int, optional
+        Positive PLINK genotype work batch size. Default is 128.
+    atom_batch_size : int, optional
+        Positive offline internal atom-column batch size. Default is 64.
+    threads : int, optional
+        Chromosome worker count. Default is one; additional workers can
+        multiply chromosome-local memory.
+
+    Raises
+    ------
+    LDSCConfigError
+        If required paths are absent or a setting lies outside the closed v1
+        compatibility domain.
+    """
+
+    baseline_annot_sources: tuple[str, ...]
+    plink_prefix: str
+    output_dir: str
+    genome_build: str
+    snp_identifier: str
+    chromosomes: tuple[str, ...] = tuple(str(value) for value in range(1, 23))
+    padding_bp: int = 100000
+    gene_exclude_regions: str = "mhc"
+    ld_wind_cm: float = 1.0
+    maf_min: float | None = None
+    common_maf_min: float = 0.05
+    keep_indivs_file: str | None = None
+    regression_snps_file: str | None = None
+    exclude_regions: str = "mhc-and-centromeres"
+    snp_batch_size: int = 128
+    atom_batch_size: int = 64
+    threads: int = 1
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "baseline_annot_sources", _normalize_path_tuple(self.baseline_annot_sources))
+        object.__setattr__(self, "plink_prefix", _normalize_required_path(self.plink_prefix))
+        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+        object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
+        object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
+        if not self.baseline_annot_sources:
+            raise LDSCConfigError("GeneLDScoreIndexBuildConfig requires baseline_annot_sources.")
+        if self.genome_build != "hg19" or self.snp_identifier not in {"rsid", "chr_pos"}:
+            raise LDSCConfigError(
+                "GeneLDScoreIndexBuildConfig requires genome_build='hg19' and "
+                "snp_identifier equal to 'rsid' or 'chr_pos'."
+            )
+        if self.gene_exclude_regions not in {"none", "mhc"}:
+            raise LDSCConfigError("gene_exclude_regions must be 'none' or 'mhc'.")
+        if self.exclude_regions not in {"none", "mhc", "centromeres", "mhc-and-centromeres"}:
+            raise LDSCConfigError(
+                "exclude_regions must be 'none', 'mhc', 'centromeres', or 'mhc-and-centromeres'."
+            )
+        if self.padding_bp < 0:
+            raise LDSCConfigError("padding_bp must be nonnegative.")
+        if self.ld_wind_cm <= 0 or self.snp_batch_size <= 0 or self.atom_batch_size <= 0:
+            raise LDSCConfigError("LD window and construction batch sizes must be positive.")
+        if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
+            raise LDSCConfigError("maf_min must be in [0, 0.5].")
+        if not 0 <= self.common_maf_min <= 0.5:
+            raise LDSCConfigError("common_maf_min must be in [0, 0.5].")
+        if self.threads == 0:
+            raise LDSCConfigError("threads cannot be zero.")
 
 
 @dataclass(frozen=True)
@@ -619,16 +701,6 @@ class ReferencePanelBuildConfig:
         then match by base key. In ``chr_pos``-family modes, the restriction
         file must be aligned to the resolved source reference-panel build; the
         builder never uses ``GlobalConfig.genome_build``.
-    use_hm3_snps : bool, optional
-        If ``True``, restrict the emitted reference-panel universe to the
-        packaged curated HM3 SNP map. Mutually exclusive with
-        ``ref_panel_snps_file``. Default is ``False``.
-    use_hm3_quick_liftover : bool, optional
-        If ``True``, emit the opposite-build reference-panel artifacts for the
-        HM3-restricted coordinate universe using the packaged curated HM3 map.
-        Requires ``use_hm3_snps``, is valid only in ``chr_pos``-family modes,
-        and is mutually exclusive with chain-file liftover. Default is
-        ``False``.
     keep_indivs_file : str or os.PathLike[str] or None, optional
         Optional individual keep-file applied before R2 calculation. Default is
         ``None``.
@@ -648,12 +720,6 @@ class ReferencePanelBuildConfig:
         workflow-owned parquet, metadata, dropped-SNP, or log siblings after a
         successful run. If ``False``, output collisions raise before
         chromosome processing starts. Default is ``False``.
-    exclude_regions : tuple of str, optional
-        Named region presets to exclude. Build is resolved from
-        ``source_genome_build``. Default is ``()``.
-    exclude_regions_bed : tuple of str, optional
-        Paths to user-supplied BED files whose intervals are excluded.
-        Default is ``()``.
     """
 
     plink_prefix: str | PathLike[str]
@@ -668,14 +734,10 @@ class ReferencePanelBuildConfig:
     ld_wind_cm: float | None = None
     maf_min: float | None = None
     ref_panel_snps_file: str | PathLike[str] | None = None
-    use_hm3_snps: bool = False
-    use_hm3_quick_liftover: bool = False
     keep_indivs_file: str | PathLike[str] | None = None
     snp_batch_size: int = 128
     min_r2: float = 0.0
     overwrite: bool = False
-    exclude_regions: tuple[str, ...] = ()
-    exclude_regions_bed: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         """Normalize build paths and validate liftover and LD-window settings."""
@@ -710,23 +772,6 @@ class ReferencePanelBuildConfig:
         object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
-        if self.ref_panel_snps_file is not None and self.use_hm3_snps:
-            raise LDSCConfigError(_mutually_exclusive_message("ReferencePanelBuildConfig", "ref_panel_snps_file", "use_hm3_snps"))
-        if self.use_hm3_quick_liftover and not self.use_hm3_snps:
-            raise LDSCConfigError(
-                "Could not construct ReferencePanelBuildConfig: use_hm3_quick_liftover=True requires use_hm3_snps=True. "
-                "Most likely quick liftover was enabled without selecting the packaged HM3 SNP set. "
-                "Enable use_hm3_snps or use a chain-file liftover option instead."
-            )
-        if self.use_hm3_quick_liftover and (
-            self.liftover_chain_hg19_to_hg38_file is not None
-            or self.liftover_chain_hg38_to_hg19_file is not None
-        ):
-            raise LDSCConfigError(
-                "Could not construct ReferencePanelBuildConfig: chain-file liftover and use_hm3_quick_liftover are mutually exclusive. "
-                "Most likely two liftover methods were selected for the same reference-panel build. "
-                "Choose either the HM3 quick liftover shortcut or chain-file liftover, not both."
-            )
         windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
         if sum(value is not None for value in windows) != 1:
             raise LDSCConfigError(_one_ld_window_message("ReferencePanelBuildConfig"))
@@ -757,13 +802,6 @@ class ReferencePanelBuildConfig:
                 "Most likely an R2 percentage or invalid threshold was supplied. "
                 "Use a decimal threshold in [0, 1]."
             )
-        object.__setattr__(self, "exclude_regions", tuple(self.exclude_regions))
-        object.__setattr__(
-            self,
-            "exclude_regions_bed",
-            tuple(_normalize_optional_path(token) for token in self.exclude_regions_bed if token),
-        )
-        _validate_region_presets("ReferencePanelBuildConfig", self.exclude_regions)
 
 
 @dataclass(frozen=True)

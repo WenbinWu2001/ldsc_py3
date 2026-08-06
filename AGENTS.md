@@ -1,193 +1,99 @@
-# Build Commands
+> **Top priority:** Keep the user crystal clear about the work, why it is being done, and every procedural step. Never treat AI-generated work as a black box. This transparency overrides other rules and supports rigorous, valid, and tractable code and analysis.
+
+# LDSC Package Guidance
+
+Last updated on: 2026-08-02
+
+`ldsc_py3_Jerry` is a refactored, distributable Python 3 LDSC package, not an analysis repository. Preserve its package layout, public interfaces, CLI contracts, canonical artifact formats, and compatibility boundaries.
+
+## Environment and verification
+
+From the repository root, create the development environment and install the editable package with development extras:
 
 ```bash
-cd /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured
-conda env create -f environment.yml -n ldsc3-dev    # first-time development environment setup
-source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh
+conda env create -f environment.yml -n ldsc3-dev
 conda activate ldsc3-dev
-python -m pip install -e ".[dev]"                   # install editable package with dev extras
-ldsc --help                                         # installed console entry point
-python -m ldsc --help                               # module entry point
-pytest                                              # primary test suite
+python -m pip install -e ".[dev]"
+```
+
+Use the real entry points:
+
+```bash
+ldsc --help
+python -m ldsc --help
+pytest
 python -m unittest discover -s tests -p 'test*.py' -v
 ```
 
-For non-interactive agent commands, activate the project environment with:
+`pytest` is the primary suite. The standard-library unittest command remains a compatibility check during the transition. `pyproject.toml` configures pytest with `tests` as the test path, `src` on `pythonpath`, `-ra`, and the `slow`, `statistical`, `io`, and `file_format_compat` markers. No separate formatter, linter, type checker, documentation builder, or build command is configured; do not invent one.
 
-```bash
-source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh && conda activate ldsc3-dev && <command>
-```
+The package supports Python 3.11 through 3.13. Core dependencies are NumPy, pandas, SciPy, and PyArrow; extras provide PLINK (`bitarray`), BED (`pybedtools` plus external `bedtools` on `PATH`), liftover (`pyliftover`), and tests (`pytest`). Use the constraints in `setup.py`, `requirements.txt`, and `environment.yml` rather than broadening them casually.
 
-# Key Architectural Invariants
+## Package structure and public contracts
 
-- Always make code, test, and documentation changes in the `restructure`
-  branch worktree:
-  `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured`.
-- Do not work on the `main` branch worktree
-  `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry`.
-  That worktree is for publish-only operations.
-- The only acceptable edits in the `main` worktree are explicit user-requested
-  publish/release actions or direct updates to this instruction file.
-- `src/ldsc/` is the only supported public package surface. `src/ldsc/_kernel/`
-  is private implementation code.
-- Keep one CLI surface: `ldsc` with subcommands `annotate`, `build-ref-panel`,
-  `ldscore`, `munge-sumstats`, `h2`, `partitioned-h2`, `rg`, and `query-r2`.
-- Public workflow modules own user-facing path resolution, header inference,
-  global config handling, genome-build inference, and output preflight. Kernel
-  modules receive resolved primitive inputs and do numerical work or low-level
-  parsing.
-- Keep alias and identifier normalization centralized in `column_inference.py`.
-  Keep hg19/hg38 and 0-based/1-based inference centralized in
-  `genome_build_inference.py`.
-- Public LD-score output is a canonical result directory written by
-  `LDScoreDirectoryWriter`: `manifest.json`, `baseline.parquet`, and optional
-  `query.parquet`. Regression consumes that aggregated directory and must not
-  recompute LD scores.
-- Canonical output style for any new artifact-writing module: take an
-  `--output-dir` (not a single `--out` file), plus `--overwrite` and
-  `--log-level`. Write the headline result file(s) at the directory root and a
-  `diagnostics/` sidecar holding `metadata.json` (provenance + run summary) and
-  `<command>.log` (workflow audit log via `workflow_logging`). Reuse the shared
-  `*DirectoryWriter` classes in `outputs.py` together with
-  `ensure_output_directory` and `preflight_output_artifact_family`. A command
-  may stream a clean, pipe-able TSV to stdout when `--output-dir` is omitted
-  (e.g. `query-r2`). Exception: a self-describing parquet result embeds
-  provenance in its footer instead of writing `metadata.json` (e.g.
-  `munge-sumstats`).
-- Legacy LDSC formats remain compatibility boundaries, not the public LD-score
-  writer layout: annotation workflows read/write `.annot(.gz)`, munging writes
-  `.sumstats.gz`, and `_kernel` keeps low-level support for `.l2.ldscore(.gz)`,
-  `.w.l2.ldscore(.gz)`, `.M`, and `.M_5_50`.
-- Query annotations require explicit baseline annotations. The synthetic
-  all-ones `base` annotation is only for ordinary unpartitioned LD-score
-  generation.
-- Preserve the original LDSC regression default of using `.M_5_50`-style
-  common-SNP counts when available.
-- Keep the package self-sufficient: no imports from sibling trees or
-  repository-root wrappers, and no circular imports.
+- `src/ldsc/` is the supported public Python package surface. Import stable user-facing objects from `ldsc`; `src/ldsc/_kernel/` is private low-level numerical and file-format implementation code.
+- Keep one CLI surface: `ldsc` with `annotate`, `build-ref-panel`, `ldscore`, `munge-sumstats`, `h2`, `partitioned-h2`, `rg`, and `query-r2`. `ldsc.cli` dispatches; it must not gain numerical logic.
+- Public workflow modules own user-facing path resolution, header inference, global configuration, genome-build inference, and output preflight. Kernel modules receive resolved primitive inputs and perform numerical work or low-level parsing. Keep dependencies unidirectional and avoid circular imports.
+- Keep alias and identifier normalization centralized in `column_inference.py`; keep hg19/hg38 and 0-based/1-based inference centralized in `genome_build_inference.py`. Prefer existing workflow objects, config dataclasses, path-resolution helpers, and column-inference registries over one-off parsing or normalization.
+- Treat public Python exports, CLI flags, package-written schemas, and legacy file formats as compatibility contracts. Public API or file-format changes require a deliberate compatibility decision, not mechanical cleanup.
+- The package must remain self-sufficient: do not import from sibling repositories or repository-root wrappers.
 
-# Code Writing
+## Workflow and artifact invariants
 
-- Write concise code. Minimize unnecessary validation and guard clauses. Avoid over-engineering -- no redundant design layers.
-- Properly document non-obvious logic; skip comments that merely restate what the code says.
-- Prefer existing workflow objects, config dataclasses, path-resolution helpers, and column-inference registries over one-off parsing or normalization.
+- Public LD-score output is a canonical directory written by `LDScoreDirectoryWriter`: `manifest.json`, `baseline.parquet`, and optional `query.parquet`. Regression consumes this aggregated directory and must not recompute LD scores.
+- New artifact-writing workflows use `--output-dir`, `--overwrite`, and `--log-level`, write headline outputs at the directory root, and write `diagnostics/metadata.json` plus `<command>.log` through `workflow_logging`. Reuse the shared `*DirectoryWriter` classes in `outputs.py` with `ensure_output_directory` and `preflight_output_artifact_family`.
+- A command may emit a clean, pipeable TSV to stdout when no output directory is supplied, as `query-r2` does. Self-describing Parquet outputs embed provenance in the Parquet footer rather than writing `metadata.json`, as `munge-sumstats` does.
+- Legacy LDSC formats are compatibility boundaries, not the public LD-score writer layout: annotation workflows read and write `.annot(.gz)`, munging can write `.sumstats.gz`, and the kernel supports `.l2.ldscore(.gz)`, `.w.l2.ldscore(.gz)`, `.M`, and `.M_5_50`.
+- Query annotations require explicit baseline annotations. The synthetic all-ones `base` annotation is only for ordinary unpartitioned LD-score generation.
+- Preserve the original LDSC regression default of using `.M_5_50`-style common-SNP counts when available.
+- Treat source data and packaged reference resources as immutable inputs unless the user explicitly authorizes changes. Preserve identifier mode, genome build, coordinate basis, allele conventions, provenance, schemas, random seeds, numerical tolerances, and scientific interpretation contracts relevant to the requested change.
 
-# Principles
+## Change discipline
 
-- Keep it simple. The ultimate goal is to deliver the best user experience.
+- Keep code concise. Minimize unnecessary validation, guard clauses, and redundant design layers. Document non-obvious logic; do not add comments that merely restate code.
+- Preserve unrelated user changes and generated artifacts outside the requested scope. Ask before destructive changes, external publication, replacing an existing rule file, or downloading from an external link.
+- Before a structural refactor of a file over 300 lines, remove dead properties, unused imports or exports, and debug logs; keep that cleanup separate from the refactor.
+- When the same class of mistake occurs two or more times, or a non-obvious bug requires real investigation, append a one-line summary, root cause, and correction to root `lessons.md`. Skip one-off typos and trivial slips.
+- After 10 or more messages, or after resuming from a gap, reread the active plan in `docs/plans/`, `lessons.md` when present, and the source files to be edited.
+- After a major change, commit with a meaningful Conventional Commit message, or remind the user to commit: `<type>(<scope>): <description>`. Keep the subject at most 50 characters and body lines at most 72 characters; explain what and why, not how.
+- Do not use AI tool names in code comments, commit messages, PR bodies, or authorship. Do not use emojis in documentation, docstrings, Markdown files, reports, tutorials, or manuscripts.
+- Do not hard-wrap Markdown or LaTeX prose. Use `\(...\)` for inline math and `$$ ... $$` for displayed math in Markdown and notebook Markdown; use `$...$` for inline math in `.tex` sources.
 
-- Be concise in responses.
+## Workflow skills
 
-- After each major change, commit with a meaningful message, or remind the user to commit with a suggested one-line message. Use Conventional Commits: `<type>(<scope>): <description>`. Subject <= 50 chars; body lines <= 72 chars. Body explains *what* and *why*, not *how*. Footer for issue refs (`Fixes #123`) or breaking changes. Common types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.
+- For work beyond a several-line localized edit, use `/grilling` or its appropriate route to resolve non-trivial ambiguities before coding; keep asking until they are resolved.
+- Route requests to “keep asking,” “resolve all ambiguities,” or “resolve before implementing” to `grill-me`. Use `grill-with-docs` when the user also asks to record decisions in repository documentation.
+- Use `to-spec` when the user asks to write a specification or capture an agreed design as documentation. Use `implementation-plan` when the user asks for an execution or implementation plan. Store their default artifacts at `docs/specs/YYYY-MM-DD_<topic>.md` and `docs/plans/YYYY-MM-DD_<topic>.md`.
+- For implementation with observable behavior and a stable test seam, use `tdd`: write the failing test first, then implement and refactor. Numerical tests must use known input/output values, convergence properties, or reference implementations—not only successful execution.
+- Use `diagnosing-bugs` for a concrete failure. Diagnose root cause before proposing a fix, check `lessons.md` for related failures, and stop for user direction after three unsuccessful repair attempts.
+- Use `two-axis-code-review` only when the user explicitly requests a fixed-diff review.
 
-- Avoid AI tools name (like Codex, Claude, Grok, Gemini, ...) in code comments or git commit message (including authorship) or PR body.
+## Documentation and verification
 
-- Do not use emojis in documents (Markdown docs under `docs/`, design docs, READMEs, etc.). Use plain-text markers instead (e.g., `yes`/`no`, `default`, `Note:`).
-
-- When a significant or recurring mistake occurs (same class of error seen 2+ times, or a non-obvious bug whose fix required real investigation), append an entry to `lessons.md` at the repo root. Each entry: one-line summary, root cause, and the correction. Skip one-off typos and trivial slips. Create `lessons.md` on the first such entry if it does not exist yet.
-
-## Planning & Ambiguities
-
-For anything more than a several-line modification, do NOT begin coding immediately:
-
-- **Ask clarifying questions first, and keep asking** until every ambiguity is resolved. Do not start coding while any non-trivial question is open.
-- For medium-scope changes (multiple functions, new code paths, or more than one file), prompt the user to turn on plan mode before editing.
-- For libraries you are not confident about, ask the user for guidance on correct usage before relying on them.
-
-A "several-line modification" means a localized edit (rename, small bug fix, obvious one-liner). Anything larger falls under the rules above.
-
-### Complex features or significant refactors
-
-For complex features or significant refactors, use the following three steps with `superpowers`. This workflow produces **two separate documents**: a design doc (user-facing specs and concepts) and an implementation plan (codebase nitty-gritties for execution).
-
-**Step 1.** Use `superpowers:brainstorming` to explore design and requirements. Resolve all ambiguities and get explicit user confirmation on every significant design choice before moving on.
-
-**Step 2.** Produce both documents, each named with a date prefix (`YYYY-MM-DD`) plus the topic, sharing the same prefix and topic but differing in suffix and directory:
-
-- **Design doc**: `docs/superpowers/specs/<YYYY-MM-DD>-<topic>-design.md`
-  Specs and conceptual, user-facing content. Captures *what* and *why*, not *how*.
-- **Implementation plan**: `docs/superpowers/plans/<YYYY-MM-DD>-<topic>-plan.md`
-  Codebase nitty-gritties for execution only. Use `superpowers:writing-plans`.
-
-Surface any remaining ambiguities and obtain explicit user approval of both documents before proceeding.
-
-**Step 3.** Execute the implementation plan with `superpowers:executing-plans`.
-
-# Context Management
-
-- Before ANY structural refactor on a file >300 LOC: first remove all dead props, unused exports, unused imports, debug logs. Commit cleanup separately. Dead code burns tokens that trigger compaction faster.
-- Use sub-agents only when you have 2 or more large, genuinely independent tasks -- each touching a separate module with no shared dependencies. Default to sequential work; for a small project, parallelization rarely helps and makes progress harder to track.
-- After 10+ messages, or when resuming after any gap: re-read the active plan document under `docs/superpowers/` (if any), `lessons.md` (if it exists), and any source files you intend to edit before proceeding. Do not rely on memory of their contents.
-- Treat `docs/current/architecture.md`, `docs/current/class-and-features.md`, `docs/current/code-structure.md`, `docs/current/data-flow.md`, `docs/current/layer-structure.md`, `docs/current/`, and `docs/superpowers/` as the design source of truth over the current implementation when conflicts arise.
-
-# Testing
-
-Write tests before writing implementation code. Use `superpowers:test-driven-development` for the full red-green-refactor cycle. For numerical methods, the test must demonstrate correctness against a known input/output pair, a convergence check, or a comparison to a reference implementation -- not just that the code runs without error.
-
-- Use the local `tests/` tree. The migrated tests import from `src/ldsc/`.
-- Use `pytest` as the primary test command. Keep the standard-library unittest command working while the transition to pytest remains in progress.
-
-# Debugging
-
-When encountering a bug or unexpected behavior, use `superpowers:systematic-debugging`. Always find the root cause before proposing a fix. Before proposing a fix, check `lessons.md` (if it exists) for prior occurrences of a similar bug. If 3 fix attempts fail, stop and ask the user -- repeated failures indicate a design problem, not a code problem.
-
-# Verification
-
-Before claiming any work is complete or a bug is fixed, run the test suite and show the actual output. Never say "it should work" or "tests should pass" -- run the command and include the result in your response.
-
-## Documentation
-
-Use `my-skills:fun-doc` when writing or updating docstrings for any Python function,
-class, or module header. Trigger it any time a public function lacks a docstring or
-an existing docstring is incomplete or outdated.
-
-After any code modification, always update:
-- **Docstrings** for any modified functions or classes.
-- **Design documents** at `docs/current/` (if applicable).
-- **Tutorials** at `tutorials/` (if applicable).
-
-When initializing the project, create `design_map.md` to track the correspondence
-between design documents and function/module implementations. After any major change,
-update `design_map.md` to keep it aligned with the current implementation.
-
-## Troubleshooting reference
-
-`docs/troubleshooting.md` is a browse-able, command-sectioned reference for
-run-aborting errors that have multiple causes. When you add or change such an error:
-- Make the in-code message self-contained: what & where + the most likely cause
-  + the top remedy.
-- If the error has 3+ distinct causes, add/update its section (plain-language
-  heading, ranked causes + checks + remedies) and link the message to that
-  heading's slug.
-- Keep any in-code `docs/troubleshooting.md#...` link in sync with its heading.
-
-## Architecture
-
-Use `my-skills:architecture-doc` to create or update `architecture.md` whenever
-the module structure changes significantly, a new module is added, or a new
-contributor needs an overview of the codebase.
+- `docs/current/` is the active package design and navigation source. Treat its architecture, layer, data-flow, path, configuration, artifact, and workflow contracts as authoritative unless a user-approved change updates them.
+- After code or artifact-contract changes, update affected docstrings, relevant `docs/current/` documentation, README workflow/input/output descriptions, and applicable tutorials. Update papers or reports only when requested.
+- Every Markdown document created or edited by the agent includes `Last updated on: YYYY-MM-DD` near the top and updates it on later changes.
+- Use `scientific-python-docs` whenever a public Python function, class, or module header lacks a docstring or has incomplete or outdated documentation. Use `architecture-doc` when package structure changes significantly, a reusable module is added, or contributors need a refreshed overview.
+- For a run-aborting error with three or more distinct causes, keep the message self-contained and add or update the corresponding command section in `docs/troubleshooting.md`; keep any in-code anchor link synchronized.
+- Before claiming work is complete or fixed, run the relevant focused test, full suite, CLI command, artifact validation, or notebook check and report the actual result. When no automated check exists, say so and report the concrete checks performed.
 
 ## Citations
 
-Anchor every claim to its source:
+- When explaining a workflow, pipeline, interface, or mechanism, cite the source file and line number or function/class name.
+- When summarizing or quoting a repository document, tutorial, audit, plan, or specification, cite its section, table, figure, or appendix.
+- When comparing behavior with legacy LDSC, cite the relevant path and function in `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik` as well as the restructured implementation.
 
-- **Code**: when explaining a workflow, pipeline, or mechanism, cite the file path and line number (or function name).
-- **Papers and documents**: when summarizing or quoting, cite the section, table, or appendix (e.g., "Section 3.2", "Table 1", "Appendix A").
+## Resources
 
-# Skill Usage Policy
-
-`superpowers:using-superpowers` should only be invoked for non-trivial tasks. Individual superpowers skills may be used normally when relevant, including: `superpowers:brainstorming`, `superpowers:writing-plans`, `superpowers:executing-plans`, `superpowers:systematic-debugging`, `superpowers:verification-before-completion`, `superpowers:test-driven-development`.
-
-No need to invoke skills for trivial tasks (simple typo fixes, obvious one-liners). 
-
-This policy takes highest priority and overrides any default skill invocation behavior.
-
-# Resources
-
-- code repos: `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured`
-- public package: `src/ldsc`
-- internal kernel: `src/ldsc/_kernel`
-- documents: `docs/current/architecture.md`, `docs/current/class-and-features.md`, `docs/current/code-structure.md`, `docs/current/data-flow.md`, `docs/current/layer-structure.md`, `docs/current/`
-- tutorials: `tutorials/`
-- prior plans: `docs/superpowers/`
-- tests: `tests/`
+- `README.md`: installation, package surface, output policy, and user-facing CLI overview.
+- `setup.py`, `pyproject.toml`, `requirements.txt`, and `environment.yml`: package metadata, Python/dependency constraints, extras, test configuration, and conda environment.
+- `src/ldsc/__init__.py`: supported public Python exports; `src/ldsc/cli.py`: unified CLI; `src/ldsc/_kernel/`: private numerical and file-format implementation.
+- `src/ldsc/data/`: packaged HM3 maps and hg19/hg38 region resources used by workflows.
+- `tests/`: primary behavioral, numerical, I/O, format-compatibility, and workflow suite; `tests/fixtures/` and `tests/fixtures/minimal_external_resources/`: documented deterministic fixture resources.
+- `tutorials/`: package-level Markdown and notebook usage examples.
+- `docs/current/`: active architecture, data-flow, configuration, schema, provenance, logging, and workflow-contract documentation.
+- `docs/specs/`: agreed design specifications; `docs/plans/`: implementation plans using the dated topic convention; `docs/archive/`: historical context only.
+- `docs/audits/legacy-equivalence/`: evidence and progress records for compatibility with the legacy implementation.
+- `docs/troubleshooting.md`: command-organized remediation reference; `docs/release.md`: release runbook for maintainers.
+- `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik`: legacy LDSC codebase used for numerical and compatibility comparisons.
+- `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/docs/ldsc_papers`: main text and supplements of relevant LD score analysis papers.

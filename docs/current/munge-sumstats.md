@@ -1,5 +1,7 @@
 # Munge-Sumstats
 
+Last updated on: 2026-08-05
+
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`
 before spending time on a full run.
@@ -47,6 +49,47 @@ kernel runs. It does not change the curated output schema. Supported values are
 | `plain` | The file is an ordinary whitespace-delimited summary-statistics table. This includes VCF-style summary-statistics tables with leading `##` metadata and a `#CHROM` header. | Fallback when DANER-specific case/control headers are not detected. | Leading `##` metadata lines are skipped before reading the header. Common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, `BP`, `ID`, and `PVAL` are accepted. If `REF` and `ALT` are present and no clearer `A1/A2` or `EA/NEA` columns exist, inference sets `a1=REF` and `a2=ALT`. |
 | `daner-old` | The file uses old DANER case/control counts encoded in frequency headers. | Header contains at least one `FRQ_A_*` column and at least one `FRQ_U_*` column. | Reads case/control sample sizes from the `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` header names. Select with `--format daner-old`. |
 | `daner-new` | The file carries per-SNP case/control count columns. | Header contains `Nca`/`Nco` aliases after header normalization: either `NCA` and `NCO`, or `NCAS` and `NCON`. | Computes per-row sample size from case/control counts. If an old-style `FRQ_U_*` column is also present, inference can use it as the frequency column. Select with `--format daner-new`. |
+
+## Sample-Size Column Selection
+
+Per-variant sample size has two alternative column strategies: one direct
+`N`-like column, or a paired case/control count. The selection rules are:
+
+- `--N-col <column>` explicitly selects direct N. If `N_CAS`/`N_CON` aliases
+  are also auto-detected, they are suppressed and the munger emits a warning.
+- `--N-cas-col <cases> --N-con-col <controls>` explicitly selects the
+  case/control strategy. Both flags are required; an inferred direct-N column
+  is suppressed with a warning.
+- The direct and case/control column flags are mutually exclusive. Supplying
+  all three is a usage error.
+- If automatic inference finds both a direct N and a complete case/control
+  pair, the input is ambiguous and munging stops. Choose one strategy
+  explicitly; LDSC3 does not silently overwrite one inferred value with the
+  other.
+
+The paired strategy preserves LDSC2's legacy case/control normalization. For
+variant `i`, define `T_i = N_CAS_i + N_CON_i` and `p_i = N_CAS_i / T_i`. If
+`p_ref` is the mean `p_i` among variants with the maximum `T_i`, the munger
+uses `N_i = T_i * p_i / p_ref`. This is not the harmonic effective-N formula
+`4 / (1/N_CAS_i + 1/N_CON_i)`. With a constant case fraction, the legacy rule
+reduces to total sample count; with a varying case fraction, it scales N
+relative to the case fraction among maximum-total-count variants.
+
+Use `--N-col NEFF` when the data producer documents `NEFF` as the effective
+sample size corresponding to the association statistic and those exact values
+are intended for LDSC—for example, when it reflects imbalance, per-variant
+missingness, meta-analysis participation, or analysis weights. Use the paired
+case/control flags when the counts are the trusted inputs and LDSC2-compatible
+legacy normalization is intended. Because `NEFF` definitions are
+producer-specific, consult the study documentation and compare the candidate
+values rather than treating the strategies as interchangeable.
+
+For example, a file with `NEFF`, `NCAS`, and `NCON` can use the exact `NEFF`
+values with `--N-col NEFF`; no `--ignore NCAS,NCON` workaround is needed. A
+file with `N`, `NCAS`, and `NCON` must choose either `--N-col N` or
+`--N-cas-col NCAS --N-con-col NCON`. Files containing only `N`, only a complete
+case/control pair, or only a nonstandard direct column selected with `--N-col`
+retain their existing behavior.
 
 ## Genome-Build Contract
 
@@ -109,12 +152,11 @@ The same compatibility state is attached to in-memory results as
 `SumstatsTable.config_snapshot`.
 
 `sumstats.sumstats.gz` is a plain TSV and carries no embedded metadata; in `both`
-mode only the `.parquet` is self-describing. When a downstream input has no
-footer metadata (a legacy `.sumstats.gz` or a footer-less parquet), regression
-infers the identifier mode from the LD-score panel. For `chr_pos`-family runs it
-also verifies the genome build: it reads the build from the footer when present,
-otherwise infers it from the coordinates, and rejects a build that disagrees
-with the LD-score panel with a message directing the user to liftover.
+mode only the `.parquet` is self-describing. Legacy `.sumstats` and
+`.sumstats.gz` inputs are accepted through the regression compatibility rule:
+their rsIDs are lookup keys and the canonical LD-score panel supplies identity
+and coordinates. Footerless Parquet is rejected. See
+[`legacy-sumstats-compatibility.md`](legacy-sumstats-compatibility.md).
 
 Detailed source-build inference, liftover decisions, method names, and drop
 counts live in `diagnostics/sumstats.log`, not in the footer.

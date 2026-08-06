@@ -95,10 +95,19 @@ def _run_minimal_ldscore(build_dir: Path, out_dir: Path, threads: int) -> Path:
     from ldsc.config import GlobalConfig, set_global_config
     from ldsc.ldscore_calculator import run_ldscore
 
+    regression_snps = build_dir / "regression_snps.tsv"
+    pd.concat(
+        [
+            pd.read_csv(path, sep="\t", comment="#", usecols=["SNP"])
+            for path in sorted(build_dir.glob("chr*_meta.tsv.gz"))
+        ],
+        ignore_index=True,
+    ).to_csv(regression_snps, sep="\t", index=False)
     set_global_config(GlobalConfig(snp_identifier="rsid"))
     run_ldscore(
         r2_dir=str(build_dir),
         output_dir=str(out_dir),
+        regression_snps_file=str(regression_snps),
         ld_wind_kb=1.0,
         snp_batch_size=2,
         yes_really=True,

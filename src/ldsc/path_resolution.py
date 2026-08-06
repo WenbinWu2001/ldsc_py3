@@ -616,11 +616,12 @@ def preflight_output_artifact_family(
     -------
     list of pathlib.Path
         With ``overwrite=False``: always ``[]`` (the function either passed
-        the existence check or raised). With ``overwrite=True``: paths that
-        are owned by the workflow, exist on disk, and are **not** in
-        ``produced_paths`` — i.e., leftovers from a previous run with
-        different flags that should be removed by
-        :func:`remove_output_artifacts` after the current run succeeds.
+        the existence check or raised). With ``overwrite=True``: a path is
+        returned as stale only when all three conditions hold: (1) the path is
+        listed in ``owned_paths``, (2) it currently exists, and (3) it is not
+        listed in ``produced_paths``. Such paths are leftovers from a previous
+        run with different flags and should be removed by
+        :func:`remove_output_artifacts` only after the current run succeeds.
 
     Raises
     ------
@@ -630,6 +631,13 @@ def preflight_output_artifact_family(
 
     Notes
     -----
+    Files absent from ``owned_paths`` are outside the workflow's cleanup
+    territory. They are never returned by this function, even when they reside
+    in the same output directory. For example, an unrelated ``readme.txt`` is
+    preserved unless a caller explicitly and incorrectly declares that path to
+    be workflow-owned. This function examines enumerated paths; it does not scan
+    or clean arbitrary directory contents.
+
     Why two lists instead of one — the ``owned_paths`` / ``produced_paths``
     split is the core mechanism for safe stale cleanup across runs with
     different flag combinations or shard scopes. A single list cannot express
@@ -699,7 +707,14 @@ def preflight_output_artifact_family(
 
 
 def remove_output_artifacts(paths: Iterable[str | PathLike[str]]) -> None:
-    """Remove stale workflow-owned output artifacts after a successful write."""
+    """Remove the explicitly supplied stale workflow-owned artifacts.
+
+    This function does not scan a parent directory or infer which files a
+    workflow owns. It deletes only paths supplied by the caller, normally the
+    stale paths returned by :func:`preflight_output_artifact_family`. Unlisted
+    files in the same directory, such as a user-created ``readme.txt``, remain
+    untouched.
+    """
     for path in _dedupe_paths(Path(normalize_path_token(path)) for path in paths):
         if not path.exists():
             continue

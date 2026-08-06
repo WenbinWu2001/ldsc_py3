@@ -1,15 +1,17 @@
 # BED Input Format
 
+Last updated on: 2026-08-03
+
+Gene-list queries use the same interval projection and padding semantics after
+resolution; see [gene-list-input-format.md](gene-list-input-format.md).
+
 This document defines the package contract for text BED interval inputs. It
-applies to user-supplied query annotation BEDs and region-exclusion BEDs:
+applies to user-supplied query annotation BEDs:
 
 - `--query-annot-bed-sources`
 - `AnnotationBuildConfig(query_annot_bed_sources=...)`
 - `AnnotationBuilder.project_bed_annotations(...)`
 - `run_bed_to_annot(...)`
-- `--exclude-regions-bed`
-- `RefPanelConfig(exclude_regions_bed=...)`
-- `ReferencePanelBuildConfig(exclude_regions_bed=...)`
 
 This contract does not apply to PLINK binary `.bed` genotype files. PLINK
 inputs are accepted through `plink_prefix` / `--plink-prefix` and must be part
@@ -36,7 +38,7 @@ For a 1-based SNP position `p`, the corresponding BED coordinate is `p - 1`;
 the SNP overlaps an interval when `start <= p - 1 < end`.
 
 Extra columns are allowed. LDSC uses only interval membership and ignores extra
-BED columns during annotation projection and region exclusion.
+BED columns during annotation projection.
 
 ## Skipped Lines
 
@@ -94,24 +96,22 @@ requirements:
 - non-negative `start`
 - `start < end`
 
-Files that violate these requirements should raise a user-facing input error
-that identifies the file and line where parsing failed.
+Files that violate these requirements identify the file and line where parsing
+failed. In `ldsc annotate`, the problem raises a user-facing input error. In a
+multi-query `ldsc ldscore` run, the concrete BED query is instead marked
+`skipped/malformed_input` in `diagnostics/query_annotation_status.tsv` so valid
+siblings can continue. An all-skipped run writes diagnostics and then fails.
 
 ## Workflow-Specific Handling
 
 The shared syntax contract is the same for all text BED interval inputs, but
 workflow-specific transforms still happen after parsing:
 
-- query annotation BEDs may be expanded by `bed_padding_bp` /
-  `--bed-padding-bp`; starts are clipped at zero after padding
+- query annotation BEDs may be expanded by `padding_bp` /
+  `--padding-bp`; starts are clipped at zero after padding
 - query annotation BED column names are derived from the resolved file basename
   with the final suffix removed (`pathlib.Path.stem`); directory names are not
   included, so `/path1/annot.bed` and `/path2/annot.bed` both map to `annot`
-- region-exclusion BEDs are coalesced by chromosome before masking reference
-  panel SNPs
-- preset region exclusions (`--exclude-regions mhc,centromeres`) load packaged
-  BED files under `src/ldsc/data/regions/` and should obey the same syntax
-  rules
 
 Query annotation BED stems must be unique because they become annotation column
 names. If two resolved BED inputs have the same stem, or if a BED stem clashes
@@ -122,6 +122,5 @@ user-facing input error before projection or output writing. Under the current
 
 ## Compression
 
-Both query annotation BEDs and region-exclusion BEDs should accept plain text
-`.bed` files and gzip-compressed `.bed.gz` files. Compression support should be
-consistent across the two text BED interval input paths.
+Query annotation BEDs accept plain-text `.bed` files and gzip-compressed
+`.bed.gz` files.

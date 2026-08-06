@@ -1,5 +1,7 @@
 # Partitioned LDSC Workflow: Technical Reference
 
+Last updated on: 2026-08-04
+
 This document describes the refactored workflow for computing LD scores and
 running h2, partitioned-h2, and rg regression from one canonical LD-score result
 directory.
@@ -15,6 +17,11 @@ The pipeline has two phases:
 The public regression CLI no longer accepts fragmented LD-score artifacts:
 `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`, and
 `--query-columns` are removed.
+
+Gene-set analyses may construct the same canonical LD-score directory through
+an explicit exact profile. In that mode, `gene_control` is part of the baseline
+block and each model still contains baseline plus control plus one focal gene
+set. See [the indexed gene-list tutorial](../wiki/main-functionalities/ldscore.md).
 
 ## 2. LD-Score Result Directory
 
@@ -117,7 +124,7 @@ against an all-ones universe, they should create an explicit all-ones `base`
 baseline annotation over the query annotation universe and run the partitioned
 workflow with both baseline and query inputs.
 
-For gene-set or pathway BEDs that need flanking sequence, `--bed-padding-bp`
+For gene-set or pathway BEDs that need flanking sequence, `--padding-bp`
 expands each query BED interval by the requested number of base pairs on both
 sides before projection; starts are clipped at zero. The default is `0`, so BED
 files are used exactly as supplied. Do not set this option for BED files already
@@ -150,8 +157,13 @@ beside `SNP`, `Z`, and `N`, write `sumstats.parquet` by default, embed the thin
 compatibility payload in the parquet footer (`artifact_type`, `snp_identifier`,
 `genome_build`, and optional `trait_name`), and write
 `diagnostics/dropped_snps/dropped.tsv.gz` for row-level liftover-drop auditing.
-Legacy package-written `.sumstats.gz` files or footer-less parquet artifacts
-must be regenerated.
+Legacy LDSC2 `.sumstats` and `.sumstats.gz` files may be used directly and are
+projected by rsID onto the canonical LD-score panel. Footerless Parquet must be
+regenerated. Legacy partitioned LD-score suites are not read directly; only a
+complete baseline suite may be explicitly converted, without query annotations.
+That converted directory runs the baseline-only functional-category regime:
+all imported baseline columns are fitted jointly. It is not a converted
+cell-type/query analysis and cannot be extended with legacy query annotations.
 In allele-aware modes, current sumstats artifacts require usable `A1/A2`. To
 run without allele-aware SNP identity, set `--snp-identifier chr_pos` or
 `--snp-identifier rsid` intentionally.
@@ -308,10 +320,8 @@ ldsc ldscore \
   --output-dir results/my_study_ldscore \
   --baseline-annot-sources resources/baseline_v1.2/baseline.@.annot.gz \
   --query-annot-bed-sources my_peaks.bed \
-  --bed-padding-bp 0 \
+  --padding-bp 0 \
   --plink-prefix resources/1kg/1KG_EUR_Phase3_chr@ \
-  --use-hm3-ref-panel-snps \
-  --use-hm3-regression-snps \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
@@ -323,8 +333,6 @@ Compute ordinary unpartitioned LD scores without baseline annotations:
 ldsc ldscore \
   --output-dir results/my_unpartitioned_ldscore \
   --plink-prefix resources/1kg/1KG_EUR_Phase3_chr@ \
-  --use-hm3-ref-panel-snps \
-  --use-hm3-regression-snps \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0

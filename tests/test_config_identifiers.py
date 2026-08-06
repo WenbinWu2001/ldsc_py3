@@ -195,14 +195,25 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertTrue(config.overwrite)
 
     def test_annotation_config_accepts_single_string_tokens_for_plural_fields(self):
-        config = AnnotationBuildConfig(
+        prebuilt = AnnotationBuildConfig(
             baseline_annot_sources="baseline.@.annot.gz",
             query_annot_sources="query.*.annot.gz",
+        )
+        bed = AnnotationBuildConfig(
             query_annot_bed_sources="beds/*.bed",
         )
-        self.assertEqual(config.baseline_annot_sources, ("baseline.@.annot.gz",))
-        self.assertEqual(config.query_annot_sources, ("query.*.annot.gz",))
-        self.assertEqual(config.query_annot_bed_sources, ("beds/*.bed",))
+        gene = AnnotationBuildConfig(query_annot_gene_list_sources="genes/*.txt.gz")
+        self.assertEqual(prebuilt.baseline_annot_sources, ("baseline.@.annot.gz",))
+        self.assertEqual(prebuilt.query_annot_sources, ("query.*.annot.gz",))
+        self.assertEqual(bed.query_annot_bed_sources, ("beds/*.bed",))
+        self.assertEqual(gene.query_annot_gene_list_sources, ("genes/*.txt.gz",))
+
+    def test_annotation_config_rejects_mixed_query_source_types(self):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "mutually exclusive"):
+            AnnotationBuildConfig(
+                query_annot_sources="query.*.annot.gz",
+                query_annot_bed_sources="beds/*.bed",
+            )
 
     def test_removed_compatibility_aliases_are_not_exported(self):
         removed_names_by_module = {
@@ -253,16 +264,9 @@ class WorkflowConfigTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             LDScoreConfig(ld_wind_snps=10, chunk_size=64)
 
-    def test_ldscore_config_accepts_hm3_regression_flag_and_rejects_conflict(self):
-        config = LDScoreConfig(ld_wind_snps=10, use_hm3_regression_snps=True)
-
-        self.assertTrue(config.use_hm3_regression_snps)
-        with self.assertRaisesRegex(ldsc.LDSCConfigError, "regression_snps_file.*use_hm3_regression_snps"):
-            LDScoreConfig(
-                ld_wind_snps=10,
-                regression_snps_file="custom.tsv",
-                use_hm3_regression_snps=True,
-            )
+    def test_ldscore_config_rejects_removed_hm3_regression_flag(self):
+        with self.assertRaises(TypeError):
+            LDScoreConfig(ld_wind_snps=10, use_hm3_regression_snps=True)
 
     def test_ldscore_config_rejects_reference_panel_filter_fields(self):
         with self.assertRaises(TypeError):
@@ -369,45 +373,13 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.ref_panel_snps_file, "restrict/snps.txt")
         self.assertEqual(config.keep_indivs_file, "samples/keep.txt")
 
-    def test_ref_panel_build_config_accepts_hm3_flags_and_rejects_conflicts(self):
-        config = ReferencePanelBuildConfig(
-            plink_prefix="plink/panel",
-            source_genome_build="hg19",
-            output_dir="out",
-            ld_wind_snps=500,
-            use_hm3_snps=True,
-            use_hm3_quick_liftover=True,
-        )
-
-        self.assertTrue(config.use_hm3_snps)
-        self.assertTrue(config.use_hm3_quick_liftover)
-        with self.assertRaisesRegex(ldsc.LDSCConfigError, "ref_panel_snps_file.*use_hm3_snps"):
-            ReferencePanelBuildConfig(
-                plink_prefix="plink/panel",
-                source_genome_build="hg19",
-                output_dir="out",
-                ld_wind_snps=500,
-                ref_panel_snps_file="custom.tsv",
-                use_hm3_snps=True,
-            )
-        with self.assertRaisesRegex(ldsc.LDSCConfigError, "use_hm3_snps"):
-            ReferencePanelBuildConfig(
-                plink_prefix="plink/panel",
-                source_genome_build="hg19",
-                output_dir="out",
-                ld_wind_snps=500,
-                use_hm3_quick_liftover=True,
-            )
-        with self.assertRaisesRegex(ldsc.LDSCConfigError, "mutually exclusive"):
-            ReferencePanelBuildConfig(
-                plink_prefix="plink/panel",
-                source_genome_build="hg19",
-                output_dir="out",
-                ld_wind_snps=500,
-                use_hm3_snps=True,
-                use_hm3_quick_liftover=True,
-                liftover_chain_hg19_to_hg38_file="chain.over",
-            )
+    def test_ref_panel_build_config_rejects_removed_hm3_flags(self):
+        for kwargs in ({"use_hm3_snps": True}, {"use_hm3_quick_liftover": True}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(TypeError):
+                ReferencePanelBuildConfig(
+                    plink_prefix="plink/panel", source_genome_build="hg19", output_dir="out",
+                    ld_wind_snps=500, **kwargs,
+                )
 
     def test_munge_config_defaults(self):
         config = MungeConfig(output_dir="out")
@@ -489,16 +461,9 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.keep_indivs_file, "filters/samples.keep")
         self.assertEqual(config.maf_min, 0.02)
 
-    def test_ref_panel_config_accepts_hm3_flag_and_rejects_conflict(self):
-        config = RefPanelConfig(backend="plink", use_hm3_ref_panel_snps=True)
-
-        self.assertTrue(config.use_hm3_ref_panel_snps)
-        with self.assertRaisesRegex(ldsc.LDSCConfigError, "ref_panel_snps_file.*use_hm3_ref_panel_snps"):
-            RefPanelConfig(
-                backend="plink",
-                ref_panel_snps_file="custom.tsv",
-                use_hm3_ref_panel_snps=True,
-            )
+    def test_ref_panel_config_rejects_removed_hm3_flag(self):
+        with self.assertRaises(TypeError):
+            RefPanelConfig(backend="plink", use_hm3_ref_panel_snps=True)
 
     def test_ref_panel_config_accepts_runtime_source_fields(self):
         config = RefPanelConfig(backend="plink", plink_prefix=Path("plink") / "panel")
@@ -517,8 +482,7 @@ class WorkflowConfigTest(unittest.TestCase):
         raw = MungeConfig(raw_sumstats_file=Path("sumstats") / "trait.tsv.gz")
         annot = AnnotationBuildConfig(
             baseline_annot_sources=(Path("baseline") / "base.1.annot.gz",),
-            query_annot_sources=(Path("query") / "custom.1.annot.gz",),
-            query_annot_bed_sources=(Path("beds") / "enhancer.bed",),
+            query_annot_gene_list_sources=(Path("genes") / "immune.txt.gz",),
         )
         ref = RefPanelConfig(
             backend="parquet_r2",
@@ -527,8 +491,7 @@ class WorkflowConfigTest(unittest.TestCase):
         )
         self.assertEqual(raw.raw_sumstats_file, "sumstats/trait.tsv.gz")
         self.assertEqual(annot.baseline_annot_sources, ("baseline/base.1.annot.gz",))
-        self.assertEqual(annot.query_annot_sources, ("query/custom.1.annot.gz",))
-        self.assertEqual(annot.query_annot_bed_sources, ("beds/enhancer.bed",))
+        self.assertEqual(annot.query_annot_gene_list_sources, ("genes/immune.txt.gz",))
         self.assertEqual(ref.plink_prefix, "plink/panel")
         self.assertEqual(ref.r2_dir, "r2_panel/hg38")
 
@@ -541,13 +504,11 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_public_configs_accept_single_string_tokens_for_plural_fields(self):
         annot = AnnotationBuildConfig(
             baseline_annot_sources="baseline.@.annot.gz",
-            query_annot_sources="query.*.annot.gz",
-            query_annot_bed_sources="beds/*.bed",
+            query_annot_gene_list_sources="genes/*.txt.gz",
         )
         ref = RefPanelConfig(backend="parquet_r2", r2_dir="r2_panel/hg38")
         self.assertEqual(annot.baseline_annot_sources, ("baseline.@.annot.gz",))
-        self.assertEqual(annot.query_annot_sources, ("query.*.annot.gz",))
-        self.assertEqual(annot.query_annot_bed_sources, ("beds/*.bed",))
+        self.assertEqual(annot.query_annot_gene_list_sources, ("genes/*.txt.gz",))
         self.assertEqual(ref.r2_dir, "r2_panel/hg38")
 
     def test_removed_public_config_fields_are_rejected(self):
@@ -877,41 +838,10 @@ from ldsc.config import RefPanelConfig, ReferencePanelBuildConfig
 from ldsc.errors import LDSCConfigError
 
 
-def test_refpanelconfig_preset_requires_build():
-    with pytest.raises(LDSCConfigError, match="exclude-regions-build"):
+def test_refpanelconfig_region_fields_are_removed():
+    with pytest.raises(TypeError):
         RefPanelConfig(backend="plink", plink_prefix="x", exclude_regions=("mhc",))
-
-
-def test_refpanelconfig_preset_with_build_ok():
-    cfg = RefPanelConfig(
-        backend="plink", plink_prefix="x", exclude_regions=("mhc",), exclude_regions_build="hg19"
-    )
-    assert cfg.exclude_regions == ("mhc",)
-    assert cfg.exclude_regions_build == "hg19"
-
-
-def test_refpanelconfig_unknown_preset_raises():
-    with pytest.raises(LDSCConfigError, match="unknown region preset"):
-        RefPanelConfig(backend="plink", plink_prefix="x", exclude_regions=("telomeres",), exclude_regions_build="hg19")
-
-
-def test_refpanelconfig_user_bed_without_build_ok():
-    cfg = RefPanelConfig(backend="plink", plink_prefix="x", exclude_regions_bed=("/tmp/a.bed",))
-    assert cfg.exclude_regions_bed == ("/tmp/a.bed",)
-
-
-def test_build_config_unknown_preset_raises():
-    with pytest.raises(LDSCConfigError, match="unknown region preset"):
-        ReferencePanelBuildConfig(plink_prefix="x", output_dir="o", ld_wind_snps=1, exclude_regions=("foo",))
-
-
-def test_build_config_preset_no_build_field_required():
-    cfg = ReferencePanelBuildConfig(
-        plink_prefix="x", output_dir="o", ld_wind_snps=1, exclude_regions=("mhc", "centromeres")
-    )
-    assert cfg.exclude_regions == ("mhc", "centromeres")
-
-
-def test_refpanelconfig_invalid_build_value_raises():
-    with pytest.raises(LDSCConfigError, match="exclude_regions_build"):
-        RefPanelConfig(backend="plink", plink_prefix="x", exclude_regions_build="hg17")
+    with pytest.raises(TypeError):
+        RefPanelConfig(backend="plink", plink_prefix="x", exclude_regions_bed=("/tmp/a.bed",))
+    with pytest.raises(TypeError):
+        ReferencePanelBuildConfig(plink_prefix="x", output_dir="o", ld_wind_snps=1, exclude_regions=("mhc",))

@@ -1,5 +1,7 @@
 # Artifact Metadata Field Inventory
 
+Last updated on: 2026-08-04
+
 Downstream identity metadata lives in the `sumstats.parquet` footer (for munged
 sumstats) and in `ldscore/metadata.json` (for LD scores). Any metadata emitted by
 annotate, ref-panel, h2, partitioned-h2, rg, query-level, or pair-level outputs is
@@ -44,7 +46,10 @@ Directory artifacts are owned as whole trees. Optional
 under `diagnostics/` and then moved into final position as a unit; reruns that
 omit those optional details remove the old tree after a successful overwrite.
 Always-written audit sidecars such as workflow logs and dropped-SNP tables are
-included in the owned family.
+included in the owned family for ordinary result-directory workflows. The
+gene-index builder is the deliberate exception while running: its open log,
+history, and lock live in hidden sibling `.<index-name>.build-state/`. Once the
+handler closes, the successful log moves into the published index diagnostics.
 
 ## Public Output Layouts
 
@@ -64,9 +69,9 @@ the legacy TSV artifact.
 
 The downstream-required identity metadata is embedded in the `sumstats.parquet`
 **footer** as discrete `ldsc:*` keys; no `metadata.json` is written. `.sumstats.gz`
-carries no embedded metadata. An input without footer metadata (legacy `.sumstats.gz`
-or footer-less parquet) loads with an inferred identifier mode rather than being
-rejected.
+carries no embedded metadata. Legacy `.sumstats` and `.sumstats.gz` inputs are
+marked for rsID-to-panel projection. Footerless Parquet is rejected because it
+is neither a self-describing LDSC3 artifact nor an LDSC2 compatibility format.
 
 | Footer key | Explanation | Downstream usage |
 | --- | --- | --- |
@@ -97,6 +102,15 @@ only the final downstream compatibility build.
 | `identity_key` | Effective allele-aware identity key when applicable. | None. |
 | `allele_set` | Normalized allele set used by allele-aware cleanup. | None. |
 | `stage` | Workflow stage that produced the drop. | None. |
+
+### Regression legacy-sumstats audit
+
+When any regression input is legacy LDSC2 text and an output directory is
+supplied, `h2`, `partitioned-h2`, and `rg` write
+`diagnostics/dropped_snps/legacy_sumstats.tsv.gz`, including a header-only file
+for a clean projection. Its fixed fields are `trait_name`, `source_path`,
+`SNP`, `A1`, `A2`, `reason`, and `panel_candidate_count`. It is diagnostic only;
+the in-memory projected table, not this sidecar, enters regression.
 
 ### `build-ref-panel`
 
@@ -166,7 +180,7 @@ annotate/
 | `query_columns` | Projected query annotation columns. | None. |
 | `baseline_columns` | Baseline annotation columns used as the SNP template. | None. |
 | `n_snps` | Number of retained SNP rows after annotation identity cleanup. | None. |
-| `bed_padding_bp` | BED interval padding applied before projection. | None. |
+| `padding_bp` | BED or gene interval padding applied before projection. | None. |
 
 ### `ldscore`
 
@@ -178,9 +192,14 @@ ldscore/
   ldscore.overlap.parquet
   diagnostics/
     ldscore.log
+    query_annotation_status.tsv
+    gene_list_unresolved.tsv.gz
 ```
 
 `ldscore.query.parquet` is present only when query LD scores are written.
+`query_annotation_status.tsv` is present for BED/gene-list query runs;
+`gene_list_unresolved.tsv.gz` is present only for gene-list runs and is
+header-only when every gene resolves cleanly.
 `ldscore.overlap.parquet` holds the annotation overlap matrix (long form:
 `row_annotation`, `col_annotation`, `overlap_all_snps`, `overlap_common_snps`)
 that `partitioned-h2` requires. It is written only for runs with two or more
@@ -197,13 +216,31 @@ annotation columns; a single-annotation (e.g. base-only) run omits it.
 | `baseline_columns` | Ordered baseline annotation LD-score columns. | Required to assemble regression covariates. |
 | `query_columns` | Ordered query annotation LD-score columns. | Required for partitioned h2 query selection. |
 | `counts` | Per-annotation count records. | Required for regression count vectors. |
-| `count_config` | Common-SNP count settings (`common_reference_snp_maf_min`, `common_reference_snp_maf_operator: ">="`). | Reporting/context. |
+| `count_config` | Common-SNP count settings, including the actual threshold operator (`>=` for native LDSC3 computation; strict `>` for LDSC2 conversion). | Required to interpret count universes and checked against overlap metadata. |
 | `overlap_config` | Overlap-matrix provenance: `total_all_reference_snps`, `total_common_reference_snps`, `common_maf_min`, `common_maf_operator`, `stored_block`. `null` for single-annotation runs that write no overlap matrix. | Provides `M_tot` and the universe definition for overlap-aware partitioned-h2. |
 | `n_baseline_rows` | Number of rows in the baseline parquet table. | Reporting. |
 | `n_query_rows` | Number of rows in the query parquet table, or zero. | Reporting. |
 | `row_group_layout` | Row-group strategy. | Reporting/technical provenance. |
 | `baseline_row_groups` | Row-group metadata for `ldscore.baseline.parquet`. | Reporting/technical provenance. |
 | `query_row_groups` | Row-group metadata for `ldscore.query.parquet`, or `null`. | Reporting/technical provenance. |
+| `gene_catalog` | Packaged resource, release, selected projection build, and decompressed-content checksum. Present only for gene-list runs. | Reproducibility/diagnostics; ignored by regression. |
+| `query_provenance` | Ordered compact gene-list source records with basename, ordinal, input checksum, and resolution counts. | Reproducibility/diagnostics; ignored by regression. |
+| `query_diagnostics` | Relative paths to the query-status manifest and, for gene runs, unresolved-gene audit. | Troubleshooting/navigation; ignored by regression. |
+| `legacy_ldsc2_import` | Present only for explicit LDSC2 conversion: profile, selected source directories/prefixes/files, streaming SHA-256 hashes, rsID intersection counts, count origins, strict common-frequency rule, coordinate evidence, and diagnostic paths. | Provenance and compatibility auditing; regression still consumes the ordinary canonical fields. |
+
+Native LDSC3 computation records an inclusive common operator (`>=`). Explicit
+LDSC2 conversion records the actual strict legacy operator (`>`) at threshold
+`0.05`; `overlap_config` must agree with `count_config`, and the loader rejects
+drift. Converted suites use the same canonical directory layout. Their workflow
+log is `diagnostics/convert-ldsc2-ldscores.log` and their always-written issue
+audit is `diagnostics/conversion_issues.tsv.gz`; they do not also claim a native
+`diagnostics/ldscore.log`.
+
+`diagnostics/query_annotation_status.tsv` has fixed columns `query`, `source`,
+`input_type`, `status`, `reason`, `n_annotation_snps`, and `details`.
+`diagnostics/gene_list_unresolved.tsv.gz` has fixed columns `query`, `source`,
+`line`, `input_gene`, `reason`, `canonical_ensembl_id`, and `details`. Both use
+source basenames rather than absolute paths.
 
 ### `h2`
 

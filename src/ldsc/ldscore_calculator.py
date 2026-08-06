@@ -1203,8 +1203,9 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     or query annotations are supplied, it synthesizes an all-ones ``base``
     annotation over the retained reference-panel metadata. Before calculation
     it preflights ``metadata.json``, ``ldscore.baseline.parquet``, optional
-    ``ldscore.query.parquet``, query diagnostics when applicable, and
-    ``diagnostics/ldscore.log`` under ``output_dir``. With
+    ``ldscore.query.parquet``, conditional ``ldscore.overlap.parquet``, query
+    diagnostics when applicable, and ``diagnostics/ldscore.log`` under
+    ``output_dir``. With
     overwrite enabled, successful baseline-only runs remove stale query parquet
     siblings. For each chromosome it intersects annotation rows with
     ``ref_panel.load_metadata(chrom)`` before calling the kernel, then returns
@@ -1259,7 +1260,15 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     log_path = diagnostics_dir / "ldscore.log"
     query_status_path = diagnostics_dir / "query_annotation_status.tsv"
     gene_unresolved_path = diagnostics_dir / "gene_list_unresolved.tsv.gz"
-    expected_paths = [*_expected_ldscore_output_paths(output_dir, bool(annotation_bundle.query_columns)), log_path]
+    n_ld_columns = len(annotation_bundle.baseline_columns) + len(annotation_bundle.query_columns)
+    expected_paths = [
+        *_expected_ldscore_output_paths(
+            output_dir,
+            has_query=bool(annotation_bundle.query_columns),
+            has_overlap=n_ld_columns >= 2,
+        ),
+        log_path,
+    ]
     if getattr(annotation_bundle, "query_statuses", ()):
         expected_paths.append(query_status_path)
     if getattr(annotation_bundle, "gene_list_resolutions", ()):
@@ -2075,11 +2084,18 @@ def _output_config_from_args(args: argparse.Namespace) -> LDScoreOutputConfig:
     )
 
 
-def _expected_ldscore_output_paths(output_dir: Path, has_query: bool) -> list[Path]:
+def _expected_ldscore_output_paths(
+    output_dir: Path,
+    *,
+    has_query: bool,
+    has_overlap: bool,
+) -> list[Path]:
     """Return canonical LD-score output paths written by the directory writer."""
     paths = [output_dir / "metadata.json", output_dir / "ldscore.baseline.parquet"]
     if has_query:
         paths.append(output_dir / "ldscore.query.parquet")
+    if has_overlap:
+        paths.append(output_dir / "ldscore.overlap.parquet")
     return paths
 
 

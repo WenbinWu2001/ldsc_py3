@@ -346,7 +346,9 @@ class LDScoreDirectoryWriter:
     """Write canonical LD-score result directories.
 
     The writer owns the fixed files ``metadata.json``,
-    ``ldscore.baseline.parquet``, and optional ``ldscore.query.parquet``.
+    ``ldscore.baseline.parquet``, optional ``ldscore.query.parquet``, and
+    conditional ``ldscore.overlap.parquet``. Annotation counts are embedded in
+    ``metadata.json`` rather than written as standalone files.
     Parquet files are flat files for backward compatibility, but their internal
     row groups are chromosome-aligned and described in root metadata.
     """
@@ -380,8 +382,8 @@ class LDScoreDirectoryWriter:
         Existing canonical family files are checked before any output file is
         written. Replacement requires ``output_config.overwrite=True``;
         unrelated files in the directory are ignored. The returned paths map
-        includes ``"baseline"``, ``"metadata"``, and ``"query"`` when query
-        annotations were supplied.
+        includes ``"baseline"``, ``"metadata"``, ``"query"`` when query
+        annotations were supplied, and ``"overlap"`` for partitioned runs.
         """
         output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
         baseline_table = getattr(result, "baseline_table", None)

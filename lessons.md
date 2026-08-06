@@ -1,4 +1,20 @@
 
+## Cleanup-capable preflights must declare every artifact the current run will write
+- Summary: A direct partitioned LD-score overwrite successfully wrote
+  `ldscore.overlap.parquet`, then the workflow's post-success stale-artifact
+  cleanup deleted that newly written file while `metadata.json` still pointed
+  to it.
+- Root cause: The direct workflow performs an early preflight before expensive
+  computation and the canonical writer performs a second exact preflight. The
+  early preflight's `owned_paths` included overlap, but its `produced_paths`
+  prediction omitted overlap. With overwrite enabled, the pre-existing overlap
+  was therefore captured as stale; path identity meant the later cleanup
+  unlinked the replacement written at the same location.
+- Correction: Derive the early overlap prediction from the same public rule as
+  aggregation and writing (at least two baseline-plus-query LD-score columns),
+  and cover a full write-then-overwrite run by asserting every metadata-listed
+  path still exists and the result reloads with counts and overlap intact.
+
 ## Regression-weight LD scores belong in the shared PLINK projection pass
 - Summary: Direct PLINK LD-score calculation and gene-index construction projected baseline/query annotations first, then reset the genotype cursor and recomputed the same correlation blocks for the one-column regression-SNP mask.
 - Root cause: The regression-weight output was treated as a separate result family instead of one more annotation projection, obscuring that `ldScoreVarBlocks` recomputes genotype correlations on every call.

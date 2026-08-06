@@ -2101,6 +2101,78 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertFalse(stale.exists())
             self.assertNotIn("query", result.output_paths)
 
+    def test_run_ldscore_from_args_overwrite_preserves_current_overlap_artifact(self):
+        from ldsc._kernel.overlap import OverlapContribution
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "ldscore_result"
+            argv = [
+                "--output-dir",
+                str(output_dir),
+                "--baseline-annot-sources",
+                "baseline.annot.gz",
+                "--query-annot-sources",
+                "query.annot.gz",
+                "--plink-prefix",
+                "panel",
+                "--snp-identifier",
+                "rsid",
+                "--exclude-regions",
+                "none",
+                "--ld-wind-snps",
+                "10",
+            ]
+            annotation_bundle = dataclass_replace(
+                self.make_annotation_bundle([("1", "rs1", 10)]),
+                query_annotations=pd.DataFrame({"query": [1.0]}),
+                query_columns=["query"],
+            )
+            chrom_result = dataclass_replace(
+                self.make_chrom_result("1", 10, 1.0, 5.0),
+                overlap=OverlapContribution(
+                    baseline_block_all=np.array([[5.0, 4.0]]),
+                    baseline_block_common=np.array([[4.0, 3.0]]),
+                    query_diagonal_all=np.array([6.0]),
+                    query_diagonal_common=np.array([5.0]),
+                    n_all=5,
+                    n_common=4,
+                ),
+            )
+            ref_panel = self.make_ref_panel_stub(backend="plink")
+
+            with mock.patch(
+                "ldsc.annotation_builder.AnnotationBuilder.run",
+                autospec=True,
+                return_value=annotation_bundle,
+            ), mock.patch(
+                "ldsc._kernel.ref_panel.RefPanelLoader.load",
+                autospec=True,
+                return_value=ref_panel,
+            ), mock.patch.object(
+                ldscore_workflow.LDScoreCalculator,
+                "compute_chromosome",
+                autospec=True,
+                return_value=chrom_result,
+            ):
+                ldscore_workflow.run_ldscore_from_args(build_parser().parse_args(argv))
+                result = ldscore_workflow.run_ldscore_from_args(
+                    build_parser().parse_args([*argv, "--overwrite"])
+                )
+
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            for relative_path in metadata["files"].values():
+                self.assertTrue((output_dir / relative_path).exists(), relative_path)
+            self.assertIn("overlap", result.output_paths)
+            self.assertEqual(
+                [(row["group"], row["column"]) for row in metadata["counts"]],
+                [("baseline", "base"), ("query", "query")],
+            )
+            from ldsc.regression_runner import load_ldscore_from_dir
+
+            loaded = load_ldscore_from_dir(output_dir)
+            self.assertIsNotNone(loaded.overlap)
+            self.assertEqual(loaded.count_records, result.count_records)
+
     def test_run_ldscore_from_args_rejects_query_annotations_without_baseline(self):
         args = Namespace(
             output_dir="out/example",

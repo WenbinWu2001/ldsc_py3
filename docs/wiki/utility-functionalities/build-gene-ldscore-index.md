@@ -71,9 +71,10 @@ only persisted output rows and `regression_ld_scores` contributors.
 
 ### Which baseline-suite files are used?
 
-The builder uses baseline **annotation** shards as the matrix to which the new
-PLINK LD operator is applied. It does not reuse LD scores or counts previously
-distributed beside those annotations.
+The builder uses baseline annotation shards as the matrix to which the new
+PLINK LD operator is applied. 
+
+At build time **it recomputes baseline LD scores** from the these baseline annotation shards using the PLINK data. It does not reuse or copy the precomputed LD scores (`.l2.ldscore.gz`) or counts (`.M`, `.M_5_50`) previously distributed beside those annotations.
 
 | Baseline-suite component | Used by index builder? |
 | --- | --- |

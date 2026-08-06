@@ -124,7 +124,12 @@ ldsc build-gene-ldscore-index \
   --output-dir "${INDEX_ROOT}/prototype_chr22_chr_pos" \
   --chromosomes 22 \
   --genome-build hg19 \
-  --snp-identifier chr_pos
+  --snp-identifier chr_pos \
+  --ld-wind-cm 1.0 \
+  --padding-bp 100000 \
+  --gene-exclude-regions mhc \
+  --exclude-regions mhc-and-centromeres \
+  --threads 1
 ```
 
 To use custom regression SNPs while retaining the standard region subtraction:

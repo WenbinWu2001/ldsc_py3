@@ -27,6 +27,7 @@ are not retained for the full-table concatenation step.
 import pandas as pd
 import numpy as np
 #import os
+import gzip
 import bz2
 import argparse
 import logging

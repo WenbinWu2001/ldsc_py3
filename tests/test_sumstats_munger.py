@@ -2571,6 +2571,30 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertIn("--format daner-old", output)
             self.assertIn("--output-genome-build hg38", output)
 
+    def test_infer_only_reads_gzip_raw_sumstats(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            raw_path = Path(tmpdir) / "raw.tsv.gz"
+            with gzip.open(raw_path, "wt", encoding="utf-8") as handle:
+                handle.write(
+                    "CHR POS SNP A1 A2 P BETA N\n"
+                    "1 100 rs1 A G 0.05 0.1 1000\n"
+                )
+
+            result = sumstats_workflow.main(
+                [
+                    "--raw-sumstats-file",
+                    str(raw_path),
+                    "--infer-only",
+                    "--source-genome-build",
+                    "hg38",
+                    "--output-genome-build",
+                    "hg38",
+                ]
+            )
+
+            self.assertEqual(result.detected_format, "plain")
+            self.assertTrue(result.runnable)
+
     def test_infer_only_reports_missing_liftover_method_with_alternatives(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

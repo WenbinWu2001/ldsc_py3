@@ -329,7 +329,8 @@ ldsc ldscore \
 - For a prebuilt exact gene index, use
   `--gene-ldscore-index-dir <index-dir>` with
   `--query-annot-gene-list-sources` and omit live baseline, PLINK/R²,
-  genome-build, window, padding, and region arguments. The indexed run writes
+  genome-build, window, padding, and region arguments. Remove `--padding-bp`
+  entirely rather than passing zero. The indexed run writes
   the same canonical output directory and defaults to the fixed
   `gene_control` baseline column.
 - For the complete indexed workflow, see [Build an exact gene LD-score

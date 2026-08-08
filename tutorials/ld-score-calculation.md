@@ -316,6 +316,9 @@ ldsc build-gene-ldscore-index \
   --exclude-regions mhc-and-centromeres
 ```
 
+Index construction defaults to `--padding-bp 0`. This example deliberately
+requests a non-default 100 kb gene flank and names the index accordingly.
+
 Use exactly `rsid` or `chr_pos`; there is no default, `auto`, inference,
 liftover, hg38, or allele-aware index mode. `rsid` joins on `SNP`; `chr_pos`
 joins on normalized positive 1-based `(CHR, POS)` and treats baseline SNP labels

@@ -129,7 +129,8 @@ expands each query BED interval by the requested number of base pairs on both
 sides before projection; starts are clipped at zero. The default is `0`, so BED
 files are used exactly as supplied. Do not set this option for BED files already
 expanded during upstream gene-set preparation, because that would double-count
-the flank.
+the flank. The flag is valid only for live BED or gene-list queries; remove it
+when using prebuilt query annotations or an exact gene index.
 
 ### Reference Panel
 

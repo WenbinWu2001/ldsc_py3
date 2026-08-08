@@ -122,7 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Required effective identity mode; no default, auto mode, or column-based inference.",
     )
-    parser.add_argument("--padding-bp", type=int, default=100000)
+    parser.add_argument("--padding-bp", type=int, default=0)
     parser.add_argument("--gene-exclude-regions", choices=("none", "mhc"), default="mhc")
     parser.add_argument("--ld-wind-cm", type=float, default=1.0)
     parser.add_argument("--maf-min", type=float, default=None)

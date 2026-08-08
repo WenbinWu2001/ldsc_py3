@@ -1108,8 +1108,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--padding-bp",
         type=int,
-        default=0,
-        help="Base pairs to add to both sides of each query BED interval before in-memory projection. Default: 0.",
+        default=None,
+        help=(
+            "Base pairs to add to both sides of each live BED- or gene-list-derived interval "
+            "before in-memory projection. Default: 0. Valid only with "
+            "--query-annot-bed-sources or --query-annot-gene-list-sources."
+        ),
     )
     parser.add_argument(
         "--gene-exclude-regions",
@@ -1212,6 +1216,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     the normalized public ``LDScoreResult`` with split baseline/query tables.
     The result ``output_paths`` mapping contains data artifacts only.
     """
+    _validate_padding_usage(args)
     if getattr(args, "gene_ldscore_index_dir", None) is not None:
         return _run_explicit_indexed_ldscore(args)
 
@@ -1346,8 +1351,6 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
         "--ld-wind-cm": getattr(args, "ld_wind_cm", None),
         "--maf-min": getattr(args, "maf_min", None),
     }
-    if getattr(args, "padding_bp", 0) != 0:
-        forbidden["--padding-bp"] = getattr(args, "padding_bp")
     if getattr(args, "gene_exclude_regions", "none") != "none":
         forbidden["--gene-exclude-regions"] = getattr(args, "gene_exclude_regions")
     if "--genome-build" in explicit_options or getattr(args, "genome_build", None) is not None:
@@ -1411,6 +1414,30 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
         if output_paths:
             log_outputs(**output_paths)
         return result
+
+
+def _validate_padding_usage(args: argparse.Namespace) -> None:
+    """Reject explicit padding outside live BED or gene-list projection.
+
+    The parser's ``None`` sentinel distinguishes omission from an explicit
+    zero; normalization converts an allowed omission to the effective default
+    only after this mode check.
+    """
+    if getattr(args, "padding_bp", None) is None:
+        return
+    uses_live_intervals = (
+        _has_cli_tokens(getattr(args, "query_annot_bed_sources", None))
+        or _has_cli_tokens(getattr(args, "query_annot_gene_list_sources", None))
+    )
+    uses_index = getattr(args, "gene_ldscore_index_dir", None) is not None
+    if uses_live_intervals and not uses_index:
+        return
+    raise LDSCUsageError(
+        "ldscore accepts `--padding-bp` only with live `--query-annot-bed-sources` "
+        "or `--query-annot-gene-list-sources`. It cannot be used with prebuilt "
+        "annotation queries, without a query, or in indexed mode. Remove "
+        "`--padding-bp` from the command (or remove the Python `padding_bp` keyword)."
+    )
 
 
 def _validate_run_args(args: argparse.Namespace) -> None:
@@ -1626,6 +1653,10 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     explicit baseline annotations because query columns are interpreted
     relative to that baseline SNP universe. Gene-list inputs are projected
     from the packaged protein-coding catalog using the resolved genome build.
+    ``padding_bp`` has an effective default of zero and may be supplied only
+    with a live BED or gene-list query; passing it with a prebuilt annotation
+    query, no query, or an exact index raises ``LDSCUsageError`` even when its
+    value is zero.
 
     Returns
     -------
@@ -1735,7 +1766,7 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
         normalized_args.maf_min = None
     if not hasattr(normalized_args, "common_maf_min"):
         normalized_args.common_maf_min = 0.05
-    if not hasattr(normalized_args, "padding_bp"):
+    if not hasattr(normalized_args, "padding_bp") or normalized_args.padding_bp is None:
         normalized_args.padding_bp = 0
     if not hasattr(normalized_args, "snp_batch_size"):
         normalized_args.snp_batch_size = 128

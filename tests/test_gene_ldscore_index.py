@@ -796,7 +796,7 @@ def test_build_index_command_registers_explicit_base_identity(snp_identifier):
     assert args.command == "build-gene-ldscore-index"
     assert args.genome_build == "hg19"
     assert args.snp_identifier == snp_identifier
-    assert args.padding_bp == 100000
+    assert args.padding_bp == 0
     assert args.gene_exclude_regions == "mhc"
     assert args.ld_wind_cm == 1.0
     assert args.common_maf_min == 0.05
@@ -839,6 +839,7 @@ def test_build_index_python_config_requires_identity_and_build():
         snp_identifier="chr_pos",
     )
     assert config.snp_identifier == "chr_pos"
+    assert config.padding_bp == 0
 
 
 def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_path, monkeypatch):

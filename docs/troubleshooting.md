@@ -316,7 +316,8 @@ Pass the one complete index directory containing root `metadata.json` and
 `chromosomes/`. Do not add
 live baseline, reference, build, padding, window, map, or region settings: those
 belong to the immutable index. A failed validation never falls back to direct
-mode and is completed before canonical scientific output publication. Restore
+mode. Remove `--padding-bp` entirely rather than passing a zero value. Validation
+is completed before canonical scientific output publication. Restore
 or rebuild the index, or remove `--gene-ldscore-index-dir` and supply the
 full direct-mode inputs explicitly. Older gene-index metadata contracts are not
 loaded by the current strict reader and must be rebuilt; ordinary canonical

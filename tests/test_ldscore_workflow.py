@@ -1148,6 +1148,69 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(args.query_annot_bed_sources, "query.bed")
         self.assertEqual(args.padding_bp, 50000)
 
+    def test_ldscore_rejects_explicit_padding_without_live_interval_queries(self):
+        parser = ldscore_workflow.build_parser()
+        cases = {
+            "no query": ["--output-dir", "out", "--padding-bp", "0"],
+            "prebuilt annotation query": [
+                "--output-dir", "out",
+                "--baseline-annot-sources", "baseline.annot.gz",
+                "--query-annot-sources", "query.annot.gz",
+                "--padding-bp", "0",
+            ],
+            "indexed gene query": [
+                "--output-dir", "out",
+                "--gene-ldscore-index-dir", "index",
+                "--query-annot-gene-list-sources", "genes.txt",
+                "--padding-bp", "0",
+            ],
+        }
+
+        for label, argv in cases.items():
+            for padding_bp in (0, 100000):
+                with self.subTest(label=label, padding_bp=padding_bp):
+                    argv[-1] = str(padding_bp)
+                    with self.assertRaisesRegex(LDSCUsageError, "Remove.*--padding-bp"):
+                        ldscore_workflow.run_ldscore_from_args(parser.parse_args(argv))
+
+    def test_ldscore_accepts_explicit_padding_for_live_interval_queries(self):
+        parser = ldscore_workflow.build_parser()
+        for query_flag, query_source in (
+            ("--query-annot-bed-sources", "query.bed"),
+            ("--query-annot-gene-list-sources", "genes.txt"),
+        ):
+            with self.subTest(query_flag=query_flag):
+                args = parser.parse_args(
+                    [
+                        "--output-dir", "out",
+                        "--baseline-annot-sources", "baseline.annot.gz",
+                        query_flag, query_source,
+                        "--padding-bp", "100000",
+                    ]
+                )
+                ldscore_workflow._validate_padding_usage(args)
+
+    def test_python_run_ldscore_rejects_explicit_padding_without_live_interval_queries(self):
+        cases = {
+            "no query": {},
+            "prebuilt annotation query": {
+                "baseline_annot_sources": "baseline.annot.gz",
+                "query_annot_sources": "query.annot.gz",
+            },
+            "indexed gene query": {
+                "gene_ldscore_index_dir": "index",
+                "query_annot_gene_list_sources": "genes.txt",
+            },
+        }
+
+        for label, kwargs in cases.items():
+            for padding_bp in (0, 100000):
+                with self.subTest(label=label, padding_bp=padding_bp):
+                    with self.assertRaisesRegex(LDSCUsageError, "Remove.*padding_bp"):
+                        ldscore_workflow.run_ldscore(
+                            output_dir="out", padding_bp=padding_bp, **kwargs
+                        )
+
     def test_build_parser_accepts_gene_lists_and_keeps_query_routes_mutually_exclusive(self):
         parser = ldscore_workflow.build_parser()
         args = parser.parse_args(

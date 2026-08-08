@@ -334,7 +334,9 @@ baseline annotations. Query BED inputs and packaged-catalog gene intervals are
 projected to the same baseline SNP universe. `padding_bp` /
 `--padding-bp` expands either interval type on both sides before overlap
 projection and clips starts at zero. Each concrete BED or gene list receives a
-status; unusable queries are omitted while usable siblings continue.
+status; unusable queries are omitted while usable siblings continue. Explicit
+padding is rejected when no live BED/gene projection occurs, including
+prebuilt-annotation, no-query, and indexed LD-score modes.
 
 ### Required inputs
 

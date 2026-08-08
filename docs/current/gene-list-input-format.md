@@ -58,7 +58,10 @@ positions remain 1-based and a SNP at `POS=p` is treated as `[p-1, p)`. This is
 the same coordinate contract as query BED files. `--padding-bp N` expands
 both gene and BED intervals by `N` bases on each side, clips starts at zero, and
 is applied exactly once. Overlapping intervals are unioned, so the annotation
-remains binary.
+remains binary. The effective default is `0`. This option belongs only to live
+BED or gene-list projection; it is rejected for prebuilt annotation queries,
+no-query LD-score runs, and indexed mode, where the index's stored padding is
+authoritative.
 
 ## Genome build
 

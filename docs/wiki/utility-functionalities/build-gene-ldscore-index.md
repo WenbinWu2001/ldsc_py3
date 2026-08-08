@@ -18,7 +18,7 @@ offline artifact; it does not run regression.
 - explicit hg19 and either base `rsid` or base `chr_pos` identity, with a
   PLINK BED/BIM/FAM reference;
 - a 1 cM window by default;
-- 100 kb gene padding and MHC gene exclusion by default;
+- unpadded gene intervals (`--padding-bp 0`) and MHC gene exclusion by default;
 - bundled HapMap3 regression SNP candidates by default, or one custom
   `--regression-snps-file`;
 - `--exclude-regions mhc-and-centromeres` applied after candidate selection by
@@ -110,6 +110,9 @@ ldsc build-gene-ldscore-index \
   --exclude-regions mhc-and-centromeres \
   --threads 1
 ```
+
+These prototype commands explicitly request non-default 100 kb padding. Omit
+`--padding-bp` to build the default unpadded index.
 
 The prototype is a complete chromosome-22 index. It cannot be extended in
 place; use a different output directory for the production chromosomes-1–22

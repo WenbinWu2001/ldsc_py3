@@ -105,7 +105,7 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 - `ldsc ldscore` accepts no baseline/query inputs for ordinary unpartitioned LD-score generation; the workflow creates a synthetic all-ones baseline column named exactly `base` from retained reference-panel metadata.
 - `query_annot_sources`, `query_annot_bed_sources`, and `query_annot_gene_list_sources` are mutually exclusive and require explicit `baseline_annot_sources`; users who want an all-ones query universe must materialize that baseline themselves.
 - BED and gene-list query failures are isolated per source. Skipped queries are absent from scientific outputs and are explained in `diagnostics/query_annotation_status.tsv`.
-- `padding_bp` / `--padding-bp` defaults to `0`; when set, it expands query BED intervals on both sides before projection and clips starts at zero.
+- `padding_bp` / `--padding-bp` defaults to `0` for live BED and gene-list projection; when set, it expands intervals on both sides and clips starts at zero. `ldsc ldscore` rejects an explicit padding option for prebuilt annotation queries, no-query runs, and indexed mode, while `ldsc build-gene-ldscore-index` also defaults to unpadded genes.
 - `ldsc partitioned-h2` produces overlap-aware category summaries and
   auto-detects two regimes: baseline-only directories run the functional-category
   joint fit (one row per baseline category, `enrichment` headline), and

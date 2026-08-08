@@ -27,6 +27,11 @@ ldsc build-gene-ldscore-index \
   --exclude-regions mhc-and-centromeres
 ```
 
+Index construction defaults to unpadded gene intervals (`--padding-bp 0`).
+The example above explicitly builds a non-default 100 kb index, which is why
+both its destination name and command record `100kb`/`100000`. Omit the flag
+for the default unpadded index.
+
 The builder is hg19/PLINK-only and supports the base `rsid` and `chr_pos`
 identity modes. Both `--genome-build hg19` and `--snp-identifier` are required;
 there is no default, `auto`, inference, or liftover. The default persisted regression/output

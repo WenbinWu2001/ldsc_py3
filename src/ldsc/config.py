@@ -573,7 +573,7 @@ class GeneLDScoreIndexBuildConfig:
         is applied, and allele-aware modes are outside this builder contract.
     padding_bp : int, optional
         Base pairs added to each side of included transcribed gene intervals.
-        Default is 100,000.
+        Default is 0.
     gene_exclude_regions : {"none", "mhc"}, optional
         Gene-region exclusion applied to unpadded intervals before padding.
         Default is ``"mhc"``.
@@ -613,7 +613,7 @@ class GeneLDScoreIndexBuildConfig:
     genome_build: str
     snp_identifier: str
     chromosomes: tuple[str, ...] = tuple(str(value) for value in range(1, 23))
-    padding_bp: int = 100000
+    padding_bp: int = 0
     gene_exclude_regions: str = "mhc"
     ld_wind_cm: float = 1.0
     maf_min: float | None = None

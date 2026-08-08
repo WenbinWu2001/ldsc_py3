@@ -252,7 +252,9 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 - BED projection uses input intervals as provided unless `padding_bp` /
   `--padding-bp` is set. Padding expands both interval ends in base pairs
   before projection and clips starts at zero; it should not be applied again to
-  BED files already expanded upstream.
+  BED files already expanded upstream. `ldscore` accepts this option only when
+  it is performing live BED or gene-list projection; prebuilt-annotation,
+  no-query, and indexed modes reject it.
 - Every workflow that writes fixed artifacts must precompute expected output
   paths, including its log path, and call the shared output preflight before
   the first write.

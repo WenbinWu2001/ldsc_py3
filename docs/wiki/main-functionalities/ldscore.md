@@ -69,7 +69,9 @@ should produce equivalent canonical results.
 The explicit index owns the baseline, reference panel, genome build, SNP
 identity, LD window, MAF settings, padding, and region policies. Do not pass
 live `--baseline-annot-sources`, `--plink-prefix`, `--r2-dir`, build/window/map,
-padding, or SNP-filter options in indexed mode.
+padding, or SNP-filter options in indexed mode. In particular, remove
+`--padding-bp` rather than passing `--padding-bp 0`; indexed assembly inherits
+the padding stored in the index.
 
 **SNP identity in fast mode:** an index stores either `rsid` or `chr_pos` and
 explicit hg19 provenance. Fast assembly does not repeat source matching; it

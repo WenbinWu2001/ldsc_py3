@@ -63,7 +63,7 @@ ldsc_py3_Jerry/
 | `ldsc._kernel.regions` | packaged and user BED interval loading plus region-exclusion masks |
 | `ldsc._kernel.plink_bed` | PLINK genotype reader (`PlinkBEDFile` and its `__GenotypeArrayInMemory__` base, incl. the in-class LD-score block sums): lazy header read, per-SNP selective decode with fused individual filter, and opt-in disk streaming for unrestricted builds; never materializes the whole-chromosome bitarray |
 | `ldsc.annotation_builder` | public annotation workflow: path resolution, bundle loading, BED/gene interval projection, query-local source isolation, and query `.annot.gz` writing for `annotate` |
-| `ldsc.ref_panel_builder` | parquet reference-panel build workflow, including source-build region exclusion and optional `min_r2` pair-emission threshold |
+| `ldsc.ref_panel_builder` | parquet reference-panel build workflow, including source-build inference, optional coordinate liftover, explicit SNP/sample restrictions, and optional `min_r2` pair-emission threshold |
 | `ldsc.r2_query` | public `query-r2` CLI/API, `R2Panel`, one-shot `query_r2()`, sidecar-binding validation, endpoint key resolution, sign harmonization, and optional adjusted-R2-to-Pearson-r conversion |
 | `ldsc.ldscore_calculator` | LD-score orchestration, catalog-build selection, optional synthetic `base`, query-status finalization/pruning, aggregation, and output routing |
 | `ldsc.legacy_ldscore_converter` | sole LDSC2 LD-score-suite import boundary: deterministic family discovery, rsID joins, count/overlap validation or reconstruction, provenance hashing, diagnostics, and canonical LDSC3 directory writing |

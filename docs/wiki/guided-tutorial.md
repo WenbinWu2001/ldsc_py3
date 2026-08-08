@@ -40,7 +40,7 @@ OUTPUT_ROOT="/users/w/e/wenbinwu/Sullivan/LDSC/ldsc3_test_bundle/tutorial_output
 
 ### Remarks
 
-1. By default, all regressions use HapMap3 SNPs. These SNPs are bundled with the package and can be enabled with a single flag in each command (see below).
+1. By default, `ldsc ldscore` writes regression rows from the bundled HapMap3 set, after applying its default MHC-and-centromere exclusion. `h2`, `rg`, and `partitioned-h2` consume those rows and have no HapMap3 flag. The separate `munge-sumstats --use-hm3-snps` flag optionally restricts summary statistics to the bundled HapMap3 map.
 2. For flags ending in `-sources`, you can use the glob pattern `*` to match multiple files and `@` as the placeholder for the chromosome number.
 3. Output directories are created automatically. Use `--overwrite` to allow overwriting existing output files.
 4. `ldsc ldscore` excludes the extended MHC and centromere regions by default.

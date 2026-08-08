@@ -287,14 +287,15 @@ parquet schema (`ldsc:r2_bias` and `ldsc:n_samples`); there are no
 
 ### Regression-region exclusion
 
-Only `ldscore` exposes `--exclude-regions`, defaulting to
-`mhc-and-centromeres`. It subtracts named regions from the selected regression
-set (bundled HM3 by default) and leaves the reference panel, category LD
-scores, and count vectors untouched. `--genome-build` selects the named
-interval build. Custom intervals require a prefiltered
-`--regression-snps-file`; intentional reference pruning requires
-`--ref-panel-snps-file`. `build-ref-panel` has neither region-exclusion nor
-HM3 convenience flags.
+`ldscore` and `build-gene-ldscore-index` expose `--exclude-regions`, defaulting
+to `mhc-and-centromeres`. They subtract named regions from the selected
+regression set (bundled HM3 by default) and leave the reference panel, category
+LD scores, and count vectors untouched. `ldscore --genome-build` selects the
+named interval build; the closed gene-index builder uses its required explicit
+hg19 build. Custom intervals require a prefiltered `--regression-snps-file`;
+intentional reference pruning requires `--ref-panel-snps-file` in live
+`ldscore` or at reference-panel build time. `build-ref-panel` has neither
+region-exclusion nor HM3 convenience flags.
 
 ### Artifact contract
 

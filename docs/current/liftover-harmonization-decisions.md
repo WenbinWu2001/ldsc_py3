@@ -6,7 +6,7 @@ Branch: `codex/liftover-sumstats-munger`
 > **STATUS — 2026-05-11: implemented harmonization contract.** This document
 > records the liftover contracts for the harmonized workflows. The
 > implementation plan is
-> [`docs/superpowers/plans/2026-05-10-liftover-harmonization.md`](../superpowers/plans/2026-05-10-liftover-harmonization.md).
+> [`docs/plans/2026-05-10-liftover-harmonization.md`](../plans/2026-05-10-liftover-harmonization.md).
 
 This note records the agreed liftover contracts after harmonizing summary
 statistics munging and PLINK reference-panel building. It is intended as the

@@ -19,12 +19,20 @@ Single-choice enum; **default `mhc-and-centromeres`**. The selected intervals ar
 | `centromeres` | centromere ±3 cM for 23 chroms | `centromeres_core` below + Alkes-group recombination map ±3 cM |
 | `mhc-and-centromeres` **(default)** | `mhc` and `centromeres` |  |
 
-- There is an additional option not exposed publicly:`centromeres_core` (raw centromere assembly gap, UCSC `gap`/`centromeres` tracks); it is bookkeeping-only and loadable via the Python API (e.g. `exclude_regions=("centromeres_core",)`). We consider keeping only one of `centromeres` and `centromeres_core`.
+- The internal `centromeres_core` track stores the raw centromere assembly gap
+  from UCSC `gap`/`centromeres` tracks. It is available to maintenance and
+  kernel code but is not an accepted public `--exclude-regions` choice.
 - All three presets are regenerable with `python tools/regions/build_region_beds.py` (a dev-only tool; not shipped). The genetic maps are a curation-time input (workspace `resources/genetic_maps/genetic_map_alkesgroup/`, overridable via `LDSC_GENETIC_MAP_DIR`), not bundled in the package.
 
 ## Command scope (which commands honor `--exclude-regions`)
 
-Only **`ldscore`** exposes `--exclude-regions`. It selects the persisted regression/output rows and `w_ld` contributors after the LD-reference universe has been retained. The regression commands (`h2`/`rg`/`partitioned-h2`) have no region option: they inherit the filtered artifact rows through their ordinary intersection with munged summary statistics. `munge-sumstats` never excludes regions.
+Both **`ldscore`** and **`build-gene-ldscore-index`** expose
+`--exclude-regions`, defaulting to `mhc-and-centromeres`. In both workflows it
+selects persisted regression/output rows and `w_ld` contributors after the
+LD-reference universe has been retained. The regression commands
+(`h2`/`rg`/`partitioned-h2`) have no region option: they inherit the filtered
+artifact rows through their ordinary intersection with munged summary
+statistics. `munge-sumstats` never excludes regions.
 
 `build-ref-panel` deliberately has no region-exclusion control: intentional LD-reference pruning must be represented by an explicit `--ref-panel-snps-file`, making the changed reference estimand visible. Prefilter a custom regression list for arbitrary intervals, and use `--genome-build` to select named preset coordinates.
 

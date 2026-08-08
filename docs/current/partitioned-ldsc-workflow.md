@@ -177,7 +177,7 @@ The LD-score phase tracks these SNP sets:
 |--------|------|---------|
 | B | Baseline annotation SNPs | Rows in loaded baseline annotation files, or retained reference-panel metadata rows for synthetic `base` unpartitioned runs |
 | A | Raw reference panel SNPs | Rows in PLINK `.bim` or parquet metadata sidecar |
-| A' | Prepared reference panel | `A` after optional explicit or HM3 reference-panel SNP restriction, retained-panel `maf_min`, and PLINK `keep_indivs_file`; equals A when absent |
+| A' | Prepared reference panel | `A` after an optional explicit reference-panel SNP restriction, retained-panel `maf_min`, and PLINK `keep_indivs_file`; equals A when absent |
 | `ld_reference_snps` | LD computation universe | `B ∩ A'` |
 | C | Regression SNP mask | Optional identity-only mask from explicit `regression_snps_file` or packaged HM3 regression SNP restriction |
 | `ld_regression_snps` | Persisted row set | `B ∩ A' ∩ C`; equals `ld_reference_snps` when C is absent |

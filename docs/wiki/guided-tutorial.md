@@ -426,7 +426,9 @@ ldsc annotate \
 
 **Remarks:**
 
-- All input query annotations are combined into one file as separate columns, with each column name being the input's base filename (used as the annotation name).
+- For each chromosome, all input query annotations are combined into one file as separate columns, with each column name being the input's base filename (used as the annotation name).
+- The resulting `query.@.annot.gz` suite is the canonical input to downstream `ldsc ldscore`: one query annotation file per chromosome, containing multiple annotation columns; each column is one query annotation. Pass it with `--query-annot-sources "$ANNOT_OUT_DIR/query.@.annot.gz"`.
+- Do not create one chromosome-sharded suite per query. In sharded mode, `ldscore` expects one query file per chromosome and reads the separate queries from its columns.
 - The CM column is preserved in annotations for backward compatibility but is not read by the package downstream.
 - See the `annotate` wiki for more on this functionality.
 

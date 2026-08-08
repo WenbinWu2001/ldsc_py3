@@ -118,6 +118,21 @@ Query annotations are optional and become `ldscore.query.parquet` columns.
   memory.
 - `--query-annot-sources`: pre-built query `.annot[.gz]` files.
 
+For pre-built chromosome-sharded inputs, use one query annotation file per
+chromosome containing all query annotation columns; each column is one query
+annotation. This is also the format written by `ldsc annotate`:
+
+```text
+query.1.annot.gz   # CHR POS SNP CM query_A query_B ...
+query.2.annot.gz   # CHR POS SNP CM query_A query_B ...
+...
+```
+
+Pass the suite as `--query-annot-sources 'query.@.annot.gz'`. Do not pass one
+chromosome-sharded suite per query, because `ldscore` accepts only one query
+file for each chromosome in sharded mode. The query headers must be identical
+across chromosome files.
+
 These arguments are mutually exclusive and require explicit
 `--baseline-annot-sources`. If users intentionally want to test query annotations
 against an all-ones universe, they should create an explicit all-ones `base`

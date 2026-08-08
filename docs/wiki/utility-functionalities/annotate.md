@@ -31,6 +31,19 @@ per-chromosome binary annotations for all *query* annotations (i.e., the file do
 
 Under output directory, you have `query.1.annot.gz`, `query.2.annot.gz`, ...,  `query.22.annot.gz`.
 
+This is the canonical chromosome-sharded input format for downstream
+`ldsc ldscore`: **one query annotation file per chromosome, containing multiple
+annotation columns; each column is one query annotation**. Pass the generated
+suite directly with:
+
+```bash
+--query-annot-sources '<annotate-output-dir>/query.@.annot.gz'
+```
+
+Do not split the output into one chromosome-sharded suite per query. In
+sharded mode, `ldscore` expects exactly one query file for each chromosome and
+reads the individual queries from that file's annotation columns.
+
 Each annotation file has the following columns:
 
 - `CHR`, `BP`, `SNP`, `CM`: metadata for SNPs, copied from baseline annotations. `CM` is set as empty to indicate no-use in downstream.

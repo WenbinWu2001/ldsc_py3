@@ -162,6 +162,25 @@ How files are handled:
 - after sorting, the SNP rows must match exactly for that chromosome
 - annotation column names must be unique across files
 
+For chromosome-sharded query annotations, the canonical accepted layout is
+**one query annotation file per chromosome, containing multiple annotation
+columns; each column is one query annotation**:
+
+```text
+annotations/
+  query.1.annot.gz   # CHR POS SNP CM query_A query_B ...
+  query.2.annot.gz   # CHR POS SNP CM query_A query_B ...
+  ...
+```
+
+Supply that suite with
+`query_annot_sources="annotations/query.@.annot.gz"`. The query column names
+and order must be identical in every chromosome shard. A layout with one
+separately sharded suite per query is not accepted: after path expansion it
+would contribute multiple query files for the same chromosome. Whole-genome,
+unsharded query files may instead be supplied separately and are column-bound
+after strict row-alignment validation.
+
 Requirements:
 
 - each file must contain metadata columns equivalent to `CHR`, `POS`, `SNP`, and `CM`

@@ -16,3 +16,13 @@ LD-score calculation and regression—follow [Calculate LD scores for gene lists
 with an index](ldscore.md). For the general end-to-end workflow and output
 interpretation, see [the guided tutorial](../guided-tutorial.md) and the
 [partitioned LDSC technical reference](../../current/partitioned-ldsc-workflow.md).
+
+
+
+
+
+three types of query inputs:
+
+- gene list (may need coord table)
+- bed files -- how are these usually obtained? created by users or downloaded online? Should this arg to be supported with padding?
+- annotations (may deprecate)

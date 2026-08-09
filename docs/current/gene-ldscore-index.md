@@ -1,6 +1,6 @@
 # Exact gene LD-score indexes
 
-Last updated on: 2026-08-06
+Last updated on: 2026-08-08
 
 An exact gene LD-score index moves the repeated PLINK calculation for one
 baseline, reference panel, regression-row policy, and gene projection offline.
@@ -39,6 +39,32 @@ rows are bundled HapMap3 SNPs with MHC and centromere regions removed. Supply
 `--regression-snps-file custom.snplist` to replace the HapMap3 candidate set;
 `--exclude-regions` is still applied afterward. Its choices are `none`, `mhc`,
 `centromeres`, and `mhc-and-centromeres`.
+
+The custom regression SNP file must be a **headered text table containing SNP
+identities**. Its required columns depend on the builder's explicit
+`--snp-identifier`:
+
+| `--snp-identifier` | Required columns | Optional columns |
+|---|---|---|
+| `rsid` | `SNP` | anything else |
+| `chr_pos` | `CHR`, `POS` | anything else |
+
+These are the only two identity modes supported by the gene-index builder.
+Duplicate restriction keys collapse, and columns outside the active identity
+schema are ignored.
+
+For example, `custom_regression_snps.tsv` for
+`--snp-identifier chr_pos --genome-build hg19` can contain:
+
+```tsv
+CHR	POS
+1	10583
+1	13302
+2	21537
+```
+
+Then pass it as `--regression-snps-file custom_regression_snps.tsv`. For an
+`rsid` build, use the same headered layout with one `SNP` column instead.
 
 The LD-reference universe is the inner intersection of baseline and PLINK SNPs
 under the configured identifier mode, matching ordinary PLINK `ldscore`

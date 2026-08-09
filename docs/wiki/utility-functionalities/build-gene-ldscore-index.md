@@ -1,6 +1,6 @@
 # Build an exact gene LD-score index
 
-Last updated on: 2026-08-05
+Last updated on: 2026-08-08
 
 For the mathematical construction of the disjoint atoms, stored operator, and
 sufficient statistics—and the full downstream indexed-assembly derivation—see
@@ -52,6 +52,40 @@ drop-all. Inspect `diagnostics/dropped_snps/chrN_dropped.tsv.gz`.
 
 Fast indexed assembly inherits the stored identity mode and build and therefore
 accepts neither live option, even when a supplied value would match.
+
+### Regression SNP file format
+
+`--regression-snps-file` must be a **headered text table containing SNP
+identities**. Its required columns depend on the builder's explicit
+`--snp-identifier`:
+
+| `--snp-identifier` | Required columns | Optional columns |
+|---|---|---|
+| `rsid` | `SNP` | anything else |
+| `chr_pos` | `CHR`, `POS` | anything else |
+
+The gene-index builder supports only these two base identity modes. The reader
+accepts whitespace-, tab-, or comma-delimited plain text and `.gz` files.
+Duplicate restriction keys collapse, and columns outside the active identity
+schema are ignored. In `chr_pos` mode, `CHR` and `POS` must be hg19 coordinates.
+
+For example, the `custom_regression_snps.tsv` used by a
+`--snp-identifier chr_pos --genome-build hg19` build can contain:
+
+```tsv
+CHR	POS
+1	10583
+1	13302
+2	21537
+```
+
+For an `rsid` build, use a headered one-column file instead:
+
+```tsv
+SNP
+rs123
+rs456
+```
 
 The intersected baseline/PLINK SNPs are the LD-reference contributor, count,
 and overlap universe. Regression candidates and `--exclude-regions` select
@@ -149,9 +183,9 @@ ldsc build-gene-ldscore-index \
   --exclude-regions mhc-and-centromeres
 ```
 
-Restriction files are identity-only. Duplicate keys collapse; ordering and
-nonidentity columns do not affect the scientific selection. Use
-`--exclude-regions none` only when intentionally retaining all candidate rows.
+Duplicate keys collapse; ordering and nonidentity columns do not affect the
+scientific selection. Use `--exclude-regions none` only when intentionally
+retaining all candidate rows.
 
 ## Production build
 

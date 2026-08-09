@@ -257,6 +257,62 @@ When `None`, the workflow uses the full reference panel `A`.
 When `None` on the public CLI, the normalized/public row table uses the bundled
 HM3 map. Direct calculator calls may still provide no set explicitly.
 
+#### Regression SNP file format
+
+`--regression-snps-file` must be a **headered text table containing SNP
+identities**. Its required columns depend on `--snp-identifier`.
+
+| `--snp-identifier` | Required columns | Optional columns |
+|---|---|---|
+| `rsid` | `SNP` | anything else |
+| `rsid_allele_aware` | `SNP` | both `A1` and `A2` |
+| `chr_pos` | `CHR`, `POS` | anything else |
+| `chr_pos_allele_aware` (default) | `CHR`, `POS` | both `A1` and `A2` |
+
+In either allele-aware mode, `A1` and `A2` must be supplied together or both
+omitted. Omitting both makes the restriction match by base SNP identity only.
+The reader accepts whitespace-, tab-, or comma-delimited plain text and `.gz`
+files. Duplicate effective identities collapse to one key; columns outside the
+active identity schema are ignored. For coordinate modes, `CHR` and `POS` must
+use the genome build selected by `--genome-build`.
+
+For example, each of the following tab-delimited files is valid for the named
+mode:
+
+`--snp-identifier rsid`
+
+```tsv
+SNP
+rs123
+rs456
+```
+
+`--snp-identifier rsid_allele_aware`
+
+```tsv
+SNP	A1	A2
+rs123	A	G
+rs456	C	T
+```
+
+`--snp-identifier chr_pos`
+
+```tsv
+CHR	POS
+1	10583
+1	13302
+```
+
+`--snp-identifier chr_pos_allele_aware` (the default)
+
+```tsv
+CHR	POS	A1	A2
+1	10583	G	A
+1	13302	C	T
+```
+
+Any consistent supported delimiter may be used instead of tabs.
+
 ### Typical configuration
 
 ```python

@@ -1,6 +1,6 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-09
 
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `column_inference.py`, all
@@ -275,8 +275,10 @@ carries `MAF`). For LD-score calculation, `CM` and `MAF` come exclusively from
 the reference panel: the parquet sidecar (`chrN_meta.tsv.gz`) for the parquet
 backend, and the `.bim`/genotypes (or an interpolated genetic map) for the PLINK
 backend. `annotate` output keeps the legacy positional `CHR BP SNP CM` layout but
-writes an **empty** `CM` placeholder and **no** `MAF` column, so the artifacts
-stay population-agnostic. This `BP` spelling is a narrow text-interoperability
+writes the explicit missing token **`NA`** for `CM` and **no** `MAF` column, so
+every row has the same field count as its header while the artifacts stay
+population-agnostic. Readers normalize `NA` back to a missing `CM`; annotation
+value columns must be numeric and non-missing. This `BP` spelling is a narrow text-interoperability
 choice, not a promise that LDSC3 output is supported as LDSC2 input. LDSC3
 normalizes `BP` back to canonical internal `POS` when reading annotations.
 

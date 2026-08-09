@@ -1,6 +1,6 @@
 # ldsc3_Jerry
 
-Last updated on: 2026-08-05
+Last updated on: 2026-08-09
 
 This repository is the active refactored LDSC package.
 
@@ -132,6 +132,11 @@ Subcommands:
 - `ldsc h2`
 - `ldsc partitioned-h2`
 - `ldsc rg`
+
+Reusable `.annot.gz` shards written by `ldsc annotate` keep the legacy
+`CHR/BP/SNP/CM` leading layout. Because annotation `CM` is semantically missing,
+the writer serializes it as the explicit `NA` token; annotation-value columns
+must contain numeric, non-missing values.
 
 `ldsc munge-sumstats` writes `sumstats.parquet` by default, with optional
 legacy `sumstats.sumstats.gz` output through `--output-format tsv.gz` or

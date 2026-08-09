@@ -216,6 +216,7 @@ from ..path_resolution import (
 )
 from .._row_alignment import assert_same_snp_rows
 from . import formats as legacy_parse
+from .annotation import _annotation_parse_error_message, _validate_annotation_values
 from .identifiers import build_snp_id_series, read_snp_restriction_keys
 from .overlap import OverlapContribution, compute_overlap
 from .plink_bed import __GenotypeArrayInMemory__, PlinkBEDFile  # noqa: F401
@@ -682,11 +683,13 @@ def parse_annotation_file(
     normalized ``CHR`` matches that chromosome. This is the final safeguard for
     group-style path tokens that resolved to shared multi-chromosome files or
     to globs whose filenames did not encode chromosome labels clearly enough for
-    earlier path-level filtering. For LD-score calculation, the annotation
-    file's ``CM`` is the first source. The sidecar metadata only fills missing
-    ``CM`` values.
+    earlier path-level filtering. For LD-score calculation, annotation ``CM``
+    is discarded and the reference panel supplies genetic-map metadata.
     """
-    df = read_text_table(path)
+    try:
+        df = read_text_table(path)
+    except (pd.errors.ParserError, UnicodeDecodeError, ValueError) as exc:
+        raise LDSCInputError(_annotation_parse_error_message(path, details=str(exc))) from exc
     context = path
     chr_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CHR"], context=context)
     pos_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["POS"], context=context)
@@ -744,14 +747,15 @@ def parse_annotation_file(
             "contains only CHR/POS/SNP/CM metadata, or the annotation columns were named "
             "as metadata aliases. Add at least one annotation column with numeric values."
         )
+    annotation_values = _validate_annotation_values(df, annotation_columns, path=path)
 
     # Sort metadata and annotation values together through the one shared genomic
     # sort, then split the result. A single permutation keeps the two tables
     # aligned by construction -- there is no second, hand-rolled sort that could
     # silently diverge from the metadata order.
-    combined = pd.concat([meta, df.loc[:, annotation_columns].reset_index(drop=True)], axis=1)
+    combined = pd.concat([meta, annotation_values.reset_index(drop=True)], axis=1)
     combined = sort_frame_by_genomic_position(combined)
-    annotations = combined.loc[:, annotation_columns].astype(np.float32).reset_index(drop=True)
+    annotations = combined.loc[:, annotation_columns].reset_index(drop=True)
     meta = combined.drop(columns=annotation_columns).reset_index(drop=True)
     return meta, annotations
 

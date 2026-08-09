@@ -1,4 +1,8 @@
 
+# Lessons
+
+Last updated on: 2026-08-09
+
 ## Cleanup-capable preflights must declare every artifact the current run will write
 - Summary: A direct partitioned LD-score overwrite successfully wrote
   `ldscore.overlap.parquet`, then the workflow's post-success stale-artifact
@@ -99,3 +103,6 @@
 - **Takeaway:** When two branches share content but not history (squash/rebase
   workflows), do not rely on 3-way merge; reconstruct the target tree
   deterministically from the authoritative side and assert tree-equality.
+
+## Missing metadata must be explicit in reusable whitespace-parsed tables
+- **Summary/root cause/correction:** `ldsc annotate` wrote empty `CM` fields that regex-whitespace readers collapsed, shifting every query annotation left and filling the final column with NaN; write `CM=NA`, require numeric non-missing annotation values at the shared loader seam, and cover the writer-to-LD-score-parser round trip with distinguishable columns.

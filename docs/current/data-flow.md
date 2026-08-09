@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-09
 
 This document summarizes the user-visible file streams for each public workflow. The diagrams use Mermaid `flowchart LR` because it maps cleanly onto the package's left-to-right data movement and layered module boundaries.
 
@@ -153,7 +153,7 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| projected query annotation shard | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | output name is `query.<chrom>.annot.gz` |
+| projected query annotation shard | `CHR BP SNP CM enhancer_A`<br/>`1 10583 rs58108140 NA 1` | output name is `query.<chrom>.annot.gz`; `NA` is the explicit missing-metadata token, while annotation values must be numeric and non-missing |
 | dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `diagnostics/dropped_snps/dropped.tsv.gz`; records annotation identity cleanup rows |
 | diagnostic metadata | JSON provenance | `diagnostics/metadata.json`; not consumed downstream |
 | workflow log | plain-text lifecycle and package records | `diagnostics/annotate.log` under `output_dir`; not included in returned data paths |

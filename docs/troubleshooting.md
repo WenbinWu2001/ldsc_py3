@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-09
 
 This reference explains `ldsc` errors that can **abort a run** and have more than
 one likely cause. It is organized by command. Each entry lists the likely causes
@@ -354,6 +354,27 @@ required; the resolved subset was used. For `skipped`, fix the source/build or
 broaden the retained reference/regression SNP universes, then rerun with
 `--overwrite` because the diagnostics are owned artifacts. When all queries are
 skipped, no root metadata or canonical parquet result is written.
+
+### ldscore: annotation values are malformed
+
+**Raised by:** `_kernel.annotation._validate_annotation_values()` through the
+annotation and LD-score loaders · **Exception:** `LDSCInputError`
+**Symptom:** `Could not parse annotation file ... annotation value columns must be numeric and non-missing`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | A data row has fewer fields than the header | Compare the reported data row with the header and count fields using the file's delimiter |
+| 2 | An empty metadata placeholder was collapsed by whitespace parsing | Inspect adjacent delimiters around `CM`; package-written missing metadata uses the literal `NA` token |
+| 3 | Delimiters are inconsistent or a row/file is truncated | Inspect the reported row and neighboring rows for mixed tabs/spaces or an incomplete final record |
+| 4 | An annotation value is missing or non-numeric | Inspect the reported annotation columns and rows; missing tokens are allowed only in metadata columns |
+
+**Remedies:**
+
+1. Ensure every data row has exactly one field per header column.
+2. Use `NA` for missing metadata such as `CM`, never an empty field or a numeric sentinel.
+3. Supply numeric, non-missing values in every annotation column, then rerun.
 
 ### ldscore: no annotation SNPs remain after reference-panel intersection
 

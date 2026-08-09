@@ -960,6 +960,61 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(metadata["POS"].tolist(), [10, 20, 30])
         self.assertEqual(annotations["base_a"].tolist(), [1.0, 2.0, 3.0])
 
+    def test_kernel_parse_annotation_file_rejects_row_shorter_than_header(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "short_row.annot"
+            path.write_text(
+                "CHR\tBP\tSNP\tCM\tadipose\twhole_blood\n"
+                "1\t10\trs1\t0.1\t1\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(LDSCInputError) as raised:
+                kernel_ldscore.parse_annotation_file(str(path))
+
+        message = str(raised.exception)
+        self.assertIn("short_row.annot", message)
+        self.assertIn("whole_blood", message)
+        self.assertIn("1 missing value", message)
+        self.assertIn("one field per header column", message)
+        self.assertIn("NA", message)
+
+    def test_kernel_parse_annotation_file_rejects_missing_annotation_value(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "missing_value.annot"
+            path.write_text(
+                "CHR\tBP\tSNP\tCM\tadipose\twhole_blood\n"
+                "1\t10\trs1\t0.1\t1\tNA\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(LDSCInputError) as raised:
+                kernel_ldscore.parse_annotation_file(str(path))
+
+        message = str(raised.exception)
+        self.assertIn("missing_value.annot", message)
+        self.assertIn("whole_blood", message)
+        self.assertIn("1 missing value", message)
+        self.assertIn("missing metadata values", message)
+
+    def test_kernel_parse_annotation_file_rejects_non_numeric_annotation_value(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "non_numeric.annot"
+            path.write_text(
+                "CHR\tBP\tSNP\tCM\tadipose\twhole_blood\n"
+                "1\t10\trs1\tNA\tnot-a-number\t1\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(LDSCInputError) as raised:
+                kernel_ldscore.parse_annotation_file(str(path))
+
+        message = str(raised.exception)
+        self.assertIn("non_numeric.annot", message)
+        self.assertIn("adipose", message)
+        self.assertIn("1 non-numeric value", message)
+        self.assertIn("numeric, non-missing annotation values", message)
+
     def test_kernel_combine_annotation_groups_aligns_allele_free_annotations_in_allele_aware_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

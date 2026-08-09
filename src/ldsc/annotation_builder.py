@@ -944,7 +944,11 @@ class AnnotationBuilder:
                 f"annotate could not read annotation file '{path}': no annotation value columns remain after metadata columns. "
                 "Most likely the file contains only CHR/POS/SNP/CM/allele metadata. Add at least one numeric annotation column."
             )
-        annotations = df.loc[:, annotation_columns].astype(np.float32).reset_index(drop=True)
+        annotations = kernel_annotation._validate_annotation_values(
+            df,
+            annotation_columns,
+            path=path,
+        ).reset_index(drop=True)
         metadata = metadata.reset_index(drop=True)
         return metadata, annotations
 
@@ -1343,7 +1347,7 @@ def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Pat
     """Write one ``query.<chrom>.annot.gz`` file per chromosome from ``bundle``."""
     LOGGER.info(
         "Writing .annot output with the legacy CHR/BP/SNP/CM positional layout; the CM "
-        "column is an empty placeholder and no MAF column is written. CM/MAF are "
+        "column is an explicit NA placeholder and no MAF column is written. CM/MAF are "
         "population-specific and not used downstream (ldscore sources them from the "
         "reference panel)."
     )
@@ -1357,7 +1361,12 @@ def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Pat
         chrom_query = bundle.query_annotations.loc[chrom_mask].reset_index(drop=True)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with gzip.open(out_path, "wt") as handle:
-            pd.concat([chrom_meta, chrom_query], axis=1).to_csv(handle, sep="\t", index=False)
+            pd.concat([chrom_meta, chrom_query], axis=1).to_csv(
+                handle,
+                sep="\t",
+                index=False,
+                na_rep="NA",
+            )
         output_paths.append(out_path)
     return output_paths
 

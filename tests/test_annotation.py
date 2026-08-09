@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc._kernel import annotation as kernel_annotation
+from ldsc._kernel import ldscore as kernel_ldscore
 from ldsc import annotation_builder
 from ldsc.annotation_builder import AnnotationBuilder, AnnotationBundle, run_bed_to_annot
 from ldsc.config import AnnotationBuildConfig, GlobalConfig
@@ -33,6 +34,43 @@ def _write_annot(path: Path, rows: list[tuple], annotation_columns: dict[str, li
 
 
 class AnnotationBuilderTest(unittest.TestCase):
+    def test_annotate_output_round_trips_through_ldscore_parser(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+            expected = pd.DataFrame(
+                {
+                    "adipose": [1.0, 0.0, 0.0],
+                    "cerebellum": [0.0, 1.0, 0.0],
+                    "cortex": [0.0, 0.0, 1.0],
+                    "whole_blood": [1.0, 1.0, 1.0],
+                }
+            )
+            bundle = AnnotationBundle(
+                metadata=pd.DataFrame(
+                    {
+                        "CHR": ["1", "1", "1"],
+                        "POS": [10, 20, 30],
+                        "SNP": ["rs1", "rs2", "rs3"],
+                        "CM": [float("nan")] * 3,
+                    }
+                ),
+                baseline_annotations=pd.DataFrame({"base": [1.0, 1.0, 1.0]}),
+                query_annotations=expected,
+                baseline_columns=["base"],
+                query_columns=expected.columns.tolist(),
+                chromosomes=["1"],
+                source_summary={},
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            )
+
+            [path] = annotation_builder._write_bundle_query_as_annot_files(bundle, output_dir)
+            metadata, actual = kernel_ldscore.parse_annotation_file(str(path))
+
+        self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2", "rs3"])
+        self.assertEqual(actual.columns.tolist(), expected.columns.tolist())
+        pd.testing.assert_frame_equal(actual, expected.astype("float32"))
+        self.assertFalse(actual.isna().any().any())
+
     def test_gene_list_projection_matches_catalog_intervals_and_retains_resolution_status(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -916,7 +954,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(dropped["reason"].tolist(), ["duplicate_identity", "duplicate_identity"])
             self.assertEqual(set(dropped["SNP"]), {"rs1", "rs2"})
 
-    def test_annotate_output_has_empty_cm_and_no_maf(self):
+    def test_annotate_output_has_explicit_missing_cm_and_no_maf(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             base = tmpdir / "base.annot"
@@ -933,11 +971,17 @@ class AnnotationBuilderTest(unittest.TestCase):
                 baseline_annot_sources=(str(base),),
                 output_dir=output_dir,
             )
-            out = pd.read_csv(output_dir / "query.1.annot.gz", sep="\t", compression="gzip")
+            output_path = output_dir / "query.1.annot.gz"
+            with gzip.open(output_path, "rt", encoding="utf-8") as handle:
+                raw_lines = handle.read().splitlines()
+            out = pd.read_csv(output_path, sep="\t", compression="gzip")
             self.assertEqual(out.columns[:4].tolist(), ["CHR", "BP", "SNP", "CM"])
             self.assertNotIn("POS", out.columns)
             self.assertIn("CM", out.columns)  # legacy CHR/BP/SNP/CM layout column present
-            self.assertTrue(out["CM"].isna().all())  # CM is empty/NaN placeholder
+            self.assertTrue(out["CM"].isna().all())  # explicit token normalizes to NaN
+            self.assertTrue(all("\tNA\t" in line for line in raw_lines[1:]))
+            self.assertTrue(all("\t\t" not in line for line in raw_lines[1:]))
+            self.assertTrue(all(len(line.split("\t")) == len(raw_lines[0].split("\t")) for line in raw_lines[1:]))
             self.assertNotIn("MAF", out.columns)  # MAF is never written
 
     def test_identity_cleanup_sidecar_is_header_only_when_no_rows_drop(self):

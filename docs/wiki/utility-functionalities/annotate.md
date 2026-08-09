@@ -1,5 +1,7 @@
 ## Functionality
 
+YOU DO NOT NEED TO ANNOTATE BEFORE RUNNING `ldscore`! Just input the gene lists / bed files directly.
+
 curate binary query annotation files from bed files, given a set of baseline annotation files.
 
 ## Input

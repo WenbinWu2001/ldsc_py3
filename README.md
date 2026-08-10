@@ -13,7 +13,7 @@ git clone --branch ldsc3-beta https://github.com/WenbinWu2001/ldsc_py3.git ldsc3
 cd ldsc3-beta
 ```
 
-Create the environment and install the package:
+Create a environment `ldsc3-beta` and install the package:
 
 ```bash
 conda env create -f environment.yml -n ldsc3-beta

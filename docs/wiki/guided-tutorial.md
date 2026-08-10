@@ -53,15 +53,6 @@ OUTPUT_ROOT="/users/w/e/wenbinwu/Sullivan/LDSC/ldsc3_test_bundle/tutorial_output
 - `snp_identifier=chr_pos`: use `chr` + `pos` as the unique identifier for a SNP.
 - ... [TODO]
 
-### TODO
-
-- Results and plots interpretation (which columns to use in each scenario, and what they mean).
-- How to reuse previously generated annotations for partitioned LDSC.
-- Refine memory and run-time numbers with proper benchmarking rather than guessing from log files. In particular, the SLURM memory figure for `ldscore` is inaccurate (it somehow always reports the allocated memory minus 2 MB).
-- complete main functionality wiki. add link in this guided tutorial. 
-- go with quarto?
-- User checklist: genome build, etc.
-
 ## Munge-sumstats
 
 This section illustrates the `ldsc munge-sumstats` command.
@@ -446,8 +437,18 @@ annot_processed/
             dropped.tsv.gz
 ```
 
+
 ## Backward compatibility with the legacy ldsc python2 codebase
 
-Munged sumstats, legacy annotations.
+Munged sumstats, legacy ld ref suite (unpartitioned / baseline ref) -- not tested.
 
 [TODO]
+
+## TODO
+
+- Results and plots interpretation (which columns to use in each scenario, and what they mean).
+- How to reuse previously generated annotations for partitioned LDSC.
+- Refine memory and run-time numbers with proper benchmarking rather than guessing from log files. In particular, the SLURM memory figure for `ldscore` is inaccurate (it somehow always reports the allocated memory minus 2 MB).
+- complete main functionality wiki. add link in this guided tutorial.
+- go with quarto?
+- User checklist: snp id, genome build, and etc.

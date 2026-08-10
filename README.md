@@ -1,6 +1,6 @@
 # LDSC3 Beta Version 2026-08-09
 
-Last updated: 2026-08-09
+Last updated: 2026-08-10
 
 This branch is a beta release of the refactored LDSC package. The codebase and documentation are still messy and under development.
 
@@ -60,10 +60,10 @@ A complete list of commands is available with `ldsc --help`. To view help for a 
 
 ## Tutorials
 
-Start with the [guided tutorial](docs/wiki/guided-tutorial.md) for a streamlined overview of the general analysis pipeline.
+Choose the tutorial that matches your analysis:
 
-See [Calculating LD Scores from a Gene List](docs/wiki/ldscore-from-gene-list.md) for instructions on calculating LD scores from a list of protein-coding genes.
-
+- **Guided analysis tutorial:** Follow the general LDSC3 workflow, from preparing summary statistics to heritability, genetic-correlation, and partitioned-heritability analyses. [Read on the GitHub Wiki](https://github.com/WenbinWu2001/ldsc_py3/wiki/Guided-tutorial) or [view the Markdown source](docs/wiki/guided-tutorial.md).
+- **LDSC-SEG for protein-coding gene lists:** Test whether a protein-coding gene list is enriched for trait heritability using direct or indexed LD-score calculation. [Read on the GitHub Wiki](https://github.com/WenbinWu2001/ldsc_py3/wiki/LDSC%E2%80%90SEG-for-Protein%E2%80%90Coding-Gene-Lists) or [view the Markdown source](docs/wiki/LDSC-SEG-PC-genes.md).
 
 ## Beta feedback
 

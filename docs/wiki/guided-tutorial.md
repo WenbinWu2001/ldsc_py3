@@ -1,8 +1,10 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-10
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
+
+## Overview
 
 The analysis pipeline involves:
 
@@ -34,8 +36,8 @@ Before running the commands below, follow the README to clone the `main` branch 
 We first set up the input and output directories:
 
 ```bash
-INPUT_ROOT="/users/w/e/wenbinwu/Sullivan/LDSC/ldsc3_test_bundle"
-OUTPUT_ROOT="/users/w/e/wenbinwu/Sullivan/LDSC/ldsc3_test_bundle/tutorial_output"
+INPUT_ROOT="/path/to/ldsc3_test_bundle"
+OUTPUT_ROOT="${INPUT_ROOT}/tutorial_output"
 ```
 
 ### Remarks
@@ -67,7 +69,7 @@ This section illustrates the `ldsc munge-sumstats` command.
 
 ```bash
 TRAIT_NAME="mdd2025"  # used as the output dir name and as a trait label in downstream regression outputs
-RAW_SUMSTATS_FILE="/users/w/e/wenbinwu/Sullivan/LDSC/data/pgc_GWAS/mdd/mdd2025/pgc-mdd2025_no23andMe-noUKBB_eur_v3-49-24-11.tsv" 
+RAW_SUMSTATS_FILE="/path/to/mdd2025_raw_sumstats.tsv"
 SUMSTATS_OUT_DIR="${OUTPUT_ROOT}/sumstats_processed/${TRAIT_NAME}"
 
 ldsc munge-sumstats \
@@ -203,8 +205,8 @@ h2/mdd2025/
 # Munge two other traits.
 TRAIT_NAMES=("scz2022" "adhd2019")
 RAW_SUMSTATS_FILES=(
-  "/users/w/e/wenbinwu/Sullivan/LDSC/data/pgc_GWAS/scz/scz2022/PGC3_SCZ_wave3.european.autosome.public.v3.vcf.cleaned.tsv"
-  "/users/w/e/wenbinwu/Sullivan/LDSC/data/pgc_GWAS/adhd/adhd2019/daner_meta_filtered_NA_iPSYCH23_PGC11_sigPCs_woSEX_2ell6sd_EUR_Neff_70.meta"
+  "/path/to/scz2022_raw_sumstats.tsv"
+  "/path/to/adhd2019_raw_sumstats.tsv"
 )  # change raw sumstats file path here
 
 for i in "${!TRAIT_NAMES[@]}"; do
@@ -325,8 +327,8 @@ ldsc ldscore \
   the same canonical output directory and defaults to the fixed
   `gene_control` baseline column.
 - For the complete indexed workflow, see [Build an exact gene LD-score
-  index](utility-functionalities/build-gene-ldscore-index.md) and [Calculate LD
-  scores for gene lists with an index](main-functionalities/ldscore.md).
+  index](https://github.com/WenbinWu2001/ldsc_py3/blob/ldsc3-beta/docs/wiki/utility-functionalities/build-gene-ldscore-index.md) and [Calculate LD
+  scores for gene lists with an index](https://github.com/WenbinWu2001/ldsc_py3/blob/ldsc3-beta/docs/wiki/main-functionalities/ldscore.md).
   Per-chromosome `Finished` lines report durable private staging; the index
   becomes public only after complete reload validation. Stages cannot be
   resumed or used for incremental chromosome updates.

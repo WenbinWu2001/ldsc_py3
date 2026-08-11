@@ -1,6 +1,6 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-08-10
+Last updated on: 2026-08-11
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
@@ -275,6 +275,9 @@ the baseline model and an all-genes annotation
 ([Finucane et al., 2018](https://doi.org/10.1038/s41588-018-0081-4)). For a
 large collection of gene sets, an exact gene LD-score index computes the fixed
 PLINK/reference work once and reuses it without changing the downstream model.
+The dedicated [LDSC-SEG tutorial for protein-coding gene
+lists](LDSC-SEG-PC-genes.md) disables the control-gene annotation and
+fits each query with the baseline annotations only.
 
 **Recommended memory allocation:** Step 1: 24 GB (generous, for safety); Step 2: < 4 GB
 
@@ -325,10 +328,11 @@ ldsc ldscore \
   genome-build, window, padding, and region arguments. Remove `--padding-bp`
   entirely rather than passing zero. The indexed run writes
   the same canonical output directory and defaults to the fixed
-  `gene_control` baseline column.
+  `gene_control` baseline column; pass `--control-gene-list-source none` to omit
+  that column, as in the dedicated protein-coding gene-list tutorial.
 - For the complete indexed workflow, see [Build an exact gene LD-score
   index](https://github.com/WenbinWu2001/ldsc_py3/blob/ldsc3-beta/docs/wiki/utility-functionalities/build-gene-ldscore-index.md) and [Calculate LD
-  scores for gene lists with an index](https://github.com/WenbinWu2001/ldsc_py3/blob/ldsc3-beta/docs/wiki/main-functionalities/ldscore.md).
+  scores for gene lists with an index](https://github.com/WenbinWu2001/ldsc_py3/blob/ldsc3-beta/docs/wiki/main-functionalities/ldscore-from-gene-list.md).
   Per-chromosome `Finished` lines report durable private staging; the index
   becomes public only after complete reload validation. Stages cannot be
   resumed or used for incremental chromosome updates.

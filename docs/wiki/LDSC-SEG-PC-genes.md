@@ -1,16 +1,16 @@
 # LDSC-SEG for Protein-Coding Gene Lists
 
-Last updated on: 2026-08-10
+Last updated on: 2026-08-11
 
 This tutorial tests whether one or more protein-coding gene lists are enriched for trait heritability. For each query gene list, LDSC3 fits the model
 
-`[query gene list, all PC genes as control, baseline categories]`.
+`[query annotation, baseline annotations]`.
 
-Use the query gene-list coefficient to assess whether the list explains additional heritability beyond the control categories. The all-protein-coding gene list is bundled with the package and does not need to be supplied separately.
+Use the query category's coefficient to assess whether the gene list contributes additional heritability after accounting for the baseline annotations. The commands below disable the control-gene annotation.
 
 The workflow has two steps:
 
-1. Calculate partitioned LD scores using either **direct mode** or **fast indexed mode**.
+1. Calculate partitioned LD scores using either *direct mode* or *fast indexed mode*.
 2. Run partitioned-heritability regression for the target trait.
 
 ## Set up inputs
@@ -32,7 +32,7 @@ Choose either direct mode or fast mode. Both produce the same canonical LD-score
 
 ### Option A: direct mode
 
-Direct mode reads the baseline annotations and PLINK reference panel, constructs the query and control annotations in memory, and calculates their LD scores and annotation counts. The query annotations are not written to disk.
+Direct mode reads the baseline annotations and PLINK reference panel, constructs the query annotations in memory, and calculates their LD scores and annotation counts. The query annotations are not written to disk.
 
 - **Expected runtime:** approximately 1.5 hours
 - **Expected memory usage:** approximately 10 GB
@@ -52,6 +52,7 @@ ldsc ldscore \
   --genome-build hg19 \
   --ld-wind-cm 1.0 \
   --padding-bp 100000 \
+  --control-gene-list-source none \
   --gene-exclude-regions mhc \
   --output-dir "${PARTITIONED_LDSCORE_DIR}" \
   --overwrite
@@ -66,19 +67,19 @@ Flags used in this command:
 - `--genome-build hg19` specifies the build used for gene projection and named region definitions.
 - `--ld-wind-cm 1.0` calculates LD within a 1-cM window.
 - `--padding-bp 100000` adds 100 kb to either side of each gene interval.
-- `--gene-exclude-regions mhc` removes genes in the query and control lists whose unpadded intervals overlap the MHC before padding and projection. This is a gene-level filter; it does not remove SNPs from the LD reference panel.
+- `--control-gene-list-source none` disables the control-gene annotation. Alternatively, specify `all-protein-coding` or one custom control-gene file containing one Ensembl gene ID or gene name per line, without a header.
+- `--gene-exclude-regions mhc` removes query genes whose unpadded intervals overlap the MHC before padding and projection. If a control gene list is enabled, the same filter also applies to it. This is a gene-level filter; it does not remove SNPs from the LD reference panel.
 - `--output-dir` specifies the LD-score output directory.
 - `--overwrite` permits replacement of existing result artifacts. Use it with caution.
 
 Relevant flags omitted because their default values are used:
 
-- `--control-gene-list-source all-protein-coding` uses all protein-coding genes as the control. Alternatively, specify `none` or one custom control-gene file containing one Ensembl gene ID or gene name per line, without a header.
 - `--exclude-regions mhc-and-centromeres` removes MHC and pericentromeric SNPs from the LD-score rows subsequently used in regression. It does not remove these SNPs from the LD reference universe or change annotation count and overlap statistics.
 - `--common-maf-min 0.05` defines common SNPs as SNPs with MAF >= 0.05 when calculating common-SNP annotation counts.
 
 ### Option B: fast indexed mode
 
-Fast mode uses a precomputed exact gene LD-score index to assemble LD scores, annotation counts, and overlap statistics for the query and control gene lists. It does not reread the PLINK reference panel.
+Fast mode uses a precomputed exact gene LD-score index to assemble LD scores, annotation counts, and overlap statistics for the query gene lists. It does not reread the PLINK reference panel.
 
 - **Expected runtime:** approximately 10 minutes
 - **Expected memory usage:** approximately 6 GB
@@ -93,6 +94,7 @@ PARTITIONED_LDSCORE_DIR="${RESULT_ROOT}/pldsc/ldscore"
 ldsc ldscore \
   --query-annot-gene-list-sources "${GENE_LIST_SOURCES}" \
   --gene-ldscore-index-dir "${GENE_LDSCORE_INDEX_DIR}" \
+  --control-gene-list-source none \
   --output-dir "${PARTITIONED_LDSCORE_DIR}" \
   --overwrite
 ```
@@ -101,12 +103,9 @@ Flags used in this command:
 
 - `--query-annot-gene-list-sources` specifies one or more query gene-list files. Glob patterns are supported.
 - `--gene-ldscore-index-dir` specifies the precomputed gene LD-score index. The index contains the fixed baseline LD scores, embedded gene catalog, gene-to-SNP projection data, annotation-count information, regression weights, and the operators needed to assemble gene-list LD scores.
+- `--control-gene-list-source none` disables the control-gene annotation. Fast mode also supports `all-protein-coding` or one custom control-gene file. Multiple control files and glob patterns are not supported. Any enabled control inherits the index's gene catalog, build, padding, and gene-exclusion policy.
 - `--output-dir` specifies the LD-score output directory. The completed directory is self-contained; the index is not needed by the regression in Step 2.
 - `--overwrite` permits replacement of existing result artifacts. Use it with caution.
-
-Relevant flag omitted because its default value is used:
-
-- `--control-gene-list-source all-protein-coding` uses all protein-coding genes as the control. Fast mode also supports `none` or one custom control-gene file. The selected control is assembled at query time and inherits the index's gene catalog, build, padding, and gene-exclusion policy. Multiple control files and glob patterns are not supported.
 
 Fast mode inherits the baseline annotations, reference SNP universe, SNP identity mode, genome build, LD window, gene padding, gene-region exclusion, regression-SNP selection, SNP-region exclusion, MAF rules, annotation counts, and regression weights from the index. The index metadata is the authoritative record of these settings.
 
@@ -129,6 +128,8 @@ ldscore/
 ```
 
 Use `diagnostics/ldscore.log` to monitor progress and inspect key metrics. If a query is absent from the scientific output, check `query_annotation_status.tsv` and then `gene_list_unresolved.tsv.gz` for gene-level problems.
+
+Because the control-gene annotation is disabled, `ldscore.baseline.parquet` contains only the supplied baseline categories; no `gene_control` column is added.
 
 ## Step 2: run partitioned-heritability regression
 
@@ -179,13 +180,13 @@ regr/<trait>/
 
 The root `partitioned_h2.tsv` contains one summary row per query gene list and omits baseline-category rows. Each query-specific `partitioned_h2_full.tsv` reports the complete fitted model:
 
-`[query gene list, all PC genes as control, baseline categories]`.
+`[query annotation, baseline annotations]`.
 
-Focus on `coefficient` and its one-sided `coefficient_p`. A positive coefficient with a small p-value indicates that the query gene list contributes additional heritability beyond the all-protein-coding control and baseline categories.
+Focus on `coefficient` and its one-sided `coefficient_p`. A positive coefficient with a small p-value indicates that the query gene list contributes additional heritability after accounting for the baseline annotations.
 
 ## Differences from the LDSC2 workflow
 
 - LDSC2 calculates new LD scores only for the query annotation and uses precomputed LD scores, annotations, allele-frequency files, and regression weights for the baseline categories.
 - LDSC3 direct mode calculates LD scores for both baseline and query annotations and derives the required count and weight information from the PLINK reference panel in the same run.
-- LDSC3 fast mode retrieves the fixed baseline information from the index and assembles query and control LD scores from precomputed exact components.
+- LDSC3 fast mode retrieves the fixed baseline information from the index and assembles query LD scores from precomputed exact components.
 - By default, LDSC3 starts with the packaged HapMap3 regression SNP set and removes MHC and pericentromeric SNPs from the rows used in regression. LDSC2 uses the provided `w_hm3.print_snps` and does not automatically apply an additional explicit MHC or pericentromeric-region exclusion step.

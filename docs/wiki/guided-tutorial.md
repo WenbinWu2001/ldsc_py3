@@ -1,8 +1,10 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-11
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
+
+## Overview
 
 The analysis pipeline involves:
 
@@ -34,8 +36,8 @@ Before running the commands below, follow the README to clone the `main` branch 
 We first set up the input and output directories:
 
 ```bash
-INPUT_ROOT="/users/w/e/wenbinwu/Sullivan/LDSC/ldsc3_test_bundle"
-OUTPUT_ROOT="/users/w/e/wenbinwu/Sullivan/LDSC/ldsc3_test_bundle/tutorial_output"
+INPUT_ROOT="/path/to/ldsc3_test_bundle"
+OUTPUT_ROOT="${INPUT_ROOT}/tutorial_output"
 ```
 
 ### Remarks
@@ -53,15 +55,6 @@ OUTPUT_ROOT="/users/w/e/wenbinwu/Sullivan/LDSC/ldsc3_test_bundle/tutorial_output
 - `snp_identifier=chr_pos`: use `chr` + `pos` as the unique identifier for a SNP.
 - ... [TODO]
 
-### TODO
-
-- Results and plots interpretation (which columns to use in each scenario, and what they mean).
-- How to reuse previously generated annotations for partitioned LDSC.
-- Refine memory and run-time numbers with proper benchmarking rather than guessing from log files. In particular, the SLURM memory figure for `ldscore` is inaccurate (it somehow always reports the allocated memory minus 2 MB).
-- complete main functionality wiki. add link in this guided tutorial. 
-- go with quarto?
-- User checklist: genome build, etc.
-
 ## Munge-sumstats
 
 This section illustrates the `ldsc munge-sumstats` command.
@@ -76,7 +69,7 @@ This section illustrates the `ldsc munge-sumstats` command.
 
 ```bash
 TRAIT_NAME="mdd2025"  # used as the output dir name and as a trait label in downstream regression outputs
-RAW_SUMSTATS_FILE="/users/w/e/wenbinwu/Sullivan/LDSC/data/pgc_GWAS/mdd/mdd2025/pgc-mdd2025_no23andMe-noUKBB_eur_v3-49-24-11.tsv" 
+RAW_SUMSTATS_FILE="/path/to/mdd2025_raw_sumstats.tsv"
 SUMSTATS_OUT_DIR="${OUTPUT_ROOT}/sumstats_processed/${TRAIT_NAME}"
 
 ldsc munge-sumstats \
@@ -212,8 +205,8 @@ h2/mdd2025/
 # Munge two other traits.
 TRAIT_NAMES=("scz2022" "adhd2019")
 RAW_SUMSTATS_FILES=(
-  "/users/w/e/wenbinwu/Sullivan/LDSC/data/pgc_GWAS/scz/scz2022/PGC3_SCZ_wave3.european.autosome.public.v3.vcf.cleaned.tsv"
-  "/users/w/e/wenbinwu/Sullivan/LDSC/data/pgc_GWAS/adhd/adhd2019/daner_meta_filtered_NA_iPSYCH23_PGC11_sigPCs_woSEX_2ell6sd_EUR_Neff_70.meta"
+  "/path/to/scz2022_raw_sumstats.tsv"
+  "/path/to/adhd2019_raw_sumstats.tsv"
 )  # change raw sumstats file path here
 
 for i in "${!TRAIT_NAMES[@]}"; do
@@ -282,6 +275,9 @@ the baseline model and an all-genes annotation
 ([Finucane et al., 2018](https://doi.org/10.1038/s41588-018-0081-4)). For a
 large collection of gene sets, an exact gene LD-score index computes the fixed
 PLINK/reference work once and reuses it without changing the downstream model.
+The dedicated [LDSC-SEG tutorial for protein-coding gene
+lists](LDSC-SEG-PC-genes.md) disables the control-gene annotation and
+fits each query with the baseline annotations only.
 
 **Recommended memory allocation:** Step 1: 24 GB (generous, for safety); Step 2: < 4 GB
 
@@ -332,10 +328,11 @@ ldsc ldscore \
   genome-build, window, padding, and region arguments. Remove `--padding-bp`
   entirely rather than passing zero. The indexed run writes
   the same canonical output directory and defaults to the fixed
-  `gene_control` baseline column.
+  `gene_control` baseline column; pass `--control-gene-list-source none` to omit
+  that column, as in the dedicated protein-coding gene-list tutorial.
 - For the complete indexed workflow, see [Build an exact gene LD-score
-  index](utility-functionalities/build-gene-ldscore-index.md) and [Calculate LD
-  scores for gene lists with an index](main-functionalities/ldscore.md).
+  index](https://github.com/WenbinWu2001/ldsc_py3/blob/ldsc3-beta/docs/wiki/utility-functionalities/build-gene-ldscore-index.md) and [Calculate LD
+  scores for gene lists with an index](https://github.com/WenbinWu2001/ldsc_py3/blob/ldsc3-beta/docs/wiki/main-functionalities/ldscore-from-gene-list.md).
   Per-chromosome `Finished` lines report durable private staging; the index
   becomes public only after complete reload validation. Stages cannot be
   resumed or used for incremental chromosome updates.
@@ -446,8 +443,18 @@ annot_processed/
             dropped.tsv.gz
 ```
 
+
 ## Backward compatibility with the legacy ldsc python2 codebase
 
-Munged sumstats, legacy annotations.
+Munged sumstats, legacy ld ref suite (unpartitioned / baseline ref) -- not tested.
 
 [TODO]
+
+## TODO
+
+- Results and plots interpretation (which columns to use in each scenario, and what they mean).
+- How to reuse previously generated annotations for partitioned LDSC.
+- Refine memory and run-time numbers with proper benchmarking rather than guessing from log files. In particular, the SLURM memory figure for `ldscore` is inaccurate (it somehow always reports the allocated memory minus 2 MB).
+- complete main functionality wiki. add link in this guided tutorial.
+- go with quarto?
+- User checklist: snp id, genome build, and etc.

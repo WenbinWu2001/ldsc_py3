@@ -1,17 +1,16 @@
 # Calculate LD scores for gene lists with an index
 
-Last updated on: 2026-08-05
+Last updated on: 2026-08-11
 
 ## Motivation
 
 Gene expression, proteomic, GO, and SynGO analyses often produce many related
 gene sets. The scientific question is whether common-variant heritability is
-enriched near a focal set after accounting for ordinary functional annotations
-and the general tendency of SNPs near genes to carry heritability.
+enriched near a focal set after accounting for ordinary functional annotations.
 
-LDSC-SEG used S-LDSC for exactly this kind of conditional gene-set test: a
-specifically expressed gene annotation was fitted with the baseline model and
-an all-genes annotation ([Finucane et al., 2018](https://doi.org/10.1038/s41588-018-0081-4). An exact index makes the LD-score stage fast to repeat across many focal gene lists; the downstream `partitioned-h2` model and interpretation remain S-LDSC.
+The original LDSC-SEG analysis ([Finucane et al., 2018](https://doi.org/10.1038/s41588-018-0081-4)) fitted a specifically expressed gene annotation with the baseline categories and a control annotation constructed from all genes in the analyzed gene-expression data set. This tutorial disables the control-gene annotation, so each focal annotation is tested against the baseline categories only.
+
+An exact index makes the LD-score stage fast to repeat across many focal gene lists; the downstream `partitioned-h2` model remains S-LDSC.
 
 ## Goal
 
@@ -54,7 +53,7 @@ LDSCORE_OUTPUT_DIR="/path/to/results/gene_set_ldscores"
 ldsc ldscore \
   --gene-ldscore-index-dir "${INDEX_DIR}" \
   --query-annot-gene-list-sources "${GENE_LIST_SOURCES}" \
-  --control-gene-list-source all-protein-coding \
+  --control-gene-list-source none \
   --output-dir "${LDSCORE_OUTPUT_DIR}"
 ```
 
@@ -90,19 +89,22 @@ outputs; they do not need the source index after assembly.
 
 Use `--overwrite` to replace an existing output family.
 
-## Understand the control annotation
+## Understand the optional control annotation
 
 The default `all-protein-coding` control creates the fixed `gene_control`
 column and appends it to the baseline block. This plays the role of the
-all-genes annotation in the LDSC-SEG design: a focal coefficient is interpreted
-conditional on baseline annotations and general gene proximity, rather than as
-a comparison of genic versus non-genic SNPs.
+all-genes annotation in the original LDSC-SEG design: a focal coefficient is
+interpreted conditional on baseline annotations and general gene proximity,
+rather than as a comparison of genic versus non-genic SNPs. In the commands
+above, `--control-gene-list-source none` disables this control, so no
+`gene_control` column is added.
 
-Alternative controls are explicit scientific choices:
+The `all-protein-coding` option is planned for deprecation. Until then, the
+available alternatives are:
 
 ```bash
-# Disable the fixed gene control.
---control-gene-list-source none
+# Restore the default all-protein-coding control.
+--control-gene-list-source all-protein-coding
 
 # Use one custom background gene list.
 --control-gene-list-source /path/to/assayed_protein_coding_genes.txt
@@ -176,10 +178,11 @@ ldsc partitioned-h2 \
   --write-per-query-results
 ```
 
-The workflow loads all focal columns, then fits one model per focal query. Each
-model contains the supplied baseline annotations, `gene_control` when enabled,
-and one focal gene-set annotation. Interpret the focal coefficient and its
-p-value as conditional on that model. Correlated or overlapping gene sets can
+The workflow loads all focal columns, then fits one model per focal query. With
+the command above, each model contains the supplied baseline annotations and
+one focal gene-set annotation. If a control is enabled, its `gene_control`
+column is also included. Interpret the focal coefficient and its p-value as
+conditional on the fitted model. Correlated or overlapping gene sets can
 therefore produce related results and should not be read as mutually
 independent discoveries.
 
@@ -201,7 +204,7 @@ ldsc ldscore \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
   --exclude-regions mhc-and-centromeres \
-  --control-gene-list-source all-protein-coding \
+  --control-gene-list-source none \
   --output-dir "${LDSCORE_OUTPUT_DIR}"
 ```
 

@@ -89,7 +89,6 @@ from .genome_build_inference import resolve_genome_build
 from .gene_list_resolver import (
     GeneCatalog,
     GeneListResolution,
-    resolve_all_protein_coding,
     resolve_gene_list,
 )
 from .path_resolution import (
@@ -97,6 +96,7 @@ from .path_resolution import (
     ensure_output_directory,
     preflight_output_artifact_family,
     remove_output_artifacts,
+    resolve_exact_file,
     resolve_file_group,
     split_cli_path_tokens,
 )
@@ -424,16 +424,13 @@ class AnnotationBuilder:
                 )
                 for index, path in enumerate(gene_paths, start=1)
             )
-            control_source = str(source_spec.control_gene_list_source)
-            if control_source == "all-protein-coding":
-                control_resolution = resolve_all_protein_coding(
-                    catalog,
-                    genome_build=self.projection_genome_build,
-                    gene_exclude_regions=source_spec.gene_exclude_regions,
+            if source_spec.control_gene_list_file is not None:
+                control_file = resolve_exact_file(
+                    source_spec.control_gene_list_file,
+                    label="control gene-list file",
                 )
-            elif control_source != "none":
                 control_resolution = resolve_gene_list(
-                    control_source,
+                    control_file,
                     catalog,
                     genome_build=self.projection_genome_build,
                     source_ordinal=0,
@@ -442,8 +439,7 @@ class AnnotationBuilder:
             if control_resolution is not None and control_resolution.status not in {"ok", "warning"}:
                 raise LDSCInputError(
                     "The requested control gene list is unusable "
-                    f"(reason={control_resolution.reason}). Use a valid control path, "
-                    "'all-protein-coding', or 'none'."
+                    f"(reason={control_resolution.reason}). Use a valid control gene-list file."
                 )
             catalog_provenance = catalog.provenance(self.projection_genome_build)
 
@@ -733,7 +729,7 @@ class AnnotationBuilder:
                 query_annot_sources=(() if not has_query_inputs else (query_by_chrom[chrom_key],)),
                 query_annot_bed_sources=source_spec.query_annot_bed_sources,
                 query_annot_gene_list_sources=source_spec.query_annot_gene_list_sources,
-                control_gene_list_source=source_spec.control_gene_list_source,
+                control_gene_list_file=source_spec.control_gene_list_file,
                 gene_exclude_regions=source_spec.gene_exclude_regions,
                 padding_bp=source_spec.padding_bp,
                 allow_missing_query=source_spec.allow_missing_query,
@@ -839,7 +835,11 @@ class AnnotationBuilder:
                 "query_annot_sources": list(source_spec.query_annot_sources),
                 "query_annot_bed_sources": list(source_spec.query_annot_bed_sources),
                 "query_annot_gene_list_sources": [Path(path).name for path in source_spec.query_annot_gene_list_sources],
-                "control_gene_list_source": Path(str(source_spec.control_gene_list_source)).name,
+                "control_gene_list_file": (
+                    None
+                    if source_spec.control_gene_list_file is None
+                    else Path(source_spec.control_gene_list_file).name
+                ),
                 "gene_exclude_regions": source_spec.gene_exclude_regions,
                 "padding_bp": source_spec.padding_bp,
             },

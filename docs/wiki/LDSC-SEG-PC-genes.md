@@ -6,7 +6,7 @@ This tutorial tests whether one or more protein-coding gene lists are enriched f
 
 `[query annotation, baseline annotations]`.
 
-Use the query category's coefficient to assess whether the gene list contributes additional heritability after accounting for the baseline annotations. The commands below disable the control-gene annotation.
+Use the query category's coefficient to assess whether the gene list contributes additional heritability after accounting for the baseline annotations. The commands below omit the optional control-gene file, so no control annotation is added.
 
 The workflow has two steps:
 
@@ -52,7 +52,6 @@ ldsc ldscore \
   --genome-build hg19 \
   --ld-wind-cm 1.0 \
   --padding-bp 100000 \
-  --control-gene-list-source none \
   --gene-exclude-regions mhc \
   --output-dir "${PARTITIONED_LDSCORE_DIR}" \
   --overwrite
@@ -67,7 +66,7 @@ Flags used in this command:
 - `--genome-build hg19` specifies the build used for gene projection and named region definitions.
 - `--ld-wind-cm 1.0` calculates LD within a 1-cM window.
 - `--padding-bp 100000` adds 100 kb to either side of each gene interval.
-- `--control-gene-list-source none` disables the control-gene annotation. Alternatively, specify `all-protein-coding` or one custom control-gene file containing one Ensembl gene ID or gene name per line, without a header.
+- No control-gene annotation is added by default. To add one, pass a single existing file with `--control-gene-list-file`; it must contain one Ensembl gene ID or gene name per line, without a header.
 - `--gene-exclude-regions mhc` removes query genes whose unpadded intervals overlap the MHC before padding and projection. If a control gene list is enabled, the same filter also applies to it. This is a gene-level filter; it does not remove SNPs from the LD reference panel.
 - `--output-dir` specifies the LD-score output directory.
 - `--overwrite` permits replacement of existing result artifacts. Use it with caution.
@@ -94,7 +93,6 @@ PARTITIONED_LDSCORE_DIR="${RESULT_ROOT}/pldsc/ldscore"
 ldsc ldscore \
   --query-annot-gene-list-sources "${GENE_LIST_SOURCES}" \
   --gene-ldscore-index-dir "${GENE_LDSCORE_INDEX_DIR}" \
-  --control-gene-list-source none \
   --output-dir "${PARTITIONED_LDSCORE_DIR}" \
   --overwrite
 ```
@@ -103,7 +101,7 @@ Flags used in this command:
 
 - `--query-annot-gene-list-sources` specifies one or more query gene-list files. Glob patterns are supported.
 - `--gene-ldscore-index-dir` specifies the precomputed gene LD-score index. The index contains the fixed baseline LD scores, embedded gene catalog, gene-to-SNP projection data, annotation-count information, regression weights, and the operators needed to assemble gene-list LD scores.
-- `--control-gene-list-source none` disables the control-gene annotation. Fast mode also supports `all-protein-coding` or one custom control-gene file. Multiple control files and glob patterns are not supported. Any enabled control inherits the index's gene catalog, build, padding, and gene-exclusion policy.
+- No control-gene annotation is added by default. Fast mode accepts one existing control-gene file through `--control-gene-list-file`; multiple files, glob patterns, and sentinel values are not supported. An enabled control inherits the index's gene catalog, build, padding, and gene-exclusion policy.
 - `--output-dir` specifies the LD-score output directory. The completed directory is self-contained; the index is not needed by the regression in Step 2.
 - `--overwrite` permits replacement of existing result artifacts. Use it with caution.
 
@@ -129,7 +127,7 @@ ldscore/
 
 Use `diagnostics/ldscore.log` to monitor progress and inspect key metrics. If a query is absent from the scientific output, check `query_annotation_status.tsv` and then `gene_list_unresolved.tsv.gz` for gene-level problems.
 
-Because the control-gene annotation is disabled, `ldscore.baseline.parquet` contains only the supplied baseline categories; no `gene_control` column is added.
+Because no control-gene file is supplied, `ldscore.baseline.parquet` contains only the supplied baseline categories; no `gene_control` column is added.
 
 ## Step 2: run partitioned-heritability regression
 

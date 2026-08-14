@@ -183,6 +183,26 @@ def resolve_scalar_path(
     return matches[0]
 
 
+def resolve_exact_file(
+    token: InputPathToken,
+    *,
+    label: str = "input",
+) -> str:
+    """Resolve one literal path that must name an existing regular file.
+
+    Unlike :func:`resolve_scalar_path`, this helper deliberately does not
+    expand glob patterns. It is intended for singular ``--*-file`` arguments.
+    """
+    normalized_token = normalize_path_token(token)
+    if not Path(normalized_token).is_file():
+        raise LDSCInputError(
+            f"Could not resolve {label} from path {normalized_token!r}: the path does not name "
+            "an existing regular file. Pass one exact file path; glob patterns, directories, "
+            "and sentinel values are not supported."
+        )
+    return normalized_token
+
+
 def resolve_file_group(
     tokens: InputPathCollection | None,
     *,

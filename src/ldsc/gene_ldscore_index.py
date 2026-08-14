@@ -64,8 +64,13 @@ from .chromosome_inference import normalize_chromosome, normalize_chromosome_ser
 from ._coordinates import positive_int_position_series
 from .config import AnnotationBuildConfig, GeneLDScoreIndexBuildConfig, GlobalConfig
 from .errors import LDSCInputError, LDSCInternalError
-from .gene_list_resolver import GeneCatalog, GeneListResolution, resolve_all_protein_coding, resolve_gene_list
-from .path_resolution import resolve_file_group
+from .gene_list_resolver import (
+    GeneCatalog,
+    GeneListResolution,
+    resolve_gene_list,
+    select_index_eligible_gene_indices,
+)
+from .path_resolution import resolve_exact_file, resolve_file_group
 from .query_annotations import QueryAnnotationStatus
 from .hm3 import packaged_hm3_curated_map_path
 from .path_resolution import split_cli_path_tokens
@@ -290,11 +295,11 @@ def _build_embedded_gene_catalog(
 ) -> pd.DataFrame:
     """Build the index's self-contained ordered catalog and inclusion policy."""
     eligible = set(
-        resolve_all_protein_coding(
+        select_index_eligible_gene_indices(
             catalog,
             genome_build=genome_build,
             gene_exclude_regions=gene_exclude_regions,
-        ).catalog_indices
+        )
     )
     rows: list[dict] = []
     next_row: dict[str, int] = {}
@@ -1601,7 +1606,7 @@ def run_indexed_ldscore(
     index_dir: str | Path,
     *,
     query_gene_list_sources: Sequence[str | Path],
-    control_gene_list_source: str | Path = "all-protein-coding",
+    control_gene_list_file: str | Path | None = None,
     output_dir: str | Path,
     overwrite: bool = False,
 ):
@@ -1614,9 +1619,9 @@ def run_indexed_ldscore(
     query_gene_list_sources : sequence of path-like
         One-column gene-list files. Exact Ensembl IDs and case-sensitive gene
         names are resolved against the embedded catalog in source order.
-    control_gene_list_source : path-like, {"all-protein-coding", "none"}, optional
-        Fixed control source. The default adds the union of all eligible
-        protein-coding genes as ``gene_control`` to the baseline block.
+    control_gene_list_file : path-like or None, optional
+        Optional fixed-control gene-list file. When omitted, no
+        ``gene_control`` annotation is added.
     output_dir : path-like
         Destination for the canonical self-contained LD-score directory.
     overwrite : bool, optional
@@ -1690,19 +1695,16 @@ def run_indexed_ldscore(
             output_dir=output_dir,
             overwrite=overwrite,
         )
-    control_source = str(control_gene_list_source)
     control_resolution: GeneListResolution | None
-    if control_source == "none":
+    if control_gene_list_file is None:
         control_resolution = None
-    elif control_source == "all-protein-coding":
-        control_resolution = resolve_all_protein_coding(
-            catalog,
-            genome_build=projection_build,
-            gene_exclude_regions=gene_policy,
-        )
     else:
+        control_file = resolve_exact_file(
+            control_gene_list_file,
+            label="control gene-list file",
+        )
         control_resolution = resolve_gene_list(
-            control_source,
+            control_file,
             catalog,
             genome_build=projection_build,
             source_ordinal=0,

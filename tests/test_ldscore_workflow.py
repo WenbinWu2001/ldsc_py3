@@ -1280,7 +1280,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
 
         self.assertEqual(args.query_annot_gene_list_sources, "immune.txt.gz,brain.list")
-        self.assertEqual(args.control_gene_list_source, "all-protein-coding")
+        self.assertIsNone(args.control_gene_list_file)
         self.assertEqual(args.gene_exclude_regions, "none")
         with self.assertRaises(SystemExit):
             parser.parse_args(
@@ -4016,7 +4016,6 @@ def test_gene_list_mhc_query_keeps_reference_counts_but_not_regression_row(tmp_p
         AnnotationBuildConfig(
             baseline_annot_sources=(baseline,),
             query_annot_gene_list_sources=(genes,),
-            control_gene_list_source="none",
         )
     )
     metadata = bundle.metadata.copy()

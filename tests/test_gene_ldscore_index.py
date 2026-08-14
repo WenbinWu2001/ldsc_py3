@@ -1588,12 +1588,14 @@ def test_indexed_gene_lists_assemble_control_queries_and_canonical_output(tmp_pa
         chromosomes={"22": chromosome}, overwrite=False,
     )
     genes = tmp_path / "focal.txt"
+    control = tmp_path / "control.txt"
     genes.write_text("G1\n", encoding="utf-8")
+    control.write_text("G1\nG2\n", encoding="utf-8")
 
     result = run_indexed_ldscore(
         index_dir,
         query_gene_list_sources=(genes,),
-        control_gene_list_source="all-protein-coding",
+        control_gene_list_file=control,
         output_dir=tmp_path / "ldscores",
         overwrite=False,
     )
@@ -1610,20 +1612,40 @@ def test_indexed_gene_lists_assemble_control_queries_and_canonical_output(tmp_pa
     assert metadata["index_id"] == calculate_index_id(index_identity)
 
 
-def test_ldscore_parser_accepts_explicit_indexed_mode():
+def test_ldscore_parser_accepts_control_gene_list_file_in_indexed_mode():
     args = cli.build_parser().parse_args(
         [
             "ldscore",
             "--output-dir", "out",
             "--gene-ldscore-index-dir", "gene-index",
             "--query-annot-gene-list-sources", "immune.txt,brain.txt",
-            "--control-gene-list-source", "none",
+            "--control-gene-list-file", "control.txt",
         ]
     )
 
     assert args.gene_ldscore_index_dir == "gene-index"
     assert args.query_annot_gene_list_sources == "immune.txt,brain.txt"
-    assert args.control_gene_list_source == "none"
+    assert args.control_gene_list_file == "control.txt"
+
+
+def test_ldscore_parser_rejects_removed_control_gene_list_source():
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(
+            [
+                "ldscore",
+                "--output-dir", "out",
+                "--query-annot-gene-list-sources", "immune.txt",
+                "--control-gene-list-source", "none",
+            ]
+        )
+
+
+def test_python_ldscore_rejects_removed_control_gene_list_source():
+    with pytest.raises(LDSCUsageError, match="control_gene_list_source"):
+        ldscore_calculator.run_ldscore(
+            output_dir="out",
+            control_gene_list_source="control.txt",
+        )
 
 
 def test_explicit_indexed_mode_dispatches_without_live_reference(monkeypatch, tmp_path):
@@ -1651,7 +1673,7 @@ def test_explicit_indexed_mode_dispatches_without_live_reference(monkeypatch, tm
     assert captured == {
         "index_dir": "gene-index",
         "query_gene_list_sources": ("immune.txt", "brain.txt"),
-        "control_gene_list_source": "all-protein-coding",
+        "control_gene_list_file": None,
         "output_dir": str(tmp_path / "out"),
         "overwrite": True,
     }
@@ -1678,6 +1700,35 @@ def test_explicit_indexed_cli_writes_the_canonical_workflow_log(tmp_path):
     log_path = output_dir / "diagnostics" / "ldscore.log"
     assert log_path.exists()
     assert "gene_ldscore_index" in log_path.read_text(encoding="utf-8")
+    assert "gene_control" not in pd.read_parquet(output_dir / "ldscore.baseline.parquet").columns
+
+
+def test_indexed_control_gene_list_file_must_resolve_to_a_file(tmp_path):
+    chromosome, catalog, index_identity = _artifact_payload()
+    index_dir = publish_gene_ldscore_index(
+        tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
+        chromosomes={"22": chromosome}, overwrite=False,
+    )
+    genes = tmp_path / "focal.txt"
+    genes.write_text("G1\n", encoding="utf-8")
+
+    with pytest.raises(LDSCInputError, match="control gene-list file"):
+        run_indexed_ldscore(
+            index_dir,
+            query_gene_list_sources=(genes,),
+            control_gene_list_file=tmp_path / "missing-control.txt",
+            output_dir=tmp_path / "out",
+        )
+
+    control = tmp_path / "control.txt"
+    control.write_text("G1\n", encoding="utf-8")
+    with pytest.raises(LDSCInputError, match="glob patterns"):
+        run_indexed_ldscore(
+            index_dir,
+            query_gene_list_sources=(genes,),
+            control_gene_list_file=tmp_path / "*.txt",
+            output_dir=tmp_path / "out",
+        )
 
 
 @pytest.mark.parametrize("forbidden", [
@@ -1724,7 +1775,6 @@ def test_indexed_all_unresolved_writes_diagnostics_without_scientific_outputs(tm
         run_indexed_ldscore(
             index_dir,
             query_gene_list_sources=(genes,),
-            control_gene_list_source="none",
             output_dir=output_dir,
         )
 

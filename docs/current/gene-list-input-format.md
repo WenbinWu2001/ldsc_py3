@@ -124,11 +124,13 @@ If an input query gene list or BED file is absent from the scientific results,
 that query failed. Check `diagnostics/query_annotation_status.tsv` for the
 reason, then `diagnostics/gene_list_unresolved.tsv.gz` for gene-level details.
 
-By default, gene-list runs append an all-protein-coding fixed control named
-`gene_control` to the baseline block. Use `--control-gene-list-source none` to
-disable it or pass one custom control-list path. `--gene-exclude-regions mhc`
-removes genes whose unpadded transcribed intervals overlap the packaged MHC
-interval before padding; it is independent of SNP `--exclude-regions`.
+By default, gene-list runs do not add a fixed gene control. To condition on a
+specific background gene set, pass one existing one-column file with
+`--control-gene-list-file`; it is projected as the baseline column
+`gene_control`. `--gene-exclude-regions mhc` removes genes whose unpadded
+transcribed intervals overlap the packaged MHC interval before padding; it is
+independent of SNP `--exclude-regions` and applies to both focal and control
+gene lists.
 
 For an installed exact index, replace the live baseline/reference arguments
 with `--gene-ldscore-index-dir <index-dir>`. Resolution then uses only the

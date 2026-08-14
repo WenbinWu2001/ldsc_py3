@@ -110,9 +110,9 @@ $$
 
 Thus, all SNPs in the retained baseline/PLINK intersection are eligible
 contributors; the value $A_{kc}$ determines a SNP's contribution to column
-$c$. Protein-coding intervals define only the disjoint atoms used for
-`gene_control` and focal gene-list annotations. They do not filter the supplied
-baseline matrix or its LD-reference universe.
+$c$. Protein-coding intervals define only the disjoint atoms used for focal
+gene-list annotations and an optional custom `gene_control`. They do not filter
+the supplied baseline matrix or its LD-reference universe.
 
 ### Baseline-suite component usage
 
@@ -247,22 +247,27 @@ evidence fails rather than guessing.
 ldsc ldscore \
   --gene-ldscore-index-dir indexes/1000G_EUR_Phase3_baseline_100kb \
   --query-annot-gene-list-sources 'gene_lists/*.txt' \
-  --control-gene-list-source all-protein-coding \
   --output-dir results/gene_ldscores
 ```
 
 The index directory must be explicit. Indexed mode accepts gene lists, the
-control source, output/overwrite, and logging controls; it does not accept live
-baseline, PLINK/R2, build, identity, window, map, region, or regression-SNP
-overrides. A missing or corrupt index never triggers discovery or direct-mode
-fallback.
+optional `--control-gene-list-file`, output/overwrite, and logging controls; it
+does not accept live baseline, PLINK/R2, build, identity, window, map, region,
+or regression-SNP overrides. A missing or corrupt index never triggers
+discovery or direct-mode fallback.
 
 The assembled LD-score directory is self-contained and records the inherited
 mode/build plus `index_id`; downstream `h2`, `rg`, and `partitioned-h2` use the
 ordinary summary-statistics identity, genome-build, and explicit downgrade
 rules. The source index is not needed after successful assembly.
 
-**`gene_control` is a binary baseline annotation consists of the selected (padded) control genes. Its default is `all-protein-coding` (all eligible protein-coding genes); use `none` to omit it or provide one custom control-list path.** It captures broad protein-coding-gene background enrichment; the focal gene-list regression coefficient (`tau`) represents the incremental per-SNP heritability beyond that background and the other baseline annotations, not a standalone causal effect. Overlapping, nested, duplicated, and alias-selected genes use Boolean union. The stored operator is float64, preserves negative adjusted-r-squared values, and is not clamped or epsilon-pruned.
+By default, indexed assembly adds no gene control. Supplying one existing
+one-column gene list with `--control-gene-list-file` creates the binary baseline
+annotation `gene_control` from those selected, padded genes. A focal gene-list
+coefficient (`tau`) is then conditional on that chosen background and the other
+baseline annotations. Overlapping, nested, duplicated, and alias-selected genes
+use Boolean union. The stored operator is float64, preserves negative adjusted-r-squared
+values, and is not clamped or epsilon-pruned.
 
 The broader intersected PLINK/baseline universe supplies LD-score contributors,
 counts, and overlaps. Only the configured regression restriction and region

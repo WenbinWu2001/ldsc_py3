@@ -276,7 +276,7 @@ the baseline model and an all-genes annotation
 large collection of gene sets, an exact gene LD-score index computes the fixed
 PLINK/reference work once and reuses it without changing the downstream model.
 The dedicated [LDSC-SEG tutorial for protein-coding gene
-lists](LDSC-SEG-PC-genes.md) disables the control-gene annotation and
+lists](LDSC-SEG-PC-genes.md) does not add a control-gene annotation and
 fits each query with the baseline annotations only.
 
 **Recommended memory allocation:** Step 1: 24 GB (generous, for safety); Step 2: < 4 GB
@@ -327,9 +327,8 @@ ldsc ldscore \
   `--query-annot-gene-list-sources` and omit live baseline, PLINK/R²,
   genome-build, window, padding, and region arguments. Remove `--padding-bp`
   entirely rather than passing zero. The indexed run writes
-  the same canonical output directory and defaults to the fixed
-  `gene_control` baseline column; pass `--control-gene-list-source none` to omit
-  that column, as in the dedicated protein-coding gene-list tutorial.
+  the same canonical output directory and adds no gene control by default. To
+  add one, pass an existing one-column file with `--control-gene-list-file`.
 - For the complete indexed workflow, see [Build an exact gene LD-score
   index](https://github.com/WenbinWu2001/ldsc_py3/blob/ldsc3-beta/docs/wiki/utility-functionalities/build-gene-ldscore-index.md) and [Calculate LD
   scores for gene lists with an index](https://github.com/WenbinWu2001/ldsc_py3/blob/ldsc3-beta/docs/wiki/main-functionalities/ldscore-from-gene-list.md).

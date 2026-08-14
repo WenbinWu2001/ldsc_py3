@@ -19,9 +19,10 @@ The public regression CLI no longer accepts fragmented LD-score artifacts:
 `--query-columns` are removed.
 
 Gene-set analyses may construct the same canonical LD-score directory through
-an explicit exact profile. In that mode, `gene_control` is part of the baseline
-block and each model still contains baseline plus control plus one focal gene
-set. See [the indexed gene-list tutorial](../wiki/main-functionalities/ldscore.md).
+an explicit exact index. By default, each regression model contains the
+supplied baseline plus one focal gene set. If LD-score calculation was given a
+`--control-gene-list-file`, its `gene_control` column is also part of the fixed
+baseline block. See [the indexed gene-list tutorial](../wiki/main-functionalities/ldscore.md).
 
 ## 2. LD-Score Result Directory
 

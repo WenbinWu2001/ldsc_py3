@@ -8,7 +8,7 @@ Gene expression, proteomic, GO, and SynGO analyses often produce many related
 gene sets. The scientific question is whether common-variant heritability is
 enriched near a focal set after accounting for ordinary functional annotations.
 
-The original LDSC-SEG analysis ([Finucane et al., 2018](https://doi.org/10.1038/s41588-018-0081-4)) fitted a specifically expressed gene annotation with the baseline categories and a control annotation constructed from all genes in the analyzed gene-expression data set. This tutorial disables the control-gene annotation, so each focal annotation is tested against the baseline categories only.
+The original LDSC-SEG analysis ([Finucane et al., 2018](https://doi.org/10.1038/s41588-018-0081-4)) fitted a specifically expressed gene annotation with the baseline categories and a control annotation constructed from all genes in the analyzed gene-expression data set. This tutorial does not add a control-gene annotation, so each focal annotation is tested against the baseline categories only.
 
 An exact index makes the LD-score stage fast to repeat across many focal gene lists; the downstream `partitioned-h2` model remains S-LDSC.
 
@@ -53,7 +53,6 @@ LDSCORE_OUTPUT_DIR="/path/to/results/gene_set_ldscores"
 ldsc ldscore \
   --gene-ldscore-index-dir "${INDEX_DIR}" \
   --query-annot-gene-list-sources "${GENE_LIST_SOURCES}" \
-  --control-gene-list-source none \
   --output-dir "${LDSCORE_OUTPUT_DIR}"
 ```
 
@@ -91,28 +90,18 @@ Use `--overwrite` to replace an existing output family.
 
 ## Understand the optional control annotation
 
-The default `all-protein-coding` control creates the fixed `gene_control`
-column and appends it to the baseline block. This plays the role of the
-all-genes annotation in the original LDSC-SEG design: a focal coefficient is
-interpreted conditional on baseline annotations and general gene proximity,
-rather than as a comparison of genic versus non-genic SNPs. In the commands
-above, `--control-gene-list-source none` disables this control, so no
-`gene_control` column is added.
-
-The `all-protein-coding` option is planned for deprecation. Until then, the
-available alternatives are:
+No gene control is added by default. To condition focal gene sets on a specific
+background universe, supply one existing one-column gene-list file:
 
 ```bash
-# Restore the default all-protein-coding control.
---control-gene-list-source all-protein-coding
-
-# Use one custom background gene list.
---control-gene-list-source /path/to/assayed_protein_coding_genes.txt
+--control-gene-list-file /path/to/background_genes.txt
 ```
 
-A custom background can be appropriate when the focal sets were selected from
-a restricted assay universe. An unusable custom control stops the run. Do not
-name a focal list `gene_control`; that name is reserved.
+The selected genes create the fixed `gene_control` baseline column. A custom
+background can be appropriate when focal sets were selected from a restricted
+assay universe. The flag accepts one real file, not a list, glob, or sentinel;
+an unusable control stops the run. Do not name a focal list `gene_control`;
+that name is reserved.
 
 ## Outputs
 
@@ -204,7 +193,6 @@ ldsc ldscore \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
   --exclude-regions mhc-and-centromeres \
-  --control-gene-list-source none \
   --output-dir "${LDSCORE_OUTPUT_DIR}"
 ```
 

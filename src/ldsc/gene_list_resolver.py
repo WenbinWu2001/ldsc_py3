@@ -423,13 +423,13 @@ def resolve_gene_list(
     )
 
 
-def resolve_all_protein_coding(
+def select_index_eligible_gene_indices(
     catalog: GeneCatalog,
     *,
     genome_build: str,
     gene_exclude_regions: str = "none",
-) -> GeneListResolution:
-    """Resolve the reserved all-protein-coding control against one catalog."""
+) -> tuple[int, ...]:
+    """Return catalog rows eligible for inclusion in a gene LD-score index."""
     if genome_build not in {"hg19", "hg38"}:
         raise LDSCInputError(
             f"Gene-list resolution requires a concrete catalog build, got {genome_build!r}."
@@ -442,7 +442,6 @@ def resolve_all_protein_coding(
         None if gene_exclude_regions == "none" else load_preset_intervals(("mhc",), genome_build)
     )
     indices: list[int] = []
-    excluded_count = 0
     for index, row in catalog.frame.iterrows():
         chrom = row[f"{genome_build}_chr"]
         if pd.isna(chrom):
@@ -452,44 +451,9 @@ def resolve_all_protein_coding(
         if excluded_intervals is not None and _interval_overlaps_regions(
             str(chrom), start, end, excluded_intervals.intervals
         ):
-            excluded_count += 1
             continue
         indices.append(int(index))
-    canonical_ids = tuple(catalog.frame.loc[indices, "ensgid"].astype(str))
-    intervals = tuple(
-        (
-            str(catalog.frame.at[index, f"{genome_build}_chr"]),
-            int(catalog.frame.at[index, f"{genome_build}_start0"]),
-            int(catalog.frame.at[index, f"{genome_build}_end"]),
-        )
-        for index in indices
-    )
-    counts = {
-        "nonblank_input_rows": len(indices),
-        "unique_normalized_input_tokens": len(indices),
-        "repeated_token_rows": 0,
-        "matched_input_rows": len(indices),
-        "unique_resolved_canonical_genes": len(indices),
-        "alias_collapsed_rows": 0,
-        "blank_rows": 0,
-        **{reason: 0 for reason in UNRESOLVED_REASONS},
-    }
-    counts["excluded_gene_region"] = excluded_count
-    return GeneListResolution(
-        source_ordinal=0,
-        query="gene_control",
-        source="all-protein-coding",
-        source_path="all-protein-coding",
-        input_sha256=None,
-        status="ok" if indices else "skipped",
-        reason="" if indices else "fully_unresolved",
-        details=None,
-        canonical_ensembl_ids=canonical_ids,
-        catalog_indices=tuple(indices),
-        intervals=intervals,
-        counts=counts,
-        unresolved=(),
-    )
+    return tuple(indices)
 
 
 def _interval_overlaps_regions(

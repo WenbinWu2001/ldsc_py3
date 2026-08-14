@@ -328,9 +328,9 @@ class AnnotationBuildConfig:
     query_annot_gene_list_sources : str, os.PathLike[str], or sequence of those, optional
         One-column gene lists that should be resolved and projected to SNP-level
         query annotations. Default is ``()``.
-    control_gene_list_source : str or os.PathLike[str], optional
-        Fixed gene control for gene-list workflows. ``"all-protein-coding"``
-        selects every eligible catalog gene and ``"none"`` disables it.
+    control_gene_list_file : str, os.PathLike[str], or None, optional
+        Optional fixed-control gene-list file for gene-list workflows. When
+        omitted, no ``gene_control`` annotation is added.
     gene_exclude_regions : {"none", "mhc"}, optional
         Named gene-region policy applied to unpadded gene intervals. Default is
         ``"none"``.
@@ -352,7 +352,7 @@ class AnnotationBuildConfig:
     query_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_bed_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_gene_list_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    control_gene_list_source: str | PathLike[str] = "all-protein-coding"
+    control_gene_list_file: str | PathLike[str] | None = None
     gene_exclude_regions: str = "none"
     padding_bp: int = 0
     output_dir: str | PathLike[str] | None = None
@@ -366,7 +366,7 @@ class AnnotationBuildConfig:
         object.__setattr__(self, "query_annot_sources", _normalize_path_tuple(self.query_annot_sources))
         object.__setattr__(self, "query_annot_bed_sources", _normalize_path_tuple(self.query_annot_bed_sources))
         object.__setattr__(self, "query_annot_gene_list_sources", _normalize_path_tuple(self.query_annot_gene_list_sources))
-        object.__setattr__(self, "control_gene_list_source", str(self.control_gene_list_source))
+        object.__setattr__(self, "control_gene_list_file", _normalize_optional_path(self.control_gene_list_file))
         if self.gene_exclude_regions not in {"none", "mhc"}:
             raise LDSCConfigError(
                 "Could not construct AnnotationBuildConfig: gene_exclude_regions must be 'none' or 'mhc'."

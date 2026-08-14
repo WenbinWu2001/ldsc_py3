@@ -342,11 +342,12 @@ baseline files:
 ldsc ldscore \
   --gene-ldscore-index-dir "indexes/baseline_100kb" \
   --query-annot-gene-list-sources "gene_lists/*.txt" \
-  --control-gene-list-source all-protein-coding \
   --output-dir "tutorial_outputs/indexed_gene_ldscores"
 ```
 
 Indexed assembly inherits the validated index identity and hg19 provenance.
+It adds no gene control unless one existing one-column file is supplied with
+`--control-gene-list-file`.
 Do not pass live `--snp-identifier` or `--genome-build` options; either option
 is rejected even when it equals the index. The resulting canonical directory is
 self-contained and can be consumed by `h2`, `rg`, and `partitioned-h2` without

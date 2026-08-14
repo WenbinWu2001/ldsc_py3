@@ -96,8 +96,8 @@ class AnnotationBuilderTest(unittest.TestCase):
             )
 
         self.assertEqual(bundle.query_columns, ["immune_genes"])
-        self.assertEqual(bundle.baseline_columns, ["base", "gene_control"])
-        self.assertEqual(bundle.baseline_annotations["gene_control"].tolist(), [1.0, 0.0, 1.0])
+        self.assertEqual(bundle.baseline_columns, ["base"])
+        self.assertIsNone(bundle.control_gene_list_resolution)
         self.assertEqual(bundle.query_annotations["immune_genes"].tolist(), [1.0, 0.0, 1.0])
         self.assertEqual(len(bundle.query_statuses), 1)
         self.assertEqual(bundle.query_statuses[0].status, "warning")
@@ -105,7 +105,7 @@ class AnnotationBuilderTest(unittest.TestCase):
         self.assertEqual(bundle.gene_list_resolutions[0].canonical_ensembl_ids, ("ENSG00000186092",))
         self.assertEqual(bundle.gene_list_resolutions[0].unresolved[0].input_gene, "NOT_A_GENE")
 
-    def test_gene_control_can_be_disabled(self):
+    def test_gene_control_is_disabled_by_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             baseline = tmpdir / "baseline.annot"
@@ -123,7 +123,6 @@ class AnnotationBuilderTest(unittest.TestCase):
                 AnnotationBuildConfig(
                     baseline_annot_sources=(baseline,),
                     query_annot_gene_list_sources=(genes,),
-                    control_gene_list_source="none",
                 )
             )
 
@@ -153,7 +152,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 AnnotationBuildConfig(
                     baseline_annot_sources=(baseline,),
                     query_annot_gene_list_sources=(genes,),
-                    control_gene_list_source=control,
+                    control_gene_list_file=control,
                     padding_bp=10,
                 )
             )
@@ -183,7 +182,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                     AnnotationBuildConfig(
                         baseline_annot_sources=(baseline,),
                         query_annot_gene_list_sources=(genes,),
-                        control_gene_list_source=control,
+                        control_gene_list_file=control,
                     )
                 )
 
@@ -192,11 +191,13 @@ class AnnotationBuilderTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             baseline = tmpdir / "baseline.annot"
             genes = tmpdir / "genes.txt"
+            control = tmpdir / "control.txt"
             baseline.write_text(
                 "CHR\tPOS\tSNP\tCM\tgene_control\n1\t65419\trs1\t0\t1\n",
                 encoding="utf-8",
             )
             genes.write_text("OR4F5\n", encoding="utf-8")
+            control.write_text("OR4F5\n", encoding="utf-8")
 
             with self.assertRaisesRegex(Exception, "gene_control"):
                 AnnotationBuilder(
@@ -206,6 +207,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                     AnnotationBuildConfig(
                         baseline_annot_sources=(baseline,),
                         query_annot_gene_list_sources=(genes,),
+                        control_gene_list_file=control,
                     )
                 )
 

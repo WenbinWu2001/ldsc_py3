@@ -8,9 +8,9 @@ annotations contribute to SNP heritability.
 - With baseline annotations only, it reports a functional partitioning model.
 - With focal query annotations, it fits one baseline-plus-one-query model per
   focal annotation.
-- For gene-list analyses, the baseline block also contains the fixed
-  `gene_control` annotation when a control is enabled. Pass
-  `--control-gene-list-source none` during LD-score calculation to omit it.
+- Gene-list analyses add no gene control by default. Supplying
+  `--control-gene-list-file` during LD-score calculation adds a fixed
+  `gene_control` baseline annotation from that one-column file.
 
 For a complete gene-set workflow—from an explicit complete index through
 LD-score calculation and regression—follow [Calculate LD scores for gene lists

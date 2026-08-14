@@ -97,8 +97,8 @@ only persisted output rows and `regression_ld_scores` contributors.
 > according to its value in that baseline column, whether or not it lies in a
 > protein-coding gene region. For an all-ones baseline column, every retained
 > reference SNP within the LD window contributes. Protein-coding intervals are
-> used only to construct the disjoint atoms for `gene_control` and focal
-> gene-list annotations; they never redefine the baseline LD-reference
+> used only to construct the disjoint atoms for focal gene-list annotations
+> and an optional custom `gene_control`; they never redefine the baseline LD-reference
 > universe. Do not prefilter the PLINK or baseline inputs to protein-coding
 > regions unless that narrower reference universe is intentionally the desired
 > scientific input.

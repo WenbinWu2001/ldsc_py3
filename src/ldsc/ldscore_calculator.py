@@ -1122,9 +1122,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Gene regions excluded before padding in gene-list workflows. Default: none.",
     )
     parser.add_argument(
-        "--control-gene-list-source",
-        default="all-protein-coding",
-        help="Fixed control gene list: all-protein-coding (default), none, or one file path.",
+        "--control-gene-list-file",
+        default=None,
+        help="Optional fixed-control gene-list file. Omit to add no gene control.",
     )
     parser.add_argument(
         "--baseline-annot-sources",
@@ -1247,7 +1247,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             query_annot_gene_list_sources=tuple(
                 split_cli_path_tokens(getattr(normalized_args, "query_annot_gene_list_sources", None))
             ),
-            control_gene_list_source=normalized_args.control_gene_list_source,
+            control_gene_list_file=normalized_args.control_gene_list_file,
             gene_exclude_regions=normalized_args.gene_exclude_regions,
             padding_bp=normalized_args.padding_bp,
         )
@@ -1399,14 +1399,12 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
             reference_mode="gene_ldscore_index",
             gene_ldscore_index=str(args.gene_ldscore_index_dir),
             query_gene_list_count=len(gene_lists),
-            control_gene_list_source=getattr(
-                args, "control_gene_list_source", "all-protein-coding"
-            ),
+            control_gene_list_file=getattr(args, "control_gene_list_file", None),
         )
         result = run_indexed_ldscore(
             args.gene_ldscore_index_dir,
             query_gene_list_sources=tuple(gene_lists),
-            control_gene_list_source=getattr(args, "control_gene_list_source", "all-protein-coding"),
+            control_gene_list_file=getattr(args, "control_gene_list_file", None),
             output_dir=args.output_dir,
             overwrite=bool(getattr(args, "overwrite", False)),
         )
@@ -1450,10 +1448,10 @@ def _validate_run_args(args: argparse.Namespace) -> None:
     has_gene_lists = _has_cli_tokens(getattr(args, "query_annot_gene_list_sources", None))
     if not has_gene_lists and (
         getattr(args, "gene_exclude_regions", "none") != "none"
-        or getattr(args, "control_gene_list_source", "all-protein-coding") != "all-protein-coding"
+        or getattr(args, "control_gene_list_file", None) is not None
     ):
         raise LDSCUsageError(
-            "--gene-exclude-regions and --control-gene-list-source are valid only with "
+            "--gene-exclude-regions and --control-gene-list-file are valid only with "
             "--query-annot-gene-list-sources. Remove the gene-specific option or use direct gene-list mode."
         )
     if not _has_cli_tokens(args.baseline_annot_sources) and (
@@ -1698,6 +1696,7 @@ def run_ldscore(**kwargs) -> LDScoreResult:
             "keep_indivs_path",
             "chunk_size",
             "maf",
+            "control_gene_list_source",
         }
         & set(kwargs)
     )
@@ -1758,8 +1757,8 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     for attr in ("exclude_regions",):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
-    if not hasattr(normalized_args, "control_gene_list_source") or normalized_args.control_gene_list_source is None:
-        normalized_args.control_gene_list_source = "all-protein-coding"
+    if not hasattr(normalized_args, "control_gene_list_file"):
+        normalized_args.control_gene_list_file = None
     if not hasattr(normalized_args, "gene_exclude_regions"):
         normalized_args.gene_exclude_regions = "none"
     if not hasattr(normalized_args, "maf_min"):

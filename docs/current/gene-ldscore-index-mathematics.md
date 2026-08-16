@@ -1,6 +1,6 @@
 # Exact gene LD-score index: mathematical algorithm
 
-Last updated on: 2026-08-06
+Last updated on: 2026-08-16
 
 This document gives the input-to-output mathematical specification for the
 exact gene-list index used by `ldsc ldscore`. It describes the online indexed
@@ -437,8 +437,8 @@ tolerance of $10^{-7}$.
 ## 8. Related documentation and implementation
 
 - [Exact gene LD-score index user guide](gene-ldscore-index.md)
-- [Gene-list indexed `ldscore` tutorial](../wiki/main-functionalities/ldscore.md)
-- [Detailed design specification](../specs/2026-08-03-exact-disjoint-atom-gene-ldscore-index-design.md)
+- [Gene-list indexed `ldscore` tutorial](../wiki/main-functionalities/ldscore-from-gene-list.md)
+- [Current defensive gene-list and index specification](../specs/2026-08-15-defensive-gene-list-input-design.md)
 - [General LD-score accumulation mathematics](ldscore-parquet-accumulation.md)
 - Builder and online orchestration:
   [`src/ldsc/gene_ldscore_index.py`](../../src/ldsc/gene_ldscore_index.py)

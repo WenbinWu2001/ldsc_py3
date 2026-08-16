@@ -1,6 +1,6 @@
 # Code Structure
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-16
 
 This is the contributor-facing module map for `ldsc_py3_Jerry`.
 
@@ -56,7 +56,7 @@ ldsc_py3_Jerry/
 | `ldsc.chromosome_inference` | canonical chromosome normalization and ordering |
 | `ldsc.genome_build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
 | `ldsc.hm3` | public packaged curated HM3 map loader and installed map path helper for workflow internals |
-| `ldsc.gene_list_resolver` | internal packaged-catalog validation and exact gene-list resolution into canonical Ensembl IDs and build intervals |
+| `ldsc.gene_list_resolver` | required/embedded catalog validation and vectorized focal/control resolution into exact IDs, intervals, audits, and summaries |
 | `ldsc.query_annotations` | internal ordered BED/gene query status record shared by annotation, LD-score, and output layers |
 | `tools/hm3/build_hm3_chr_pos_reference.py` | maintenance tool (outside the package) that rebuilds the compact HM3 coordinate reference used by genome-build inference |
 | `ldsc._kernel.liftover` | shared hg19/hg38 liftover helpers, chain-file translation, curated HM3 dual-build coordinate conversion, drop-all coordinate collision helpers, and readable drop reports |

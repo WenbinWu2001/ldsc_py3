@@ -335,8 +335,9 @@ class AnnotationBuildConfig:
         Named gene-region policy applied to unpadded gene intervals. Default is
         ``"none"``.
     padding_bp : int, optional
-        Number of base pairs to add to both sides of each BED interval before
-        SNP overlap projection. Starts are clipped at zero. Default is ``0``.
+        Number of base pairs to add to both sides of each BED or gene interval
+        before SNP overlap projection. Starts are clipped at zero. Default is
+        ``0``.
     output_dir : str or os.PathLike[str] or None, optional
         Output directory used by file-writing helpers. Default is ``None``.
     compression : {"auto", "gzip", "bz2", "none"}, optional
@@ -352,7 +353,9 @@ class AnnotationBuildConfig:
     query_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_bed_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_gene_list_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    gene_coordinate_file: str | PathLike[str] | None = None
     control_gene_list_file: str | PathLike[str] | None = None
+    gene_list_resolution_policy: str = "strict"
     gene_exclude_regions: str = "none"
     padding_bp: int = 0
     output_dir: str | PathLike[str] | None = None
@@ -366,7 +369,13 @@ class AnnotationBuildConfig:
         object.__setattr__(self, "query_annot_sources", _normalize_path_tuple(self.query_annot_sources))
         object.__setattr__(self, "query_annot_bed_sources", _normalize_path_tuple(self.query_annot_bed_sources))
         object.__setattr__(self, "query_annot_gene_list_sources", _normalize_path_tuple(self.query_annot_gene_list_sources))
+        object.__setattr__(self, "gene_coordinate_file", _normalize_optional_path(self.gene_coordinate_file))
         object.__setattr__(self, "control_gene_list_file", _normalize_optional_path(self.control_gene_list_file))
+        if self.gene_list_resolution_policy not in {"strict", "resolved-only"}:
+            raise LDSCConfigError(
+                "Could not construct AnnotationBuildConfig: gene_list_resolution_policy must be "
+                "'strict' or 'resolved-only'."
+            )
         if self.gene_exclude_regions not in {"none", "mhc"}:
             raise LDSCConfigError(
                 "Could not construct AnnotationBuildConfig: gene_exclude_regions must be 'none' or 'mhc'."
@@ -380,6 +389,21 @@ class AnnotationBuildConfig:
             raise LDSCConfigError(
                 "Could not construct AnnotationBuildConfig: prebuilt, BED, and gene-list query sources "
                 "are mutually exclusive. Supply exactly one query source type per run."
+            )
+        if self.query_annot_gene_list_sources and self.gene_coordinate_file is None:
+            raise LDSCConfigError(
+                "Could not construct AnnotationBuildConfig: gene_coordinate_file is required when "
+                "query_annot_gene_list_sources are supplied. The coordinate catalog is the sole gene authority."
+            )
+        if not self.query_annot_gene_list_sources and (
+            self.gene_coordinate_file is not None
+            or self.control_gene_list_file is not None
+            or self.gene_exclude_regions != "none"
+            or self.gene_list_resolution_policy != "strict"
+        ):
+            raise LDSCConfigError(
+                "Could not construct AnnotationBuildConfig: coordinate, control-list, exclusion, and resolution "
+                "policy fields are valid only for gene-list query annotations."
             )
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
         if isinstance(self.padding_bp, bool):
@@ -610,9 +634,9 @@ class GeneLDScoreIndexBuildConfig:
     baseline_annot_sources: tuple[str, ...]
     plink_prefix: str
     output_dir: str
+    gene_coordinate_file: str
     genome_build: str
     snp_identifier: str
-    chromosomes: tuple[str, ...] = tuple(str(value) for value in range(1, 23))
     padding_bp: int = 0
     gene_exclude_regions: str = "mhc"
     ld_wind_cm: float = 1.0
@@ -629,6 +653,7 @@ class GeneLDScoreIndexBuildConfig:
         object.__setattr__(self, "baseline_annot_sources", _normalize_path_tuple(self.baseline_annot_sources))
         object.__setattr__(self, "plink_prefix", _normalize_required_path(self.plink_prefix))
         object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+        object.__setattr__(self, "gene_coordinate_file", _normalize_required_path(self.gene_coordinate_file))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
         if not self.baseline_annot_sources:

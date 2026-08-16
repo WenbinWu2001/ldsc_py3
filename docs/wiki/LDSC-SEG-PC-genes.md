@@ -1,6 +1,6 @@
 # LDSC-SEG for Protein-Coding Gene Lists
 
-Last updated on: 2026-08-11
+Last updated on: 2026-08-16
 
 This tutorial tests whether one or more protein-coding gene lists are enriched for trait heritability. For each query gene list, LDSC3 fits the model
 
@@ -42,17 +42,20 @@ RESULT_ROOT="${PROJECT_ROOT}/ldsc3/example_output/direct_mode"
 
 BASELINE_ANNOT_SOURCES="/users/w/e/wenbinwu/Sullivan/LDSC/data/resources_from_Jerry/partitioned_LDSC/1000G_EUR_Phase3_baseline/baseline.@.annot.gz"
 PLINK_PREFIX="/users/w/e/wenbinwu/Sullivan/LDSC/data/resources_from_Jerry/partitioned_LDSC/1000G_EUR_Phase3_plink/1000G.EUR.QC.@"
+GENE_COORDINATE_FILE="/path/to/gene-coordinates.hg19.tsv.gz"
 PARTITIONED_LDSCORE_DIR="${RESULT_ROOT}/pldsc/ldscore"
 
 ldsc ldscore \
   --query-annot-gene-list-sources "${GENE_LIST_SOURCES}" \
   --baseline-annot-sources "${BASELINE_ANNOT_SOURCES}" \
   --plink-prefix "${PLINK_PREFIX}" \
+  --gene-coordinate-file "${GENE_COORDINATE_FILE}" \
   --snp-identifier rsid \
   --genome-build hg19 \
   --ld-wind-cm 1.0 \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
+  --gene-list-resolution-policy strict \
   --output-dir "${PARTITIONED_LDSCORE_DIR}" \
   --overwrite
 ```
@@ -66,6 +69,8 @@ Flags used in this command:
 - `--genome-build hg19` specifies the build used for gene projection and named region definitions.
 - `--ld-wind-cm 1.0` calculates LD within a 1-cM window.
 - `--padding-bp 100000` adds 100 kb to either side of each gene interval.
+- `--gene-coordinate-file` is the sole one-based hg19 catalog for focal and control lists; there is no packaged fallback.
+- `--gene-list-resolution-policy strict` stops before LD-score work if any submitted identifier is unresolved or ambiguous. Use `resolved-only` only for deliberate exploratory subset analysis.
 - No control-gene annotation is added by default. To add one, pass a single existing file with `--control-gene-list-file`; it must contain one Ensembl gene ID or gene name per line, without a header.
 - `--gene-exclude-regions mhc` removes query genes whose unpadded intervals overlap the MHC before padding and projection. If a control gene list is enabled, the same filter also applies to it. This is a gene-level filter; it does not remove SNPs from the LD reference panel.
 - `--output-dir` specifies the LD-score output directory.
@@ -122,10 +127,15 @@ ldscore/
     diagnostics/
         ldscore.log
         query_annotation_status.tsv
-        gene_list_unresolved.tsv.gz
+        gene_list_audit.tsv.gz
+        gene_list_resolution_summary.tsv
 ```
 
-Use `diagnostics/ldscore.log` to monitor progress and inspect key metrics. If a query is absent from the scientific output, check `query_annotation_status.tsv` and then `gene_list_unresolved.tsv.gz` for gene-level problems.
+Use `diagnostics/ldscore.log` to monitor progress. Start curation with
+`gene_list_resolution_summary.tsv`, then filter `gene_list_audit.tsv.gz`; after
+catalog preflight, `query_annotation_status.tsv` explains run-specific focal
+skips. See [Gene-list diagnostics and repair](../current/gene-list-diagnostics-and-repair.md)
+for the detailed repair workflow.
 
 Because no control-gene file is supplied, `ldscore.baseline.parquet` contains only the supplied baseline categories; no `gene_control` column is added.
 

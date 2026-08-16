@@ -1,6 +1,6 @@
 # Architecture 
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-16
 
 `ldsc_py3_Jerry` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
@@ -127,8 +127,8 @@ This is the public interface and workflow implementation for annotation loading 
 
 ### `ldsc.gene_list_resolver`, `ldsc.query_annotations`
 
-These internal workflow helpers validate and index the packaged GENCODE v49
-protein-coding catalog, resolve exact Ensembl IDs and gene-name aliases, and
+These internal workflow helpers validate and index the required user-supplied
+or index-embedded coordinate catalog, resolve exact IDs and gene-name aliases, and
 carry ordered query status records. They do not write files or enter the
 numerical kernel. Catalog-build selection, logging, scientific-query pruning,
 and diagnostic ownership remain with LD-score orchestration.

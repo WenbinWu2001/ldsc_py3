@@ -1,6 +1,6 @@
 # Exact gene LD-score indexes
 
-Last updated on: 2026-08-08
+Last updated on: 2026-08-16
 
 An exact gene LD-score index moves the repeated PLINK calculation for one
 baseline, reference panel, regression-row policy, and gene projection offline.
@@ -19,6 +19,7 @@ ldsc build-gene-ldscore-index \
   --baseline-annot-sources annotations/baseline.@.annot.gz \
   --plink-prefix reference/1000G.EUR.QC.@ \
   --output-dir indexes/1000G_EUR_Phase3_baseline_100kb \
+  --gene-coordinate-file annotations/gene-coordinates.hg19.tsv.gz \
   --genome-build hg19 \
   --snp-identifier rsid \
   --ld-wind-cm 1.0 \
@@ -26,6 +27,13 @@ ldsc build-gene-ldscore-index \
   --gene-exclude-regions mhc \
   --exclude-regions mhc-and-centromeres
 ```
+
+The supplied coordinate catalog is required and is the complete gene universe
+embedded in the index. It uses the one-based format in
+[Gene-list query input](gene-list-input-format.md). The builder validates every
+catalog row as canonical before creating a transaction or constructing atoms;
+any defect stops the build and writes the full repair table described in
+[Gene-list diagnostics and repair](gene-list-diagnostics-and-repair.md).
 
 Index construction defaults to unpadded gene intervals (`--padding-bp 0`).
 The example above explicitly builds a non-default 100 kb index, which is why
@@ -94,12 +102,14 @@ and `--genome-build` options even when they equal the index. A matching direct
 run must explicitly use the index's mode and hg19 build.
 
 An individual chromosome may have zero regression rows after restriction and
-region subtraction, which produces a warning. The complete build fails if the
-selected chromosome set has zero regression rows in aggregate.
+region subtraction, which produces a warning. Public construction always
+builds autosomes 1 through 22; `--chromosomes` is not a public option. Public
+loading rejects partial coverage. Smaller coverage exists only as a private
+test seam.
 
 ### Baseline LD-score contributor caveat
 
-Protein-coding gene regions do not restrict recomputation of the supplied
+Gene-catalog regions do not restrict recomputation of the supplied
 baseline LD scores. For baseline column $c$ and persisted row $j$, the builder
 computes
 
@@ -110,7 +120,7 @@ $$
 
 Thus, all SNPs in the retained baseline/PLINK intersection are eligible
 contributors; the value $A_{kc}$ determines a SNP's contribution to column
-$c$. Protein-coding intervals define only the disjoint atoms used for focal
+$c$. Catalog intervals define only the disjoint atoms used for focal
 gene-list annotations and an optional custom `gene_control`. They do not filter
 the supplied baseline matrix or its LD-reference universe.
 
@@ -166,6 +176,7 @@ One output directory contains one complete immutable index:
 .<index-name>.build-state/        # hidden operational state
     build-gene-ldscore-index.lock
     build-gene-ldscore-index.log # present while running or after failure
+    gene_coordinate_catalog_issues.tsv.gz # present after catalog failure
     history/                     # prior failed/interrupted attempts
 
 .<index-name>.stage-<run-id>/     # hidden, private transaction while building
@@ -190,9 +201,8 @@ row tampering, and older gene-index metadata contracts before indexed output is
 published; rebuild older gene indexes with the current builder.
 
 Gene indexes do not support incremental updates, chromosome append, profile
-addition, or common-layer reuse. Any input, configuration, or coverage change
-requires a complete new build. A chromosome-22 prototype therefore belongs in
-a different output directory from a chromosomes-1–22 production index. The
+addition, or common-layer reuse. Any input or configuration change requires a
+complete new 1–22 build. Partial production indexes are unsupported. The
 incremental appearance of chromosome shards in a private run stage is only a
 memory and durability strategy; it is not restart, resume, checkpoint reuse,
 or incremental index-update support.
@@ -274,4 +284,4 @@ counts, and overlaps. Only the configured regression restriction and region
 policy select persisted rows and `regression_ld_scores` contributors.
 
 See also the task-oriented [build guide](../wiki/utility-functionalities/build-gene-ldscore-index.md)
-and [indexed LD-score guide](../wiki/main-functionalities/ldscore.md).
+and [indexed LD-score guide](../wiki/main-functionalities/ldscore-from-gene-list.md).

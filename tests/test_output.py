@@ -144,45 +144,52 @@ def make_multi_chrom_result(chromosomes: list[str] | None = None) -> LDScoreResu
 
 class LDScoreDirectoryWriterTest(unittest.TestCase):
     def test_ldscore_writer_emits_query_status_gene_audit_and_concise_provenance(self):
-        from ldsc.gene_list_resolver import GeneCatalog, resolve_gene_list
+        from ldsc.gene_list_resolver import GeneCatalog, resolve_gene_lists
         from ldsc.query_annotations import QueryAnnotationStatus
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
             source = Path(tmpdir) / "query.txt"
+            catalog_path = Path(tmpdir) / "catalog.tsv"
             source.write_text("OR4F5\nNOT_A_GENE\n", encoding="utf-8")
-            catalog = GeneCatalog.load()
-            resolution = resolve_gene_list(source, catalog, genome_build="hg38")
+            catalog_path.write_text(
+                "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+                "ENSG00000186092\tOR4F5\t1\t10\t20\thg38\n",
+                encoding="utf-8",
+            )
+            catalog = GeneCatalog.load(catalog_path)
+            batch = resolve_gene_lists((source,), catalog, resolution_policy="resolved-only")
             status = QueryAnnotationStatus(
                 "query",
                 "query.txt",
                 "gene_list",
                 "warning",
-                "partial_resolution",
+                "partial_gene_resolution",
                 1.0,
-                "diagnostics/gene_list_unresolved.tsv.gz",
+                "diagnostics/gene_list_audit.tsv.gz",
             )
             result = dataclass_replace(
                 make_split_ldscore_result(query=True),
                 query_statuses=(status,),
-                gene_list_resolutions=(resolution,),
-                gene_catalog_provenance=catalog.provenance("hg38"),
+                gene_list_batch=batch,
             )
 
             LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
 
             status_table = pd.read_csv(output_dir / "diagnostics" / "query_annotation_status.tsv", sep="\t")
-            unresolved = pd.read_csv(output_dir / "diagnostics" / "gene_list_unresolved.tsv.gz", sep="\t")
+            audit = pd.read_csv(output_dir / "diagnostics" / "gene_list_audit.tsv.gz", sep="\t")
+            summary = pd.read_csv(output_dir / "diagnostics" / "gene_list_resolution_summary.tsv", sep="\t")
             metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(status_table.loc[0, "reason"], "partial_resolution")
-            self.assertEqual(unresolved["input_gene"].tolist(), ["NOT_A_GENE"])
-            self.assertEqual(metadata["gene_catalog"]["release"], "GENCODE v49")
-            self.assertEqual(metadata["query_provenance"][0]["source"], "query.txt")
+            self.assertEqual(status_table.loc[0, "reason"], "partial_gene_resolution")
+            self.assertEqual(audit["input_gene"].tolist(), ["OR4F5", "NOT_A_GENE"])
+            self.assertEqual(summary.loc[0, "rejected_rows"], 1)
+            self.assertEqual(metadata["gene_list_resolution_policy"], "resolved-only")
             self.assertEqual(
                 metadata["query_diagnostics"],
                 {
                     "status": "diagnostics/query_annotation_status.tsv",
-                    "gene_list_unresolved": "diagnostics/gene_list_unresolved.tsv.gz",
+                    "gene_list_audit": "diagnostics/gene_list_audit.tsv.gz",
+                    "gene_list_resolution_summary": "diagnostics/gene_list_resolution_summary.tsv",
                 },
             )
             self.assertNotIn(str(Path(tmpdir)), json.dumps(metadata))

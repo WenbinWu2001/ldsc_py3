@@ -1,6 +1,6 @@
 # LD Score Calculation
 
-Last updated on: 2026-08-05
+Last updated on: 2026-08-16
 
 Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-built SNP-level annotations, or from raw BED/gene-list queries plus an explicit baseline.
 
@@ -85,7 +85,7 @@ Important output behavior:
 - annotation counts are stored as metadata records, not as separate `.M` files
 - if both baseline and query inputs are omitted, the workflow synthesizes an all-ones baseline column named exactly `base` over retained reference-panel metadata
 - prebuilt, BED, and gene-list queries are mutually exclusive and require explicit baseline annotations; create an explicit all-ones `base` baseline yourself if you intentionally want that query universe
-- BED/gene runs write `diagnostics/query_annotation_status.tsv`; gene runs also write `diagnostics/gene_list_unresolved.tsv.gz`
+- evaluated BED/gene runs write `diagnostics/query_annotation_status.tsv`; gene runs also write the row-complete `gene_list_audit.tsv.gz` and per-source `gene_list_resolution_summary.tsv`
 - missing output directories are created and existing directories are reused
 - existing owned LD-score artifacts, including unselected siblings such as a
   stale `ldscore.query.parquet`, fail before writing starts; reruns that should
@@ -234,7 +234,7 @@ ldsc ldscore \
 ## Case 4: Use Gene Lists Directly
 
 Gene-list inputs are one-column, headerless plain or gzip files containing exact
-Ensembl gene IDs, exact case-sensitive gene names, or a mixture. The source
+authoritative gene IDs, exact case-sensitive gene names, or a mixture. The source
 basename becomes the query name: `immune_genes.txt.gz` becomes `immune_genes`.
 
 ```bash
@@ -242,6 +242,9 @@ ldsc ldscore \
   --output-dir tutorial_outputs/gene_list_ldscores \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-gene-list-sources "gene_lists/*.txt.gz" \
+  --gene-coordinate-file "annotations/gene-coordinates.hg38.tsv.gz" \
+  --padding-bp 100000 \
+  --gene-list-resolution-policy strict \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
   --snp-identifier chr_pos_allele_aware \
   --genome-build auto \
@@ -249,20 +252,22 @@ ldsc ldscore \
   --ld-wind-cm 1.0
 ```
 
-The packaged GENCODE v49 protein-coding catalog supplies hg19/hg38 intervals;
-`--genome-build auto` selects the interval set from baseline/reference-panel
-evidence and reports the inferred build in `diagnostics/ldscore.log`.
+The required one-based coordinate catalog is the sole focal/control gene
+universe. Its declared build must agree with baseline/reference-panel evidence;
+`auto` reports the resolved build in `diagnostics/ldscore.log`. Gene-list
+padding must be chosen explicitly, including `--padding-bp 0` for gene bodies.
 
-Each BED or gene-list query is processed independently. If any input query gene
-list or BED file is absent from `ldscore.query.parquet` or downstream results,
-that query hit a failure. Check
-`diagnostics/query_annotation_status.tsv` for the reason. For gene lists, check
-`diagnostics/gene_list_unresolved.tsv.gz` for the exact unresolved or invalid
-gene rows. Valid sibling queries continue; when every query is skipped, only
-diagnostics are written and the command exits with an error.
+Strict mode batches all focal/control identifier problems and stops before
+LD-score work. Use `resolved-only` deliberately for exploratory subset analysis.
+Start diagnosis with `gene_list_resolution_summary.tsv`, then filter
+`gene_list_audit.tsv.gz`; after Gate A, `query_annotation_status.tsv` records
+query-local viability. Valid siblings continue through SNP-support or variance
+skips; when every focal query is skipped, only diagnostics are written.
 
 See [Gene-List Query Input](../docs/current/gene-list-input-format.md) for exact
 resolution, coordinate, naming, and partial-success rules.
+For repair procedures and every diagnostic term, see
+[Gene-list diagnostics and repair](../docs/current/gene-list-diagnostics-and-repair.md).
 
 ## Optional: Read One Chromosome From A Result Directory
 
@@ -309,6 +314,7 @@ ldsc build-gene-ldscore-index \
   --baseline-annot-sources "annotations/baseline.@.annot.gz" \
   --plink-prefix "reference/1000G.EUR.QC.@" \
   --output-dir "indexes/baseline_100kb" \
+  --gene-coordinate-file "annotations/gene-coordinates.hg19.tsv.gz" \
   --genome-build hg19 \
   --snp-identifier chr_pos \
   --padding-bp 100000 \

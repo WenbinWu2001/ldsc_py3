@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Last updated on: 2026-08-05
+Last updated on: 2026-08-16
 
 This document records the current public input/output naming contract after the
 LD-score result-directory refactor. The LD-score workflow uses a canonical
@@ -15,7 +15,8 @@ result directory as the baseline design:
   diagnostics/
     ldscore.log
     query_annotation_status.tsv  # BED/gene-list query runs
-    gene_list_unresolved.tsv.gz  # gene-list runs
+    gene_list_audit.tsv.gz       # gene-list runs
+    gene_list_resolution_summary.tsv
 ```
 
 Regression workflows consume this directory with `--ldscore-dir`; fragmented
@@ -166,15 +167,17 @@ Removed flags: `--bed-files`, `--baseline-annot`, `--bed-padding-bp`.
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--output-dir` | output | yes | canonical LD-score result directory | Writes root scientific artifacts and `diagnostics/ldscore.log`; BED/gene runs add `query_annotation_status.tsv`, and gene runs add `gene_list_unresolved.tsv.gz`. Parquet row groups are chromosome-aligned. |
+| `--output-dir` | output | yes | canonical LD-score result directory | Writes root scientific artifacts and `diagnostics/ldscore.log`; evaluated BED/gene runs add `query_annotation_status.tsv`, and gene runs add `gene_list_audit.tsv.gz` plus `gene_list_resolution_summary.tsv`. Parquet row groups are chromosome-aligned. |
 | `--gene-ldscore-index-dir` | input | no | exact gene LD-score index | Selects indexed gene-list assembly instead of live baseline/reference-panel computation; defaults to omitted/`None`. Requires `--query-annot-gene-list-sources`; scientific settings are inherited from the immutable index, so live inputs and non-default overrides are rejected, and explicit padding is always rejected. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed LD-score files and `diagnostics/ldscore.log` may be replaced; defaults to `False`, so any existing owned LD-score artifact in `output_dir` is refused. With overwrite, stale `ldscore.query.parquet` is removed after successful baseline-only runs. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`; these records go to `diagnostics/ldscore.log` and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
 | `--baseline-annot-sources` | input | no | baseline annotation files | Supplies baseline annotation files; defaults to omitted/`None`, and if no query inputs are supplied `ldscore` synthesizes an all-ones `base` column. |
 | `--query-annot-sources` | input | no | prebuilt query annotation files | Supplies prebuilt query annotations; defaults to omitted/`None`. The canonical sharded layout is one `query.<chrom>.annot.gz` file per chromosome containing all query annotation columns. Do not supply one chromosome-sharded suite per query, because that creates multiple query files for the same chromosome. Mutually exclusive with the BED and gene-list routes and requires `--baseline-annot-sources`. |
 | `--query-annot-bed-sources` | input | no | query BED interval files | Supplies BED intervals projected in memory; defaults to omitted/`None`. Mutually exclusive with the prebuilt and gene-list routes and requires `--baseline-annot-sources`. Concrete-source failures are recorded and skipped while usable siblings continue. |
-| `--query-annot-gene-list-sources` | input | no | one-column gene lists | Supplies exact/glob file groups resolved against the packaged protein-coding catalog; defaults to omitted/`None`. Explicit files retain order and globs expand lexically. Mutually exclusive with other query routes and does not use `@`. Direct live mode requires `--baseline-annot-sources`; indexed mode instead requires `--gene-ldscore-index-dir` and forbids a live baseline. |
-| `--padding-bp` | input transform | conditional | live BED or gene interval expansion | Adds this many base pairs to both sides of intervals derived from `--query-annot-bed-sources` or `--query-annot-gene-list-sources`; starts are clipped at zero. The effective default is `0`. Supplying the flag with prebuilt annotation queries, no query, or `--gene-ldscore-index-dir` is rejected, including an explicitly supplied value of `0`. |
+| `--query-annot-gene-list-sources` | input | no | one-column gene lists | Supplies focal gene-list sources. Mutually exclusive with other query routes. Direct mode requires `--baseline-annot-sources`, `--gene-coordinate-file`, and explicit padding; indexed mode requires `--gene-ldscore-index-dir` and uses its embedded catalog. |
+| `--gene-coordinate-file` | input | conditional | one-based build-aware gene catalog | Required for direct gene-list mode and index construction. It is the sole focal/control resolution universe and is forbidden in indexed online mode. |
+| `--gene-list-resolution-policy` | policy | no | strict or deliberate subset resolution | `strict` by default; `resolved-only` permits approved rejected rows to be omitted with audit/metadata/console notice. Valid only in gene-list modes. |
+| `--padding-bp` | input transform | conditional | live BED or gene interval expansion | Live gene lists must supply it explicitly (`0` means gene bodies); live BED omission means `0`. Explicit padding is rejected for prebuilt/no-query/indexed modes. |
 | `--gene-exclude-regions` | input transform | no | live gene exclusion policy | Excludes `none` or `mhc` from live gene-list projection before padding; defaults to `none`. It is independent of SNP `--exclude-regions`; the non-default `mhc` choice is rejected outside live gene-list mode. |
 | `--control-gene-list-file` | input | no | fixed gene control | Supplies one existing one-column control gene-list file for live or indexed gene-list runs. When omitted (the default), no `gene_control` column is added. Supplying it requires a gene-list run. |
 | `--plink-prefix` | input | conditional | PLINK reference panel prefix | Selects PLINK reference-panel input; defaults to omitted/`None` and is required when `--r2-dir` is omitted. Supports exact prefix, PLINK-prefix glob, or `@` suite. |
@@ -301,6 +304,7 @@ It is not a legacy compatibility command and performs no inference or liftover.
 |---|---:|---:|---|---|
 | `--baseline-annot-sources` | input | yes | full baseline annotation suite | Canonical baseline used by later indexed LD-score assembly. |
 | `--plink-prefix` | input | yes | PLINK reference panel | Exact prefix or supported chromosome suite. |
+| `--gene-coordinate-file` | input | yes | canonical one-based gene catalog | Sole gene universe embedded in the index. Every catalog defect is fatal before atom construction. |
 | `--output-dir` | output | yes | immutable index directory | Publishes one complete index artifact; no incremental update or component reuse. |
 | `--genome-build` | config | yes | coordinate build assertion | Closed to explicit `hg19` in both modes; no default or inference. |
 | `--snp-identifier` | config | yes | SNP identity | Exactly `rsid` or `chr_pos`; no default, `auto`, or allele-aware mode. |
@@ -312,7 +316,6 @@ It is not a legacy compatibility command and performs no inference or liftover.
 | `--regression-snps-file` | input | no | regression SNP override | Headered identity-only table; `rsid` requires `SNP`, while `chr_pos` requires `CHR` and `POS`. Defaults to omitted/`None`, so the bundled hg19 HM3 set is used. Repeated effective keys collapse. |
 | `--exclude-regions` | input transform | no | regression-region subtraction | `none`, `mhc`, `centromeres`, or `mhc-and-centromeres`; defaults to `mhc-and-centromeres`. |
 | `--genetic-map-hg19-sources` | input | no | genetic map | Optional explicit hg19 map; defaults to omitted/`None`; hg38 maps are not a builder CLI input. |
-| `--chromosomes` | input selector | no | chromosome set | Explicit chromosome selection; defaults to `1-22`. |
 | `--snp-batch-size`, `--atom-batch-size` | performance | no | computation batches | Bounds SNP and disjoint-atom matrix work; `--snp-batch-size` defaults to `128`, and `--atom-batch-size` defaults to `64`. |
 | `--threads` | performance | no | chromosome workers | Cross-chromosome process count; defaults to `1`. |
 | `--overwrite` | output mode | no | publication policy | Replaces only a complete valid owned index through staged publication; defaults to `False`. |

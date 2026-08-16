@@ -9,8 +9,8 @@ LD-score columns; ``rg`` does not use it). The overlap sidecar is
 written only when the run has two or more annotation columns; an unpartitioned
 single-annotation run (e.g. the synthetic ``base``) omits it because the matrix
 would collapse to a SNP count already in ``metadata.json``. Query runs also
-write ``diagnostics/query_annotation_status.tsv`` and gene-list runs write
-``diagnostics/gene_list_unresolved.tsv.gz``. Run identity comes from the chosen
+write ``diagnostics/query_annotation_status.tsv`` and gene-list runs write a
+row-complete audit plus per-source resolution summary. Run identity comes from the chosen
 directory name;
 output filenames inside that directory are fixed. The parquet payloads are
 written with one row group per chromosome and matching metadata so
@@ -100,15 +100,6 @@ def _write_chromosome_aligned_parquet(
 
 REGRESSION_LD_SCORE_COLUMN = "regression_ld_scores"
 QUERY_STATUS_COLUMNS = ["query", "source", "input_type", "status", "reason", "n_annotation_snps", "details"]
-GENE_UNRESOLVED_COLUMNS = [
-    "query",
-    "source",
-    "line",
-    "input_gene",
-    "reason",
-    "canonical_ensembl_id",
-    "details",
-]
 DEFAULT_COUNT_CONFIG = {
     "common_reference_snp_maf_min": 0.05,
     "common_reference_snp_maf_operator": ">=",
@@ -353,6 +344,24 @@ class LDScoreDirectoryWriter:
     row groups are chromosome-aligned and described in root metadata.
     """
 
+    def write_gene_list_preflight(
+        self,
+        batch: Any,
+        output_config: LDScoreOutputConfig,
+    ) -> dict[str, str]:
+        """Write Gate A audit/summary artifacts without scientific outputs."""
+        output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
+        paths = self._gene_list_diagnostic_paths(batch, output_dir)
+        stale_paths = preflight_output_artifact_family(
+            paths.values(),
+            _ldscore_output_family(output_dir),
+            overwrite=output_config.overwrite,
+            label="LD-score output artifact",
+        )
+        self._write_gene_list_diagnostic_files(batch, paths)
+        remove_output_artifacts(stale_paths)
+        return {name: str(path) for name, path in paths.items()}
+
     def write_query_diagnostics(
         self,
         result: Any,
@@ -438,7 +447,7 @@ class LDScoreDirectoryWriter:
             files={
                 name: str(path.relative_to(output_dir))
                 for name, path in paths.items()
-                if name not in {"metadata", "query_status", "gene_list_unresolved"}
+                if name not in {"metadata", "query_status", "gene_list_audit", "gene_list_resolution_summary"}
             },
             baseline_rg=baseline_rg,
             query_rg=query_rg,
@@ -453,36 +462,49 @@ class LDScoreDirectoryWriter:
         paths: dict[str, Path] = {}
         if tuple(getattr(result, "query_statuses", ())):
             paths["query_status"] = output_dir / "diagnostics" / "query_annotation_status.tsv"
-        if tuple(getattr(result, "gene_list_resolutions", ())):
-            paths["gene_list_unresolved"] = output_dir / "diagnostics" / "gene_list_unresolved.tsv.gz"
+        batch = getattr(result, "gene_list_batch", None)
+        if batch is not None:
+            paths.update(LDScoreDirectoryWriter._gene_list_diagnostic_paths(batch, output_dir))
         return paths
+
+    @staticmethod
+    def _gene_list_diagnostic_paths(batch: Any, output_dir: Path) -> dict[str, Path]:
+        """Return the fixed row-audit and per-source summary paths."""
+        return {
+            "gene_list_audit": output_dir / "diagnostics" / "gene_list_audit.tsv.gz",
+            "gene_list_resolution_summary": output_dir / "diagnostics" / "gene_list_resolution_summary.tsv",
+        }
 
     @staticmethod
     def _write_query_diagnostic_files(result: Any, paths: dict[str, Path]) -> None:
         """Serialize fixed query diagnostics after family preflight."""
         query_statuses = tuple(getattr(result, "query_statuses", ()))
-        gene_resolutions = tuple(getattr(result, "gene_list_resolutions", ()))
-        control_resolution = getattr(result, "control_gene_list_resolution", None)
-        audit_resolutions = (*gene_resolutions, *((control_resolution,) if control_resolution is not None else ()))
+        gene_list_batch = getattr(result, "gene_list_batch", None)
         if "query_status" in paths:
             paths["query_status"].parent.mkdir(parents=True, exist_ok=True)
             pd.DataFrame([record.as_dict() for record in query_statuses], columns=QUERY_STATUS_COLUMNS).to_csv(
                 paths["query_status"], sep="\t", index=False, na_rep=""
             )
-        if "gene_list_unresolved" in paths:
-            paths["gene_list_unresolved"].parent.mkdir(parents=True, exist_ok=True)
-            unresolved_rows = [
-                record.as_dict()
-                for resolution in audit_resolutions
-                for record in resolution.unresolved
-            ]
-            pd.DataFrame(unresolved_rows, columns=GENE_UNRESOLVED_COLUMNS).to_csv(
-                paths["gene_list_unresolved"],
-                sep="\t",
-                index=False,
-                na_rep="",
-                compression={"method": "gzip", "mtime": 0},
-            )
+        if gene_list_batch is not None:
+            LDScoreDirectoryWriter._write_gene_list_diagnostic_files(gene_list_batch, paths)
+
+    @staticmethod
+    def _write_gene_list_diagnostic_files(batch: Any, paths: dict[str, Path]) -> None:
+        """Serialize the approved row audit and per-source summary schemas."""
+        paths["gene_list_audit"].parent.mkdir(parents=True, exist_ok=True)
+        batch.audit.to_csv(
+            paths["gene_list_audit"],
+            sep="\t",
+            index=False,
+            na_rep="",
+            compression="gzip",
+        )
+        batch.summary.to_csv(
+            paths["gene_list_resolution_summary"],
+            sep="\t",
+            index=False,
+            na_rep="",
+        )
 
     def build_metadata(
         self,
@@ -548,18 +570,22 @@ class LDScoreDirectoryWriter:
             "query_row_groups": query_rg,
         }
         query_statuses = tuple(getattr(result, "query_statuses", ()))
-        gene_resolutions = tuple(getattr(result, "gene_list_resolutions", ()))
+        gene_list_batch = getattr(result, "gene_list_batch", None)
         if query_statuses:
             payload["query_diagnostics"] = {"status": "diagnostics/query_annotation_status.tsv"}
-        if gene_resolutions:
-            payload["gene_catalog"] = dict(getattr(result, "gene_catalog_provenance", None) or {})
-            payload["query_provenance"] = [resolution.provenance() for resolution in gene_resolutions]
-            payload.setdefault("query_diagnostics", {})["gene_list_unresolved"] = (
-                "diagnostics/gene_list_unresolved.tsv.gz"
+        if gene_list_batch is not None:
+            payload["gene_list_resolution_policy"] = gene_list_batch.resolution_policy
+            payload["gene_list_resolution_counts"] = {
+                "nonblank_input_rows": int(gene_list_batch.summary["nonblank_input_rows"].fillna(0).sum()),
+                "rejected_rows": int(gene_list_batch.summary["rejected_rows"].fillna(0).sum()),
+                "unique_resolved_genes": int(gene_list_batch.summary["unique_resolved_genes"].fillna(0).sum()),
+            }
+            payload.setdefault("query_diagnostics", {}).update(
+                {
+                    "gene_list_audit": "diagnostics/gene_list_audit.tsv.gz",
+                    "gene_list_resolution_summary": "diagnostics/gene_list_resolution_summary.tsv",
+                }
             )
-        control_resolution = getattr(result, "control_gene_list_resolution", None)
-        if control_resolution is not None:
-            payload["gene_control"] = control_resolution.provenance()
         index_provenance = getattr(result, "index_provenance", None)
         if index_provenance is not None:
             payload.update(dict(index_provenance))
@@ -1117,7 +1143,8 @@ def _ldscore_output_family(output_dir: Path) -> list[Path]:
         output_dir / "ldscore.query.parquet",
         output_dir / "ldscore.overlap.parquet",
         output_dir / "diagnostics" / "query_annotation_status.tsv",
-        output_dir / "diagnostics" / "gene_list_unresolved.tsv.gz",
+        output_dir / "diagnostics" / "gene_list_audit.tsv.gz",
+        output_dir / "diagnostics" / "gene_list_resolution_summary.tsv",
         *sorted((output_dir / "diagnostics" / "dropped_snps").glob("chr*_dropped.tsv.gz")),
     ]
 

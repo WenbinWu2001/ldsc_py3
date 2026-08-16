@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-16
 
 Downstream identity metadata lives in the `sumstats.parquet` footer (for munged
 sumstats) and in `ldscore/metadata.json` (for LD scores). Any metadata emitted by
@@ -193,13 +193,13 @@ ldscore/
   diagnostics/
     ldscore.log
     query_annotation_status.tsv
-    gene_list_unresolved.tsv.gz
+    gene_list_audit.tsv.gz
+    gene_list_resolution_summary.tsv
 ```
 
 `ldscore.query.parquet` is present only when query LD scores are written.
 `query_annotation_status.tsv` is present for BED/gene-list query runs;
-`gene_list_unresolved.tsv.gz` is present only for gene-list runs and is
-header-only when every gene resolves cleanly.
+The row-complete audit and per-source summary are present for gene-list runs.
 `ldscore.overlap.parquet` holds the annotation overlap matrix (long form:
 `row_annotation`, `col_annotation`, `overlap_all_snps`, `overlap_common_snps`)
 that `partitioned-h2` requires. It is written only for runs with two or more
@@ -223,9 +223,9 @@ annotation columns; a single-annotation (e.g. base-only) run omits it.
 | `row_group_layout` | Row-group strategy. | Reporting/technical provenance. |
 | `baseline_row_groups` | Row-group metadata for `ldscore.baseline.parquet`. | Reporting/technical provenance. |
 | `query_row_groups` | Row-group metadata for `ldscore.query.parquet`, or `null`. | Reporting/technical provenance. |
-| `gene_catalog` | Packaged resource, release, selected projection build, and decompressed-content checksum. Present only for gene-list runs. | Reproducibility/diagnostics; ignored by regression. |
-| `query_provenance` | Ordered compact gene-list source records with basename, ordinal, input checksum, and resolution counts. | Reproducibility/diagnostics; ignored by regression. |
-| `query_diagnostics` | Relative paths to the query-status manifest and, for gene runs, unresolved-gene audit. | Troubleshooting/navigation; ignored by regression. |
+| `gene_list_resolution_policy` | `strict` or `resolved-only` for gene-list runs. | Scientific provenance; ignored by regression. |
+| `gene_list_resolution_counts` | Aggregate submitted, rejected, and unique-resolved counts. | Reproducibility/diagnostics; ignored by regression. |
+| `query_diagnostics` | Relative paths to query status and, for gene runs, the audit and source summary. | Troubleshooting/navigation; ignored by regression. |
 | `legacy_ldsc2_import` | Present only for explicit LDSC2 conversion: profile, selected source directories/prefixes/files, streaming SHA-256 hashes, rsID intersection counts, count origins, strict common-frequency rule, coordinate evidence, and diagnostic paths. | Provenance and compatibility auditing; regression still consumes the ordinary canonical fields. |
 
 Native LDSC3 computation records an inclusive common operator (`>=`). Explicit
@@ -238,9 +238,10 @@ audit is `diagnostics/conversion_issues.tsv.gz`; they do not also claim a native
 
 `diagnostics/query_annotation_status.tsv` has fixed columns `query`, `source`,
 `input_type`, `status`, `reason`, `n_annotation_snps`, and `details`.
-`diagnostics/gene_list_unresolved.tsv.gz` has fixed columns `query`, `source`,
-`line`, `input_gene`, `reason`, `canonical_ensembl_id`, and `details`. Both use
-source basenames rather than absolute paths.
+`diagnostics/gene_list_audit.tsv.gz` is row-complete and
+`diagnostics/gene_list_resolution_summary.tsv` has one row per focal/control
+source. Their fixed schemas and null rules are documented in
+[Gene-list diagnostics and repair](gene-list-diagnostics-and-repair.md).
 
 ### `h2`
 

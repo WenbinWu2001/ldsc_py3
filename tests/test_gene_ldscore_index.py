@@ -3,6 +3,7 @@ from __future__ import annotations
 from argparse import Namespace
 from dataclasses import replace
 import gc
+import inspect
 import json
 from pathlib import Path
 import shutil
@@ -29,18 +30,134 @@ from ldsc.gene_ldscore_index import (
     build_plink_index_chromosome,
     calculate_index_id,
     IndexChromosomeData,
-    load_gene_ldscore_index,
-    publish_gene_ldscore_index,
-    run_indexed_ldscore,
     intersect_baseline_plink_by_identifier,
 )
-from ldsc.gene_list_resolver import GeneCatalog
+from ldsc.gene_list_resolver import GeneCatalog, GeneCatalogValidationError
 from ldsc.ldscore_calculator import LDScoreCalculator
 from ldsc.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 
 
+def load_gene_ldscore_index(path):
+    """Load a deliberately partial test fixture through the private seam."""
+    return gene_ldscore_index._load_gene_ldscore_index(
+        path, _allow_partial_for_tests=True
+    )
+
+
+def publish_gene_ldscore_index(*args, **kwargs):
+    """Publish a deliberately partial test fixture through the private seam."""
+    return gene_ldscore_index.publish_gene_ldscore_index(
+        *args, **kwargs, _allow_partial_for_tests=True
+    )
+
+
+def run_indexed_ldscore(*args, **kwargs):
+    """Run against a deliberately partial test index through the private seam."""
+    return gene_ldscore_index.run_indexed_ldscore(
+        *args, **kwargs, _allow_partial_for_tests=True
+    )
+
+
 def _rows(*items: tuple[str, int, str]) -> pd.DataFrame:
     return pd.DataFrame(items, columns=["CHR", "POS", "SNP"])
+
+
+def test_builder_parser_requires_catalog_and_hides_partial_chromosome_control():
+    parser = gene_ldscore_index.build_parser()
+    help_text = parser.format_help()
+
+    assert "--gene-coordinate-file" in help_text
+    assert "--chromosomes" not in help_text
+    assert "_allow_partial_for_tests" not in inspect.signature(
+        gene_ldscore_index.load_gene_ldscore_index
+    ).parameters
+    assert "_chromosomes" not in inspect.signature(GeneLDScoreIndexBuildConfig).parameters
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "--baseline-annot-sources", "baseline.@.annot.gz",
+                "--plink-prefix", "panel.@",
+                "--output-dir", "index",
+                "--genome-build", "hg19",
+                "--snp-identifier", "rsid",
+            ]
+        )
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "--baseline-annot-sources", "baseline.@.annot.gz",
+                "--plink-prefix", "panel.@",
+                "--output-dir", "index",
+                "--gene-coordinate-file", "genes.tsv",
+                "--genome-build", "hg19",
+                "--snp-identifier", "rsid",
+                "--chromosomes", "22",
+            ]
+        )
+
+
+def test_builder_catalog_failure_writes_full_issues_before_atom_transaction(tmp_path, monkeypatch):
+    catalog = tmp_path / "bad-catalog.tsv"
+    catalog.write_text(
+        "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+        "G1\tDUP\t1\t10\t20\thg19\n"
+        "G1\tDUP\t2\t40\t30\thg19\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "index"
+    args = gene_ldscore_index.build_parser().parse_args(
+        [
+            "--baseline-annot-sources", "unused.@.annot.gz",
+            "--plink-prefix", "unused.@",
+            "--output-dir", str(output),
+            "--gene-coordinate-file", str(catalog),
+            "--genome-build", "hg19",
+            "--snp-identifier", "rsid",
+        ]
+    )
+    monkeypatch.setattr(
+        gene_ldscore_index,
+        "_create_gene_index_transaction",
+        lambda *_args, **_kwargs: pytest.fail("atom transaction started before catalog validation"),
+    )
+
+    with pytest.raises(GeneCatalogValidationError):
+        gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+
+    issues_path = tmp_path / ".index.build-state" / "gene_coordinate_catalog_issues.tsv.gz"
+    issues = pd.read_csv(issues_path, sep="\t")
+    assert set(issues["reason"]) == {"duplicate_gene_id", "duplicate_gene_name", "end_before_start"}
+    assert not output.exists()
+
+
+def test_builder_rejects_catalog_build_mismatch_before_atom_transaction(tmp_path, monkeypatch):
+    catalog = tmp_path / "catalog.tsv"
+    catalog.write_text(
+        "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+        "G1\tGENE1\t1\t10\t20\thg38\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "index"
+    args = gene_ldscore_index.build_parser().parse_args(
+        [
+            "--baseline-annot-sources", "unused.@.annot.gz",
+            "--plink-prefix", "unused.@",
+            "--output-dir", str(output),
+            "--gene-coordinate-file", str(catalog),
+            "--genome-build", "hg19",
+            "--snp-identifier", "rsid",
+        ]
+    )
+    monkeypatch.setattr(
+        gene_ldscore_index,
+        "_create_gene_index_transaction",
+        lambda *_args, **_kwargs: pytest.fail("atom transaction started after catalog build mismatch"),
+    )
+
+    with pytest.raises(LDSCInputError, match="catalog=hg38, index=hg19"):
+        gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+
+    assert not output.exists()
 
 
 def _artifact_payload():
@@ -66,16 +183,18 @@ def _artifact_payload():
     )
     catalog = pd.DataFrame(
         {
-            "gene_index": [0, 1], "canonical_ensembl_id": ["ENSG1", "ENSG2"],
-            "gene_name": ["G1", "G2"], "CHR": ["22", "22"], "start0": [0, 5],
-            "end": [10, 15], "included": [True, True], "exclusion_reason": [None, None],
+            "gene_index": [0, 1], "gene_id": ["ENSG1", "ENSG2"],
+            "gene_name": ["G1", "G2"], "chrom": ["22", "22"], "start": [1, 6],
+            "end": [10, 15], "genome_build": ["hg19", "hg19"],
+            "catalog_line": [2, 3], "source": ["fixture.tsv", "fixture.tsv"],
+            "included": [True, True], "exclusion_reason": ["", ""],
             "chromosome_gene_row": [0, 1],
         }
     )
     index_identity = {
         "chromosomes": ["22"], "baseline": "fixture", "plink": "fixture",
         "snp_identifier": "rsid", "genome_build": "hg19",
-        "catalog": {"release": "GENCODE v49", "content_sha256": "fixture"},
+        "catalog": gene_ldscore_index._catalog_identity_records(catalog),
         "projection_build": "hg19", "padding_bp": 100000, "gene_exclude_regions": "mhc",
     }
     return chromosome, catalog, index_identity
@@ -88,12 +207,13 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
         [
             catalog.assign(
                 gene_index=[0, 1],
-                canonical_ensembl_id=[f"ENSG{chrom}1", f"ENSG{chrom}2"],
+                gene_id=[f"ENSG{chrom}1", f"ENSG{chrom}2"],
                 gene_name=[f"G{chrom}1", f"G{chrom}2"],
-                CHR=chrom,
+                chrom=chrom,
+                catalog_line=[2 + 2 * offset, 3 + 2 * offset],
                 chromosome_gene_row=[0, 1],
             )
-            for chrom in ("1", "2")
+            for offset, chrom in enumerate(("1", "2"))
         ],
         ignore_index=True,
     )
@@ -114,7 +234,10 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
     monkeypatch.setattr(
         gene_ldscore_index.GeneCatalog,
         "load",
-        lambda: SimpleNamespace(resource="catalog.tsv.gz", release="test"),
+        lambda *_args, **_kwargs: SimpleNamespace(
+            source="catalog.tsv.gz",
+            genome_build="hg19",
+        ),
     )
     monkeypatch.setattr(
         gene_ldscore_index,
@@ -136,7 +259,11 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
     monkeypatch.setattr(
         gene_ldscore_index,
         "_builder_index_identity",
-        lambda *args, **kwargs: {**index_identity, "chromosomes": ["1", "2"]},
+        lambda *args, **kwargs: {
+            **index_identity,
+            "chromosomes": ["1", "2"],
+            "catalog": gene_ldscore_index._catalog_identity_records(embedded_catalog),
+        },
     )
     monkeypatch.setattr(
         gene_ldscore_index.kernel_ldscore,
@@ -160,7 +287,8 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
         exclude_regions="mhc-and-centromeres",
         genetic_map_hg19_sources=None,
         genetic_map_hg38_sources=None,
-        chromosomes="1,2",
+        gene_coordinate_file="catalog.tsv.gz",
+        _test_chromosomes=("1", "2"),
         snp_batch_size=128,
         atom_batch_size=64,
         threads=2,
@@ -189,24 +317,16 @@ def test_selected_individual_identity_uses_fam_row_order():
 def test_embedded_catalog_keeps_mhc_exclusions_with_empty_gene_rows():
     frame = pd.DataFrame(
         {
-            "ensgid": ["ENSG1", "ENSG2", "ENSG3"],
+            "gene_id": ["ENSG1", "ENSG2", "ENSG3"],
             "gene_name": ["MHC_GENE", "OTHER6", "CHR22"],
-            "hg19_chr": ["6", "6", "22"],
-            "hg19_start0": [26_000_000, 40_000_000, 100],
-            "hg19_end": [26_001_000, 40_001_000, 200],
-            "hg38_chr": [pd.NA, pd.NA, pd.NA],
-            "hg38_start0": [pd.NA, pd.NA, pd.NA],
-            "hg38_end": [pd.NA, pd.NA, pd.NA],
+            "chrom": ["6", "6", "22"],
+            "start": [26_000_001, 40_000_001, 101],
+            "end": [26_001_000, 40_001_000, 200],
+            "genome_build": ["hg19", "hg19", "hg19"],
+            "catalog_line": [2, 3, 4],
         }
     )
-    catalog = GeneCatalog(
-        frame=frame,
-        resource="test.tsv.gz",
-        release="test",
-        content_sha256="abc",
-        ensembl_to_index={"ENSG1": 0, "ENSG2": 1, "ENSG3": 2},
-        gene_name_to_indices={"MHC_GENE": (0,), "OTHER6": (1,), "CHR22": (2,)},
-    )
+    catalog = GeneCatalog.from_embedded_frame(frame, source="test.tsv.gz")
 
     embedded = _build_embedded_gene_catalog(
         catalog, genome_build="hg19", gene_exclude_regions="mhc"
@@ -788,6 +908,7 @@ def test_build_index_command_registers_explicit_base_identity(snp_identifier):
             "--baseline-annot-sources", "baseline.@.annot.gz",
             "--plink-prefix", "panel.@",
             "--output-dir", "suite",
+            "--gene-coordinate-file", "genes.tsv",
             "--genome-build", "hg19",
             "--snp-identifier", snp_identifier,
         ]
@@ -813,6 +934,7 @@ def test_build_index_command_accepts_custom_regression_snps_and_region_policy():
             "--baseline-annot-sources", "baseline.@.annot.gz",
             "--plink-prefix", "panel.@",
             "--output-dir", "index",
+            "--gene-coordinate-file", "genes.tsv",
             "--genome-build", "hg19",
             "--snp-identifier", "chr_pos",
             "--regression-snps-file", "custom.snplist",
@@ -835,6 +957,7 @@ def test_build_index_python_config_requires_identity_and_build():
         baseline_annot_sources=("baseline.@.annot.gz",),
         plink_prefix="panel.@",
         output_dir="index",
+        gene_coordinate_file="genes.tsv",
         genome_build="hg19",
         snp_identifier="chr_pos",
     )
@@ -850,7 +973,7 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
         baseline_annotations=pd.DataFrame({"base": [1.0, 1.0]}),
         baseline_columns=["base"],
     )
-    fake_catalog = SimpleNamespace(resource="catalog.tsv.gz", release="test", content_sha256="catalog")
+    fake_catalog = SimpleNamespace(source="catalog.tsv.gz", genome_build="hg19")
     embedded_catalog = catalog.copy()
     index_identity = {
         **index_identity,
@@ -879,7 +1002,11 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
             return public_bundle
 
     monkeypatch.setattr(gene_ldscore_index, "AnnotationBuilder", FakeAnnotationBuilder)
-    monkeypatch.setattr(gene_ldscore_index.GeneCatalog, "load", lambda: fake_catalog)
+    monkeypatch.setattr(
+        gene_ldscore_index.GeneCatalog,
+        "load",
+        lambda *_args, **_kwargs: fake_catalog,
+    )
     monkeypatch.setattr(gene_ldscore_index, "_build_embedded_gene_catalog", lambda *args, **kwargs: embedded_catalog)
     monkeypatch.setattr(gene_ldscore_index, "_load_builder_genetic_map", lambda _args: None)
     captured_restriction = {}
@@ -911,7 +1038,8 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
         exclude_regions="centromeres",
         genetic_map_hg19_sources=None,
         genetic_map_hg38_sources=None,
-        chromosomes="22",
+        gene_coordinate_file="catalog.tsv.gz",
+        _test_chromosomes=("22",),
         snp_batch_size=128,
         atom_batch_size=64,
         threads=1,
@@ -940,9 +1068,9 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     assert "baseline/PLINK identifier intersection" in log_text
     assert "Starting chromosome 22" in log_text
     assert "Finished chromosome 22" in log_text
-    assert "protein-coding genes=2" in log_text
+    assert "catalog genes=2" in log_text
     assert "Finished " in log_text
-    assert diagnostics["chromosomes"]["22"]["protein_coding_genes"] == 2
+    assert diagnostics["chromosomes"]["22"]["catalog_genes"] == 2
     assert diagnostics["chromosomes"]["22"]["operator_nnz"] == chromosome.operator.nnz
     assert f"operator_nnz={chromosome.operator.nnz}" in log_text
     assert captured_restriction["path"] == Path("custom-regression.tsv")
@@ -1044,7 +1172,7 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
         baseline_annotations=pd.DataFrame({"base": [1.0, 1.0]}),
         baseline_columns=["base"],
     )
-    fake_catalog = SimpleNamespace(resource="catalog.tsv.gz", release="test", content_sha256="catalog")
+    fake_catalog = SimpleNamespace(source="catalog.tsv.gz", genome_build="hg19")
     embedded_catalog = catalog.copy()
 
     class FakeAnnotationBuilder:
@@ -1055,7 +1183,11 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
             return public_bundle
 
     monkeypatch.setattr(gene_ldscore_index, "AnnotationBuilder", FakeAnnotationBuilder)
-    monkeypatch.setattr(gene_ldscore_index.GeneCatalog, "load", lambda: fake_catalog)
+    monkeypatch.setattr(
+        gene_ldscore_index.GeneCatalog,
+        "load",
+        lambda *_args, **_kwargs: fake_catalog,
+    )
     monkeypatch.setattr(gene_ldscore_index, "_build_embedded_gene_catalog", lambda *args, **kwargs: embedded_catalog)
     monkeypatch.setattr(gene_ldscore_index, "_builder_index_identity", lambda *args, **kwargs: index_identity)
     monkeypatch.setattr(gene_ldscore_index, "_load_builder_genetic_map", lambda _args: None)
@@ -1086,7 +1218,8 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
         exclude_regions="mhc-and-centromeres",
         genetic_map_hg19_sources=None,
         genetic_map_hg38_sources=None,
-        chromosomes="22",
+        gene_coordinate_file="catalog.tsv.gz",
+        _test_chromosomes=("22",),
         snp_batch_size=128,
         atom_batch_size=64,
         threads=1,
@@ -1293,6 +1426,20 @@ def test_index_artifact_round_trip_uses_approved_tree_and_payloads(tmp_path):
     assert list(stored_rows.columns[:5]) == ["CHR", "SNP", "POS", "A1", "A2"]
 
 
+def test_public_loader_rejects_partial_index_before_gene_resolution(tmp_path):
+    chromosome, catalog, index_identity = _artifact_payload()
+    index_dir = publish_gene_ldscore_index(
+        tmp_path / "index",
+        index_identity=index_identity,
+        gene_catalog=catalog,
+        chromosomes={"22": chromosome},
+        overwrite=False,
+    )
+
+    with pytest.raises(LDSCInputError, match="autosomes 1 through 22"):
+        gene_ldscore_index.load_gene_ldscore_index(index_dir)
+
+
 def test_chr_pos_index_round_trip_uses_coordinate_identity_and_publishes_plink_labels(tmp_path):
     chromosome, catalog, index_identity = _artifact_payload()
     chr_pos_identity = {**index_identity, "snp_identifier": "chr_pos"}
@@ -1469,7 +1616,9 @@ def test_post_commit_cleanup_failure_warns_but_published_index_succeeds(
     assert str(leftovers[0]) in caplog.text
     assert "published index is valid" in caplog.text
 
-    gene_ldscore_index._recover_gene_index_publication(index_dir)
+    gene_ldscore_index._recover_gene_index_publication(
+        index_dir, _allow_partial_for_tests=True
+    )
     assert not leftovers[0].exists()
 
 
@@ -1540,7 +1689,9 @@ def test_index_publication_recovery_restores_one_valid_owned_backup(tmp_path):
     index_dir.rename(backup)
     gene_ldscore_index._write_json(backup / ".gene-index-publication.json", marker)
 
-    gene_ldscore_index._recover_gene_index_publication(index_dir)
+    gene_ldscore_index._recover_gene_index_publication(
+        index_dir, _allow_partial_for_tests=True
+    )
 
     assert load_gene_ldscore_index(index_dir).index_id == calculate_index_id(index_identity)
     assert not transaction.exists()
@@ -1557,6 +1708,32 @@ def test_retry_discards_a_marked_partial_stage_instead_of_reusing_it(tmp_path):
 
     assert not transaction.exists()
     assert not index_dir.exists()
+
+
+def test_index_loader_rejects_embedded_catalog_policy_and_source_tampering(tmp_path):
+    chromosome, catalog, index_identity = _artifact_payload()
+    index_dir = publish_gene_ldscore_index(
+        tmp_path / "index",
+        index_identity=index_identity,
+        gene_catalog=catalog,
+        chromosomes={"22": chromosome},
+        overwrite=False,
+    )
+    catalog_path = index_dir / "gene_catalog.parquet"
+    tampered = pd.read_parquet(catalog_path)
+    tampered.loc[0, "included"] = False
+    tampered.loc[0, "exclusion_reason"] = "excluded_gene_region"
+    tampered.to_parquet(catalog_path, index=False)
+
+    with pytest.raises(LDSCInputError, match="inclusion policy"):
+        load_gene_ldscore_index(index_dir)
+
+    tampered.loc[0, "included"] = True
+    tampered.loc[0, "exclusion_reason"] = ""
+    tampered["source"] = ""
+    tampered.to_parquet(catalog_path, index=False)
+    with pytest.raises(LDSCInputError, match="source basename"):
+        load_gene_ldscore_index(index_dir)
 
 
 def test_failed_index_overwrite_rolls_back_without_mutating_valid_index(tmp_path, monkeypatch):
@@ -1674,12 +1851,13 @@ def test_explicit_indexed_mode_dispatches_without_live_reference(monkeypatch, tm
         "index_dir": "gene-index",
         "query_gene_list_sources": ("immune.txt", "brain.txt"),
         "control_gene_list_file": None,
+        "gene_list_resolution_policy": "strict",
         "output_dir": str(tmp_path / "out"),
         "overwrite": True,
     }
 
 
-def test_explicit_indexed_cli_writes_the_canonical_workflow_log(tmp_path):
+def test_explicit_indexed_cli_writes_the_canonical_workflow_log(tmp_path, monkeypatch):
     chromosome, catalog, index_identity = _artifact_payload()
     index_dir = publish_gene_ldscore_index(
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
@@ -1688,6 +1866,12 @@ def test_explicit_indexed_cli_writes_the_canonical_workflow_log(tmp_path):
     genes = tmp_path / "focal.txt"
     genes.write_text("G1\n", encoding="utf-8")
     output_dir = tmp_path / "out"
+    real_load = gene_ldscore_index._load_gene_ldscore_index
+    monkeypatch.setattr(
+        gene_ldscore_index,
+        "_load_gene_ldscore_index",
+        lambda path, **_kwargs: real_load(path, _allow_partial_for_tests=True),
+    )
 
     cli.main(
         [
@@ -1727,7 +1911,7 @@ def test_indexed_control_gene_list_file_must_resolve_to_a_file(tmp_path):
             index_dir,
             query_gene_list_sources=(genes,),
             control_gene_list_file=tmp_path / "*.txt",
-            output_dir=tmp_path / "out",
+            output_dir=tmp_path / "out-glob",
         )
 
 
@@ -1737,6 +1921,9 @@ def test_indexed_control_gene_list_file_must_resolve_to_a_file(tmp_path):
     ("--r2-dir", "r2"),
     ("--snp-identifier", "chr_pos_allele_aware"),
     ("--genome-build", "hg19"),
+    ("--gene-exclude-regions", "none"),
+    ("--common-maf-min", "0.05"),
+    ("--threads", "1"),
 ])
 def test_explicit_indexed_mode_rejects_live_inputs(forbidden, tmp_path):
     with pytest.raises(LDSCInputError, match="indexed mode"):
@@ -1751,6 +1938,19 @@ def test_explicit_indexed_mode_rejects_live_inputs(forbidden, tmp_path):
         )
 
 
+def test_explicit_indexed_mode_rejects_ignored_boolean_live_option(tmp_path):
+    with pytest.raises(LDSCInputError, match="--export-ref-metadata"):
+        cli.main(
+            [
+                "ldscore",
+                "--output-dir", str(tmp_path / "out"),
+                "--gene-ldscore-index-dir", "gene-index",
+                "--query-annot-gene-list-sources", "immune.txt",
+                "--export-ref-metadata",
+            ]
+        )
+
+
 def test_python_indexed_mode_rejects_explicit_identity_even_when_equal_to_ordinary_default(tmp_path):
     with pytest.raises(LDSCUsageError, match="snp_identifier"):
         ldscore_calculator.run_ldscore(
@@ -1761,7 +1961,7 @@ def test_python_indexed_mode_rejects_explicit_identity_even_when_equal_to_ordina
         )
 
 
-def test_indexed_all_unresolved_writes_diagnostics_without_scientific_outputs(tmp_path):
+def test_indexed_strict_unresolved_stops_at_gate_a_with_complete_audit(tmp_path):
     chromosome, catalog, index_identity = _artifact_payload()
     index_dir = publish_gene_ldscore_index(
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
@@ -1771,14 +1971,20 @@ def test_indexed_all_unresolved_writes_diagnostics_without_scientific_outputs(tm
     genes.write_text("NOT_A_GENE\n", encoding="utf-8")
     output_dir = tmp_path / "out"
 
-    with pytest.raises(LDSCInputError, match="all 1 requested query annotations were skipped"):
+    with pytest.raises(LDSCInputError, match="catalog preflight rejected 1 of 1"):
         run_indexed_ldscore(
             index_dir,
             query_gene_list_sources=(genes,),
             output_dir=output_dir,
         )
 
-    assert (output_dir / "diagnostics" / "query_annotation_status.tsv").exists()
-    assert (output_dir / "diagnostics" / "gene_list_unresolved.tsv.gz").exists()
+    assert not (output_dir / "diagnostics" / "query_annotation_status.tsv").exists()
+    audit_path = output_dir / "diagnostics" / "gene_list_audit.tsv.gz"
+    assert audit_path.exists()
+    audit = pd.read_csv(audit_path, sep="\t")
+    assert audit[["input_gene", "disposition", "reason"]].to_records(index=False).tolist() == [
+        ("NOT_A_GENE", "rejected", "unmatched_identifier")
+    ]
+    assert (output_dir / "diagnostics" / "gene_list_resolution_summary.tsv").exists()
     assert not (output_dir / "metadata.json").exists()
     assert not (output_dir / "ldscore.baseline.parquet").exists()

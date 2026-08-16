@@ -88,15 +88,15 @@ from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserE
 from .genome_build_inference import resolve_genome_build
 from .gene_list_resolver import (
     GeneCatalog,
-    GeneListResolution,
-    resolve_gene_list,
+    GeneListBatchResolution,
+    GeneSourceSelection,
+    resolve_gene_lists,
 )
 from .path_resolution import (
     ANNOTATION_SUFFIXES,
     ensure_output_directory,
     preflight_output_artifact_family,
     remove_output_artifacts,
-    resolve_exact_file,
     resolve_file_group,
     split_cli_path_tokens,
 )
@@ -203,12 +203,8 @@ class AnnotationBundle:
     query_statuses : tuple of QueryAnnotationStatus, optional
         Ordered status records for requested BED or gene-list queries. Usable
         records align with ``query_columns``; skipped records remain for audit.
-    gene_list_resolutions : tuple of GeneListResolution, optional
-        Compact canonical gene identities, intervals, counts, and unresolved
-        rows retained for LD-score provenance and diagnostics.
-    gene_catalog_provenance : dict, optional
-        Packaged catalog resource, release, selected projection build, and
-        decompressed-content checksum.
+    gene_list_batch : GeneListBatchResolution, optional
+        Complete focal/control audit, source summary, and usable selections.
     """
 
     metadata: pd.DataFrame
@@ -220,9 +216,7 @@ class AnnotationBundle:
     source_summary: dict[str, object]
     config_snapshot: GlobalConfig | None = None
     query_statuses: tuple[QueryAnnotationStatus, ...] = ()
-    gene_list_resolutions: tuple[GeneListResolution, ...] = ()
-    control_gene_list_resolution: GeneListResolution | None = None
-    gene_catalog_provenance: dict[str, str] | None = None
+    gene_list_batch: GeneListBatchResolution | None = None
 
     def validate(self, snp_identifier: str = "chr_pos_allele_aware") -> None:
         """Validate row alignment assumptions for the bundle.
@@ -332,6 +326,9 @@ class AnnotationBuilder:
     projection_genome_build : {"hg19", "hg38"} or None, optional
         Concrete build used only for gene-catalog interval selection. It may be
         set in rsID workflows without changing rsID artifact identity metadata.
+    gene_catalog : GeneCatalog or None, optional
+        Already validated catalog authority for one direct gene-list run. This
+        private seam prevents a second catalog read after build preflight.
     """
 
     def __init__(
@@ -340,6 +337,7 @@ class AnnotationBuilder:
         build_config: AnnotationBuildConfig | None = None,
         *,
         projection_genome_build: str | None = None,
+        gene_catalog: GeneCatalog | None = None,
     ) -> None:
         """Store shared configuration for bundle loading and BED projection."""
         assert global_config.genome_build in {"auto", "hg19", "hg38", None}, (
@@ -349,6 +347,7 @@ class AnnotationBuilder:
         self.global_config = global_config
         self.build_config = build_config or AnnotationBuildConfig()
         self.projection_genome_build = projection_genome_build or global_config.genome_build
+        self.gene_catalog = gene_catalog
         self._workflow_log_path: Path | None = None
         self._identity_drop_frame = empty_identity_drop_frame()
 
@@ -399,49 +398,47 @@ class AnnotationBuilder:
                 allow_chromosome_suite=True,
             )
         )
-        gene_resolutions: tuple[GeneListResolution, ...] = ()
-        control_resolution: GeneListResolution | None = None
-        catalog_provenance: dict[str, str] | None = None
+        gene_resolutions: tuple[GeneSourceSelection, ...] = ()
+        control_resolution: GeneSourceSelection | None = None
+        gene_list_batch: GeneListBatchResolution | None = None
         if source_spec.query_annot_gene_list_sources:
             if self.projection_genome_build not in {"hg19", "hg38"}:
                 raise LDSCInputError(
                     "annotate could not project gene-list queries because no concrete catalog build was selected. "
                     "Resolve --genome-build to hg19 or hg38 before annotation construction."
                 )
-            gene_paths = resolve_file_group(
-                source_spec.query_annot_gene_list_sources,
-                label="gene-list file",
-                allow_chromosome_suite=False,
-            )
-            catalog = GeneCatalog.load()
-            gene_resolutions = tuple(
-                resolve_gene_list(
-                    path,
-                    catalog,
-                    genome_build=self.projection_genome_build,
-                    source_ordinal=index,
-                    gene_exclude_regions=source_spec.gene_exclude_regions,
-                )
-                for index, path in enumerate(gene_paths, start=1)
-            )
-            if source_spec.control_gene_list_file is not None:
-                control_file = resolve_exact_file(
-                    source_spec.control_gene_list_file,
-                    label="control gene-list file",
-                )
-                control_resolution = resolve_gene_list(
-                    control_file,
-                    catalog,
-                    genome_build=self.projection_genome_build,
-                    source_ordinal=0,
-                    gene_exclude_regions=source_spec.gene_exclude_regions,
-                )
-            if control_resolution is not None and control_resolution.status not in {"ok", "warning"}:
+            if source_spec.gene_coordinate_file is None:
                 raise LDSCInputError(
-                    "The requested control gene list is unusable "
-                    f"(reason={control_resolution.reason}). Use a valid control gene-list file."
+                    "Gene-list query annotations require --gene-coordinate-file; no packaged gene catalog exists."
                 )
-            catalog_provenance = catalog.provenance(self.projection_genome_build)
+            catalog = self.gene_catalog or GeneCatalog.load(source_spec.gene_coordinate_file)
+            if catalog.genome_build != self.projection_genome_build:
+                raise LDSCInputError(
+                    "Gene-coordinate catalog build does not match the resolved analysis build: "
+                    f"catalog={catalog.genome_build}, analysis={self.projection_genome_build}. "
+                    "Use a catalog generated for the analysis build; no implicit liftover is performed."
+                )
+            gene_list_batch = resolve_gene_lists(
+                source_spec.query_annot_gene_list_sources,
+                catalog,
+                control_path=source_spec.control_gene_list_file,
+                resolution_policy=source_spec.gene_list_resolution_policy,
+                gene_exclude_regions=source_spec.gene_exclude_regions,
+            )
+            if not gene_list_batch.has_fatal_gate_a_issues:
+                gene_resolutions = tuple(
+                    selection
+                    for selection in gene_list_batch.selections
+                    if selection.input_role == "focal"
+                )
+                control_resolution = next(
+                    (
+                        selection
+                        for selection in gene_list_batch.selections
+                        if selection.input_role == "control"
+                    ),
+                    None,
+                )
 
         sharded_baseline = self._detect_chromosome_shards(baseline_files, group_name="baseline")
         if sharded_baseline is not None:
@@ -460,7 +457,7 @@ class AnnotationBuilder:
                 has_query_inputs=bool(query_files),
                 gene_resolutions=gene_resolutions,
                 control_resolution=control_resolution,
-                catalog_provenance=catalog_provenance,
+                gene_list_batch=gene_list_batch,
             )
 
         return self._run_single_universe(
@@ -470,7 +467,7 @@ class AnnotationBuilder:
             chrom=chrom,
             gene_resolutions=gene_resolutions,
             control_resolution=control_resolution,
-            catalog_provenance=catalog_provenance,
+            gene_list_batch=gene_list_batch,
         )
 
     def _run_single_universe(
@@ -479,9 +476,9 @@ class AnnotationBuilder:
         baseline_files: Sequence[str],
         query_files: Sequence[str],
         chrom: str | None = None,
-        gene_resolutions: Sequence[GeneListResolution] = (),
-        control_resolution: GeneListResolution | None = None,
-        catalog_provenance: dict[str, str] | None = None,
+        gene_resolutions: Sequence[GeneSourceSelection] = (),
+        control_resolution: GeneSourceSelection | None = None,
+        gene_list_batch: GeneListBatchResolution | None = None,
     ) -> AnnotationBundle:
         """Build one bundle when all inputs should share one SNP row universe."""
         metadata: pd.DataFrame | None = None
@@ -567,17 +564,41 @@ class AnnotationBuilder:
                     f"{duplicate_columns}. Rename the gene-list files or annotation columns."
                 )
             for resolution in gene_resolutions:
+                source_summary = (
+                    gene_list_batch.summary[
+                        (gene_list_batch.summary["input_role"] == "focal")
+                        & (gene_list_batch.summary["source_ordinal"] == resolution.source_ordinal)
+                    ].iloc[0]
+                    if gene_list_batch is not None
+                    else None
+                )
+                rejected_rows = 0 if source_summary is None else int(source_summary["rejected_rows"])
+                nonblank_rows = 0 if source_summary is None else int(source_summary["nonblank_input_rows"])
+                if not resolution.canonical_gene_ids:
+                    status = "skipped"
+                    reason = "empty_gene_list" if nonblank_rows == 0 else "zero_resolved_genes"
+                elif rejected_rows:
+                    status = "warning"
+                    reason = "partial_gene_resolution"
+                else:
+                    status = "ok"
+                    reason = ""
                 query_statuses.append(
                     QueryAnnotationStatus(
                         query=resolution.query,
                         source=resolution.source,
                         input_type="gene_list",
-                        status=resolution.status,
-                        reason=resolution.reason,
-                        details=resolution.details,
+                        status=status,
+                        reason=reason,
+                        details=(
+                            "See diagnostics/gene_list_audit.tsv.gz and "
+                            "diagnostics/gene_list_resolution_summary.tsv."
+                            if status != "ok"
+                            else None
+                        ),
                     )
                 )
-                if resolution.status not in {"ok", "warning"}:
+                if status == "skipped":
                     continue
                 query_blocks.append(
                     pd.DataFrame(
@@ -689,7 +710,7 @@ class AnnotationBuilder:
             query_statuses=tuple(query_statuses),
             gene_resolutions=tuple(gene_resolutions),
             control_resolution=control_resolution,
-            catalog_provenance=catalog_provenance,
+            gene_list_batch=gene_list_batch,
         )
 
     def _run_sharded_inputs(
@@ -699,9 +720,9 @@ class AnnotationBuilder:
         query_by_chrom: dict[str, str],
         chrom: str | None,
         has_query_inputs: bool,
-        gene_resolutions: Sequence[GeneListResolution] = (),
-        control_resolution: GeneListResolution | None = None,
-        catalog_provenance: dict[str, str] | None = None,
+        gene_resolutions: Sequence[GeneSourceSelection] = (),
+        control_resolution: GeneSourceSelection | None = None,
+        gene_list_batch: GeneListBatchResolution | None = None,
     ) -> AnnotationBundle:
         """Build and aggregate one bundle per chromosome shard."""
         if chrom is not None:
@@ -729,7 +750,9 @@ class AnnotationBuilder:
                 query_annot_sources=(() if not has_query_inputs else (query_by_chrom[chrom_key],)),
                 query_annot_bed_sources=source_spec.query_annot_bed_sources,
                 query_annot_gene_list_sources=source_spec.query_annot_gene_list_sources,
+                gene_coordinate_file=source_spec.gene_coordinate_file,
                 control_gene_list_file=source_spec.control_gene_list_file,
+                gene_list_resolution_policy=source_spec.gene_list_resolution_policy,
                 gene_exclude_regions=source_spec.gene_exclude_regions,
                 padding_bp=source_spec.padding_bp,
                 allow_missing_query=source_spec.allow_missing_query,
@@ -742,7 +765,7 @@ class AnnotationBuilder:
                     chrom=chrom_key,
                     gene_resolutions=gene_resolutions,
                     control_resolution=control_resolution,
-                    catalog_provenance=catalog_provenance,
+                    gene_list_batch=gene_list_batch,
                 )
             )
 
@@ -771,7 +794,7 @@ class AnnotationBuilder:
             query_statuses=bundles[0].query_statuses,
             gene_resolutions=tuple(gene_resolutions),
             control_resolution=control_resolution,
-            catalog_provenance=catalog_provenance,
+            gene_list_batch=gene_list_batch,
         )
 
     def _apply_identity_cleanup(
@@ -818,9 +841,9 @@ class AnnotationBuilder:
         chromosomes: list[str],
         source_spec: AnnotationBuildConfig,
         query_statuses: tuple[QueryAnnotationStatus, ...] = (),
-        gene_resolutions: tuple[GeneListResolution, ...] = (),
-        control_resolution: GeneListResolution | None = None,
-        catalog_provenance: dict[str, str] | None = None,
+        gene_resolutions: tuple[GeneSourceSelection, ...] = (),
+        control_resolution: GeneSourceSelection | None = None,
+        gene_list_batch: GeneListBatchResolution | None = None,
     ) -> AnnotationBundle:
         """Construct, validate, and return an ``AnnotationBundle``."""
         bundle = AnnotationBundle(
@@ -835,19 +858,21 @@ class AnnotationBuilder:
                 "query_annot_sources": list(source_spec.query_annot_sources),
                 "query_annot_bed_sources": list(source_spec.query_annot_bed_sources),
                 "query_annot_gene_list_sources": [Path(path).name for path in source_spec.query_annot_gene_list_sources],
+                "gene_coordinate_file": (
+                    None if source_spec.gene_coordinate_file is None else Path(source_spec.gene_coordinate_file).name
+                ),
                 "control_gene_list_file": (
                     None
                     if source_spec.control_gene_list_file is None
                     else Path(source_spec.control_gene_list_file).name
                 ),
                 "gene_exclude_regions": source_spec.gene_exclude_regions,
+                "gene_list_resolution_policy": source_spec.gene_list_resolution_policy,
                 "padding_bp": source_spec.padding_bp,
             },
             config_snapshot=self.global_config,
             query_statuses=query_statuses,
-            gene_list_resolutions=gene_resolutions,
-            control_gene_list_resolution=control_resolution,
-            gene_catalog_provenance=catalog_provenance,
+            gene_list_batch=gene_list_batch,
         )
         bundle.validate(self.global_config.snp_identifier)
         return bundle

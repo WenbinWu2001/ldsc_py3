@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-08-09
+Last updated on: 2026-08-16
 
 This reference explains `ldsc` errors that can **abort a run** and have more than
 one likely cause. It is organized by command. Each entry lists the likely causes
@@ -334,26 +334,26 @@ one of `--snp-identifier rsid` or `--snp-identifier chr_pos`, plus
 options belong only to Stage 1 construction. Remove both options from Stage 2
 `ldsc ldscore --gene-ldscore-index-dir ...`, which inherits them from the index.
 
-### ldscore: a BED or gene-list query is missing from results
+### ldscore: gene-list preflight stopped or a focal query is missing
 
 **Raised by:** query annotation status handling · **Symptom:** one requested
 query is absent from `ldscore.query.parquet` or downstream partitioned-h2 rows,
 or the run reports that every query was skipped.
 
-This is intentional batch behavior. A bad concrete BED or gene list does not
-interrupt valid siblings. Inspect
-`diagnostics/query_annotation_status.tsv`; its `reason` distinguishes empty,
-malformed, unreadable, ambiguous, fully unresolved, zero-annotation-SNP, and
-zero-variance queries. For gene lists,
-`diagnostics/gene_list_unresolved.tsv.gz` names each problematic input gene and
-line. `diagnostics/ldscore.log` contains the corresponding warnings and the
-effective catalog projection build.
+Strict gene-list resolution stops before LD-score work if any focal/control row
+cannot resolve uniquely. Start with
+`diagnostics/gene_list_resolution_summary.tsv`, then filter
+`diagnostics/gene_list_audit.tsv.gz` by the affected `source` and
+`disposition == 'rejected'`. After Gate A succeeds,
+`diagnostics/query_annotation_status.tsv` distinguishes empty/zero-resolved,
+zero-annotation-SNP, and zero-variance focal queries. Usable sibling queries
+continue; a requested control never disappears silently. Correct the list or
+catalog evidence and rerun with `--overwrite` because diagnostics are owned
+artifacts. When all focal queries are skipped, no root scientific result is
+written.
 
-For a `warning/partial_resolution`, correct the listed genes if completeness is
-required; the resolved subset was used. For `skipped`, fix the source/build or
-broaden the retained reference/regression SNP universes, then rerun with
-`--overwrite` because the diagnostics are owned artifacts. When all queries are
-skipped, no root metadata or canonical parquet result is written.
+For the complete reason vocabulary, column definitions, filters, and prioritized
+repair steps, see [Gene-list diagnostics and repair](current/gene-list-diagnostics-and-repair.md).
 
 ### ldscore: annotation values are malformed
 

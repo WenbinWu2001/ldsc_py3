@@ -1,6 +1,6 @@
 # ldsc3_Jerry
 
-Last updated on: 2026-08-09
+Last updated on: 2026-08-16
 
 This repository is the active refactored LDSC package.
 
@@ -231,11 +231,11 @@ ldsc ldscore \
   --output-dir gene_ldscores
 ```
 
-Build complete indexes offline with `ldsc build-gene-ldscore-index`. Construction defaults to unpadded gene intervals (`--padding-bp 0`) and requires both `--genome-build hg19` and an explicit `--snp-identifier rsid|chr_pos`; there is no identity/build default, inference, hg38, liftover, or allele-aware index mode. Indexed mode is explicit and fail-closed: it validates and inherits the complete index's identity/build and stored padding, rejects live identity/build or baseline/reference/window overrides, and requires callers to remove `--padding-bp` entirely rather than pass zero. It writes the same self-contained canonical LD-score directory. During the offline build, each completed chromosome is atomically persisted in a hidden run-specific stage, allowing its large in-memory payload to be released while later chromosomes continue. A `Finished chromosome N` log line reports that private durability boundary; the public destination remains absent, empty, or at its prior complete version until every chromosome and shared metadata pass reload validation. These private shards are not resumable checkpoints and never support chromosome append or incremental index updates. See
+Build complete indexes offline with `ldsc build-gene-ldscore-index`. Construction requires an explicit one-based `--gene-coordinate-file`, defaults to unpadded gene intervals (`--padding-bp 0`), and requires both `--genome-build hg19` and an explicit `--snp-identifier rsid|chr_pos`; there is no packaged gene catalog, identity/build default, inference, hg38, liftover, or allele-aware index mode. Indexed mode is explicit and fail-closed: it validates and inherits the complete index's identity/build and stored padding, rejects live identity/build or baseline/reference/window overrides, and requires callers to remove `--padding-bp` entirely rather than pass zero. It writes the same self-contained canonical LD-score directory. During the offline build, each completed chromosome is atomically persisted in a hidden run-specific stage, allowing its large in-memory payload to be released while later chromosomes continue. A `Finished chromosome N` log line reports that private durability boundary; the public destination remains absent, empty, or at its prior complete version until every chromosome and shared metadata pass reload validation. These private shards are not resumable checkpoints and never support chromosome append or incremental index updates. See
 [the exact gene-index guide](docs/current/gene-ldscore-index.md) and its
 [mathematical algorithm](docs/current/gene-ldscore-index-mathematics.md).
 Task-oriented walkthroughs cover [building the index](docs/wiki/utility-functionalities/build-gene-ldscore-index.md)
-and [using it for gene-list LD scores](docs/wiki/main-functionalities/ldscore.md).
+and [using it for gene-list LD scores](docs/wiki/main-functionalities/ldscore-from-gene-list.md).
 
 ## LDSC2 compatibility boundary
 

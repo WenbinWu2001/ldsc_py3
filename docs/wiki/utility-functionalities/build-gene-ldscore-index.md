@@ -1,6 +1,6 @@
 # Build an exact gene LD-score index
 
-Last updated on: 2026-08-08
+Last updated on: 2026-08-16
 
 For the mathematical construction of the disjoint atoms, stored operator, and
 sufficient statistics—and the full downstream indexed-assembly derivation—see
@@ -9,7 +9,7 @@ sufficient statistics—and the full downstream indexed-assembly derivation—se
 ## Goal
 
 Build one complete reusable index that contains the fixed baseline LD scores,
-an embedded protein-coding catalog, exact disjoint-gene atoms, and the sparse
+an embedded caller-supplied gene catalog, exact disjoint-gene atoms, and the sparse
 operator needed to assemble later gene-list annotations. The index is an
 offline artifact; it does not run regression.
 
@@ -91,15 +91,15 @@ The intersected baseline/PLINK SNPs are the LD-reference contributor, count,
 and overlap universe. Regression candidates and `--exclude-regions` select
 only persisted output rows and `regression_ld_scores` contributors.
 
-> **Caveat: protein-coding regions do not restrict baseline LD scores.** For
+> **Caveat: gene-catalog regions do not restrict baseline LD scores.** For
 > each supplied baseline column, the builder recomputes LD scores over the full
 > retained baseline/PLINK reference intersection. A retained SNP contributes
 > according to its value in that baseline column, whether or not it lies in a
-> protein-coding gene region. For an all-ones baseline column, every retained
-> reference SNP within the LD window contributes. Protein-coding intervals are
+> catalog gene region. For an all-ones baseline column, every retained
+> reference SNP within the LD window contributes. Catalog intervals are
 > used only to construct the disjoint atoms for focal gene-list annotations
 > and an optional custom `gene_control`; they never redefine the baseline LD-reference
-> universe. Do not prefilter the PLINK or baseline inputs to protein-coding
+> universe. Do not prefilter the PLINK or baseline inputs to gene
 > regions unless that narrower reference universe is intentionally the desired
 > scientific input.
 
@@ -125,7 +125,7 @@ map, LD window, adjusted-$r^2$ implementation, and regression-row policy. A
 legacy `.ldscore.gz` file may have been produced under different choices even
 when it is distributed in the same baseline suite.
 
-## Prototype chromosome 22
+## Build the production index
 
 ```bash
 RESOURCE_ROOT="/path/to/ldsc_resources"
@@ -134,8 +134,8 @@ INDEX_ROOT="/path/to/gene_ldscore_indexes"
 ldsc build-gene-ldscore-index \
   --baseline-annot-sources "${RESOURCE_ROOT}/baseline/baseline.@.annot.gz" \
   --plink-prefix "${RESOURCE_ROOT}/plink/1000G.EUR.QC.@" \
-  --output-dir "${INDEX_ROOT}/prototype_chr22" \
-  --chromosomes 22 \
+  --output-dir "${INDEX_ROOT}/baseline_100kb" \
+  --gene-coordinate-file "${RESOURCE_ROOT}/genes/gene-coordinates.hg19.tsv.gz" \
   --genome-build hg19 \
   --snp-identifier rsid \
   --ld-wind-cm 1.0 \
@@ -145,30 +145,19 @@ ldsc build-gene-ldscore-index \
   --threads 1
 ```
 
-These prototype commands explicitly request non-default 100 kb padding. Omit
+This command explicitly requests non-default 100 kb padding. Omit
 `--padding-bp` to build the default unpadded index.
 
-The prototype is a complete chromosome-22 index. It cannot be extended in
-place; use a different output directory for the production chromosomes-1–22
-index.
+The catalog is required, one-based, hg19, and must be fully canonical. The
+builder checks every row before atom work and embeds the complete catalog,
+including intentionally MHC-excluded genes. Production construction always
+covers autosomes 1–22; partial builds and public `--chromosomes` selection are
+unsupported.
 
-For coordinate identity, keep the same explicit hg19 assertion and change only
-the mode and destination:
-
-```bash
-ldsc build-gene-ldscore-index \
-  --baseline-annot-sources "${RESOURCE_ROOT}/baseline/baseline.@.annot.gz" \
-  --plink-prefix "${RESOURCE_ROOT}/plink/1000G.EUR.QC.@" \
-  --output-dir "${INDEX_ROOT}/prototype_chr22_chr_pos" \
-  --chromosomes 22 \
-  --genome-build hg19 \
-  --snp-identifier chr_pos \
-  --ld-wind-cm 1.0 \
-  --padding-bp 100000 \
-  --gene-exclude-regions mhc \
-  --exclude-regions mhc-and-centromeres \
-  --threads 1
-```
+If validation fails, use the full issue table under the hidden build-state
+directory to repair the upstream catalog transformation. See
+[Gene-list diagnostics and repair](../../current/gene-list-diagnostics-and-repair.md)
+for every column/reason and the recommended workflow.
 
 To use custom regression SNPs while retaining the standard region subtraction:
 
@@ -177,6 +166,7 @@ ldsc build-gene-ldscore-index \
   --baseline-annot-sources "${RESOURCE_ROOT}/baseline/baseline.@.annot.gz" \
   --plink-prefix "${RESOURCE_ROOT}/plink/1000G.EUR.QC.@" \
   --output-dir "${INDEX_ROOT}/custom_regression_index" \
+  --gene-coordinate-file "${RESOURCE_ROOT}/genes/gene-coordinates.hg19.tsv.gz" \
   --genome-build hg19 \
   --snp-identifier chr_pos \
   --regression-snps-file custom_regression_snps.tsv \
@@ -187,12 +177,10 @@ Duplicate keys collapse; ordering and nonidentity columns do not affect the
 scientific selection. Use `--exclude-regions none` only when intentionally
 retaining all candidate rows.
 
-## Production build
-
-Omit `--chromosomes` to build autosomes 1–22. Keep `--threads 1` until the
-target system has been profiled because each chromosome worker can multiply
-peak memory. Use `--keep-indivs-file` for a one-IID-per-row sample restriction,
-and `--genetic-map-hg19-sources` when BIM cM values are uninformative.
+Keep `--threads 1` until the target system has been profiled because each
+chromosome worker can multiply peak memory. Use `--keep-indivs-file` for a
+one-IID-per-row sample restriction, and `--genetic-map-hg19-sources` when BIM
+cM values are uninformative.
 
 ## Output and identity
 
@@ -210,6 +198,7 @@ and `--genetic-map-hg19-sources` when BIM cM values are uninformative.
 .<index-name>.build-state/        # hidden operational state
     build-gene-ldscore-index.lock
     build-gene-ldscore-index.log # running or failed only
+    gene_coordinate_catalog_issues.tsv.gz # current catalog failure only
     history/
 ```
 
@@ -277,4 +266,4 @@ print(index.chromosomes)
 ## Next step
 
 Pass the same directory to `ldsc ldscore --gene-ldscore-index-dir`; see
-[Calculate LD scores](../main-functionalities/ldscore.md).
+[Calculate LD scores](../main-functionalities/ldscore-from-gene-list.md).

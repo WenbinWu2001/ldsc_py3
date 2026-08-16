@@ -202,7 +202,10 @@ class WorkflowConfigTest(unittest.TestCase):
         bed = AnnotationBuildConfig(
             query_annot_bed_sources="beds/*.bed",
         )
-        gene = AnnotationBuildConfig(query_annot_gene_list_sources="genes/*.txt.gz")
+        gene = AnnotationBuildConfig(
+            query_annot_gene_list_sources="genes/*.txt.gz",
+            gene_coordinate_file="genes/catalog.tsv.gz",
+        )
         self.assertEqual(prebuilt.baseline_annot_sources, ("baseline.@.annot.gz",))
         self.assertEqual(prebuilt.query_annot_sources, ("query.*.annot.gz",))
         self.assertEqual(bed.query_annot_bed_sources, ("beds/*.bed",))
@@ -214,6 +217,17 @@ class WorkflowConfigTest(unittest.TestCase):
                 query_annot_sources="query.*.annot.gz",
                 query_annot_bed_sources="beds/*.bed",
             )
+
+    def test_annotation_config_rejects_gene_only_controls_without_gene_lists(self):
+        for kwargs in (
+            {"gene_coordinate_file": "genes.tsv"},
+            {"control_gene_list_file": "control.txt"},
+            {"gene_exclude_regions": "mhc"},
+            {"gene_list_resolution_policy": "resolved-only"},
+        ):
+            with self.subTest(kwargs=kwargs):
+                with self.assertRaisesRegex(ldsc.LDSCConfigError, "valid only.*gene-list"):
+                    AnnotationBuildConfig(query_annot_bed_sources="query.bed", **kwargs)
 
     def test_removed_compatibility_aliases_are_not_exported(self):
         removed_names_by_module = {
@@ -483,6 +497,7 @@ class WorkflowConfigTest(unittest.TestCase):
         annot = AnnotationBuildConfig(
             baseline_annot_sources=(Path("baseline") / "base.1.annot.gz",),
             query_annot_gene_list_sources=(Path("genes") / "immune.txt.gz",),
+            gene_coordinate_file=Path("genes") / "catalog.tsv.gz",
         )
         ref = RefPanelConfig(
             backend="parquet_r2",
@@ -492,6 +507,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(raw.raw_sumstats_file, "sumstats/trait.tsv.gz")
         self.assertEqual(annot.baseline_annot_sources, ("baseline/base.1.annot.gz",))
         self.assertEqual(annot.query_annot_gene_list_sources, ("genes/immune.txt.gz",))
+        self.assertEqual(annot.gene_coordinate_file, "genes/catalog.tsv.gz")
         self.assertEqual(ref.plink_prefix, "plink/panel")
         self.assertEqual(ref.r2_dir, "r2_panel/hg38")
 
@@ -505,6 +521,7 @@ class WorkflowConfigTest(unittest.TestCase):
         annot = AnnotationBuildConfig(
             baseline_annot_sources="baseline.@.annot.gz",
             query_annot_gene_list_sources="genes/*.txt.gz",
+            gene_coordinate_file="genes/catalog.tsv.gz",
         )
         ref = RefPanelConfig(backend="parquet_r2", r2_dir="r2_panel/hg38")
         self.assertEqual(annot.baseline_annot_sources, ("baseline.@.annot.gz",))

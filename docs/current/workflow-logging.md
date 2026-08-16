@@ -1,6 +1,6 @@
 # Workflow Logging
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-16
 
 Public workflow entry points share one logging policy:
 
@@ -19,8 +19,10 @@ Public workflow entry points share one logging policy:
   `ERROR`.
 - Workflow result objects and `output_paths` mappings do not include log files.
 - LD-score BED/gene-list runs log the effective catalog projection build, one
-  warning for every non-`ok` query, and a final query-status summary. Row-level
-  unresolved genes remain in the compressed audit rather than the log.
+  warning for every non-`ok` query, and a final query-status summary. Gene-list
+  runs additionally log every rejected or zero-support row with role/source and
+  every intentional MHC exclusion; the compressed audit is the machine-readable
+  record of record.
 
 ## Console vs File Routing
 
@@ -43,6 +45,14 @@ run's level so progress is visible; with a log file it stays at `ERROR`, so
 ordinary records go to the file and only errors echo to the console. The `LDSC`
 logger keeps `propagate = True` and the root logger is never given a handler, so
 nothing is duplicated to the console and `caplog`-based tests keep working.
+
+Gene-list `ldscore` adds two deliberately bounded, direct stderr notices after a
+successful CLI run: one when `resolved-only` omitted rows and one when Gate B
+found zero-SNP support or skipped/warning query outcomes. These notices bypass
+the ordinary logger threshold so a successful SLURM job cannot hide a
+science-relevant subset/skip in a log that users may never open. They name the
+diagnostic paths and cap affected outcomes at 10. Python entry points do not
+emit these console notices; callers inspect the returned statuses and paths.
 
 ## Output-Family Preflight
 
@@ -122,7 +132,7 @@ The exact gene-index builder uses the same lifecycle banner, `Call:`, `Inputs:`,
 commands. Its stable path is created before chromosome work so it can be
 monitored live. Its concise INFO narrative records resolved configuration and input
 counts, the baseline/PLINK identifier intersection and configured regression-row universe, start and
-completion for each chromosome, protein-coding genes after exclusion, retained
+completion for each chromosome, catalog genes after exclusion, retained
 and regression rows, atom/operator nonzeros, component bytes, and publication
 state. The JSON sidecar is the machine-readable summary; the log renders the
 same per-chromosome and aggregate measurements rather than recomputing them.

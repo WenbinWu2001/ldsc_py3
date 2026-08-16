@@ -1,6 +1,6 @@
 # Layer Structure
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-16
 
 This document maps the refactored `ldsc` package by layer and by main
 functionality. Use it to answer two questions quickly:
@@ -12,7 +12,7 @@ The public import boundary is `ldsc` and the public command boundary is
 `ldsc.cli`. Modules under `ldsc._kernel` are internal implementation details.
 
 Gene-list support follows the same boundary. `ldsc.gene_list_resolver` validates
-the packaged catalog and returns compact canonical-gene/interval records;
+the required or embedded catalog and returns compact batch resolution/audit records;
 `ldsc.query_annotations` defines internal BED/gene status records;
 `AnnotationBuilder` projects intervals; `LDScoreCalculator` prunes zero-hit and
 zero-variance queries; and `LDScoreDirectoryWriter` owns the status and

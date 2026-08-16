@@ -1,6 +1,6 @@
 # Explicit chr_pos gene LD-score index implementation plan
 
-Last updated on: 2026-08-05
+Last updated on: 2026-08-16
 
 Status: implemented; focused and chromosome-22 validation complete
 
@@ -8,7 +8,7 @@ Status: implemented; focused and chromosome-22 validation complete
 
 Extend `ldsc build-gene-ldscore-index` to require an explicit base SNP identity (`rsid` or `chr_pos`) and explicit `hg19`, while preserving direct/index scientific equivalence and the broad-reference-versus-regression-row universe split. Success requires exact direct/index float32 LD scores, rows, ordering, counts, controls, and downstream result tables in both modes; overlap values alone use `rtol=0`, `atol=1e-7`.
 
-The governing contract is `docs/specs/2026-08-03-exact-disjoint-atom-gene-ldscore-index-design.md`. The existing rsID implementation and 2026-08-03 audit are the baseline, not evidence for the new coordinate mode.
+The historical governing contract has been superseded by `docs/specs/2026-08-15-defensive-gene-list-input-design.md`. The existing rsID implementation and 2026-08-03 audit were the baseline, not evidence for the new coordinate mode.
 
 ## Context and constraints
 

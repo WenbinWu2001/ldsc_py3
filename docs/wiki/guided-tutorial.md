@@ -1,6 +1,6 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-08-11
+Last updated on: 2026-08-16
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
@@ -315,13 +315,16 @@ ldsc ldscore \
 - For PLINK input, replace `--r2-dir ...` with `--plink-prefix "${PLINK_PREFIX}"`.
 - For partitioned h2 analysis, `ldsc ldscore` accepts BED files directly, so you do not need to build the annotations yourself to run this analysis. If you do want to generate annotations for other purposes, follow the *Make annotations* section below.
 - Alternatively, pass one-column plain/gzip lists through
-  `--query-annot-gene-list-sources`; exact Ensembl IDs and case-sensitive gene
-  names are resolved against the packaged protein-coding catalog. The BED and
+  `--query-annot-gene-list-sources`; direct mode also requires a one-based
+  build-aware `--gene-coordinate-file` and an explicit `--padding-bp`. Exact
+  IDs and case-sensitive names resolve only against that catalog. The BED and
   gene-list flags are mutually exclusive.
 - If any input query gene list or BED file is not found in the scientific
   results, that query hit a failure. Check
   `diagnostics/query_annotation_status.tsv` for the reason. For gene lists,
-  `diagnostics/gene_list_unresolved.tsv.gz` lists the problematic genes.
+  start with `diagnostics/gene_list_resolution_summary.tsv` and then filter
+  `diagnostics/gene_list_audit.tsv.gz`. See the detailed
+  [diagnostics and repair guide](../current/gene-list-diagnostics-and-repair.md).
 - For a prebuilt exact gene index, use
   `--gene-ldscore-index-dir <index-dir>` with
   `--query-annot-gene-list-sources` and omit live baseline, PLINK/R²,

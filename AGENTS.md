@@ -2,7 +2,7 @@
 
 # LDSC Package Guidance
 
-Last updated on: 2026-08-02
+Last updated on: 2026-08-16
 
 `ldsc_py3_Jerry` is a refactored, distributable Python 3 LDSC package, not an analysis repository. Preserve its package layout, public interfaces, CLI contracts, canonical artifact formats, and compatibility boundaries.
 
@@ -51,6 +51,9 @@ The package supports Python 3.11 through 3.13. Core dependencies are NumPy, pand
 ## Change discipline
 
 - Keep code concise. Minimize unnecessary validation, guard clauses, and redundant design layers. Document non-obvious logic; do not add comments that merely restate code.
+- Assume users do not inspect file logs after a successful run, especially under batch schedulers such as SLURM. If an unrequested input-resolution, filtering, ambiguity, or compatibility condition can silently change the scientific analysis, fail before substantial computation with a nonzero, actionable error and machine-readable diagnostics. If it is unclear whether an operation warrants an error or warning, or whether it could affect the scientific analysis, ask the user to decide. Explicitly requested transformations may succeed when their effect is recorded in the result diagnostics and provenance.
+- Design batch validation around exhaustive, stage-specific gates. Before aborting, collect every safely discoverable issue at that gate across all focal inputs and controls and report them together; do not force users through repeated queue submissions merely to reveal one additional problem per run. Distinguish defects by current-run consequence: an unreadable structural contract may abort immediately, a referenced defect that changes the analysis must abort, and an unreferenced latent defect may be diagnosed without failing an otherwise correct run.
+- Avoid content hashes and checksums, including SHA-256, unless they are strictly necessary for artifact semantic identity or integrity validation. Do not add hashes to routine input provenance merely because hashing is possible; prefer explicit schemas, source labels, declared metadata, and validation counts. When a hash is necessary, document the exact identity or integrity guarantee it provides.
 - Preserve unrelated user changes and generated artifacts outside the requested scope. Ask before destructive changes, external publication, replacing an existing rule file, or downloading from an external link.
 - Before a structural refactor of a file over 300 lines, remove dead properties, unused imports or exports, and debug logs; keep that cleanup separate from the refactor.
 - When the same class of mistake occurs two or more times, or a non-obvious bug requires real investigation, append a one-line summary, root cause, and correction to root `lessons.md`. Skip one-off typos and trivial slips.

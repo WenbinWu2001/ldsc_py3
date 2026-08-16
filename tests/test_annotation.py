@@ -33,6 +33,16 @@ def _write_annot(path: Path, rows: list[tuple], annotation_columns: dict[str, li
     df.to_csv(path, sep="\t", index=False, compression=compression)
 
 
+def _write_gene_catalog(path: Path, *, genome_build: str = "hg38") -> Path:
+    path.write_text(
+        "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+        f"ENSG00000186092\tOR4F5\t1\t65419\t71585\t{genome_build}\n"
+        f"ENSG00000206503\tHLA-A\t6\t29940000\t29950000\t{genome_build}\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 class AnnotationBuilderTest(unittest.TestCase):
     def test_annotate_output_round_trips_through_ldscore_parser(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -76,6 +86,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             baseline = tmpdir / "baseline.annot"
             genes = tmpdir / "immune_genes.txt"
+            catalog = _write_gene_catalog(tmpdir / "catalog.tsv")
             baseline.write_text(
                 "CHR\tPOS\tSNP\tCM\tbase\n"
                 "1\t65419\trs1\t0\t1\n"
@@ -92,24 +103,30 @@ class AnnotationBuilderTest(unittest.TestCase):
                 AnnotationBuildConfig(
                     baseline_annot_sources=(baseline,),
                     query_annot_gene_list_sources=(genes,),
+                    gene_coordinate_file=catalog,
+                    gene_list_resolution_policy="resolved-only",
                 )
             )
 
         self.assertEqual(bundle.query_columns, ["immune_genes"])
         self.assertEqual(bundle.baseline_columns, ["base"])
-        self.assertIsNone(bundle.control_gene_list_resolution)
+        self.assertFalse(any(item.input_role == "control" for item in bundle.gene_list_batch.selections))
         self.assertEqual(bundle.query_annotations["immune_genes"].tolist(), [1.0, 0.0, 1.0])
         self.assertEqual(len(bundle.query_statuses), 1)
         self.assertEqual(bundle.query_statuses[0].status, "warning")
-        self.assertEqual(bundle.query_statuses[0].reason, "partial_resolution")
-        self.assertEqual(bundle.gene_list_resolutions[0].canonical_ensembl_ids, ("ENSG00000186092",))
-        self.assertEqual(bundle.gene_list_resolutions[0].unresolved[0].input_gene, "NOT_A_GENE")
+        self.assertEqual(bundle.query_statuses[0].reason, "partial_gene_resolution")
+        self.assertEqual(bundle.gene_list_batch.selection("focal", 1).canonical_gene_ids, ("ENSG00000186092",))
+        self.assertEqual(
+            bundle.gene_list_batch.audit.loc[bundle.gene_list_batch.audit["disposition"].eq("rejected"), "input_gene"].tolist(),
+            ["NOT_A_GENE"],
+        )
 
     def test_gene_control_is_disabled_by_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             baseline = tmpdir / "baseline.annot"
             genes = tmpdir / "genes.txt"
+            catalog = _write_gene_catalog(tmpdir / "catalog.tsv")
             baseline.write_text(
                 "CHR\tPOS\tSNP\tCM\tbase\n1\t65419\trs1\t0\t1\n",
                 encoding="utf-8",
@@ -123,11 +140,12 @@ class AnnotationBuilderTest(unittest.TestCase):
                 AnnotationBuildConfig(
                     baseline_annot_sources=(baseline,),
                     query_annot_gene_list_sources=(genes,),
+                    gene_coordinate_file=catalog,
                 )
             )
 
         self.assertEqual(bundle.baseline_columns, ["base"])
-        self.assertIsNone(bundle.control_gene_list_resolution)
+        self.assertFalse(any(item.input_role == "control" for item in bundle.gene_list_batch.selections))
 
     def test_custom_gene_control_uses_the_same_resolution_and_projection_rules(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -135,6 +153,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             baseline = tmpdir / "baseline.annot"
             genes = tmpdir / "focal.txt"
             control = tmpdir / "control.txt"
+            catalog = _write_gene_catalog(tmpdir / "catalog.tsv")
             baseline.write_text(
                 "CHR\tPOS\tSNP\tCM\tbase\n"
                 "1\t65410\trs1\t0\t1\n"
@@ -152,14 +171,16 @@ class AnnotationBuilderTest(unittest.TestCase):
                 AnnotationBuildConfig(
                     baseline_annot_sources=(baseline,),
                     query_annot_gene_list_sources=(genes,),
+                    gene_coordinate_file=catalog,
                     control_gene_list_file=control,
+                    gene_list_resolution_policy="resolved-only",
                     padding_bp=10,
                 )
             )
 
         self.assertEqual(bundle.baseline_annotations["gene_control"].tolist(), [1.0, 1.0, 1.0])
-        self.assertEqual(bundle.control_gene_list_resolution.status, "warning")
-        self.assertEqual(bundle.control_gene_list_resolution.reason, "partial_resolution")
+        control_summary = bundle.gene_list_batch.summary[bundle.gene_list_batch.summary["input_role"].eq("control")].iloc[0]
+        self.assertEqual(control_summary["rejected_rows"], 1)
 
     def test_unusable_custom_gene_control_aborts(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -167,6 +188,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             baseline = tmpdir / "baseline.annot"
             genes = tmpdir / "focal.txt"
             control = tmpdir / "control.txt"
+            catalog = _write_gene_catalog(tmpdir / "catalog.tsv")
             baseline.write_text(
                 "CHR\tPOS\tSNP\tCM\tbase\n1\t65419\trs1\t0\t1\n",
                 encoding="utf-8",
@@ -174,17 +196,56 @@ class AnnotationBuilderTest(unittest.TestCase):
             genes.write_text("OR4F5\n", encoding="utf-8")
             control.write_text("NOT_A_GENE\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(Exception, "control gene list is unusable"):
-                AnnotationBuilder(
-                    GlobalConfig(snp_identifier="rsid"),
-                    projection_genome_build="hg38",
-                ).run(
-                    AnnotationBuildConfig(
-                        baseline_annot_sources=(baseline,),
-                        query_annot_gene_list_sources=(genes,),
-                        control_gene_list_file=control,
-                    )
+            bundle = AnnotationBuilder(
+                GlobalConfig(snp_identifier="rsid"),
+                projection_genome_build="hg38",
+            ).run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(baseline,),
+                    query_annot_gene_list_sources=(genes,),
+                    gene_coordinate_file=catalog,
+                    control_gene_list_file=control,
                 )
+            )
+
+            self.assertTrue(bundle.gene_list_batch.has_fatal_gate_a_issues)
+
+    def test_fatal_batched_source_issues_return_diagnostic_bundle_without_projection(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            catalog = _write_gene_catalog(tmpdir / "catalog.tsv")
+            left_dir = tmpdir / "left"
+            right_dir = tmpdir / "right"
+            left_dir.mkdir()
+            right_dir.mkdir()
+            left = left_dir / "same.txt"
+            right = right_dir / "same.tsv"
+            baseline.write_text(
+                "CHR\tPOS\tSNP\tCM\tbase\n1\t65419\trs1\t0\t1\n",
+                encoding="utf-8",
+            )
+            left.write_text("OR4F5\n", encoding="utf-8")
+            right.write_text("OR4F5\n", encoding="utf-8")
+
+            bundle = AnnotationBuilder(
+                GlobalConfig(snp_identifier="rsid"),
+                projection_genome_build="hg38",
+            ).run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(baseline,),
+                    query_annot_gene_list_sources=(left, right),
+                    gene_coordinate_file=catalog,
+                )
+            )
+
+        self.assertTrue(bundle.gene_list_batch.has_fatal_gate_a_issues)
+        self.assertEqual(
+            bundle.gene_list_batch.summary["source_reasons"].tolist(),
+            ["duplicate_query_name", "duplicate_query_name"],
+        )
+        self.assertEqual(bundle.query_columns, [])
+        self.assertEqual(bundle.query_statuses, ())
 
     def test_gene_control_rejects_reserved_baseline_column_collision(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -192,6 +253,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             baseline = tmpdir / "baseline.annot"
             genes = tmpdir / "genes.txt"
             control = tmpdir / "control.txt"
+            catalog = _write_gene_catalog(tmpdir / "catalog.tsv")
             baseline.write_text(
                 "CHR\tPOS\tSNP\tCM\tgene_control\n1\t65419\trs1\t0\t1\n",
                 encoding="utf-8",
@@ -207,6 +269,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                     AnnotationBuildConfig(
                         baseline_annot_sources=(baseline,),
                         query_annot_gene_list_sources=(genes,),
+                        gene_coordinate_file=catalog,
                         control_gene_list_file=control,
                     )
                 )
@@ -240,6 +303,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             baseline = tmpdir / "baseline.annot"
             genes = tmpdir / "or4f5.txt"
+            catalog = _write_gene_catalog(tmpdir / "catalog.tsv")
             bed = tmpdir / "or4f5.bed"
             baseline.write_text(
                 "CHR\tPOS\tSNP\tCM\tbase\n"
@@ -257,6 +321,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 AnnotationBuildConfig(
                     baseline_annot_sources=(baseline,),
                     query_annot_gene_list_sources=(genes,),
+                    gene_coordinate_file=catalog,
                     padding_bp=10,
                 )
             )

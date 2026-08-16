@@ -4,6 +4,7 @@ from argparse import Namespace
 from dataclasses import replace as dataclass_replace
 import gzip
 import importlib.util
+from io import StringIO
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -1245,6 +1246,49 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 )
                 ldscore_workflow._validate_padding_usage(args)
 
+    def test_live_gene_lists_require_catalog_and_explicit_padding(self):
+        parser = ldscore_workflow.build_parser()
+        base = [
+            "--output-dir", "out",
+            "--baseline-annot-sources", "baseline.annot.gz",
+            "--query-annot-gene-list-sources", "genes.txt",
+        ]
+
+        with self.assertRaisesRegex(LDSCUsageError, "--padding-bp.*must be chosen"):
+            ldscore_workflow.run_ldscore_from_args(parser.parse_args([*base, "--gene-coordinate-file", "genes.tsv"]))
+        with self.assertRaisesRegex(LDSCUsageError, "--gene-coordinate-file"):
+            ldscore_workflow.run_ldscore_from_args(parser.parse_args([*base, "--padding-bp", "0"]))
+
+    def test_gene_resolution_policy_is_scoped_to_gene_list_modes(self):
+        parser = ldscore_workflow.build_parser()
+        args = parser.parse_args(
+            [
+                "--output-dir", "out",
+                "--query-annot-bed-sources", "query.bed",
+                "--gene-list-resolution-policy", "resolved-only",
+            ]
+        )
+
+        with self.assertRaisesRegex(LDSCUsageError, "resolution policy.*gene-list"):
+            ldscore_workflow.run_ldscore_from_args(args)
+
+    def test_explicit_default_gene_options_are_rejected_outside_gene_list_mode(self):
+        parser = ldscore_workflow.build_parser()
+        for option, value in (
+            ("--gene-list-resolution-policy", "strict"),
+            ("--gene-exclude-regions", "none"),
+        ):
+            with self.subTest(option=option):
+                argv = [
+                    "--output-dir", "out",
+                    "--query-annot-bed-sources", "query.bed",
+                    option, value,
+                ]
+                args = parser.parse_args(argv)
+                args._explicit_cli_options = frozenset({"--query-annot-bed-sources", option})
+                with self.assertRaisesRegex(LDSCUsageError, "valid only with.*gene-list"):
+                    ldscore_workflow.run_ldscore_from_args(args)
+
     def test_python_run_ldscore_rejects_explicit_padding_without_live_interval_queries(self):
         cases = {
             "no query": {},
@@ -1276,12 +1320,20 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 "baseline.annot.gz",
                 "--query-annot-gene-list-sources",
                 "immune.txt.gz,brain.list",
+                "--gene-coordinate-file",
+                "genes.tsv.gz",
+                "--padding-bp",
+                "0",
+                "--gene-list-resolution-policy",
+                "resolved-only",
             ]
         )
 
         self.assertEqual(args.query_annot_gene_list_sources, "immune.txt.gz,brain.list")
         self.assertIsNone(args.control_gene_list_file)
         self.assertEqual(args.gene_exclude_regions, "none")
+        self.assertEqual(args.gene_coordinate_file, "genes.tsv.gz")
+        self.assertEqual(args.gene_list_resolution_policy, "resolved-only")
         with self.assertRaises(SystemExit):
             parser.parse_args(
                 [
@@ -1295,7 +1347,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
 
     def test_annotation_build_config_normalizes_gene_list_sources(self):
-        spec = AnnotationBuildConfig(query_annot_gene_list_sources="immune.txt,brain.list")
+        spec = AnnotationBuildConfig(
+            query_annot_gene_list_sources="immune.txt,brain.list",
+            gene_coordinate_file="genes.tsv",
+        )
 
         self.assertEqual(spec.query_annot_gene_list_sources, ("immune.txt,brain.list",))
 
@@ -1324,7 +1379,11 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
         self.assertEqual(normalized.gene_catalog_build, "hg38")
         self.assertIsNone(global_config.genome_build)
-        resolve_build.assert_called_once_with(normalized, "auto")
+        resolve_build.assert_called_once_with(
+            normalized,
+            "auto",
+            gene_catalog_build=None,
+        )
 
     def test_gene_list_auto_build_drives_default_regression_regions_in_rsid_mode(self):
         args = ldscore_workflow.build_parser().parse_args(
@@ -1377,7 +1436,11 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
         self.assertEqual(normalized.gene_catalog_build, "hg19")
         self.assertEqual(global_config.genome_build, "hg19")
-        resolve_build.assert_called_once_with(normalized, "auto")
+        resolve_build.assert_called_once_with(
+            normalized,
+            "auto",
+            gene_catalog_build=None,
+        )
 
     def test_build_parser_defaults_snp_batch_size_to_128(self):
         parser = ldscore_workflow.build_parser()
@@ -1887,6 +1950,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             output_dir = tmpdir / "ldscore_result"
             baseline = tmpdir / "baseline.annot"
             genes = tmpdir / "immune.txt"
+            catalog = tmpdir / "genes.tsv"
             baseline.write_text(
                 "CHR\tPOS\tSNP\tCM\tbase\n"
                 "1\t65419\trs1\t0\t1\n"
@@ -1894,6 +1958,11 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 encoding="utf-8",
             )
             genes.write_text("OR4F5\nNOT_A_GENE\n", encoding="utf-8")
+            catalog.write_text(
+                "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+                "ENSG00000186092\tOR4F5\t1\t65419\t71585\thg38\n",
+                encoding="utf-8",
+            )
             args = build_parser().parse_args(
                 [
                     "--output-dir",
@@ -1902,6 +1971,12 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     str(baseline),
                     "--query-annot-gene-list-sources",
                     str(genes),
+                    "--gene-coordinate-file",
+                    str(catalog),
+                    "--gene-list-resolution-policy",
+                    "resolved-only",
+                    "--padding-bp",
+                    "0",
                     "--plink-prefix",
                     "panel",
                     "--ld-wind-snps",
@@ -1943,7 +2018,12 @@ class LDScoreWorkflowTest(unittest.TestCase):
             with mock.patch(
                 "ldsc._kernel.ref_panel.RefPanelLoader.load",
                 autospec=True,
-                return_value=self.make_ref_panel_stub(backend="plink"),
+                return_value=self.make_ref_panel_stub(
+                    backend="plink",
+                    metadata=pd.DataFrame(
+                        {"CHR": ["1", "1"], "POS": [65419, 80000], "SNP": ["rs1", "rs2"]}
+                    ),
+                ),
             ), mock.patch.object(
                 ldscore_workflow.LDScoreCalculator,
                 "compute_chromosome",
@@ -1956,18 +2036,177 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertEqual(result.query_statuses[0].status, "warning")
             self.assertTrue((output_dir / "ldscore.query.parquet").exists())
             self.assertEqual(
-                pd.read_csv(output_dir / "diagnostics" / "gene_list_unresolved.tsv.gz", sep="\t")["input_gene"].tolist(),
-                ["NOT_A_GENE"],
+                pd.read_csv(output_dir / "diagnostics" / "gene_list_audit.tsv.gz", sep="\t")["input_gene"].tolist(),
+                ["OR4F5", "NOT_A_GENE"],
             )
             metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["gene_catalog"]["genome_build"], "hg38")
+            self.assertEqual(metadata["gene_list_resolution_policy"], "resolved-only")
             self.assertEqual(
                 metadata["snp_universe_policy"]["regression_rows_and_weights"]["weight_contributors"],
                 "same_filtered_regression_set",
             )
             log_text = (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8")
             self.assertIn("Gene-list catalog projection build: hg38", log_text)
-            self.assertIn("status=warning, reason=partial_resolution", log_text)
+            self.assertIn("status=warning, reason=partial_gene_resolution", log_text)
+
+    def test_strict_gene_gate_a_batches_focal_and_control_before_reference_load(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            output_dir = tmpdir / "result"
+            baseline = tmpdir / "baseline.annot"
+            catalog = tmpdir / "genes.tsv"
+            focal = tmpdir / "focal.txt"
+            control = tmpdir / "control.txt"
+            baseline.write_text("CHR\tPOS\tSNP\tCM\tbase\n1\t10\trs1\t0\t1\n", encoding="utf-8")
+            catalog.write_text(
+                "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+                "G1\tGENE1\t1\t10\t20\thg19\n",
+                encoding="utf-8",
+            )
+            focal.write_text("GENE1\nMISSING_FOCAL\n", encoding="utf-8")
+            control.write_text("MISSING_CONTROL\n", encoding="utf-8")
+            args = build_parser().parse_args(
+                [
+                    "--output-dir", str(output_dir),
+                    "--baseline-annot-sources", str(baseline),
+                    "--query-annot-gene-list-sources", str(focal),
+                    "--gene-coordinate-file", str(catalog),
+                    "--control-gene-list-file", str(control),
+                    "--padding-bp", "0",
+                    "--plink-prefix", "unused-panel",
+                    "--ld-wind-snps", "10",
+                    "--snp-identifier", "rsid",
+                    "--genome-build", "hg19",
+                ]
+            )
+
+            with mock.patch(
+                "ldsc._kernel.ref_panel.RefPanelLoader.load",
+                autospec=True,
+            ) as load_panel, self.assertRaisesRegex(LDSCInputError, "rejected 2 of 3") as error:
+                ldscore_workflow.run_ldscore_from_args(args)
+
+            load_panel.assert_not_called()
+            self.assertIn(
+                "source == 'focal.txt' & disposition == 'rejected'",
+                str(error.exception),
+            )
+            audit = pd.read_csv(output_dir / "diagnostics" / "gene_list_audit.tsv.gz", sep="\t")
+            summary = pd.read_csv(output_dir / "diagnostics" / "gene_list_resolution_summary.tsv", sep="\t")
+            self.assertEqual(audit["input_gene"].tolist(), ["GENE1", "MISSING_FOCAL", "MISSING_CONTROL"])
+            self.assertEqual(summary["input_role"].tolist(), ["focal", "control"])
+            self.assertFalse((output_dir / "diagnostics" / "query_annotation_status.tsv").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
+            log_text = (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8")
+            self.assertIn("MISSING_FOCAL", log_text)
+            self.assertIn("MISSING_CONTROL", log_text)
+
+    def test_gene_gate_b_batches_zero_support_queries_and_preserves_usable_siblings(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            catalog = tmpdir / "genes.tsv"
+            mixed = tmpdir / "mixed.txt"
+            unsupported = tmpdir / "unsupported.txt"
+            control = tmpdir / "control.txt"
+            baseline.write_text(
+                "CHR\tPOS\tSNP\tCM\tbase\n1\t10\trs1\t0\t1\n1\t100\trs2\t0\t1\n",
+                encoding="utf-8",
+            )
+            catalog.write_text(
+                "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+                "G1\tSUPPORTED\t1\t10\t20\thg19\n"
+                "G2\tUNSUPPORTED\t1\t100\t110\thg19\n",
+                encoding="utf-8",
+            )
+            mixed.write_text("G1\nG2\n", encoding="utf-8")
+            unsupported.write_text("G2\n", encoding="utf-8")
+            control.write_text("G1\n", encoding="utf-8")
+            bundle = AnnotationBuilder(
+                GlobalConfig(snp_identifier="rsid"), projection_genome_build="hg19"
+            ).run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(baseline,),
+                    query_annot_gene_list_sources=(mixed, unsupported),
+                    gene_coordinate_file=catalog,
+                    control_gene_list_file=control,
+                    gene_list_resolution_policy="resolved-only",
+                    padding_bp=0,
+                )
+            )
+            panel = self.make_ref_panel_stub(
+                backend="plink",
+                genome_build="hg19",
+                metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"]}),
+            )
+
+            gated, control_error = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel)
+
+            self.assertIsNone(control_error)
+            self.assertEqual(gated.query_columns, ["mixed"])
+            self.assertEqual(
+                [(status.query, status.status, status.reason) for status in gated.query_statuses],
+                [("mixed", "warning", "partial_snp_support"), ("unsupported", "skipped", "zero_annotation_snps")],
+            )
+            audit = gated.gene_list_batch.audit
+            self.assertEqual(
+                audit.loc[audit["input_gene"].eq("G2"), "disposition"].tolist(),
+                ["unsupported", "unsupported"],
+            )
+            summary = gated.gene_list_batch.summary
+            self.assertEqual(summary["zero_support_genes"].tolist(), [1, 1, 0])
+            self.assertEqual(summary["genes_with_snp_support"].tolist(), [1, 0, 1])
+
+            stream = StringIO()
+            with mock.patch("sys.stderr", stream):
+                ldscore_workflow._emit_gene_gate_b_notice(
+                    gated.query_statuses,
+                    gated.gene_list_batch,
+                )
+            notice = stream.getvalue()
+            self.assertIn("zero retained-SNP support for 2 gene-list row(s)", notice)
+            self.assertIn("mixed=partial_snp_support", notice)
+            self.assertIn("unsupported=zero_annotation_snps", notice)
+            self.assertIn("diagnostics/query_annotation_status.tsv", notice)
+
+    def test_gene_gate_b_uses_the_same_padded_intervals_as_annotation_projection(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            catalog = tmpdir / "genes.tsv"
+            genes = tmpdir / "padded.txt"
+            baseline.write_text(
+                "CHR\tPOS\tSNP\tCM\tbase\n1\t10\trs1\t0\t1\n",
+                encoding="utf-8",
+            )
+            catalog.write_text(
+                "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+                "G1\tPADDED\t1\t20\t30\thg19\n",
+                encoding="utf-8",
+            )
+            genes.write_text("G1\n", encoding="utf-8")
+            bundle = AnnotationBuilder(
+                GlobalConfig(snp_identifier="rsid"), projection_genome_build="hg19"
+            ).run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(baseline,),
+                    query_annot_gene_list_sources=(genes,),
+                    gene_coordinate_file=catalog,
+                    padding_bp=10,
+                )
+            )
+            panel = self.make_ref_panel_stub(
+                backend="plink",
+                genome_build="hg19",
+                metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"]}),
+            )
+
+            gated, control_error = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel)
+
+            self.assertIsNone(control_error)
+            self.assertEqual(gated.query_columns, ["padded"])
+            self.assertEqual(gated.query_statuses[0].status, "ok")
+            self.assertEqual(gated.gene_list_batch.summary.loc[0, "genes_with_snp_support"], 1)
 
     def test_run_ldscore_from_args_synthesizes_base_when_baseline_and_query_are_omitted(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -4002,6 +4241,7 @@ def test_gene_list_mhc_query_keeps_reference_counts_but_not_regression_row(tmp_p
 
     baseline = tmp_path / "baseline.annot"
     genes = tmp_path / "hla.txt"
+    catalog = tmp_path / "gene-coordinates.tsv"
     baseline.write_text(
         "CHR\tPOS\tSNP\tCM\tbase\n"
         "6\t24900000\tnear_mhc\t0\t1\n"
@@ -4010,12 +4250,18 @@ def test_gene_list_mhc_query_keeps_reference_counts_but_not_regression_row(tmp_p
         encoding="utf-8",
     )
     genes.write_text("HLA-A\n", encoding="utf-8")
+    catalog.write_text(
+        "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+        "ENSG_HLA_A\tHLA-A\t6\t29940000\t29950000\thg38\n",
+        encoding="utf-8",
+    )
     bundle = AnnotationBuilder(
         GlobalConfig(snp_identifier="rsid"), projection_genome_build="hg38"
     ).run(
         AnnotationBuildConfig(
             baseline_annot_sources=(baseline,),
             query_annot_gene_list_sources=(genes,),
+            gene_coordinate_file=catalog,
         )
     )
     metadata = bundle.metadata.copy()

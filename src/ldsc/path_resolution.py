@@ -140,6 +140,16 @@ def _raise_ambiguous_input_path(label: str, token: str, match_count: int) -> Non
     )
 
 
+def _raise_missing_plink_prefix(token: str) -> None:
+    """Raise the PLINK-specific no-match error with the trio requirement."""
+    raise LDSCInputError(
+        f"Could not resolve PLINK prefix path from token {token!r}: matched 0 complete prefixes. "
+        "Most likely the prefix is misspelled or at least one member of its .bed/.bim/.fam trio is missing. "
+        "Pass one complete .bed/.bim/.fam trio, a plain chromosome-suite stem, a glob, or an explicit @ pattern. "
+        f"Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
+    )
+
+
 def resolve_scalar_path(
     token: InputPathToken,
     *,
@@ -367,7 +377,8 @@ def resolve_plink_prefix(
     ----------
     token : str or os.PathLike[str]
         Exact PLINK prefix, exact `.bed/.bim/.fam` path, exact-one glob, or an
-        explicit ``@`` chromosome-suite token when ``chrom`` is supplied.
+        explicit ``@`` chromosome-suite token. A plain chromosome-suite stem
+        is also discovered when no exact trio exists.
     chrom : str or None, optional
         Chromosome label for per-chromosome resolution. Default is ``None``.
 
@@ -397,10 +408,10 @@ def resolve_plink_prefix_group(
     """Resolve one or many PLINK prefix tokens into concrete prefixes.
 
     This is the prefix-level analogue of :func:`resolve_file_group`. Each token
-    is resolved against complete PLINK trios rather than individual files. When
-    ``chrom`` is supplied and a direct token expands to multiple prefixes, the
-    function first tries filename-based chromosome filtering and otherwise keeps
-    the unmatched prefixes as-is.
+    is resolved against complete PLINK trios rather than individual files. A
+    plain stem discovers chromosome-coded complete trios beginning with that
+    stem. When ``chrom`` is supplied and a token expands to multiple prefixes,
+    chromosome filtering selects the requested trio.
     """
     normalized = normalize_path_tokens(tokens)
     resolved: list[str] = []
@@ -413,28 +424,28 @@ def resolve_plink_prefix_group(
                     matches = chrom_matches
         except FileNotFoundError:
             if chrom is not None:
-                try:
-                    chrom_token = substitute_chromosome(token, chrom)
-                except FileNotFoundError:
+                if "@" in token:
+                    matches = _resolve_plink_suite_token(token, chromosomes=(chrom,))
+                else:
+                    matches = _resolve_plain_plink_suite_token(token, chromosomes=chromosomes)
+                    matches = filter_paths_for_chromosome(matches, chrom)
+                if not matches:
                     raise LDSCInputError(
                         f"Could not resolve PLINK prefix path for chromosome {chrom} from token {token!r}. "
-                        "Most likely the token does not contain the @ chromosome placeholder and no complete PLINK trio exists directly. "
-                        f"Use a complete .bed/.bim/.fam prefix for chromosome {chrom}. Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
-                    ) from None
-                try:
-                    matches = _resolve_direct_plink_token(chrom_token)
-                except FileNotFoundError:
-                    raise LDSCInputError(
-                        f"Could not resolve PLINK prefix path for chromosome {chrom} from token {token!r}. "
-                        "Most likely one or more .bed/.bim/.fam files are missing for the expanded prefix. "
-                        f"Provide a complete PLINK trio for chromosome {chrom}. Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
+                        "Most likely no chromosome-specific complete .bed/.bim/.fam trio starts with the supplied prefix. "
+                        f"Provide a complete PLINK trio or a narrower plain prefix for chromosome {chrom}. "
+                        f"Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
                     ) from None
             elif allow_chromosome_suite:
-                matches = _resolve_plink_suite_token(token, chromosomes=chromosomes)
+                matches = (
+                    _resolve_plink_suite_token(token, chromosomes=chromosomes)
+                    if "@" in token
+                    else _resolve_plain_plink_suite_token(token, chromosomes=chromosomes)
+                )
                 if not matches:
-                    _raise_missing_input_path("PLINK prefix", token)
+                    _raise_missing_plink_prefix(token)
             else:
-                _raise_missing_input_path("PLINK prefix", token)
+                _raise_missing_plink_prefix(token)
         resolved.extend(matches)
     resolved = _dedupe_preserving_order(resolved)
     if not resolved:
@@ -475,10 +486,11 @@ def _resolve_direct_plink_token(token: str) -> list[str]:
     suffixes = (".bed", ".bim", ".fam")
     for suffix in suffixes:
         if token.endswith(suffix) and os.path.exists(token):
-            return [token[: -len(suffix)]]
-    for suffix in suffixes:
-        if os.path.exists(token + suffix):
-            return [token]
+            prefix = token[: -len(suffix)]
+            if _is_complete_plink_prefix(prefix):
+                return [prefix]
+    if _is_complete_plink_prefix(token):
+        return [token]
 
     patterns: list[str] = []
     if glob.has_magic(token):
@@ -493,12 +505,34 @@ def _resolve_direct_plink_token(token: str) -> list[str]:
             for path in glob.glob(pattern)
             for suffix in suffixes
             if path.endswith(suffix)
+            and _is_complete_plink_prefix(path[: -len(suffix)])
         }
     )
     if matches:
         return matches
 
     raise FileNotFoundError(token)
+
+
+def _is_complete_plink_prefix(prefix: str) -> bool:
+    """Return whether ``prefix`` owns an existing `.bed/.bim/.fam` trio."""
+    return all(os.path.isfile(prefix + suffix) for suffix in (".bed", ".bim", ".fam"))
+
+
+def _resolve_plain_plink_suite_token(token: str, *, chromosomes: Sequence[str]) -> list[str]:
+    """Discover chromosome-coded complete PLINK trios beginning with a plain stem."""
+    candidates = {
+        normalize_path_token(path[: -len(".bed")])
+        for path in glob.glob(token + "*.bed")
+        if _is_complete_plink_prefix(path[: -len(".bed")])
+    }
+    chrom_order = {str(chrom): index for index, chrom in enumerate(chromosomes)}
+    resolved: list[tuple[int, str]] = []
+    for prefix in candidates:
+        matching = [str(chrom) for chrom in chromosomes if _path_matches_chromosome(prefix, str(chrom))]
+        if len(matching) == 1:
+            resolved.append((chrom_order[matching[0]], prefix))
+    return [prefix for _, prefix in sorted(resolved)]
 
 
 def _resolve_plink_suite_token(token: str, *, chromosomes: Sequence[str]) -> list[str]:

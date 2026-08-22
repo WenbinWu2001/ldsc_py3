@@ -48,12 +48,20 @@ backend the `chr*_meta.tsv.gz` sidecar is authoritative; for the PLINK backend
 `--genetic-map-hg19-sources` / `--genetic-map-hg38-sources`) and `MAF` from the
 genotypes. `--ld-wind-cm` requires usable reference-panel `CM`; an all-zero /
 constant / missing `CM` raises a dedicated error (not bypassable by
-`--yes-really`). `--maf-min` (inclusive `MAF >= maf_min`) applies in both
-backends.
+`--yes-really`). The two similarly named MAF flags have different effects:
+
+- `--maf-min` filters reference-panel SNPs before LD-score calculation
+  (inclusive `MAF >= maf_min`) in both backends. Filtered SNPs do not contribute
+  LD scores or annotation counts.
+- `--common-maf-min` does **not** filter reference-panel SNPs. It only sets the
+  inclusive MAF threshold used for the common-SNP annotation-count vector
+  (`M_5_50`); all retained reference SNPs still contribute to LD scores and the
+  all-SNP count vector (`M`).
 
 Resolution behavior:
 
-- there is no separate `*_chr` argument anymore; the same public argument now accepts exact paths, globs, or explicit `@` suite tokens
+- there is no separate `*_chr` argument anymore; annotation arguments accept exact paths, globs, or explicit `@` suite tokens
+- `--plink-prefix` accepts one exact PLINK prefix or a plain chromosome-suite stem; for example, `panel_chr` discovers complete `panel_chr1.{bed,bim,fam}`, `panel_chr2.{bed,bim,fam}`, and so on. Globs and the older `panel_chr@` form remain supported
 - group inputs such as `--baseline-annot-sources`, `--query-annot-sources`, `--query-annot-bed-sources`, and `--query-annot-gene-list-sources` may resolve to many files; package-built parquet panels are supplied as one build directory with `--r2-dir`
 - when a group token resolves to chromosome-sharded files, the workflow tries to keep only the files whose names match the active chromosome
 - if filename-based chromosome filtering is not possible, the workflow reads the matched files and filters rows by `CHR` internally
@@ -312,7 +320,7 @@ identity mode and explicit hg19 assertion:
 ```bash
 ldsc build-gene-ldscore-index \
   --baseline-annot-sources "annotations/baseline.@.annot.gz" \
-  --plink-prefix "reference/1000G.EUR.QC.@" \
+  --plink-prefix "reference/1000G.EUR.QC." \
   --output-dir "indexes/baseline_100kb" \
   --gene-coordinate-file "annotations/gene-coordinates.hg19.tsv.gz" \
   --genome-build hg19 \

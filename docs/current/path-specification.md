@@ -328,7 +328,7 @@ ldsc ldscore \
 ldsc ldscore \
   --output-dir out/trait_ldscores \
   --baseline-annot-sources "annotations/baseline_joint*.annot.gz" \
-  --plink-prefix "resources/example_1kg_30x/genomes_30x_chr@" \
+  --plink-prefix "resources/example_1kg_30x/genomes_30x_chr" \
   --common-maf-min 0.05 \
   --ld-wind-kb 100
 ```
@@ -366,7 +366,7 @@ Relevant APIs:
 
 Accepted path forms:
 
-- `plink_prefix`: exact PLINK prefix, exact-one PLINK glob, or explicit `@` PLINK suite token
+- `plink_prefix`: exact PLINK prefix, plain chromosome-suite stem, PLINK-prefix glob, or explicit `@` suite token. A plain stem such as `panel_chr` discovers chromosome-coded complete trios such as `panel_chr1.{bed,bim,fam}`
 - map and chain inputs, when provided: exact path or exact-one glob
 - `ref_panel_snps_file`, when provided: scalar file-like token interpreted
   using `GlobalConfig.snp_identifier`; restriction files may omit alleles and
@@ -400,7 +400,7 @@ Example:
 
 ```bash
 ldsc build-ref-panel \
-  --plink-prefix data/reference/genomes_30x_chr@ \
+  --plink-prefix data/reference/genomes_30x_chr \
   --source-genome-build hg38 \
   --genetic-map-hg19-sources maps/hg19.txt \
   --genetic-map-hg38-sources maps/hg38.txt \

@@ -64,7 +64,7 @@ Flags used in this command:
 
 - `--query-annot-gene-list-sources` specifies one or more query gene-list files. Glob patterns are supported.
 - `--baseline-annot-sources` specifies the baseline annotation suite. Use `@` as the chromosome-number placeholder.
-- `--plink-prefix` specifies the PLINK reference-panel prefix. Use `@` as the chromosome-number placeholder; the PLINK suite must correspond to the baseline annotation suite.
+- `--plink-prefix` specifies the PLINK reference-panel prefix. Pass the shared plain stem (for example, `1000G.EUR.QC.` for `1000G.EUR.QC.1.{bed,bim,fam}`); the PLINK suite must correspond to the baseline annotation suite. The older `@` placeholder remains supported.
 - `--snp-identifier rsid` matches SNPs by rsID.
 - `--genome-build hg19` specifies the build used for gene projection and named region definitions.
 - `--ld-wind-cm 1.0` calculates LD within a 1-cM window.

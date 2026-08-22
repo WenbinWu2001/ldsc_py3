@@ -80,19 +80,23 @@ There is currently no separate `--chrom` flag.
 Chromosome selection comes from the PLINK prefix token you provide through `--plink-prefix`:
 
 - use `--plink-prefix <single-prefix>` when the prefix already points to one chromosome or one specific PLINK dataset
-- use `--plink-prefix <suite-token>` when you have one PLINK prefix per chromosome, typically with an explicit `@` token
-- use `--plink-prefix <glob-like-token>` only when that token resolves cleanly to one or more complete PLINK prefixes; unlike scalar file inputs elsewhere, a PLINK prefix token is resolved at the prefix level rather than at the individual `.bed/.bim/.fam` file level
+- use `--plink-prefix <plain-stem>` when you have one PLINK prefix per chromosome; `panel_chr` discovers `panel_chr1`, `panel_chr2`, and other chromosome-coded complete trios beginning with that stem
+- the older explicit `@` form and glob tokens remain supported for backward compatibility
+
+Every resolved prefix must have all three files: `.bed`, `.bim`, and `.fam`.
+Resolution happens at the prefix level, never by treating those three files as
+independent inputs.
 
 Examples:
 
 ```text
 --plink-prefix resources/example_1kg_30x/genomes_30x_chr22
---plink-prefix data/reference/genomes_30x_chr@
+--plink-prefix data/reference/genomes_30x_chr
 ```
 
 If the input resolves to multiple chromosomes, the builder writes one output set per chromosome.
 
-In other words, the old split between `--plink-prefix` and a dedicated per-chromosome flag is gone. The unified `--plink-prefix` argument now handles either one concrete prefix or an explicit chromosome suite such as `panel_chr@`.
+In other words, the old split between `--plink-prefix` and a dedicated per-chromosome flag is gone. The unified `--plink-prefix` argument handles one concrete prefix or a chromosome suite such as the plain stem `panel_chr`; `panel_chr@` remains valid but is no longer required.
 
 ### Genetic map files
 
@@ -117,7 +121,7 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
 
 - `--plink-prefix`
   Plain-English meaning: where the PLINK panel lives.
-  Recommended usage: use `--plink-prefix` for a single chromosome, a single prefix, or a chromosome-split suite such as `panel_chr@`.
+  Recommended usage: use `--plink-prefix` for a single chromosome, a single prefix, or a plain chromosome-split stem such as `panel_chr`.
 
 - `--source-genome-build`
   Plain-English meaning: which genome build the input PLINK coordinates already use.
@@ -527,11 +531,11 @@ These files are also useful outside of LDSC proper. Common examples include:
 
 ### Build a chromosome suite instead of one chromosome
 
-If your PLINK files are split by chromosome, pass the suite token through `--plink-prefix`:
+If your PLINK files are split by chromosome, pass their shared plain stem through `--plink-prefix`:
 
 ```bash
 ldsc build-ref-panel \
-  --plink-prefix data/reference/genomes_30x_chr@ \
+  --plink-prefix data/reference/genomes_30x_chr \
   --source-genome-build hg38 \
   --genetic-map-hg19-sources resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
   --genetic-map-hg38-sources resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
@@ -568,7 +572,7 @@ Example:
 
 ```bash
 ldsc build-ref-panel \
-  --plink-prefix data/reference/genomes_30x_chr@ \
+  --plink-prefix data/reference/genomes_30x_chr \
   --source-genome-build hg38 \
   --use-hm3-snps \
   --snp-identifier rsid \

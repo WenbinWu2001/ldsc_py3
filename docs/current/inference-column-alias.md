@@ -20,7 +20,7 @@ coordinate inference.
 
 | Canonical field | Accepted aliases |
 |---|---|
-| `SNP` | `SNP`, `SNPID`, `SNP_ID`, `RSID`, `RS_ID`, `RS`, `ID`, `MARKERNAME`, `MARKER` |
+| `SNP` | `SNP`, `SNPID`, `SNP_ID`, `RSID`, `RS_ID`, `RS`, `ID`, `MARKERNAME`, `MARKERID`, `MARKER` |
 | `CHR` | `CHR`, `#CHROM`, `CHROM`, `CHROMOSOME` |
 | `POS` | `POS`, `BP`, `POSITION`, `BASE_PAIR`, `BASEPAIR` |
 | `CM` | `CM`, `CMBP`, `CENTIMORGAN` |
@@ -60,7 +60,7 @@ ldsc munge-sumstats --raw-sumstats-file raw.txt --output-dir out --output-genome
 
 | Canonical field | Accepted aliases |
 |---|---|
-| `SNP` | `SNP`, `MARKERNAME`, `SNPID`, `SNP_ID`, `RS`, `RSID`, `RS_ID`, `ID`, `RS_NUMBER`, `RS_NUMBERS`, `MARKER` |
+| `SNP` | `SNP`, `MARKERNAME`, `MARKERID`, `SNPID`, `SNP_ID`, `RS`, `RSID`, `RS_ID`, `ID`, `RS_NUMBER`, `RS_NUMBERS`, `MARKER` |
 | `CHR` | `CHR`, `#CHROM`, `CHROM`, `CHROMOSOME` |
 | `POS` | `POS`, `BP`, `POSITION`, `BASE_PAIR`, `BASEPAIR` |
 | `P` | `P`, `PVALUE`, `P_VALUE`, `PVAL`, `P_VAL`, `GC_PVALUE` |

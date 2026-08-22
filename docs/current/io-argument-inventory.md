@@ -180,7 +180,7 @@ Removed flags: `--bed-files`, `--baseline-annot`, `--bed-padding-bp`.
 | `--padding-bp` | input transform | conditional | live BED or gene interval expansion | Live gene lists must supply it explicitly (`0` means gene bodies); live BED omission means `0`. Explicit padding is rejected for prebuilt/no-query/indexed modes. |
 | `--gene-exclude-regions` | input transform | no | live gene exclusion policy | Excludes `none` or `mhc` from live gene-list projection before padding; defaults to `none`. It is independent of SNP `--exclude-regions`; the non-default `mhc` choice is rejected outside live gene-list mode. |
 | `--control-gene-list-file` | input | no | fixed gene control | Supplies one existing one-column control gene-list file for live or indexed gene-list runs. When omitted (the default), no `gene_control` column is added. Supplying it requires a gene-list run. |
-| `--plink-prefix` | input | conditional | PLINK reference panel prefix | Selects PLINK reference-panel input; defaults to omitted/`None` and is required when `--r2-dir` is omitted. Supports exact prefix, PLINK-prefix glob, or `@` suite. |
+| `--plink-prefix` | input | conditional | PLINK reference panel prefix | Selects PLINK reference-panel input; defaults to omitted/`None` and is required when `--r2-dir` is omitted. Supports an exact complete `.bed/.bim/.fam` prefix, a plain chromosome-suite stem, a PLINK-prefix glob, or an `@` suite. |
 | `--r2-dir` | input | conditional | package-built parquet R2 directory | Selects parquet reference-panel input; defaults to omitted/`None` and is required when `--plink-prefix` is omitted. Use a build-specific directory such as `ref_panel/hg38`. The directory must contain paired `chrN_r2.parquet` (4-column index format) and `chrN_meta.tsv.gz` sidecar files; the sidecar is mandatory. One parquet serves all identifier modes. |
 | `--snp-identifier` | config | no | SNP identity mode | Defines how SNPs are keyed. Defaults to `chr_pos_allele_aware`; valid values are `rsid`, `rsid_allele_aware`, `chr_pos`, and `chr_pos_allele_aware`. |
 | `--genome-build` | config | no | coordinate and gene-interval interpretation | Build for `chr_pos` identity and gene-list interval projection; defaults to omitted/`None`, while gene-list runs resolve omission to `auto`, including rsID modes. rsID artifact identity metadata remains build-independent. Accepted aliases normalize to hg19 or hg38. |
@@ -226,7 +226,7 @@ LD-score output schema:
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--plink-prefix` | input | yes | PLINK reference panel prefix | Supports exact prefix, PLINK-prefix glob, or `@` suite. |
+| `--plink-prefix` | input | yes | PLINK reference panel prefix | Supports an exact complete `.bed/.bim/.fam` prefix, a plain chromosome-suite stem, a PLINK-prefix glob, or an `@` suite. |
 | `--source-genome-build` | input metadata | no | source PLINK coordinate build | Declares the PLINK coordinate build; defaults to `auto`, so the build is inferred from `.bim` before SNP restriction. |
 | `--genetic-map-hg19-sources` | input | conditional | hg19 genetic map file or suite | Supplies hg19 genetic-map CM values; defaults to omitted/`None` and is required when `--ld-wind-cm` is used and hg19 output is emitted. |
 | `--genetic-map-hg38-sources` | input | conditional | hg38 genetic map file or suite | Supplies hg38 genetic-map CM values; defaults to omitted/`None` and is required when `--ld-wind-cm` is used and hg38 output is emitted. |

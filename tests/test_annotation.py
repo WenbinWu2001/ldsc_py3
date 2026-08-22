@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+import numpy as np
 import pandas as pd
 
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -49,10 +50,10 @@ class AnnotationBuilderTest(unittest.TestCase):
             output_dir = Path(tmpdir)
             expected = pd.DataFrame(
                 {
-                    "adipose": [1.0, 0.0, 0.0],
-                    "cerebellum": [0.0, 1.0, 0.0],
-                    "cortex": [0.0, 0.0, 1.0],
-                    "whole_blood": [1.0, 1.0, 1.0],
+                    "adipose": [True, False, False],
+                    "cerebellum": [False, True, False],
+                    "cortex": [False, False, True],
+                    "whole_blood": [True, True, True],
                 }
             )
             bundle = AnnotationBundle(
@@ -74,12 +75,15 @@ class AnnotationBuilderTest(unittest.TestCase):
             )
 
             [path] = annotation_builder._write_bundle_query_as_annot_files(bundle, output_dir)
+            with gzip.open(path, "rt", encoding="utf-8") as handle:
+                written_rows = [line.split("\t") for line in handle.read().splitlines()[1:]]
             metadata, actual = kernel_ldscore.parse_annotation_file(str(path))
 
         self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2", "rs3"])
         self.assertEqual(actual.columns.tolist(), expected.columns.tolist())
         pd.testing.assert_frame_equal(actual, expected.astype("float32"))
         self.assertFalse(actual.isna().any().any())
+        self.assertEqual([row[-4:] for row in written_rows], [["1", "0", "0", "1"], ["0", "1", "0", "1"], ["0", "0", "1", "1"]])
 
     def test_gene_list_projection_matches_catalog_intervals_and_retains_resolution_status(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -111,7 +115,8 @@ class AnnotationBuilderTest(unittest.TestCase):
         self.assertEqual(bundle.query_columns, ["immune_genes"])
         self.assertEqual(bundle.baseline_columns, ["base"])
         self.assertFalse(any(item.input_role == "control" for item in bundle.gene_list_batch.selections))
-        self.assertEqual(bundle.query_annotations["immune_genes"].tolist(), [1.0, 0.0, 1.0])
+        self.assertEqual(bundle.query_annotations["immune_genes"].dtype, np.dtype("bool"))
+        self.assertEqual(bundle.query_annotations["immune_genes"].tolist(), [True, False, True])
         self.assertEqual(len(bundle.query_statuses), 1)
         self.assertEqual(bundle.query_statuses[0].status, "warning")
         self.assertEqual(bundle.query_statuses[0].reason, "partial_gene_resolution")
@@ -851,7 +856,8 @@ class AnnotationBuilderTest(unittest.TestCase):
                 )
 
             self.assertEqual(bundle.query_columns, ["query"])
-            self.assertEqual(bundle.query_annotations["query"].tolist(), [1.0, 0.0, 1.0])
+            self.assertEqual(bundle.query_annotations["query"].dtype, np.dtype("bool"))
+            self.assertEqual(bundle.query_annotations["query"].tolist(), [True, False, True])
             self.assertEqual(len(bundle.metadata), len(bundle.query_annotations))
 
     def test_project_bed_annotations_refuses_existing_output_before_writing(self):
@@ -1137,6 +1143,25 @@ class AnnotationBuilderTest(unittest.TestCase):
         self.assertEqual(list(metadata.columns), ["CHR", "POS", "SNP", "CM"])
         self.assertEqual(list(annotations.columns), ["C1", "C2", "C3"])
         self.assertEqual(len(metadata), 3)
+
+    def test_parse_annotation_file_preserves_continuous_values_as_float32(self):
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "continuous.annot"
+            path.write_text(
+                "CHR\tBP\tSNP\tCM\tcontinuous\n"
+                "1\t10\trs1\t0.1\t-0.25\n"
+                "1\t20\trs2\t0.2\t0.125\n",
+                encoding="utf-8",
+            )
+
+            _metadata, annotations = builder.parse_annotation_file(path)
+
+        self.assertEqual(annotations["continuous"].dtype, np.dtype("float32"))
+        np.testing.assert_array_equal(
+            annotations["continuous"].to_numpy(),
+            np.array([-0.25, 0.125], dtype=np.float32),
+        )
 
     def test_parse_annotation_file_normalizes_bp_header_to_pos(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())

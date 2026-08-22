@@ -338,7 +338,7 @@ ldsc ldscore \
   --baseline-annot-sources resources/baseline_v1.2/baseline.@.annot.gz \
   --query-annot-bed-sources my_peaks.bed \
   --padding-bp 0 \
-  --plink-prefix resources/1kg/1KG_EUR_Phase3_chr@ \
+  --plink-prefix resources/1kg/1KG_EUR_Phase3_chr \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
@@ -349,7 +349,7 @@ Compute ordinary unpartitioned LD scores without baseline annotations:
 ```bash
 ldsc ldscore \
   --output-dir results/my_unpartitioned_ldscore \
-  --plink-prefix resources/1kg/1KG_EUR_Phase3_chr@ \
+  --plink-prefix resources/1kg/1KG_EUR_Phase3_chr \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0

@@ -17,7 +17,7 @@ accepted on **read** only; they are never written.
 |-----------|--------------|---------|
 | `CHR` | `#CHROM`, `CHROM`, `CHROMOSOME` | all |
 | `POS` | `BP`, `POSITION`, `BASE_PAIR`, `BASEPAIR` | all |
-| `SNP` | `RSID`, `RS`, `ID`, `MARKERNAME`, `SNPID`, `MARKER` | all |
+| `SNP` | `RSID`, `RS`, `ID`, `MARKERNAME`, `MARKERID`, `SNPID`, `MARKER` | all |
 | `CM` | `CMBP`, `CENTIMORGAN` | annotation, LD-score |
 | `MAF` | `FREQ`, `FREQUENCY` | ref panel, annotation |
 | `FRQ` | `EAF`, `MAF`, `FRQ_U` | sumstats only |
@@ -58,6 +58,14 @@ truth for any computation or validation.
 | `Z`, `P`, `BETA`, `OR`, `LOG_ODDS`, `INFO` | `float64` | |
 | `R2` | `float64` | |
 | `L2` (and annotation-specific LD columns) | `float64` | |
+
+External `.annot` annotation values are always loaded as `float32`, including
+columns whose observed values happen to be only zero and one. BED- and
+gene-list-derived columns created by `annotate` use ordinary Boolean dtype in
+the `AnnotationBundle`. The `.annot.gz` writer serializes those generated
+Booleans as integer text `0`/`1`; annotation loading converts them back to
+`float32`. LD-score calculation converts each chromosome-local annotation
+matrix to `float32` at its numerical boundary.
 
 ### On-disk dtypes (parquet)
 

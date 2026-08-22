@@ -133,7 +133,7 @@ INDEX_ROOT="/path/to/gene_ldscore_indexes"
 
 ldsc build-gene-ldscore-index \
   --baseline-annot-sources "${RESOURCE_ROOT}/baseline/baseline.@.annot.gz" \
-  --plink-prefix "${RESOURCE_ROOT}/plink/1000G.EUR.QC.@" \
+  --plink-prefix "${RESOURCE_ROOT}/plink/1000G.EUR.QC." \
   --output-dir "${INDEX_ROOT}/baseline_100kb" \
   --gene-coordinate-file "${RESOURCE_ROOT}/genes/gene-coordinates.hg19.tsv.gz" \
   --genome-build hg19 \
@@ -164,7 +164,7 @@ To use custom regression SNPs while retaining the standard region subtraction:
 ```bash
 ldsc build-gene-ldscore-index \
   --baseline-annot-sources "${RESOURCE_ROOT}/baseline/baseline.@.annot.gz" \
-  --plink-prefix "${RESOURCE_ROOT}/plink/1000G.EUR.QC.@" \
+  --plink-prefix "${RESOURCE_ROOT}/plink/1000G.EUR.QC." \
   --output-dir "${INDEX_ROOT}/custom_regression_index" \
   --gene-coordinate-file "${RESOURCE_ROOT}/genes/gene-coordinates.hg19.tsv.gz" \
   --genome-build hg19 \

@@ -1630,7 +1630,14 @@ def build_parser() -> argparse.ArgumentParser:
         description="Build standard parquet reference-panel artifacts from a PLINK reference input.",
         allow_abbrev=False,
     )
-    parser.add_argument("--plink-prefix", required=True, help="PLINK prefix token for the reference panel.")
+    parser.add_argument(
+        "--plink-prefix",
+        required=True,
+        help=(
+            "PLINK prefix shared by a complete .bed/.bim/.fam trio, or a plain stem that discovers "
+            "chromosome-coded complete trios. Globs and @ chromosome patterns are also supported."
+        ),
+    )
     parser.add_argument(
         "--source-genome-build",
         default="auto",

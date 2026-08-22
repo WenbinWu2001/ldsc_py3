@@ -35,7 +35,7 @@ annotation/build.
 ```bash
 ldsc ldscore \
   --baseline-annot-sources "/path/to/baseline.@.annot.gz" \
-  --plink-prefix "/path/to/1000G.EUR.QC.@" \
+  --plink-prefix "/path/to/1000G.EUR.QC." \
   --query-annot-gene-list-sources "/path/to/gene-sets/*.txt" \
   --gene-coordinate-file "/path/to/gene-coordinates.hg19.tsv.gz" \
   --padding-bp 100000 \

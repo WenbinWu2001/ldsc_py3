@@ -652,7 +652,7 @@ class LDScoreCalculator:
             args._plink_identity_cleanup_already_logged = True
         legacy_bundle = kernel_ldscore.AnnotationBundle(
             metadata=annotation_bundle.metadata.copy(),
-            annotations=annotation_bundle.annotation_matrix(include_query=True).copy(),
+            annotations=_float32_annotation_frame(annotation_bundle),
             baseline_columns=list(annotation_bundle.baseline_columns),
             query_columns=list(annotation_bundle.query_columns),
         )
@@ -1147,7 +1147,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Comma-separated baseline annotation path tokens. If omitted with no query inputs, an all-ones `base` annotation is synthesized.",
     )
-    parser.add_argument("--plink-prefix", default=None, help="PLINK prefix token for the reference panel.")
+    parser.add_argument(
+        "--plink-prefix",
+        default=None,
+        help=(
+            "PLINK prefix shared by a complete .bed/.bim/.fam trio, or a plain stem that discovers "
+            "chromosome-coded complete trios. Globs and @ chromosome patterns are also supported."
+        ),
+    )
     parser.add_argument(
         "--r2-dir",
         dest="r2_dir",
@@ -2734,6 +2741,33 @@ def _slice_annotation_bundle(annotation_bundle, chrom: str):
         query_statuses=tuple(getattr(annotation_bundle, "query_statuses", ())),
         gene_list_batch=getattr(annotation_bundle, "gene_list_batch", None),
     )
+
+
+def _float32_annotation_frame(annotation_bundle) -> pd.DataFrame:
+    """Convert one chromosome's annotation blocks to one float32 numerical frame.
+
+    The destination is allocated once. Contiguous same-dtype column runs are
+    copied with vectorized NumPy casting, avoiding a second full mixed-type
+    staging matrix.
+    """
+    frames = (annotation_bundle.baseline_annotations, annotation_bundle.query_annotations)
+    columns = [*annotation_bundle.baseline_columns, *annotation_bundle.query_columns]
+    values = np.empty((len(annotation_bundle.metadata), len(columns)), dtype=np.float32)
+    destination_start = 0
+    for frame in frames:
+        source_start = 0
+        dtypes = frame.dtypes.tolist()
+        while source_start < len(dtypes):
+            source_end = source_start + 1
+            while source_end < len(dtypes) and dtypes[source_end] == dtypes[source_start]:
+                source_end += 1
+            values[
+                :,
+                destination_start + source_start : destination_start + source_end,
+            ] = frame.iloc[:, source_start:source_end].to_numpy(copy=False)
+            source_start = source_end
+        destination_start += frame.shape[1]
+    return pd.DataFrame(values, columns=columns, copy=False)
 
 
 def _align_annotation_bundle_to_ref_panel(annotation_bundle, ref_panel, chrom: str, global_config: GlobalConfig):

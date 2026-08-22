@@ -135,7 +135,7 @@ def _project_intervals_to_metadata(
     """
     chrom = metadata["CHR"].map(normalize_chromosome).astype(str).to_numpy()
     pos0 = pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64).to_numpy() - 1
-    values = np.zeros(len(metadata), dtype=np.float32)
+    values = np.zeros(len(metadata), dtype=bool)
     intervals_by_chrom: dict[str, list[tuple[int, int]]] = {}
     for interval_chrom, start0, end in intervals:
         padded_start = max(0, int(start0) - padding_bp)
@@ -155,7 +155,7 @@ def _project_intervals_to_metadata(
             right = int(np.searchsorted(sorted_pos, end, side="left"))
             difference[left] += 1
             difference[right] -= 1
-        values[sorted_indices[np.cumsum(difference[:-1]) > 0]] = 1.0
+        values[sorted_indices[np.cumsum(difference[:-1]) > 0]] = True
     return values
 
 
@@ -1383,7 +1383,13 @@ def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Pat
         chrom_meta = chrom_meta.rename(columns={"POS": "BP"})
         metadata_order = [column for column in ("CHR", "BP", "SNP", "CM") if column in chrom_meta.columns]
         chrom_meta = chrom_meta.loc[:, [*metadata_order, *[c for c in chrom_meta.columns if c not in metadata_order]]]
-        chrom_query = bundle.query_annotations.loc[chrom_mask].reset_index(drop=True)
+        chrom_query = bundle.query_annotations.loc[chrom_mask].reset_index(drop=True).copy()
+        generated_columns = chrom_query.select_dtypes(include=["bool"]).columns
+        if len(generated_columns):
+            chrom_query = chrom_query.astype(
+                {column: np.uint8 for column in generated_columns},
+                copy=False,
+            )
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with gzip.open(out_path, "wt") as handle:
             pd.concat([chrom_meta, chrom_query], axis=1).to_csv(

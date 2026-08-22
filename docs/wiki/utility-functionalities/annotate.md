@@ -49,7 +49,7 @@ reads the individual queries from that file's annotation columns.
 Each annotation file has the following columns:
 
 - `CHR`, `BP`, `SNP`, `CM`: metadata for SNPs, copied from baseline annotations. `CM` is set as empty to indicate no-use in downstream.
-- one binary annotation column for each query bed files: `Cerebellum_PC16`, `Cerebellum_PP1`  `Cerebellum_PP3`, `Hippocampus_PP1`
+- one binary annotation column for each query BED file, such as `Cerebellum_PC16`, `Cerebellum_PP1`, `Cerebellum_PP3`, or `Hippocampus_PP1`. Generated columns are Boolean in memory and are written as integer `0`/`1`, never `False`/`True` or `0.0`/`1.0`. Externally supplied annotation columns remain continuous-capable `float32` values on read.
 
 
 

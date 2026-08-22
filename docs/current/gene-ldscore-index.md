@@ -17,7 +17,7 @@ online matrix products, annotation counts, and overlap sufficient statistics—s
 ```bash
 ldsc build-gene-ldscore-index \
   --baseline-annot-sources annotations/baseline.@.annot.gz \
-  --plink-prefix reference/1000G.EUR.QC.@ \
+  --plink-prefix reference/1000G.EUR.QC. \
   --output-dir indexes/1000G_EUR_Phase3_baseline_100kb \
   --gene-coordinate-file annotations/gene-coordinates.hg19.tsv.gz \
   --genome-build hg19 \

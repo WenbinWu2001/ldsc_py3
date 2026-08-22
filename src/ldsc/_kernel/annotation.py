@@ -227,7 +227,7 @@ def _compute_bed_query_columns(
     try:
         return pd.DataFrame(
             {
-                path.stem: np.asarray(_compute_bed_overlap_mask(rows, baseline_bed, path), dtype=np.float32)
+                path.stem: np.asarray(_compute_bed_overlap_mask(rows, baseline_bed, path), dtype=bool)
                 for path in bed_paths
             },
             index=metadata.index,

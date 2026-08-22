@@ -1789,6 +1789,52 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertEqual(list(df.columns), ["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"])
             self.assertTrue(df["MAF"].notna().any())  # genotype-derived MAF present
 
+    @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
+    def test_generated_bool_annotations_produce_identical_ld_scores_to_float32_equivalents(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
+            base_bundle = self._build_annotation_bundle(prefix)
+            generated = np.arange(len(base_bundle.metadata)) % 2 == 0
+            continuous = np.linspace(0.125, 0.875, len(base_bundle.metadata), dtype=np.float32)
+            bool_bundle = dataclass_replace(
+                base_bundle,
+                query_annotations=pd.DataFrame(
+                    {"generated": generated, "continuous": continuous}
+                ),
+                query_columns=["generated", "continuous"],
+            )
+            float_bundle = dataclass_replace(
+                bool_bundle,
+                query_annotations=bool_bundle.query_annotations.astype(np.float32),
+            )
+            global_config = GlobalConfig(snp_identifier="rsid")
+            panel = PlinkRefPanel(
+                global_config,
+                RefPanelConfig(backend="plink", plink_prefix=str(prefix)),
+            )
+            ldscore_config = LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True)
+
+            bool_result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
+                "1", bool_bundle, panel, ldscore_config, global_config
+            )
+            float_result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
+                "1", float_bundle, panel, ldscore_config, global_config
+            )
+
+        np.testing.assert_allclose(
+            bool_result.baseline_table[["regression_ld_scores", "base"]],
+            float_result.baseline_table[["regression_ld_scores", "base"]],
+            rtol=0,
+            atol=0,
+        )
+        np.testing.assert_allclose(
+            bool_result.query_table[["generated", "continuous"]],
+            float_result.query_table[["generated", "continuous"]],
+            rtol=0,
+            atol=0,
+        )
+        self.assertEqual(bool_result.count_records, float_result.count_records)
+
     def test_run_rejects_annotation_bundle_snapshot_mismatch(self):
         calc = ldscore_workflow.LDScoreCalculator()
         annotation_bundle = AnnotationBundle(
@@ -3133,6 +3179,47 @@ class LDScoreWorkflowTest(unittest.TestCase):
         ref_panel.load_metadata.assert_called_once_with("1")
         self.assertEqual(result.baseline_table["SNP"].tolist(), ["rs1", "rs3"])
         self.assertEqual(result.count_records[0]["all_reference_snp_count"], 2.0)
+
+    def test_compute_chromosome_converts_mixed_annotation_columns_to_float32_at_kernel_boundary(self):
+        annotation_bundle = self.make_annotation_bundle(
+            [("1", "rs1", 10), ("1", "rs2", 20)],
+        )
+        annotation_bundle = dataclass_replace(
+            annotation_bundle,
+            query_annotations=pd.DataFrame({"generated": [True, False]}),
+            query_columns=["generated"],
+        )
+        ref_panel = self.make_ref_panel_stub(backend="parquet_r2")
+        ref_panel.load_metadata = mock.Mock(return_value=annotation_bundle.metadata.copy())
+
+        def _compute_side_effect(chrom, bundle, args, regression_snps):
+            self.assertEqual(bundle.annotations.dtypes.tolist(), [np.dtype("float32"), np.dtype("float32")])
+            return ldscore_workflow._LegacyChromResult(
+                chrom=chrom,
+                metadata=bundle.metadata.assign(MAF=0.2),
+                ld_scores=np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
+                w_ld=np.array([[1.0], [1.0]], dtype=np.float32),
+                M=np.array([2.0, 1.0]),
+                M_5_50=np.array([2.0, 1.0]),
+                ldscore_columns=["base", "generated"],
+                baseline_columns=["base"],
+                query_columns=["generated"],
+            )
+
+        with mock.patch.object(
+            ldscore_workflow.kernel_ldscore,
+            "compute_chrom_from_parquet",
+            side_effect=_compute_side_effect,
+        ):
+            result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
+                chrom="1",
+                annotation_bundle=annotation_bundle,
+                ref_panel=ref_panel,
+                ldscore_config=LDScoreConfig(ld_wind_snps=10),
+                global_config=GlobalConfig(snp_identifier="rsid"),
+            )
+
+        self.assertEqual(result.query_columns, ["generated"])
 
     def test_compute_chromosome_aligns_allele_free_annotations_in_base_family_mode(self):
         annotation_bundle = self.make_annotation_bundle(

@@ -1853,7 +1853,7 @@ def compute_chrom_from_parquet(
     metadata = merge_frequency_metadata(bundle.metadata.copy(), args, chrom=chrom, identifier_mode=args.snp_identifier)
     metadata, annotations = apply_maf_filter(
         metadata,
-        bundle.annotations.copy(),
+        bundle.annotations,
         getattr(args, "maf_min", getattr(args, "maf", None)),
         context="parquet mode",
     )
@@ -1878,7 +1878,7 @@ def compute_chrom_from_parquet(
     regression_mask = regression_mask_from_keys(
         metadata, regression_keys, args.snp_identifier, region_intervals=regression_regions
     ).reshape(-1, 1)
-    annot_matrix = annotations.to_numpy(dtype=np.float32, copy=True)
+    annot_matrix = annotations.to_numpy(dtype=np.float32, copy=False)
     combined_annot = np.c_[annot_matrix, regression_mask]
     parquet_paths = resolve_parquet_files(args, chrom=chrom)
     validate_ldscore_window_within_r2_panel_window(

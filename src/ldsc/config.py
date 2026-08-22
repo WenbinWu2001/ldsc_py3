@@ -448,7 +448,8 @@ class RefPanelConfig:
         Backend family used to supply LD reference information. Default is
         ``"auto"``.
     plink_prefix : str or os.PathLike[str] or None, optional
-        PLINK ``.bed/.bim/.fam`` prefix token. Default is ``None``.
+        Exact PLINK ``.bed/.bim/.fam`` prefix, plain chromosome-suite stem,
+        glob, or explicit ``@`` suite token. Default is ``None``.
     r2_dir : str or os.PathLike[str] or None, optional
         Directory containing package-built parquet R2 files named
         ``chr{chrom}_r2.parquet`` and optional metadata sidecars named
@@ -580,7 +581,8 @@ class GeneLDScoreIndexBuildConfig:
         effective rsID or CHR/POS keys are inner-joined to the selected PLINK BIM before
         genotype QC; PLINK metadata is authoritative for matched rows.
     plink_prefix : str
-        PLINK BED/BIM/FAM prefix; ``@`` may stand for chromosome number.
+        Exact PLINK BED/BIM/FAM prefix or plain chromosome-suite stem; globs
+        and ``@`` chromosome patterns are also accepted.
     output_dir : str
         Publication destination for one complete immutable gene LD-score index.
         While running, mutable logs/history and locking use hidden sibling
@@ -693,8 +695,8 @@ class ReferencePanelBuildConfig:
     Parameters
     ----------
     plink_prefix : str or os.PathLike[str]
-        PLINK ``.bed/.bim/.fam`` prefix token. This may be a single prefix or an
-        explicit ``@`` chromosome-suite token.
+        Exact PLINK ``.bed/.bim/.fam`` prefix or plain chromosome-suite stem;
+        globs and explicit ``@`` chromosome-suite tokens are also accepted.
     source_genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"}, optional
         Genome build of the input PLINK coordinates. If ``"auto"``, the
         build-ref-panel workflow infers the build from PLINK ``.bim`` rows

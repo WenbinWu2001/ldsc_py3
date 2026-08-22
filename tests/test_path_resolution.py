@@ -16,6 +16,7 @@ from ldsc.path_resolution import (
     resolve_chromosome_group,
     resolve_file_group,
     resolve_plink_prefix,
+    resolve_plink_prefix_group,
     resolve_scalar_path,
 )
 from ldsc.errors import LDSCInputError
@@ -154,6 +155,30 @@ class PathResolutionTest(unittest.TestCase):
             (tmpdir / "panel.2.fam").write_text("", encoding="utf-8")
             with self.assertRaisesRegex(LDSCInputError, "matched 2 files"):
                 resolve_plink_prefix(str(tmpdir / "panel.*"), chrom=None)
+
+    def test_resolve_plink_prefix_group_discovers_chromosome_suite_from_plain_stem(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            for chrom in ("1", "2"):
+                for suffix in (".bed", ".bim", ".fam"):
+                    (tmpdir / f"panel_chr{chrom}{suffix}").write_text("", encoding="utf-8")
+
+            stem = str(tmpdir / "panel_chr")
+
+            self.assertEqual(
+                resolve_plink_prefix_group(stem, allow_chromosome_suite=True),
+                [str(tmpdir / "panel_chr1"), str(tmpdir / "panel_chr2")],
+            )
+            self.assertEqual(resolve_plink_prefix(stem, chrom="2"), str(tmpdir / "panel_chr2"))
+
+    def test_resolve_plink_prefix_rejects_incomplete_file_trio(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            prefix = Path(tmpdir) / "panel"
+            prefix.with_suffix(".bed").write_text("", encoding="utf-8")
+            prefix.with_suffix(".bim").write_text("", encoding="utf-8")
+
+            with self.assertRaisesRegex(LDSCInputError, "complete .bed/.bim/.fam trio"):
+                resolve_plink_prefix(str(prefix), chrom=None)
 
     def test_resolve_scalar_path_rejects_suffix_inference(self):
         with tempfile.TemporaryDirectory() as tmpdir:

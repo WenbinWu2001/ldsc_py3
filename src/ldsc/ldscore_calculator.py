@@ -37,7 +37,7 @@ import numpy as np
 import pandas as pd
 
 from ._chr_sampler import sample_frame_from_chr_pattern
-from ._kernel.snp_identity import clean_identity_artifact_table, empty_identity_drop_frame, identity_base_mode, identity_mode_family, is_allele_aware_mode
+from ._kernel.snp_identity import clean_identity_artifact_table, effective_merge_key_series, empty_identity_drop_frame, identity_base_mode, identity_mode_family, is_allele_aware_mode
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from .config import (
     ConfigMismatchError,
@@ -76,6 +76,11 @@ from ._kernel.snp_identity import RestrictionIdentityKeys
 from ._row_alignment import assert_same_snp_rows
 from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .query_annotations import QueryAnnotationStatus
+from .annotation_semantics import (
+    build_annotation_fingerprint_metadata,
+    classify_annotation_values,
+    require_unique_annotation_names,
+)
 
 
 LOGGER = logging.getLogger("LDSC.ldscore_calculator")
@@ -135,6 +140,13 @@ class ChromLDScoreResult:
         Ordered annotation LD-score columns in the baseline and query tables.
     ld_reference_snps, ld_regression_snps : frozenset of str
         SNP universes used for count records and regression rows.
+    annotation_types : dict of str to str, optional
+        Per-column ``binary`` or ``quantitative`` classification used only for
+        interpretation messages and persisted provenance.
+    common_annotation_values : pandas.DataFrame, optional
+        In-memory common reference-SNP identities and fitted annotation values
+        used to construct exact semantic fingerprints during aggregation. This
+        matrix is not persisted as part of the LD-score artifact.
     """
     chrom: str
     baseline_table: pd.DataFrame
@@ -153,6 +165,8 @@ class ChromLDScoreResult:
     regression_selected_snp_count: int = 0
     regression_region_removed_snp_count: int = 0
     identity_drops: pd.DataFrame = field(default_factory=empty_identity_drop_frame, repr=False)
+    annotation_types: dict[str, str] = field(default_factory=dict)
+    common_annotation_values: pd.DataFrame = field(default_factory=pd.DataFrame, repr=False)
 
     def validate(self) -> None:
         """Check the normalized public contract for chromosome-level results."""
@@ -234,6 +248,12 @@ class LDScoreResult:
     legacy_ldsc2_import : dict or None, optional
         Explicit converter provenance for an LDSC2 LD-score suite. ``None``
         for natively computed LDSC3 results.
+    annotation_types : dict of str to str, optional
+        Per-column semantic classification used for interpretation only.
+    annotation_fingerprints : dict, optional
+        SHA256 fingerprints of the common reference-SNP universe and fitted
+        annotation values. These verify resupplied post-processing inputs
+        without storing the original annotation matrix.
     """
     baseline_table: pd.DataFrame
     query_table: pd.DataFrame | None
@@ -253,9 +273,12 @@ class LDScoreResult:
     index_provenance: dict[str, str] | None = None
     legacy_ldsc2_import: dict[str, Any] | None = None
     identity_drops_by_chrom: dict[str, pd.DataFrame] = field(default_factory=dict, repr=False)
+    annotation_types: dict[str, str] = field(default_factory=dict)
+    annotation_fingerprints: dict[str, object] | None = None
 
     def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""
+        require_unique_annotation_names(self.baseline_columns, self.query_columns)
         required = {"CHR", "SNP", "POS", REGRESSION_LD_SCORE_COLUMN, *self.baseline_columns}
         missing = required - set(self.baseline_table.columns)
         if missing:
@@ -424,6 +447,14 @@ class LDScoreCalculator:
             chromosome_results,
             global_config=global_config,
             count_config=_count_config_from_ldscore_config(ldscore_config),
+        )
+        binary = [name for name, kind in result.annotation_types.items() if kind == "binary"]
+        quantitative = [name for name, kind in result.annotation_types.items() if kind == "quantitative"]
+        LOGGER.info(
+            "Annotation classification (advisory only): binary=%s; quantitative=%s. "
+            "Classification does not change LD scores or downstream fitted coefficients.",
+            ", ".join(binary) or "none",
+            ", ".join(quantitative) or "none",
         )
         result = dataclass_replace(
             result,
@@ -639,6 +670,8 @@ class LDScoreCalculator:
             chrom=chrom,
             global_config=global_config,
         )
+        annotation_values = _float32_annotation_frame(annotation_bundle)
+        annotation_types = classify_annotation_values(annotation_values)
         args = _namespace_from_configs(
             chrom=chrom,
             ref_panel=ref_panel,
@@ -664,6 +697,21 @@ class LDScoreCalculator:
             legacy_result = kernel(chrom, legacy_bundle, args, regression_snps)
         else:
             legacy_result = kernel(chrom, legacy_bundle, args, regression_snps, regression_regions)
+        reference_metadata = legacy_result.metadata.reset_index(drop=True)
+        common_mask = (
+            pd.to_numeric(reference_metadata["MAF"], errors="coerce").to_numpy(dtype=float)
+            >= float(ldscore_config.common_maf_min)
+        )
+        common_annotation_values = annotation_values.loc[common_mask].reset_index(drop=True).copy()
+        common_annotation_values.insert(
+            0,
+            "effective_snp_id",
+            effective_merge_key_series(
+                reference_metadata.loc[common_mask].reset_index(drop=True),
+                global_config.snp_identifier,
+                context=f"chromosome {chrom} common reference-SNP universe",
+            ).astype(str),
+        )
         if export_dir is not None:
             _write_one_ref_metadata_sidecar(legacy_result.metadata, chrom, export_dir)
         result = self._wrap_legacy_chrom_result(
@@ -671,6 +719,8 @@ class LDScoreCalculator:
             global_config=global_config,
             regression_snps=regression_snps,
             regression_regions=regression_regions,
+            annotation_types=annotation_types,
+            common_annotation_values=common_annotation_values,
         )
         LOGGER.info(f"Finished chromosome {chrom} with {len(result.baseline_table)} retained SNP rows.")
         return result
@@ -681,6 +731,8 @@ class LDScoreCalculator:
         global_config: GlobalConfig,
         regression_snps: set[str] | RestrictionIdentityKeys | None = None,
         regression_regions: kernel_regions.RegionIntervals | None = None,
+        annotation_types: dict[str, str] | None = None,
+        common_annotation_values: pd.DataFrame | None = None,
     ) -> ChromLDScoreResult:
         """Convert one kernel chromosome result into the typed public result."""
         reference_metadata = legacy_result.metadata.reset_index(drop=True).copy()
@@ -751,6 +803,10 @@ class LDScoreCalculator:
             regression_selected_snp_count=int(regression_selected.sum()),
             regression_region_removed_snp_count=int((regression_selected & ~regression_keep).sum()),
             identity_drops=getattr(legacy_result, "identity_drops", empty_identity_drop_frame()),
+            annotation_types=dict(annotation_types or {}),
+            common_annotation_values=(
+                pd.DataFrame() if common_annotation_values is None else common_annotation_values.copy()
+            ),
         )
         result.validate()
         return result
@@ -825,6 +881,30 @@ class LDScoreCalculator:
             query_columns=list(chromosome_results[0].query_columns),
             snp_identifier=global_config.snp_identifier,
         )
+        annotation_names = [
+            *chromosome_results[0].baseline_columns,
+            *chromosome_results[0].query_columns,
+        ]
+        annotation_types = {
+            name: (
+                "quantitative"
+                if any(chrom_result.annotation_types.get(name) == "quantitative" for chrom_result in chromosome_results)
+                else "binary"
+            )
+            for name in annotation_names
+        }
+        common_frames = [
+            chrom_result.common_annotation_values
+            for chrom_result in chromosome_results
+            if not chrom_result.common_annotation_values.empty
+        ]
+        annotation_fingerprints = None
+        if common_frames:
+            common_values = pd.concat(common_frames, axis=0, ignore_index=True)
+            annotation_fingerprints = build_annotation_fingerprint_metadata(
+                common_values["effective_snp_id"],
+                common_values.loc[:, annotation_names],
+            )
         result = LDScoreResult(
             baseline_table=baseline_table,
             query_table=query_table,
@@ -845,6 +925,8 @@ class LDScoreCalculator:
                 result.chrom: result.identity_drops.copy()
                 for result in chromosome_results
             },
+            annotation_types=annotation_types,
+            annotation_fingerprints=annotation_fingerprints,
         )
         result.validate()
         return result

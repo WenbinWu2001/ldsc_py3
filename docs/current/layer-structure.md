@@ -1,9 +1,11 @@
 # Layer Structure
 
-Last updated on: 2026-08-16
+Last updated on: 2026-08-24
 
 This document maps the refactored `ldsc` package by layer and by main
 functionality. Use it to answer two questions quickly:
+
+The continuous-annotation extension keeps semantics and post-fit work in the public layers: `annotation_semantics.py` owns advisory classification and compact hashes, `regression_runner.py` persists one delete matrix per fitted model, `quantile_h2.py` owns source reconstruction and projection, and `outputs.py` owns the result family. The regression kernel is unchanged.
 
 - What layer owns this object?
 - Which objects participate in a given workflow?

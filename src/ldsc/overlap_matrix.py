@@ -191,12 +191,12 @@ def assemble_model_overlap(
 
     Baseline-baseline and baseline-query entries come from the baseline-rows
     block (using symmetry for query-baseline); the query-query diagonal comes
-    from the stored self-overlap. ``use_common`` selects the common-SNP universe.
+    from the stored self-overlap. ``use_common`` selects the common reference-SNP universe.
     """
     block = overlap.baseline_block_common if use_common else overlap.baseline_block_all
     qdiag = overlap.query_diagonal_common if use_common else overlap.query_diagonal_all
     if block is None:
-        raise ValueError("common-universe overlap requested but not stored")
+        raise ValueError("common reference-SNP universe overlap requested but not stored")
     baseline_index = set(block.index)
     k = len(retained_columns)
     out = np.zeros((k, k), dtype=np.float64)

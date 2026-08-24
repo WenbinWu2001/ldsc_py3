@@ -1,16 +1,19 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-08-16
+Last updated on: 2026-08-24
 
 Downstream identity metadata lives in the `sumstats.parquet` footer (for munged
 sumstats) and in `ldscore/metadata.json` (for LD scores). Any metadata emitted by
 annotate, ref-panel, h2, partitioned-h2, rg, query-level, or pair-level outputs is
-diagnostic provenance only and must not be required to run downstream analysis.
+diagnostic provenance for regression. The post-fit `quantile-h2` command is the
+explicit exception: it consumes one selected partitioned-h2 model's metadata and
+coefficient-delete artifact because those files identify the fitted model.
 
 This document inventories metadata, schema metadata, and audit sidecars written
 by the current LDSC workflows. The goal is to keep downstream contracts obvious:
-only input artifacts required by another LDSC command carry required identity
-metadata. Diagnostic metadata lives under `diagnostics/`.
+only reusable input artifacts carry required identity metadata. Diagnostic
+metadata lives under `diagnostics/`; a post-fit command may consume it only when
+the selected result directory itself is its declared input contract.
 
 ## Boundary Rule
 
@@ -218,6 +221,8 @@ annotation columns; a single-annotation (e.g. base-only) run omits it.
 | `counts` | Per-annotation count records. | Required for regression count vectors. |
 | `count_config` | Common-SNP count settings, including the actual threshold operator (`>=` for native LDSC3 computation; strict `>` for LDSC2 conversion). | Required to interpret count universes and checked against overlap metadata. |
 | `overlap_config` | Overlap-matrix provenance: `total_all_reference_snps`, `total_common_reference_snps`, `common_maf_min`, `common_maf_operator`, `stored_block`. `null` for single-annotation runs that write no overlap matrix. | Provides `M_tot` and the universe definition for overlap-aware partitioned-h2. |
+| `annotation_types` | Per-column `binary` or `quantitative` classification. | Interpretation and logging only; never changes fitting. |
+| `annotation_fingerprints` | SHA256 hashes for the ordered common reference-SNP universe and each fitted annotation's canonical float32 values. | Lets `quantile-h2` verify resupplied sources without storing annotation matrices. |
 | `n_baseline_rows` | Number of rows in the baseline parquet table. | Reporting. |
 | `n_query_rows` | Number of rows in the query parquet table, or zero. | Reporting. |
 | `row_group_layout` | Row-group strategy. | Reporting/technical provenance. |
@@ -281,11 +286,13 @@ partitioned-h2/
   partitioned_h2.tsv
   diagnostics/
     metadata.json
+    coefficient_delete_values.parquet
     partitioned-h2.log
     query_annotations/manifest.tsv
     query_annotations/<query>/metadata.json
     query_annotations/<query>/partitioned_h2.tsv
     query_annotations/<query>/partitioned_h2_full.tsv
+    query_annotations/<query>/coefficient_delete_values.parquet
 ```
 
 The `diagnostics/query_annotations/` tree is present only when per-query detail
@@ -297,6 +304,22 @@ root file is self-describing about the analysis: `analysis_type`
 (`functional_category` | `cell_type_specific`), `headline_metric` (`enrichment` |
 `coefficient`), `enrichment_p_test` (`two_sided_t`), and `coefficient_p_test`
 (`one_sided_greater`).
+
+The root coefficient-delete file is present for a baseline-only fitted model. In the cell-type regime, each written per-query directory contains the delete values for that complete baseline-plus-query fit. Metadata records the block count, fitted annotation order, and relative file path. These float64 matrices are required by `quantile-h2` and must never be concatenated across query runs.
+
+### `quantile-h2`
+
+```text
+quantile-h2/
+  quantile_h2.tsv
+  standardized_coefficients.tsv
+  diagnostics/
+    metadata.json
+    quantile-h2.log
+    snp_alignment_issues.tsv.gz
+```
+
+The root tables are scientific outputs. Diagnostic metadata records selected-model provenance, inherited common-MAF definition, target/reference sources, quantile and missing-token policies, verification level, and statistic definitions. The alignment table is always created with a stable schema; row-addressable exclusions and fatal identity/MAF problems are reported there.
 
 ### `rg`
 

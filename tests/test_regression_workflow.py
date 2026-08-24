@@ -3360,6 +3360,10 @@ class RegressionWorkflowTest(unittest.TestCase):
                 summary=unsorted,
                 per_query_category_tables={},
                 per_query_metadata={},
+                per_query_coefficient_delete_values={
+                    "later": pd.DataFrame({"delete_block": [0], "base": [0.1], "later": [0.2]}),
+                    "first": pd.DataFrame({"delete_block": [0], "base": [0.1], "first": [0.2]}),
+                },
             )
 
             with mock.patch.object(

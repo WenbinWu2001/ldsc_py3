@@ -240,11 +240,19 @@ class PartitionedH2BatchResult:
     original query annotation name and are populated only when callers request
     the full baseline-plus-query tables that are written as
     ``partitioned_h2_full.tsv``.
+
+    ``coefficient_delete_values`` stores the complete baseline-only model when
+    the functional-category regime is fitted. In the cell-type regime,
+    ``per_query_coefficient_delete_values`` stores one complete
+    baseline-plus-query coefficient matrix per query. Columns retain fitted
+    annotation order and rows are delete-one-jackknife-block replicates.
     """
     summary: pd.DataFrame
     per_query_category_tables: dict[str, pd.DataFrame]
     per_query_metadata: dict[str, dict[str, object]]
     aggregate_metadata: dict[str, object] | None = None
+    coefficient_delete_values: pd.DataFrame | None = None
+    per_query_coefficient_delete_values: dict[str, pd.DataFrame] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -866,6 +874,7 @@ class RegressionRunner:
                 per_query_category_tables={},
                 per_query_metadata={},
                 aggregate_metadata={"n_snps": n_snps_used, "effective_chisq_max": effective_chisq_max},
+                coefficient_delete_values=_coefficient_delete_frame(hsq, dataset.retained_ld_columns),
             )
 
         # Cell-type regime: baseline + one query per model.
@@ -873,6 +882,7 @@ class RegressionRunner:
         rows = []
         per_query_category_tables: dict[str, pd.DataFrame] = {}
         per_query_metadata: dict[str, dict[str, object]] = {}
+        per_query_coefficient_delete_values: dict[str, pd.DataFrame] = {}
         for query_column in query_columns:
             with _log_phase_timing("regression dataset assembly"):
                 dataset = self.build_dataset(
@@ -896,6 +906,9 @@ class RegressionRunner:
                     "effective_snp_identifier": dataset.effective_snp_identifier,
                     "identity_downgrade_applied": dataset.identity_downgrade_applied,
                 }
+                per_query_coefficient_delete_values[query_column] = _coefficient_delete_frame(
+                    hsq, dataset.retained_ld_columns
+                )
         if not rows:
             summary = pd.DataFrame(columns=PARTITIONED_H2_COLUMNS)
         else:
@@ -905,6 +918,7 @@ class RegressionRunner:
                 summary=summary,
                 per_query_category_tables=per_query_category_tables,
                 per_query_metadata=per_query_metadata,
+                per_query_coefficient_delete_values=per_query_coefficient_delete_values,
             )
         return summary
 
@@ -2111,6 +2125,28 @@ def _scalar(value) -> float:
     return float(np.ravel(value)[0])
 
 
+def _coefficient_delete_frame(hsq, annotation_columns: Sequence[str]) -> pd.DataFrame:
+    """Return float64 delete-one-block coefficient values in fitted order.
+
+    ``Hsq.part_delete_values`` already contains annotation coefficients on the
+    per-SNP heritability scale. The intercept delete column is intentionally
+    excluded because post-fit annotation projection consumes only ``tau``.
+    """
+    raw_values = getattr(hsq, "part_delete_values", None)
+    if not isinstance(raw_values, (np.ndarray, list, tuple, pd.DataFrame)):
+        raw_values = np.empty((0, len(annotation_columns)))
+    values = np.asarray(raw_values, dtype=np.float64)
+    if values.ndim != 2 or values.shape[1] != len(annotation_columns):
+        raise LDSCInternalError(
+            "partitioned-h2 coefficient delete values do not match the retained annotation order. "
+            f"Expected {len(annotation_columns)} columns, got shape {values.shape}. "
+            "Re-run with `--log-level DEBUG` and report the traceback."
+        )
+    frame = pd.DataFrame(values, columns=list(annotation_columns), dtype=np.float64)
+    frame.insert(0, "delete_block", np.arange(len(frame), dtype=np.int64))
+    return frame
+
+
 def _scalar_or_value(value):
     """Return a scalar float for array-like values, otherwise preserve the original value."""
     if hasattr(value, "__array__") or isinstance(value, (list, tuple)):
@@ -2152,6 +2188,24 @@ def _log_partitioned_h2_regime(ldscore_result: LDScoreResult, has_queries: bool)
             "i.e. significantly larger or smaller.",
             len(ldscore_result.baseline_columns),
         )
+
+
+def _log_quantitative_annotation_interpretation(ldscore_result: LDScoreResult) -> None:
+    """Warn once when a fitted model contains quantitative annotations."""
+    quantitative = [
+        name for name, annotation_type in ldscore_result.annotation_types.items()
+        if annotation_type == "quantitative"
+    ]
+    if not quantitative:
+        return
+    LOGGER.warning(
+        "Quantitative annotation(s) detected: %s. Numerical prop_snps, prop_h2, and enrichment summaries "
+        "remain visible for compatibility, but they are weighted summaries and do not have the ordinary "
+        "binary-category interpretation. Interpret tau (`coefficient`), its SE, and its coefficient zero-test; "
+        "use `ldsc quantile-h2` for post-fit quantile enrichment. To estimate distinct conditional coefficients "
+        "for bins, construct binary quantile annotations and refit partitioned-h2.",
+        ", ".join(quantitative),
+    )
 
 
 def _log_effective_regression_identity(
@@ -2523,7 +2577,11 @@ def run_partitioned_h2_from_args(args):
     Without an output directory, it returns the summary table without creating
     a log file.
     """
-    preflight_names = ["partitioned_h2.tsv", "diagnostics/metadata.json"]
+    preflight_names = [
+        "partitioned_h2.tsv",
+        "diagnostics/metadata.json",
+        "diagnostics/coefficient_delete_values.parquet",
+    ]
     if getattr(args, "write_per_query_results", False):
         preflight_names.append("diagnostics/query_annotations")
     output_dir, log_path = _preflight_regression_outputs(
@@ -2533,6 +2591,7 @@ def run_partitioned_h2_from_args(args):
         owned_output_names=[
             "partitioned_h2.tsv",
             "diagnostics/metadata.json",
+            "diagnostics/coefficient_delete_values.parquet",
             "diagnostics/query_annotations",
             "diagnostics/dropped_snps/legacy_sumstats.tsv.gz",
         ],
@@ -2556,15 +2615,22 @@ def run_partitioned_h2_from_args(args):
             query_columns=_validate_partitioned_query_columns(ldscore_result, ldscore_result.query_columns)
         )
         has_queries = bool(ldscore_result.query_columns)
+        write_per_query_results = bool(getattr(args, "write_per_query_results", False) and has_queries)
+        if getattr(args, "write_per_query_results", False) and not has_queries:
+            LOGGER.warning(
+                "--write-per-query-results has no effect in the baseline-only functional-category regime; "
+                "the complete fitted model and coefficient delete values will be written at the result root."
+            )
         _log_effective_regression_identity([sumstats_table], ldscore_result, runner.global_config, config)
         _log_partitioned_h2_regime(ldscore_result, has_queries)
+        _log_quantitative_annotation_interpretation(ldscore_result)
         with suppress_global_config_banner():
             result = runner.estimate_partitioned_h2_batch(
                 sumstats_table,
                 ldscore_result,
                 query_bundle,
                 config=config,
-                include_full_partitioned_h2=getattr(args, "write_per_query_results", False),
+                include_full_partitioned_h2=write_per_query_results,
             )
         aggregate_metadata: dict[str, object] = {}
         if isinstance(result, PartitionedH2BatchResult):
@@ -2572,10 +2638,14 @@ def run_partitioned_h2_from_args(args):
             per_query_category_tables = result.per_query_category_tables
             per_query_metadata = result.per_query_metadata
             aggregate_metadata = result.aggregate_metadata or {}
+            coefficient_delete_values = result.coefficient_delete_values
+            per_query_coefficient_delete_values = result.per_query_coefficient_delete_values
         else:
             summary = result
             per_query_category_tables = None
             per_query_metadata = None
+            coefficient_delete_values = None
+            per_query_coefficient_delete_values = None
         sort_by = _resolve_summary_sort(
             getattr(args, "summary_sort_by", "auto"), has_queries=bool(ldscore_result.query_columns)
         )
@@ -2588,7 +2658,7 @@ def run_partitioned_h2_from_args(args):
                     PartitionedH2OutputConfig(
                         output_dir=output_dir_arg,
                         overwrite=getattr(args, "overwrite", False),
-                        write_per_query_results=getattr(args, "write_per_query_results", False),
+                        write_per_query_results=write_per_query_results,
                     ),
                     per_query_category_tables=per_query_category_tables,
                     metadata={
@@ -2599,9 +2669,12 @@ def run_partitioned_h2_from_args(args):
                         "headline_metric": "coefficient" if has_queries else "enrichment",
                         "enrichment_p_test": "two_sided_t",
                         "coefficient_p_test": "one_sided_greater",
+                        "annotation_types": dict(ldscore_result.annotation_types),
                         **aggregate_metadata,
                     },
                     per_query_metadata=per_query_metadata,
+                    coefficient_delete_values=coefficient_delete_values,
+                    per_query_coefficient_delete_values=per_query_coefficient_delete_values,
                 )
                 audit_path = _write_or_remove_legacy_sumstats_audit(
                     Path(output_dir_arg),
@@ -3093,6 +3166,8 @@ def load_ldscore_from_dir(
         count_config=dict(metadata.get("count_config", {})),
         config_snapshot=config_snapshot,
         overlap=overlap,
+        annotation_types={str(key): str(value) for key, value in (metadata.get("annotation_types") or {}).items()},
+        annotation_fingerprints=metadata.get("annotation_fingerprints"),
     )
     result.validate(require_query_alignment=False)
     query_rows = 0 if query_table is None else len(query_table)
@@ -3104,7 +3179,7 @@ def load_ldscore_from_dir(
 
 
 def _validate_count_overlap_config(metadata: dict[str, Any], root: Path) -> None:
-    """Require count and overlap metadata to describe one common-SNP universe."""
+    """Require count and overlap metadata to describe one common reference-SNP universe."""
     overlap_config = metadata.get("overlap_config")
     if not overlap_config:
         return

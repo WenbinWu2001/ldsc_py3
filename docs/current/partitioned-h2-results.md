@@ -1,5 +1,7 @@
 # Partitioned LDSC Result Columns
 
+Last updated on: 2026-08-24
+
 TODO: add an example output file str.
 
 This page describes the tabular outputs from `ldsc partitioned-h2`. The summaries
@@ -28,6 +30,8 @@ with no user flag:
 
 Both regimes write the **same** `partitioned_h2.tsv` column schema; they differ
 only in which rows appear (baseline categories vs. queries) and the default sort.
+
+Annotation-specific LD scores, not the overlap matrix, identify the fitted coefficients and their jackknife uncertainty. The current command still consumes the overlap matrix to retain the legacy numerical `prop_snps`, `prop_h2`, and `enrichment` summaries. When any fitted annotation is quantitative, the log names it and warns that those weighted summaries do not have the ordinary binary-category interpretation; the numerical values are not replaced with `NaN`. Classification does not alter fitting or any result value. Use [continuous-annotation quantile heritability](continuous-annotation-quantile-h2.md) for a post-fit magnitude summary.
 
 ## `partitioned_h2.tsv`
 
@@ -63,6 +67,8 @@ regression outputs (so `total_h2_obs`/`samp_prev`/`*_se` match across commands).
 
 The same schema is used for each one-row
 `diagnostics/query_annotations/<folder>/partitioned_h2.tsv` file.
+
+Current baseline-only outputs also store `diagnostics/coefficient_delete_values.parquet`. Each row is one delete-one-block coefficient vector; `delete_block` is followed by annotation columns in fitted order and preserved as float64. In the cell-type regime, each requested per-query directory stores its own `coefficient_delete_values.parquet` for that complete baseline-plus-query fit. These artifacts support post-fit transformations without combining coefficients across different regressions.
 
 ### Choosing the right column
 

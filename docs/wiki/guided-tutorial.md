@@ -1,6 +1,6 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-08-16
+Last updated on: 2026-08-24
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
@@ -400,6 +400,8 @@ Here:
 
 - `partitioned_h2.tsv` is a summary over all query annotations, sorted by the p-value of the query annotation's coefficient (`coefficient-p`), from most to least significant.
 - `query_annotations/` holds the per-query results, which also include the coefficients and h2 share of the baseline annotations. `manifest.tsv` records each original query annotation name, its results folder name, and the paths to the relevant results files.
+
+For a continuous annotation, continue with [Continuous annotations in partitioned LDSC](continuous-annotation-partitioned-ldsc.md). That post-fit workflow uses one complete fitted model and its saved jackknife coefficient values; it does not combine different per-query regressions.
 
 ## Make annotations
 

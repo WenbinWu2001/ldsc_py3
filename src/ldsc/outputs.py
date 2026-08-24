@@ -131,6 +131,19 @@ PARTITIONED_H2_COLUMNS = [
     "samp_prev",
     "pop_prev",
 ]
+QUANTILE_H2_COLUMNS = [
+    "quantile", "target_value_lower", "target_value_upper", "n_snps", "prop_snps",
+    "h2_obs", "h2_obs_se", "h2_liab", "h2_liab_se", "prop_h2", "prop_h2_se",
+    "enrichment", "enrichment_se", "enrichment_p",
+]
+STANDARDIZED_COEFFICIENT_COLUMNS = [
+    "annotation", "annotation_type", "annotation_sd", "tau", "tau_se", "tau_z", "tau_p",
+    "tau_star", "tau_star_se", "tau_star_z", "tau_star_p",
+]
+SNP_ALIGNMENT_ISSUE_COLUMNS = [
+    "source_role", "source", "CHR", "POS", "SNP", "A1", "A2", "effective_snp_id",
+    "issue", "action", "details",
+]
 RG_CONCISE_COLUMNS = [
     "trait_1",
     "trait_2",
@@ -560,6 +573,17 @@ class LDScoreDirectoryWriter:
             "chromosomes": chromosomes,
             "baseline_columns": list(getattr(result, "baseline_columns", [])),
             "query_columns": list(getattr(result, "query_columns", [])),
+            "annotation_types": (
+                dict(getattr(result, "annotation_types", {}) or {})
+                or {
+                    str(name): "unknown"
+                    for name in [
+                        *list(getattr(result, "baseline_columns", [])),
+                        *list(getattr(result, "query_columns", [])),
+                    ]
+                }
+            ),
+            "annotation_fingerprints": getattr(result, "annotation_fingerprints", None),
             "counts": list(getattr(result, "count_records", [])),
             "count_config": dict(getattr(result, "count_config", None) or DEFAULT_COUNT_CONFIG),
             "overlap_config": overlap_config,
@@ -689,6 +713,140 @@ def _validate_ldscore_allele_columns(table: pd.DataFrame, *, table_name: str, sn
 
 
 @dataclass(frozen=True)
+class QuantileH2OutputConfig:
+    """Output directory and replacement policy for ``quantile-h2`` results.
+
+    Parameters
+    ----------
+    output_dir : str or os.PathLike[str]
+        Directory receiving the two scientific TSVs and ``diagnostics/``.
+    overwrite : bool, optional
+        Replace existing owned quantile-h2 artifacts when ``True``. Default is
+        ``False``.
+    """
+
+    output_dir: str | PathLike[str]
+    overwrite: bool = False
+
+    def __post_init__(self) -> None:
+        """Normalize the required output directory."""
+        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+
+
+class QuantileH2DirectoryWriter:
+    """Write post-fit quantile summaries, coefficients, and SNP diagnostics."""
+
+    def write_diagnostics(
+        self,
+        issues: pd.DataFrame,
+        output_config: QuantileH2OutputConfig,
+    ) -> str:
+        """Write the always-present SNP alignment issue table.
+
+        Parameters
+        ----------
+        issues : pandas.DataFrame
+            Rows following :data:`SNP_ALIGNMENT_ISSUE_COLUMNS`; a clean run
+            supplies a header-only frame.
+        output_config : QuantileH2OutputConfig
+            Output directory and replacement policy.
+
+        Returns
+        -------
+        str
+            Written compressed TSV path.
+        """
+        output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
+        path = output_dir / "diagnostics" / "snp_alignment_issues.tsv.gz"
+        preflight_output_artifact_family(
+            [path],
+            [path],
+            overwrite=output_config.overwrite,
+            label="quantile-h2 diagnostic artifact",
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _select_columns(issues, SNP_ALIGNMENT_ISSUE_COLUMNS, label="SNP alignment issues").to_csv(
+            path, sep="\t", index=False, compression="gzip", na_rep=""
+        )
+        return str(path)
+
+    def write(
+        self,
+        quantile_h2: pd.DataFrame,
+        standardized_coefficients: pd.DataFrame,
+        issues: pd.DataFrame,
+        output_config: QuantileH2OutputConfig,
+        metadata: dict[str, object],
+    ) -> dict[str, str]:
+        """Write the complete successful ``quantile-h2`` artifact family.
+
+        Parameters
+        ----------
+        quantile_h2 : pandas.DataFrame
+            Low-to-high quantile rows in the stable public schema.
+        standardized_coefficients : pandas.DataFrame
+            One row per fitted annotation in coefficient order.
+        issues : pandas.DataFrame
+            SNP alignment exclusions and problems, or a header-only frame.
+        output_config : QuantileH2OutputConfig
+            Output directory and replacement policy.
+        metadata : dict
+            Scientific and source provenance added to the standard result
+            metadata envelope.
+
+        Returns
+        -------
+        dict of str to str
+            Paths for both scientific tables, metadata, and SNP diagnostics.
+        """
+        output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
+        diagnostics_dir = output_dir / "diagnostics"
+        paths = {
+            "quantile_h2": output_dir / "quantile_h2.tsv",
+            "standardized_coefficients": output_dir / "standardized_coefficients.tsv",
+            "metadata": diagnostics_dir / "metadata.json",
+            "snp_alignment_issues": diagnostics_dir / "snp_alignment_issues.tsv.gz",
+        }
+        successful_paths = list(paths.values())
+        stale = preflight_output_artifact_family(
+            successful_paths,
+            successful_paths,
+            overwrite=output_config.overwrite,
+            label="quantile-h2 output artifact",
+        )
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        _atomic_write_dataframe(
+            _select_columns(quantile_h2, QUANTILE_H2_COLUMNS, label="quantile-h2 summary"),
+            paths["quantile_h2"],
+            na_rep="NaN",
+        )
+        _atomic_write_dataframe(
+            _select_columns(
+                standardized_coefficients,
+                STANDARDIZED_COEFFICIENT_COLUMNS,
+                label="standardized coefficients",
+            ),
+            paths["standardized_coefficients"],
+            na_rep="NaN",
+        )
+        _select_columns(issues, SNP_ALIGNMENT_ISSUE_COLUMNS, label="SNP alignment issues").to_csv(
+            paths["snp_alignment_issues"], sep="\t", index=False, compression="gzip", na_rep=""
+        )
+        payload = _result_metadata(
+            metadata,
+            artifact_type="quantile_h2_result",
+            files={
+                "quantile_h2": "quantile_h2.tsv",
+                "standardized_coefficients": "standardized_coefficients.tsv",
+                "snp_alignment_issues": "diagnostics/snp_alignment_issues.tsv.gz",
+            },
+        )
+        _atomic_write_json(payload, paths["metadata"])
+        remove_output_artifacts(stale)
+        return {name: str(path) for name, path in paths.items()}
+
+
+@dataclass(frozen=True)
 class PartitionedH2OutputConfig:
     """Directory-oriented output config for partitioned-h2 regression summaries.
 
@@ -739,6 +897,8 @@ class PartitionedH2DirectoryWriter:
         per_query_category_tables: dict[str, pd.DataFrame] | None = None,
         metadata: dict[str, object] | None = None,
         per_query_metadata: dict[str, dict[str, object]] | None = None,
+        coefficient_delete_values: pd.DataFrame | None = None,
+        per_query_coefficient_delete_values: dict[str, pd.DataFrame] | None = None,
     ) -> dict[str, str]:
         """Write partitioned-h2 summary artifacts.
 
@@ -759,6 +919,13 @@ class PartitionedH2DirectoryWriter:
         per_query_metadata : dict of str to dict, optional
             Query-specific metadata copied into the matching
             ``metadata.json``.
+        coefficient_delete_values : pandas.DataFrame, optional
+            Baseline-only fitted model's delete-one-block coefficient vectors.
+            The first column is ``delete_block`` and remaining columns retain
+            fitted annotation order.
+        per_query_coefficient_delete_values : dict of str to pandas.DataFrame, optional
+            Delete-one-block coefficient vectors for complete
+            baseline-plus-query models, keyed by original query name.
 
         Returns
         -------
@@ -781,19 +948,32 @@ class PartitionedH2DirectoryWriter:
         metadata_path = diagnostics_dir / "metadata.json"
         query_root = diagnostics_dir / "query_annotations"
         produced_paths = [summary_path, metadata_path]
+        coefficient_delete_path = diagnostics_dir / "coefficient_delete_values.parquet"
+        if coefficient_delete_values is not None:
+            produced_paths.append(coefficient_delete_path)
         if output_config.write_per_query_results:
             produced_paths.append(query_root)
         stale_paths = preflight_output_artifact_family(
             produced_paths,
-            [summary_path, metadata_path, query_root],
+            [summary_path, metadata_path, coefficient_delete_path, query_root],
             overwrite=output_config.overwrite,
             label="partitioned-h2 output artifact",
         )
 
         root_files = {"summary": "partitioned_h2.tsv"}
+        if coefficient_delete_values is not None:
+            root_files["coefficient_delete_values"] = "diagnostics/coefficient_delete_values.parquet"
         if output_config.write_per_query_results:
             root_files["query_annotations"] = "diagnostics/query_annotations"
         paths = {"summary": str(summary_path), "metadata": str(metadata_path)}
+        if coefficient_delete_values is not None:
+            paths["coefficient_delete_values"] = str(coefficient_delete_path)
+        metadata_payload = dict(metadata or {})
+        if coefficient_delete_values is not None:
+            metadata_payload["coefficient_delete_block_count"] = int(len(coefficient_delete_values))
+            metadata_payload["retained_ld_columns"] = [
+                column for column in coefficient_delete_values.columns if column != "delete_block"
+            ]
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         if not output_config.write_per_query_results:
             _atomic_write_dataframe(
@@ -801,8 +981,10 @@ class PartitionedH2DirectoryWriter:
                 summary_path,
                 na_rep="NaN",
             )
+            if coefficient_delete_values is not None:
+                coefficient_delete_values.to_parquet(coefficient_delete_path, index=False)
             _atomic_write_json(
-                _result_metadata(metadata, artifact_type="partitioned_h2_result", files=root_files),
+                _result_metadata(metadata_payload, artifact_type="partitioned_h2_result", files=root_files),
                 metadata_path,
             )
             remove_output_artifacts(stale_paths)
@@ -817,8 +999,9 @@ class PartitionedH2DirectoryWriter:
                 query_records,
                 summary,
                 per_query_category_tables or {},
-                metadata or {},
+                metadata_payload,
                 per_query_metadata or {},
+                per_query_coefficient_delete_values or {},
             )
             _atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv", na_rep="NaN")
             _atomic_write_dataframe(
@@ -827,7 +1010,7 @@ class PartitionedH2DirectoryWriter:
                 na_rep="NaN",
             )
             _atomic_write_json(
-                _result_metadata(metadata, artifact_type="partitioned_h2_result", files=root_files),
+                _result_metadata(metadata_payload, artifact_type="partitioned_h2_result", files=root_files),
                 metadata_path,
             )
             if output_config.overwrite and query_root.exists():
@@ -884,6 +1067,7 @@ class PartitionedH2DirectoryWriter:
         per_query_category_tables: dict[str, pd.DataFrame],
         metadata: dict[str, object],
         per_query_metadata: dict[str, dict[str, object]],
+        per_query_coefficient_delete_values: dict[str, pd.DataFrame],
     ) -> list[dict[str, object]]:
         """Populate the staged per-query result tree and return manifest rows."""
         manifest_rows: list[dict[str, object]] = []
@@ -896,11 +1080,19 @@ class PartitionedH2DirectoryWriter:
             summary_rel = f"diagnostics/query_annotations/{folder}/partitioned_h2.tsv"
             full_rel = f"diagnostics/query_annotations/{folder}/partitioned_h2_full.tsv"
             metadata_rel = f"diagnostics/query_annotations/{folder}/metadata.json"
+            delete_rel = f"diagnostics/query_annotations/{folder}/coefficient_delete_values.parquet"
             _atomic_write_dataframe(
                 _select_columns(query_summary, PARTITIONED_H2_COLUMNS, label="query summary"),
                 query_dir / "partitioned_h2.tsv",
                 na_rep="NaN",
             )
+            delete_values = per_query_coefficient_delete_values.get(query_name)
+            if delete_values is None:
+                raise LDSCInternalError(
+                    f"partitioned-h2 output writer is missing coefficient delete values for query {query_name!r}. "
+                    "Most likely the fitted result family was assembled incompletely."
+                )
+            delete_values.to_parquet(query_dir / "coefficient_delete_values.parquet", index=False)
             category_table = per_query_category_tables.get(query_name)
             if category_table is None:
                 category_table = pd.DataFrame()
@@ -913,7 +1105,9 @@ class PartitionedH2DirectoryWriter:
                 **metadata,
                 **per_query_metadata.get(query_name, {}),
                 "artifact_type": "partitioned_h2_query_result",
-                "files": {"summary": summary_rel, "full": full_rel},
+                "files": {"summary": summary_rel, "full": full_rel, "coefficient_delete_values": delete_rel},
+                "coefficient_delete_block_count": int(len(delete_values)),
+                "retained_ld_columns": [column for column in delete_values.columns if column != "delete_block"],
                 "ordinal": record["ordinal"],
                 "query_annotation": query_name,
                 "slug": record["slug"],
@@ -929,6 +1123,7 @@ class PartitionedH2DirectoryWriter:
                     "summary_path": summary_rel,
                     "partitioned_h2_full_path": full_rel,
                     "metadata_path": metadata_rel,
+                    "coefficient_delete_values_path": delete_rel,
                 }
             )
         return manifest_rows

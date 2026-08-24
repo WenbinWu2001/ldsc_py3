@@ -1,6 +1,6 @@
 # Classes And Features
 
-Last updated on: 2026-08-16
+Last updated on: 2026-08-24
 
 This document summarizes the public package surface. For workflow-level file streams, see [data-flow.md](data-flow.md).
 
@@ -17,6 +17,7 @@ This document summarizes the public package surface. For workflow-level file str
 | Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `infer_raw_sumstats()`, `load_sumstats()` | raw sumstats via `--raw-sumstats-file` or `MungeConfig.raw_sumstats_file`, optional `--trait-name`, default `--format auto`, optional `--infer-only`, column hints only when inference cannot decide safely, QC thresholds, optional `--chr`/`--pos`, `--source-genome-build auto` by default, required `--output-genome-build` in `chr_pos`-family modes, optional explicit DANER format profile, VCF-style headers handled as `plain`, optional `--sumstats-snps-file` keep-list or `--use-hm3-snps`, optional `chr_pos`-family liftover via `--liftover-chain-file` or `--use-hm3-snps --use-hm3-quick-liftover` when source and output builds differ, optional `--output-format parquet\|tsv.gz\|both` | self-describing `sumstats.parquet` (identity in its footer; no `metadata.json`) by default, optional `sumstats.sumstats.gz`; diagnostics under `diagnostics/` include `sumstats.log` and `dropped_snps/dropped.tsv.gz`; `--infer-only` writes nothing |
 | Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()`, `H2DirectoryWriter` | munged `sumstats.parquet` or `.sumstats.gz`, LD-score directory | `h2.tsv` when `output_dir` is supplied; `diagnostics/metadata.json` and `diagnostics/h2.log` are provenance only; without `output_dir`, CLI prints compact TSV to stdout |
 | Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2()`, `RegressionRunner.estimate_partitioned_h2_batch()`, `PartitionedH2DirectoryWriter` | munged `sumstats.parquet` or `.sumstats.gz`, LD-score directory including `ldscore.overlap.parquet` (baseline-only = functional regime; with query columns = cell-type regime) | overlap-aware `partitioned_h2.tsv` (one schema, both regimes); optional `diagnostics/query_annotations/manifest.tsv`, per-query `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json` with `--write-per-query-results`; diagnostics include `partitioned-h2.log`; without `output_dir`, CLI prints the TSV to stdout |
+| Project continuous-target quantile heritability | `ldsc quantile-h2` | `run_quantile_h2_from_args()`, `compute_quantile_h2()`, `compute_standardized_coefficients()`, `QuantileH2DirectoryWriter` | one fitted baseline-only or per-query partitioned-h2 model, every fitted annotation source, target annotation source, reference metadata | `quantile_h2.tsv`, `standardized_coefficients.tsv`, provenance, log, and SNP-alignment diagnostics; no regression refit |
 | Estimate genetic correlation | `ldsc rg` | `RegressionRunner.estimate_rg()`, `RegressionRunner.estimate_rg_pairs()`, `RgDirectoryWriter` | two or more munged `sumstats.parquet` or `.sumstats.gz` files, optional `--anchor-trait`, LD-score directory | concise `rg.tsv`; full `rg_full.tsv`; `h2_per_trait.tsv`; optional `diagnostics/pairs/` detail tree; diagnostics include `rg.log`; rg tables report nominal p-values only; without `output_dir`, CLI prints compact `rg.tsv` to stdout |
 
 ## Workflow Logging
@@ -71,6 +72,7 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 | `LDScoreDirectoryWriter` | write canonical chromosome-aligned LD-score artifacts plus conditional query diagnostics and compact gene provenance |
 | `H2DirectoryWriter` | write unpartitioned h2 result tables and diagnostic metadata sidecars |
 | `PartitionedH2DirectoryWriter` | write compact and optional per-query partitioned-h2 result trees |
+| `QuantileH2DirectoryWriter` | write post-fit quantile summaries, standardized coefficients, metadata, and alignment diagnostics |
 | `RgDirectoryWriter` | write the genetic-correlation result family and optional per-pair detail tree |
 
 ### Data And Result Objects
@@ -86,6 +88,7 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 | `MungeRunSummary` | compact record of a munging run |
 | `RegressionDataset` | merged sumstats plus LD-score matrix used by the estimator, plus propagated provenance when available |
 | `RgResultFamily` | complete multi-trait genetic-correlation result family: concise rg table, full diagnostic table, per-trait h2 table, and per-pair metadata; rg p-values are nominal and uncorrected |
+| `QuantileH2Result` | quantile summaries, standardized coefficients, alignment issues, metadata, and output paths for one fitted model/target pair |
 | `ChrPosBuildInference` | genome-build and coordinate-basis decision returned by `infer_chr_pos_build()` and `resolve_chr_pos_table()` |
 
 ### Global Config Registry

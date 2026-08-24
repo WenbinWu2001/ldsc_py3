@@ -1,6 +1,6 @@
 # Workflow Logging
 
-Last updated on: 2026-08-16
+Last updated on: 2026-08-24
 
 Public workflow entry points share one logging policy:
 
@@ -119,11 +119,14 @@ header is written and final work before the footer is written.
 | `build-gene-ldscore-index` | completed success: `<index_dir>/diagnostics/build-gene-ldscore-index.log`; running/failed: `<parent>/.<index-name>.build-state/build-gene-ldscore-index.log`; prior failed attempts move to hidden `history/` |
 | `h2` | `<output_dir>/diagnostics/h2.log` |
 | `partitioned-h2` | `<output_dir>/diagnostics/partitioned-h2.log` |
+| `quantile-h2` | `<output_dir>/diagnostics/quantile-h2.log` |
 | `rg` | `<output_dir>/diagnostics/rg.log` |
 
 Regression commands without `--output-dir` stay console-only and do not create
 log files; their progress records print to the console (stderr) via the routing
 described above.
+
+LD-score logs list binary and quantitative fitted annotations. Partitioned-h2 logs repeat an actionable interpretation warning when quantitative annotations are present: legacy numerical proportion/enrichment summaries remain visible, but only coefficient-based fields retain their ordinary interpretation for those annotations. Quantile-h2 logs the selected fitted model, target, inherited common-MAF rule, common reference-SNP universe size, missing exclusions, verification level, and realized quantile bounds/counts. Row-addressable alignment issues are written to `snp_alignment_issues.tsv.gz` rather than expanded into the log.
 
 ## Exact gene-index build log
 

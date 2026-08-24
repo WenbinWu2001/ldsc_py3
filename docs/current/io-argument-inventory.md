@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Last updated on: 2026-08-16
+Last updated on: 2026-08-24
 
 This document records the current public input/output naming contract after the
 LD-score result-directory refactor. The LD-score workflow uses a canonical
@@ -492,6 +492,24 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 `--query-columns`, `--sumstats`, `--out`.
+
+### `ldsc quantile-h2`
+
+| Flag | Direction | Required | Object | Notes |
+|---|---:|---:|---|---|
+| `--partitioned-h2-result-dir` | input | yes | one fitted joint model directory | Accepts a baseline-only output root or one `diagnostics/query_annotations/<query>` directory. Rejects an aggregate multi-query root and raw LDSC2 prefixes. |
+| `--baseline-annot-sources` | input | yes | all original fitted baseline sources | Exact files, globs, path tokens, or chromosome placeholders. Original matrices are not copied into regression output. |
+| `--query-annot-sources` | input | conditional | fitted prebuilt query source | Use for the selected per-query fit when its query was prebuilt. Mutually exclusive with BED and gene-list query inputs. |
+| `--query-annot-bed-sources` | input | conditional | fitted BED query source | Rebuilds the selected fitted query with the ordinary annotation pipeline. |
+| `--query-annot-gene-list-sources` | input | conditional | fitted gene-list query source | Uses `--gene-coordinate-file`, optional control/policy/exclusion settings, and `--padding-bp` as in direct LD-score construction. |
+| `--target-annot-sources` | input | yes | target annotation source | Used only to define quantile membership; the target need not be fitted. Supports chromosome placeholders. |
+| `--target-annotation` | input selector | yes | globally unique target column name | If it matches a fitted name, resupplied values must match on the comparable common universe. |
+| `--ref-metadata-sources` | input | yes | reference SNP metadata | Requires CHR/POS/SNP/MAF and, where needed, A1/A2. Parquet-R2 sidecars are accepted; PLINK users create sidecars with `ldscore --export-ref-metadata`. Supports chromosome placeholders. |
+| `--target-missing-value` | input policy | no | one explicit exclusion token | Default is no exclusion. Finite numeric tokens use numeric equality; nonnumeric/nonfinite tokens use trimmed case-sensitive string equality. Zero is ordinary unless explicitly selected. |
+| `--num-quantiles` | transform | no | requested quantile count | Integer at least 2; default 5. Empty realized quantiles are rejected. |
+| `--output-dir` | output | yes | result family directory | Writes quantile and standardized-coefficient tables plus diagnostics. |
+| `--log-level` | logging | no | workflow log verbosity | Same shared workflow logging policy; log path is `diagnostics/quantile-h2.log`. |
+| `--overwrite` | output mode | no | collision policy | Defaults to false and preflights the complete owned output family. |
 
 ### `ldsc rg`
 

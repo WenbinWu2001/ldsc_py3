@@ -45,6 +45,20 @@ def _write_gene_catalog(path: Path, *, genome_build: str = "hg38") -> Path:
 
 
 class AnnotationBuilderTest(unittest.TestCase):
+    def test_bundle_rejects_duplicate_names_across_baseline_and_query(self):
+        bundle = AnnotationBundle(
+            metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [np.nan]}),
+            baseline_annotations=pd.DataFrame({"shared": [1.0]}),
+            query_annotations=pd.DataFrame({"shared": [0.0]}),
+            baseline_columns=["shared"],
+            query_columns=["shared"],
+            chromosomes=["1"],
+            source_summary={},
+        )
+
+        with self.assertRaisesRegex(LDSCInputError, "globally unique.*shared"):
+            bundle.validate("rsid")
+
     def test_annotate_output_round_trips_through_ldscore_parser(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)

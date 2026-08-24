@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-08-16
+Last updated on: 2026-08-24
 
 This document summarizes the user-visible file streams for each public workflow. The diagrams use Mermaid `flowchart LR` because it maps cleanly onto the package's left-to-right data movement and layered module boundaries.
 
@@ -647,3 +647,26 @@ For column definitions and interpretation, see
 - Kernel: `ldsc._kernel.regression`, `ldsc._kernel._jackknife`, `ldsc._kernel._irwls`
 - Postprocessing: pandas TSV writers in `ldsc.regression_runner`; partitioned-h2
   and rg directory writing in `ldsc.outputs`
+
+## 7. `quantile-h2`: One Fitted Model To Target Quantiles
+
+`quantile-h2` is post-fit projection, not another regression. It loads one baseline-only or one per-query fitted model, reconstructs the linked LD-score artifact's common reference-SNP universe from resupplied annotations and reference metadata, and uses matrix multiplication to project whole-data and delete-one-block coefficient vectors onto target-defined quantiles.
+
+```mermaid
+flowchart LR
+  M[One partitioned-h2 fitted model\nsummary + coefficient deletes]
+  A[Original fitted annotation sources]
+  R[Reference metadata]
+  T[Target annotation]
+  V[Identity, aggregate, and SHA256 verification]
+  Q[Legacy-compatible target quantiles]
+  P[Within-quantile annotation sums x fitted tau vectors]
+  O[quantile_h2.tsv + standardized_coefficients.tsv + diagnostics]
+  M --> V
+  A --> V
+  R --> V
+  T --> V --> Q --> P --> O
+  M --> P
+```
+
+The target may be external to the fitted model and contributes only quantile membership. The projection uses fitted annotations only. See [continuous-annotation-quantile-h2.md](continuous-annotation-quantile-h2.md) for the exact contracts and formulas.

@@ -51,6 +51,7 @@ _SUBCOMMAND_HELP = {
     "munge-sumstats": "Munge GWAS summary statistics.",
     "h2": "Estimate heritability from munged sumstats and LD scores.",
     "partitioned-h2": "Estimate partitioned heritability by looping over query annotations.",
+    "quantile-h2": "Project a fitted partitioned-LDSC model onto annotation quantiles.",
     "rg": "Estimate genetic correlation.",
     "query-r2": "Query R2 for SNP pairs from a reference panel.",
 }
@@ -105,6 +106,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     partitioned_parser = subparsers.add_parser("partitioned-h2", help=_SUBCOMMAND_HELP["partitioned-h2"])
     regression_runner.add_partitioned_h2_arguments(partitioned_parser)
+
+    quantile_h2 = _load_quantile_h2()
+    quantile_parser = subparsers.add_parser("quantile-h2", help=_SUBCOMMAND_HELP["quantile-h2"])
+    quantile_h2.add_quantile_h2_arguments(quantile_parser)
 
     rg_parser = subparsers.add_parser("rg", help=_SUBCOMMAND_HELP["rg"])
     regression_runner.add_rg_arguments(rg_parser)
@@ -186,6 +191,14 @@ def main(argv: Sequence[str] | None = None):
             result = regression_runner.run_partitioned_h2_from_args(parsed)
             _print_table_stdout_if_needed(parsed, result)
             return result
+        if command == "quantile-h2":
+            quantile_h2 = _load_quantile_h2()
+            parser = _NoAbbrevArgumentParser(
+                prog="ldsc quantile-h2",
+                description="Project a fitted partitioned-LDSC model onto continuous-annotation quantiles.",
+            )
+            quantile_h2.add_quantile_h2_arguments(parser)
+            return quantile_h2.run_quantile_h2_from_args(parser.parse_args(subargv))
         if command == "rg":
             regression_runner = _load_regression_runner()
             parser = _NoAbbrevArgumentParser(prog="ldsc rg", description="Estimate genetic correlation.")
@@ -304,6 +317,13 @@ def _load_sumstats_munger():
     from . import sumstats_munger
 
     return sumstats_munger
+
+
+def _load_quantile_h2():
+    """Import the continuous-annotation post-fit workflow lazily."""
+    from . import quantile_h2
+
+    return quantile_h2
 
 
 def _load_legacy_ldscore_converter():

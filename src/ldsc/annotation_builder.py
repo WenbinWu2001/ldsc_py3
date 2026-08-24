@@ -102,6 +102,7 @@ from .path_resolution import (
 )
 from ._logging import configure_package_logging, log_inputs, log_outputs, workflow_logging
 from .query_annotations import QueryAnnotationStatus
+from .annotation_semantics import require_unique_annotation_names
 
 
 LOGGER = logging.getLogger("LDSC.annotation")
@@ -227,6 +228,7 @@ class AnnotationBundle:
             Accepted for API compatibility; builder-produced bundles perform
             SNP identity cleanup before construction.
         """
+        require_unique_annotation_names(self.baseline_columns, self.query_columns)
         if len(self.metadata) != len(self.baseline_annotations):
             raise LDSCInternalError(
                 "AnnotationBundle validation failed: metadata and baseline annotations have different row counts. "

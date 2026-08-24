@@ -1,6 +1,6 @@
 # Code Structure
 
-Last updated on: 2026-08-16
+Last updated on: 2026-08-24
 
 This is the contributor-facing module map for `ldsc_py3_Jerry`.
 
@@ -22,12 +22,14 @@ ldsc_py3_Jerry/
 │   ├── gene_list_resolver.py
 │   ├── query_annotations.py
 │   ├── annotation_builder.py
+│   ├── annotation_semantics.py
 │   ├── ref_panel_builder.py
 │   ├── r2_query.py
 │   ├── ldscore_calculator.py
 │   ├── legacy_ldscore_converter.py
 │   ├── sumstats_munger.py
 │   ├── regression_runner.py
+│   ├── quantile_h2.py
 │   ├── prevalence.py
 │   ├── overlap_matrix.py
 │   ├── outputs.py
@@ -63,12 +65,14 @@ ldsc_py3_Jerry/
 | `ldsc._kernel.regions` | packaged and user BED interval loading plus region-exclusion masks |
 | `ldsc._kernel.plink_bed` | PLINK genotype reader (`PlinkBEDFile` and its `__GenotypeArrayInMemory__` base, incl. the in-class LD-score block sums): lazy header read, per-SNP selective decode with fused individual filter, and opt-in disk streaming for unrestricted builds; never materializes the whole-chromosome bitarray |
 | `ldsc.annotation_builder` | public annotation workflow: path resolution, bundle loading, BED/gene interval projection, query-local source isolation, and query `.annot.gz` writing for `annotate` |
+| `ldsc.annotation_semantics` | global annotation-name uniqueness, binary/quantitative classification, and compact common-universe SHA256 semantic fingerprints |
 | `ldsc.ref_panel_builder` | parquet reference-panel build workflow, including source-build inference, optional coordinate liftover, explicit SNP/sample restrictions, and optional `min_r2` pair-emission threshold |
 | `ldsc.r2_query` | public `query-r2` CLI/API, `R2Panel`, one-shot `query_r2()`, sidecar-binding validation, endpoint key resolution, sign harmonization, and optional adjusted-R2-to-Pearson-r conversion |
 | `ldsc.ldscore_calculator` | LD-score orchestration, catalog-build selection, optional synthetic `base`, query-status finalization/pruning, aggregation, and output routing |
 | `ldsc.legacy_ldscore_converter` | sole LDSC2 LD-score-suite import boundary: deterministic family discovery, rsID joins, count/overlap validation or reconstruction, provenance hashing, diagnostics, and canonical LDSC3 directory writing |
 | `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, `--format auto` / `--infer-only` header inference, Parquet/TSV curated output writing, self-describing `sumstats.parquet` footer identity metadata, diagnostics under `diagnostics/`, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
 | `ldsc.regression_runner` | file-driven regression dataset assembly, automatic legacy LDSC2 sumstats rsID-to-panel projection and allele harmonization, active effective identity-key merging (`SNP`, `SNP:<allele_set>`, `CHR:POS`, or `CHR:POS:<allele_set>`), h2/partitioned-h2/rg estimator dispatch (including the two overlap-aware partitioned-h2 regimes), observed/liability-scale summary columns, and rg result-family writing |
+| `ldsc.quantile_h2` | post-fit continuous-target quantile assignment, fitted-source/common-universe reconstruction and verification, vectorized coefficient/delete-value projection, standardized `tau_star`, CLI orchestration, and diagnostics |
 | `ldsc.prevalence` | parse and validate binary-trait prevalence inputs (scalar `--samp-prev`/`--pop-prev` for h2/partitioned-h2; comma-separated lists or a `--prevalence-manifest` TSV for rg) into a normalized per-trait `(samp_prev, pop_prev)` structure for observed-to-liability conversion |
 | `ldsc.overlap_matrix` | public-layer overlap container (`LDScoreOverlap`), long-form parquet (de)serialization, per-model overlap assembly, the overlap-aware category table (ported `_overlap_output` + augmentation), and the collinearity hard-error check (`model_collinearity_error`) |
 | `ldsc.outputs` | artifact naming, LD-score parquet and query-diagnostic layout, partitioned-h2 per-query layout, rg result-family layout, metadata JSON payloads, and serialization |
@@ -104,6 +108,8 @@ ldsc_py3_Jerry/
 | change LD-score math | `src/ldsc/_kernel/ldscore.py` |
 | change raw sumstats ingestion, format inference, `CHR`/`POS` handling, sumstats SNP keep-list filtering, liftover drop audit sidecars, sidecar provenance, or curated loading | `src/ldsc/sumstats_munger.py`, then `src/ldsc/_kernel/sumstats_munger.py` |
 | change regression dataset assembly or CLI summaries | `src/ldsc/regression_runner.py`, then `src/ldsc/outputs.py`, `docs/current/partitioned-h2-results.md` for partitioned-h2 output layout, `docs/current/partitioned-ldsc-workflow.md` for rg output contracts, and `docs/current/regression-configuration.md` for the tunable estimator parameters and defaults |
+| change continuous-annotation classification or fingerprints | `src/ldsc/annotation_semantics.py`, then `src/ldsc/ldscore_calculator.py` and `src/ldsc/outputs.py` |
+| change target quantiles, standardized coefficients, or post-fit alignment | `src/ldsc/quantile_h2.py`, then `src/ldsc/outputs.py` and `docs/current/continuous-annotation-quantile-h2.md` |
 | change LDSC estimators | `src/ldsc/_kernel/regression.py` |
 | change binary-trait prevalence parsing or observed-to-liability conversion | `src/ldsc/prevalence.py` (input parsing/validation), then `src/ldsc/regression_runner.py` (summary/metadata wiring) and `src/ldsc/_kernel/regression.py` (`liability_conversion_factor`) |
 | change LD-score result-directory files, parquet row-group layout, partitioned-h2 per-query layout, rg result-family layout, or metadata JSON payloads | `src/ldsc/outputs.py` |

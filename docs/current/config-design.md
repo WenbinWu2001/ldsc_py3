@@ -1,6 +1,6 @@
 # Config Design: Immutable Config + Provenance-Carrying Results
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-24
 
 ## Implementation Status
 
@@ -222,7 +222,7 @@ Annotation bundle rows B                      (AnnotationBuilder)
 | Reference-panel SNP restriction | `RefPanelConfig.ref_panel_snps_file` | `--ref-panel-snps-file` | `RefPanel.load_metadata()`; then `LDScoreCalculator.compute_chromosome()` aligns `B_chrom` to the restricted panel before the kernel call | Deliberately shrinks the compute-time universe to `ld_reference_snps = B ∩ A'`; affects LD scores and count records |
 | Reference-panel MAF/sample filters | `RefPanelConfig.maf_min`, `RefPanelConfig.keep_indivs_file` | `--maf-min`, `--keep-indivs-file` | `RefPanel.load_metadata()` and the kernel PLINK reader (`maf_min` is threaded through `_namespace_from_configs`, so the filter applies in both backends) | Affects the prepared panel A' and LD computation with inclusive `MAF >= maf_min`; separate from `LDScoreConfig.common_maf_min` |
 | PLINK genetic map (cM windows) | `RefPanelConfig.genetic_map_hg19_sources`, `genetic_map_hg38_sources` | `--genetic-map-hg19-sources`, `--genetic-map-hg38-sources` | `_namespace_from_configs` resolves the build and loads the map; the PLINK kernel interpolates `CM` at `.bim` positions (map always wins). Ignored with a warning for parquet. | Defines `CM` for `--ld-wind-cm` when the `.bim` `CM` is uninformative; no effect on SNP/kb windows |
-| Reference-metadata export | `LDScoreConfig.export_ref_metadata` | `--export-ref-metadata` | After each chromosome's compute (PLINK worker), writes `ref_metadata/chrN_meta.tsv.gz` | Opt-in provenance/QC artifact (`CHR POS SNP A1 A2 CM MAF`); not consumed downstream |
+| Reference-metadata export | `LDScoreConfig.export_ref_metadata` | `--export-ref-metadata` | After each chromosome's compute (PLINK worker), writes `ref_metadata/chrN_meta.tsv.gz` | Opt-in provenance/QC artifact (`CHR POS SNP A1 A2 CM MAF`); accepted later by `quantile-h2 --ref-metadata-sources` |
 | Regression row restriction | `LDScoreConfig.regression_snps_file` or bundled HM3 default | `--regression-snps-file` | After LD computation, when normalized/public rows are selected; `--exclude-regions` subtracts named intervals here | Written rows are `ld_regression_snps = B ∩ A' ∩ C ∩ complement(regions)`; `regression_ld_scores` (`w_ld`) uses that identical contributor set |
 | Common-count threshold | `LDScoreConfig.common_maf_min` | `--common-maf-min` | During count-vector and overlap-matrix computation after LD scores are computed | Defines the common-SNP universe with inclusive `MAF >= common_maf_min` (deviates from legacy LDSC's strict `0.05 < FRQ < 0.95`); affects `common_reference_snp_count(s)` and the common-universe overlap matrix, but not LD rows, LD scores, or the stored regression-universe LD score |
 

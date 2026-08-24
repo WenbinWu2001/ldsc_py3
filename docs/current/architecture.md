@@ -1,6 +1,6 @@
 # Architecture 
 
-Last updated on: 2026-08-16
+Last updated on: 2026-08-24
 
 `ldsc_py3_Jerry` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
@@ -14,6 +14,7 @@ Related docs:
 - [ref-panel-r2-query.md](ref-panel-r2-query.md): pairwise R2 lookup contract for package-built panels
 - [liftover-harmonization-decisions.md](liftover-harmonization-decisions.md): current liftover contracts and follow-up handoff prompt
 - [partitioned-h2-results.md](partitioned-h2-results.md): partitioned-h2 result columns and interpretation
+- [continuous-annotation-quantile-h2.md](continuous-annotation-quantile-h2.md): continuous-annotation post-fit contracts
 - [layer-structure.md](layer-structure.md): layer-by-function object matrix
 - [../../design_map.md](../../design_map.md): mapping from design docs to implementation modules
 
@@ -28,6 +29,7 @@ Related docs:
 - **Compute LD scores**: align annotations to a live reference panel or explicitly assemble gene-list columns from a validated complete index, then emit the same canonical artifacts. Entry points: `ldsc ldscore`, `ldsc.run_ldscore()`, `ldsc.LDScoreCalculator`
 - **Munge raw summary statistics**: normalize raw GWAS tables into curated Parquet-first sumstats artifacts, with optional legacy `.sumstats.gz` output. Entry points: `ldsc munge-sumstats`, `ldsc.SumstatsMunger`
 - **Run LDSC regression**: consume munged sumstats and LD-score artifacts to estimate `h2`, partitioned `h2`, or `rg`. Entry points: `ldsc h2`, `ldsc partitioned-h2`, `ldsc rg`, `ldsc.RegressionRunner`
+- **Project continuous-target quantiles**: verify one fitted partitioned model and resupplied SNP annotations, then calculate joint-model quantile heritability and standardized coefficients without refitting. Entry point: `ldsc quantile-h2`
 - **Audit workflow runs**: artifact-writing workflow wrappers create deterministic
   per-run logs around their owned work. The gene-index builder writes its log
   to hidden `.<index-name>.build-state/` before destination preflight/recovery
@@ -38,7 +40,7 @@ Related docs:
 ## Layer Structure
 
 - **CLI Layer**: public command dispatch in `ldsc.cli`
-- **Workflow And Preprocessing Layer**: public services in `ldsc.annotation_builder`, `ldsc.ref_panel_builder`, `ldsc.r2_query`, `ldsc.ldscore_calculator`, `ldsc.sumstats_munger`, and `ldsc.regression_runner`, plus shared normalization in `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, `ldsc.genome_build_inference`, and the internal `ldsc.gene_list_resolver`
+- **Workflow And Preprocessing Layer**: public services in `ldsc.annotation_builder`, `ldsc.ref_panel_builder`, `ldsc.r2_query`, `ldsc.ldscore_calculator`, `ldsc.sumstats_munger`, `ldsc.regression_runner`, and `ldsc.quantile_h2`, plus shared normalization in `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, `ldsc.genome_build_inference`, `ldsc.annotation_semantics`, and the internal `ldsc.gene_list_resolver`
 - **Compute Kernel**: private file-format and numerical code in `ldsc._kernel.*`
 - **Output Layer**: canonical LD-score, partitioned-h2, and rg artifact writing
   in `ldsc.outputs`, plus the fixed h2 summary writer in

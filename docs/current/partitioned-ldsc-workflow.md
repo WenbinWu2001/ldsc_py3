@@ -1,10 +1,12 @@
 # Partitioned LDSC Workflow: Technical Reference
 
-Last updated on: 2026-08-04
+Last updated on: 2026-08-24
 
 This document describes the refactored workflow for computing LD scores and
 running h2, partitioned-h2, and rg regression from one canonical LD-score result
 directory.
+
+Continuous fitted annotations use the same LD-score regression. LDSC3 classifies finite annotation values as binary or quantitative for logs and metadata only; classification never changes coefficients. Quantitative rows retain legacy numerical proportion/enrichment summaries with an interpretation warning. After fitting, `ldsc quantile-h2` can project one complete fitted joint model onto target-value quantiles; see [Continuous-Annotation Quantile Heritability](continuous-annotation-quantile-h2.md).
 
 ## 1. Overview
 

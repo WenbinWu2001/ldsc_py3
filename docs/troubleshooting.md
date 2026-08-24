@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-08-16
+Last updated on: 2026-08-24
 
 This reference explains `ldsc` errors that can **abort a run** and have more than
 one likely cause. It is organized by command. Each entry lists the likely causes
@@ -650,3 +650,27 @@ such a directory cannot be partitioned.
 4. `h2` and `rg` do not require the overlap matrix (the shared `h2` collinearity
    guard uses it only when present), so they run on unpartitioned or older
    directories.
+
+## quantile-h2
+
+### quantile-h2: fitted model or resupplied sources do not verify
+
+**Raised by:** `quantile_h2.load_fitted_partitioned_model()` / `quantile_h2._prepare_quantile_inputs()` · **Exception:** `LDSCInputError`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|---|---|
+| 1 | An aggregate cell-type root was supplied | Select one `diagnostics/query_annotations/<query>/` directory; aggregate rows are separate fits. |
+| 2 | The fitted result predates coefficient-delete persistence | Check for `coefficient_delete_values.parquet`; rerun `partitioned-h2` with current LDSC3. |
+| 3 | Not every original fitted annotation was resupplied | Compare `retained_ld_columns` in model metadata with source headers. |
+| 4 | Reference metadata or annotations come from a different panel/release | Inspect common-universe size, annotation-sum, overlap, or SHA256 mismatch text. |
+| 5 | Effective SNP identities are duplicated or target coverage is incomplete | Inspect `diagnostics/snp_alignment_issues.tsv.gz`. |
+
+Resupply the exact original annotation sources and matching reference metadata. Parquet-R2 users can use the existing `chr*_meta.tsv.gz` sidecars; PLINK users should regenerate LD scores with `--export-ref-metadata`. Do not concatenate coefficient tables from different query directories.
+
+### quantile-h2: target values are invalid or quantiles are empty
+
+**Raised by:** `quantile_h2._read_target_annotation()` / `quantile_h2.assign_legacy_quantiles()` · **Exception:** `LDSCInputError`
+
+By default, every target value must be numeric and finite. If exactly one token denotes missingness, pass it with `--target-missing-value`; zero is retained unless explicitly selected. If boundary ties produce an empty quantile, reduce `--num-quantiles` or use a less discrete target. Ties are intentionally kept in the lower-valued quantile for LDSC2 compatibility.

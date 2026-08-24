@@ -10,6 +10,7 @@ import warnings
 from types import SimpleNamespace
 
 import pandas as pd
+import numpy as np
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
@@ -24,10 +25,15 @@ from ldsc.outputs import (
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
     PARTITIONED_H2_COLUMNS,
+    QUANTILE_H2_COLUMNS,
     RG_CONCISE_COLUMNS,
     RG_FULL_COLUMNS,
+    SNP_ALIGNMENT_ISSUE_COLUMNS,
+    STANDARDIZED_COEFFICIENT_COLUMNS,
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
+    QuantileH2DirectoryWriter,
+    QuantileH2OutputConfig,
     RgDirectoryWriter,
     RgOutputConfig,
 )
@@ -274,7 +280,16 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         self.assertEqual(float(loaded.overlap.baseline_block_all.at["base", "query"]), 4.0)
 
     def test_writes_metadata_baseline_and_query_parquet(self):
-        result = make_split_ldscore_result(query=True)
+        result = dataclass_replace(
+            make_split_ldscore_result(query=True),
+            annotation_types={"base": "binary", "query": "quantitative"},
+            annotation_fingerprints={
+                "algorithm": "sha256",
+                "canonicalization": "ldsc_common_annotation_v1",
+                "common_reference_snp_universe": "universe",
+                "annotation_values": {"base": "base-hash", "query": "query-hash"},
+            },
+        )
         writer = LDScoreDirectoryWriter()
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "ldscores"
@@ -290,6 +305,8 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             self.assertEqual(metadata["files"], {"baseline": "ldscore.baseline.parquet", "query": "ldscore.query.parquet"})
             self.assertEqual(metadata["baseline_columns"], ["base"])
             self.assertEqual(metadata["query_columns"], ["query"])
+            self.assertEqual(metadata["annotation_types"], {"base": "binary", "query": "quantitative"})
+            self.assertEqual(metadata["annotation_fingerprints"]["canonicalization"], "ldsc_common_annotation_v1")
             self.assertEqual(metadata["counts"][1]["column"], "query")
             self.assertEqual(
                 metadata["count_config"],
@@ -668,6 +685,22 @@ class H2DirectoryWriterTest(unittest.TestCase):
             self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
 
 
+class QuantileH2DirectoryWriterTest(unittest.TestCase):
+    def test_writer_owns_complete_family_and_refuses_existing_diagnostic(self):
+        quantiles = pd.DataFrame([{column: 0 for column in QUANTILE_H2_COLUMNS}])
+        coefficients = pd.DataFrame([{column: 0 for column in STANDARDIZED_COEFFICIENT_COLUMNS}])
+        issues = pd.DataFrame(columns=SNP_ALIGNMENT_ISSUE_COLUMNS)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = QuantileH2OutputConfig(tmpdir)
+            writer = QuantileH2DirectoryWriter()
+
+            paths = writer.write(quantiles, coefficients, issues, config, metadata={})
+
+            self.assertTrue(Path(paths["snp_alignment_issues"]).is_file())
+            with self.assertRaises(FileExistsError):
+                writer.write(quantiles, coefficients, issues, config, metadata={})
+
+
 class PartitionedH2DirectoryWriterTest(unittest.TestCase):
     def make_summary(self) -> pd.DataFrame:
         return pd.DataFrame(
@@ -753,6 +786,12 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             ),
         }
 
+    def make_delete_tables(self) -> dict[str, pd.DataFrame]:
+        return {
+            name: pd.DataFrame({"delete_block": [0, 1], "base": [0.4, 0.6], name: [0.9, 1.1]})
+            for name in self.make_summary()["category"]
+        }
+
     def test_writes_nan_literal_for_missing_values(self):
         # Missing values (e.g. liability columns on an observed-scale run) render
         # as the explicit literal "NaN", consistent with the rg output family.
@@ -789,6 +828,28 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             self.assertEqual(metadata["artifact_type"], "partitioned_h2_result")
             self.assertEqual(metadata["files"], {"summary": "partitioned_h2.tsv"})
 
+    def test_writes_baseline_model_coefficient_delete_values(self):
+        delete_values = pd.DataFrame(
+            {"delete_block": [0, 1], "base": np.array([0.4, 0.6], dtype=np.float64)}
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "partitioned"
+            PartitionedH2DirectoryWriter().write(
+                self.make_summary(),
+                PartitionedH2OutputConfig(output_dir=output_dir),
+                coefficient_delete_values=delete_values,
+            )
+
+            actual = pd.read_parquet(output_dir / "diagnostics" / "coefficient_delete_values.parquet")
+            metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
+            pd.testing.assert_frame_equal(actual, delete_values)
+            self.assertEqual(
+                metadata["files"]["coefficient_delete_values"],
+                "diagnostics/coefficient_delete_values.parquet",
+            )
+            self.assertEqual(metadata["coefficient_delete_block_count"], 2)
+            self.assertEqual(metadata["retained_ld_columns"], ["base"])
+
     def test_writes_per_query_tree_with_sanitized_manifest(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "partitioned"
@@ -796,6 +857,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                 self.make_summary(),
                 PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
                 per_query_category_tables=self.make_category_tables(),
+                per_query_coefficient_delete_values=self.make_delete_tables(),
                 metadata={"trait_name": "trait", "count_kind": "common", "ldscore_dir": "ldscores"},
             )
 
@@ -835,8 +897,14 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                 {
                     "summary": "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark/partitioned_h2.tsv",
                     "full": "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark/partitioned_h2_full.tsv",
+                    "coefficient_delete_values": "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark/coefficient_delete_values.parquet",
                 },
             )
+            delete_values = pd.read_parquet(
+                query_root / "0001_il-6_jak_stat_hallmark" / "coefficient_delete_values.parquet"
+            )
+            self.assertEqual(delete_values.columns.tolist(), ["delete_block", "base", "IL-6/JAK STAT (Hallmark)"])
+            self.assertTrue(all(dtype == np.dtype("float64") for dtype in delete_values.drop(columns="delete_block").dtypes))
             self.assertEqual(query_summary.columns.tolist(), PARTITIONED_H2_COLUMNS)
             self.assertEqual(categories.columns.tolist(), PARTITIONED_H2_COLUMNS)
             self.assertEqual(categories["category"].tolist(), ["base", "IL-6/JAK STAT (Hallmark)"])
@@ -875,6 +943,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                     write_per_query_results=True,
                 ),
                 per_query_category_tables=self.make_category_tables(),
+                per_query_coefficient_delete_values=self.make_delete_tables(),
             )
 
             self.assertFalse(stale.exists())
@@ -906,6 +975,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                 self.make_summary(),
                 PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
                 per_query_category_tables=self.make_category_tables(),
+                per_query_coefficient_delete_values=self.make_delete_tables(),
             )
             self.assertTrue((output_dir / "diagnostics" / "query_annotations" / "manifest.tsv").exists())
 

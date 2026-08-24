@@ -113,7 +113,7 @@ class PackageLayoutTest(unittest.TestCase):
             {
                 "annotate", "ldscore", "build-ref-panel", "build-gene-ldscore-index",
                 "convert-ldsc2-ldscores",
-                "munge-sumstats", "h2", "partitioned-h2", "rg", "query-r2",
+                "munge-sumstats", "h2", "partitioned-h2", "quantile-h2", "rg", "query-r2",
             },
         )
         self.assertNotIn("infer-build", subparsers_action.choices)

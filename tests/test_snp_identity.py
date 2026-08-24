@@ -75,21 +75,33 @@ class AlleleNormalizationTest(unittest.TestCase):
 
 
 class EffectiveKeyTest(unittest.TestCase):
-    def test_effective_keys_for_all_modes(self):
+    def test_effective_keys_for_all_modes_use_the_expected_identity_components(self):
         frame = pd.DataFrame(
             {
-                "CHR": [1],
-                "POS": [101],
-                "SNP": ["rs1"],
-                "A1": ["G"],
-                "A2": ["T"],
+                "CHR": [1, 1, 2, 1, 1],
+                "POS": [101, 101, 101, 202, 101],
+                "SNP": ["rs1", "rs2", "rs1", "rs1", "rs1"],
+                "A1": ["G", "G", "G", "G", "A"],
+                "A2": ["T", "T", "T", "T", "G"],
             }
         )
 
-        self.assertEqual(si.effective_merge_key_series(frame, "rsid").tolist(), ["rs1"])
-        self.assertEqual(si.effective_merge_key_series(frame, "rsid_allele_aware").tolist(), ["rs1:A:C"])
-        self.assertEqual(si.effective_merge_key_series(frame, "chr_pos").tolist(), ["1:101"])
-        self.assertEqual(si.effective_merge_key_series(frame, "chr_pos_allele_aware").tolist(), ["1:101:A:C"])
+        expected = {
+            "rsid": ["rs1", "rs2", "rs1", "rs1", "rs1"],
+            "rsid_allele_aware": ["rs1:A:C", "rs2:A:C", "rs1:A:C", "rs1:A:C", "rs1:A:G"],
+            "chr_pos": ["1:101", "1:101", "2:101", "1:202", "1:101"],
+            "chr_pos_allele_aware": [
+                "1:101:A:C",
+                "1:101:A:C",
+                "2:101:A:C",
+                "1:202:A:C",
+                "1:101:A:G",
+            ],
+        }
+
+        for mode, keys in expected.items():
+            with self.subTest(mode=mode):
+                self.assertEqual(si.effective_merge_key_series(frame, mode).tolist(), keys)
 
     def test_effective_key_raises_for_invalid_alleles_in_allele_aware_modes(self):
         frame = pd.DataFrame({"CHR": [1], "POS": [101], "SNP": ["rs1"], "A1": ["A"], "A2": ["T"]})

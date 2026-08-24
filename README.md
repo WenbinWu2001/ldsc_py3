@@ -1,6 +1,6 @@
 # ldsc3_Jerry
 
-Last updated on: 2026-08-16
+Last updated on: 2026-08-24
 
 This repository is the active refactored LDSC package.
 
@@ -131,6 +131,7 @@ Subcommands:
 - `ldsc munge-sumstats`
 - `ldsc h2`
 - `ldsc partitioned-h2`
+- `ldsc quantile-h2`
 - `ldsc rg`
 
 Reusable `.annot.gz` shards written by `ldsc annotate` keep the legacy
@@ -217,6 +218,8 @@ Use this synthetic `base` directory for `ldsc h2` or `ldsc rg`. A baseline-only
 directory is also accepted by `ldsc partitioned-h2` in its functional-category
 regime, although a single all-ones `base` column is a degenerate one-category
 fit rather than a meaningful partitioned analysis.
+
+Native LD-score runs classify fitted columns as binary or quantitative for interpretation only and record compact common-reference-SNP SHA256 fingerprints. Partitioned-h2 preserves numerical legacy enrichment summaries for quantitative columns but logs that those weighted values do not have the ordinary binary-category interpretation; coefficients remain interpretable. `ldsc quantile-h2` consumes one baseline-only or per-query fitted model plus resupplied annotation/reference sources and reports joint-model heritability by target quantile and standardized `tau_star`. See [the technical contract](docs/current/continuous-annotation-quantile-h2.md) and [the concise workflow](docs/wiki/continuous-annotation-partitioned-ldsc.md).
 The LD-score parquet files remain flat `ldscore.baseline.parquet` and
 `ldscore.query.parquet` files, but they are written with one row group per chromosome. The metadata
 records `row_group_layout`, `baseline_row_groups`, and `query_row_groups` so

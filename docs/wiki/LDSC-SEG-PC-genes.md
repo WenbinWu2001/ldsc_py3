@@ -78,7 +78,7 @@ Flags used in this command:
 
 Relevant flags omitted because their default values are used:
 
-- `--exclude-regions mhc-and-centromeres` removes MHC and pericentromeric SNPs from the LD-score rows subsequently used in regression. It does not remove these SNPs from the LD reference universe or change annotation count and overlap statistics.
+- `--regr-snps-exclude-regions mhc-and-centromeres` removes MHC and pericentromeric SNPs from the LD-score rows subsequently used in regression. It does not remove these SNPs from the LD reference universe or change annotation count and overlap statistics.
 - `--common-maf-min 0.05` defines common SNPs as SNPs with MAF >= 0.05 when calculating common-SNP annotation counts.
 
 ### Option B: fast indexed mode
@@ -112,7 +112,7 @@ Flags used in this command:
 
 Fast mode inherits the baseline annotations, reference SNP universe, SNP identity mode, genome build, LD window, gene padding, gene-region exclusion, regression-SNP selection, SNP-region exclusion, MAF rules, annotation counts, and regression weights from the index. The index metadata is the authoritative record of these settings.
 
-Do not supply live overrides such as `--baseline-annot-sources`, `--plink-prefix`, `--r2-dir`, `--snp-identifier`, `--genome-build`, `--ld-wind-*`, `--padding-bp`, `--gene-exclude-regions`, or `--regression-snps-file` in indexed mode.
+Do not supply live overrides such as `--baseline-annot-sources`, `--plink-prefix`, `--r2-dir`, `--snp-identifier`, `--genome-build`, `--ld-wind-*`, `--padding-bp`, `--gene-exclude-regions`, or `--regr-snps-file` in indexed mode.
 
 ### LD-score outputs
 

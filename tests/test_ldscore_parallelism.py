@@ -107,12 +107,12 @@ def _run_minimal_ldscore(build_dir: Path, out_dir: Path, threads: int) -> Path:
     run_ldscore(
         r2_dir=str(build_dir),
         output_dir=str(out_dir),
-        regression_snps_file=str(regression_snps),
+        regr_snps_file=str(regression_snps),
         ld_wind_kb=1.0,
         snp_batch_size=2,
         yes_really=True,
         threads=threads,
-        exclude_regions="none",  # rsid smoke test; region exclusion is out of scope
+        regr_snps_exclude_regions="none",  # rsid smoke test; region exclusion is out of scope
     )
     return out_dir
 

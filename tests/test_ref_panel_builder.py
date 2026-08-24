@@ -3192,14 +3192,18 @@ def _read_meta(path) -> pd.DataFrame:
 
 def test_build_ref_panel_parser_rejects_region_pruning_flags():
     parser = ref_panel_builder.build_parser()
-    for tokens in (("--exclude-regions", "mhc-and-centromeres"), ("--exclude-regions-bed", "/tmp/x.bed")):
+    for tokens in (
+        ("--regr-snps-exclude-regions", "mhc-and-centromeres"),
+        ("--exclude-regions", "mhc-and-centromeres"),
+        ("--exclude-regions-bed", "/tmp/x.bed"),
+    ):
         assert tokens[0] not in parser.format_help()
         with pytest.raises(SystemExit):
             parser.parse_args(["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000", *tokens])
     with pytest.raises(TypeError):
         ReferencePanelBuildConfig(
             plink_prefix="p", source_genome_build="hg19", output_dir="o", ld_wind_kb=1000,
-            exclude_regions=("mhc",),
+            regr_snps_exclude_regions=("mhc",),
         )
 
 

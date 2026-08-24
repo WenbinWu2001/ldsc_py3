@@ -224,18 +224,18 @@ def test_keep_mask_interval_chrom_absent_from_metadata():
     assert keep.tolist() == [True, True]
 
 
-def test_exclude_regions_choice_to_presets_maps_all_choices():
-    assert regions.exclude_regions_choice_to_presets("none") == ()
-    assert regions.exclude_regions_choice_to_presets("mhc") == ("mhc",)
-    assert regions.exclude_regions_choice_to_presets("centromeres") == ("centromeres",)
-    assert regions.exclude_regions_choice_to_presets("mhc-and-centromeres") == ("mhc", "centromeres")
+def test_regr_snps_exclude_regions_choice_to_presets_maps_all_choices():
+    assert regions.regr_snps_exclude_regions_choice_to_presets("none") == ()
+    assert regions.regr_snps_exclude_regions_choice_to_presets("mhc") == ("mhc",)
+    assert regions.regr_snps_exclude_regions_choice_to_presets("centromeres") == ("centromeres",)
+    assert regions.regr_snps_exclude_regions_choice_to_presets("mhc-and-centromeres") == ("mhc", "centromeres")
     # Mapped presets are valid REGION_PRESETS members.
-    assert set(regions.exclude_regions_choice_to_presets("mhc-and-centromeres")) <= regions.REGION_PRESETS
+    assert set(regions.regr_snps_exclude_regions_choice_to_presets("mhc-and-centromeres")) <= regions.REGION_PRESETS
 
 
-def test_exclude_regions_choice_rejects_unknown_token():
-    with pytest.raises(LDSCConfigError, match="Invalid --exclude-regions choice"):
-        regions.exclude_regions_choice_to_presets("mhc,centromeres")
+def test_regr_snps_exclude_regions_choice_rejects_unknown_token():
+    with pytest.raises(LDSCConfigError, match="Invalid --regr-snps-exclude-regions choice"):
+        regions.regr_snps_exclude_regions_choice_to_presets("mhc,centromeres")
 
 
 @pytest.mark.parametrize("build", ["hg19", "hg38"])

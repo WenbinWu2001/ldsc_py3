@@ -355,7 +355,7 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertEqual(output_config.output_dir, "out/ldscores")
         self.assertTrue(output_config.overwrite)
 
-    def test_ldscore_subcommand_accepts_regression_snps_file(self):
+    def test_ldscore_subcommand_accepts_regr_snps_file_and_rejects_old_name(self):
         from ldsc import cli
 
         parser = cli.build_parser()
@@ -370,13 +370,21 @@ class PackageLayoutTest(unittest.TestCase):
                 "panel",
                 "--ld-wind-snps",
                 "10",
-                "--regression-snps-file",
+                "--regr-snps-file",
                 "filters/hm3.txt",
             ]
         )
 
         self.assertEqual(args.command, "ldscore")
-        self.assertEqual(args.regression_snps_file, "filters/hm3.txt")
+        self.assertEqual(args.regr_snps_file, "filters/hm3.txt")
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "ldscore", "--output-dir", "out/ldscores",
+                    "--plink-prefix", "panel", "--ld-wind-snps", "10",
+                    "--regression-snps-file", "filters/hm3.txt",
+                ]
+            )
 
     def test_ldscore_subcommand_rejects_removed_hm3_flags(self):
         from ldsc import cli

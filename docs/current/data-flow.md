@@ -433,10 +433,10 @@ fixed at `0.05`. See
 
 ## Region Exclusion
 
-`ldscore --exclude-regions {none,mhc,centromeres,mhc-and-centromeres}` selects
+`ldscore --regr-snps-exclude-regions {none,mhc,centromeres,mhc-and-centromeres}` selects
 named intervals that are subtracted from the regression SNP set only. The
 default is `mhc-and-centromeres`; `none` opts out. Bundled HM3 is the default
-regression set, and `--regression-snps-file` replaces it before the selected
+regression set, and `--regr-snps-file` replaces it before the selected
 intervals are subtracted. The full retained reference panel remains the
 baseline/query LD-score contributor universe and the universe for `M`,
 `M_5_50`, and annotation-overlap counts.
@@ -449,7 +449,7 @@ these named intervals; it must be concrete when artifact metadata cannot
 reliably supply a build.
 
 There is no public arbitrary-region BED option. To use custom intervals,
-prefilter a custom regression list and pass it with `--regression-snps-file`.
+prefilter a custom regression list and pass it with `--regr-snps-file`.
 `build-ref-panel` has no region-exclusion option: deliberate LD-reference
 pruning is expressed only through `--ref-panel-snps-file`. Artifact
 `metadata.json` records the reference-universe policy separately from the

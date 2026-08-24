@@ -36,8 +36,8 @@ into LD-score metadata.
 
 The retained reference panel is the LD-score contributor and annotation-count
 universe unless `--ref-panel-snps-file` explicitly restricts it. Regression
-rows use the bundled HM3 map by default; `--regression-snps-file` replaces that
-selection. Named `--exclude-regions` presets are then subtracted only from the
+rows use the bundled HM3 map by default; `--regr-snps-file` replaces that
+selection. Named `--regr-snps-exclude-regions` presets are then subtracted only from the
 regression/output rows and `w_ld` contributors, not from LD-score contributors,
 `M`, `M_5_50`, or overlap counts.
 
@@ -327,7 +327,7 @@ ldsc build-gene-ldscore-index \
   --snp-identifier chr_pos \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
-  --exclude-regions mhc-and-centromeres
+  --regr-snps-exclude-regions mhc-and-centromeres
 ```
 
 Index construction defaults to `--padding-bp 0`. This example deliberately
@@ -346,8 +346,8 @@ selected. Baseline-only and PLINK-only keys are dropped and counted. An empty
 intersection fails. Repeated keys in an identity-only regression restriction
 collapse because restrictions are sets. To replace bundled HapMap3 regression
 candidates, add
-`--regression-snps-file custom.snplist`. Region subtraction still follows
-`--exclude-regions`.
+`--regr-snps-file custom.snplist`. Region subtraction still follows
+`--regr-snps-exclude-regions`.
 
 Then assemble any number of gene-list query columns without the source PLINK or
 baseline files:
@@ -475,7 +475,7 @@ Per-run SNP-universe controls are owned by the workflow-specific configs instead
 
 - `ref_panel_snps_file` optionally restricts the LD-score reference-panel input and is passed through `run_ldscore(...)` into `RefPanelConfig`; without it, the full retained reference panel remains the contributor universe
 - the LD-score workflow intersects each chromosome bundle with `ref_panel.load_metadata(chrom)`, so reference-panel SNP restriction shrinks the sidecar-defined compute-time universe from `B` to `B ∩ A'`; in the no-annotation unpartitioned case, synthetic `B` is the retained reference-panel metadata itself
-- `regression_snps_file` replaces the bundled HM3 regression-row default; named region exclusions are subsequently subtracted from those rows and from `w_ld` contributors without changing `B ∩ A'` LD-score contributors or annotation counts
+- `regr_snps_file` replaces the bundled HM3 regression-row default; named region exclusions are subsequently subtracted from those rows and from `w_ld` contributors without changing `B ∩ A'` LD-score contributors or annotation counts
 
 Both explicit restriction files are interpreted only through their active SNP
 identity keys. Repeated keys collapse to one retained key, while metadata-like

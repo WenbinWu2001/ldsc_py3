@@ -277,7 +277,7 @@ Directory-style inputs:
 Scalar-style inputs:
 
 - `ref_panel_snps_file`
-- `regression_snps_file`
+- `regr_snps_file`
 
 These SNP restriction files are scalar identity filters, not chromosome-suite
 inputs. They may resolve through exact-one globs where the workflow calls the
@@ -289,7 +289,7 @@ key set in memory; `ldscore` and reference-panel workflows likewise do not
 lazy-load restriction rows by chromosome.
 
 Bundled HM3 is the default `ldscore` regression set. Supply
-`regression_snps_file` only to replace that selected set; it never changes the
+`regr_snps_file` only to replace that selected set; it never changes the
 reference-panel universe.
 
 PLINK prefix input:

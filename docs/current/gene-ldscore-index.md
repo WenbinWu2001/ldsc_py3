@@ -25,7 +25,7 @@ ldsc build-gene-ldscore-index \
   --ld-wind-cm 1.0 \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
-  --exclude-regions mhc-and-centromeres
+  --regr-snps-exclude-regions mhc-and-centromeres
 ```
 
 The supplied coordinate catalog is required and is the complete gene universe
@@ -44,9 +44,10 @@ The builder is hg19/PLINK-only and supports the base `rsid` and `chr_pos`
 identity modes. Both `--genome-build hg19` and `--snp-identifier` are required;
 there is no default, `auto`, inference, or liftover. The default persisted regression/output
 rows are bundled HapMap3 SNPs with MHC and centromere regions removed. Supply
-`--regression-snps-file custom.snplist` to replace the HapMap3 candidate set;
-`--exclude-regions` is still applied afterward. Its choices are `none`, `mhc`,
+`--regr-snps-file custom.snplist` to replace the HapMap3 candidate set;
+`--regr-snps-exclude-regions` is still applied afterward. Its choices are `none`, `mhc`,
 `centromeres`, and `mhc-and-centromeres`.
+The former `--exclude-regions` spelling is accepted as a hidden CLI alias.
 
 The custom regression SNP file must be a **headered text table containing SNP
 identities**. Its required columns depend on the builder's explicit
@@ -71,7 +72,7 @@ CHR	POS
 2	21537
 ```
 
-Then pass it as `--regression-snps-file custom_regression_snps.tsv`. For an
+Then pass it as `--regr-snps-file custom_regression_snps.tsv`. For an
 `rsid` build, use the same headered layout with one `SNP` column instead.
 
 The LD-reference universe is the inner intersection of baseline and PLINK SNPs

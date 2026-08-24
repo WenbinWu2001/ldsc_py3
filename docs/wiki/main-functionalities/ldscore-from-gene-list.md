@@ -49,7 +49,7 @@ ldsc ldscore \
 
 Live gene-list padding must be deliberate: pass `0` for gene bodies or a
 positive flank. MHC gene exclusion is an intentional, audited transformation
-applied before padding and is distinct from SNP `--exclude-regions`.
+applied before padding and is distinct from SNP `--regr-snps-exclude-regions`.
 
 ## Indexed mode
 

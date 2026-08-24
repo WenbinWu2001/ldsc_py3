@@ -70,7 +70,7 @@ from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel import regions as kernel_regions
 from ._kernel.overlap import OverlapContribution, sum_overlap_contributions
-from ._kernel.regions import EXCLUDE_REGIONS_CHOICES, exclude_regions_choice_to_presets
+from ._kernel.regions import REGR_SNPS_EXCLUDE_REGIONS_CHOICES, regr_snps_exclude_regions_choice_to_presets
 from ._kernel.identifiers import build_snp_id_series, read_snp_restriction_keys
 from ._kernel.snp_identity import RestrictionIdentityKeys
 from ._row_alignment import assert_same_snp_rows
@@ -1271,13 +1271,20 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--exclude-regions",
-        choices=EXCLUDE_REGIONS_CHOICES,
+        "--regr-snps-exclude-regions",
+        choices=REGR_SNPS_EXCLUDE_REGIONS_CHOICES,
         default="mhc-and-centromeres",
-        help="Curated region presets subtracted from regression/output SNPs after selecting bundled HM3 or --regression-snps-file. Baseline/query LD-score contributors and M/overlap counts remain unchanged. Defaults to mhc-and-centromeres; use 'none' to keep all regions.",
+        help="Curated region presets subtracted from regression/output SNPs after selecting bundled HM3 or --regr-snps-file. Baseline/query LD-score contributors and M/overlap counts remain unchanged. Defaults to mhc-and-centromeres; use 'none' to keep all regions.",
     )
     parser.add_argument(
-        "--regression-snps-file",
+        "--exclude-regions",
+        dest="regr_snps_exclude_regions",
+        choices=REGR_SNPS_EXCLUDE_REGIONS_CHOICES,
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--regr-snps-file",
         default=None,
         help=(
             "Optional identity-only SNP list defining the regression SNP set and the written LD-score row set. "
@@ -1383,11 +1390,11 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
         print_global_config_banner("run_ldscore_from_args", global_config)
         _validate_run_args(normalized_args)
     ldscore_config = _ldscore_config_from_args(normalized_args)
-    regression_snps_path = _regression_snps_file_from_config(ldscore_config)
+    regression_snps_path = _regr_snps_file_from_config(ldscore_config)
     regression_snps = _load_regression_snps(
         regression_snps_path,
         global_config,
-        label="packaged HM3 regression SNP map" if ldscore_config.regression_snps_file is None else "regression SNP list",
+        label="packaged HM3 regression SNP map" if ldscore_config.regr_snps_file is None else "regression SNP list",
     )
     regression_regions = _regression_region_intervals(normalized_args, global_config)
     ref_mode = "parquet" if _uses_parquet_reference(normalized_args) else "plink"
@@ -1445,7 +1452,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             snp_identifier=global_config.snp_identifier,
             genome_build=global_config.genome_build,
             ref_panel_snps_file=normalized_args.ref_panel_snps_file or "none",
-            regression_snps_file=ldscore_config.regression_snps_file or "packaged_hm3_default",
+            regr_snps_file=ldscore_config.regr_snps_file or "packaged_hm3_default",
             regression_region_presets=", ".join(regression_regions.source_labels) if regression_regions else "none",
         )
         if catalog_authority is not None:
@@ -1528,7 +1535,8 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
         "--snp-identifier",
         "--genome-build",
         "--ref-panel-snps-file",
-        "--regression-snps-file",
+        "--regr-snps-file",
+        "--regr-snps-exclude-regions",
         "--exclude-regions",
         "--keep-indivs-file",
         "--ld-wind-snps",
@@ -1551,7 +1559,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
         "--plink-prefix": getattr(args, "plink_prefix", None),
         "--r2-dir": getattr(args, "r2_dir", None),
         "--ref-panel-snps-file": getattr(args, "ref_panel_snps_file", None),
-        "--regression-snps-file": getattr(args, "regression_snps_file", None),
+        "--regr-snps-file": getattr(args, "regr_snps_file", None),
         "--keep-indivs-file": getattr(args, "keep_indivs_file", None),
         "--genetic-map-hg19-sources": getattr(args, "genetic_map_hg19_sources", None),
         "--genetic-map-hg38-sources": getattr(args, "genetic_map_hg38_sources", None),
@@ -1569,8 +1577,8 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
         or getattr(args, "snp_identifier", "chr_pos_allele_aware") != "chr_pos_allele_aware"
     ):
         forbidden["--snp-identifier"] = getattr(args, "snp_identifier")
-    if getattr(args, "exclude_regions", "mhc-and-centromeres") != "mhc-and-centromeres":
-        forbidden["--exclude-regions"] = getattr(args, "exclude_regions")
+    if getattr(args, "regr_snps_exclude_regions", "mhc-and-centromeres") != "mhc-and-centromeres":
+        forbidden["--regr-snps-exclude-regions"] = getattr(args, "regr_snps_exclude_regions")
     if getattr(args, "common_maf_min", 0.05) != 0.05:
         forbidden["--common-maf-min"] = getattr(args, "common_maf_min")
     if getattr(args, "snp_batch_size", 128) != 128:
@@ -2236,7 +2244,7 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     ``output_dir``. Shared runtime assumptions such as ``snp_identifier`` and
     ``genome_build`` must be supplied through ``set_global_config(...)`` first,
     while per-run controls such as ``ref_panel_snps_file`` and
-    ``regression_snps_file`` remain ordinary keyword arguments here.
+    ``regr_snps_file`` remain ordinary keyword arguments here.
 
     When ``baseline_annot_sources`` and query inputs are omitted, the workflow
     builds a synthetic all-ones baseline column named ``base`` from retained
@@ -2352,10 +2360,10 @@ def _normalize_run_args(
     ):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
-    for attr in ("ref_panel_snps_file", "regression_snps_file"):
+    for attr in ("ref_panel_snps_file", "regr_snps_file"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
-    for attr in ("exclude_regions",):
+    for attr in ("regr_snps_exclude_regions",):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
     if not hasattr(normalized_args, "control_gene_list_file"):
@@ -2378,8 +2386,8 @@ def _normalize_run_args(
     normalized_args.keep_indivs_file = normalize_optional_path_token(getattr(args, "keep_indivs_file", None))
     normalized_args.gene_coordinate_file = normalize_optional_path_token(getattr(args, "gene_coordinate_file", None))
     normalized_args.ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
-    normalized_args.regression_snps_file = normalize_optional_path_token(getattr(args, "regression_snps_file", None))
-    normalized_args.exclude_regions = getattr(args, "exclude_regions", None)
+    normalized_args.regr_snps_file = normalize_optional_path_token(getattr(args, "regr_snps_file", None))
+    normalized_args.regr_snps_exclude_regions = getattr(args, "regr_snps_exclude_regions", None)
     # The numerical kernel still consumes the historical namespace shape.
     normalized_args.query_annot = normalized_args.query_annot_sources
     normalized_args.baseline_annot = normalized_args.baseline_annot_sources
@@ -2506,7 +2514,7 @@ def _load_regression_snps(
     *,
     label: str = "regression SNP list",
 ) -> RestrictionIdentityKeys | None:
-    """Load ``LDScoreConfig.regression_snps_file`` using the active identifier mode."""
+    """Load ``LDScoreConfig.regr_snps_file`` using the active identifier mode."""
     if not path:
         return None
     return read_snp_restriction_keys(
@@ -2516,9 +2524,9 @@ def _load_regression_snps(
     )
 
 
-def _regression_snps_file_from_config(config: LDScoreConfig) -> str:
+def _regr_snps_file_from_config(config: LDScoreConfig) -> str:
     """Return the explicit regression list or the canonical bundled HM3 default."""
-    return config.regression_snps_file or packaged_hm3_curated_map_path()
+    return config.regr_snps_file or packaged_hm3_curated_map_path()
 
 
 def _infer_r2_dir_genome_build(r2_dir: str) -> str | None:
@@ -2594,7 +2602,7 @@ def _resolve_regression_region_build(
         return gene_catalog_build
     raise LDSCUsageError(
         "ldscore cannot select named regression exclusion regions without a concrete genome build. "
-        "Pass `--genome-build hg19` or `--genome-build hg38`, or use `--exclude-regions none`."
+        "Pass `--genome-build hg19` or `--genome-build hg38`, or use `--regr-snps-exclude-regions none`."
     )
 
 
@@ -2602,7 +2610,7 @@ def _regression_region_intervals(
     args: argparse.Namespace, global_config: GlobalConfig
 ) -> kernel_regions.RegionIntervals | None:
     """Load named intervals applied only after selecting regression SNPs."""
-    presets = exclude_regions_choice_to_presets(getattr(args, "exclude_regions", None) or "none")
+    presets = regr_snps_exclude_regions_choice_to_presets(getattr(args, "regr_snps_exclude_regions", None) or "none")
     build = _resolve_regression_region_build(args, global_config, presets)
     if not presets:
         return None
@@ -2645,7 +2653,7 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         ld_wind_snps=getattr(args, "ld_wind_snps", None),
         ld_wind_kb=getattr(args, "ld_wind_kb", None),
         ld_wind_cm=getattr(args, "ld_wind_cm", None),
-        regression_snps_file=getattr(args, "regression_snps_file", None),
+        regr_snps_file=getattr(args, "regr_snps_file", None),
         snp_batch_size=getattr(args, "snp_batch_size", 128),
         common_maf_min=getattr(args, "common_maf_min", 0.05),
         whole_chromosome_ok=getattr(args, "yes_really", False),
@@ -2679,7 +2687,7 @@ def _snp_universe_policy(
     and after the regression-region subtraction respectively.
     """
     ref_panel_snps_file = getattr(getattr(ref_panel, "spec", None), "ref_panel_snps_file", None)
-    custom_regression_file = ldscore_config.regression_snps_file
+    custom_regression_file = ldscore_config.regr_snps_file
     return {
         "ld_reference_universe": {
             "selection": "full_retained_reference_panel"
@@ -2689,8 +2697,8 @@ def _snp_universe_policy(
             "retained_snp_count": int(sum(result.reference_snp_count for result in chromosome_results)),
         },
         "regression_rows_and_weights": {
-            "selection": "bundled_hm3_default" if custom_regression_file is None else "explicit_regression_snps_file",
-            "regression_snps_file": None if custom_regression_file is None else str(custom_regression_file),
+            "selection": "bundled_hm3_default" if custom_regression_file is None else "explicit_regr_snps_file",
+            "regr_snps_file": None if custom_regression_file is None else str(custom_regression_file),
             "region_exclusion_sources": [] if regression_regions is None else list(regression_regions.source_labels),
             "selected_snp_count_before_region_exclusion": int(
                 sum(result.regression_selected_snp_count for result in chromosome_results)

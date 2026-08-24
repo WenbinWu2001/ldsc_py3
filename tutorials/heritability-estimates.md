@@ -132,7 +132,7 @@ examples appear only at `DEBUG`, and row-level drops are audited in
 `diagnostics/dropped_snps/dropped.tsv.gz`; the metadata sidecar stays limited to current
 artifact provenance.
 
-When you set `regression_snps_file` or `use_hm3_regression_snps` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression uses the embedded `regression_ld_scores` column as the historical `w_ld` component; final model-dependent weights are computed later in the regression kernel.
+When you set `regr_snps_file` or `use_hm3_regression_snps` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression uses the embedded `regression_ld_scores` column as the historical `w_ld` component; final model-dependent weights are computed later in the regression kernel.
 
 Because this is ordinary unpartitioned heritability, `run_ldscore(...)` does
 not need baseline annotations. With no baseline and no query inputs, it writes

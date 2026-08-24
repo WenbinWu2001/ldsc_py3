@@ -20,8 +20,8 @@ offline artifact; it does not run regression.
 - a 1 cM window by default;
 - unpadded gene intervals (`--padding-bp 0`) and MHC gene exclusion by default;
 - bundled HapMap3 regression SNP candidates by default, or one custom
-  `--regression-snps-file`;
-- `--exclude-regions mhc-and-centromeres` applied after candidate selection by
+  `--regr-snps-file`;
+- `--regr-snps-exclude-regions mhc-and-centromeres` applied after candidate selection by
   default.
 
 Baseline and PLINK rows need not be identical. The builder inner-joins them by
@@ -55,7 +55,7 @@ accepts neither live option, even when a supplied value would match.
 
 ### Regression SNP file format
 
-`--regression-snps-file` must be a **headered text table containing SNP
+`--regr-snps-file` must be a **headered text table containing SNP
 identities**. Its required columns depend on the builder's explicit
 `--snp-identifier`:
 
@@ -88,8 +88,10 @@ rs456
 ```
 
 The intersected baseline/PLINK SNPs are the LD-reference contributor, count,
-and overlap universe. Regression candidates and `--exclude-regions` select
+and overlap universe. Regression candidates and `--regr-snps-exclude-regions` select
 only persisted output rows and `regression_ld_scores` contributors.
+The former `--exclude-regions` spelling remains a hidden CLI alias for this
+region policy. Use the new spelling in commands and documentation.
 
 > **Caveat: gene-catalog regions do not restrict baseline LD scores.** For
 > each supplied baseline column, the builder recomputes LD scores over the full
@@ -141,7 +143,7 @@ ldsc build-gene-ldscore-index \
   --ld-wind-cm 1.0 \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
-  --exclude-regions mhc-and-centromeres \
+  --regr-snps-exclude-regions mhc-and-centromeres \
   --threads 1
 ```
 
@@ -169,12 +171,12 @@ ldsc build-gene-ldscore-index \
   --gene-coordinate-file "${RESOURCE_ROOT}/genes/gene-coordinates.hg19.tsv.gz" \
   --genome-build hg19 \
   --snp-identifier chr_pos \
-  --regression-snps-file custom_regression_snps.tsv \
-  --exclude-regions mhc-and-centromeres
+  --regr-snps-file custom_regression_snps.tsv \
+  --regr-snps-exclude-regions mhc-and-centromeres
 ```
 
 Duplicate keys collapse; ordering and nonidentity columns do not affect the
-scientific selection. Use `--exclude-regions none` only when intentionally
+scientific selection. Use `--regr-snps-exclude-regions none` only when intentionally
 retaining all candidate rows.
 
 Keep `--threads 1` until the target system has been profiled because each

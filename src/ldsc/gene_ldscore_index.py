@@ -140,7 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--common-maf-min", type=float, default=0.05)
     parser.add_argument("--keep-indivs-file", default=None)
     parser.add_argument(
-        "--regression-snps-file",
+        "--regr-snps-file",
         default=None,
         help=(
             "Optional identity-only SNP list defining the persisted regression/output rows. "
@@ -148,13 +148,20 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--exclude-regions",
-        choices=kernel_regions.EXCLUDE_REGIONS_CHOICES,
+        "--regr-snps-exclude-regions",
+        choices=kernel_regions.REGR_SNPS_EXCLUDE_REGIONS_CHOICES,
         default="mhc-and-centromeres",
         help=(
             "Curated regions subtracted after selecting bundled HapMap3 or "
-            "--regression-snps-file SNPs."
+            "--regr-snps-file SNPs."
         ),
+    )
+    parser.add_argument(
+        "--exclude-regions",
+        dest="regr_snps_exclude_regions",
+        choices=kernel_regions.REGR_SNPS_EXCLUDE_REGIONS_CHOICES,
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument("--genetic-map-hg19-sources", default=None)
     parser.add_argument("--snp-batch-size", type=int, default=128)
@@ -255,8 +262,8 @@ def build_gene_ldscore_index(
             maf_min=config.maf_min,
             common_maf_min=config.common_maf_min,
             keep_indivs_file=config.keep_indivs_file,
-            regression_snps_file=config.regression_snps_file,
-            exclude_regions=config.exclude_regions,
+            regr_snps_file=config.regr_snps_file,
+            regr_snps_exclude_regions=config.regr_snps_exclude_regions,
             genetic_map_hg19_sources=genetic_map_hg19_sources,
             genetic_map_hg38_sources=genetic_map_hg38_sources,
             _test_chromosomes=tuple(str(value) for value in range(1, 23)),
@@ -350,8 +357,8 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
         maf_min=args.maf_min,
         common_maf_min=args.common_maf_min,
         keep_indivs_file=args.keep_indivs_file,
-        regression_snps_file=getattr(args, "regression_snps_file", None),
-        exclude_regions=getattr(args, "exclude_regions", "mhc-and-centromeres"),
+        regr_snps_file=getattr(args, "regr_snps_file", None),
+        regr_snps_exclude_regions=getattr(args, "regr_snps_exclude_regions", "mhc-and-centromeres"),
         snp_batch_size=args.snp_batch_size,
         atom_batch_size=args.atom_batch_size,
         threads=args.threads,
@@ -384,8 +391,8 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 common_maf_min=config.common_maf_min,
                 keep_indivs_file=config.keep_indivs_file or "all individuals",
                 genetic_map="explicit hg19 map" if getattr(args, "genetic_map_hg19_sources", None) else "BIM cM fallback",
-                regression_snps_file=config.regression_snps_file or "bundled HapMap3",
-                exclude_regions=config.exclude_regions,
+                regr_snps_file=config.regr_snps_file or "bundled HapMap3",
+                regr_snps_exclude_regions=config.regr_snps_exclude_regions,
                 snp_batch_size=config.snp_batch_size,
                 atom_batch_size=config.atom_batch_size,
                 threads=config.threads,
@@ -459,13 +466,13 @@ def _run_gene_ldscore_index_build(
         else GlobalConfig(snp_identifier="chr_pos", genome_build=config.genome_build)
     )
     annotation_spec = AnnotationBuildConfig(baseline_annot_sources=config.baseline_annot_sources)
-    regression_path = Path(config.regression_snps_file or packaged_hm3_curated_map_path())
+    regression_path = Path(config.regr_snps_file or packaged_hm3_curated_map_path())
     regression_keys = read_snp_restriction_keys(
         regression_path,
         config.snp_identifier,
         genome_build=config.genome_build,
     )
-    regression_presets = kernel_regions.exclude_regions_choice_to_presets(config.exclude_regions)
+    regression_presets = kernel_regions.regr_snps_exclude_regions_choice_to_presets(config.regr_snps_exclude_regions)
     regression_regions = (
         None
         if not regression_presets
@@ -658,7 +665,7 @@ def _run_gene_ldscore_index_build(
     if total_regression_rows == 0:
         raise LDSCInputError(
             "Gene LD-score index has zero regression SNP rows across all selected chromosomes "
-            "after applying the SNP restriction and --exclude-regions policy."
+            "after applying the SNP restriction and --regr-snps-exclude-regions policy."
         )
     index_identity = _builder_index_identity(
         config,
@@ -702,8 +709,8 @@ def _run_gene_ldscore_index_build(
             "common_maf_min": config.common_maf_min,
             "keep_individuals": "all" if config.keep_indivs_file is None else "keep_file",
             "genetic_map": map_source,
-            "regression_snps": "custom" if config.regression_snps_file else "bundled_hapmap3",
-            "exclude_regions": config.exclude_regions,
+            "regression_snps": "custom" if config.regr_snps_file else "bundled_hapmap3",
+            "regr_snps_exclude_regions": config.regr_snps_exclude_regions,
         },
         "input_resolution": {
             "plink_bed_files": sum(source.get("kind") == "bed" for source in plink_sources),
@@ -1145,7 +1152,8 @@ def _log_gene_index_summary(payload: dict) -> None:
         "count/overlap members; the configured regression restriction defines persisted rows."
     )
     LOGGER.info(
-        f"Regression-row policy: {config['regression_snps']} with exclude-regions={config['exclude_regions']}."
+        f"Regression-row policy: {config['regression_snps']} with "
+        f"regr-snps-exclude-regions={config['regr_snps_exclude_regions']}."
     )
     for chrom in payload["chromosomes"]:
         values = payload["chromosomes"][chrom]
@@ -1344,10 +1352,10 @@ def _builder_index_identity(
         "ld_window": {"unit": "cm", "value": config.ld_wind_cm},
         "genetic_map": _genetic_map_identity(args, genetic_map),
         "regression_snps": {
-            "kind": "custom" if config.regression_snps_file else "bundled_hapmap3",
+            "kind": "custom" if config.regr_snps_file else "bundled_hapmap3",
             "canonical_keys_sha256": regression_digest,
         },
-        "exclude_regions": config.exclude_regions,
+        "regr_snps_exclude_regions": config.regr_snps_exclude_regions,
         "catalog": _catalog_identity_records(catalog.frame),
         "projection_build": config.genome_build,
         "padding_bp": config.padding_bp,

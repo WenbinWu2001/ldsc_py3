@@ -856,9 +856,13 @@ from ldsc.errors import LDSCConfigError
 
 
 def test_refpanelconfig_region_fields_are_removed():
-    with pytest.raises(TypeError):
-        RefPanelConfig(backend="plink", plink_prefix="x", exclude_regions=("mhc",))
+    for field in ("exclude_regions", "regr_snps_exclude_regions"):
+        with pytest.raises(TypeError):
+            RefPanelConfig(backend="plink", plink_prefix="x", **{field: ("mhc",)})
     with pytest.raises(TypeError):
         RefPanelConfig(backend="plink", plink_prefix="x", exclude_regions_bed=("/tmp/a.bed",))
-    with pytest.raises(TypeError):
-        ReferencePanelBuildConfig(plink_prefix="x", output_dir="o", ld_wind_snps=1, exclude_regions=("mhc",))
+    for field in ("exclude_regions", "regr_snps_exclude_regions"):
+        with pytest.raises(TypeError):
+            ReferencePanelBuildConfig(
+                plink_prefix="x", output_dir="o", ld_wind_snps=1, **{field: ("mhc",)}
+            )

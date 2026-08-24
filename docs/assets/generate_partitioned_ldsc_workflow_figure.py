@@ -329,7 +329,7 @@ def render() -> None:
         160,
         "Regression SNP mask\n(`C`)",
         GREEN,
-        "`LDScoreConfig.regression_snps_file`\nloaded by `_load_regression_snps()`",
+        "`LDScoreConfig.regr_snps_file`\nloaded by `_load_regression_snps()`",
         title_fs=15,
         body_fs=11.2,
     )
@@ -459,7 +459,7 @@ def render() -> None:
         1594,
         "Notes:\n"
         "1. Main `ldscore` uses `AnnotationBuilder.run()` for BED input; `run_bed_to_annot()` is the optional explicit materialization path.\n"
-        "2. `ref_panel_snps_file` defines `A'`; `regression_snps_file` defines `C`.\n"
+        "2. `ref_panel_snps_file` defines `A'`; `regr_snps_file` defines `C`.\n"
         "3. Manifest counts use `ld_reference_snps`; parquet LD-score rows use `ld_regression_snps`.",
         fontsize=10.2,
         color=INK,

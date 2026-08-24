@@ -175,7 +175,7 @@ class GlobalConfig:
     -----
     ``GlobalConfig`` intentionally carries only shared runtime assumptions.
     Per-run SNP-universe controls such as ``ref_panel_snps_file`` and
-    ``regression_snps_file`` now live on workflow-specific configs.
+    ``regr_snps_file`` now live on workflow-specific configs.
     """
     snp_identifier: SNPIdentifierMode = "chr_pos_allele_aware"
     genome_build: GenomeBuildInput | None = "auto"
@@ -508,7 +508,7 @@ class LDScoreConfig:
         Window size measured in kilobases. Default is ``None``.
     ld_wind_cm : float or None, optional
         Window size measured in centiMorgans. Default is ``None``.
-    regression_snps_file : str or os.PathLike[str] or None, optional
+    regr_snps_file : str or os.PathLike[str] or None, optional
         Optional path to the SNP list defining the regression SNP set used for
         the persisted ``ldscore.baseline.parquet`` row set and, when query
         annotations are present, the aligned ``ldscore.query.parquet`` row set.
@@ -538,7 +538,7 @@ class LDScoreConfig:
     ld_wind_snps: int | None = None
     ld_wind_kb: float | None = None
     ld_wind_cm: float | None = None
-    regression_snps_file: str | PathLike[str] | None = None
+    regr_snps_file: str | PathLike[str] | None = None
     snp_batch_size: int = 128
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
@@ -567,7 +567,7 @@ class LDScoreConfig:
                 "positive count for that many workers, -1 for all cores, or -2 for all "
                 "but one."
             )
-        object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
+        object.__setattr__(self, "regr_snps_file", _normalize_optional_path(self.regr_snps_file))
 
 
 @dataclass(frozen=True)
@@ -612,10 +612,10 @@ class GeneLDScoreIndexBuildConfig:
         Inclusive MAF threshold for common-SNP count statistics. Default 0.05.
     keep_indivs_file : str, optional
         One-IID-per-row PLINK individual restriction.
-    regression_snps_file : str, optional
+    regr_snps_file : str, optional
         Identity-only output/regression SNP restriction. When omitted, the
         bundled HapMap3 restriction is used.
-    exclude_regions : {"none", "mhc", "centromeres", "mhc-and-centromeres"}, optional
+    regr_snps_exclude_regions : {"none", "mhc", "centromeres", "mhc-and-centromeres"}, optional
         Named regions subtracted after regression-SNP selection. Default is
         ``"mhc-and-centromeres"``.
     snp_batch_size : int, optional
@@ -645,8 +645,8 @@ class GeneLDScoreIndexBuildConfig:
     maf_min: float | None = None
     common_maf_min: float = 0.05
     keep_indivs_file: str | None = None
-    regression_snps_file: str | None = None
-    exclude_regions: str = "mhc-and-centromeres"
+    regr_snps_file: str | None = None
+    regr_snps_exclude_regions: str = "mhc-and-centromeres"
     snp_batch_size: int = 128
     atom_batch_size: int = 64
     threads: int = 1
@@ -657,7 +657,7 @@ class GeneLDScoreIndexBuildConfig:
         object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
         object.__setattr__(self, "gene_coordinate_file", _normalize_required_path(self.gene_coordinate_file))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
-        object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
+        object.__setattr__(self, "regr_snps_file", _normalize_optional_path(self.regr_snps_file))
         if not self.baseline_annot_sources:
             raise LDSCConfigError("GeneLDScoreIndexBuildConfig requires baseline_annot_sources.")
         if self.genome_build != "hg19" or self.snp_identifier not in {"rsid", "chr_pos"}:
@@ -667,9 +667,9 @@ class GeneLDScoreIndexBuildConfig:
             )
         if self.gene_exclude_regions not in {"none", "mhc"}:
             raise LDSCConfigError("gene_exclude_regions must be 'none' or 'mhc'.")
-        if self.exclude_regions not in {"none", "mhc", "centromeres", "mhc-and-centromeres"}:
+        if self.regr_snps_exclude_regions not in {"none", "mhc", "centromeres", "mhc-and-centromeres"}:
             raise LDSCConfigError(
-                "exclude_regions must be 'none', 'mhc', 'centromeres', or 'mhc-and-centromeres'."
+                "regr_snps_exclude_regions must be 'none', 'mhc', 'centromeres', or 'mhc-and-centromeres'."
             )
         if self.padding_bp < 0:
             raise LDSCConfigError("padding_bp must be nonnegative.")

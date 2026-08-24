@@ -150,7 +150,7 @@ results, because those results carry their own frozen snapshots.
 
 The compatibility helper compares only `GlobalConfig` snapshots, so the table
 above lists only `GlobalConfig` fields. Workflow-specific LD-score controls such
-as `RefPanelConfig.ref_panel_snps_file` and `LDScoreConfig.regression_snps_file`
+as `RefPanelConfig.ref_panel_snps_file` and `LDScoreConfig.regr_snps_file`
 still matter to the result, but they are owned by those workflow objects rather
 than by `GlobalConfig`.
 
@@ -223,7 +223,7 @@ Annotation bundle rows B                      (AnnotationBuilder)
 | Reference-panel MAF/sample filters | `RefPanelConfig.maf_min`, `RefPanelConfig.keep_indivs_file` | `--maf-min`, `--keep-indivs-file` | `RefPanel.load_metadata()` and the kernel PLINK reader (`maf_min` is threaded through `_namespace_from_configs`, so the filter applies in both backends) | Affects the prepared panel A' and LD computation with inclusive `MAF >= maf_min`; separate from `LDScoreConfig.common_maf_min` |
 | PLINK genetic map (cM windows) | `RefPanelConfig.genetic_map_hg19_sources`, `genetic_map_hg38_sources` | `--genetic-map-hg19-sources`, `--genetic-map-hg38-sources` | `_namespace_from_configs` resolves the build and loads the map; the PLINK kernel interpolates `CM` at `.bim` positions (map always wins). Ignored with a warning for parquet. | Defines `CM` for `--ld-wind-cm` when the `.bim` `CM` is uninformative; no effect on SNP/kb windows |
 | Reference-metadata export | `LDScoreConfig.export_ref_metadata` | `--export-ref-metadata` | After each chromosome's compute (PLINK worker), writes `ref_metadata/chrN_meta.tsv.gz` | Opt-in provenance/QC artifact (`CHR POS SNP A1 A2 CM MAF`); accepted later by `quantile-h2 --ref-metadata-sources` |
-| Regression row restriction | `LDScoreConfig.regression_snps_file` or bundled HM3 default | `--regression-snps-file` | After LD computation, when normalized/public rows are selected; `--exclude-regions` subtracts named intervals here | Written rows are `ld_regression_snps = B ∩ A' ∩ C ∩ complement(regions)`; `regression_ld_scores` (`w_ld`) uses that identical contributor set |
+| Regression row restriction | `LDScoreConfig.regr_snps_file` or bundled HM3 default | `--regr-snps-file` | After LD computation, when normalized/public rows are selected; `--regr-snps-exclude-regions` subtracts named intervals here | Written rows are `ld_regression_snps = B ∩ A' ∩ C ∩ complement(regions)`; `regression_ld_scores` (`w_ld`) uses that identical contributor set |
 | Common-count threshold | `LDScoreConfig.common_maf_min` | `--common-maf-min` | During count-vector and overlap-matrix computation after LD scores are computed | Defines the common-SNP universe with inclusive `MAF >= common_maf_min` (deviates from legacy LDSC's strict `0.05 < FRQ < 0.95`); affects `common_reference_snp_count(s)` and the common-universe overlap matrix, but not LD rows, LD scores, or the stored regression-universe LD score |
 
 ### What each control does
@@ -242,7 +242,7 @@ Annotation bundle rows B                      (AnnotationBuilder)
 
 When `None`, the workflow uses the full reference panel `A`.
 
-**`LDScoreConfig.regression_snps_file`** — the *regression row set*
+**`LDScoreConfig.regr_snps_file`** — the *regression row set*
 
 - The explicit restriction file or packaged HM3 map is loaded once into the
   `regression_snps` set `C`.
@@ -259,7 +259,7 @@ HM3 map. Direct calculator calls may still provide no set explicitly.
 
 #### Regression SNP file format
 
-`--regression-snps-file` must be a **headered text table containing SNP
+`--regr-snps-file` must be a **headered text table containing SNP
 identities**. Its required columns depend on `--snp-identifier`.
 
 | `--snp-identifier` | Required columns | Optional columns |
@@ -343,12 +343,12 @@ parquet schema (`ldsc:r2_bias` and `ldsc:n_samples`); there are no
 
 ### Regression-region exclusion
 
-`ldscore` and `build-gene-ldscore-index` expose `--exclude-regions`, defaulting
+`ldscore` and `build-gene-ldscore-index` expose `--regr-snps-exclude-regions`, defaulting
 to `mhc-and-centromeres`. They subtract named regions from the selected
 regression set (bundled HM3 by default) and leave the reference panel, category
 LD scores, and count vectors untouched. `ldscore --genome-build` selects the
 named interval build; the closed gene-index builder uses its required explicit
-hg19 build. Custom intervals require a prefiltered `--regression-snps-file`;
+hg19 build. Custom intervals require a prefiltered `--regr-snps-file`;
 intentional reference pruning requires `--ref-panel-snps-file` in live
 `ldscore` or at reference-panel build time. `build-ref-panel` has neither
 region-exclusion nor HM3 convenience flags.
@@ -369,14 +369,14 @@ region-exclusion nor HM3 convenience flags.
 Stop passing these controls to `GlobalConfig()`:
 
 - move reference-panel restriction to `RefPanelConfig(ref_panel_snps_file=...)`
-- move regression row restriction to `LDScoreConfig(regression_snps_file=...)` or `run_ldscore(...)`
+- move regression row restriction to `LDScoreConfig(regr_snps_file=...)` or `run_ldscore(...)`
 - bundled HM3 is the default regression set; use a custom regression list only
   when that default must be replaced.
 - prefilter a custom regression list for arbitrary intervals; `genome_build` is
   the sole build declaration for named regression-region presets.
 
 The old `--regression-snps` and `--print-snps` behavior is unified under
-`--regression-snps-file`. LD-score outputs are fixed files under `output_dir`;
+`--regr-snps-file`. LD-score outputs are fixed files under `output_dir`;
 legacy `.l2.*` and `.w.l2.*` filenames are not emitted by the public writer.
 Existing owned LD-score family artifacts are refused by default and require
 `--overwrite` or `overwrite=True`, so reruns cannot silently replace artifacts
@@ -412,7 +412,7 @@ snapshot rather than re-inferring the build from coordinates.
 **Workflow-specific SNP controls are not part of `config_snapshot`.**
 `config_snapshot` records shared assumptions such as `genome_build` and
 `snp_identifier`. Per-run LD-score controls such as
-`RefPanelConfig.ref_panel_snps_file` and `LDScoreConfig.regression_snps_file`
+`RefPanelConfig.ref_panel_snps_file` and `LDScoreConfig.regr_snps_file`
 still materially affect the outputs, but
 callers who need to preserve that provenance should persist the
 `RefPanelConfig` / `LDScoreConfig` they used alongside the written artifacts.

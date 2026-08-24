@@ -283,8 +283,8 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
         maf_min=None,
         common_maf_min=0.05,
         keep_indivs_file=None,
-        regression_snps_file=None,
-        exclude_regions="mhc-and-centromeres",
+        regr_snps_file=None,
+        regr_snps_exclude_regions="mhc-and-centromeres",
         genetic_map_hg19_sources=None,
         genetic_map_hg38_sources=None,
         gene_coordinate_file="catalog.tsv.gz",
@@ -923,8 +923,8 @@ def test_build_index_command_registers_explicit_base_identity(snp_identifier):
     assert args.common_maf_min == 0.05
     assert args.threads == 1
     assert args.atom_batch_size > 0
-    assert args.regression_snps_file is None
-    assert args.exclude_regions == "mhc-and-centromeres"
+    assert args.regr_snps_file is None
+    assert args.regr_snps_exclude_regions == "mhc-and-centromeres"
 
 
 def test_build_index_command_accepts_custom_regression_snps_and_region_policy():
@@ -937,12 +937,27 @@ def test_build_index_command_accepts_custom_regression_snps_and_region_policy():
             "--gene-coordinate-file", "genes.tsv",
             "--genome-build", "hg19",
             "--snp-identifier", "chr_pos",
-            "--regression-snps-file", "custom.snplist",
-            "--exclude-regions", "centromeres",
+            "--regr-snps-file", "custom.snplist",
+            "--regr-snps-exclude-regions", "centromeres",
         ]
     )
-    assert args.regression_snps_file == "custom.snplist"
-    assert args.exclude_regions == "centromeres"
+    assert args.regr_snps_file == "custom.snplist"
+    assert args.regr_snps_exclude_regions == "centromeres"
+
+
+def test_build_index_command_accepts_legacy_region_alias_but_rejects_old_regr_file_name():
+    parser = cli.build_parser()
+    base = [
+        "build-gene-ldscore-index",
+        "--baseline-annot-sources", "baseline.@.annot.gz",
+        "--plink-prefix", "panel.@", "--output-dir", "index",
+        "--gene-coordinate-file", "genes.tsv", "--genome-build", "hg19",
+        "--snp-identifier", "chr_pos",
+    ]
+    args = parser.parse_args([*base, "--exclude-regions", "mhc"])
+    assert args.regr_snps_exclude_regions == "mhc"
+    with pytest.raises(SystemExit):
+        parser.parse_args([*base, "--regression-snps-file", "custom.snplist"])
 
 
 def test_build_index_python_config_requires_identity_and_build():
@@ -951,6 +966,17 @@ def test_build_index_python_config_requires_identity_and_build():
             baseline_annot_sources=("baseline.@.annot.gz",),
             plink_prefix="panel.@",
             output_dir="index",
+        )
+
+    with pytest.raises(TypeError):
+        GeneLDScoreIndexBuildConfig(
+            baseline_annot_sources=("baseline.@.annot.gz",),
+            plink_prefix="panel.@",
+            output_dir="index",
+            gene_coordinate_file="genes.tsv",
+            genome_build="hg19",
+            snp_identifier="rsid",
+            exclude_regions="none",
         )
 
     config = GeneLDScoreIndexBuildConfig(
@@ -990,7 +1016,7 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
         "ld_window": {"unit": "cm", "value": 1.0},
         "genetic_map": "bim_cm",
         "regression_snps": {"kind": "bundled_hapmap3"},
-        "exclude_regions": "mhc-and-centromeres",
+        "regr_snps_exclude_regions": "mhc-and-centromeres",
     }
 
     class FakeAnnotationBuilder:
@@ -1034,8 +1060,8 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
         maf_min=None,
         common_maf_min=0.05,
         keep_indivs_file=None,
-        regression_snps_file="custom-regression.tsv",
-        exclude_regions="centromeres",
+        regr_snps_file="custom-regression.tsv",
+        regr_snps_exclude_regions="centromeres",
         genetic_map_hg19_sources=None,
         genetic_map_hg38_sources=None,
         gene_coordinate_file="catalog.tsv.gz",
@@ -1214,8 +1240,8 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
         maf_min=None,
         common_maf_min=0.05,
         keep_indivs_file=None,
-        regression_snps_file=None,
-        exclude_regions="mhc-and-centromeres",
+        regr_snps_file=None,
+        regr_snps_exclude_regions="mhc-and-centromeres",
         genetic_map_hg19_sources=None,
         genetic_map_hg38_sources=None,
         gene_coordinate_file="catalog.tsv.gz",

@@ -446,7 +446,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             genome_build=None,
             keep_indivs_file=None,
             ref_panel_snps_file=None,
-            regression_snps_file=None,
+            regr_snps_file=None,
             log_level="INFO",
         )
 
@@ -467,7 +467,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 genome_build="auto",
                 keep_indivs_file=None,
                 ref_panel_snps_file=None,
-                regression_snps_file=None,
+                regr_snps_file=None,
                 log_level="INFO",
             )
 
@@ -492,7 +492,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 genome_build="auto",
                 keep_indivs_file=None,
                 ref_panel_snps_file=None,
-                regression_snps_file=None,
+                regr_snps_file=None,
                 log_level="INFO",
             )
 
@@ -519,7 +519,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 genome_build="auto",
                 keep_indivs_file=None,
                 ref_panel_snps_file=None,
-                regression_snps_file=None,
+                regr_snps_file=None,
                 log_level="INFO",
             )
 
@@ -550,7 +550,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 genome_build="auto",
                 keep_indivs_file=None,
                 ref_panel_snps_file=None,
-                regression_snps_file=None,
+                regr_snps_file=None,
                 log_level="INFO",
             )
 
@@ -684,13 +684,17 @@ class LDScoreWorkflowTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             GlobalConfig(snp_identifier="rsid", ref_panel_snps_file="filters/reference.tsv.gz")
 
-    def test_global_config_rejects_removed_regression_snps_file(self):
+    def test_global_config_rejects_removed_regr_snps_file(self):
         with self.assertRaises(TypeError):
-            GlobalConfig(snp_identifier="rsid", regression_snps_file="filters/hm3.tsv.gz")
+            GlobalConfig(snp_identifier="rsid", regr_snps_file="filters/hm3.tsv.gz")
 
-    def test_ldscore_config_accepts_regression_snps_file(self):
-        config = LDScoreConfig(ld_wind_snps=10, regression_snps_file="/path/to/snps.txt")
-        self.assertEqual(config.regression_snps_file, "/path/to/snps.txt")
+    def test_ldscore_config_accepts_regr_snps_file(self):
+        config = LDScoreConfig(ld_wind_snps=10, regr_snps_file="/path/to/snps.txt")
+        self.assertEqual(config.regr_snps_file, "/path/to/snps.txt")
+
+    def test_ldscore_config_rejects_old_regression_snps_file_name(self):
+        with self.assertRaises(TypeError):
+            LDScoreConfig(ld_wind_snps=10, regression_snps_file="/path/to/snps.txt")
 
     def test_build_parser_does_not_expose_removed_snp_restriction_flags(self):
         parser = ldscore_workflow.build_parser()
@@ -1875,7 +1879,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 snp_identifier="rsid",
                 genome_build=None,
                 ref_panel_snps_file=None,
-                regression_snps_file=None,
+                regr_snps_file=None,
                 r2_bias_mode=None,
                 r2_sample_size=None,
                 frqfile_chr=None,
@@ -1933,7 +1937,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     "10",
                     "--snp-identifier",
                     "rsid",
-                    "--exclude-regions",
+                    "--regr-snps-exclude-regions",
                     "none",
                 ]
             )
@@ -2031,7 +2035,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     "rsid",
                     "--genome-build",
                     "hg38",
-                    "--exclude-regions",
+                    "--regr-snps-exclude-regions",
                     "none",
                 ]
             )
@@ -2270,7 +2274,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 snp_identifier="rsid",
                 genome_build="hg38",
                 ref_panel_snps_file=None,
-                regression_snps_file=None,
+                regr_snps_file=None,
                 r2_bias_mode=None,
                 r2_sample_size=None,
                 frqfile_chr=None,
@@ -2368,7 +2372,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 snp_identifier="rsid",
                 genome_build="hg38",
                 ref_panel_snps_file=None,
-                regression_snps_file=None,
+                regr_snps_file=None,
                 r2_bias_mode=None,
                 r2_sample_size=None,
                 ld_wind_snps=10,
@@ -2419,7 +2423,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 snp_identifier="rsid",
                 genome_build="hg38",
                 ref_panel_snps_file=None,
-                regression_snps_file=None,
+                regr_snps_file=None,
                 r2_bias_mode=None,
                 r2_sample_size=None,
                 ld_wind_snps=10,
@@ -2469,7 +2473,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 snp_identifier="rsid",
                 genome_build="hg38",
                 ref_panel_snps_file=None,
-                regression_snps_file=None,
+                regr_snps_file=None,
                 r2_bias_mode=None,
                 r2_sample_size=None,
                 ld_wind_snps=10,
@@ -2520,7 +2524,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 "panel",
                 "--snp-identifier",
                 "rsid",
-                "--exclude-regions",
+                "--regr-snps-exclude-regions",
                 "none",
                 "--ld-wind-snps",
                 "10",
@@ -2590,7 +2594,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             snp_identifier="rsid",
             genome_build=None,
             ref_panel_snps_file=None,
-            regression_snps_file=None,
+            regr_snps_file=None,
             r2_bias_mode=None,
             r2_sample_size=None,
             frqfile_chr=None,
@@ -2622,7 +2626,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             snp_identifier="rsid",
             genome_build=None,
             ref_panel_snps_file=None,
-            regression_snps_file=None,
+            regr_snps_file=None,
             r2_bias_mode=None,
             r2_sample_size=None,
             frqfile_chr=None,
@@ -2643,8 +2647,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
     def test_run_ldscore_from_args_loads_regression_snps_and_writes_filtered_ldscore(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            regression_snps_file = tmpdir / "regression_snps.txt"
-            regression_snps_file.write_text("SNP\nrs2\n", encoding="utf-8")
+            regr_snps_file = tmpdir / "regression_snps.txt"
+            regr_snps_file.write_text("SNP\nrs2\n", encoding="utf-8")
             args = Namespace(
                 output_dir=str(tmpdir / "ldscore_result"),
                 query_annot_sources=None,
@@ -2657,7 +2661,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 snp_identifier="rsid",
                 genome_build=None,
                 ref_panel_snps_file=None,
-                regression_snps_file=str(regression_snps_file),
+                regr_snps_file=str(regr_snps_file),
                 r2_bias_mode=None,
                 r2_sample_size=None,
                 frqfile_chr=None,
@@ -2794,7 +2798,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 snp_identifier="rsid",
                 genome_build=None,
                 ref_panel_snps_file=None,
-                regression_snps_file=None,
+                regr_snps_file=None,
                 r2_bias_mode=None,
                 r2_sample_size=None,
                 frqfile_chr=None,
@@ -2850,7 +2854,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 snp_identifier="rsid",
                 genome_build=None,
                 ref_panel_snps_file=None,
-                regression_snps_file=None,
+                regr_snps_file=None,
                 r2_bias_mode="unbiased",
                 r2_sample_size=None,
                 frqfile_chr=None,
@@ -2900,7 +2904,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             genome_build="auto",
             keep_indivs_file=None,
             ref_panel_snps_file=None,
-            regression_snps_file=None,
+            regr_snps_file=None,
             log_level="INFO",
         )
         sample_calls = []
@@ -2946,7 +2950,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 genome_build="auto",
                 keep_indivs_file=None,
                 ref_panel_snps_file=None,
-                regression_snps_file=None,
+                regr_snps_file=None,
                 log_level="INFO",
             )
 
@@ -2963,7 +2967,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             genome_build="hg38",
             keep_indivs_file=None,
             ref_panel_snps_file=None,
-            regression_snps_file=None,
+            regr_snps_file=None,
             log_level="INFO",
         )
 
@@ -2991,7 +2995,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 genome_build="auto",
                 keep_indivs_file=None,
                 ref_panel_snps_file=None,
-                regression_snps_file=None,
+                regr_snps_file=None,
                 log_level="INFO",
             )
 
@@ -3021,7 +3025,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             snp_identifier="rsid",
             genome_build=None,
             ref_panel_snps_file=None,
-            regression_snps_file=None,
+            regr_snps_file=None,
             r2_bias_mode="unbiased",
             r2_sample_size=None,
             frqfile_chr=None,
@@ -3056,7 +3060,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 snp_identifier="rsid",
                 genome_build="hg19",
                 ref_panel_snps_file=None,
-                regression_snps_file=None,
+                regr_snps_file=None,
                 r2_bias_mode="unbiased",
                 r2_sample_size=None,
                 frqfile_chr=None,
@@ -4206,20 +4210,26 @@ class R2DequantizationTest(unittest.TestCase):
             self.assertAlmostEqual(float(decoded.r2[0]), 0.5, delta=1e-7)
 
 
-def test_ldscore_parser_region_flags_and_default():
+def test_ldscore_parser_regr_snp_region_flag_default_and_legacy_alias():
     parser = build_parser()
     # Default excludes MHC + centromeres.
     default_args = parser.parse_args(["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1"])
-    assert default_args.exclude_regions == "mhc-and-centromeres"
+    assert default_args.regr_snps_exclude_regions == "mhc-and-centromeres"
     # Single-choice enum; comma lists are rejected.
     args = parser.parse_args(
         ["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
-         "--exclude-regions", "centromeres", "--genome-build", "hg19"]
+         "--regr-snps-exclude-regions", "centromeres", "--genome-build", "hg19"]
     )
-    assert args.exclude_regions == "centromeres"
+    assert args.regr_snps_exclude_regions == "centromeres"
+    legacy_args = parser.parse_args(
+        ["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
+         "--exclude-regions", "mhc", "--genome-build", "hg19"]
+    )
+    assert legacy_args.regr_snps_exclude_regions == "mhc"
+    assert "--exclude-regions" not in parser.format_help()
     with pytest.raises(SystemExit):
         parser.parse_args(["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
-                           "--exclude-regions", "mhc,centromeres"])
+                           "--regr-snps-exclude-regions", "mhc,centromeres"])
 
 
 def test_ldscore_region_build_uses_genome_build_and_requires_it_for_rsid():

@@ -879,9 +879,9 @@ def read_identifier_list(path: str, mode: str) -> RestrictionIdentityKeys:
 
 def load_regression_keys(args: argparse.Namespace) -> RestrictionIdentityKeys | None:
     """Load the optional regression SNP universe from CLI arguments."""
-    if not getattr(args, "regression_snps_file", None):
+    if not getattr(args, "regr_snps_file", None):
         return None
-    return read_identifier_list(args.regression_snps_file, args.snp_identifier)
+    return read_identifier_list(args.regr_snps_file, args.snp_identifier)
 
 
 def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str) -> pd.DataFrame:

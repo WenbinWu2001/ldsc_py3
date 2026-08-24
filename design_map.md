@@ -123,7 +123,7 @@ contracts move.
 | `docs/superpowers/specs/2026-06-06-region-exclusion-design.md` | kernel engine `src/ldsc/_kernel/regions.py`: `load_preset_intervals`, `load_bed_intervals`, `merge_intervals`, `region_exclusion_keep_mask`, `RegionIntervals` |
 | `docs/superpowers/specs/2026-06-06-region-exclusion-design.md` | `ldscore` chokepoint: `RefPanel._apply_region_exclusion` in `src/ldsc/_kernel/ref_panel.py`; resolved via `RefPanel._region_intervals` which reads `RefPanelConfig.exclude_regions`, `RefPanelConfig.exclude_regions_bed`, `RefPanelConfig.exclude_regions_build` |
 | `docs/superpowers/specs/2026-06-06-region-exclusion-design.md` | `build-ref-panel` chokepoint: `ReferencePanelBuilder._build_chromosome` in `src/ldsc/ref_panel_builder.py`; intervals built once in `_prepare_build_state` from `ReferencePanelBuildConfig.exclude_regions`, `ReferencePanelBuildConfig.exclude_regions_bed`; no `exclude_regions_build` field — source build reused automatically |
-| `docs/current/data-flow.md` (`## Region Exclusion`) | packaged preset BEDs under `src/ldsc/data/regions/`; CLI flags `--exclude-regions`, `--exclude-regions-bed`, `--exclude-regions-build` (ldscore only); config fields in `RefPanelConfig` and `ReferencePanelBuildConfig` in `src/ldsc/config.py` |
+| `docs/current/data-flow.md` (`## Region Exclusion`) | packaged preset BEDs under `src/ldsc/data/regions/`; `ldscore` and `build-gene-ldscore-index` use `--regr-snps-exclude-regions` (with hidden `--exclude-regions` alias) for regression/output rows; `build-ref-panel` has no region-pruning flag |
 
 ## LD-Score Calculation Parallelism
 

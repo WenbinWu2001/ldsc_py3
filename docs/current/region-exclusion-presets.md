@@ -8,9 +8,13 @@ A SNP at 1-based position `p` is excluded iff `start < p <= end` for some packag
 
 Region coordinates are stored in `src/ldsc/data/regions/` as standard UCSC BED3 files. Each is tab-separated with three columns—`chrom`, `chromStart`, `chromEnd`—using the UCSC 0-based, half-open convention (start inclusive, end exclusive), as the header comments note.
 
-## CLI choices (`--exclude-regions`)
+## CLI choices (`--regr-snps-exclude-regions`)
 
-Single-choice enum; **default `mhc-and-centromeres`**. The selected intervals are subtracted only from the selected regression SNP set (bundled HM3 by default, or `--regression-snps-file`). They do not remove reference SNPs from baseline/query LD-score accumulation, `M`, `M_5_50`, or annotation-overlap counts.
+Single-choice enum; **default `mhc-and-centromeres`**. The selected intervals are subtracted only from the selected regression SNP set (bundled HM3 by default, or `--regr-snps-file`). They do not remove reference SNPs from baseline/query LD-score accumulation, `M`, `M_5_50`, or annotation-overlap counts.
+
+The former `--exclude-regions` spelling remains accepted as a hidden CLI alias
+and maps to the same `regr_snps_exclude_regions` setting. New commands,
+configuration, logs, and index metadata use the new name.
 
 | Choice | Excluded Region | Coordinate Source |
 |---|---|---|
@@ -21,13 +25,13 @@ Single-choice enum; **default `mhc-and-centromeres`**. The selected intervals ar
 
 - The internal `centromeres_core` track stores the raw centromere assembly gap
   from UCSC `gap`/`centromeres` tracks. It is available to maintenance and
-  kernel code but is not an accepted public `--exclude-regions` choice.
+  kernel code but is not an accepted public `--regr-snps-exclude-regions` choice.
 - All three presets are regenerable with `python tools/regions/build_region_beds.py` (a dev-only tool; not shipped). The genetic maps are a curation-time input (workspace `resources/genetic_maps/genetic_map_alkesgroup/`, overridable via `LDSC_GENETIC_MAP_DIR`), not bundled in the package.
 
-## Command scope (which commands honor `--exclude-regions`)
+## Command scope (which commands honor `--regr-snps-exclude-regions`)
 
 Both **`ldscore`** and **`build-gene-ldscore-index`** expose
-`--exclude-regions`, defaulting to `mhc-and-centromeres`. In both workflows it
+`--regr-snps-exclude-regions`, defaulting to `mhc-and-centromeres`. In both workflows it
 selects persisted regression/output rows and `w_ld` contributors after the
 LD-reference universe has been retained. The regression commands
 (`h2`/`rg`/`partitioned-h2`) have no region option: they inherit the filtered

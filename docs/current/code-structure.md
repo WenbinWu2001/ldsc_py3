@@ -101,7 +101,7 @@ ldsc_py3_Jerry/
 | change gene catalog validation, identifier resolution, or list naming | `src/ldsc/gene_list_resolver.py`, then `src/ldsc/annotation_builder.py` |
 | change BED/gene partial-success statuses or diagnostic schemas | `src/ldsc/query_annotations.py`, `src/ldsc/ldscore_calculator.py`, `src/ldsc/outputs.py` |
 | change parquet reference-panel build logic | `src/ldsc/ref_panel_builder.py`, then `src/ldsc/_kernel/ref_panel_builder.py` |
-| change source-build region exclusion for panel building or LD-score runtime | `src/ldsc/config.py`, `src/ldsc/_kernel/regions.py`, then `src/ldsc/ref_panel_builder.py` or `src/ldsc/_kernel/ref_panel.py` |
+| change named regression-SNP region exclusion for `ldscore` or gene-index construction | `src/ldsc/config.py`, `src/ldsc/_kernel/regions.py`, then `src/ldsc/ldscore_calculator.py` or `src/ldsc/gene_ldscore_index.py` |
 | change R2 pair lookup CLI/API behavior | `src/ldsc/r2_query.py`, then `src/ldsc/_kernel/r2_query.py` |
 | change runtime PLINK/parquet reference access | `src/ldsc/_kernel/ref_panel.py` |
 | change LD-score orchestration, optional-baseline behavior, or output packaging | `src/ldsc/ldscore_calculator.py`, `src/ldsc/outputs.py` |

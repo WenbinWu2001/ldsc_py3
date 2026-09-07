@@ -1,6 +1,6 @@
 # Munge-Sumstats
 
-Last updated on: 2026-08-05
+Last updated on: 2026-09-07
 
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`
@@ -175,7 +175,8 @@ values are available. Downstream LDSC commands do not consume this file.
 
 `--infer-only` is the quick pre-run diagnosis mode. It reads the raw header and
 a small coordinate sample, prints the inferred configuration, and writes no
-artifacts. It does not require `--output-dir`.
+artifacts. The CLI still requires `--output-dir` for a uniform command contract;
+the directory is not created in inference-only mode.
 
 In coordinate-family modes, `--infer-only` also requires
 `--output-genome-build` because liftover status cannot be diagnosed without the
@@ -188,6 +189,7 @@ ldsc munge-sumstats \
   --raw-sumstats-file data/trait.tsv.gz \
   --snp-identifier chr_pos_allele_aware \
   --output-genome-build hg38 \
+  --output-dir results/trait \
   --infer-only
 ```
 
@@ -207,9 +209,9 @@ The report includes:
 The suggested command is printed even when the report is runnable. In that case,
 it is the resolved command to run next: `auto` inputs are replaced by explicit
 values such as `--format plain` and `--source-genome-build hg19`, and the output
-directory defaults to the shell-safe placeholder `./munged_sumstats`. This keeps
-`auto` as the user-friendly input default while making diagnostic output
-explicit and reproducible.
+directory is copied from the required `--output-dir` argument. This keeps `auto`
+as the user-friendly input default while making diagnostic output explicit and
+reproducible.
 
 Example report shape:
 
@@ -228,7 +230,7 @@ Next step:
   Suggested command:
     ldsc munge-sumstats \
       --raw-sumstats-file data/trait.tsv.gz \
-      --output-dir ./munged_sumstats \
+      --output-dir results/trait \
       --format plain \
       --snp-identifier chr_pos_allele_aware \
       --output-genome-build hg38 \
@@ -316,6 +318,7 @@ Diagnose first:
 ldsc munge-sumstats \
   --raw-sumstats-file data/trait.tsv.gz \
   --output-genome-build hg38 \
+  --output-dir outputs/trait_hg38 \
   --infer-only
 ```
 

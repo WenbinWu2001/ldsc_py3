@@ -26,17 +26,17 @@ Base modes are allele-blind; allele-aware/base mixes can run under the base mode
 only when ``--allow-identity-downgrade`` or
 ``RegressionConfig.allow_identity_downgrade`` is set, and only within the same
 rsID or coordinate family.
-Partitioned-h2 requires non-empty query LD-score columns and fits one
-baseline-plus-query model per query annotation. It can optionally retain and
-write the full category table for each fitted model through the output-layer
+Partitioned-h2 fits the complete baseline model for baseline-only inputs and
+one baseline-plus-query model per query annotation otherwise. Query runs retain
+and write the full category table for every fitted model through the output-layer
 ``PartitionedH2DirectoryWriter``. Genetic correlation accepts a list of two or
 more munged summary-statistic sources and returns the full rg output family:
 the concise headline table, a diagnostic full table, per-trait h2 summaries,
 and optional per-pair metadata for filesystem detail outputs.
 
-Regression commands create per-run logs only when an ``output_dir`` is supplied,
-under ``diagnostics/``. In-memory regression calls and CLI invocations without
-an output directory remain console-only.
+Regression commands require an ``output_dir`` and create per-run logs under
+``diagnostics/``. Numerical methods on :class:`RegressionRunner` remain
+in-memory APIs.
 """
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ import json
 import logging
 import math
 import time
+import warnings
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -2435,7 +2436,10 @@ def add_partitioned_h2_arguments(parser) -> None:
         "--write-per-query-results",
         action="store_true",
         default=False,
-        help="Also write one sanitized result folder per query annotation under output_dir/diagnostics/query_annotations.",
+        help=(
+            "Deprecated no-op retained for compatibility. Query-annotation runs now always write one sanitized "
+            "result folder per query annotation under output_dir/diagnostics/query_annotations."
+        ),
     )
     parser.add_argument(
         "--summary-sort-by",
@@ -2500,10 +2504,8 @@ def add_rg_arguments(parser) -> None:
 def run_h2_from_args(args):
     """Run single-trait heritability estimation from parsed CLI arguments.
 
-    When ``args.output_dir`` is provided, the workflow preflights ``h2.tsv``,
-    ``diagnostics/metadata.json``, and ``diagnostics/h2.log`` before loading inputs. Without an
-    output directory, it returns the summary table without creating output
-    artifacts.
+    The workflow requires ``args.output_dir`` and preflights ``h2.tsv``,
+    ``diagnostics/metadata.json``, and ``diagnostics/h2.log`` before loading inputs.
     """
     output_dir, log_path = _preflight_regression_outputs(
         args,
@@ -2518,7 +2520,7 @@ def run_h2_from_args(args):
     with workflow_logging("h2", log_path, log_level=getattr(args, "log_level", "INFO")):
         runner, config = _runner_from_args(args)
         print_global_config_banner("run_h2_from_args", runner.global_config)
-        log_inputs(sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir, output_dir=output_dir or "none")
+        log_inputs(sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir, output_dir=output_dir)
         LOGGER.info(f"Starting h2 regression for '{args.sumstats_file}' using LD-score directory '{args.ldscore_dir}'.")
         sumstats_table = _load_sumstats_table(args.sumstats_file, getattr(args, "trait_name", None))
         ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
@@ -2570,20 +2572,18 @@ def run_h2_from_args(args):
 def run_partitioned_h2_from_args(args):
     """Run batch partitioned heritability from parsed CLI arguments.
 
-    When ``args.output_dir`` is provided, the workflow preflights
-    ``partitioned_h2.tsv``, optional ``diagnostics/query_annotations/``, and
-    ``diagnostics/partitioned-h2.log`` before loading inputs. With overwrite enabled,
-    successful aggregate-only runs remove stale ``diagnostics/query_annotations/`` trees.
-    Without an output directory, it returns the summary table without creating
-    a log file.
+    The workflow requires ``args.output_dir`` and preflights
+    ``partitioned_h2.tsv``, ``diagnostics/query_annotations/``, and
+    ``diagnostics/partitioned-h2.log`` before loading inputs. Query-annotation
+    runs always write per-query results; baseline-only runs keep the complete
+    fitted-model artifacts at the result root.
     """
     preflight_names = [
         "partitioned_h2.tsv",
         "diagnostics/metadata.json",
         "diagnostics/coefficient_delete_values.parquet",
     ]
-    if getattr(args, "write_per_query_results", False):
-        preflight_names.append("diagnostics/query_annotations")
+    preflight_names.append("diagnostics/query_annotations")
     output_dir, log_path = _preflight_regression_outputs(
         args,
         "partitioned-h2",
@@ -2597,9 +2597,16 @@ def run_partitioned_h2_from_args(args):
         ],
     )
     with workflow_logging("partitioned-h2", log_path, log_level=getattr(args, "log_level", "INFO")):
+        if getattr(args, "write_per_query_results", False):
+            warnings.warn(
+                "--write-per-query-results is deprecated and has no effect; query-annotation runs now write "
+                "per-query results by default.",
+                FutureWarning,
+                stacklevel=2,
+            )
         runner, config = _runner_from_args(args)
         print_global_config_banner("run_partitioned_h2_from_args", runner.global_config)
-        log_inputs(sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir, output_dir=output_dir or "none")
+        log_inputs(sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir, output_dir=output_dir)
         LOGGER.info(
             f"Starting partitioned-h2 regression for '{args.sumstats_file}' using LD-score directory '{args.ldscore_dir}'."
         )
@@ -2615,12 +2622,7 @@ def run_partitioned_h2_from_args(args):
             query_columns=_validate_partitioned_query_columns(ldscore_result, ldscore_result.query_columns)
         )
         has_queries = bool(ldscore_result.query_columns)
-        write_per_query_results = bool(getattr(args, "write_per_query_results", False) and has_queries)
-        if getattr(args, "write_per_query_results", False) and not has_queries:
-            LOGGER.warning(
-                "--write-per-query-results has no effect in the baseline-only functional-category regime; "
-                "the complete fitted model and coefficient delete values will be written at the result root."
-            )
+        write_per_query_results = has_queries
         _log_effective_regression_identity([sumstats_table], ldscore_result, runner.global_config, config)
         _log_partitioned_h2_regime(ldscore_result, has_queries)
         _log_quantitative_annotation_interpretation(ldscore_result)
@@ -2695,42 +2697,32 @@ def run_partitioned_h2_from_args(args):
 def run_rg_from_args(args):
     """Run multi-trait genetic-correlation estimation from parsed CLI args.
 
-    With ``--output-dir``, the workflow writes the rg result family:
+    The workflow requires ``--output-dir`` and writes the rg result family:
     ``rg.tsv``, ``rg_full.tsv``, ``h2_per_trait.tsv``, optional
     ``diagnostics/pairs/``, and workflow-owned ``diagnostics/rg.log``.
-    Without ``--output-dir``, it returns the same
-    in-memory result family and the CLI prints only ``rg.tsv`` to stdout.
 
     Parameters
     ----------
     args : argparse.Namespace
         Parsed rg options. Required fields are ``sumstats_sources`` and
-        ``ldscore_dir``. Optional fields include ``anchor_trait``,
-        ``output_dir``, ``write_per_pair_detail``, intercept settings, and
+        ``ldscore_dir`` and ``output_dir``. Optional fields include ``anchor_trait``,
+        ``write_per_pair_detail``, intercept settings, and
         common regression options.
 
     Returns
     -------
     RgResultFamily
-        Complete in-memory result family. The function itself never prints; CLI
-        dispatch owns stdout behavior for no-output-dir runs.
+        Complete in-memory result family. The function itself never prints.
 
     Raises
     ------
     ValueError
-        If fewer than two sumstats paths resolve, per-pair detail is requested
-        without an output directory, or fixed-intercept flags conflict with
-        ``--no-intercept``.
+        If fewer than two sumstats paths resolve, ``output_dir`` is absent, or
+        fixed-intercept flags conflict with ``--no-intercept``.
     """
     from .prevalence import resolve_rg_prevalences
 
     _validate_intercept_conflicts(args)
-    if getattr(args, "write_per_pair_detail", False) and not getattr(args, "output_dir", None):
-        raise LDSCUsageError(
-            "rg cannot write per-pair detail without `--output-dir`. Most likely "
-            "`--write-per-pair-detail` was requested for a stdout-only run. "
-            "Pass `--output-dir <dir>` or omit `--write-per-pair-detail`."
-        )
     output_names = ["rg.tsv", "rg_full.tsv", "h2_per_trait.tsv", "diagnostics/metadata.json"]
     if getattr(args, "write_per_pair_detail", False):
         output_names.append("diagnostics/pairs")
@@ -2760,7 +2752,7 @@ def run_rg_from_args(args):
             sumstats_sources=[str(path) for path in sumstats_paths],
             anchor_trait=getattr(args, "anchor_trait", None) or "none",
             ldscore_dir=args.ldscore_dir,
-            output_dir=output_dir or "none",
+            output_dir=output_dir,
         )
         LOGGER.info(
             f"Starting rg regression for {len(sumstats_paths)} sumstats files "
@@ -2845,7 +2837,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None
         default="common",
         help="Reference SNP count vector used by regression.",
     )
-    parser.add_argument("--output-dir", default=None, help="Optional output directory for workflow result files; strongly recommended.")
+    parser.add_argument("--output-dir", required=True, help="Output directory for workflow result files.")
     parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing workflow output artifacts.")
     parser.add_argument("--n-blocks", type=int, default=200)
     parser.add_argument("--no-intercept", action="store_true", default=False, help="Fix the intercept to the LDSC default.")
@@ -2871,11 +2863,14 @@ def _preflight_regression_outputs(
     workflow_name: str,
     output_names: list[str],
     owned_output_names: list[str] | None = None,
-) -> tuple[str | None, Path | None]:
+) -> tuple[str, Path]:
     """Preflight regression outputs and return normalized output dir plus log path."""
     output_dir_arg = getattr(args, "output_dir", None)
     if not output_dir_arg:
-        return None, None
+        raise LDSCUsageError(
+            f"{workflow_name} requires `--output-dir`. Most likely a programmatic namespace omitted output_dir. "
+            "Pass an explicit result directory."
+        )
     output_dir = ensure_output_directory(output_dir_arg, label="output directory")
     paths = [output_dir / name for name in output_names]
     log_path = output_dir / "diagnostics" / f"{workflow_name}.log"

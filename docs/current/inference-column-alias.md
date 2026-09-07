@@ -1,5 +1,7 @@
 # Supported Column Alias Inference
 
+Last updated on: 2026-09-07
+
 Column aliases are centralized in `src/ldsc/column_inference.py`. The registry
 is used by the main workflows (`munge-sumstats`, annotation loading,
 `build-ref-panel`, `ldscore`, regression SNP restrictions, and package-written
@@ -46,7 +48,7 @@ VCF-style headers, old DANER, and new DANER. Users can inspect the decision with
 writing outputs:
 
 ```bash
-ldsc munge-sumstats --raw-sumstats-file raw.txt --infer-only --output-genome-build hg38
+ldsc munge-sumstats --raw-sumstats-file raw.txt --output-dir out --infer-only --output-genome-build hg38
 ```
 
 `--infer-only` reports the detected format, safe column hints, missing required

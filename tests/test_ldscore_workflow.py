@@ -436,6 +436,19 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 with self.assertRaisesRegex(LDSCUsageError, "removed IO argument"):
                     ldscore_workflow.run_ldscore(output_dir="out", **{name: "value"})
 
+    def test_run_ldscore_requires_output_dir_without_creating_a_placeholder(self):
+        with self.assertRaisesRegex(LDSCUsageError, "requires output_dir"):
+            ldscore_workflow.run_ldscore(plink_prefix="panel", ld_wind_snps=10)
+
+    def test_calculator_rejects_ref_metadata_export_without_output_config(self):
+        with self.assertRaisesRegex(LDSCUsageError, "requires output_config"):
+            ldscore_workflow.LDScoreCalculator().run(
+                None,
+                None,
+                LDScoreConfig(ld_wind_snps=10, export_ref_metadata=True),
+                GlobalConfig(snp_identifier="rsid"),
+            )
+
     def test_normalize_run_args_chr_pos_still_requires_genome_build(self):
         args = Namespace(
             output_dir="out",

@@ -1,6 +1,6 @@
 # Workflow Logging
 
-Last updated on: 2026-08-24
+Last updated on: 2026-09-07
 
 Public workflow entry points share one logging policy:
 
@@ -28,21 +28,21 @@ Public workflow entry points share one logging policy:
 
 The per-run `.log` file is the authoritative sink. Console output (stderr) is a
 CLI-only concern, installed by `ldsc.cli.run_cli`; `stdout` is reserved for
-deliverable command output (e.g. regression TSV tables), so log records never go
-to `stdout`. The Python API never writes to the console.
+explicit report output such as `munge-sumstats --infer-only`, so log records
+never go to `stdout`. The Python API never writes to the console.
 
 | Context | Output dir | Module records (INFO/DEBUG) | Errors |
 | --- | --- | --- | --- |
 | CLI | provided | `.log` file only | full traceback to `.log`; concise line + logfile pointer to console |
-| CLI | none | console (stderr) | console |
+| CLI | none | not a public workflow state; every command requires `--output-dir` | argument error |
 | Python API | provided | `.log` file only | full traceback to `.log`; exception propagates to caller |
 | Python API | none | nowhere | exception propagates to caller |
 
 Mechanism: `run_cli` installs one stderr `StreamHandler` on the `LDSC` logger at
-`ERROR` level for the duration of the command. When a run has no log file (a
-console-only quick run), `workflow_logging` temporarily lowers that handler to the
-run's level so progress is visible; with a log file it stays at `ERROR`, so
-ordinary records go to the file and only errors echo to the console. The `LDSC`
+`ERROR` level for the duration of the command. With a workflow log it stays at
+`ERROR`, so ordinary records go to the file and only errors echo to the console.
+Low-level Python calls that intentionally omit a log do not install a console
+handler. The `LDSC`
 logger keeps `propagate = True` and the root logger is never given a handler, so
 nothing is duplicated to the console and `caplog`-based tests keep working.
 
@@ -68,8 +68,8 @@ while `@` chromosome-suite prefixes own the full build-ref-panel log family.
 
 This keeps an output directory from mixing artifacts from different
 configurations, while preserving unrelated user files. Direct Python writer
-APIs apply the same rule to their data artifacts and omit workflow logs unless
-they are reached through a wrapper that creates one.
+APIs apply the same rule to their data artifacts. Public materializing workflow
+methods, including `AnnotationBuilder.run()`, create their canonical log.
 
 ## Log Layout
 
@@ -117,14 +117,15 @@ header is written and final work before the footer is written.
 | `ldscore` | `<output_dir>/diagnostics/ldscore.log` |
 | `build-ref-panel` | `<output_dir>/diagnostics/build-ref-panel.log`, or `<output_dir>/diagnostics/build-ref-panel.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
 | `build-gene-ldscore-index` | completed success: `<index_dir>/diagnostics/build-gene-ldscore-index.log`; running/failed: `<parent>/.<index-name>.build-state/build-gene-ldscore-index.log`; prior failed attempts move to hidden `history/` |
+| `convert-ldsc2-ldscores` | `<output_dir>/diagnostics/convert-ldsc2-ldscores.log` |
 | `h2` | `<output_dir>/diagnostics/h2.log` |
 | `partitioned-h2` | `<output_dir>/diagnostics/partitioned-h2.log` |
 | `quantile-h2` | `<output_dir>/diagnostics/quantile-h2.log` |
 | `rg` | `<output_dir>/diagnostics/rg.log` |
+| `query-r2` | `<output_dir>/diagnostics/query-r2.log` |
 
-Regression commands without `--output-dir` stay console-only and do not create
-log files; their progress records print to the console (stderr) via the routing
-described above.
+Every regression CLI command requires `--output-dir` and writes its command log
+under that directory's `diagnostics/` tree.
 
 LD-score logs list binary and quantitative fitted annotations. Partitioned-h2 logs repeat an actionable interpretation warning when quantitative annotations are present: legacy numerical proportion/enrichment summaries remain visible, but only coefficient-based fields retain their ordinary interpretation for those annotations. Quantile-h2 logs the selected fitted model, target, inherited common-MAF rule, common reference-SNP universe size, missing exclusions, verification level, and realized quantile bounds/counts. Row-addressable alignment issues are written to `snp_alignment_issues.tsv.gz` rather than expanded into the log.
 
@@ -160,8 +161,10 @@ console output: records go to the workflow log file when one is created, and
 otherwise nowhere, while exceptions propagate to the caller unchanged. Direct
 computational class APIs remain data-oriented:
 
-- `AnnotationBuilder.project_bed_annotations(...)` does not create
-  `diagnostics/annotate.log` when called directly.
+- `AnnotationBuilder.run(...)` and
+  `AnnotationBuilder.project_bed_annotations(...)` create
+  `diagnostics/annotate.log` when their optional output destination is set;
+  output-free calls remain in memory.
 - `LDScoreCalculator.run(...)` does not create `diagnostics/ldscore.log`.
 - `ReferencePanelBuilder.run(...)` does not create a build-ref-panel workflow log.
 - `RegressionRunner.estimate_*` methods do not create regression logs.

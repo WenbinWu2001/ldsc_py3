@@ -343,18 +343,13 @@ class TestQueryR2CLI:
             "--pairs", str(pairs_path), *extra,
         ]
 
-    def test_streams_tsv_to_stdout_when_no_output_dir(self, tmp_path, capsys):
-        import io
-
+    def test_requires_output_dir(self, tmp_path, capsys):
         from ldsc.cli import main as cli_main
 
         pairs_path = self._write_pairs(tmp_path)
-        cli_main(self._argv(tmp_path, pairs_path))
-        captured = capsys.readouterr().out
-        # stdout must be a clean, parseable TSV (pipe-able), nothing else.
-        streamed = pd.read_csv(io.StringIO(captured), sep="\t")
-        assert streamed["r2"].iloc[0] == pytest.approx(0.64, abs=1e-4)
-        assert {"status", "r"}.issubset(streamed.columns)
+        with pytest.raises(SystemExit):
+            cli_main(self._argv(tmp_path, pairs_path))
+        assert capsys.readouterr().out == ""
         assert not (tmp_path / "query_r2.tsv").exists()
 
     def test_output_dir_writes_result_metadata_and_log(self, tmp_path):

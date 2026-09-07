@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-08-24
+Last updated on: 2026-09-07
 
 This document summarizes the user-visible file streams for each public workflow. The diagrams use Mermaid `flowchart LR` because it maps cleanly onto the package's left-to-right data movement and layered module boundaries.
 
@@ -264,9 +264,8 @@ tie at exactly 0.5 keeps PLINK order. See
 It opens either a build-ref-panel output directory or one explicit
 `chrN_meta.tsv.gz` plus `chrN_r2.parquet` pair, validates the sidecar binding
 against parquet metadata, resolves each endpoint under the active SNP
-identifier mode, and looks up stored pair rows. Without `--output-dir` it
-streams one annotated pair table as a clean TSV to stdout; with `--output-dir`
-it writes the canonical result directory (`query_r2.tsv` plus
+identifier mode, and looks up stored pair rows. It requires `--output-dir` and
+writes the canonical result directory (`query_r2.tsv` plus
 `diagnostics/metadata.json` and `diagnostics/query-r2.log`).
 
 ### Required inputs
@@ -295,7 +294,7 @@ flowchart LR
 
   I1 --> Q1
   I2 --> Q2
-  Q1 --> Q2 --> Q4 --> Q3 --> OQ[stdout or query TSV]
+  Q1 --> Q2 --> Q4 --> Q3 --> OQ[query_r2.tsv plus diagnostics]
 ```
 
 ### Outputs
@@ -471,9 +470,10 @@ footer identity metadata, dropped-SNP sidecar, and curated output writing; the
 kernel keeps the low-level parsing and QC. Before calling the kernel, the
 workflow runs format and column inference:
 `--format auto` is the default and detects plain whitespace text, including
-VCF-style headers, old DANER, and new DANER. `--infer-only` runs that inference pass
-without requiring `--output-dir` and prints missing fields plus exact repair
-suggestions. Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
+VCF-style headers, old DANER, and new DANER. `--infer-only` runs that inference
+pass, still requires `--output-dir` for the uniform CLI contract, creates no
+output directory, and prints missing fields plus exact repair suggestions.
+Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
 also supports the legacy `sumstats.sumstats.gz` artifact. With overwrite
 enabled, stale sibling formats not produced by the current run are removed
 after successful writes. Optional sumstats liftover is a `chr_pos`-family step:
@@ -553,8 +553,8 @@ interpreted relative to `A1`.
 
 ## 6. `h2`, `partitioned-h2`, and `rg`: Curated Artifacts To Regression Summaries
 
-Regression summary commands write fixed result artifacts when `output_dir` is
-supplied. `h2` writes root `h2.tsv` plus diagnostics; `partitioned-h2` writes
+Regression summary commands require `output_dir` and write fixed result
+artifacts. `h2` writes root `h2.tsv` plus diagnostics; `partitioned-h2` writes
 root `partitioned_h2.tsv` plus diagnostics; `rg` writes root `rg.tsv`,
 `rg_full.tsv`, `h2_per_trait.tsv`, and optional diagnostics under
 `diagnostics/pairs/`. RG result tables report nominal p-values only; corrected
@@ -563,18 +563,16 @@ trees, or logs raise before the new table is written unless the command includes
 `--overwrite`. For
 `partitioned-h2`, `partitioned_h2.tsv`, `diagnostics/query_annotations/`, and
 `diagnostics/partitioned-h2.log` are treated as one owned family;
-aggregate-only overwrites remove stale `diagnostics/query_annotations/` after
-the new summary is written. Without `output_dir`, regression commands print the
-compact public TSV table to stdout and write no diagnostics.
-`partitioned-h2` can also write an opt-in per-query tree with
-`--write-per-query-results`; the aggregate `partitioned_h2.tsv` remains the
-stable summary entry point. It requires query LD scores in the LD-score
-directory; baseline-only directories are valid for `h2` and `rg` but are
-rejected by `partitioned-h2`.
+baseline-only overwrites remove stale `diagnostics/query_annotations/` after
+the new summary is written. Query-mode `partitioned-h2` always writes its
+per-query tree; deprecated `--write-per-query-results` is a warning-producing
+no-op. The aggregate `partitioned_h2.tsv` remains the stable summary entry
+point. Baseline-only directories run the functional-category regime and keep
+complete-model artifacts at the result root.
 For rg, `--sumstats-sources` accepts two or more files; three or more files
 produce all unordered pairs unless `--anchor-trait` selects one trait label or
 source path for anchor-vs-rest estimation. `--write-per-pair-detail` adds the
-optional `diagnostics/pairs/` detail tree when an `output_dir` is supplied.
+optional `diagnostics/pairs/` detail tree under the required `output_dir`.
 
 Regression merges on the effective key for the resolved mode: `SNP` in `rsid`,
 `SNP:<allele_set>` in `rsid_allele_aware`, `CHR:POS` in `chr_pos`, and
@@ -630,11 +628,11 @@ flowchart LR
 | `partitioned-h2` | `category`, `prop_snps`, `prop_h2`, `prop_h2_se`, `enrichment`, `enrichment_se`, `enrichment_p`, `coefficient`, `coefficient_se`, `coefficient_z`, `coefficient_p`, `overlap_annot`, `total_h2_obs`, `total_h2_obs_se`, `total_h2_liab`, `total_h2_liab_se`, `category_h2_obs`, `category_h2_obs_se`, `category_h2_liab`, `category_h2_liab_se`, `samp_prev`, `pop_prev` (overlap-aware; lowercase snake_case like `h2`/`rg`; one schema for both regimes; `total_h2` is the per-model total; `*_liab`/prevalence columns are `NaN` without prevalences) | `enhancer_A 0.02 0.14 0.04 7.0 2.0 0.003 0.012 0.004 3.0 0.001 True 0.18 0.03 NaN NaN 0.003 0.001 NaN NaN NaN NaN` |
 | `rg` | concise `rg.tsv`: `trait_1`, `trait_2`, `n_snps_used`, `rg`, `rg_se`, `p`, `note`. `rg_full.tsv` adds per-trait `h2_1_obs`/`h2_1_liab`/`h2_2_obs`/`h2_2_liab` (+ `_se`), `gencov_obs`/`gencov_liab` (+ `_se`), and `samp_prev_1`/`pop_prev_1`/`samp_prev_2`/`pop_prev_2`; the `rg` ratio is scale-invariant. | `trait_a trait_b 152334 0.42 0.09 2.6e-06 ` |
 
-When `output_dir` is supplied, the same directory also receives the matching
+The required `output_dir` also receives the matching
 workflow log. The log is not part of any returned result `output_paths` mapping.
 
-When `partitioned-h2 --write-per-query-results` is supplied, the command also
-writes `diagnostics/query_annotations/manifest.tsv` plus one ordinal-prefixed
+Query-mode `partitioned-h2` writes `diagnostics/query_annotations/manifest.tsv`
+plus one ordinal-prefixed
 sanitized folder per query annotation. Each query folder contains
 `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json`.
 For column definitions and interpretation, see

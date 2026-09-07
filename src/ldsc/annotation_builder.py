@@ -359,7 +359,10 @@ class AnnotationBuilder:
         This method accepts whole-genome inputs where all files share one SNP
         row universe, and chromosome-sharded inputs such as
         ``baseline.1.annot.gz`` through ``baseline.22.annot.gz``. BED query
-        inputs are projected onto the resolved baseline SNP grid in memory.
+        inputs are projected onto the resolved baseline SNP grid in memory. If
+        ``source_spec.output_dir`` is set, the method also writes the canonical
+        query shards, metadata, dropped-SNP audit, and
+        ``diagnostics/annotate.log`` artifact family.
 
         Parameters
         ----------
@@ -451,7 +454,7 @@ class AnnotationBuilder:
                     "do not match the baseline chromosome shards. Most likely query inputs are whole-genome while "
                     "baseline inputs are chromosome-sharded. Use the same sharding convention for both."
                 )
-            return self._run_sharded_inputs(
+            bundle = self._run_sharded_inputs(
                 source_spec,
                 sharded_baseline,
                 sharded_query,
@@ -461,16 +464,19 @@ class AnnotationBuilder:
                 control_resolution=control_resolution,
                 gene_list_batch=gene_list_batch,
             )
-
-        return self._run_single_universe(
-            source_spec,
-            baseline_files,
-            query_files,
-            chrom=chrom,
-            gene_resolutions=gene_resolutions,
-            control_resolution=control_resolution,
-            gene_list_batch=gene_list_batch,
-        )
+        else:
+            bundle = self._run_single_universe(
+                source_spec,
+                baseline_files,
+                query_files,
+                chrom=chrom,
+                gene_resolutions=gene_resolutions,
+                control_resolution=control_resolution,
+                gene_list_batch=gene_list_batch,
+            )
+        if source_spec.output_dir is not None:
+            self._write_bundle_outputs(bundle, source_spec)
+        return bundle
 
     def _run_single_universe(
         self,
@@ -994,10 +1000,9 @@ class AnnotationBuilder:
         written as per-chromosome ``query.<chrom>.annot.gz`` files. Existing
         root-level ``query.*.annot.gz`` siblings are refused before writing
         unless overwrite is true; successful overwrites remove stale query
-        shards outside the current chromosome set. Public workflow wrappers may
-        attach a private log path so the same preflight also protects
-        ``diagnostics/annotate.log``; ordinary direct calls do not create a
-        log file.
+        shards outside the current chromosome set. Materializing calls also
+        preflight and write ``diagnostics/annotate.log``; wrappers may attach a
+        private log path to use the same artifact stream.
 
         Parameters
         ----------
@@ -1014,9 +1019,8 @@ class AnnotationBuilder:
             Number of base pairs to add to both sides of each BED interval
             before projection. Starts are clipped at zero. Default is ``0``.
         log_level : str, optional
-            Logging threshold for standalone projection calls. When the method
-            is reached from the parsed workflow wrapper, the same threshold
-            controls records written to ``diagnostics/annotate.log``.
+            Logging threshold for records written to
+            ``diagnostics/annotate.log`` when output is materialized.
         overwrite : bool, optional
             Whether fixed output files may be replaced and stale owned siblings
             removed. Defaults to the builder configuration when omitted.
@@ -1036,51 +1040,79 @@ class AnnotationBuilder:
         )
         bundle = self.run(source_spec)
         if output_dir is not None:
-            output_path = ensure_output_directory(output_dir, label="output directory")
-            diagnostics_dir = output_path / "diagnostics"
-            metadata_path = diagnostics_dir / "metadata.json"
-            drop_sidecar_path = _annotation_dropped_snps_path(output_path)
-            output_paths = _bundle_query_annot_output_paths(bundle, output_path)
-            produced_paths: list[Path] = [metadata_path, *output_paths, drop_sidecar_path]
-            owned_paths = sorted(output_path.glob("query.*.annot.gz"))
-            owned_paths.extend(produced_paths)
-            if self._workflow_log_path is not None:
-                produced_paths.append(self._workflow_log_path)
-                owned_paths.append(self._workflow_log_path)
-            stale_paths = preflight_output_artifact_family(
-                produced_paths,
-                owned_paths,
-                overwrite=overwrite,
-                label="annotation output artifact",
+            self._write_bundle_outputs(
+                bundle,
+                AnnotationBuildConfig(
+                    baseline_annot_sources=baseline_annot_sources,
+                    query_annot_bed_sources=query_annot_bed_sources,
+                    padding_bp=padding_bp,
+                    output_dir=output_dir,
+                    overwrite=overwrite,
+                ),
+                log_level=log_level,
             )
-            diagnostics_dir.mkdir(parents=True, exist_ok=True)
-            with workflow_logging("annotate", self._workflow_log_path, log_level=log_level or self.global_config.log_level):
-                log_inputs(
-                    query_annot_bed_sources=query_annot_bed_sources,
-                    baseline_annot_sources=baseline_annot_sources,
-                    padding_bp=padding_bp,
-                    output_dir=str(output_path),
-                )
-                written = _write_bundle_query_as_annot_files(bundle, output_path)
-                drop_frame = _coerce_annotation_dropped_snps_frame(self._identity_drop_frame)
-                _write_annotation_dropped_snps_sidecar(drop_frame, drop_sidecar_path)
-                _write_annotation_metadata(
-                    metadata_path,
-                    bundle=bundle,
-                    query_annot_bed_sources=query_annot_bed_sources,
-                    baseline_annot_sources=baseline_annot_sources,
-                    padding_bp=padding_bp,
-                    dropped_snps_path=drop_sidecar_path,
-                    written_query_paths=written,
-                )
-                _log_annotation_dropped_snps_summary(drop_frame, drop_sidecar_path)
-                log_outputs(
-                    metadata=str(metadata_path),
-                    **{f"query_{chrom}": str(path) for chrom, path in zip(bundle.chromosomes, written)},
-                    dropped_snps=str(drop_sidecar_path),
-                )
-                remove_output_artifacts(stale_paths)
         return bundle
+
+    def _write_bundle_outputs(
+        self,
+        bundle: AnnotationBundle,
+        source_spec: AnnotationBuildConfig,
+        *,
+        log_level: str | None = None,
+    ) -> None:
+        """Materialize one annotation bundle as the canonical artifact family."""
+        if source_spec.output_dir is None:
+            raise LDSCInternalError("Annotation output writing requires source_spec.output_dir.")
+        output_path = ensure_output_directory(source_spec.output_dir, label="output directory")
+        diagnostics_dir = output_path / "diagnostics"
+        metadata_path = diagnostics_dir / "metadata.json"
+        drop_sidecar_path = _annotation_dropped_snps_path(output_path)
+        log_path = self._workflow_log_path or diagnostics_dir / "annotate.log"
+        output_paths = _bundle_query_annot_output_paths(bundle, output_path)
+        produced_paths: list[Path] = [metadata_path, *output_paths, drop_sidecar_path, log_path]
+        owned_paths = sorted(output_path.glob("query.*.annot.gz"))
+        owned_paths.extend(produced_paths)
+        stale_paths = preflight_output_artifact_family(
+            produced_paths,
+            owned_paths,
+            overwrite=source_spec.overwrite,
+            label="annotation output artifact",
+        )
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        query_source_kind, query_sources = _annotation_query_sources(source_spec)
+        with workflow_logging(
+            "annotate",
+            log_path,
+            log_level=log_level or self.global_config.log_level,
+        ):
+            log_inputs(
+                query_source_kind=query_source_kind,
+                query_sources=query_sources,
+                baseline_annot_sources=source_spec.baseline_annot_sources,
+                padding_bp=source_spec.padding_bp,
+                output_dir=str(output_path),
+            )
+            written = _write_bundle_query_as_annot_files(bundle, output_path)
+            drop_frame = _coerce_annotation_dropped_snps_frame(self._identity_drop_frame)
+            _write_annotation_dropped_snps_sidecar(drop_frame, drop_sidecar_path)
+            _write_annotation_metadata(
+                metadata_path,
+                bundle=bundle,
+                query_source_kind=query_source_kind,
+                query_sources=query_sources,
+                query_annot_bed_sources=source_spec.query_annot_bed_sources,
+                baseline_annot_sources=source_spec.baseline_annot_sources,
+                padding_bp=source_spec.padding_bp,
+                dropped_snps_path=drop_sidecar_path,
+                written_query_paths=written,
+            )
+            _log_annotation_dropped_snps_summary(drop_frame, drop_sidecar_path)
+            log_outputs(
+                metadata=str(metadata_path),
+                **{f"query_{chrom}": str(path) for chrom, path in zip(bundle.chromosomes, written)},
+                dropped_snps=str(drop_sidecar_path),
+            )
+            remove_output_artifacts(stale_paths)
 
     def _ensure_aligned_rows(self, reference: pd.DataFrame, current: pd.DataFrame, path: str) -> None:
         """Raise if two annotation tables do not share identical SNP row order."""
@@ -1125,11 +1157,11 @@ def run_bed_to_annot(
 
     Python workflows read shared identifier, genome-build, and logging settings
     from the registered ``GlobalConfig``. When ``output_dir`` is supplied,
-    fixed ``query.<chrom>.annot.gz`` outputs are refused before writing unless
-    ``overwrite=True``. With overwrite enabled, stale query shards from earlier
-    chromosome sets are removed after successful writes. The wrapper also
-    writes ``diagnostics/annotate.log``; the returned bundle remains an
-    in-memory data object and does not expose the log path.
+    fixed ``query.<chrom>.annot.gz`` outputs and diagnostics are refused before
+    writing unless ``overwrite=True``. With overwrite enabled, stale query
+    shards from earlier chromosome sets are removed after successful writes.
+    Materialized calls include ``diagnostics/annotate.log``; the returned bundle
+    remains an in-memory data object and does not expose the log path.
 
     Parameters
     ----------
@@ -1413,6 +1445,8 @@ def _write_annotation_metadata(
     path: Path,
     *,
     bundle: AnnotationBundle,
+    query_source_kind: str,
+    query_sources: Sequence[str],
     query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]] | None,
     baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]] | None,
     padding_bp: int,
@@ -1435,11 +1469,24 @@ def _write_annotation_metadata(
         "query_columns": list(bundle.query_columns),
         "baseline_columns": list(bundle.baseline_columns),
         "n_snps": int(len(bundle.metadata)),
+        "query_source_kind": query_source_kind,
+        "query_sources": list(query_sources),
         "query_annot_bed_sources": _metadata_path_tokens(query_annot_bed_sources),
         "baseline_annot_sources": _metadata_path_tokens(baseline_annot_sources),
         "padding_bp": int(padding_bp),
     }
     _atomic_write_json(payload, path)
+
+
+def _annotation_query_sources(source_spec: AnnotationBuildConfig) -> tuple[str, list[str]]:
+    """Return the selected query-source kind and normalized provenance paths."""
+    if source_spec.query_annot_bed_sources:
+        return "bed", _metadata_path_tokens(source_spec.query_annot_bed_sources)
+    if source_spec.query_annot_sources:
+        return "annotation", _metadata_path_tokens(source_spec.query_annot_sources)
+    if source_spec.query_annot_gene_list_sources:
+        return "gene_list", _metadata_path_tokens(source_spec.query_annot_gene_list_sources)
+    return "none", []
 
 
 def _metadata_path_tokens(value: str | PathLike[str] | Sequence[str | PathLike[str]] | None) -> list[str]:

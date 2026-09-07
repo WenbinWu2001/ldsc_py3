@@ -118,6 +118,21 @@ class PackageLayoutTest(unittest.TestCase):
         )
         self.assertNotIn("infer-build", subparsers_action.choices)
 
+    def test_every_cli_subcommand_requires_output_dir(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        subparsers_action = next(
+            action for action in parser._actions if action.__class__.__name__ == "_SubParsersAction"
+        )
+
+        for command, command_parser in subparsers_action.choices.items():
+            with self.subTest(command=command):
+                output_action = next(
+                    action for action in command_parser._actions if action.dest == "output_dir"
+                )
+                self.assertTrue(output_action.required)
+
     def test_top_level_help_does_not_import_heavy_workflows(self):
         import subprocess
         import textwrap

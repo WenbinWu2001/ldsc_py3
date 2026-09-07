@@ -1,5 +1,7 @@
 # Cell-Specific LDSC
 
+Last updated on: 2026-09-07
+
 Goal: estimate cell-specific enrichment by running partitioned LDSC with one query annotation per cell type.
 
 In this package, cell-specific LDSC is the `partitioned-h2` workflow applied to cell-type annotations. Baseline annotations stay in the model as covariates, and each cell-type query column is tested in a baseline-plus-one-query model through `RegressionRunner.estimate_partitioned_h2_batch()`.
@@ -158,8 +160,7 @@ ldsc partitioned-h2 \
   --ldscore-dir tutorial_outputs/cell_specific_ldscores \
   --count-kind common \
   --summary-sort-by enrichment-p \
-  --output-dir tutorial_outputs/cell_specific_ldsc \
-  --write-per-query-results
+  --output-dir tutorial_outputs/cell_specific_ldsc
 ```
 
 The regression reads query annotation columns from
@@ -173,7 +174,7 @@ targeted chromosome reads. The output file is
 `coefficient`, and `coefficient_p`.
 For full column definitions, see
 [partitioned-h2-results.md](../docs/current/partitioned-h2-results.md).
-With `--write-per-query-results`, the command also writes
+For query-annotation runs, the command writes by default
 `tutorial_outputs/cell_specific_ldsc/diagnostics/query_annotations/manifest.tsv` and one
 sanitized folder per cell-type query annotation. Each folder contains the
 one-row query summary, the baseline-plus-query `partitioned_h2_full.tsv`, and
@@ -181,5 +182,5 @@ one-row query summary, the baseline-plus-query `partitioned_h2_full.tsv`, and
 If the partitioned summary already exists, `ldsc partitioned-h2` fails before
 writing; the same is true for `diagnostics/partitioned-h2.log` and any stale
 `diagnostics/query_annotations/` tree. Add `--overwrite` only when replacing it is
-intentional. If an overwrite rerun omits `--write-per-query-results`, the old
-per-query tree is removed after the new aggregate summary is written.
+intentional. The deprecated `--write-per-query-results` flag remains accepted
+as a warning-producing no-op; new commands should omit it.

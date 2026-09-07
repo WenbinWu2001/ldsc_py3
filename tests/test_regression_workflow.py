@@ -2409,7 +2409,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "trait_name": "trait",
                 "ldscore_dir": str(ldscore_dir),
                 "count_kind": "common",
-                "output_dir": None,
+                "output_dir": str(tmpdir / "h2_out"),
                 "overwrite": False,
                 "log_level": "INFO",
                 "n_blocks": 200,
@@ -2469,7 +2469,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             with self._patched_h2(), self.assertRaises(LDSCUsageError):
                 regression_runner.run_h2_from_args(args)
 
-    def test_run_h2_from_args_without_output_dir_creates_no_log_file(self):
+    def test_run_h2_from_args_requires_output_dir_before_loading_inputs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
@@ -2497,20 +2497,12 @@ class RegressionWorkflowTest(unittest.TestCase):
             )()
 
             with mock.patch.object(
-                regression_runner.RegressionRunner,
-                "estimate_h2",
-                return_value=mock.Mock(
-                    tot=np.array([0.1]),
-                    tot_se=np.array([0.01]),
-                    intercept=np.array([1.0]),
-                    intercept_se=0.01,
-                    mean_chisq=np.array([1.1]),
-                    lambda_gc=np.array([1.0]),
-                    ratio=0.0,
-                    ratio_se=0.0,
-                ),
+                regression_runner,
+                "_load_sumstats_table",
+                side_effect=AssertionError("sumstats should not load"),
             ):
-                regression_runner.run_h2_from_args(args)
+                with self.assertRaisesRegex(LDSCUsageError, "requires `--output-dir`"):
+                    regression_runner.run_h2_from_args(args)
 
             self.assertFalse(list(tmpdir.glob("*.log")))
             self.assertFalse((tmpdir / "h2_out" / "metadata.json").exists())
@@ -2530,7 +2522,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "trait_name": None,
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
-                    "output_dir": None,
+                    "output_dir": str(tmpdir / "h2_out"),
                     "overwrite": False,
                     "log_level": "INFO",
                     "n_blocks": 200,
@@ -2563,7 +2555,9 @@ class RegressionWorkflowTest(unittest.TestCase):
         parser = argparse.ArgumentParser()
         regression_runner.add_h2_arguments(parser)
 
-        args = parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats-file", "trait.sumstats.gz"])
+        args = parser.parse_args(
+            ["--ldscore-dir", "ldscores", "--sumstats-file", "trait.sumstats.gz", "--output-dir", "out"]
+        )
 
         self.assertEqual(args.ldscore_dir, "ldscores")
         self.assertEqual(args.sumstats_file, "trait.sumstats.gz")
@@ -2575,6 +2569,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "ldscores",
                 "--sumstats-file",
                 "trait.sumstats.gz",
+                "--output-dir",
+                "out",
                 "--count-kind",
                 "all",
                 "--log-level",
@@ -2590,7 +2586,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats-file", "trait.sumstats.gz", "--count-kind", "m_5_50"])
 
-    def test_partitioned_h2_arguments_accept_per_query_output_flag(self):
+    def test_partitioned_h2_arguments_accept_deprecated_per_query_output_flag(self):
         parser = argparse.ArgumentParser()
         regression_runner.add_partitioned_h2_arguments(parser)
 
@@ -2600,6 +2596,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "ldscores",
                 "--sumstats-file",
                 "trait.sumstats.gz",
+                "--output-dir",
+                "out",
                 "--write-per-query-results",
             ]
         )
@@ -2616,6 +2614,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "ldscores",
                 "--sumstats-file",
                 "trait.sumstats.gz",
+                "--output-dir",
+                "out",
             ]
         )
         sorted_args = parser.parse_args(
@@ -2624,6 +2624,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "ldscores",
                 "--sumstats-file",
                 "trait.sumstats.gz",
+                "--output-dir",
+                "out",
                 "--summary-sort-by",
                 "enrichment-p",
             ]
@@ -2654,6 +2656,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "--sumstats-sources",
                 "a.sumstats.gz",
                 "b.sumstats.gz",
+                "--output-dir",
+                "out",
                 "--intercept-h2",
                 "1.02",
                 "--intercept-gencov",
@@ -2671,6 +2675,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "--sumstats-sources",
                 "a.sumstats.gz",
                 "b.sumstats.gz",
+                "--output-dir",
+                "out",
                 "--anchor-trait",
                 "MDD",
             ]
@@ -2700,7 +2706,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 ]
             )
 
-    def test_run_rg_from_args_rejects_per_pair_detail_without_output_dir_before_loading_inputs(self):
+    def test_run_rg_from_args_rejects_missing_output_dir_before_loading_inputs(self):
         args = type(
             "Args",
             (),
@@ -2727,10 +2733,10 @@ class RegressionWorkflowTest(unittest.TestCase):
             "_load_sumstats_table",
             side_effect=AssertionError("sumstats should not load"),
         ):
-            with self.assertRaisesRegex(LDSCUsageError, "per-pair detail without `--output-dir`"):
+            with self.assertRaisesRegex(LDSCUsageError, "requires `--output-dir`"):
                 regression_runner.run_rg_from_args(args)
 
-    def test_run_rg_from_args_returns_result_family_without_printing_when_output_dir_is_absent(self):
+    def test_run_rg_from_args_returns_result_family_and_writes_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
@@ -2758,7 +2764,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "anchor_trait": None,
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
-                    "output_dir": None,
+                    "output_dir": str(tmpdir / "out"),
                     "overwrite": False,
                     "write_per_pair_detail": False,
                     "n_blocks": 200,
@@ -2772,10 +2778,14 @@ class RegressionWorkflowTest(unittest.TestCase):
             )()
 
             stdout = io.StringIO()
-            with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected), contextlib.redirect_stdout(stdout):
+            with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected), mock.patch.object(
+                regression_runner.RgDirectoryWriter,
+                "write",
+            ) as writer, contextlib.redirect_stdout(stdout):
                 result = regression_runner.run_rg_from_args(args)
 
         self.assertIs(result, expected)
+        writer.assert_called_once()
         self.assertEqual(stdout.getvalue(), "")
 
     def test_run_rg_from_args_threads_positional_prevalences(self):
@@ -2803,7 +2813,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "anchor_trait": None,
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
-                    "output_dir": None,
+                    "output_dir": str(tmpdir / "out"),
                     "overwrite": False,
                     "write_per_pair_detail": False,
                     "n_blocks": 200,
@@ -2848,7 +2858,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "anchor_trait": "SCZ",
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
-                    "output_dir": None,
+                    "output_dir": str(tmpdir / "out"),
                     "overwrite": False,
                     "write_per_pair_detail": False,
                     "n_blocks": 200,
@@ -2897,7 +2907,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "anchor_trait": sumstats_sources[1],
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
-                    "output_dir": None,
+                    "output_dir": str(tmpdir / "out"),
                     "overwrite": False,
                     "write_per_pair_detail": False,
                     "n_blocks": 200,
@@ -2915,7 +2925,7 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertEqual(patched.call_args.kwargs["anchor_index"], 1)
 
-    def test_cli_prints_concise_rg_table_only_without_output_dir(self):
+    def test_cli_requires_output_dir_for_rg(self):
         expected = type(
             "Result",
             (),
@@ -2937,8 +2947,9 @@ class RegressionWorkflowTest(unittest.TestCase):
         )()
 
         stdout = io.StringIO()
-        with mock.patch.object(regression_runner, "run_rg_from_args", return_value=expected), contextlib.redirect_stdout(stdout):
-            result = cli.main(
+        with mock.patch.object(regression_runner, "run_rg_from_args", return_value=expected) as patched, contextlib.redirect_stdout(stdout):
+            with self.assertRaises(SystemExit):
+                cli.main(
                 [
                     "rg",
                     "--ldscore-dir",
@@ -2949,10 +2960,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 ]
             )
 
-        self.assertIs(result, expected)
-        text = stdout.getvalue()
-        self.assertIn("trait_1\ttrait_2\tn_snps_used\trg\trg_se\tp\tnote", text)
-        self.assertIn("NaN", text)
+        patched.assert_not_called()
+        self.assertEqual(stdout.getvalue(), "")
 
     def test_cli_does_not_print_rg_table_when_output_dir_is_supplied(self):
         expected = type("Result", (), {"rg": pd.DataFrame([{"trait_1": "a"}])})()
@@ -2975,12 +2984,13 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIs(result, expected)
         self.assertEqual(stdout.getvalue(), "")
 
-    def test_cli_prints_concise_h2_table_only_without_output_dir(self):
+    def test_cli_requires_output_dir_for_h2(self):
         expected = pd.DataFrame([{"trait_name": "trait", "total_h2_obs": 0.1, "total_h2_obs_se": np.nan}])
 
         stdout = io.StringIO()
-        with mock.patch.object(regression_runner, "run_h2_from_args", return_value=expected), contextlib.redirect_stdout(stdout):
-            result = cli.main(
+        with mock.patch.object(regression_runner, "run_h2_from_args", return_value=expected) as patched, contextlib.redirect_stdout(stdout):
+            with self.assertRaises(SystemExit):
+                cli.main(
                 [
                     "h2",
                     "--ldscore-dir",
@@ -2990,12 +3000,10 @@ class RegressionWorkflowTest(unittest.TestCase):
                 ]
             )
 
-        self.assertIs(result, expected)
-        text = stdout.getvalue()
-        self.assertIn("trait_name\ttotal_h2_obs\ttotal_h2_obs_se", text)
-        self.assertIn("NaN", text)
+        patched.assert_not_called()
+        self.assertEqual(stdout.getvalue(), "")
 
-    def test_cli_prints_concise_partitioned_h2_table_only_without_output_dir(self):
+    def test_cli_requires_output_dir_for_partitioned_h2(self):
         expected = pd.DataFrame([{"category": "query", "prop_snps": 1.0, "coefficient": np.nan}])
 
         stdout = io.StringIO()
@@ -3003,8 +3011,9 @@ class RegressionWorkflowTest(unittest.TestCase):
             regression_runner,
             "run_partitioned_h2_from_args",
             return_value=expected,
-        ), contextlib.redirect_stdout(stdout):
-            result = cli.main(
+        ) as patched, contextlib.redirect_stdout(stdout):
+            with self.assertRaises(SystemExit):
+                cli.main(
                 [
                     "partitioned-h2",
                     "--ldscore-dir",
@@ -3014,10 +3023,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 ]
             )
 
-        self.assertIs(result, expected)
-        text = stdout.getvalue()
-        self.assertIn("category\tprop_snps\tcoefficient", text)
-        self.assertIn("NaN", text)
+        patched.assert_not_called()
+        self.assertEqual(stdout.getvalue(), "")
 
     def test_sort_partitioned_h2_summary_preserves_category_order(self):
         summary = pd.DataFrame(
@@ -3078,7 +3085,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
-                    "output_dir": None,
+                    "output_dir": str(tmpdir / "out"),
                     "n_blocks": 200,
                     "no_intercept": False,
                     "intercept_h2": None,
@@ -3104,12 +3111,73 @@ class RegressionWorkflowTest(unittest.TestCase):
                         }
                     ]
                 ),
-            ) as patched:
+            ) as patched, mock.patch.object(
+                regression_runner.PartitionedH2DirectoryWriter,
+                "write",
+            ):
                 summary = regression_runner.run_partitioned_h2_from_args(args)
 
         patched.assert_called_once()
+        self.assertTrue(patched.call_args.kwargs["include_full_partitioned_h2"])
         self.assertEqual(patched.call_args.args[2].query_columns, ["query"])
         self.assertEqual(summary.loc[0, "category"], "query")
+
+    def test_deprecated_per_query_flag_is_noop_for_baseline_only_run(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
+            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=False)
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": "trait",
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": str(tmpdir / "out"),
+                    "overwrite": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                    "write_per_query_results": True,
+                },
+            )()
+            result = regression_runner.PartitionedH2BatchResult(
+                summary=pd.DataFrame([{"category": "base"}]).reindex(
+                    columns=regression_runner.PARTITIONED_H2_COLUMNS
+                ),
+                per_query_category_tables={},
+                per_query_metadata={},
+                coefficient_delete_values=pd.DataFrame(
+                    {"delete_block": [0], "base": [0.1]}
+                ),
+            )
+
+            with mock.patch.object(
+                regression_runner.RegressionRunner,
+                "estimate_partitioned_h2_batch",
+                return_value=result,
+            ) as estimator, mock.patch.object(
+                regression_runner.PartitionedH2DirectoryWriter,
+                "write",
+            ) as writer, warnings.catch_warnings(record=True) as captured:
+                warnings.simplefilter("always")
+                regression_runner.run_partitioned_h2_from_args(args)
+
+        self.assertFalse(estimator.call_args.kwargs["include_full_partitioned_h2"])
+        output_config = writer.call_args.args[1]
+        self.assertFalse(output_config.write_per_query_results)
+        self.assertEqual(writer.call_args.kwargs["per_query_category_tables"], {})
+        self.assertIs(writer.call_args.kwargs["coefficient_delete_values"], result.coefficient_delete_values)
+        deprecations = [item for item in captured if item.category is FutureWarning]
+        self.assertEqual(len(deprecations), 1)
+        self.assertIn("deprecated and has no effect", str(deprecations[0].message))
 
     def test_run_partitioned_h2_from_args_writes_with_partitioned_writer(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3168,13 +3236,18 @@ class RegressionWorkflowTest(unittest.TestCase):
                 regression_runner.PartitionedH2DirectoryWriter,
                 "write",
             ) as writer:
-                summary = regression_runner.run_partitioned_h2_from_args(args)
+                with warnings.catch_warnings(record=True) as captured:
+                    warnings.simplefilter("always")
+                    summary = regression_runner.run_partitioned_h2_from_args(args)
             log_text = (output_dir / "diagnostics" / "partitioned-h2.log").read_text(encoding="utf-8")
 
         writer.assert_called_once()
         output_config = writer.call_args.args[1]
         self.assertEqual(str(output_config.output_dir), str(output_dir))
         self.assertTrue(output_config.write_per_query_results)
+        deprecations = [item for item in captured if item.category is FutureWarning]
+        self.assertEqual(len(deprecations), 1)
+        self.assertIn("deprecated and has no effect", str(deprecations[0].message))
         self.assertEqual(writer.call_args.kwargs["metadata"]["count_kind"], "common")
         self.assertEqual(writer.call_args.kwargs["metadata"]["trait_name"], "trait")
         self.assertEqual(summary["category"].tolist(), ["low", "high"])
@@ -3248,7 +3321,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(summary["category"].tolist(), ["first", "later"])
         self.assertEqual(written_summary["category"].tolist(), ["first", "later"])
 
-    def test_run_partitioned_h2_from_args_sorts_stdout_only_summary(self):
+    def test_run_partitioned_h2_from_args_sorts_written_summary(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
@@ -3264,7 +3337,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
-                    "output_dir": None,
+                    "output_dir": str(tmpdir / "out"),
                     "n_blocks": 200,
                     "no_intercept": False,
                     "intercept_h2": None,
@@ -3301,6 +3374,9 @@ class RegressionWorkflowTest(unittest.TestCase):
                 regression_runner.RegressionRunner,
                 "estimate_partitioned_h2_batch",
                 return_value=unsorted,
+            ), mock.patch.object(
+                regression_runner.PartitionedH2DirectoryWriter,
+                "write",
             ):
                 summary = regression_runner.run_partitioned_h2_from_args(args)
 
@@ -3502,10 +3578,18 @@ class RegressionWorkflowTest(unittest.TestCase):
                 ]
             ).reindex(columns=regression_runner.PARTITIONED_H2_COLUMNS)
 
+            partitioned_result = regression_runner.PartitionedH2BatchResult(
+                summary=partitioned_summary,
+                per_query_category_tables={"query": partitioned_summary},
+                per_query_metadata={"query": {}},
+                per_query_coefficient_delete_values={
+                    "query": pd.DataFrame({"delete_block": [0], "base": [0.1], "query": [0.2]})
+                },
+            )
             with mock.patch.object(
                 regression_runner.RegressionRunner,
                 "estimate_partitioned_h2_batch",
-                return_value=partitioned_summary,
+                return_value=partitioned_result,
             ):
                 summary = regression_runner.run_partitioned_h2_from_args(args)
 
@@ -3515,7 +3599,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
             self.assertFalse((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "query_annotations").exists())
-            self.assertFalse((output_dir / "diagnostics" / "query_annotations").exists())
+            self.assertFalse(stale.exists())
+            self.assertTrue((output_dir / "diagnostics" / "query_annotations" / "manifest.tsv").exists())
 
     def test_run_partitioned_h2_from_args_records_regime_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3547,8 +3632,16 @@ class RegressionWorkflowTest(unittest.TestCase):
             summary = pd.DataFrame(
                 [{"category": "query", "prop_snps": 1.0, "coefficient": 1.0, "coefficient_p": 0.5}]
             ).reindex(columns=regression_runner.PARTITIONED_H2_COLUMNS)
+            partitioned_result = regression_runner.PartitionedH2BatchResult(
+                summary=summary,
+                per_query_category_tables={"query": summary},
+                per_query_metadata={"query": {}},
+                per_query_coefficient_delete_values={
+                    "query": pd.DataFrame({"delete_block": [0], "base": [0.1], "query": [0.2]})
+                },
+            )
             with mock.patch.object(
-                regression_runner.RegressionRunner, "estimate_partitioned_h2_batch", return_value=summary
+                regression_runner.RegressionRunner, "estimate_partitioned_h2_batch", return_value=partitioned_result
             ):
                 regression_runner.run_partitioned_h2_from_args(args)
             meta = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
@@ -3556,6 +3649,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(meta["headline_metric"], "coefficient")
         self.assertEqual(meta["coefficient_p_test"], "one_sided_greater")
         self.assertEqual(meta["enrichment_p_test"], "two_sided_t")
+        self.assertEqual(meta["files"]["query_annotations"], "diagnostics/query_annotations")
 
     def test_regression_cli_writes_fixed_result_filename_under_output_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:

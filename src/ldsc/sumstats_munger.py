@@ -499,13 +499,13 @@ class SumstatsMunger:
             munge_config = raw_sumstats_config
         if raw_sumstats_config.raw_sumstats_file is None:
             raise LDSCUserError(
-                "No input summary statistics given to munge-sumstats. Most likely --sumstats was omitted. "
-                "Pass --sumstats <file> (and --out <stem>)."
+                "No input summary statistics given to munge-sumstats. Most likely --raw-sumstats-file was omitted. "
+                "Pass --raw-sumstats-file <file>."
             )
         if munge_config.output_dir is None:
             raise LDSCUserError(
-                "No output directory given to munge-sumstats. Most likely --out or output_dir was omitted. "
-                "Pass --out <stem> on the CLI or set MungeConfig.output_dir."
+                "No output directory given to munge-sumstats. Most likely --output-dir or output_dir was omitted. "
+                "Pass --output-dir <directory> on the CLI or set MungeConfig.output_dir."
             )
 
         config_snapshot = _source_global_config_for_munge(munge_config, global_config or get_global_config())
@@ -768,8 +768,8 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
     args : argparse.Namespace
         Parsed arguments from :func:`build_parser`. The namespace must include
         ``raw_sumstats_file`` plus any legacy-compatible munging options copied
-        from the kernel parser. ``output_dir`` is required unless
-        ``infer_only`` is true.
+        from the kernel parser. ``output_dir`` is required for every CLI run,
+        including ``infer_only`` runs (which still write no artifacts).
 
     Returns
     -------
@@ -792,7 +792,7 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
         source_path = resolve_scalar_path(raw_config.raw_sumstats_file, label="raw sumstats")
         inference = infer_raw_sumstats(source_path, raw_config, munge_config, global_config)
         inference = _apply_build_inference_report(source_path, raw_config, munge_config, global_config, inference)
-        print(_render_inference_report(inference, source_path))
+        print(_render_inference_report(inference, source_path, args.output_dir))
         return inference
     return SumstatsMunger().run(raw_config, munge_config, _resolve_main_global_config(args))
 
@@ -1015,7 +1015,7 @@ def build_parser() -> argparse.ArgumentParser:
     """
     public = argparse.ArgumentParser(description=getattr(parser, "description", None), allow_abbrev=False)
     public.add_argument("--raw-sumstats-file", required=True, help="Raw summary-statistics file path.")
-    public.add_argument("--output-dir", default=None, help="Output directory for munged sumstats and logs.")
+    public.add_argument("--output-dir", required=True, help="Output directory for munged sumstats and logs.")
     public.add_argument(
         "--format",
         dest="sumstats_format",
@@ -1476,7 +1476,11 @@ def _append_suggested_flag(args: list[str], flag: str) -> None:
 
 
 
-def _render_inference_report(inference: RawSumstatsInference, raw_sumstats_file: str) -> str:
+def _render_inference_report(
+    inference: RawSumstatsInference,
+    raw_sumstats_file: str,
+    output_dir: str | Path,
+) -> str:
     lines = [
         f"Raw sumstats file: {raw_sumstats_file}",
         f"Detected format: {inference.detected_format}",
@@ -1496,7 +1500,7 @@ def _render_inference_report(inference: RawSumstatsInference, raw_sumstats_file:
         lines.append(f"Liftover required: {'yes' if inference.liftover_required else 'no'} (method: {method})")
     if inference.notes:
         lines.extend(f"Note: {note}" for note in inference.notes)
-    command = ["ldsc", "munge-sumstats", "--raw-sumstats-file", raw_sumstats_file, "--output-dir", "./munged_sumstats"]
+    command = ["ldsc", "munge-sumstats", "--raw-sumstats-file", raw_sumstats_file, "--output-dir", str(output_dir)]
     command.extend(inference.suggested_args)
     lines.append("Next step:")
     lines.append(f"  Runnable: {'yes' if inference.runnable else 'no'}")

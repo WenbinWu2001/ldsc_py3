@@ -1,6 +1,6 @@
 # Legacy Munged Sumstats Compatibility
 
-Last updated on: 2026-08-04
+Last updated on: 2026-09-07
 
 This document defines the public compatibility boundary for munged summary statistics written by the legacy LDSC Python 2 implementation and consumed by LDSC3 regression workflows.
 
@@ -46,7 +46,7 @@ Row-level failures are dropped and audited without aborting an otherwise usable 
 
 Missing required artifact columns, missing required panel identity columns, or zero retained compatibility rows are file-level failures and abort the affected regression. The compatibility layer introduces no new retention-percentage threshold; ordinary regression SNP-count diagnostics continue to apply.
 
-When an output directory is supplied and at least one legacy input is present, LDSC3 writes `diagnostics/dropped_snps/legacy_sumstats.tsv.gz`, including an empty header-only artifact when no rows were dropped. The audit table contains `trait_name`, `source_path`, `SNP`, `A1`, `A2`, `reason`, and `panel_candidate_count`. Workflow logs report aggregate counts by reason at `INFO` or `WARNING`; example SNP identifiers are `DEBUG`-only. Stdout-only runs report the aggregate counts without writing a sidecar.
+Because every regression CLI requires an output directory, a run with at least one legacy input writes `diagnostics/dropped_snps/legacy_sumstats.tsv.gz`, including an empty header-only artifact when no rows were dropped. The audit table contains `trait_name`, `source_path`, `SNP`, `A1`, `A2`, `reason`, and `panel_candidate_count`. Workflow logs report aggregate counts by reason at `INFO` or `WARNING`; example SNP identifiers are `DEBUG`-only.
 
 ## Workflow and API Behavior
 

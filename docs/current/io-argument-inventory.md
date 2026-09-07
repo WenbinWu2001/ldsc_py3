@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Last updated on: 2026-08-24
+Last updated on: 2026-09-07
 
 This document records the current public input/output naming contract after the
 LD-score result-directory refactor. The LD-score workflow uses a canonical
@@ -71,16 +71,16 @@ Adapted public paths:
 - `ldsc ldscore` writes `ldscore.baseline.parquet`, optional
   `ldscore.query.parquet`, and optional `ldscore.overlap.parquet`.
 - `ldsc munge-sumstats` writes `sumstats.parquet` by default.
-- `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write result tables as TSV
-  when an `output_dir` is supplied.
+- `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` require `output_dir` and write
+  result tables as TSV.
 - `ldsc build-ref-panel` writes the primary R2 pair matrix as
   `chr{chrom}_r2.parquet`.
 - `ldsc build-gene-ldscore-index` writes one immutable gene LD-score index
   directory for later explicit indexed LD-score assembly.
 - `ldsc convert-ldsc2-ldscores` is the only public reader of selected legacy
   LDSC2 LD-score fragments and writes a canonical LDSC3 LD-score directory.
-- `ldsc query-r2` reads package-built index-format R2 panels and writes an
-  annotated pair table to stdout or one explicit TSV path.
+- `ldsc query-r2` reads package-built index-format R2 panels and writes a
+  canonical output directory containing the annotated pair table and diagnostics.
 
 Not fully adapted or retained for compatibility:
 
@@ -119,9 +119,8 @@ Removed from artifact-writing workflow surfaces:
 
 Users customize run identity by choosing the `output_dir` name. Output filenames
 inside that directory are fixed and workflow-specific. `ldsc query-r2` follows
-the same `output_dir` model (`query_r2.tsv` plus the `diagnostics/` sidecar); it
-additionally streams the result table to stdout when `--output-dir` is omitted,
-for pipe-able interactive use.
+the same required `output_dir` model (`query_r2.tsv` plus the `diagnostics/`
+sidecars). Every exposed subcommand requires an explicit destination directory.
 
 Workflow logs are fixed audit files under `output_dir`, preflighted with the
 scientific outputs before they are opened. They are not included in workflow
@@ -352,11 +351,11 @@ annotations and frequencies. See
 |---|---:|---:|---|---|
 | `--raw-sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
 | `--format` | input metadata | no | raw summary-statistics format profile | One of `auto`, `plain`, `daner-old`, or `daner-new`; defaults to `auto`, which detects common plain text, including VCF-style headers and old DANER. This is the sole DANER selector (the legacy `--daner-old`/`--daner-new` booleans are removed). |
-| `--infer-only` | diagnostic | no | raw summary-statistics inference report | Reads the raw header and first data row, prints detected format, inferred hints, missing fields, source/output genome-build status, liftover status, notes, and suggested commands. Defaults to `False`; missing `A1/A2` is reported only in allele-aware modes. Does not require `--output-dir` and writes no artifacts. |
+| `--infer-only` | diagnostic | no | raw summary-statistics inference report | Reads the raw header and first data row, prints detected format, inferred hints, missing fields, source/output genome-build status, liftover status, notes, and suggested commands. Defaults to `False`; missing `A1/A2` is reported only in allele-aware modes. It writes no artifacts, although the uniform CLI contract still requires `--output-dir`. |
 | `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Restricts munged summary-statistics rows using identity keys only; duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. The keep-list is loaded before parsing and applied while chunks are streaming; defaults to omitted/`None`, so no keep-list restriction is applied. |
 | `--use-hm3-snps` | input mode | no | packaged HM3 SNP restriction | Restricts munged summary-statistics rows to the packaged curated HM3 map while chunks are streaming; defaults to `False`. Mutually exclusive with `--sumstats-snps-file`. |
 | `--trait-name` | input metadata | no | biological trait label | Optional label stored in the `sumstats.parquet` footer when parquet output is written; defaults to omitted/`None`. Downstream regression uses it unless a regression CLI `--trait-name` override is supplied. No root `metadata.json` sidecar is written. |
-| `--output-dir` | output | yes, except `--infer-only` | munged output directory | Defaults to omitted/`None`; required for normal artifact-writing runs but not with `--infer-only`. The workflow writes fixed `sumstats.*` artifacts under this directory and passes `<output_dir>/sumstats` as the kernel output stem. |
+| `--output-dir` | output | yes | munged output directory | Required for every CLI run, including `--infer-only`. Normal runs write fixed `sumstats.*` artifacts under this directory and pass `<output_dir>/sumstats` as the kernel output stem; inference-only runs do not create it. |
 | `--output-format` | output mode | no | curated sumstats format | One of `parquet`, `tsv.gz`, or `both`; defaults to `parquet`. |
 | `--N`, `--N-cas`, `--N-con` | model/QC | no | sample-size overrides | Scalar total, case, and control sample-size overrides forwarded to the munging kernel; each defaults to `None`. |
 | `--info-min` | QC | no | INFO threshold | Minimum INFO value retained by the munging kernel; defaults to `0.9`. |
@@ -428,14 +427,14 @@ INFO flags.
 |---|---:|---:|---|---|
 | `--panel-dir` | input | yes | build-ref-panel output directory | Opens a package-built reference panel directory, optionally selecting a build subdirectory with `--genome-build`. This is the only panel input mode. |
 | `--pairs` | input | yes | SNP-pair table | TSV by default, CSV when the filename ends with `.csv`, or stdin via `-`. Endpoint columns use `_1` and `_2` suffixes, with `SNP`, `CHR`, `POS`, `A1`, and `A2` supplied according to the active identifier mode. |
-| `--output-dir` | output | no | result directory | Defaults to omitted/`None`; writes the canonical result directory (`query_r2.tsv` plus `diagnostics/metadata.json` and `diagnostics/query-r2.log`) when supplied. When omitted, the result table streams as a clean TSV to stdout. |
-| `--overwrite` | output control | no | overwrite toggle | Replaces existing query-r2 output artifacts in `--output-dir`; defaults to `False`. No effect in stdout mode. |
-| `--log-level` | output control | no | log verbosity | Verbosity of the directory-mode `diagnostics/query-r2.log`; defaults to `INFO`. No effect in stdout mode. |
+| `--output-dir` | output | yes | result directory | Writes the canonical result directory (`query_r2.tsv` plus `diagnostics/metadata.json` and `diagnostics/query-r2.log`). |
+| `--overwrite` | output control | no | overwrite toggle | Replaces existing query-r2 output artifacts in `--output-dir`; defaults to `False`. |
+| `--log-level` | output control | no | log verbosity | Verbosity of `diagnostics/query-r2.log`; defaults to `INFO`. |
 | `--snp-identifier` | input metadata | no | query identity mode | Overrides panel metadata; defaults to omitted/`None`. If omitted, `R2Panel.open()` reads `ldsc:snp_identifier` from parquet metadata. |
 | `--genome-build` | input selector | no | panel build selector | Concrete `hg19`/`hg38` selector for build-ref-panel directory layouts; defaults to omitted/`None`. |
 
-Removed flags: `--out` (replaced by the `--output-dir` result directory with a
-stdout fallback), `--meta`, `--parquet` (explicit single-chromosome input; use
+Removed flags: `--out` (replaced by the required `--output-dir` result directory),
+`--meta`, `--parquet` (explicit single-chromosome input; use
 `--panel-dir`), `--with-r` (signed `r` is now always emitted), `--strategy`,
 `--strategy-threshold` (lookup strategy is fixed to the internal `auto` rule).
 
@@ -452,7 +451,7 @@ panels lacking `ldsc:n_samples`. `status` is blank for found pairs and may repor
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regression_ld_scores`, the historical `w_ld` component used when final h2 weights are computed. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. Current self-describing Parquet is native; legacy LDSC2 `.sumstats[.gz]` is automatically projected by rsID onto the canonical LD-score panel. Footerless Parquet is rejected. |
 | `--trait-name` | input metadata | no | output trait label | Optional label override; defaults to omitted/`None`. If omitted, regression uses the sumstats parquet footer `ldsc:trait_name` when present, then the filename fallback. |
-| `--output-dir` | output | no | result output directory | Selects where to write h2 results; defaults to omitted/`None`, so the CLI prints the compact `h2.tsv` schema to stdout and writes no files. |
+| `--output-dir` | output | yes | result output directory | Required destination for `h2.tsv` and diagnostics. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--n-blocks` | model | no | block jackknife partitions | Number of jackknife blocks used by the regression estimator; defaults to `200`. |
 | `--no-intercept` | model | no | intercept policy | Fixes the LDSC intercept instead of estimating it; defaults to `False`. |
@@ -462,7 +461,7 @@ panels lacking `ldsc:n_samples`. `status` is blank for found pairs and may repor
 | `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square retained for regression fitting; defaults to `None`. Inclusive (`chi^2 <= chisq_max`; deviates from legacy LDSC's strict `chi^2 < chisq_max`). When unset, a single-annotation fit stays uncapped (outliers handled by the two-step estimator); a multi-annotation fit applies the legacy default cap `max(0.001 * N.max(), 80)`. |
 | `--samp-prev` | model | no | sample (case) prevalence | Scalar sample prevalence `P` for liability-scale conversion of binary-trait h2; defaults to `None`. A probability in `(0, 1)`, or `nan` for a quantitative trait. Requires `--pop-prev`; omit both for observed scale. Output adds `total_h2_liab`/`total_h2_liab_se` and the applied prevalence columns. |
 | `--pop-prev` | model | no | population prevalence | Scalar population prevalence `K` for liability-scale conversion; defaults to `None`. A probability in `(0, 1)`, or `nan`. Requires `--samp-prev`. Validated before inputs load. |
-| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`. With `output_dir`, records go to `diagnostics/h2.log` and the console (stderr) shows only errors; without it (console-only run) they print to the console. Lifecycle audit lines always appear in the file when one is created. |
+| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`. Records go to `diagnostics/h2.log`; the console (stderr) shows only errors. |
 | `--overwrite` | output mode | no | collision policy | Controls whether `h2.tsv` and diagnostics may be replaced; defaults to `False`, so an existing owned artifact is refused. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
@@ -475,7 +474,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Requires an overlap artifact. With query columns, runs the cell-type regime (baseline plus one query per model); with no query columns, runs one functional-category model jointly over all baseline columns. This includes explicitly converted baseline-only LDSC2 suites. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. Accepts current Parquet or legacy LDSC2 text under the same projection rule as `h2`. |
 | `--trait-name` | input metadata | no | output trait label | Optional label override; defaults to omitted/`None`. If omitted, regression uses the sumstats parquet footer `ldsc:trait_name` when present, then the filename fallback. |
-| `--output-dir` | output | no | result output directory | Selects where to write partitioned-h2 results; defaults to omitted/`None`, so the CLI prints the `partitioned_h2.tsv` schema to stdout and writes no files. |
+| `--output-dir` | output | yes | result output directory | Required destination for `partitioned_h2.tsv` and diagnostics. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--n-blocks` | model | no | block jackknife partitions | Number of jackknife blocks used by the regression estimator; defaults to `200`. |
 | `--no-intercept` | model | no | intercept policy | Fixes the LDSC intercept instead of estimating it; defaults to `False`. |
@@ -485,9 +484,9 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square retained for regression fitting; defaults to `None`. Inclusive (`chi^2 <= chisq_max`; deviates from legacy LDSC's strict `chi^2 < chisq_max`). When unset, partitioned (multi-annotation) models apply the legacy default outlier cap `max(0.001 * N.max(), 80)` to keep extreme-chi-square SNPs from dominating the regression. |
 | `--samp-prev` | model | no | sample (case) prevalence | Scalar sample prevalence `P` for liability-scale conversion; defaults to `None`. A probability in `(0, 1)`, or `nan` for a quantitative trait. Requires `--pop-prev`; omit both for observed scale. Adds the `*_liab` heritability columns (e.g. `category_h2_liab`/`category_h2_liab_se` and `total_h2_liab`/`total_h2_liab_se`) and the applied prevalence columns (proportions, enrichment, and coefficients are scale-invariant). |
 | `--pop-prev` | model | no | population prevalence | Scalar population prevalence `K` for liability-scale conversion; defaults to `None`. A probability in `(0, 1)`, or `nan`. Requires `--samp-prev`. Validated before inputs load. |
-| `--write-per-query-results` | output mode | no | per-query result tree | Requests per-query output folders under `diagnostics/query_annotations`; defaults to `False`, so only the aggregate table is returned/written. |
+| `--write-per-query-results` | deprecated compatibility flag | no | no-op | Deprecated. Query-annotation runs always write per-query folders under `diagnostics/query_annotations`; supplying the flag emits one warning and changes nothing. Baseline-only runs keep complete-model artifacts at the result root. |
 | `--summary-sort-by` | output mode | no | aggregate row sorting | Sort key for the partitioned-h2 table; defaults to `auto`, which resolves to `coefficient-p` in the cell-type regime (query annotations present) and `category` in the functional regime. Explicit choices: `category`, `prop-snps`, `prop-h2`, `enrichment`, `enrichment-p`, `coefficient`, and `coefficient-p`. |
-| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`. With `output_dir`, records go to `diagnostics/partitioned-h2.log` and the console (stderr) shows only errors; without it (console-only run) they print to the console. Lifecycle audit lines always appear in the file when one is created. |
+| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`. Records go to `diagnostics/partitioned-h2.log`; the console (stderr) shows only errors. |
 | `--overwrite` | output mode | no | collision policy | Controls whether aggregate/per-query outputs and diagnostics may be replaced; defaults to `False`, so any owned partitioned-h2 artifact is refused. With overwrite, aggregate-only runs remove stale `diagnostics/query_annotations/` trees after successful writes. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
@@ -518,7 +517,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regression_ld_scores`, the historical `w_ld` component used when final rg/gencov weights are computed. |
 | `--sumstats-sources` | input | yes | two or more munged summary-statistics files | Accepts exact paths and glob patterns, including mixes of current Parquet and legacy LDSC2 text. Every legacy trait must have `A1/A2`; traits are projected independently and then pairwise harmonized. With two files, computes one pair; with three or more files and no anchor, computes all unordered pairs in input order. |
 | `--anchor-trait` | input selector | no | anchor trait label or path | When supplied, first matches a resolved trait name, then a resolved input path; defaults to omitted/`None`, so all unordered pairs are computed. |
-| `--output-dir` | output | no | result output directory | Selects where to write the rg output family; defaults to omitted/`None`. RG tables include nominal p-values only. Without it, Python returns `RgResultFamily` and the CLI prints only the concise `rg.tsv` schema to stdout. |
+| `--output-dir` | output | yes | result output directory | Required destination for the rg output family. RG tables include nominal p-values only. |
 | `--write-per-pair-detail` | output mode | no | optional pair result tree | Requires `--output-dir`; defaults to `False`; writes `diagnostics/pairs/manifest.tsv` plus one `rg_full.tsv` and `metadata.json` per attempted pair when enabled. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--n-blocks` | model | no | block jackknife partitions | Number of jackknife blocks used by each regression estimator; defaults to `200`. |
@@ -531,7 +530,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--samp-prev` | model | no | per-trait sample prevalences | Comma-separated sample prevalences aligned to the resolved `--sumstats-sources` order, one per trait; defaults to `None`. Each a probability in `(0, 1)` or `nan` for a quantitative trait. Requires `--pop-prev`. Mutually exclusive with `--prevalence-manifest`. Adds `*_liab` and per-trait prevalence columns to `rg_full.tsv`/`h2_per_trait.tsv`; the `rg` ratio is unchanged. |
 | `--pop-prev` | model | no | per-trait population prevalences | Comma-separated population prevalences aligned to the resolved order, one per trait; defaults to `None`. Each in `(0, 1)` or `nan`. Requires `--samp-prev`. Mutually exclusive with `--prevalence-manifest`. |
 | `--prevalence-manifest` | model | no | prevalence lookup table | Whitespace/tab-delimited TSV with columns `trait_name`, `samp_prev`, `pop_prev` (`#` comment lines ignored); defaults to omitted/`None`. Looked up by exact munged trait name; may contain extra traits (every resolved trait must be present). Mutually exclusive with `--samp-prev`/`--pop-prev`. Duplicate resolved munged names abort the run. |
-| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`. With `output_dir`, records go to `diagnostics/rg.log` and the console (stderr) shows only errors; without it (console-only run) they print to the console. Lifecycle audit lines always appear in the file when one is created. |
+| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`. Records go to `diagnostics/rg.log`; the console (stderr) shows only errors. |
 | `--overwrite` | output mode | no | collision policy | Controls whether `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, optional `diagnostics/pairs/`, and diagnostics may be replaced; defaults to `False`, so an existing owned artifact is refused. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
@@ -539,6 +538,14 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 `--trait-name-1`, `--trait-name-2`, `--anchor-trait-file`, `--out`.
 
 ## Public Python API Inventory
+
+The Python boundary intentionally differs from the CLI only where an API is a
+genuine in-memory computation primitive. CLI-style workflow wrappers require an
+output directory. `AnnotationBuilder.run()` and `LDScoreCalculator.run()` may
+remain in memory when their output config is omitted, while honoring it when it
+is present; reference-metadata export is the one conditional case that makes
+`LDScoreCalculator.run()` output mandatory. Numerical `RegressionRunner`
+methods retain their existing in-memory return types.
 
 ### Annotation
 
@@ -549,18 +556,19 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `AnnotationBuildConfig` | `query_annot_bed_sources` | input | query BED group |
 | `AnnotationBuildConfig` | `query_annot_gene_list_sources` | input | one-column query gene-list group |
 | `AnnotationBuildConfig` | `padding_bp` | input transform | BED or resolved-gene interval padding in base pairs; default `0` |
-| `AnnotationBuildConfig` | `output_dir` | output | generated query annotation directory |
-| `AnnotationBuilder.run(config=None, chrom=None)` | `config` | input/output | annotation workflow config; defaults to the builder config |
+| `AnnotationBuildConfig` | `output_dir` | output | optional; omission keeps the bundle in memory, while a value selects the generated query-annotation directory |
+| `AnnotationBuilder.run(config=None, chrom=None)` | `config` | input/output | honors `config.output_dir` by writing query shards, metadata, drop audit, and `diagnostics/annotate.log`; defaults to the builder config |
 | `AnnotationBuilder.project_bed_annotations(...)` | `query_annot_bed_sources` | input | query BED group |
 | `AnnotationBuilder.project_bed_annotations(...)` | `padding_bp` | input transform | BED interval padding in base pairs before projection; default `0` |
+| `AnnotationBuilder.project_bed_annotations(...)` | `output_dir` | output | optional; omission keeps the projection in memory |
 | `add_annotate_arguments(parser)` | `parser` | CLI surface | shared annotate argument registration for standalone and top-level parsers |
 | `run_annotate_from_args(args)` / `main(argv)` | `query_annot_bed_sources` | input | query BED group |
 | `run_annotate_from_args(args)` / `main(argv)` | `baseline_annot_sources` | input | baseline annotation templates |
-| `run_annotate_from_args(args)` / `main(argv)` | `output_dir` | output | generated query annotation directory |
+| `run_annotate_from_args(args)` / `main(argv)` | `output_dir` | output | required CLI-style workflow destination |
 | `run_bed_to_annot(...)` | `query_annot_bed_sources` | input | query BED group |
 | `run_bed_to_annot(...)` | `baseline_annot_sources` | input | baseline annotation templates |
 | `run_bed_to_annot(...)` | `padding_bp` | input transform | BED interval padding in base pairs before projection; default `0` |
-| `run_bed_to_annot(...)` | `output_dir` | output | generated query annotation directory; convenience wrapper writes `diagnostics/annotate.log` |
+| `run_bed_to_annot(...)` | `output_dir` | output | optional; omission stays in memory, while materialization includes `diagnostics/annotate.log` |
 
 Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 `baseline_annot`, `bed_padding_bp`, `out_prefix`, `main_bed_to_annot`.
@@ -579,10 +587,11 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | `LDScoreConfig` | `threads` | performance | cross-chromosome worker processes |
 | `LDScoreConfig` | `common_maf_min` | input metadata | common-SNP count threshold only |
 | `LDScoreOutputConfig` | `output_dir` | output | canonical LD-score result directory |
+| `LDScoreCalculator.run(...)` | `output_config` | output | optional for in-memory calculation; required when `LDScoreConfig.export_ref_metadata=True` |
 | `run_ldscore(**kwargs)` | `baseline_annot_sources`, `query_annot_sources`, `query_annot_bed_sources`, `query_annot_gene_list_sources`, `padding_bp` | input | optional annotation sources and live BED/gene padding; query inputs require baseline sources, and no-annotation runs synthesize `base`. Explicit `padding_bp`, including `0`, is rejected unless a live BED or gene-list query is supplied and indexed mode is not used. |
 | `run_ldscore(**kwargs)` | `plink_prefix`, `r2_dir` | input | reference-panel sources |
 | `run_ldscore(**kwargs)` | `ref_panel_snps_file`, `regr_snps_file`, `regr_snps_exclude_regions` | input | independently selects the retained reference universe, regression rows, and regression-only named region subtraction |
-| `run_ldscore(**kwargs)` | `output_dir` | output | canonical result directory; convenience wrapper writes `diagnostics/ldscore.log` |
+| `run_ldscore(**kwargs)` | `output_dir` | output | required; writes the canonical result directory and `diagnostics/ldscore.log` |
 
 Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`, `maf`,
 `baseline_annot`, `query_annot`, `query_annot_bed`, `out`,
@@ -627,8 +636,8 @@ LD-score `chunk_size`; `use_hm3_ref_panel_snps`, `use_hm3_regression_snps`,
 | `ReferencePanelBuildConfig` | `maf_min` | input metadata | retained SNP MAF filter |
 | `ReferencePanelBuildConfig` | `snp_batch_size` | performance | SNP computation batch size |
 | `ReferencePanelBuildConfig` | `min_r2` | output mode | optional unbiased-R2 emission floor; default `0.0` writes every retained pair |
-| `ReferencePanelBuildConfig` | `output_dir` | output | artifact directory |
-| `run_build_ref_panel(**kwargs)` | same config field names except global settings | input/output | convenience wrapper; reads `snp_identifier` from the registered `GlobalConfig`; ignores `GlobalConfig.genome_build`; writes the build-ref-panel workflow log |
+| `ReferencePanelBuildConfig` | `output_dir` | output | required constructor field selecting the artifact directory |
+| `run_build_ref_panel(**kwargs)` | same config field names except global settings | input/output | requires `plink_prefix` and `output_dir`; reads `snp_identifier` from the registered `GlobalConfig`; ignores `GlobalConfig.genome_build`; writes the build-ref-panel workflow log |
 
 Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 `keep_indivs`, `maf`, old genetic-map and liftover names without `_file` /
@@ -648,7 +657,7 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 | `MungeConfig` | `output_genome_build` | output metadata | required final build for `chr_pos`-family output coordinates |
 | `MungeConfig` | `liftover_chain_file` | input | optional source-to-target chain file for munger liftover |
 | `MungeConfig` | `use_hm3_quick_liftover` | input mode | use packaged curated HM3 dual-build map for coordinate-only liftover |
-| `MungeConfig` | `output_dir` | output | munged output directory; `SumstatsMunger.run()` writes `diagnostics/sumstats.log` |
+| `MungeConfig` | `output_dir` | output | optional at dataclass construction for inference helpers, but required by `SumstatsMunger.run()`; materialized runs write `diagnostics/sumstats.log` |
 | `MungeConfig` | `output_format` | output mode | `parquet`, `tsv.gz`, or `both`; defaults to `parquet` |
 | `SumstatsMunger.run(munge_config, ...)` | `munge_config` | input/output | normalized munging workflow; owns fixed output preflight, the self-describing `sumstats.parquet` footer, diagnostics, always-written `diagnostics/dropped_snps/dropped.tsv.gz`, and result construction; summary `output_paths` excludes logs |
 | `SumstatsMunger.write_output(sumstats, output_dir, output_format='parquet')` | `output_dir` | output | writes fixed `sumstats.parquet` and/or `sumstats.sumstats.gz` |
@@ -663,26 +672,28 @@ Removed Python names: legacy separate source-path object field,
 |---|---:|---:|---|
 | `R2Panel.open()` | `panel_dir` | input | package-built reference-panel directory (sole input mode) |
 | `R2Panel.open()` | `snp_identifier`, `genome_build` | input metadata | active identity mode and build selector |
-| `R2Panel.query_pairs(pairs)` | `pairs` | input | endpoint-suffixed SNP-pair table; always appends `r2`, `sign`, `r`, `status` |
-| `query_r2(...)` | `pairs`, `panel_dir` | input | one-shot query wrapper around `R2Panel.open()` and `query_pairs()` |
+| `R2Panel.query_pairs(pairs)` | `pairs` | input | in-memory endpoint-suffixed SNP-pair table; always appends `r2`, `sign`, `r`, `status` |
+| `query_r2(...)` | `pairs`, `panel_dir` | input | in-memory one-shot query wrapper around `R2Panel.open()` and `query_pairs()`; unlike the CLI, it has no output argument |
 | `unbiased_r2_to_pearson_r(r2_adj, n, sign)` | `r2_adj`, `n`, `sign` | transform | converts adjusted R2 plus sign to Pearson `r` |
 
 ### Regression
 
 | Object/function | Argument | Direction | Object |
 |---|---:|---:|---|
+| `RegressionRunner.estimate_partitioned_h2_batch(...)` | `include_full_partitioned_h2` | return mode | defaults to `False`, preserving the aggregate `pandas.DataFrame` return; CLI query workflows opt into the richer batch payload internally so they can write per-query artifacts |
+| `PartitionedH2OutputConfig` | `write_per_query_results` | low-level output mode | remains an explicit Python writer control; CLI query workflows set it automatically |
 | `run_h2_from_args(args)` | `ldscore_dir` | input | LD-score result directory |
 | `run_h2_from_args(args)` | `sumstats_file` | input | munged summary-statistics file |
-| `run_h2_from_args(args)` | `output_dir` | output | writes `h2.tsv` plus diagnostics when supplied; otherwise prints compact TSV to stdout |
+| `run_h2_from_args(args)` | `output_dir` | output | required; writes `h2.tsv` plus diagnostics |
 | `run_partitioned_h2_from_args(args)` | `ldscore_dir` | input | LD-score result directory |
 | `run_partitioned_h2_from_args(args)` | `sumstats_file` | input | munged summary-statistics file |
-| `run_partitioned_h2_from_args(args)` | `output_dir` | output | writes `partitioned_h2.tsv` plus diagnostics when supplied; otherwise prints compact TSV to stdout |
-| `run_partitioned_h2_from_args(args)` | `write_per_query_results` | output mode | optionally writes `diagnostics/query_annotations/` |
+| `run_partitioned_h2_from_args(args)` | `output_dir` | output | required; writes `partitioned_h2.tsv` plus diagnostics |
+| `run_partitioned_h2_from_args(args)` | `write_per_query_results` | deprecated compatibility flag | no-op; query runs always write `diagnostics/query_annotations/` |
 | `run_rg_from_args(args)` | `ldscore_dir` | input | LD-score result directory |
 | `run_rg_from_args(args)` | `sumstats_sources` | input | two or more munged summary-statistics files or glob patterns |
 | `run_rg_from_args(args)` | `anchor_trait` | input selector | optional anchor trait label or path for anchor-vs-rest output |
-| `run_rg_from_args(args)` | `output_dir` | output | writes `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, and diagnostics when supplied; otherwise prints compact `rg.tsv` to stdout; rg tables include nominal p-values only |
-| `run_rg_from_args(args)` | `write_per_pair_detail` | output mode | optionally writes `diagnostics/pairs/manifest.tsv` and per-pair diagnostic folders when `output_dir` is supplied |
+| `run_rg_from_args(args)` | `output_dir` | output | required; writes `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, and diagnostics; rg tables include nominal p-values only |
+| `run_rg_from_args(args)` | `write_per_pair_detail` | output mode | optionally writes `diagnostics/pairs/manifest.tsv` and per-pair diagnostic folders under the required `output_dir` |
 
 Removed Python/public argparse names: `sumstats`, `sumstats_1`, `sumstats_2`,
 `out`, `ldscore`, `counts`, `w_ld`, `annotation_manifest`, `query_columns`.
@@ -722,8 +733,8 @@ sidecar; the parquet footer carries the minimal identity fields
 - [x] PLINK input is named `plink_prefix` / `--plink-prefix`.
 - [x] `keep` inputs are named `keep_indivs_file` / `--keep-indivs-file`.
 - [x] Munging writes fixed files under `output_dir`.
-- [x] Regression writes fixed TSV files under `output_dir`; partitioned-h2 can
-  additionally write per-query folders when requested.
+- [x] Regression writes fixed TSV files under required `output_dir`; query-mode
+  partitioned-h2 always writes per-query folders.
 - [x] Build-ref-panel no longer accepts a separate panel label; output identity
   comes from the directory name.
 - [x] Removed the old prefix-based output compatibility pipeline from the
@@ -745,9 +756,8 @@ sidecar; the parquet footer carries the minimal identity fields
 - Do not add `--output-name` or `--panel-name`. Fixed output names make
   downstream automation simpler; users name runs by naming the output
   directory.
-- Keep `--output-dir` required for artifact-writing workflows. Regression may
-  continue to allow it as optional only when returning in-memory results is a
-  supported Python/test path.
+- Keep `--output-dir` required for every CLI workflow. Preserve in-memory
+  behavior in the underlying numerical Python methods instead of CLI adapters.
 - Treat `_kernel` legacy namespace names (`bfile`, `frqfile`, `r2_table`,
   `keep`) as private adapter details until the numerical kernel itself is
   rewritten.

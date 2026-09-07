@@ -384,6 +384,8 @@ class LDScoreCalculator:
             the aggregate result is built. Existing canonical files are refused
             unless ``output_config.overwrite`` is true.
             Default is ``None``, which keeps the result in memory only.
+            ``ldscore_config.export_ref_metadata=True`` requires an output
+            configuration because the exported metadata is a file artifact.
         regression_snps : set of str, RestrictionIdentityKeys, or None, optional
             Optional regression SNP universe used to define persisted rows and
             regression-weight contributions. The CLI always provides its
@@ -398,6 +400,11 @@ class LDScoreCalculator:
             Aggregated cross-chromosome result with aligned metadata and output
             paths if writing was requested.
         """
+        if ldscore_config.export_ref_metadata and output_config is None:
+            raise LDSCUsageError(
+                "LDScoreCalculator.run() requires output_config when export_ref_metadata=True. "
+                "Reference metadata is a filesystem artifact, so pass LDScoreOutputConfig(output_dir=...)."
+            )
         print_global_config_banner(type(self).__name__, global_config)
         if annotation_bundle.config_snapshot is not None:
             validate_config_compatibility(
@@ -2244,7 +2251,8 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     ``output_dir``. Shared runtime assumptions such as ``snp_identifier`` and
     ``genome_build`` must be supplied through ``set_global_config(...)`` first,
     while per-run controls such as ``ref_panel_snps_file`` and
-    ``regr_snps_file`` remain ordinary keyword arguments here.
+    ``regr_snps_file`` remain ordinary keyword arguments here. ``output_dir``
+    is required because this public workflow always writes canonical artifacts.
 
     When ``baseline_annot_sources`` and query inputs are omitted, the workflow
     builds a synthetic all-ones baseline column named ``base`` from retained
@@ -2310,8 +2318,16 @@ def run_ldscore(**kwargs) -> LDScoreResult:
             "Use CLI-style names such as `baseline_annot_sources`, `query_annot_sources`, "
             "`plink_prefix`, `r2_dir`, and `output_dir`."
         )
+    if not kwargs.get("output_dir"):
+        raise LDSCUsageError(
+            "run_ldscore() requires output_dir. Pass an explicit directory for the canonical LD-score artifacts."
+        )
     parser = build_parser()
-    defaults = vars(parser.parse_args(["--output-dir", "placeholder"]))
+    defaults = {
+        action.dest: action.default
+        for action in parser._actions
+        if action.dest != "help" and action.default is not argparse.SUPPRESS
+    }
     global_config = get_global_config()
     defaults["snp_identifier"] = global_config.snp_identifier
     defaults["genome_build"] = global_config.genome_build

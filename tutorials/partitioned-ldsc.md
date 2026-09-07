@@ -1,11 +1,14 @@
 # Partitioned LDSC
 
+Last updated on: 2026-09-07
+
 Goal: run partitioned LDSC in the refactored package by building query annotations, computing baseline-plus-query LD scores, and fitting one partitioned model per query annotation.
 
-`partitioned-h2` requires explicit query annotations in the LD-score result
-directory. Baseline-only LD-score directories, including synthetic all-ones
-`base` outputs from ordinary `ldsc ldscore` runs, are valid for `h2` and `rg`
-but are rejected by `partitioned-h2`.
+`partitioned-h2` accepts both baseline-only and query-annotation LD-score
+directories. Baseline-only runs fit the functional-category model and keep the
+complete-model artifacts at the result root. Query-annotation runs fit one
+baseline-plus-query model per query and also write the per-query diagnostics
+tree described below.
 
 The examples below assume chromosome-pattern inputs such as `annotations/baseline.1.annot.gz`, `r2/reference.1.parquet`, and `r2/reference_metadata.1.tsv.gz`.
 Package-built parquet R2 files use canonical pair columns (`CHR`, `POS_1`,
@@ -272,23 +275,12 @@ If any partitioned-h2 owned output already exists, including a stale
 before writing; add `--overwrite` only when replacing the previous summary is
 intentional.
 
-To also materialize one result folder per query annotation, add
-`--write-per-query-results`:
-
-```bash
-ldsc partitioned-h2 \
-  --sumstats-file tutorial_outputs/trait/sumstats.parquet \
-  --ldscore-dir tutorial_outputs/partitioned_ldscores \
-  --count-kind common \
-  --output-dir tutorial_outputs/partitioned_h2 \
-  --write-per-query-results
-```
-
-This keeps the aggregate `partitioned_h2.tsv` and adds
+For query-annotation runs, the same command keeps the aggregate
+`partitioned_h2.tsv` and adds
 `diagnostics/query_annotations/manifest.tsv` plus sanitized query folders such as
 `diagnostics/query_annotations/0001_enhancer_a/`. Each query folder contains its one-row
 `partitioned_h2.tsv`, the fitted baseline-plus-query `partitioned_h2_full.tsv`,
 and `metadata.json` with the original query annotation name.
-If you later rerun the same output directory without `--write-per-query-results`
-and pass `--overwrite`, the old `diagnostics/query_annotations/` tree is removed after the
-new aggregate summary is written.
+The deprecated `--write-per-query-results` flag remains accepted as a no-op and
+emits one warning; new commands should omit it. Baseline-only runs do not create
+the per-query tree and keep their complete-model artifacts at the result root.

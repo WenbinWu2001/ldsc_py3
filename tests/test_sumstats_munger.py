@@ -176,13 +176,17 @@ class SumstatsMungerTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--format", "vcf"])
 
-    def test_build_parser_accepts_infer_only_without_output_dir(self):
+    def test_build_parser_requires_output_dir_for_infer_only(self):
         parser = sumstats_workflow.build_parser()
 
-        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--infer-only"])
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--infer-only"])
+        args = parser.parse_args(
+            ["--raw-sumstats-file", "raw.tsv", "--output-dir", "unused", "--infer-only"]
+        )
 
         self.assertTrue(args.infer_only)
-        self.assertIsNone(args.output_dir)
+        self.assertEqual(args.output_dir, "unused")
 
     def test_build_parser_selects_daner_via_format_and_rejects_legacy_flags(self):
         parser = sumstats_workflow.build_parser()
@@ -2556,6 +2560,8 @@ class SumstatsMungerTest(unittest.TestCase):
                     [
                         "--raw-sumstats-file",
                         str(raw_path),
+                        "--output-dir",
+                        str(tmpdir / "unused"),
                         "--infer-only",
                         "--source-genome-build",
                         "hg38",
@@ -2584,6 +2590,8 @@ class SumstatsMungerTest(unittest.TestCase):
                 [
                     "--raw-sumstats-file",
                     str(raw_path),
+                    "--output-dir",
+                    str(Path(tmpdir) / "unused"),
                     "--infer-only",
                     "--source-genome-build",
                     "hg38",
@@ -2612,6 +2620,8 @@ class SumstatsMungerTest(unittest.TestCase):
                         [
                             "--raw-sumstats-file",
                             str(raw_path),
+                            "--output-dir",
+                            str(tmpdir / "unused"),
                             "--infer-only",
                             "--output-genome-build",
                             "hg38",
@@ -2634,7 +2644,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "  Suggested command:\n"
                 "    ldsc munge-sumstats \\\n"
                 f"      --raw-sumstats-file {raw_path} \\\n"
-                "      --output-dir ./munged_sumstats \\\n"
+                f"      --output-dir {tmpdir / 'unused'} \\\n"
                 "      --format plain \\\n"
                 "      --snp-identifier chr_pos_allele_aware \\\n"
                 "      --output-genome-build hg38 \\\n"
@@ -2643,6 +2653,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "      --use-hm3-quick-liftover",
                 output,
             )
+            self.assertFalse((tmpdir / "unused").exists())
             self.assertNotIn("--source-genome-build auto", output)
 
     def test_infer_only_reports_source_build_inference_failure_as_non_runnable(self):
@@ -2662,6 +2673,8 @@ class SumstatsMungerTest(unittest.TestCase):
                         [
                             "--raw-sumstats-file",
                             str(raw_path),
+                            "--output-dir",
+                            str(tmpdir / "unused"),
                             "--infer-only",
                             "--output-genome-build",
                             "hg38",
@@ -2718,6 +2731,8 @@ class SumstatsMungerTest(unittest.TestCase):
                         [
                             "--raw-sumstats-file",
                             str(raw_path),
+                            "--output-dir",
+                            str(tmpdir / "unused"),
                             "--infer-only",
                             "--output-genome-build",
                             "hg38",
@@ -2749,6 +2764,8 @@ class SumstatsMungerTest(unittest.TestCase):
                         [
                             "--raw-sumstats-file",
                             str(raw_path),
+                            "--output-dir",
+                            str(tmpdir / "unused"),
                             "--infer-only",
                             "--output-genome-build",
                             "hg38",
@@ -2784,6 +2801,8 @@ class SumstatsMungerTest(unittest.TestCase):
                         [
                             "--raw-sumstats-file",
                             str(raw_path),
+                            "--output-dir",
+                            str(tmpdir / "unused"),
                             "--infer-only",
                             "--output-genome-build",
                             "hg38",
@@ -2812,6 +2831,8 @@ class SumstatsMungerTest(unittest.TestCase):
                     [
                         "--raw-sumstats-file",
                         str(raw_path),
+                        "--output-dir",
+                        str(tmpdir / "unused"),
                         "--infer-only",
                         "--source-genome-build",
                         "hg38",
@@ -2880,6 +2901,8 @@ class SumstatsMungerTest(unittest.TestCase):
                     [
                         "--raw-sumstats-file",
                         str(raw_path),
+                        "--output-dir",
+                        str(tmpdir / "unused"),
                         "--infer-only",
                         "--source-genome-build",
                         "auto",
@@ -2909,6 +2932,8 @@ class SumstatsMungerTest(unittest.TestCase):
                     [
                         "--raw-sumstats-file",
                         str(raw_path),
+                        "--output-dir",
+                        str(tmpdir / "unused"),
                         "--infer-only",
                         "--source-genome-build",
                         "auto",
@@ -2934,6 +2959,8 @@ class SumstatsMungerTest(unittest.TestCase):
                     [
                         "--raw-sumstats-file",
                         str(raw_path),
+                        "--output-dir",
+                        str(tmpdir / "unused"),
                         "--infer-only",
                         "--snp-identifier",
                         "chr_pos",

@@ -1,5 +1,7 @@
 # Liability-Scale Heritability and Genetic Covariance
 
+Last updated on: 2026-09-07
+
 LDSC estimates heritability and genetic covariance on the **observed scale** by
 default. For binary (case-control) traits, the observed-scale value depends on
 the case fraction in your sample, so it is not comparable across studies. The
@@ -77,6 +79,7 @@ liability scale, but the genetic covariance is still partially rescaled):
 ldsc rg \
   --sumstats-sources scz.sumstats.gz height.sumstats.gz \
   --ldscore-dir eur_ldscores/ \
+  --output-dir scz_height_rg/ \
   --samp-prev 0.5,nan \
   --pop-prev 0.01,nan
 ```

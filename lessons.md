@@ -1,7 +1,10 @@
 
 # Lessons
 
-Last updated on: 2026-08-09
+Last updated on: 2026-09-07
+
+## Parser defaults must not be obtained by parsing invented required paths
+- Summary/root cause/correction: Python wrappers for LD-score and reference-panel workflows parsed fake required paths (`placeholder`/`out`) to obtain argparse defaults, which let omitted user arguments become unintended filesystem targets; collect action defaults directly and validate required wrapper arguments before constructing the namespace.
 
 ## Cleanup-capable preflights must declare every artifact the current run will write
 - Summary: A direct partitioned LD-score overwrite successfully wrote

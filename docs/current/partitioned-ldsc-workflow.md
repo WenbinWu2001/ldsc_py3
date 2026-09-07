@@ -1,6 +1,6 @@
 # Partitioned LDSC Workflow: Technical Reference
 
-Last updated on: 2026-08-24
+Last updated on: 2026-09-07
 
 This document describes the refactored workflow for computing LD scores and
 running h2, partitioned-h2, and rg regression from one canonical LD-score result
@@ -287,10 +287,11 @@ produced by an older `ldsc ldscore` is rejected with a regenerate message.
 - **Cell-type-specific regime** — the directory **has** query columns. For each
   query, a `baseline + one query` model is fit, yielding one row per query; the
   headline is `coefficient` (the conditional `tau`, + one-sided `coefficient_p`
-  testing `coefficient > 0`). `--write-per-query-results` additionally writes a
-  staged `diagnostics/query_annotations/` tree (`manifest.tsv` plus one sanitized
+  testing `coefficient > 0`). Every query run also writes a staged
+  `diagnostics/query_annotations/` tree (`manifest.tsv` plus one sanitized
   folder per query with a one-row `partitioned_h2.tsv`, the full
-  baseline-plus-query `partitioned_h2_full.tsv`, and `metadata.json`).
+  baseline-plus-query `partitioned_h2_full.tsv`, and `metadata.json`). The
+  deprecated `--write-per-query-results` flag is accepted as a no-op with one warning.
 
 Both regimes write **one** column schema to `partitioned_h2.tsv`, differing only
 in rows and the default sort:
@@ -324,11 +325,10 @@ records `analysis_type` / `headline_metric` / `enrichment_p_test` /
 
 `partitioned-h2` treats `partitioned_h2.tsv`, `diagnostics/metadata.json`,
 `diagnostics/query_annotations/`, and `diagnostics/partitioned-h2.log` as one
-owned output family. Without `--overwrite`, any
+owned output family. `--output-dir` is required. Without `--overwrite`, any
 existing owned sibling rejects the run. With `--overwrite`, a successful
-aggregate-only run removes a stale `diagnostics/query_annotations/` tree from a
-previous per-query configuration. If `--output-dir` is omitted, the CLI prints
-the `partitioned_h2.tsv` schema to stdout and writes no diagnostics.
+baseline-only run removes a stale `diagnostics/query_annotations/` tree from a
+previous query configuration.
 
 ## 7. CLI Examples
 
@@ -375,7 +375,7 @@ ldsc partitioned-h2 \
   --output-dir results/my_study_partitioned_h2
 ```
 
-Run partitioned h2 and save per-query folders:
+The old flag remains accepted for compatibility but is unnecessary:
 
 ```bash
 ldsc partitioned-h2 \

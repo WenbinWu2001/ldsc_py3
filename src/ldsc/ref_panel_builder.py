@@ -1796,6 +1796,8 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
     ``ldsc build-ref-panel``. The shared identifier mode comes from the
     registered ``GlobalConfig``; call ``set_global_config(...)`` before
     invoking this wrapper. ``GlobalConfig.genome_build`` is ignored here.
+    Both ``plink_prefix`` and ``output_dir`` are required because this public
+    workflow materializes a reference-panel artifact family.
     """
     forbidden = sorted({"genome_build", "log_level", "snp_identifier"} & set(kwargs))
     if forbidden:
@@ -1836,23 +1838,20 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
             "`genetic_map_hg38_sources`, `keep_indivs_file`, and `output_dir`."
         )
 
-    parser = build_parser()
-    defaults = vars(
-        parser.parse_args(
-            [
-                "--plink-prefix",
-                "plink/panel.@",
-                "--genetic-map-hg19-sources",
-                "hg19.map",
-                "--genetic-map-hg38-sources",
-                "hg38.map",
-                "--output-dir",
-                "out",
-                "--ld-wind-kb",
-                "1",
-            ]
+    if not kwargs.get("output_dir"):
+        raise LDSCUsageError(
+            "run_build_ref_panel() requires output_dir. Pass an explicit directory for the reference-panel artifacts."
         )
-    )
+    if not kwargs.get("plink_prefix"):
+        raise LDSCUsageError(
+            "run_build_ref_panel() requires plink_prefix. Pass the PLINK prefix used to build the panel."
+        )
+    parser = build_parser()
+    defaults = {
+        action.dest: action.default
+        for action in parser._actions
+        if action.dest != "help" and action.default is not argparse.SUPPRESS
+    }
     global_config = get_global_config()
     defaults["log_level"] = global_config.log_level
     defaults.update(kwargs)

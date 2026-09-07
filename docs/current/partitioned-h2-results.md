@@ -1,6 +1,6 @@
 # Partitioned LDSC Result Columns
 
-Last updated on: 2026-08-24
+Last updated on: 2026-09-07
 
 TODO: add an example output file str.
 
@@ -100,16 +100,15 @@ The run logs a one-block regime banner naming the column to focus on, and record
 Output directories follow the coherent artifact-family policy. The root
 `partitioned_h2.tsv`, diagnostic metadata, optional
 `diagnostics/query_annotations/` tree, and `diagnostics/partitioned-h2.log` are
-checked together. Without overwrite, any existing owned sibling rejects the run.
-With overwrite, a successful aggregate-only run removes a stale
-`diagnostics/query_annotations/` tree from an earlier per-query run. If
-`--output-dir` is omitted, the CLI prints the table to stdout and writes no
-diagnostics.
+checked together. `--output-dir` is required. Without overwrite, any existing
+owned sibling rejects the run. With overwrite, a successful baseline-only run
+removes a stale `diagnostics/query_annotations/` tree from an earlier query run.
 
 ## `partitioned_h2_full.tsv`
 
-When `--write-per-query-results` is supplied (cell-type regime), each query
-folder also contains `partitioned_h2_full.tsv`. This table uses the **same**
+In the cell-type regime, each query folder contains
+`partitioned_h2_full.tsv` by default. The deprecated
+`--write-per-query-results` flag is accepted as a no-op with one warning. This table uses the **same**
 column schema as `partitioned_h2.tsv`, with one row for every retained category
 in that query's fitted `baseline + query` model (all baseline categories plus the
 query). Its baseline rows are the joint functional enrichments conditional on the

@@ -674,6 +674,14 @@ class StandardTableFormattingTest(unittest.TestCase):
 
 
 class ReferencePanelBuildConfigOptionalLiftoverTest(unittest.TestCase):
+    def test_output_dir_is_a_required_constructor_argument(self):
+        with self.assertRaises(TypeError):
+            ReferencePanelBuildConfig(plink_prefix="plink/panel.@", ld_wind_kb=1)
+
+    def test_python_wrapper_requires_output_dir_without_dummy_paths(self):
+        with self.assertRaisesRegex(LDSCUsageError, "requires output_dir"):
+            ref_panel_builder.run_build_ref_panel(plink_prefix="plink/panel.@", ld_wind_kb=1)
+
     def test_python_api_defaults_missing_maps_for_snp_window(self):
         config = ReferencePanelBuildConfig(
             plink_prefix="plink/panel.@",

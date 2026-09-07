@@ -1,6 +1,6 @@
 # Input Path Specification
 
-Last updated on: 2026-08-04
+Last updated on: 2026-09-07
 
 This note explains how to specify filesystem inputs in the refactored package.
 The goal is practical: help you choose the right path form for each workflow and
@@ -453,8 +453,9 @@ Accepted path forms:
 - exact-one glob for scalar sumstats file inputs
 - multi-file glob or mixed path/glob list for rg `--sumstats-sources`
 - literal directory for `ldscore_dir`
-- `ldsc munge-sumstats --infer-only` resolves only `--raw-sumstats-file`;
-  `--output-dir` is not required because no artifacts are written
+- `ldsc munge-sumstats --infer-only` resolves only `--raw-sumstats-file` and
+  writes no artifacts; `--output-dir` remains syntactically required for the
+  uniform command contract but is neither created nor used
 
 How they are handled:
 
@@ -489,9 +490,8 @@ Output:
 - `--use-hm3-snps` uses the packaged curated HM3 map as the sumstats SNP
   restriction and conflicts with `--sumstats-snps-file`. HM3 quick liftover
   requires `--use-hm3-snps`.
-- `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write fixed result families
-  when `output_dir` is provided. Without `output_dir`, each command prints its
-  compact TSV table to stdout and writes no diagnostics. For h2, the written
+- `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` require `output_dir` and write
+  fixed result families. For h2, the written
   family is `h2.tsv`, `diagnostics/metadata.json`, and workflow-owned
   `diagnostics/h2.log`. For rg, that family is `rg.tsv`, `rg_full.tsv`,
   `h2_per_trait.tsv`, optional `diagnostics/pairs/`, and workflow-owned
@@ -500,13 +500,14 @@ Output:
 - `ldsc partitioned-h2` requires the LD-score directory to include
   `ldscore.overlap.parquet`. Baseline-only directories run the functional-category
   regime; directories with query columns run the cell-type-specific regime.
-- `ldsc partitioned-h2 --write-per-query-results` also writes a staged
-  `diagnostics/query_annotations/` tree under `output_dir`. The tree contains
+- Query-annotation `ldsc partitioned-h2` runs always write a staged
+  `diagnostics/query_annotations/` tree under `output_dir`. The deprecated
+  `--write-per-query-results` flag is accepted as a warning-producing no-op. The tree contains
   `manifest.tsv` and one folder per query annotation, with per-query
   `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json`.
   Existing final per-query output is refused unless `--overwrite` is supplied;
-  with overwrite enabled, an aggregate-only run removes a stale
-  `diagnostics/query_annotations/` tree.
+  baseline-only runs keep their complete fitted model at the result root and,
+  with overwrite enabled, remove a stale `diagnostics/query_annotations/` tree.
 - Existing output directories are valid in every case. Only known files for the
   workflow-owned artifact family are checked; unrelated files are preserved.
 

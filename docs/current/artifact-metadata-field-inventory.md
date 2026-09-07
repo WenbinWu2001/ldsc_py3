@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-08-24
+Last updated on: 2026-09-07
 
 Downstream identity metadata lives in the `sumstats.parquet` footer (for munged
 sumstats) and in `ldscore/metadata.json` (for LD scores). Any metadata emitted by
@@ -258,8 +258,7 @@ h2/
     h2.log
 ```
 
-`diagnostics/metadata.json` is provenance only. If `--output-dir` is omitted,
-the CLI prints compact TSV output to stdout and writes no diagnostics.
+`diagnostics/metadata.json` is provenance only. `--output-dir` is required.
 
 | Field | Explanation | Downstream usage |
 | --- | --- | --- || `artifact_type` | Must be `h2_result`. | None. |
@@ -295,9 +294,9 @@ partitioned-h2/
     query_annotations/<query>/coefficient_delete_values.parquet
 ```
 
-The `diagnostics/query_annotations/` tree is present only when per-query detail
-output is requested. If `--output-dir` is omitted, the CLI prints compact TSV
-output to stdout and writes no diagnostics.
+The `diagnostics/query_annotations/` tree is present for every query-annotation
+run and absent for baseline-only runs. `--output-dir` is required; the deprecated
+`--write-per-query-results` flag is an accepted no-op.
 
 Root and per-query `diagnostics/metadata.json` files are provenance only. The
 root file is self-describing about the analysis: `analysis_type`
@@ -337,8 +336,7 @@ rg/
 ```
 
 The `diagnostics/pairs/` tree is present only when per-pair detail output is
-requested. If `--output-dir` is omitted, the CLI prints compact `rg.tsv` output
-to stdout and writes no diagnostics.
+requested. `--output-dir` is required.
 
 `rg.tsv`, `rg_full.tsv`, and per-pair `rg_full.tsv` report only nominal
 two-sided p-values from each genetic-correlation fit. They do not include
@@ -350,15 +348,11 @@ metadata records the prevalences applied to each trait (`samp_prev_1`, `pop_prev
 `samp_prev_2`, `pop_prev_2`, each `null` when unset) and a `scale`
 (`observed` | `liability`) field; the rg ratio itself is scale-invariant.
 
-## Regression No-Output Rule
+## Regression Output Rule
 
-Regression commands share one user-facing rule:
-
-- With `--output-dir`, write the public result files plus diagnostics.
-- Without `--output-dir`, print the compact public TSV table to stdout and
-  write no files or diagnostics.
-
-This applies to `h2`, `partitioned-h2`, and `rg`.
+`h2`, `partitioned-h2`, and `rg` require `--output-dir` and write their public
+result files plus diagnostics. Their numerical `RegressionRunner` methods remain
+in-memory APIs.
 
 ## Compatibility-Critical Fields
 

@@ -509,7 +509,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--panel-dir", required=True, help="build-ref-panel output directory.")
     parser.add_argument("--pairs", required=True, help="TSV/CSV of pairs with _1/_2 endpoint columns ('-' = stdin).")
-    parser.add_argument("--output-dir", default=None, help="Output directory for the result table and diagnostics; default streams TSV to stdout.")
+    parser.add_argument("--output-dir", required=True, help="Output directory for the result table and diagnostics.")
     parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing query-r2 output artifacts.")
     parser.add_argument("--snp-identifier", default=None, help="Override panel SNP identifier mode.")
     parser.add_argument("--genome-build", choices=["hg19", "hg38"], default=None, help="Genome build for sub-dir resolution.")
@@ -520,20 +520,13 @@ def build_parser() -> argparse.ArgumentParser:
 def run_query_r2_from_args(args: argparse.Namespace) -> pd.DataFrame:
     """Run ``query-r2`` from parsed CLI arguments and emit the result table.
 
-    Without ``--output-dir`` the result streams as a clean TSV to stdout
-    (pipe-able). With ``--output-dir`` it writes the canonical result directory:
-    ``query_r2.tsv`` plus ``diagnostics/metadata.json`` and
-    ``diagnostics/query-r2.log``, matching the other workflow commands.
+    The command writes the canonical result directory: ``query_r2.tsv`` plus
+    ``diagnostics/metadata.json`` and ``diagnostics/query-r2.log``, matching the
+    other workflow commands.
     """
     pairs_handle = sys.stdin if args.pairs == "-" else args.pairs
     sep = "," if str(args.pairs).endswith(".csv") else "\t"
     pairs = pd.read_csv(pairs_handle, sep=sep)
-
-    if args.output_dir is None:
-        panel = R2Panel.open(args.panel_dir, snp_identifier=args.snp_identifier, genome_build=args.genome_build)
-        result = panel.query_pairs(pairs)
-        result.to_csv(sys.stdout, sep="\t", index=False)
-        return result
 
     return _write_query_r2_directory(args, pairs)
 

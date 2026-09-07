@@ -45,6 +45,29 @@ def _write_gene_catalog(path: Path, *, genome_build: str = "hg38") -> Path:
 
 
 class AnnotationBuilderTest(unittest.TestCase):
+    def test_run_honors_output_dir_from_annotation_build_config(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            query = tmpdir / "query.annot"
+            output_dir = tmpdir / "out"
+            _write_annot(baseline, [("1", 10, "rs1", 0.1)], {"base": [1]})
+            _write_annot(query, [("1", 10, "rs1", 0.1)], {"query": [1]})
+
+            bundle = AnnotationBuilder(GlobalConfig(snp_identifier="rsid")).run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(baseline,),
+                    query_annot_sources=(query,),
+                    output_dir=output_dir,
+                )
+            )
+
+            self.assertEqual(bundle.query_columns, ["query"])
+            self.assertTrue((output_dir / "query.1.annot.gz").exists())
+            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+            self.assertTrue((output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz").exists())
+            self.assertTrue((output_dir / "diagnostics" / "annotate.log").exists())
+
     def test_bundle_rejects_duplicate_names_across_baseline_and_query(self):
         bundle = AnnotationBundle(
             metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [np.nan]}),

@@ -177,9 +177,7 @@ def main(argv: Sequence[str] | None = None):
             parser = _NoAbbrevArgumentParser(prog="ldsc h2", description="Estimate heritability from munged sumstats and LD scores.")
             regression_runner.add_h2_arguments(parser)
             parsed = parser.parse_args(subargv)
-            result = regression_runner.run_h2_from_args(parsed)
-            _print_table_stdout_if_needed(parsed, result)
-            return result
+            return regression_runner.run_h2_from_args(parsed)
         if command == "partitioned-h2":
             regression_runner = _load_regression_runner()
             parser = _NoAbbrevArgumentParser(
@@ -188,9 +186,7 @@ def main(argv: Sequence[str] | None = None):
             )
             regression_runner.add_partitioned_h2_arguments(parser)
             parsed = parser.parse_args(subargv)
-            result = regression_runner.run_partitioned_h2_from_args(parsed)
-            _print_table_stdout_if_needed(parsed, result)
-            return result
+            return regression_runner.run_partitioned_h2_from_args(parsed)
         if command == "quantile-h2":
             quantile_h2 = _load_quantile_h2()
             parser = _NoAbbrevArgumentParser(
@@ -204,9 +200,7 @@ def main(argv: Sequence[str] | None = None):
             parser = _NoAbbrevArgumentParser(prog="ldsc rg", description="Estimate genetic correlation.")
             regression_runner.add_rg_arguments(parser)
             parsed = parser.parse_args(subargv)
-            result = regression_runner.run_rg_from_args(parsed)
-            _print_rg_stdout_if_needed(parsed, result)
-            return result
+            return regression_runner.run_rg_from_args(parsed)
     # Only top-level help, no arguments, or an unknown command reach this point;
     # every valid subcommand is dispatched above without importing the heavy
     # workflow modules. The lightweight parser keeps this path fast: it always
@@ -254,23 +248,6 @@ def _log_internal_error(exc: BaseException) -> None:
 def _run_annotate(args: argparse.Namespace):
     """Dispatch the ``annotate`` subcommand."""
     return annotation_builder.run_annotate_from_args(args)
-
-
-def _print_rg_stdout_if_needed(args: argparse.Namespace, result) -> None:
-    """Print concise rg output for no-output-dir CLI runs."""
-    if getattr(args, "output_dir", None):
-        return
-    rg = getattr(result, "rg", None)
-    if rg is not None:
-        _print_table_stdout_if_needed(args, rg)
-
-
-def _print_table_stdout_if_needed(args: argparse.Namespace, table) -> None:
-    """Print a compact TSV table for no-output-dir regression CLI runs."""
-    if getattr(args, "output_dir", None):
-        return
-    if hasattr(table, "to_csv"):
-        table.to_csv(sys.stdout, sep="\t", index=False, na_rep="NaN")
 
 
 def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentParser) -> None:

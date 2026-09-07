@@ -750,10 +750,10 @@ class ReferencePanelBuildConfig:
     """
 
     plink_prefix: str | PathLike[str]
+    output_dir: str | PathLike[str]
     source_genome_build: GenomeBuildInput = "auto"
     genetic_map_hg19_sources: str | PathLike[str] | None = None
     genetic_map_hg38_sources: str | PathLike[str] | None = None
-    output_dir: str | PathLike[str] | None = None
     liftover_chain_hg19_to_hg38_file: str | PathLike[str] | None = None
     liftover_chain_hg38_to_hg19_file: str | PathLike[str] | None = None
     ld_wind_snps: int | None = None

@@ -31,6 +31,12 @@ per-query ``diagnostics/query_annotations`` tree with ``manifest.tsv``, one-row
 tables, and ``metadata.json`` files before moving it into place. ``RgDirectoryWriter``
 uses the same whole-tree staging and replacement policy for optional
 ``diagnostics/pairs`` details.
+
+Unpartitioned h2 results also carry
+``diagnostics/ld_score_regression_bins.tsv``. This table summarizes the exact
+SNP population and final fitted model used by h2 and is the authoritative input
+for the optional binned LD Score regression diagnostic plot. The writer layer
+persists the table but never imports a plotting library.
 """
 
 from __future__ import annotations
@@ -99,6 +105,18 @@ def _write_chromosome_aligned_parquet(
 
 
 REGRESSION_LD_SCORE_COLUMN = "regression_ld_scores"
+H2_REGRESSION_BIN_COLUMNS = [
+    "bin",
+    "n_snps",
+    "ld_score_min",
+    "ld_score_max",
+    "mean_ld_score",
+    "mean_chi_square",
+    "sd_chi_square",
+    "mean_sample_size",
+    "mean_fitted_chi_square",
+    "mean_regression_weight",
+]
 QUERY_STATUS_COLUMNS = ["query", "source", "input_type", "status", "reason", "n_annotation_snps", "details"]
 DEFAULT_COUNT_CONFIG = {
     "common_reference_snp_maf_min": 0.05,
@@ -204,7 +222,8 @@ class H2OutputConfig:
     Parameters
     ----------
     output_dir : str or os.PathLike[str]
-        Directory that receives ``h2.tsv`` and diagnostic metadata.
+        Directory that receives ``h2.tsv``, the exact LD Score regression-bin
+        diagnostic, and metadata.
     overwrite : bool, optional
         If ``True``, replace existing fixed h2 outputs. Default is ``False``.
     """
@@ -218,7 +237,7 @@ class H2OutputConfig:
 
 
 class H2DirectoryWriter:
-    """Write the unpartitioned h2 summary and diagnostic metadata sidecar."""
+    """Write the unpartitioned h2 summary, exact fitted-bin diagnostic, and metadata."""
 
     def write(
         self,
@@ -226,30 +245,80 @@ class H2DirectoryWriter:
         output_config: H2OutputConfig,
         *,
         metadata: dict[str, object],
+        diagnostic_bins: pd.DataFrame,
     ) -> dict[str, str]:
-        """Write ``h2.tsv`` and ``diagnostics/metadata.json`` to a result directory.
+        """Write the h2 summary, regression bins, and metadata.
 
+        Parameters
+        ----------
+        summary : pandas.DataFrame
+            One-row h2 summary in the canonical public schema.
+        output_config : H2OutputConfig
+            Output directory and overwrite policy.
+        metadata : dict
+            Scientific and source provenance for the result.
+        diagnostic_bins : pandas.DataFrame
+            Exact post-filter LD Score regression-bin summary in
+            :data:`H2_REGRESSION_BIN_COLUMNS` order.
+
+        Returns
+        -------
+        dict of str to str
+            Written summary, bin-diagnostic, and metadata paths.
+
+        Raises
+        ------
+        ValueError
+            If the summary or diagnostic table lacks required columns.
+        FileExistsError
+            If an owned h2 artifact exists and overwrite is disabled.
+
+        Notes
+        -----
         Existing fixed h2 artifacts are checked before any output file is
-        written. Replacement requires ``output_config.overwrite=True``.
+        written. Replacement requires ``output_config.overwrite=True``. A
+        successful replacement also removes default plot and post-processing
+        roots derived from the superseded h2 result.
         """
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
         summary_path = output_dir / "h2.tsv"
         diagnostics_dir = output_dir / "diagnostics"
         metadata_path = diagnostics_dir / "metadata.json"
-        preflight_output_artifact_family(
-            [summary_path, metadata_path],
-            [summary_path, metadata_path],
+        bins_path = diagnostics_dir / "ld_score_regression_bins.tsv"
+        stale = preflight_output_artifact_family(
+            [summary_path, bins_path, metadata_path],
+            [
+                summary_path,
+                bins_path,
+                metadata_path,
+                output_dir / "plots",
+                output_dir / "postprocessing",
+            ],
             overwrite=output_config.overwrite,
             label="h2 output artifact",
         )
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         _atomic_write_dataframe(summary, summary_path, na_rep="NaN")
+        _atomic_write_dataframe(
+            _select_columns(diagnostic_bins, H2_REGRESSION_BIN_COLUMNS, label="h2 regression-bin diagnostic"),
+            bins_path,
+            na_rep="NaN",
+        )
         _atomic_write_json(
-            _result_metadata(metadata, artifact_type="h2_result", files={"summary": "h2.tsv"}),
+            _result_metadata(
+                metadata,
+                artifact_type="h2_result",
+                files={
+                    "summary": "h2.tsv",
+                    "ld_score_regression_bins": "diagnostics/ld_score_regression_bins.tsv",
+                },
+            ),
             metadata_path,
         )
+        remove_output_artifacts(stale)
         return {
             "summary": str(summary_path),
+            "ld_score_regression_bins": str(bins_path),
             "metadata": str(metadata_path),
         }
 
@@ -734,7 +803,11 @@ class QuantileH2OutputConfig:
 
 
 class QuantileH2DirectoryWriter:
-    """Write post-fit quantile summaries, coefficients, and SNP diagnostics."""
+    """Write post-fit quantile summaries, coefficients, and SNP diagnostics.
+
+    A successful overwrite removes the default plot root derived from the
+    superseded quantile result.
+    """
 
     def write_diagnostics(
         self,
@@ -810,7 +883,7 @@ class QuantileH2DirectoryWriter:
         successful_paths = list(paths.values())
         stale = preflight_output_artifact_family(
             successful_paths,
-            successful_paths,
+            [*successful_paths, output_dir / "plots"],
             overwrite=output_config.overwrite,
             label="quantile-h2 output artifact",
         )
@@ -887,7 +960,8 @@ class PartitionedH2DirectoryWriter:
     per-query tree
     is written to a temporary sibling directory before it is moved into the
     final location, so ordinary validation and I/O failures do not expose a
-    partially populated final tree.
+    partially populated final tree. A successful overwrite also removes the
+    default plot root derived from the superseded result.
     """
 
     def write(
@@ -955,7 +1029,7 @@ class PartitionedH2DirectoryWriter:
             produced_paths.append(query_root)
         stale_paths = preflight_output_artifact_family(
             produced_paths,
-            [summary_path, metadata_path, coefficient_delete_path, query_root],
+            [summary_path, metadata_path, coefficient_delete_path, query_root, output_dir / "plots"],
             overwrite=output_config.overwrite,
             label="partitioned-h2 output artifact",
         )
@@ -1163,7 +1237,8 @@ class RgDirectoryWriter:
     ``rg.tsv``, ``rg_full.tsv``, ``h2_per_trait.tsv``, and optional
     ``diagnostics/pairs/``.
     The optional pair tree is staged before replacement so a failed write does
-    not expose a partially populated final tree.
+    not expose a partially populated final tree. A successful overwrite also
+    removes the default plot root derived from the superseded result.
     """
 
     def write(self, result: Any, output_config: RgOutputConfig) -> dict[str, str]:
@@ -1217,7 +1292,7 @@ class RgDirectoryWriter:
             produced_paths.append(pairs_root)
         stale_paths = preflight_output_artifact_family(
             produced_paths,
-            [metadata_path, rg_path, full_path, h2_path, pairs_root],
+            [metadata_path, rg_path, full_path, h2_path, pairs_root, output_dir / "plots"],
             overwrite=output_config.overwrite,
             label="rg output artifact",
         )

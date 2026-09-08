@@ -593,6 +593,24 @@ class H2DirectoryWriterTest(unittest.TestCase):
             "n_snps": 100,
         }
 
+    def make_bins(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "bin": 1,
+                    "n_snps": 100,
+                    "ld_score_min": 1.0,
+                    "ld_score_max": 2.0,
+                    "mean_ld_score": 1.5,
+                    "mean_chi_square": 1.2,
+                    "sd_chi_square": 0.1,
+                    "mean_sample_size": 1000.0,
+                    "mean_fitted_chi_square": 1.18,
+                    "mean_regression_weight": 0.4,
+                }
+            ]
+        )
+
     def test_writes_summary_and_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "h2"
@@ -601,6 +619,7 @@ class H2DirectoryWriterTest(unittest.TestCase):
                 self.make_summary(),
                 H2OutputConfig(output_dir=output_dir),
                 metadata=self.make_metadata(),
+                diagnostic_bins=self.make_bins(),
             )
 
             self.assertEqual(
@@ -608,6 +627,9 @@ class H2DirectoryWriterTest(unittest.TestCase):
                 {
                     "summary": str(output_dir / "h2.tsv"),
                     "metadata": str(output_dir / "diagnostics" / "metadata.json"),
+                    "ld_score_regression_bins": str(
+                        output_dir / "diagnostics" / "ld_score_regression_bins.tsv"
+                    ),
                 },
             )
             summary = pd.read_csv(output_dir / "h2.tsv", sep="\t")
@@ -615,8 +637,16 @@ class H2DirectoryWriterTest(unittest.TestCase):
             self.assertFalse((output_dir / "metadata.json").exists())
             metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["artifact_type"], "h2_result")
-            self.assertEqual(metadata["files"], {"summary": "h2.tsv"})
+            self.assertEqual(
+                metadata["files"],
+                {
+                    "summary": "h2.tsv",
+                    "ld_score_regression_bins": "diagnostics/ld_score_regression_bins.tsv",
+                },
+            )
             self.assertEqual(metadata["retained_ld_columns"], ["base"])
+            bins = pd.read_csv(output_dir / "diagnostics" / "ld_score_regression_bins.tsv", sep="\t")
+            self.assertEqual(bins.columns.tolist(), self.make_bins().columns.tolist())
 
     def test_writes_nan_literal_for_missing_values(self):
         # Missing values (e.g. liability columns on an observed-scale run) render
@@ -627,6 +657,7 @@ class H2DirectoryWriterTest(unittest.TestCase):
                 self.make_summary(),
                 H2OutputConfig(output_dir=output_dir),
                 metadata=self.make_metadata(),
+                diagnostic_bins=self.make_bins(),
             )
             text = (output_dir / "h2.tsv").read_text(encoding="utf-8")
             self.assertIn("NaN", text)
@@ -644,6 +675,7 @@ class H2DirectoryWriterTest(unittest.TestCase):
                     self.make_summary(),
                     H2OutputConfig(output_dir=output_dir),
                     metadata=self.make_metadata(),
+                    diagnostic_bins=self.make_bins(),
                 )
 
             self.assertEqual(existing.read_text(encoding="utf-8"), '{"old": true}\n')
@@ -660,6 +692,7 @@ class H2DirectoryWriterTest(unittest.TestCase):
                 self.make_summary(),
                 H2OutputConfig(output_dir=output_dir, overwrite=True),
                 metadata=self.make_metadata(),
+                diagnostic_bins=self.make_bins(),
             )
 
             self.assertIn("total_h2_obs", (output_dir / "h2.tsv").read_text(encoding="utf-8"))
@@ -679,6 +712,7 @@ class H2DirectoryWriterTest(unittest.TestCase):
                 self.make_summary(),
                 H2OutputConfig(output_dir=output_dir),
                 metadata=self.make_metadata(),
+                diagnostic_bins=self.make_bins(),
             )
 
             self.assertEqual(legacy_metadata.read_text(encoding="utf-8"), '{"legacy": true}\n')

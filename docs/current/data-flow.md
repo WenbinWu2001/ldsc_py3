@@ -12,7 +12,7 @@ This document summarizes the user-visible file streams for each public workflow.
 | Preprocessing | yes | `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, `ldsc.genome_build_inference` | normalize tokens, headers, identifiers, chromosome order, and coordinate-build assumptions |
 | Workflow | yes | feature modules under `src/ldsc/` | build aligned in-memory tables |
 | Kernel | no | `ldsc._kernel.*` | low-level readers and numerical work |
-| Postprocessing | yes | `ldsc.outputs`, pandas writers in `ldsc.regression_runner`, `ldsc._logging` | preflight fixed output paths, emit files, summaries, and workflow audit logs |
+| Postprocessing | yes | `ldsc.outputs`, `ldsc.plotting`, `ldsc.h2_scale`, pandas writers in `ldsc.regression_runner`, `ldsc._logging` | preflight fixed output paths, emit core/derived results, and write workflow audit logs/failure markers |
 
 ## Package Overview
 
@@ -614,7 +614,7 @@ flowchart LR
 
   I1 --> E1 --> E4 --> E5
   I2 --> E1 --> E2 --> E3 --> E4
-  E5 --> E6 --> O5a[h2.tsv + diagnostics/]
+  E5 --> E6 --> O5a[h2.tsv + exact regression-bin diagnostics]
   E5 --> E7 --> O5b[partitioned_h2.tsv + diagnostics/]
   E7 --> O5d[diagnostics/query_annotations/]
   E5 --> E8 --> O5c[rg.tsv + rg_full.tsv + h2_per_trait.tsv + diagnostics/]
@@ -668,3 +668,35 @@ flowchart LR
 ```
 
 The target may be external to the fitted model and contributes only quantile membership. The projection uses fitted annotations only. See [continuous-annotation-quantile-h2.md](continuous-annotation-quantile-h2.md) for the exact contracts and formulas.
+
+## 8. Optional Plotting And h2 Scale Conversion
+
+These derived workflows consume complete canonical result roots and never feed
+back into core estimation.
+
+```mermaid
+flowchart LR
+  R[Canonical h2, partitioned-h2,
+  quantile-h2, or rg result]
+  M[diagnostics/metadata.json]
+  T[Declared numerical TSV]
+  D[ldsc.plotting contract dispatch]
+  F[plots/fixed-name.png + diagnostics]
+  H[Canonical h2 result]
+  S[h2.tsv observed estimate + SE]
+  C[ldsc.h2_scale]
+  K[Kernel liability conversion factor]
+  O[postprocessing/liability-scale/
+  table + optional sensitivity PNG]
+  R --> M --> D
+  R --> T --> D --> F
+  H --> S --> C
+  C --> K --> O
+```
+
+`ldsc plot` checks only the small plotting-relevant metadata contract and
+follows the declared source file. `ldsc convert-h2-scale` always starts from
+the observed h2 estimate and SE. Matplotlib is loaded only by figure-producing
+paths; exact conversion remains available in a core-only installation. See
+[plotting-module.md](plotting-module.md) for dispatch, ownership, and failure
+boundaries.

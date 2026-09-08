@@ -66,7 +66,7 @@ from .path_resolution import (
     resolve_scalar_path,
     split_cli_path_tokens,
 )
-from ._logging import log_inputs, log_outputs, workflow_logging
+from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel import regions as kernel_regions
 from ._kernel.overlap import OverlapContribution, sum_overlap_contributions
@@ -1318,6 +1318,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+@materializing_overwrite_guard(
+    lambda args: (
+        (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
+        if getattr(args, "output_dir", None)
+        else None
+    ),
+    command="run_ldscore_from_args(...)",
+)
 def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     """Run LD-score calculation from a parsed CLI namespace.
 

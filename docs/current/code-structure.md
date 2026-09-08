@@ -1,6 +1,6 @@
 # Code Structure
 
-Last updated on: 2026-08-24
+Last updated on: 2026-09-07
 
 This is the contributor-facing module map for `ldsc_py3_Jerry`.
 
@@ -29,6 +29,8 @@ ldsc_py3_Jerry/
 │   ├── legacy_ldscore_converter.py
 │   ├── sumstats_munger.py
 │   ├── regression_runner.py
+│   ├── h2_scale.py
+│   ├── plotting/
 │   ├── quantile_h2.py
 │   ├── prevalence.py
 │   ├── overlap_matrix.py
@@ -45,6 +47,7 @@ ldsc_py3_Jerry/
 - public workflow modules -> private `_kernel` modules
 - `ldsc.outputs` is called from the workflow layer, not from `_kernel`
 - regression reloads written LD-score artifacts; it does not depend on annotation or reference-panel kernels directly
+- `ldsc.plotting` and `ldsc.h2_scale` consume canonical result directories; only the private plotting builders and prevalence-range conversion path import optional Matplotlib
 
 ## Module Map
 
@@ -53,7 +56,7 @@ ldsc_py3_Jerry/
 | `ldsc.cli` | unified `ldsc` command and subcommand dispatch |
 | `ldsc.config` | frozen public config dataclasses and basic validation |
 | `ldsc.path_resolution` | normalize path tokens, resolve concrete input files, create output directories, preflight fixed output paths, and enforce coherent output artifact families |
-| `ldsc._logging` | shared workflow logging context, LDSC logger level handling, lifecycle audit lines, CLI console-handler routing (file-authoritative, console error-only) with run-aborting traceback capture, and log-only formatting helpers |
+| `ldsc._logging` | shared workflow logging context, LDSC logger level handling, lifecycle audit lines, CLI console-handler routing (file-authoritative, console error-only) with run-aborting traceback capture, durable authorized-overwrite failure markers without rollback, and log-only formatting helpers |
 | `ldsc.column_inference` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc.chromosome_inference` | canonical chromosome normalization and ordering |
 | `ldsc.genome_build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
@@ -71,9 +74,12 @@ ldsc_py3_Jerry/
 | `ldsc.ldscore_calculator` | LD-score orchestration, catalog-build selection, optional synthetic `base`, query-status finalization/pruning, aggregation, and output routing |
 | `ldsc.legacy_ldscore_converter` | sole LDSC2 LD-score-suite import boundary: deterministic family discovery, rsID joins, count/overlap validation or reconstruction, provenance hashing, diagnostics, and canonical LDSC3 directory writing |
 | `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, `--format auto` / `--infer-only` header inference, Parquet/TSV curated output writing, self-describing `sumstats.parquet` footer identity metadata, diagnostics under `diagnostics/`, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
-| `ldsc.regression_runner` | file-driven regression dataset assembly, automatic legacy LDSC2 sumstats rsID-to-panel projection and allele harmonization, active effective identity-key merging (`SNP`, `SNP:<allele_set>`, `CHR:POS`, or `CHR:POS:<allele_set>`), h2/partitioned-h2/rg estimator dispatch (including the two overlap-aware partitioned-h2 regimes), observed/liability-scale summary columns, and rg result-family writing |
+| `ldsc.regression_runner` | file-driven regression dataset assembly, automatic legacy LDSC2 sumstats rsID-to-panel projection and allele harmonization, active effective identity-key merging (`SNP`, `SNP:<allele_set>`, `CHR:POS`, or `CHR:POS:<allele_set>`), h2/partitioned-h2/rg estimator dispatch (including the two overlap-aware partitioned-h2 regimes), observed/liability-scale summary columns, exact final-fit h2 regression-bin diagnostics, and rg result-family writing |
 | `ldsc.quantile_h2` | post-fit continuous-target quantile assignment, fitted-source/common-universe reconstruction and verification, vectorized coefficient/delete-value projection, standardized `tau_star`, CLI orchestration, and diagnostics |
 | `ldsc.prevalence` | parse and validate binary-trait prevalence inputs (scalar `--samp-prev`/`--pop-prev` for h2/partitioned-h2; comma-separated lists or a `--prevalence-manifest` TSV for rg) into a normalized per-trait `(samp_prev, pop_prev)` structure for observed-to-liability conversion |
+| `ldsc.h2_scale` | strict post-fit observed-to-liability conversion from a canonical h2 result, including exact and prevalence-range modes and the fixed nested derived-result family |
+| `ldsc.plotting` | sole public metadata-driven plotting dispatcher, optional-dependency boundary, fixed plot-family output, and live `PlotArtifact` return object |
+| `ldsc.plotting._builders` | private Matplotlib-only headless builders for the approved h2, rg, partitioned-h2, and quantile-h2 plots |
 | `ldsc.overlap_matrix` | public-layer overlap container (`LDScoreOverlap`), long-form parquet (de)serialization, per-model overlap assembly, the overlap-aware category table (ported `_overlap_output` + augmentation), and the collinearity hard-error check (`model_collinearity_error`) |
 | `ldsc.outputs` | artifact naming, LD-score parquet and query-diagnostic layout, partitioned-h2 per-query layout, rg result-family layout, metadata JSON payloads, and serialization |
 | `ldsc._kernel.overlap` | low-level annotation overlap-block computation (`OverlapContribution`, `compute_overlap`, `sum_overlap_contributions`) |
@@ -112,6 +118,8 @@ ldsc_py3_Jerry/
 | change target quantiles, standardized coefficients, or post-fit alignment | `src/ldsc/quantile_h2.py`, then `src/ldsc/outputs.py` and `docs/current/continuous-annotation-quantile-h2.md` |
 | change LDSC estimators | `src/ldsc/_kernel/regression.py` |
 | change binary-trait prevalence parsing or observed-to-liability conversion | `src/ldsc/prevalence.py` (input parsing/validation), then `src/ldsc/regression_runner.py` (summary/metadata wiring) and `src/ldsc/_kernel/regression.py` (`liability_conversion_factor`) |
+| change post-fit h2 conversion or sensitivity output | `src/ldsc/h2_scale.py`, then `src/ldsc/_kernel/regression.py` only if the shared numerical primitive itself changes |
+| change plot dispatch, supported result contracts, or visual semantics | `src/ldsc/plotting/__init__.py`, `src/ldsc/plotting/_builders.py`, then `docs/current/plotting-module.md` and `tutorials/plotting-results.md` |
 | change LD-score result-directory files, parquet row-group layout, partitioned-h2 per-query layout, rg result-family layout, or metadata JSON payloads | `src/ldsc/outputs.py` |
 
 ## Architectural Rules That Matter In Practice
@@ -151,6 +159,7 @@ ldsc_py3_Jerry/
   gene-index builder uses hidden sibling `.<index-name>.build-state/` and moves
   only the closed successful log into the published diagnostics.
 - Keep regression file-driven: it should be able to rebuild state from written artifacts without recomputing LD scores.
+- Keep plotting metadata-driven and post-fit: plot builders consume declared canonical tables and never refit. Matplotlib remains optional and lazily imported through `ldsc.plotting._builders`.
 - Prefer extending shared helpers or the workflow-owned writer over duplicating local parsing or writing logic.
 
 ## Test Map

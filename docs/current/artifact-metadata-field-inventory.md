@@ -254,15 +254,19 @@ source. Their fixed schemas and null rules are documented in
 h2/
   h2.tsv
   diagnostics/
+    ld_score_regression_bins.tsv
     metadata.json
     h2.log
 ```
 
-`diagnostics/metadata.json` is provenance only. `--output-dir` is required.
+`diagnostics/metadata.json` is provenance plus the plotting navigation contract.
+`--output-dir` is required. The bin table contains the exact final-fit
+rank-bin summaries used by `ldsc plot`; it is a required current h2 artifact.
 
 | Field | Explanation | Downstream usage |
-| --- | --- | --- || `artifact_type` | Must be `h2_result`. | None. |
-| `files` | Relative map with `summary: "h2.tsv"`. | None. |
+| --- | --- | --- |
+| `artifact_type` | Must be `h2_result`. | Selects h2 plotting and conversion contracts. |
+| `files` | Relative map with `summary: "h2.tsv"` and `ld_score_regression_bins: "diagnostics/ld_score_regression_bins.tsv"`. | Conversion follows `summary`; plotting follows `ld_score_regression_bins`. |
 | `trait_name` | Trait label resolved from CLI input or sumstats metadata. | None. |
 | `sumstats_file` | Source sumstats path. | None. |
 | `ldscore_dir` | Source LD-score directory. | None. |
@@ -347,6 +351,57 @@ Root and per-pair `diagnostics/metadata.json` files are provenance only. Per-pai
 metadata records the prevalences applied to each trait (`samp_prev_1`, `pop_prev_1`,
 `samp_prev_2`, `pop_prev_2`, each `null` when unset) and a `scale`
 (`observed` | `liability`) field; the rg ratio itself is scale-invariant.
+
+### Plot result
+
+```text
+<source-result>/plots/
+  <fixed-plot-name>.png
+  diagnostics/
+    metadata.json
+    plot.log
+```
+
+| Field | Explanation | Downstream usage |
+| --- | --- | --- |
+| `artifact_type` | `plot_result`. | Identifies the derived family. |
+| `plot_kind` | Stable plot identifier selected from source metadata. | Human and programmatic provenance. |
+| `source_artifact_type` | Artifact type of the source result. | Provenance. |
+| `source_result_dir` | Source result root used for dispatch. | Provenance; not a relocatable input contract. |
+| `source_table` | Source-relative numerical table plotted. | Provenance. |
+| `files.plot` | Fixed PNG filename relative to the plot root. | Locates the figure. |
+| `uncertainty` | Uncertainty convention used by the selected plot. | Interpretation. |
+| `created_at` | UTC creation timestamp. | Audit only. |
+
+Plot dispatch into the source result checks only its plotting-relevant metadata
+fields and declared file. It does not check `schema_version`.
+
+### h2 scale conversion result
+
+```text
+<h2-result>/postprocessing/liability-scale/
+  h2_scale_conversion.tsv
+  h2_prevalence_sensitivity.png       # sensitivity mode only
+  diagnostics/
+    metadata.json
+    convert-h2-scale.log
+```
+
+| Field | Explanation | Downstream usage |
+| --- | --- | --- |
+| `artifact_type` | `h2_scale_conversion_result`. | Identifies the derived family. |
+| `source_artifact_type` | Always `h2_result`. | Provenance. |
+| `source_result_dir`, `source_table` | Source result and source-relative h2 summary. | Provenance. |
+| `mode` | `exact` or `sensitivity`. | Interprets row count and optional plot. |
+| `samp_prev` | Sample case fraction `P`. | Reproducible conversion assumption. |
+| `pop_prev` | Exact population prevalence `K`, otherwise `null`. | Exact-mode assumption. |
+| `pop_prev_range` | Inclusive `[MIN, MAX]`, otherwise `null`. | Sensitivity-mode grid. |
+| `num_points` | Number of conversion rows. | Grid definition. |
+| `files.table` | `h2_scale_conversion.tsv`. | Locates the derived table. |
+| `files.plot` | Sensitivity PNG in range mode; absent in exact mode. | Locates the optional figure. |
+| `uncertainty` | `block_jackknife_standard_error`. | Interpretation. |
+| `population_prevalence_uncertainty_propagated` | Always `false`. | Prevents treating the ribbon as uncertainty in `K`. |
+| `created_at` | UTC creation timestamp. | Audit only. |
 
 ## Regression Output Rule
 

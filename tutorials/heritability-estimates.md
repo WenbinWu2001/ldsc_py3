@@ -1,6 +1,10 @@
 # Heritability Estimates
 
+Last updated on: 2026-09-07
+
 Goal: estimate SNP heritability for one trait with the refactored package, starting from raw summary statistics and ordinary unpartitioned LD scores built from an R2-table reference panel.
+
+After writing the h2 result, use the [plotting results manual](plotting-results.md) to create and interpret its binned LD Score regression diagnostic.
 
 The examples below assume chromosome-pattern annotation inputs such as
 `annotations/baseline.1.annot.gz` and a package-built R2 directory such as
@@ -183,8 +187,11 @@ ldsc h2 \
 ```
 
 The command writes `tutorial_outputs/trait_h2/h2.tsv` and
+`tutorial_outputs/trait_h2/diagnostics/ld_score_regression_bins.tsv` and
 `tutorial_outputs/trait_h2/diagnostics/metadata.json` plus
 `tutorial_outputs/trait_h2/diagnostics/h2.log`.
+The bin table is computed from the exact final fitted SNP population and is the
+required numerical source for the optional binned regression diagnostic plot.
 If any owned output-family file already exists from a previous run, the
 relevant command fails before writing. For `munge-sumstats`, that family is
 `sumstats.parquet`, `sumstats.sumstats.gz`,

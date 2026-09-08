@@ -35,6 +35,7 @@ import gc
 import json
 import logging
 import os
+import re
 import tempfile
 from dataclasses import asdict, dataclass, field, replace as dataclass_replace
 from pathlib import Path
@@ -74,7 +75,13 @@ from .path_resolution import (
     resolve_scalar_path,
     split_cli_path_tokens,
 )
-from ._logging import configure_package_logging, log_inputs, log_outputs, workflow_logging
+from ._logging import (
+    configure_package_logging,
+    log_inputs,
+    log_outputs,
+    materializing_overwrite_guard,
+    workflow_logging,
+)
 from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from ._kernel import formats as legacy_parse
 from ._kernel import identifiers as kernel_identifiers
@@ -1775,6 +1782,31 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
     return build_config, global_config
 
 
+def _reference_panel_failure_marker_scope(
+    args: argparse.Namespace,
+) -> tuple[str | os.PathLike[str], bool, str] | None:
+    """Return the full-suite or concrete-chromosome overwrite marker scope."""
+    output_dir = getattr(args, "output_dir", None)
+    if output_dir is None:
+        return None
+    prefix = str(getattr(args, "plink_prefix", "") or "")
+    marker_name = "RUN_FAILED.txt"
+    if "@" not in prefix:
+        matches = re.findall(
+            r"(?:^|[._-])(?:chr)?(1[0-9]|2[0-2]|[1-9]|X|Y)(?=$|[._-])",
+            Path(prefix).name,
+            flags=re.IGNORECASE,
+        )
+        chromosomes = {match.upper() for match in matches}
+        if len(chromosomes) == 1:
+            marker_name = f"RUN_FAILED.chr{next(iter(chromosomes))}.txt"
+    return output_dir, bool(getattr(args, "overwrite", False)), marker_name
+
+
+@materializing_overwrite_guard(
+    _reference_panel_failure_marker_scope,
+    command="run_build_ref_panel_from_args(...)",
+)
 def run_build_ref_panel_from_args(args: argparse.Namespace) -> ReferencePanelBuildResult:
     """Run reference-panel building from parsed CLI arguments.
 

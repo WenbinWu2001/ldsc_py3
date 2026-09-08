@@ -12,13 +12,16 @@ This module is the top-level public API for the refactored package. Import from
 ``ldsc._kernel`` implementation modules. The exports here mirror the main user
 workflows: annotation building, parquet reference-panel building, exact gene
 LD-score index construction, LD-score calculation, summary-statistics munging,
-regression, output writing, and genome-build inference for ``chr_pos`` inputs.
+regression, output writing, genome-build inference for ``chr_pos`` inputs, and
+lazy access to optional result plotting and liability-scale post-processing.
 
 Design Notes
 ------------
 - Only stable public objects should be re-exported here.
 - Internal compute kernels remain under ``ldsc._kernel`` and are not part of
   the intended user-facing API.
+- Plotting exports are resolved lazily so importing ``ldsc`` does not require
+  or import Matplotlib.
 
 Example
 -------
@@ -106,6 +109,10 @@ _LAZY_EXPORTS = {
     "compute_standardized_coefficients": (".quantile_h2", "compute_standardized_coefficients"),
     "load_fitted_partitioned_model": (".quantile_h2", "load_fitted_partitioned_model"),
     "run_quantile_h2_from_args": (".quantile_h2", "run_quantile_h2_from_args"),
+    "H2ScaleConversionArtifact": (".h2_scale", "H2ScaleConversionArtifact"),
+    "convert_h2_scale": (".h2_scale", "convert_h2_scale"),
+    "PlotArtifact": (".plotting", "PlotArtifact"),
+    "plot_result": (".plotting", "plot_result"),
 }
 
 
@@ -132,6 +139,7 @@ __all__ = [
     "infer_chr_pos_build",
     "H2DirectoryWriter",
     "H2OutputConfig",
+    "H2ScaleConversionArtifact",
     "LDScoreCalculator",
     "LDScoreConfig",
     "LDScoreDirectoryWriter",
@@ -163,6 +171,7 @@ __all__ = [
     "QuantileH2OutputConfig",
     "QuantileH2Result",
     "PlinkRefPanel",
+    "PlotArtifact",
     "ReferencePanelBuildConfig",
     "ReferencePanelBuildResult",
     "ReferencePanelBuilder",
@@ -178,7 +187,9 @@ __all__ = [
     "SumstatsMunger",
     "SumstatsTable",
     "load_sumstats",
+    "plot_result",
     "convert_ldsc2_ldscores",
+    "convert_h2_scale",
     "assign_legacy_quantiles",
     "compute_quantile_h2",
     "compute_standardized_coefficients",

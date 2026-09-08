@@ -23,17 +23,21 @@ Design Notes
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from functools import wraps
 import logging
+import os
 from pathlib import Path
 import shlex
 import sys
+import tempfile
 import threading
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from os import PathLike
 from types import TracebackType
-from typing import Any
+from typing import Any, Callable
 
 from .errors import LDSCUsageError
 
@@ -156,6 +160,130 @@ def workflow_logging(
     the CLI boundary decide how to present errors.
     """
     return _WorkflowLoggingContext(workflow_name, log_path, log_level=log_level)
+
+
+@contextmanager
+def overwrite_failure_marker(
+    output_dir: str | PathLike[str],
+    *,
+    overwrite: bool,
+    command: str,
+    log_path: str | PathLike[str] | None = None,
+    marker_name: str = "RUN_FAILED.txt",
+):
+    """Record a failed authorized overwrite without changing workflow order.
+
+    Parameters
+    ----------
+    output_dir : path-like
+        Output scope that receives the marker.
+    overwrite : bool
+        Whether this attempt explicitly authorized replacement. Failures from
+        no-overwrite attempts do not create markers.
+    command : str
+        CLI command or concise Python API call description for the failed
+        attempt.
+    log_path : path-like, optional
+        Expected detailed log. When omitted, the most recently opened workflow
+        log in this thread is used if available.
+    marker_name : str, optional
+        Marker filename. Default is ``"RUN_FAILED.txt"``; chromosome-scoped
+        workflows may supply a narrower name.
+
+    Notes
+    -----
+    This context manager does not move, remove, restore, or roll back scientific
+    artifacts. It writes the marker only after an exception escapes, leaving
+    the target directory exactly as the wrapped workflow's existing action
+    order left it. Any successful materializing retry removes the applicable
+    old marker after the wrapped success path completes.
+    """
+    marker_path = Path(output_dir) / marker_name
+    try:
+        yield marker_path
+    except BaseException as exc:
+        if overwrite:
+            detailed_log = str(log_path) if log_path is not None else last_workflow_log_path()
+            try:
+                marker_path.parent.mkdir(parents=True, exist_ok=True)
+                _atomic_write_failure_marker(
+                    marker_path,
+                    command=command,
+                    error=exc,
+                    log_path=detailed_log,
+                )
+            except OSError:
+                logging.getLogger(_LDSC_LOGGER_NAME).exception(
+                    "Could not write overwrite failure marker at '%s'.", marker_path
+                )
+        raise
+    else:
+        marker_path.unlink(missing_ok=True)
+
+
+def _atomic_write_failure_marker(
+    path: Path,
+    *,
+    command: str,
+    error: BaseException,
+    log_path: str | None,
+) -> None:
+    """Atomically publish one plain-text overwrite failure marker."""
+    detailed_log = log_path if log_path is not None else "No workflow log was opened for this failed attempt."
+    content = (
+        "LDSC run failed during an authorized overwrite.\n"
+        f"Failed at: {datetime.now(timezone.utc).isoformat()}\n"
+        f"Command: {command}\n"
+        f"Error: {type(error).__name__}: {error}\n"
+        f"Detailed log: {detailed_log}\n"
+        "Result state: The target directory may contain incomplete or mixed artifacts from different attempts. "
+        "Existing outputs were not restored or rolled back.\n"
+        "Next action: Inspect the detailed log and the active result directory, correct the failure, then rerun "
+        "the command with --overwrite. A successful retry removes this marker.\n"
+    )
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    os.close(descriptor)
+    temporary_path = Path(temporary_name)
+    try:
+        temporary_path.write_text(content, encoding="utf-8")
+        os.replace(temporary_path, path)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def materializing_overwrite_guard(
+    scope_resolver: Callable[..., tuple[str | PathLike[str], bool, str] | None],
+    *,
+    command: str,
+):
+    """Decorate a high-level Python workflow with the shared marker policy.
+
+    ``scope_resolver`` performs only argument inspection and returns
+    ``(output_directory, overwrite_authorized, marker_name)``. Returning
+    ``None`` identifies a non-materializing call such as munging inference.
+    The decorator does not catch or transform workflow exceptions.
+    """
+
+    def decorate(function):
+        @wraps(function)
+        def guarded(*args, **kwargs):
+            scope = scope_resolver(*args, **kwargs)
+            if scope is None:
+                return function(*args, **kwargs)
+            output_dir, overwrite, marker_name = scope
+            reset_workflow_log_path()
+            with overwrite_failure_marker(
+                output_dir,
+                overwrite=bool(overwrite),
+                command=f"Python API: {command}",
+                marker_name=marker_name,
+            ):
+                return function(*args, **kwargs)
+
+        return guarded
+
+    return decorate
 
 
 def log_inputs(**items: Any) -> None:

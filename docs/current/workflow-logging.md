@@ -34,7 +34,7 @@ never go to `stdout`. The Python API never writes to the console.
 | Context | Output dir | Module records (INFO/DEBUG) | Errors |
 | --- | --- | --- | --- |
 | CLI | provided | `.log` file only | full traceback to `.log`; concise line + logfile pointer to console |
-| CLI | none | not a public workflow state; every command requires `--output-dir` | argument error |
+| CLI | derived | `plot` and `convert-h2-scale` write below their source result; other materializing commands require `--output-dir` | full traceback to the derived workflow log; concise line + logfile pointer to console |
 | Python API | provided | `.log` file only | full traceback to `.log`; exception propagates to caller |
 | Python API | none | nowhere | exception propagates to caller |
 
@@ -70,6 +70,31 @@ This keeps an output directory from mixing artifacts from different
 configurations, while preserving unrelated user files. Direct Python writer
 APIs apply the same rule to their data artifacts. Public materializing workflow
 methods, including `AnnotationBuilder.run()`, create their canonical log.
+
+## Failed Overwrite Markers
+
+Every public materializing CLI workflow and corresponding high-level Python
+workflow wraps its existing action order with the marker helper in
+`ldsc._logging`. If an attempt authorized with `--overwrite` or
+`overwrite=True` fails, the helper writes a durable marker after the exception
+escapes:
+
+- ordinary commands: `<output_dir>/RUN_FAILED.txt`
+- `plot`: `<result-dir>/plots/RUN_FAILED.txt`
+- `convert-h2-scale`:
+  `<h2-result-dir>/postprocessing/liability-scale/RUN_FAILED.txt`
+- concrete chromosome `build-ref-panel`:
+  `<output-dir>/RUN_FAILED.chr<chrom>.txt`
+
+The marker records the failed command/API boundary, UTC timestamp, exception,
+detailed log path or absence of one, and a conservative warning that the active
+directory may contain incomplete or mixed artifacts. It is not a scientific
+result and is not listed in metadata. Marker handling does not move, restore,
+roll back, or quarantine files and does not change when a workflow writes its
+ordinary artifacts or removes stale outputs. If the workflow log opened before
+the failure, it remains with the usual `Failed` footer and traceback. A
+successful materializing retry removes its applicable marker after normal
+success. No-overwrite failures create no marker.
 
 ## Log Layout
 
@@ -123,9 +148,15 @@ header is written and final work before the footer is written.
 | `quantile-h2` | `<output_dir>/diagnostics/quantile-h2.log` |
 | `rg` | `<output_dir>/diagnostics/rg.log` |
 | `query-r2` | `<output_dir>/diagnostics/query-r2.log` |
+| `plot` | `<result-dir>/plots/diagnostics/plot.log` |
+| `convert-h2-scale` | `<h2-result-dir>/postprocessing/liability-scale/diagnostics/convert-h2-scale.log` |
 
 Every regression CLI command requires `--output-dir` and writes its command log
 under that directory's `diagnostics/` tree.
+
+`convert-h2-scale` is post-processing rather than a regression fit and derives
+its destination from an existing h2 result. `plot` does the same for any
+supported result suite.
 
 LD-score logs list binary and quantitative fitted annotations. Partitioned-h2 logs repeat an actionable interpretation warning when quantitative annotations are present: legacy numerical proportion/enrichment summaries remain visible, but only coefficient-based fields retain their ordinary interpretation for those annotations. Quantile-h2 logs the selected fitted model, target, inherited common-MAF rule, common reference-SNP universe size, missing exclusions, verification level, and realized quantile bounds/counts. Row-addressable alignment issues are written to `snp_alignment_issues.tsv.gz` rather than expanded into the log.
 

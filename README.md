@@ -1,6 +1,6 @@
 # ldsc3_Jerry
 
-Last updated on: 2026-08-24
+Last updated on: 2026-09-07
 
 This repository is the active refactored LDSC package.
 
@@ -10,7 +10,7 @@ This repository is the active refactored LDSC package.
 - `src/ldsc/_kernel/`: internal compute and file-format modules
 - `tests/`: local parity and workflow tests
 - `tutorials/`: package-level usage examples
-- `docs/current/architecture.md`, `docs/current/code-structure.md`, `docs/current/class-and-features.md`, `docs/current/workflow-logging.md`, `docs/current/liftover-harmonization-decisions.md`: active design and navigation docs
+- `docs/current/architecture.md`, `docs/current/code-structure.md`, `docs/current/class-and-features.md`, `docs/current/workflow-logging.md`, `docs/current/plotting-module.md`, `docs/current/liftover-harmonization-decisions.md`: active design and navigation docs
 
 ## Install
 
@@ -103,8 +103,11 @@ core NumPy/pandas/SciPy/PyArrow stack. Optional extras are split by workflow:
 `.[plink]` installs `bitarray` for PLINK-backed LD computation, `.[bed]`
 installs `pybedtools` for BED projection, and `.[liftover]` installs
 `pyliftover` for chain-file liftover in sumstats munging and cross-build
-reference-panel output. `.[dev]` installs all of
-those extras plus pytest. BED-based annotation projection also requires the
+reference-panel output. `.[plot]` installs Matplotlib for optional result
+visualization and prevalence-sensitivity figures. Plotting is never automatic,
+so a core install and every numerical workflow remain usable without this
+extra. `.[dev]` installs the PLINK, BED, and liftover extras plus pytest;
+combine it with `.[plot]` when developing figures. BED-based annotation projection also requires the
 external `bedtools` executable, which `environment.yml` installs from bioconda.
 For non-conda installs, make sure `bedtools` is available on `PATH` before
 running BED annotation workflows.
@@ -127,12 +130,24 @@ Subcommands:
 - `ldsc build-gene-ldscore-index`
 - `ldsc build-ref-panel`
 - `ldsc convert-ldsc2-ldscores`
+- `ldsc convert-h2-scale`
 - `ldsc ldscore`
 - `ldsc munge-sumstats`
 - `ldsc h2`
+- `ldsc plot`
 - `ldsc partitioned-h2`
 - `ldsc quantile-h2`
+- `ldsc query-r2`
 - `ldsc rg`
+
+Install `.[plot]`, then pass a canonical h2, partitioned-h2, quantile-h2, or
+rg result root to `ldsc plot --result-dir RESULT_DIR`. The command selects one
+approved plot from result metadata and writes it below `RESULT_DIR/plots/`;
+it does not accept an output directory and never runs automatically. Use
+`ldsc convert-h2-scale` to recompute liability-scale h2 from a saved observed-scale
+h2 result at one population prevalence or over a sensitivity range. See the
+[scientist-facing plotting manual](tutorials/plotting-results.md) and the
+[developer module contract](docs/current/plotting-module.md).
 
 Reusable `.annot.gz` shards written by `ldsc annotate` keep the legacy
 `CHR/BP/SNP/CM` leading layout. Because annotation `CM` is semantically missing,
@@ -196,11 +211,19 @@ replacement; after its handler closes, a successful log moves into the index's
 `diagnostics/`. `munge-sumstats` keeps the historical `sumstats.log` name; other
 commands use `annotate.log`, `ldscore.log`, `build-ref-panel.log`,
 `build-gene-ldscore-index.log`,
-`h2.log`, `partitioned-h2.log`, or `rg.log`. Concrete single-chromosome
+`h2.log`, `partitioned-h2.log`, `quantile-h2.log`, `rg.log`, `plot.log`, or
+`convert-h2-scale.log`. Concrete single-chromosome
 `build-ref-panel` runs use `build-ref-panel.chr<chrom>.log` so parallel
 per-chromosome jobs can share an output directory without sharing one log file.
 Logs are audit artifacts, so Python result objects and `output_paths` mappings
 only list scientific data outputs.
+
+An authorized overwrite that fails leaves `RUN_FAILED.txt` in the applicable
+result root, or in the nested `plots/` or liability-scale conversion root for
+those utilities. Concrete single-chromosome reference-panel attempts use
+`RUN_FAILED.chr<chrom>.txt`. The marker supplements the ordinary failed log;
+it does not roll back artifacts or change the existing workflow action order.
+A successful retry removes its applicable marker.
 
 `ldsc ldscore` supports ordinary unpartitioned LD-score generation without
 baseline annotations:
@@ -310,7 +333,7 @@ filenames inside the selected `output_dir`.
 
 ## Output Collision Policy
 
-Every workflow treats `--output-dir` or `output_dir` as a directory:
+For workflows that accept `--output-dir` or `output_dir`, the value is always a directory:
 
 - missing output directories are created with a warning
 - existing directories are reused
@@ -322,6 +345,7 @@ Every workflow treats `--output-dir` or `output_dir` as a directory:
 
 The overwrite flag applies only to the fixed files owned by that workflow. It
 does not remove unrelated files and never cleans a whole directory.
+The derived `plot` and `convert-h2-scale` commands instead use the fixed nested destinations described above.
 
 ## Verification
 

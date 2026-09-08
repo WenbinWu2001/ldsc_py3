@@ -3,21 +3,24 @@
 Core functionality:
     Provide one command surface for annotation building, parquet
     reference-panel generation, LD-score calculation, summary-statistics
-    munging, and regression workflows.
+    munging, regression, result plotting, and liability-scale post-processing.
 
 Overview
 --------
 The refactored package intentionally exposes a single command, ``ldsc``, with
 subcommands grouped by user task rather than by historical script name. This
 module owns only argument parsing and dispatch. Scientific work remains in the
-public workflow modules, including the standalone parquet reference-panel
-builder added during the restructuring pass.
+public workflow modules; optional plotting dependencies remain behind lazy
+workflow imports.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+from pathlib import Path
+import re
+import shlex
 import sys
 from typing import Sequence
 
@@ -27,6 +30,7 @@ from ._logging import (
     last_workflow_log_path,
     remove_cli_console_handler,
     reset_workflow_log_path,
+    overwrite_failure_marker,
 )
 from .errors import LDSCError, LDSCUserError
 
@@ -54,6 +58,8 @@ _SUBCOMMAND_HELP = {
     "quantile-h2": "Project a fitted partitioned-LDSC model onto annotation quantiles.",
     "rg": "Estimate genetic correlation.",
     "query-r2": "Query R2 for SNP pairs from a reference panel.",
+    "convert-h2-scale": "Convert a saved observed-scale h2 estimate to liability scale.",
+    "plot": "Create the approved plot for a canonical LDSC result directory.",
 }
 
 
@@ -116,6 +122,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     query_r2_parser = subparsers.add_parser("query-r2", help=_SUBCOMMAND_HELP["query-r2"])
     _copy_actions(query_r2_parser, r2_query.build_parser())
+
+    h2_scale = _load_h2_scale()
+    conversion_parser = subparsers.add_parser(
+        "convert-h2-scale", help=_SUBCOMMAND_HELP["convert-h2-scale"]
+    )
+    h2_scale.add_convert_h2_scale_arguments(conversion_parser)
+
+    plotting = _load_plotting()
+    plot_parser = subparsers.add_parser("plot", help=_SUBCOMMAND_HELP["plot"])
+    plotting.add_plot_arguments(plot_parser)
     return parser
 
 
@@ -169,6 +185,22 @@ def main(argv: Sequence[str] | None = None):
             return legacy_ldscore_converter.main(subargv)
         if command == "query-r2":
             return r2_query.main(subargv)
+        if command == "convert-h2-scale":
+            h2_scale = _load_h2_scale()
+            parser = _NoAbbrevArgumentParser(
+                prog="ldsc convert-h2-scale",
+                description="Convert a saved observed-scale h2 estimate to liability scale.",
+            )
+            h2_scale.add_convert_h2_scale_arguments(parser)
+            return h2_scale.run_convert_h2_scale_from_args(parser.parse_args(subargv))
+        if command == "plot":
+            plotting = _load_plotting()
+            parser = _NoAbbrevArgumentParser(
+                prog="ldsc plot",
+                description="Create the approved plot for a canonical LDSC result directory.",
+            )
+            plotting.add_plot_arguments(parser)
+            return plotting.run_plot_from_args(parser.parse_args(subargv))
         if command == "munge-sumstats":
             sumstats_munger = _load_sumstats_munger()
             return sumstats_munger.main(subargv)
@@ -211,11 +243,23 @@ def main(argv: Sequence[str] | None = None):
 def run_cli(argv: Sequence[str] | None = None) -> int:
     """Run the CLI with a clean user-error boundary and traceback logging."""
     cli_mode = argv is None
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
     if cli_mode:
         reset_workflow_log_path()
         install_cli_console_handler()
     try:
-        main(argv)
+        marker_scope = _cli_failure_marker_scope(raw_argv)
+        if marker_scope is None:
+            main(argv)
+        else:
+            output_dir, marker_name = marker_scope
+            with overwrite_failure_marker(
+                output_dir,
+                overwrite=True,
+                command=shlex.join(["ldsc", *raw_argv]),
+                marker_name=marker_name,
+            ):
+                main(argv)
     except SystemExit as exc:
         if exc.code is None:
             return 0
@@ -236,6 +280,58 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         if cli_mode:
             remove_cli_console_handler()
     return 0
+
+
+def _cli_failure_marker_scope(argv: Sequence[str]) -> tuple[Path, str] | None:
+    """Return the authorized overwrite marker scope encoded by raw CLI args."""
+    if not argv or "--overwrite" not in argv:
+        return None
+    command = argv[0]
+    if command not in _SUBCOMMAND_HELP:
+        return None
+    if command == "munge-sumstats" and "--infer-only" in argv:
+        return None
+    if command == "plot":
+        source = _raw_option_value(argv, "--result-dir")
+        return (Path(source) / "plots", "RUN_FAILED.txt") if source is not None else None
+    if command == "convert-h2-scale":
+        source = _raw_option_value(argv, "--h2-result-dir")
+        if source is None:
+            return None
+        return Path(source) / "postprocessing" / "liability-scale", "RUN_FAILED.txt"
+    output_dir = _raw_option_value(argv, "--output-dir")
+    if output_dir is None:
+        return None
+    if command == "build-ref-panel":
+        prefix = _raw_option_value(argv, "--plink-prefix")
+        chromosome = _chromosome_from_concrete_prefix(prefix)
+        if chromosome is not None:
+            return Path(output_dir), f"RUN_FAILED.chr{chromosome}.txt"
+    return Path(output_dir), "RUN_FAILED.txt"
+
+
+def _raw_option_value(argv: Sequence[str], option: str) -> str | None:
+    """Extract one raw ``--option value`` or ``--option=value`` token."""
+    for index, token in enumerate(argv):
+        if token == option and index + 1 < len(argv):
+            return argv[index + 1]
+        prefix = option + "="
+        if token.startswith(prefix):
+            return token[len(prefix) :]
+    return None
+
+
+def _chromosome_from_concrete_prefix(prefix: str | None) -> str | None:
+    """Infer an explicit chromosome token without resolving or reading inputs."""
+    if not prefix or "@" in prefix:
+        return None
+    matches = re.findall(
+        r"(?:^|[._-])(?:chr)?(1[0-9]|2[0-2]|[1-9]|X|Y)(?=$|[._-])",
+        Path(prefix).name,
+        flags=re.IGNORECASE,
+    )
+    normalized = {match.upper() for match in matches}
+    return next(iter(normalized)) if len(normalized) == 1 else None
 
 
 def _log_internal_error(exc: BaseException) -> None:
@@ -308,3 +404,17 @@ def _load_legacy_ldscore_converter():
     from . import legacy_ldscore_converter
 
     return legacy_ldscore_converter
+
+
+def _load_h2_scale():
+    """Import post-fit h2 conversion lazily."""
+    from . import h2_scale
+
+    return h2_scale
+
+
+def _load_plotting():
+    """Import the optional plotting workflow lazily."""
+    from . import plotting
+
+    return plotting

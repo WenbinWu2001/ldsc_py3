@@ -68,7 +68,7 @@ from .path_resolution import (
     remove_output_artifacts,
     resolve_scalar_path,
 )
-from ._logging import log_inputs, log_outputs, workflow_logging
+from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ._kernel.snp_identity import (
     IDENTITY_DROP_COLUMNS,
     clean_identity_artifact_table,
@@ -435,6 +435,18 @@ class SumstatsMunger:
         """Initialize the workflow wrapper and clear any cached run summary."""
         self._last_summary: MungeRunSummary | None = None
 
+    @materializing_overwrite_guard(
+        lambda self, raw_sumstats_config, munge_config=None, global_config=None: (
+            (
+                (raw_sumstats_config if munge_config is None or isinstance(munge_config, GlobalConfig) else munge_config).output_dir,
+                (raw_sumstats_config if munge_config is None or isinstance(munge_config, GlobalConfig) else munge_config).overwrite,
+                "RUN_FAILED.txt",
+            )
+            if (raw_sumstats_config if munge_config is None or isinstance(munge_config, GlobalConfig) else munge_config).output_dir
+            else None
+        ),
+        command="SumstatsMunger.run(...)",
+    )
     def run(
         self,
         raw_sumstats_config: MungeConfig,

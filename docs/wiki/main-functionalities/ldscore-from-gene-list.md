@@ -1,6 +1,6 @@
 # Calculate LD scores from gene lists
 
-Last updated on: 2026-08-16
+Last updated on: 2026-09-07
 
 Use gene-list mode to turn pathway, expression, proteomic, GO, or other gene
 sets into focal annotations for partitioned S-LDSC. LDSC resolves each list
@@ -125,10 +125,10 @@ construction is covered by
 ldsc partitioned-h2 \
   --sumstats-file "/path/to/trait/sumstats.parquet" \
   --ldscore-dir "/path/to/results/gene-set-ldscores" \
-  --output-dir "/path/to/results/partitioned-h2/trait" \
-  --write-per-query-results
+  --output-dir "/path/to/results/partitioned-h2/trait"
 ```
 
 Each focal result is conditional on the supplied baseline block and optional
 `gene_control`. A missing focal output is a workflow status, not evidence for a
 biological null; inspect diagnostics before regression.
+Query runs write the per-query result tree automatically. To summarize nominal conditional-coefficient evidence across all query gene lists, pass the aggregate partitioned-h2 result root to `ldsc plot`; do not pass an individual query folder.

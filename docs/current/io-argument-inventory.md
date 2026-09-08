@@ -60,7 +60,9 @@ Science-facing result tables should use TSV. The public regression results are
 `h2.tsv`, `partitioned_h2.tsv`, optional diagnostic per-query
 `partitioned_h2.tsv` / `partitioned_h2_full.tsv`, and the rg family
 (`rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, optional diagnostic
-`diagnostics/pairs/`).
+`diagnostics/pairs/`). Post-processing adds `h2_scale_conversion.tsv`; h2
+diagnostics add `diagnostics/ld_score_regression_bins.tsv` as the exact source
+for its binned regression plot.
 Logs are audit files and should not be treated as output results.
 
 
@@ -81,6 +83,10 @@ Adapted public paths:
   LDSC2 LD-score fragments and writes a canonical LDSC3 LD-score directory.
 - `ldsc query-r2` reads package-built index-format R2 panels and writes a
   canonical output directory containing the annotated pair table and diagnostics.
+- `ldsc plot` reads one canonical result root and writes its selected plot to
+  the fixed nested `plots/` directory.
+- `ldsc convert-h2-scale` reads one canonical h2 result and writes its exact or
+  prevalence-range conversion to `postprocessing/liability-scale/`.
 
 Not fully adapted or retained for compatibility:
 
@@ -107,7 +113,7 @@ Public CLI flags and Python config fields follow these rules:
 |---|---|---|
 | `*_file` | one file-like input, exact-one glob allowed where the resolver supports it | `raw_sumstats_file`, `sumstats_file`, `sumstats_snps_file`, `keep_indivs_file` |
 | `*_sources` | one logical input that may resolve to many files via globs, comma lists, or supported `@` chromosome tokens | `baseline_annot_sources`, `query_annot_bed_sources`, `query_annot_gene_list_sources` |
-| `*_dir` | directory input or output location | `ldscore_dir`, `output_dir` |
+| `*_dir` | directory input or output location | `ldscore_dir`, `result_dir`, `h2_result_dir`, `output_dir` |
 
 Removed from artifact-writing workflow surfaces:
 
@@ -120,7 +126,10 @@ Removed from artifact-writing workflow surfaces:
 Users customize run identity by choosing the `output_dir` name. Output filenames
 inside that directory are fixed and workflow-specific. `ldsc query-r2` follows
 the same required `output_dir` model (`query_r2.tsv` plus the `diagnostics/`
-sidecars). Every exposed subcommand requires an explicit destination directory.
+sidecars). Every core materializing subcommand requires an explicit
+`--output-dir`. `plot` and `convert-h2-scale` instead derive fixed nested
+destinations from their required source result directories and expose no CLI
+output override.
 
 Workflow logs are fixed audit files under `output_dir`, preflighted with the
 scientific outputs before they are opened. They are not included in workflow
@@ -451,7 +460,7 @@ panels lacking `ldsc:n_samples`. `status` is blank for found pairs and may repor
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regression_ld_scores`, the historical `w_ld` component used when final h2 weights are computed. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. Current self-describing Parquet is native; legacy LDSC2 `.sumstats[.gz]` is automatically projected by rsID onto the canonical LD-score panel. Footerless Parquet is rejected. |
 | `--trait-name` | input metadata | no | output trait label | Optional label override; defaults to omitted/`None`. If omitted, regression uses the sumstats parquet footer `ldsc:trait_name` when present, then the filename fallback. |
-| `--output-dir` | output | yes | result output directory | Required destination for `h2.tsv` and diagnostics. |
+| `--output-dir` | output | yes | result output directory | Required destination for `h2.tsv`, `diagnostics/ld_score_regression_bins.tsv`, and other diagnostics. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--n-blocks` | model | no | block jackknife partitions | Number of jackknife blocks used by the regression estimator; defaults to `200`. |
 | `--no-intercept` | model | no | intercept policy | Fixes the LDSC intercept instead of estimating it; defaults to `False`. |
@@ -462,7 +471,7 @@ panels lacking `ldsc:n_samples`. `status` is blank for found pairs and may repor
 | `--samp-prev` | model | no | sample (case) prevalence | Scalar sample prevalence `P` for liability-scale conversion of binary-trait h2; defaults to `None`. A probability in `(0, 1)`, or `nan` for a quantitative trait. Requires `--pop-prev`; omit both for observed scale. Output adds `total_h2_liab`/`total_h2_liab_se` and the applied prevalence columns. |
 | `--pop-prev` | model | no | population prevalence | Scalar population prevalence `K` for liability-scale conversion; defaults to `None`. A probability in `(0, 1)`, or `nan`. Requires `--samp-prev`. Validated before inputs load. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`. Records go to `diagnostics/h2.log`; the console (stderr) shows only errors. |
-| `--overwrite` | output mode | no | collision policy | Controls whether `h2.tsv` and diagnostics may be replaced; defaults to `False`, so an existing owned artifact is refused. |
+| `--overwrite` | output mode | no | collision policy | Controls whether `h2.tsv` and diagnostics may be replaced; defaults to `False`, so an existing owned artifact or default `plots/`/`postprocessing/` root is refused. A successful overwrite removes those derived roots after publishing the new h2 result. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 `--sumstats`, `--out`.
@@ -487,7 +496,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--write-per-query-results` | deprecated compatibility flag | no | no-op | Deprecated. Query-annotation runs always write per-query folders under `diagnostics/query_annotations`; supplying the flag emits one warning and changes nothing. Baseline-only runs keep complete-model artifacts at the result root. |
 | `--summary-sort-by` | output mode | no | aggregate row sorting | Sort key for the partitioned-h2 table; defaults to `auto`, which resolves to `coefficient-p` in the cell-type regime (query annotations present) and `category` in the functional regime. Explicit choices: `category`, `prop-snps`, `prop-h2`, `enrichment`, `enrichment-p`, `coefficient`, and `coefficient-p`. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`. Records go to `diagnostics/partitioned-h2.log`; the console (stderr) shows only errors. |
-| `--overwrite` | output mode | no | collision policy | Controls whether aggregate/per-query outputs and diagnostics may be replaced; defaults to `False`, so any owned partitioned-h2 artifact is refused. With overwrite, aggregate-only runs remove stale `diagnostics/query_annotations/` trees after successful writes. |
+| `--overwrite` | output mode | no | collision policy | Controls whether aggregate/per-query outputs and diagnostics may be replaced; defaults to `False`, so any owned partitioned-h2 artifact or default `plots/` root is refused. With overwrite, stale query trees and plots are removed after successful writes when not part of the new result. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 `--query-columns`, `--sumstats`, `--out`.
@@ -508,7 +517,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--num-quantiles` | transform | no | requested quantile count | Integer at least 2; default 5. Empty realized quantiles are rejected. |
 | `--output-dir` | output | yes | result family directory | Writes quantile and standardized-coefficient tables plus diagnostics. |
 | `--log-level` | logging | no | workflow log verbosity | Same shared workflow logging policy; log path is `diagnostics/quantile-h2.log`. |
-| `--overwrite` | output mode | no | collision policy | Defaults to false and preflights the complete owned output family. |
+| `--overwrite` | output mode | no | collision policy | Defaults to false and preflights the complete owned output family, including the default `plots/` root; a successful overwrite removes stale plots after publishing the new result. |
 
 ### `ldsc rg`
 
@@ -531,11 +540,35 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--pop-prev` | model | no | per-trait population prevalences | Comma-separated population prevalences aligned to the resolved order, one per trait; defaults to `None`. Each in `(0, 1)` or `nan`. Requires `--samp-prev`. Mutually exclusive with `--prevalence-manifest`. |
 | `--prevalence-manifest` | model | no | prevalence lookup table | Whitespace/tab-delimited TSV with columns `trait_name`, `samp_prev`, `pop_prev` (`#` comment lines ignored); defaults to omitted/`None`. Looked up by exact munged trait name; may contain extra traits (every resolved trait must be present). Mutually exclusive with `--samp-prev`/`--pop-prev`. Duplicate resolved munged names abort the run. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`. Records go to `diagnostics/rg.log`; the console (stderr) shows only errors. |
-| `--overwrite` | output mode | no | collision policy | Controls whether `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, optional `diagnostics/pairs/`, and diagnostics may be replaced; defaults to `False`, so an existing owned artifact is refused. |
+| `--overwrite` | output mode | no | collision policy | Controls whether `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, optional `diagnostics/pairs/`, diagnostics, and the default `plots/` root may be replaced; defaults to `False`. A successful overwrite removes stale plots after publishing the new result. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 `--sumstats-1`, `--sumstats-2`, `--sumstats-1-file`, `--sumstats-2-file`,
 `--trait-name-1`, `--trait-name-2`, `--anchor-trait-file`, `--out`.
+
+### `ldsc plot`
+
+| Flag | Direction | Required | Object | Notes |
+|---|---:|---:|---|---|
+| `--result-dir` | input/destination root | yes | canonical result directory | Accepts the root of a current h2, rg, partitioned-h2, or quantile-h2 result. Dispatch follows `diagnostics/metadata.json` and writes to `<result-dir>/plots/`. Per-query partitioned-h2 directories are rejected. |
+| `--overwrite` | output mode | no | collision policy | Replaces only the selected fixed PNG, plot metadata, and plot log; never changes the source numerical result. |
+| `--log-level` | logging | no | workflow log verbosity | Controls `plots/diagnostics/plot.log`; defaults to `INFO`. |
+
+The CLI intentionally has no `--output-dir` or plot-type flag.
+
+### `ldsc convert-h2-scale`
+
+| Flag | Direction | Required | Object | Notes |
+|---|---:|---:|---|---|
+| `--h2-result-dir` | input/destination root | yes | canonical h2 result directory | Reads observed h2 from the metadata-declared summary and writes below `<h2-result-dir>/postprocessing/liability-scale/`. |
+| `--samp-prev` | model | yes | sample case fraction | Scalar probability \(P\) in `(0, 1)`. |
+| `--pop-prev` | model | conditional | one population prevalence | Exact mode. Mutually exclusive with `--pop-prev-range`; writes one conversion row and no plot. |
+| `--pop-prev-range` | model | conditional | two population-prevalence endpoints | Sensitivity mode. Inclusive linear range `(MIN, MAX)`; mutually exclusive with `--pop-prev`; requires the plot extra. |
+| `--num-points` | model | no | sensitivity grid size | Integer at least 2; defaults to `201` and is used only for range mode. |
+| `--overwrite` | output mode | no | collision policy | Replaces the conversion family. Exact mode removes a stale sensitivity PNG after its new table, metadata, and log are published. |
+| `--log-level` | logging | no | workflow log verbosity | Controls `diagnostics/convert-h2-scale.log`; defaults to `INFO`. |
+
+The CLI intentionally has no `--output-dir`.
 
 ## Public Python API Inventory
 
@@ -695,6 +728,19 @@ Removed Python names: legacy separate source-path object field,
 | `run_rg_from_args(args)` | `output_dir` | output | required; writes `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, and diagnostics; rg tables include nominal p-values only |
 | `run_rg_from_args(args)` | `write_per_pair_detail` | output mode | optionally writes `diagnostics/pairs/manifest.tsv` and per-pair diagnostic folders under the required `output_dir` |
 
+### Plotting and h2 post-processing
+
+| Object/function | Argument | Direction | Object |
+|---|---:|---:|---|
+| `plot_result(...)` | `result_dir` | input/default destination | current canonical h2, partitioned-h2, quantile-h2, or rg root; default output is `<result-dir>/plots/` |
+| `plot_result(...)` | `output_dir` | output override | optional advanced unmanaged destination; defaults to the CLI-derived root |
+| `plot_result(...)` | `overwrite` | output mode | replaces only the selected plot family; defaults to `False` |
+| `convert_h2_scale(...)` | `h2_result_dir` | input/default destination | current canonical h2 root; default output is `<h2-result-dir>/postprocessing/liability-scale/` |
+| `convert_h2_scale(...)` | `samp_prev`, `pop_prev` | model | required sample prevalence plus one exact population prevalence |
+| `convert_h2_scale(...)` | `pop_prev_range`, `num_points` | model | alternative inclusive sensitivity grid; defaults to 201 points |
+| `convert_h2_scale(...)` | `output_dir` | output override | optional advanced unmanaged destination; defaults to the CLI-derived root |
+| `convert_h2_scale(...)` | `overwrite` | output mode | replaces the fixed conversion family and removes a stale sensitivity plot after an exact-mode success |
+
 Removed Python/public argparse names: `sumstats`, `sumstats_1`, `sumstats_2`,
 `out`, `ldscore`, `counts`, `w_ld`, `annotation_manifest`, `query_columns`.
 
@@ -735,6 +781,8 @@ sidecar; the parquet footer carries the minimal identity fields
 - [x] Munging writes fixed files under `output_dir`.
 - [x] Regression writes fixed TSV files under required `output_dir`; query-mode
   partitioned-h2 always writes per-query folders.
+- [x] Optional plotting and h2 scale conversion use fixed nested CLI
+  destinations and Python-only `output_dir=` overrides.
 - [x] Build-ref-panel no longer accepts a separate panel label; output identity
   comes from the directory name.
 - [x] Removed the old prefix-based output compatibility pipeline from the
@@ -756,8 +804,9 @@ sidecar; the parquet footer carries the minimal identity fields
 - Do not add `--output-name` or `--panel-name`. Fixed output names make
   downstream automation simpler; users name runs by naming the output
   directory.
-- Keep `--output-dir` required for every CLI workflow. Preserve in-memory
-  behavior in the underlying numerical Python methods instead of CLI adapters.
+- Keep `--output-dir` required for core materializing CLI workflows. Preserve
+  the deliberate derived-destination exceptions for `plot` and
+  `convert-h2-scale`; neither exposes a CLI output override.
 - Treat `_kernel` legacy namespace names (`bfile`, `frqfile`, `r2_table`,
   `keep`) as private adapter details until the numerical kernel itself is
   rewritten.

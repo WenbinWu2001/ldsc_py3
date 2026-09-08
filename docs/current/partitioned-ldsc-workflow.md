@@ -375,15 +375,9 @@ ldsc partitioned-h2 \
   --output-dir results/my_study_partitioned_h2
 ```
 
-The old flag remains accepted for compatibility but is unnecessary:
-
-```bash
-ldsc partitioned-h2 \
-  --ldscore-dir results/my_study_ldscore \
-  --sumstats-file my_gwas.parquet \
-  --output-dir results/my_study_partitioned_h2 \
-  --write-per-query-results
-```
+Query-annotation runs write their per-query result tree automatically. The
+deprecated `--write-per-query-results` flag remains accepted as a warning-producing
+no-op, but new commands should omit it.
 
 Run rg:
 

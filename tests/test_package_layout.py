@@ -114,11 +114,12 @@ class PackageLayoutTest(unittest.TestCase):
                 "annotate", "ldscore", "build-ref-panel", "build-gene-ldscore-index",
                 "convert-ldsc2-ldscores",
                 "munge-sumstats", "h2", "partitioned-h2", "quantile-h2", "rg", "query-r2",
+                "convert-h2-scale", "plot",
             },
         )
         self.assertNotIn("infer-build", subparsers_action.choices)
 
-    def test_every_cli_subcommand_requires_output_dir(self):
+    def test_materializing_cli_subcommands_use_explicit_or_derived_output_directories(self):
         from ldsc import cli
 
         parser = cli.build_parser()
@@ -128,10 +129,14 @@ class PackageLayoutTest(unittest.TestCase):
 
         for command, command_parser in subparsers_action.choices.items():
             with self.subTest(command=command):
-                output_action = next(
+                output_actions = [
                     action for action in command_parser._actions if action.dest == "output_dir"
-                )
-                self.assertTrue(output_action.required)
+                ]
+                if command in {"plot", "convert-h2-scale"}:
+                    self.assertEqual(output_actions, [])
+                else:
+                    self.assertEqual(len(output_actions), 1)
+                    self.assertTrue(output_actions[0].required)
 
     def test_top_level_help_does_not_import_heavy_workflows(self):
         import subprocess

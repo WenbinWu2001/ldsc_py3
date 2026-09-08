@@ -1,6 +1,6 @@
 # LDSC-SEG for Protein-Coding Gene Lists
 
-Last updated on: 2026-08-16
+Last updated on: 2026-09-07
 
 This tutorial tests whether one or more protein-coding gene lists are enriched for trait heritability. For each query gene list, LDSC3 fits the model
 
@@ -150,7 +150,6 @@ ldsc partitioned-h2 \
   --sumstats-file "${SUMSTATS_FILE}" \
   --ldscore-dir "${PARTITIONED_LDSCORE_DIR}" \
   --output-dir "${PARTITIONED_H2_DIR}" \
-  --write-per-query-results \
   --overwrite
 ```
 
@@ -159,7 +158,7 @@ Flags used in this command:
 - `--sumstats-file` specifies the munged summary statistics for one trait. LDSC3 artifacts and legacy LDSC2 `.sumstats` or `.sumstats.gz` files are supported.
 - `--ldscore-dir` specifies the output directory from Step 1.
 - `--output-dir` specifies the partitioned-heritability result directory.
-- `--write-per-query-results` writes a detailed result directory for each query under `diagnostics/query_annotations/`. Without this flag, only the aggregate `partitioned_h2.tsv` is written.
+- Query-annotation runs automatically write a detailed result directory for each query under `diagnostics/query_annotations/`; the deprecated `--write-per-query-results` flag is unnecessary.
 - `--overwrite` permits replacement of existing result artifacts. Use it with caution.
 
 Relevant flags omitted because their default values are used:
@@ -183,6 +182,7 @@ regr/<trait>/
             0001_<query-name>/
                 partitioned_h2.tsv
                 partitioned_h2_full.tsv
+                coefficient_delete_values.parquet
                 metadata.json
 ```
 
@@ -191,6 +191,8 @@ The root `partitioned_h2.tsv` contains one summary row per query gene list and o
 `[query annotation, baseline annotations]`.
 
 Focus on `coefficient` and its one-sided `coefficient_p`. A positive coefficient with a small p-value indicates that the query gene list contributes additional heritability after accounting for the baseline annotations.
+
+For an exploratory summary across all query gene lists, run `ldsc plot --result-dir "${PARTITIONED_H2_DIR}"`. The resulting horizontal scatter plot displays nominal one-sided \(-\log_{10}(P)\) from the separate baseline-conditional query fits; it does not compare raw coefficients, show enrichment, or apply multiple-testing correction. See the [plotting results manual](../../tutorials/plotting-results.md) for interpretation.
 
 ## Differences from the LDSC2 workflow
 

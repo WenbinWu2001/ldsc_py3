@@ -4,6 +4,8 @@ Last updated on: 2026-09-07
 
 Goal: estimate cell-specific enrichment by running partitioned LDSC with one query annotation per cell type.
 
+After writing the aggregate query result, use the [plotting results manual](plotting-results.md) to create and interpret the horizontal nominal-p-value summary across the separate baseline-conditional fits.
+
 In this package, cell-specific LDSC is the `partitioned-h2` workflow applied to cell-type annotations. Baseline annotations stay in the model as covariates, and each cell-type query column is tested in a baseline-plus-one-query model through `RegressionRunner.estimate_partitioned_h2_batch()`.
 
 Cell-type query annotations require explicit baseline annotations. The
@@ -177,8 +179,8 @@ For full column definitions, see
 For query-annotation runs, the command writes by default
 `tutorial_outputs/cell_specific_ldsc/diagnostics/query_annotations/manifest.tsv` and one
 sanitized folder per cell-type query annotation. Each folder contains the
-one-row query summary, the baseline-plus-query `partitioned_h2_full.tsv`, and
-`metadata.json` with the original annotation name.
+one-row query summary, the baseline-plus-query `partitioned_h2_full.tsv`,
+`coefficient_delete_values.parquet`, and `metadata.json` with the original annotation name.
 If the partitioned summary already exists, `ldsc partitioned-h2` fails before
 writing; the same is true for `diagnostics/partitioned-h2.log` and any stale
 `diagnostics/query_annotations/` tree. Add `--overwrite` only when replacing it is

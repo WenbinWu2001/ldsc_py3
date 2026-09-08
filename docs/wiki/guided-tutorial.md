@@ -1,6 +1,6 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-08-24
+Last updated on: 2026-09-07
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
@@ -187,9 +187,12 @@ Upon a successful run, you should expect the following files in your output dire
 h2/mdd2025/
     h2.tsv
     diagnostics/
+        ld_score_regression_bins.tsv
         metadata.json
         h2.log
 ```
+
+The bin table records the exact fitted-data summary used by the optional binned LD Score regression diagnostic. Install the plotting extra and run `ldsc plot --result-dir "${H2_OUTPUT_DIR}"` to create it.
 
 ## Analysis 2: estimate cross-trait genetic correlation between multiple traits
 
@@ -368,14 +371,13 @@ ldsc partitioned-h2 \
   --sumstats-file "${SUMSTATS_FILE}" \
   --ldscore-dir "${PARTITIONED_LDSCORE_DIR}" \
   --output-dir "${PARTITIONED_H2_OUTPUT_DIR}" \
-  --write-per-query-results \
   --overwrite
 ```
 
 **Remarks:**
 
 1. `partitioned-h2` reports the total h2 implied by the partitioned model; this is not necessarily identical to the standalone unpartitioned h2 estimate above.
-2. `--write-per-query-results` saves the results for each query annotation separately, under `diagnostics/query_annotations/`.
+2. Query-annotation runs automatically save each query's complete baseline-plus-query fit under `diagnostics/query_annotations/`; the deprecated `--write-per-query-results` flag is unnecessary.
 
 **Outputs:**
 
@@ -392,6 +394,7 @@ partitioned-h2/mdd2025/
             0001_<query-annotation-slug>/
                 partitioned_h2.tsv
                 partitioned_h2_full.tsv
+                coefficient_delete_values.parquet
                 metadata.json
                 ...
 ```
@@ -402,6 +405,8 @@ Here:
 - `query_annotations/` holds the per-query results, which also include the coefficients and h2 share of the baseline annotations. `manifest.tsv` records each original query annotation name, its results folder name, and the paths to the relevant results files.
 
 For a continuous annotation, continue with [Continuous annotations in partitioned LDSC](continuous-annotation-partitioned-ldsc.md). That post-fit workflow uses one complete fitted model and its saved jackknife coefficient values; it does not combine different per-query regressions.
+
+For concise exploratory figures from h2, rg, functional partitioning, cell-type/query, or continuous-annotation quantile results, follow the [plotting results manual](../../tutorials/plotting-results.md). The cell-type summary plot uses the aggregate partitioned-h2 root because each point is the nominal one-sided p-value from a separate baseline-conditional query fit.
 
 ## Make annotations
 
@@ -456,7 +461,6 @@ Munged sumstats, legacy ld ref suite (unpartitioned / baseline ref) -- not teste
 
 ## TODO
 
-- Results and plots interpretation (which columns to use in each scenario, and what they mean).
 - How to reuse previously generated annotations for partitioned LDSC.
 - Refine memory and run-time numbers with proper benchmarking rather than guessing from log files. In particular, the SLURM memory figure for `ldscore` is inaccurate (it somehow always reports the allocated memory minus 2 MB).
 - complete main functionality wiki. add link in this guided tutorial.

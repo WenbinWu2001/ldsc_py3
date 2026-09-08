@@ -10,6 +10,7 @@ Related docs:
 - [class-and-features.md](class-and-features.md): public API surface and major types
 - [code-structure.md](code-structure.md): module map and change guide
 - [workflow-logging.md](workflow-logging.md): per-run log naming, preflight, and API boundaries
+- [plotting-module.md](plotting-module.md): optional plotting, post-fit h2 conversion, dispatch, and derived-output ownership
 - [gene-list-input-format.md](gene-list-input-format.md): gene-list parsing, catalog, projection, and diagnostics
 - [ref-panel-r2-query.md](ref-panel-r2-query.md): pairwise R2 lookup contract for package-built panels
 - [liftover-harmonization-decisions.md](liftover-harmonization-decisions.md): current liftover contracts and follow-up handoff prompt
@@ -29,6 +30,8 @@ Related docs:
 - **Compute LD scores**: align annotations to a live reference panel or explicitly assemble gene-list columns from a validated complete index, then emit the same canonical artifacts. Entry points: `ldsc ldscore`, `ldsc.run_ldscore()`, `ldsc.LDScoreCalculator`
 - **Munge raw summary statistics**: normalize raw GWAS tables into curated Parquet-first sumstats artifacts, with optional legacy `.sumstats.gz` output. Entry points: `ldsc munge-sumstats`, `ldsc.SumstatsMunger`
 - **Run LDSC regression**: consume munged sumstats and LD-score artifacts to estimate `h2`, partitioned `h2`, or `rg`. Entry points: `ldsc h2`, `ldsc partitioned-h2`, `ldsc rg`, `ldsc.RegressionRunner`
+- **Explore canonical results**: dispatch one approved figure from h2, partitioned-h2, quantile-h2, or rg result metadata without refitting. Entry points: `ldsc plot`, `ldsc.plot_result()`
+- **Convert saved h2 scale**: convert observed-scale h2 at one population prevalence or over a sensitivity grid. Entry points: `ldsc convert-h2-scale`, `ldsc.convert_h2_scale()`
 - **Project continuous-target quantiles**: verify one fitted partitioned model and resupplied SNP annotations, then calculate joint-model quantile heritability and standardized coefficients without refitting. Entry point: `ldsc quantile-h2`
 - **Audit workflow runs**: artifact-writing workflow wrappers create deterministic
   per-run logs around their owned work. The gene-index builder writes its log
@@ -42,9 +45,10 @@ Related docs:
 - **CLI Layer**: public command dispatch in `ldsc.cli`
 - **Workflow And Preprocessing Layer**: public services in `ldsc.annotation_builder`, `ldsc.ref_panel_builder`, `ldsc.r2_query`, `ldsc.ldscore_calculator`, `ldsc.sumstats_munger`, `ldsc.regression_runner`, and `ldsc.quantile_h2`, plus shared normalization in `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, `ldsc.genome_build_inference`, `ldsc.annotation_semantics`, and the internal `ldsc.gene_list_resolver`
 - **Compute Kernel**: private file-format and numerical code in `ldsc._kernel.*`
-- **Output Layer**: canonical LD-score, partitioned-h2, and rg artifact writing
+- **Output And Derived-Result Layer**: canonical LD-score, h2, partitioned-h2, quantile-h2, and rg artifact writing
   in `ldsc.outputs`, plus the fixed h2 summary writer in
-  `ldsc.regression_runner`
+  `ldsc.regression_runner`; optional metadata-driven plotting in
+  `ldsc.plotting`; post-fit scale conversion in `ldsc.h2_scale`
 
 ## File Tree
 
@@ -76,6 +80,8 @@ ldsc_py3_Jerry/
 │   ├── ldscore_calculator.py
 │   ├── sumstats_munger.py
 │   ├── regression_runner.py
+│   ├── h2_scale.py        # post-fit observed-to-liability conversion
+│   ├── plotting/          # optional metadata dispatcher and private Matplotlib builders
 │   ├── overlap_matrix.py    # overlap container, serde, assembly, overlap-aware summary
 │   ├── outputs.py           # LD-score and partitioned-h2 artifact writers
 │   └── _kernel/
@@ -122,6 +128,22 @@ verbosity only for low-level calls without a workflow log). The Python API never
 emits console output. Architecture invariant: workflows preflight the
 log path with scientific outputs before entering the context, and result
 `output_paths` mappings do not include logs.
+
+The same module owns the small `RUN_FAILED` marker helper used at public
+materializing boundaries. The helper adds failure visibility for authorized
+overwrites but performs no rollback, restoration, quarantine, or action-order
+change. See [workflow-logging.md](workflow-logging.md).
+
+### `ldsc.plotting`, `ldsc.h2_scale`
+
+`ldsc.plotting.plot_result()` is the sole public plot dispatcher. It selects
+one approved plot from canonical `diagnostics/metadata.json`, follows declared
+source paths, and imports private Matplotlib builders only on a plot-producing
+path. `ldsc.h2_scale.convert_h2_scale()` reads the observed estimate and SE
+from a canonical h2 result and reuses the kernel liability conversion factor;
+only prevalence-range mode imports Matplotlib. Both default to package-owned
+nested result roots and allow an advanced Python-only destination override.
+Their complete seams are documented in [plotting-module.md](plotting-module.md).
 
 ### `ldsc.annotation_builder`
 

@@ -4,6 +4,8 @@ Last updated on: 2026-09-07
 
 Goal: run partitioned LDSC in the refactored package by building query annotations, computing baseline-plus-query LD scores, and fitting one partitioned model per query annotation.
 
+After writing partitioned or quantile results, use the [plotting results manual](plotting-results.md) for the functional-enrichment, query-evidence, and continuous-annotation quantile plots.
+
 `partitioned-h2` accepts both baseline-only and query-annotation LD-score
 directories. Baseline-only runs fit the functional-category model and keep the
 complete-model artifacts at the result root. Query-annotation runs fit one
@@ -280,7 +282,7 @@ For query-annotation runs, the same command keeps the aggregate
 `diagnostics/query_annotations/manifest.tsv` plus sanitized query folders such as
 `diagnostics/query_annotations/0001_enhancer_a/`. Each query folder contains its one-row
 `partitioned_h2.tsv`, the fitted baseline-plus-query `partitioned_h2_full.tsv`,
-and `metadata.json` with the original query annotation name.
+`coefficient_delete_values.parquet`, and `metadata.json` with the original query annotation name.
 The deprecated `--write-per-query-results` flag remains accepted as a no-op and
 emits one warning; new commands should omit it. Baseline-only runs do not create
 the per-query tree and keep their complete-model artifacts at the result root.

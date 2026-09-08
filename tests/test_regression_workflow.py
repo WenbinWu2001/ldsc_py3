@@ -1152,10 +1152,24 @@ class RegressionWorkflowTest(unittest.TestCase):
             )
         )
         dataset = runner.build_dataset(sumstats, self.make_ldscore_result())
-        with mock.patch.object(regression_runner.reg, "Hsq", return_value=mock.sentinel.hsq) as patched:
-            runner.estimate_h2(dataset)
+        fitted_hsq = mock.Mock(
+            coef=np.array([0.001]),
+            tot=np.array([0.1]),
+            intercept=np.array([1.0]),
+        )
+        expected_bins = pd.DataFrame(
+            [{column: 0 for column in regression_runner.H2_REGRESSION_BIN_COLUMNS}]
+        )
+        with mock.patch.object(
+            regression_runner, "summarize_ld_score_regression_bins", return_value=expected_bins
+        ) as summarize_bins, mock.patch.object(
+            regression_runner.reg, "Hsq", return_value=fitted_hsq
+        ) as patched:
+            result = runner.estimate_h2(dataset)
         chisq_arg = patched.call_args.args[0]
         self.assertEqual(chisq_arg.shape[0], 3)
+        summarize_bins.assert_called_once()
+        self.assertIs(result.ld_score_regression_bins, expected_bins)
 
     def test_rg_applies_default_two_step_when_single_annotation_and_unset(self):
         # Legacy estimate_rg (sumstats.py:400) sets two_step=30 for the rg fit
@@ -2361,6 +2375,9 @@ class RegressionWorkflowTest(unittest.TestCase):
                     lambda_gc=np.array([1.0]),
                     ratio=0.0,
                     ratio_se=0.0,
+                    ld_score_regression_bins=pd.DataFrame(
+                        [{column: 0 for column in regression_runner.H2_REGRESSION_BIN_COLUMNS}]
+                    ),
                 ),
             ) as patched:
                 summary = regression_runner.run_h2_from_args(args)
@@ -2375,7 +2392,10 @@ class RegressionWorkflowTest(unittest.TestCase):
                 metadata,
                 {
                     "artifact_type": "h2_result",
-                    "files": {"summary": "h2.tsv"},
+                    "files": {
+                        "summary": "h2.tsv",
+                        "ld_score_regression_bins": "diagnostics/ld_score_regression_bins.tsv",
+                    },
                     "trait_name": "trait",
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "ldscore_dir": str(ldscore_dir),
@@ -2393,6 +2413,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 },
             )
             self.assertTrue((tmpdir / "h2_out" / "diagnostics" / "h2.log").exists())
+            self.assertTrue((tmpdir / "h2_out" / "diagnostics" / "ld_score_regression_bins.tsv").exists())
             legacy_audit = tmpdir / "h2_out" / "diagnostics" / "dropped_snps" / "legacy_sumstats.tsv.gz"
             self.assertTrue(legacy_audit.exists())
             self.assertEqual(
@@ -2442,6 +2463,9 @@ class RegressionWorkflowTest(unittest.TestCase):
                 lambda_gc=np.array([1.0]),
                 ratio=0.0,
                 ratio_se=0.0,
+                ld_score_regression_bins=pd.DataFrame(
+                    [{column: 0 for column in regression_runner.H2_REGRESSION_BIN_COLUMNS}]
+                ),
             ),
         )
 
@@ -2545,6 +2569,9 @@ class RegressionWorkflowTest(unittest.TestCase):
                     lambda_gc=np.array([1.0]),
                     ratio=0.0,
                     ratio_se=0.0,
+                    ld_score_regression_bins=pd.DataFrame(
+                        [{column: 0 for column in regression_runner.H2_REGRESSION_BIN_COLUMNS}]
+                    ),
                 ),
             ):
                 summary = regression_runner.run_h2_from_args(args)
@@ -3689,6 +3716,9 @@ class RegressionWorkflowTest(unittest.TestCase):
                     lambda_gc=np.array([1.0]),
                     ratio=0.0,
                     ratio_se=0.0,
+                    ld_score_regression_bins=pd.DataFrame(
+                        [{column: 0 for column in regression_runner.H2_REGRESSION_BIN_COLUMNS}]
+                    ),
                 ),
             ):
                 regression_runner.run_h2_from_args(args)
@@ -3737,6 +3767,9 @@ class RegressionWorkflowTest(unittest.TestCase):
                     lambda_gc=np.array([1.0]),
                     ratio=0.0,
                     ratio_se=0.0,
+                    ld_score_regression_bins=pd.DataFrame(
+                        [{column: 0 for column in regression_runner.H2_REGRESSION_BIN_COLUMNS}]
+                    ),
                 ),
             ):
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
@@ -3856,6 +3889,9 @@ class RegressionWorkflowTest(unittest.TestCase):
                     lambda_gc=np.array([1.0]),
                     ratio=0.0,
                     ratio_se=0.0,
+                    ld_score_regression_bins=pd.DataFrame(
+                        [{column: 0 for column in regression_runner.H2_REGRESSION_BIN_COLUMNS}]
+                    ),
                 ),
             ):
                 regression_runner.run_h2_from_args(args)

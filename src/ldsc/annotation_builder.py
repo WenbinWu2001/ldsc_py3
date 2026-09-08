@@ -100,7 +100,13 @@ from .path_resolution import (
     resolve_file_group,
     split_cli_path_tokens,
 )
-from ._logging import configure_package_logging, log_inputs, log_outputs, workflow_logging
+from ._logging import (
+    configure_package_logging,
+    log_inputs,
+    log_outputs,
+    materializing_overwrite_guard,
+    workflow_logging,
+)
 from .query_annotations import QueryAnnotationStatus
 from .annotation_semantics import require_unique_annotation_names
 
@@ -1146,6 +1152,16 @@ class AnnotationBuilder:
         return pd.DataFrame(index=index)
 
 
+@materializing_overwrite_guard(
+    lambda *args, **kwargs: (
+        (kwargs.get("output_dir") if "output_dir" in kwargs else (args[2] if len(args) > 2 else None)),
+        kwargs.get("overwrite", args[4] if len(args) > 4 else False),
+        "RUN_FAILED.txt",
+    )
+    if (kwargs.get("output_dir") if "output_dir" in kwargs else (args[2] if len(args) > 2 else None))
+    else None,
+    command="run_bed_to_annot(...)",
+)
 def run_bed_to_annot(
     query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
     baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
@@ -1306,6 +1322,14 @@ def parse_bed_to_annot_args(argv: Sequence[str] | None = None) -> argparse.Names
     return build_parser().parse_args(argv)
 
 
+@materializing_overwrite_guard(
+    lambda args: (
+        (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
+        if getattr(args, "output_dir", None)
+        else None
+    ),
+    command="run_annotate_from_args(...)",
+)
 def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
     """Run the annotation workflow from a parsed CLI namespace.
 

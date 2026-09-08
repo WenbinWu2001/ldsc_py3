@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-08-24
+Last updated on: 2026-09-07
 
 This reference explains `ldsc` errors that can **abort a run** and have more than
 one likely cause. It is organized by command. Each entry lists the likely causes
@@ -11,6 +11,16 @@ repeated here. When a message says `... see docs/troubleshooting.md#<section>`,
 that slug is a heading below — jump to it.
 
 ## Common
+
+### Common: `RUN_FAILED` is present in an output directory
+
+The latest authorized overwrite failed. Read the marker first, then inspect the
+detailed log it names when a log was opened. The directory may contain
+incomplete or mixed artifacts because LDSC preserves each workflow's existing
+write order and performs no rollback or restoration. Correct the underlying
+error and rerun the same materializing command with `--overwrite`; a successful
+retry removes the applicable marker. Do not treat the marker as a scientific
+result file.
 
 ### Common: input path did not resolve to one file
 
@@ -674,3 +684,21 @@ Resupply the exact original annotation sources and matching reference metadata. 
 **Raised by:** `quantile_h2._read_target_annotation()` / `quantile_h2.assign_legacy_quantiles()` · **Exception:** `LDSCInputError`
 
 By default, every target value must be numeric and finite. If exactly one token denotes missingness, pass it with `--target-missing-value`; zero is retained unless explicitly selected. If boundary ties produce an empty quantile, reduce `--num-quantiles` or use a less discrete target. Ties are intentionally kept in the lower-valued quantile for LDSC2 compatibility.
+
+## plot
+
+### plot: result directory is unsupported or incomplete
+
+**Raised by:** `plotting.plot_result()` · **Exception:** `LDSCInputError`
+
+| # | Likely cause | How to check |
+|---|---|---|
+| 1 | An internal per-query partitioned-h2 directory was supplied | Pass the aggregate partitioned-h2 root containing `diagnostics/metadata.json`. |
+| 2 | The result predates a required current artifact | For h2, check for `diagnostics/ld_score_regression_bins.tsv`; rerun `ldsc h2` with the current package. |
+| 3 | Metadata and result tables came from different runs | Inspect `diagnostics/metadata.json` and verify every relevant `files` entry exists relative to the same root. |
+| 4 | The artifact type or scientific regime has no approved plot | Compare the input with the supported table in [the plotting manual](../tutorials/plotting-results.md#which-result-directory-produces-which-plot). |
+
+The plot command does not infer from loose TSV files or reconstruct missing
+diagnostics. If the error asks for Matplotlib, install the optional extra with
+`python -m pip install -e ".[plot]"` (editable source install) or
+`python -m pip install "ldsc[plot]"` (installed distribution).

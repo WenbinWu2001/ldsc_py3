@@ -74,7 +74,7 @@ from .path_resolution import (
     preflight_output_artifact_family,
     resolve_file_group,
 )
-from ._logging import log_inputs, log_outputs, workflow_logging
+from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ._kernel import regression as reg
 from ._kernel.identifiers import build_snp_id_series
 from ._kernel.snp_identity import (
@@ -94,6 +94,7 @@ from .ldscore_calculator import LDScoreResult
 from .outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
+    H2_REGRESSION_BIN_COLUMNS,
     PARTITIONED_H2_COLUMNS,
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
@@ -746,17 +747,30 @@ class RegressionRunner:
             two_step = 30
         old_weights = len(dataset.retained_ld_columns) > 1
         _raise_on_model_collinearity(dataset, x)
-        return reg.Hsq(
+        reference_snp_counts = np.asarray(
+            dataset.reference_snp_count_totals[dataset.count_key_used_for_regression]
+        ).reshape((1, -1))
+        hsq = reg.Hsq(
             chisq,
             x,
             np.asarray(merged[[dataset.weight_column]]),
             np.asarray(merged[["N"]]),
-            np.asarray(dataset.reference_snp_count_totals[dataset.count_key_used_for_regression]).reshape((1, -1)),
+            reference_snp_counts,
             n_blocks=n_blocks,
             intercept=intercept,
             twostep=two_step,
             old_weights=old_weights,
         )
+        if len(dataset.retained_ld_columns) == 1:
+            hsq.ld_score_regression_bins = summarize_ld_score_regression_bins(
+                hsq,
+                ld_score=x[:, 0],
+                chi_square=chisq,
+                sample_size=np.asarray(merged[["N"]]),
+                regression_ld_score=np.asarray(merged[[dataset.weight_column]]),
+                reference_snp_count=float(reference_snp_counts[0, 0]),
+            )
+        return hsq
 
     def estimate_partitioned_h2(
         self,
@@ -1721,6 +1735,99 @@ def summarize_total_h2(
     )
 
 
+def summarize_ld_score_regression_bins(
+    hsq,
+    *,
+    ld_score,
+    chi_square,
+    sample_size,
+    regression_ld_score,
+    reference_snp_count: float,
+    max_bins: int = 50,
+) -> pd.DataFrame:
+    """Summarize the exact fitted SNP population into LD Score rank bins.
+
+    Parameters
+    ----------
+    hsq : ldsc._kernel.regression.Hsq-like object
+        Final unpartitioned fit exposing ``coef``, ``tot``, and ``intercept``.
+    ld_score, chi_square, sample_size, regression_ld_score : array_like
+        Equal-length per-SNP values after the h2 chi-square filter. The order is
+        preserved among tied LD Scores.
+    reference_snp_count : float
+        Reference-SNP count used by the fitted h2 model.
+    max_bins : int, optional
+        Maximum number of nonempty equal-count rank bins. Default is 50.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per ascending LD Score bin in
+        :data:`ldsc.outputs.H2_REGRESSION_BIN_COLUMNS` order. Chi-square SD uses
+        ``ddof=1`` and is NaN for a singleton bin.
+
+    Raises
+    ------
+    LDSCInternalError
+        If the fitted arrays are empty or differ in length, or if ``max_bins``
+        is less than one.
+
+    Notes
+    -----
+    Fitted expectations use the final LDSC slope and intercept with each SNP's
+    own sample size. Weights are the existing heritability regression weights
+    evaluated at the final model; this function does not fit another model.
+    """
+    arrays = [
+        np.ravel(np.asarray(values, dtype=np.float64))
+        for values in (ld_score, chi_square, sample_size, regression_ld_score)
+    ]
+    lengths = {len(values) for values in arrays}
+    if len(lengths) != 1 or not lengths or next(iter(lengths)) == 0:
+        raise LDSCInternalError(
+            "h2 regression diagnostics require nonempty, equal-length LD Score, chi-square, "
+            "sample-size, and regression-weight LD Score arrays."
+        )
+    if max_bins < 1:
+        raise LDSCInternalError("h2 regression diagnostics require max_bins >= 1.")
+    ld_values, chisq_values, n_values, w_ld_values = arrays
+    n_snps = len(ld_values)
+    n_bins = min(int(max_bins), n_snps)
+    slope = _scalar(hsq.coef)
+    total_h2 = _scalar(hsq.tot)
+    intercept = _scalar(hsq.intercept)
+    fitted = intercept + np.multiply(np.multiply(n_values, slope), ld_values)
+    weights = np.ravel(
+        reg.Hsq.weights(
+            ld_values.reshape((-1, 1)),
+            w_ld_values.reshape((-1, 1)),
+            n_values.reshape((-1, 1)),
+            float(reference_snp_count),
+            total_h2,
+            intercept,
+        )
+    )
+    order = np.argsort(ld_values, kind="stable")
+    rows: list[dict[str, float | int]] = []
+    for bin_index, indices in enumerate(np.array_split(order, n_bins), start=1):
+        bin_chisq = chisq_values[indices]
+        rows.append(
+            {
+                "bin": bin_index,
+                "n_snps": len(indices),
+                "ld_score_min": float(np.min(ld_values[indices])),
+                "ld_score_max": float(np.max(ld_values[indices])),
+                "mean_ld_score": float(np.mean(ld_values[indices])),
+                "mean_chi_square": float(np.mean(bin_chisq)),
+                "sd_chi_square": float(np.std(bin_chisq, ddof=1)) if len(indices) > 1 else float("nan"),
+                "mean_sample_size": float(np.mean(n_values[indices])),
+                "mean_fitted_chi_square": float(np.mean(fitted[indices])),
+                "mean_regression_weight": float(np.mean(weights[indices])),
+            }
+        )
+    return pd.DataFrame(rows, columns=H2_REGRESSION_BIN_COLUMNS)
+
+
 def summarize_partitioned_h2(
     hsq,
     dataset: RegressionDataset,
@@ -2501,20 +2608,33 @@ def add_rg_arguments(parser) -> None:
     )
 
 
+@materializing_overwrite_guard(
+    lambda args: (
+        (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
+        if getattr(args, "output_dir", None)
+        else None
+    ),
+    command="run_h2_from_args(...)",
+)
 def run_h2_from_args(args):
     """Run single-trait heritability estimation from parsed CLI arguments.
 
-    The workflow requires ``args.output_dir`` and preflights ``h2.tsv``,
-    ``diagnostics/metadata.json``, and ``diagnostics/h2.log`` before loading inputs.
+    The workflow requires ``args.output_dir`` and preflights ``h2.tsv``, the
+    LD Score regression-bin diagnostic, metadata, and ``diagnostics/h2.log``
+    before loading inputs. A successful overwrite removes default plots and
+    liability-scale post-processing derived from the superseded h2 result.
     """
     output_dir, log_path = _preflight_regression_outputs(
         args,
         "h2",
-        ["h2.tsv", "diagnostics/metadata.json"],
+        ["h2.tsv", "diagnostics/ld_score_regression_bins.tsv", "diagnostics/metadata.json"],
         owned_output_names=[
             "h2.tsv",
+            "diagnostics/ld_score_regression_bins.tsv",
             "diagnostics/metadata.json",
             "diagnostics/dropped_snps/legacy_sumstats.tsv.gz",
+            "plots",
+            "postprocessing",
         ],
     )
     with workflow_logging("h2", log_path, log_level=getattr(args, "log_level", "INFO")):
@@ -2555,6 +2675,7 @@ def run_h2_from_args(args):
                     samp_prev=config.samp_prev,
                     pop_prev=config.pop_prev,
                 ),
+                diagnostic_bins=hsq.ld_score_regression_bins,
             )
             audit_path = _write_or_remove_legacy_sumstats_audit(
                 Path(output_dir_arg),
@@ -2569,6 +2690,14 @@ def run_h2_from_args(args):
     return summary
 
 
+@materializing_overwrite_guard(
+    lambda args: (
+        (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
+        if getattr(args, "output_dir", None)
+        else None
+    ),
+    command="run_partitioned_h2_from_args(...)",
+)
 def run_partitioned_h2_from_args(args):
     """Run batch partitioned heritability from parsed CLI arguments.
 
@@ -2576,7 +2705,8 @@ def run_partitioned_h2_from_args(args):
     ``partitioned_h2.tsv``, ``diagnostics/query_annotations/``, and
     ``diagnostics/partitioned-h2.log`` before loading inputs. Query-annotation
     runs always write per-query results; baseline-only runs keep the complete
-    fitted-model artifacts at the result root.
+    fitted-model artifacts at the result root. A successful overwrite removes
+    the default plot root derived from the superseded result.
     """
     preflight_names = [
         "partitioned_h2.tsv",
@@ -2594,6 +2724,7 @@ def run_partitioned_h2_from_args(args):
             "diagnostics/coefficient_delete_values.parquet",
             "diagnostics/query_annotations",
             "diagnostics/dropped_snps/legacy_sumstats.tsv.gz",
+            "plots",
         ],
     )
     with workflow_logging("partitioned-h2", log_path, log_level=getattr(args, "log_level", "INFO")):
@@ -2694,12 +2825,22 @@ def run_partitioned_h2_from_args(args):
     return summary
 
 
+@materializing_overwrite_guard(
+    lambda args: (
+        (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
+        if getattr(args, "output_dir", None)
+        else None
+    ),
+    command="run_rg_from_args(...)",
+)
 def run_rg_from_args(args):
     """Run multi-trait genetic-correlation estimation from parsed CLI args.
 
     The workflow requires ``--output-dir`` and writes the rg result family:
     ``rg.tsv``, ``rg_full.tsv``, ``h2_per_trait.tsv``, optional
-    ``diagnostics/pairs/``, and workflow-owned ``diagnostics/rg.log``.
+    ``diagnostics/pairs/``, and workflow-owned ``diagnostics/rg.log``. A
+    successful overwrite removes the default plot root derived from the
+    superseded result.
 
     Parameters
     ----------
@@ -2737,6 +2878,7 @@ def run_rg_from_args(args):
             "diagnostics/metadata.json",
             "diagnostics/pairs",
             "diagnostics/dropped_snps/legacy_sumstats.tsv.gz",
+            "plots",
         ],
     )
     sumstats_paths = resolve_file_group(getattr(args, "sumstats_sources", ()), label="sumstats sources")

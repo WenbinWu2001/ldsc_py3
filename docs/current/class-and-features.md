@@ -15,10 +15,12 @@ This document summarizes the public package surface. For workflow-level file str
 | Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | optional baseline shards; mutually exclusive prebuilt, BED, direct gene-list, or indexed gene-list modes; PLINK or parquet panel; restrictions/exclusions | canonical root artifacts for usable queries; gene runs write row audit/source summary and evaluated focal status diagnostics; wrappers write `diagnostics/ldscore.log` |
 | Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_genome_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, resolved `GlobalConfig`, and optionally a normalized 1-based table |
 | Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `infer_raw_sumstats()`, `load_sumstats()` | raw sumstats via `--raw-sumstats-file` or `MungeConfig.raw_sumstats_file`, optional `--trait-name`, default `--format auto`, optional `--infer-only`, column hints only when inference cannot decide safely, QC thresholds, optional `--chr`/`--pos`, `--source-genome-build auto` by default, required `--output-genome-build` in `chr_pos`-family modes, optional explicit DANER format profile, VCF-style headers handled as `plain`, optional `--sumstats-snps-file` keep-list or `--use-hm3-snps`, optional `chr_pos`-family liftover via `--liftover-chain-file` or `--use-hm3-snps --use-hm3-quick-liftover` when source and output builds differ, optional `--output-format parquet\|tsv.gz\|both` | self-describing `sumstats.parquet` (identity in its footer; no `metadata.json`) by default, optional `sumstats.sumstats.gz`; diagnostics under `diagnostics/` include `sumstats.log` and `dropped_snps/dropped.tsv.gz`; `--infer-only` writes nothing |
-| Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()`, `H2DirectoryWriter` | munged `sumstats.parquet` or `.sumstats.gz`, LD-score directory | required `output_dir` containing `h2.tsv`; `diagnostics/metadata.json` and `diagnostics/h2.log` are provenance only |
+| Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()`, `H2DirectoryWriter` | munged `sumstats.parquet` or `.sumstats.gz`, LD-score directory | required `output_dir` containing `h2.tsv`; diagnostics include exact final-fit `ld_score_regression_bins.tsv`, metadata, and log |
 | Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2()`, `RegressionRunner.estimate_partitioned_h2_batch()`, `PartitionedH2DirectoryWriter` | munged `sumstats.parquet` or `.sumstats.gz`, LD-score directory including `ldscore.overlap.parquet` (baseline-only = functional regime; with query columns = cell-type regime) | required `output_dir` with overlap-aware `partitioned_h2.tsv` (one schema, both regimes); query runs always add `diagnostics/query_annotations/manifest.tsv` and per-query result folders; baseline-only complete-model artifacts stay at root; deprecated `--write-per-query-results` is a no-op |
 | Project continuous-target quantile heritability | `ldsc quantile-h2` | `run_quantile_h2_from_args()`, `compute_quantile_h2()`, `compute_standardized_coefficients()`, `QuantileH2DirectoryWriter` | one fitted baseline-only or per-query partitioned-h2 model, every fitted annotation source, target annotation source, reference metadata | `quantile_h2.tsv`, `standardized_coefficients.tsv`, provenance, log, and SNP-alignment diagnostics; no regression refit |
 | Estimate genetic correlation | `ldsc rg` | `RegressionRunner.estimate_rg()`, `RegressionRunner.estimate_rg_pairs()`, `RgDirectoryWriter` | two or more munged `sumstats.parquet` or `.sumstats.gz` files, optional `--anchor-trait`, LD-score directory | required `output_dir` with concise `rg.tsv`, full `rg_full.tsv`, `h2_per_trait.tsv`, optional `diagnostics/pairs/`, and `diagnostics/rg.log`; rg tables report nominal p-values only |
+| Plot canonical results | `ldsc plot` | `plot_result()`, `PlotArtifact` | current h2, partitioned-h2, quantile-h2, or rg result root | one metadata-selected 300-dpi PNG plus plot metadata/log below the fixed `plots/` root; Python permits an unmanaged destination override |
+| Convert saved h2 to liability scale | `ldsc convert-h2-scale` | `convert_h2_scale()`, `H2ScaleConversionArtifact` | canonical h2 result, sample prevalence, and one population prevalence or range | fixed nested conversion table, metadata/log, and an optional prevalence-sensitivity PNG |
 
 ## Workflow Logging
 
@@ -29,6 +31,11 @@ the log is open. `--log-level` controls ordinary package records; lifecycle
 audit lines always appear in the file. The logged start/end timestamps and
 elapsed duration are captured from paired entry/exit timepoints, keeping the
 wall-clock lines and elapsed footer aligned with the actual logged run interval.
+
+Failed authorized overwrites also leave a `RUN_FAILED` marker in the applicable
+output scope. The marker supplements the failed log without rollback,
+restoration, quarantine, or workflow action-order changes; a successful retry
+removes it.
 
 Workflow logs are audit artifacts, not data outputs. Result objects and
 `output_paths` mappings exclude log paths. `MungeRunSummary.output_paths`
@@ -74,6 +81,8 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 | `PartitionedH2DirectoryWriter` | write compact and optional per-query partitioned-h2 result trees |
 | `QuantileH2DirectoryWriter` | write post-fit quantile summaries, standardized coefficients, metadata, and alignment diagnostics |
 | `RgDirectoryWriter` | write the genetic-correlation result family and optional per-pair detail tree |
+| `plot_result()` | validate result metadata, select one approved plot, and return a live `PlotArtifact` while writing the fixed plot family |
+| `convert_h2_scale()` | convert the saved observed h2 estimate and SE through the shared kernel factor at one prevalence or across a grid |
 
 ### Data And Result Objects
 
@@ -89,6 +98,8 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 | `RegressionDataset` | merged sumstats plus LD-score matrix used by the estimator, plus propagated provenance when available |
 | `RgResultFamily` | complete multi-trait genetic-correlation result family: concise rg table, full diagnostic table, per-trait h2 table, and per-pair metadata; rg p-values are nominal and uncorrected |
 | `QuantileH2Result` | quantile summaries, standardized coefficients, alignment issues, metadata, and output paths for one fitted model/target pair |
+| `PlotArtifact` | immutable plot kind, saved PNG path, and live Matplotlib figure/axes |
+| `H2ScaleConversionArtifact` | immutable paths to the conversion table, metadata, log, and optional sensitivity figure |
 | `ChrPosBuildInference` | genome-build and coordinate-basis decision returned by `infer_chr_pos_build()` and `resolve_chr_pos_table()` |
 
 ### Global Config Registry
@@ -178,6 +189,10 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 ## Public Import Boundary
 
 Stable user-facing imports are re-exported from `ldsc.__init__`. That includes the workflow services, config dataclasses, reference-panel abstractions, and convenience helpers such as `run_bed_to_annot()`, `run_ldscore()`, `query_r2()`, and `load_sumstats()`. Annotation parser helpers live in `ldsc.annotation_builder`; `annotation_builder.main()` is the supported parser entry point for BED-to-annotation projection. Internal modules under `ldsc._kernel` are implementation details and may change without the same compatibility promise.
+
+`plot_result`, `PlotArtifact`, `convert_h2_scale`, and
+`H2ScaleConversionArtifact` are lazy top-level exports. Importing `ldsc` does
+not import Matplotlib; private builders load it only when a figure is requested.
 
 The top-level package also re-exports `ConfigMismatchError` and
 `validate_config_compatibility()` for notebook and library code that wants to

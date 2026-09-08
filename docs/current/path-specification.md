@@ -33,6 +33,9 @@ Output paths are different:
 - if the directory already exists, it is reused
 - public workflows do not use output prefixes; output filenames inside
   `output_dir` are fixed by the workflow
+- `ldsc plot` and `ldsc convert-h2-scale` are derived-result exceptions: they
+  take a source result directory and write to its fixed nested `plots/` or
+  `postprocessing/liability-scale/` root instead of accepting `--output-dir`
 - existing workflow-owned output artifacts raise `FileExistsError` before the
   workflow writes anything
 - pass `--overwrite` on the CLI or `overwrite=True` in Python to intentionally
@@ -67,14 +70,21 @@ independent optional files:
 - `partitioned-h2`: `partitioned_h2.tsv`,
   `diagnostics/metadata.json`, optional `diagnostics/query_annotations/`, and
   `diagnostics/partitioned-h2.log` for CLI/workflow runs
-- `h2`: `h2.tsv`, `diagnostics/metadata.json`, and
-  `diagnostics/h2.log` for CLI/workflow runs
+- `h2`: `h2.tsv`, `diagnostics/ld_score_regression_bins.tsv`,
+  `diagnostics/metadata.json`, and `diagnostics/h2.log` for CLI/workflow runs;
+  the default `plots/` and `postprocessing/` roots are owned derived outputs
 - `annotate`: root-level `query.<chrom>.annot.gz` shards, plus diagnostic
   metadata, dropped-SNP audit, and `annotate.log` under `diagnostics/`
 - `rg`: `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`,
   `diagnostics/metadata.json`, optional `diagnostics/pairs/`, and
   `diagnostics/rg.log` for CLI/workflow runs; rg tables report nominal
   p-values only and do not include package-computed corrected p-value columns
+- `plot`: one selected fixed PNG plus `diagnostics/metadata.json` and
+  `diagnostics/plot.log` below `<result-dir>/plots/`
+- `convert-h2-scale`: `h2_scale_conversion.tsv`, optional
+  `h2_prevalence_sensitivity.png`, `diagnostics/metadata.json`, and
+  `diagnostics/convert-h2-scale.log` below
+  `<h2-result-dir>/postprocessing/liability-scale/`
 
 Without overwrite, any existing current-contract owned sibling in the family
 rejects the run, even if that sibling is not selected by the current output
@@ -92,6 +102,20 @@ the complete tree after the current run succeeds.
 
 Direct Python data writers enforce the data artifact family they own. Workflow
 wrappers add their workflow log to the preflight family.
+
+The default `plots/` root is an owned sibling of h2, partitioned-h2,
+quantile-h2, and rg; the default `postprocessing/` root is an owned sibling of
+h2. A core no-overwrite run rejects an orphaned owned root. A successful core
+overwrite removes these derived roots after publishing the new core artifacts,
+preventing a plot or conversion from silently describing an older result.
+Python-only `output_dir=` overrides for plotting and conversion are unmanaged
+and therefore outside this cleanup boundary.
+
+An authorized overwrite that fails writes `RUN_FAILED.txt` in the applicable
+output scope; concrete chromosome reference-panel attempts use
+`RUN_FAILED.chr<chrom>.txt`. Marker creation adds no rollback, quarantine, or
+action-order change. It does not enter scientific metadata or block a retry,
+and a successful retry removes the applicable marker.
 
 ## General Resolution Rules
 
@@ -491,9 +515,11 @@ Output:
   restriction and conflicts with `--sumstats-snps-file`. HM3 quick liftover
   requires `--use-hm3-snps`.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` require `output_dir` and write
-  fixed result families. For h2, the written
-  family is `h2.tsv`, `diagnostics/metadata.json`, and workflow-owned
-  `diagnostics/h2.log`. For rg, that family is `rg.tsv`, `rg_full.tsv`,
+  fixed result families. For h2, the written family is `h2.tsv`,
+  `diagnostics/ld_score_regression_bins.tsv`, `diagnostics/metadata.json`, and
+  workflow-owned `diagnostics/h2.log`. Its default `plots/` and
+  `postprocessing/` roots are owned stale derivatives. For rg, that family is
+  `rg.tsv`, `rg_full.tsv`,
   `h2_per_trait.tsv`, optional `diagnostics/pairs/`, and workflow-owned
   `diagnostics/rg.log`; rg outputs carry nominal p-values only; existing owned
   artifacts are refused unless `--overwrite` is supplied.

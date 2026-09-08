@@ -1,6 +1,6 @@
 # Continuous annotations in partitioned LDSC
 
-Last updated on: 2026-08-24
+Last updated on: 2026-09-07
 
 This page starts after the partitioned-LDSC steps in the [guided tutorial](guided-tutorial.md). The regression itself does not use quantile bins: fit the continuous annotation directly, then use `ldsc quantile-h2` to summarize how the complete fitted joint model distributes heritability from low to high target values.
 
@@ -17,7 +17,7 @@ The target score may be fitted or external. It only assigns SNPs to quantiles; h
 
 ## 1. Preserve one complete fitted model
 
-For a baseline-only partitioned model, use the `partitioned-h2` output root. For a cell-type-specific run, include `--write-per-query-results` when fitting and later select one query directory:
+For a baseline-only partitioned model, use the `partitioned-h2` output root. Cell-type-specific runs write one result directory per query automatically; select one of those query directories:
 
 ```text
 partitioned-h2/<trait>/diagnostics/query_annotations/0001_<query>/
@@ -35,6 +35,8 @@ You need every annotation source used to fit the selected model, one target sour
 Annotation names must be unique across all baseline and query sources in one LD-score artifact.
 
 ## 3. Run the post-fit projection
+
+Reference metadata is used only to reconstruct SNP identity and apply the inherited common-SNP MAF threshold; it is not a genotype or LD input. Each sidecar therefore needs `CHR`, `POS` (or `BP`), `SNP`, and `MAF`. Allele-aware modes also use `A1` and `A2` when the base identity is not unique. No CM, genotype, or LD-score columns are required.
 
 Baseline-only example:
 

@@ -59,7 +59,13 @@ from ._kernel.snp_identity import (
     normalize_snp_identifier_mode,
 )
 from ._kernel import regions as kernel_regions
-from ._logging import log_inputs, log_outputs, set_workflow_log_path, workflow_logging
+from ._logging import (
+    log_inputs,
+    log_outputs,
+    materializing_overwrite_guard,
+    set_workflow_log_path,
+    workflow_logging,
+)
 from .annotation_builder import AnnotationBuilder
 from .chromosome_inference import normalize_chromosome, normalize_chromosome_series
 from ._coordinates import positive_int_position_series
@@ -338,6 +344,14 @@ def _build_embedded_gene_catalog(
     ]
 
 
+@materializing_overwrite_guard(
+    lambda args: (
+        (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
+        if getattr(args, "output_dir", None)
+        else None
+    ),
+    command="run_build_gene_ldscore_index_from_args(...)",
+)
 def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
     """Build one exact v1 index through locked preflight and staged publication."""
     started = time.perf_counter()

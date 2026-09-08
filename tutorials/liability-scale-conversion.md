@@ -2,6 +2,8 @@
 
 Last updated on: 2026-09-07
 
+For post-fit exact conversion or a prevalence-sensitivity curve from a saved h2 result, see the [plotting results manual](plotting-results.md#explore-liability-scale-h2-over-population-prevalence).
+
 LDSC estimates heritability and genetic covariance on the **observed scale** by
 default. For binary (case-control) traits, the observed-scale value depends on
 the case fraction in your sample, so it is not comparable across studies. The

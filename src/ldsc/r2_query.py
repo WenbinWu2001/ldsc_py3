@@ -21,7 +21,7 @@ import pandas as pd
 from ._kernel.identifiers import build_snp_id_series
 from ._kernel.ldscore import _load_full_panel_sidecar, _validate_index_binding
 from ._kernel.r2_query import lookup_pairs_in_parquet
-from ._logging import log_inputs, log_outputs, workflow_logging
+from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from .outputs import QueryR2DirectoryWriter, QueryR2OutputConfig
 from .path_resolution import ensure_output_directory, preflight_output_artifact_family
 from ._kernel.ref_panel import (
@@ -517,6 +517,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+@materializing_overwrite_guard(
+    lambda args: (
+        (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
+        if getattr(args, "output_dir", None)
+        else None
+    ),
+    command="run_query_r2_from_args(...)",
+)
 def run_query_r2_from_args(args: argparse.Namespace) -> pd.DataFrame:
     """Run ``query-r2`` from parsed CLI arguments and emit the result table.
 

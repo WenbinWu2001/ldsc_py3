@@ -48,7 +48,7 @@ from .path_resolution import (
     resolve_file_group,
     split_cli_path_tokens,
 )
-from ._logging import log_inputs, log_outputs, workflow_logging
+from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 
 
 LOGGER = logging.getLogger("LDSC.quantile_h2")
@@ -876,6 +876,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+@materializing_overwrite_guard(
+    lambda args: (
+        (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
+        if getattr(args, "output_dir", None)
+        else None
+    ),
+    command="run_quantile_h2_from_args(...)",
+)
 def run_quantile_h2_from_args(args) -> QuantileH2Result:
     """Run the verified post-fit continuous-annotation quantile workflow.
 
@@ -883,7 +891,8 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
     universe from the original annotation sources and reference metadata,
     assigns eligible SNPs to target-value quantiles, and projects the saved
     whole-data and delete-one-block coefficient vectors onto those quantiles.
-    It does not refit LDSC.
+    It does not refit LDSC. A successful overwrite removes the default plot
+    root derived from the superseded quantile result.
 
     Parameters
     ----------
@@ -913,7 +922,12 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
         diagnostics_dir / "snp_alignment_issues.tsv.gz",
         diagnostics_dir / "quantile-h2.log",
     ]
-    preflight_output_artifact_family(paths, paths, overwrite=args.overwrite, label="quantile-h2 output artifact")
+    preflight_output_artifact_family(
+        paths,
+        [*paths, output_dir / "plots"],
+        overwrite=args.overwrite,
+        label="quantile-h2 output artifact",
+    )
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     writer = QuantileH2DirectoryWriter()
     empty_issues = _empty_alignment_issues()

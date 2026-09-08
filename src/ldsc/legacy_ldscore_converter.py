@@ -20,7 +20,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from ._logging import log_inputs, log_outputs, workflow_logging
+from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from .config import GlobalConfig
 from .errors import LDSCInputError, LDSCUsageError
@@ -86,6 +86,14 @@ class LegacyLDScoreConverter:
     identity modes and fixes legacy common-count semantics at ``0.05``.
     """
 
+    @materializing_overwrite_guard(
+        lambda self, **kwargs: (
+            (kwargs["output_dir"], kwargs.get("overwrite", False), "RUN_FAILED.txt")
+            if kwargs.get("output_dir")
+            else None
+        ),
+        command="LegacyLDScoreConverter.convert(...)",
+    )
     def convert(
         self,
         *,

@@ -1,6 +1,10 @@
 # Cross-Trait Genetic Correlation
 
+Last updated on: 2026-09-07
+
 Goal: estimate genetic correlation for two or more traits from munged summary statistics and one matched LD-score reference.
+
+After writing the rg result, use the [plotting results manual](plotting-results.md) to create and interpret either the all-pairs heatmap or anchor-trait forest plot.
 
 The regression step expects:
 

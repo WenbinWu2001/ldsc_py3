@@ -1,4 +1,4 @@
-"""Optional plotting dispatcher for canonical LDSC result directories.
+"""Plotting dispatcher for canonical LDSC result directories.
 
 Core functionality:
     Select and save one approved exploratory figure from the scientific regime
@@ -9,7 +9,7 @@ Overview
 ``plot_result`` is the only public plotting entry point. It validates the
 source artifact and dispatches by metadata rather than by filenames or table
 shape. Matplotlib is imported only when this module is asked to build a plot;
-the numerical workflows do not depend on the plotting extra.
+numerical workflows do not import the plotting runtime.
 """
 
 from __future__ import annotations
@@ -105,7 +105,8 @@ def plot_result(
         If source metadata or the selected numerical table violates the
         plotting contract.
     LDSCDependencyError
-        If the optional Matplotlib dependency is unavailable.
+        If the required Matplotlib dependency cannot be imported from the
+        active environment.
     FileExistsError
         If a fixed plot artifact exists and ``overwrite`` is ``False``.
     """
@@ -294,8 +295,9 @@ def _load_builders():
     except ImportError as exc:
         if exc.name == "matplotlib" or (exc.name and exc.name.startswith("matplotlib.")):
             raise LDSCDependencyError(
-                "Plotting requires Matplotlib. Install the optional dependency with "
-                "`pip install 'ldsc[plot]'`, then rerun the command."
+                "Plotting requires Matplotlib, which is a required LDSC dependency. "
+                "Repair the active environment with `pip install 'matplotlib>=3.9,<4'`, "
+                "then rerun the command."
             ) from exc
         raise
     return _builders

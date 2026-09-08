@@ -1,6 +1,6 @@
 # Plotting and Post-processing Integration Plan
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-08
 
 ## Status
 
@@ -12,9 +12,9 @@ This is a living execution guide. Update slice status, validation evidence, and 
 
 ## Goal and success signal
 
-Integrate the approved detached plotting prototype into LDSC3 as an optional Matplotlib-only post-processing layer, add exact saved data for the binned unpartitioned h2 diagnostic, expose post-fit observed-to-liability conversion, and add durable failed-overwrite markers without changing existing workflow action order.
+Integrate the approved detached plotting prototype into LDSC3 as an explicit Matplotlib-only post-processing layer, add exact saved data for the binned unpartitioned h2 diagnostic, expose post-fit observed-to-liability conversion, and add durable failed-overwrite markers without changing existing workflow action order.
 
-Completion is observable when a current canonical result can be passed to `ldsc plot --result-dir ...` and produces the single approved figure for its analysis regime; `ldsc convert-h2-scale` supports exact and prevalence-range conversion without refitting; every new h2 result carries the exact bin table required by its diagnostic plot; the core package remains installable and runnable without Matplotlib; and failed authorized overwrites leave the specified marker while successful retries remove it.
+Completion is observable when a current canonical result can be passed to `ldsc plot --result-dir ...` and produces the single approved figure for its analysis regime; `ldsc convert-h2-scale` supports exact and prevalence-range conversion without refitting; every new h2 result carries the exact bin table required by its diagnostic plot; Matplotlib is required by the default installation but lazily imported at runtime; and failed authorized overwrites leave the specified marker while successful retries remove it.
 
 ## Context and constraints
 
@@ -25,7 +25,7 @@ Completion is observable when a current canonical result can be passed to `ldsc 
 - `src/ldsc/outputs.py` and `src/ldsc/path_resolution.py` own canonical artifact writing, collision preflight, and stale-owned output cleanup. Reuse those abstractions and preserve produced-path versus owned-path distinctions.
 - `src/ldsc/_logging.py` already retains a failed workflow log and traceback. Failure markers supplement that log; they do not replace it or add rollback.
 - The existing `--samp-prev`/`--pop-prev` behavior and vectorized `liability_conversion_factor` are implemented and numerically authoritative. Migration verifies and reuses them rather than rewriting the estimator.
-- Matplotlib is optional and imported only on an explicit plot-producing path. Seaborn is not added.
+- Matplotlib is required at installation and imported only on an explicit plot-producing path. Seaborn is not added.
 - Plotting is never automatic. No plotting failure may alter a source result or prevent a core numerical workflow from completing.
 - Apply focused TDD in each slice: write the smallest failing behavioral or numerical test, implement, then refactor while green.
 
@@ -61,7 +61,7 @@ Completion is observable when a current canonical result can be passed to `ldsc 
 
 Status: complete.
 
-Goal: make every new unpartitioned h2 result independently plot-ready without adding a plotting dependency.
+Goal: make every new unpartitioned h2 result independently plot-ready without importing the plotting runtime during regression.
 
 Likely areas: `src/ldsc/regression_runner.py`, a small pure diagnostic helper in the regression workflow or private kernel, `src/ldsc/outputs.py`, `tests/test_kernel_regression.py`, `tests/test_regression_workflow.py`, and `tests/test_output.py`.
 
@@ -96,14 +96,14 @@ Work:
 - Implement exact and inclusive linear-range modes through `_kernel.regression.liability_conversion_factor`, with scalar validation aligned to existing `--samp-prev`/`--pop-prev` semantics.
 - Write the fixed conversion table, derived metadata with `artifact_type="h2_scale_conversion_result"`, workflow log, and conditional sensitivity figure below `postprocessing/liability-scale/` by default; support only the approved Python `output_dir=` override.
 - Add the lazy CLI command and public Python export. Preserve the existing h2, partitioned-h2, and rg exact-K shortcuts and verify the spelling `--samp-prev` throughout.
-- Add the `plot` optional dependency extra with Matplotlib as its only member. Keep exact mode free of Matplotlib imports; range mode checks the optional dependency before writing and uses the approved sensitivity style.
+- Add Matplotlib to the required distribution dependencies and keep exact mode free of Matplotlib imports; range mode checks the dependency before writing and uses the approved sensitivity style.
 - Apply the fixed-family overwrite rules, including exact-mode removal of a stale range plot after successful publication.
 
 Validation:
 
 - Compare exact and vectorized range results to direct calls of the kernel primitive, including the existing numerical anchor and scalar/array parity.
 - Test mutual exclusion, bounds, one-row source enforcement, missing/invalid observed fields, inclusive endpoints, default/custom grid sizes, provenance, default and Python-override destinations, collisions, and stale sensitivity removal.
-- In a no-Matplotlib environment or import-isolation test, verify exact mode succeeds while range mode fails before partial output with `ldsc[plot]` guidance.
+- In an import-isolation test, verify exact mode does not import Matplotlib; simulate a damaged environment to verify range mode fails before partial output with dependency-repair guidance.
 - Exercise both `ldsc convert-h2-scale --help` and `python -m ldsc convert-h2-scale --help` without loading unrelated heavy workflows.
 
 Checkpoint: confirm dependency checking happens before range artifacts are written but after enough source validation to produce an accurate user error; do not duplicate the conversion formula from the sandbox.
@@ -152,7 +152,7 @@ Work:
 Validation:
 
 - Assert metadata regime selection, aggregate-root enforcement, required source columns, query ordering, `-log10(P)` values including p-value underflow recovery, quantile order/bounds, bar orientation/colors, error magnitudes, null-line color/style/z-order, and explicit unavailable labels.
-- Run the complete optional plotting test group and regenerate all seven example figures for visual review.
+- Run the complete plotting test group and regenerate all seven example figures for visual review.
 - Run the relevant partitioned-h2 and quantile-h2 source-workflow tests to confirm plotting additions do not alter numerical outputs.
 
 Checkpoint: compare the functional and quantile null-line z-order directly in rendered figures and confirm the cell-type title states that queries come from separate baseline-conditional fits.
@@ -204,17 +204,20 @@ Validation:
 
 - Run every documented CLI example against actual `--help` output and inspect one successful artifact tree for each supported source regime.
 - Verify generated PNG dimensions/DPI and visually review all seven example plots.
-- Run the core test suite in an environment without Matplotlib, then the full optional plotting tests with `ldsc[plot]` installed.
+- Run the full suite with the required dependency installed, the plotting matrix under a headless backend, and the lazy-import isolation test.
 - Run `pytest`, `python -m unittest discover -s tests -p 'test*.py' -v`, `ldsc --help`, `python -m ldsc --help`, both new command help paths, focused end-to-end h2/plot/conversion workflows, `git diff --check`, and `git status --short`.
 
-Checkpoint: do not mark completion until a core-only install and test pass proves that plotting dependencies and imports are isolated, and until every metadata-listed file in each new artifact family exists after overwrite.
+Checkpoint: do not mark completion until built package metadata requires Matplotlib, lazy-import tests prove that plotting initialization remains isolated, and every metadata-listed file in each new artifact family exists after overwrite.
 
 ## Completion evidence
 
+The dependency policy changed on 2026-09-08: Matplotlib moved from the `plot` extra to the default required dependency set. The original isolation results below remain historical evidence for the lazy-import boundary, not the current installation contract.
+
+- The updated packaging test verifies that distribution metadata requires `matplotlib>=3.9,<4` and publishes no `plot` extra. A pip resolver dry-run selected Matplotlib 3.11.1 for Python 3.13, and the full suite completed with 1,320 passed, 4 expected skips, and 126 subtests.
 - The core-only pytest run completed with 1,319 passed and 4 expected skips; Matplotlib was absent, while package import, exact conversion, and all core workflows remained available.
 - The plotting-enabled focused matrix completed with 37 passed across plotting, h2 conversion, h2 diagnostics, derived-output lifecycle, and failure markers.
-- Standard-library discovery ran 1,015 tests successfully with 2 expected skips after the optional plotting module was made compatible with both test runners.
-- Installed and module CLI help succeeded for the full command surface, `plot`, and `convert-h2-scale`; the core-only installed `ldsc plot` command failed cleanly with `ldsc[plot]` installation guidance.
+- Standard-library discovery ran 1,015 tests successfully with 2 expected skips after the plotting module was made compatible with both test runners.
+- Installed and module CLI help succeeded for the full command surface, `plot`, and `convert-h2-scale`; the former core-only installation check also established the failure boundary now retained for damaged environments.
 - `tools/generate_plot_examples.py` produced all seven approved figures. Each PNG recorded approximately 300 dpi, and all 13 generated metadata documents pointed only to files that existed.
 - Python compilation, documentation/contract review, `git diff --check`, and the final repository status review completed successfully; the pre-existing wiki edit remained untouched.
 

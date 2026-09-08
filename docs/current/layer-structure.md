@@ -1,13 +1,13 @@
 # Layer Structure
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-08
 
 This document maps the refactored `ldsc` package by layer and by main
 functionality. Use it to answer two questions quickly:
 
 The continuous-annotation extension keeps semantics and post-fit work in the public layers: `annotation_semantics.py` owns advisory classification and compact hashes, `regression_runner.py` persists one delete matrix per fitted model, `quantile_h2.py` owns source reconstruction and projection, and `outputs.py` owns the result family. The regression kernel is unchanged.
 
-Optional result exploration follows the same direction. `plotting` validates
+Explicit result exploration follows the same direction. `plotting` validates
 canonical result metadata and owns derived figure output, while its private
 `_builders` module alone imports Matplotlib. `h2_scale` loads a canonical h2
 result and reuses the regression kernel's conversion factor. Neither path is
@@ -144,9 +144,9 @@ Logs are not included in `output_paths` result mappings.
   LD-score results from memory or from the canonical result directory.
 - Output filenames and directory schemas are public contracts and should be
   changed only with coordinated updates to docs, loaders, and tests.
-- Matplotlib remains an optional extra imported only by private plotting
-  builders or h2 sensitivity mode. Plotting consumes canonical saved values and
-  never refits a regression.
+- Matplotlib is a required installation dependency imported only by private
+  plotting builders or h2 sensitivity mode. Plotting consumes canonical saved
+  values and never refits a regression.
 - Fixed output paths, including workflow logs, should be precomputed and
   preflighted before long-running kernels start, especially for reference-panel
   and sumstats workflows.

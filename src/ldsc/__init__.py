@@ -13,15 +13,15 @@ This module is the top-level public API for the refactored package. Import from
 workflows: annotation building, parquet reference-panel building, exact gene
 LD-score index construction, LD-score calculation, summary-statistics munging,
 regression, output writing, genome-build inference for ``chr_pos`` inputs, and
-lazy access to optional result plotting and liability-scale post-processing.
+lazy access to result plotting and liability-scale post-processing.
 
 Design Notes
 ------------
 - Only stable public objects should be re-exported here.
 - Internal compute kernels remain under ``ldsc._kernel`` and are not part of
   the intended user-facing API.
-- Plotting exports are resolved lazily so importing ``ldsc`` does not require
-  or import Matplotlib.
+- Plotting exports are resolved lazily so importing ``ldsc`` does not import
+  Matplotlib until a figure-producing path is used.
 
 Example
 -------

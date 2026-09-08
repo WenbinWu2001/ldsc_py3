@@ -2,7 +2,7 @@
 
 # LDSC Package Guidance
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-08
 
 `ldsc_py3_Jerry` is a refactored, distributable Python 3 LDSC package, not an analysis repository. Preserve its package layout, public interfaces, CLI contracts, canonical artifact formats, and compatibility boundaries.
 
@@ -27,7 +27,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
 
 `pytest` is the primary suite. The standard-library unittest command remains a compatibility check during the transition. `pyproject.toml` configures pytest with `tests` as the test path, `src` on `pythonpath`, `-ra`, and the `slow`, `statistical`, `io`, and `file_format_compat` markers. No separate formatter, linter, type checker, documentation builder, or build command is configured; do not invent one.
 
-The package supports Python 3.11 through 3.13. Core dependencies are NumPy, pandas, SciPy, and PyArrow; extras provide PLINK (`bitarray`), BED (`pybedtools` plus external `bedtools` on `PATH`), liftover (`pyliftover`), optional plotting (`matplotlib`), and tests (`pytest`). Plotting must remain lazy and optional. Use the constraints in `setup.py`, `requirements.txt`, and `environment.yml` rather than broadening them casually.
+The package supports Python 3.11 through 3.13. Required dependencies are NumPy, pandas, SciPy, PyArrow, and Matplotlib; extras provide PLINK (`bitarray`), BED (`pybedtools` plus external `bedtools` on `PATH`), liftover (`pyliftover`), and tests (`pytest`). Plotting is an explicit post-processing workflow and Matplotlib must remain lazily imported so ordinary package imports and numerical commands do not initialize the plotting runtime. Use the constraints in `setup.py`, `requirements.txt`, and `environment.yml` rather than broadening them casually.
 
 ## Package structure and public contracts
 

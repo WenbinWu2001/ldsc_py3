@@ -10,8 +10,8 @@ Overview
 The refactored package intentionally exposes a single command, ``ldsc``, with
 subcommands grouped by user task rather than by historical script name. This
 module owns only argument parsing and dispatch. Scientific work remains in the
-public workflow modules; optional plotting dependencies remain behind lazy
-workflow imports.
+public workflow modules; the plotting runtime remains behind lazy workflow
+imports.
 """
 
 from __future__ import annotations
@@ -414,7 +414,7 @@ def _load_h2_scale():
 
 
 def _load_plotting():
-    """Import the optional plotting workflow lazily."""
+    """Import the plotting workflow lazily."""
     from . import plotting
 
     return plotting

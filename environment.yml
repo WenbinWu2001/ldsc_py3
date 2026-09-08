@@ -14,6 +14,7 @@ dependencies:
   - numpy>=2.1,<2.5
   # Required for canonical parquet I/O, row-group pruning, and LDSC schema metadata.
   - pyarrow>=21,<24
+  - matplotlib>=3.9,<4
   # Optional workflow extras included in the development environment.
   - bitarray>=3.0,<4
   - pybedtools>=0.12,<0.13

@@ -7,6 +7,7 @@ INSTALL_REQUIRES = [
     "pandas>=2.3,<3.0",
     # Required for canonical parquet I/O, row-group pruning, and LDSC schema metadata.
     "pyarrow>=21,<24",
+    "matplotlib>=3.9,<4",
 ]
 
 PLINK_REQUIRES = [
@@ -23,10 +24,6 @@ LIFTOVER_REQUIRES = [
 
 TEST_REQUIRES = [
     "pytest>=8,<10",
-]
-
-PLOT_REQUIRES = [
-    "matplotlib>=3.9,<4",
 ]
 
 ALL_REQUIRES = PLINK_REQUIRES + BED_REQUIRES + LIFTOVER_REQUIRES
@@ -56,7 +53,6 @@ setup(
         "bed": BED_REQUIRES,
         "dev": ALL_REQUIRES + TEST_REQUIRES,
         "liftover": LIFTOVER_REQUIRES,
-        "plot": PLOT_REQUIRES,
         "plink": PLINK_REQUIRES,
         "test": TEST_REQUIRES,
     },

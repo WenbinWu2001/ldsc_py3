@@ -1,18 +1,18 @@
 # Plotting LDSC Results
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-08
 
-The optional plotting command turns a completed LDSC result directory into one concise exploratory figure. It chooses the plot from the result metadata, so you provide the result root rather than a table or plot type.
+The plotting command turns a completed LDSC result directory into one concise exploratory figure. It chooses the plot from the result metadata, so you provide the result root rather than a table or plot type.
 
-## Install plotting support
+## Installation
 
-The core LDSC installation does not require a plotting library. Install the optional extra only in environments where you want figures:
+Matplotlib is included in the default LDSC installation; no plotting extra is needed:
 
 ```bash
-python -m pip install "ldsc[plot]"
+python -m pip install ldsc
 ```
 
-This installs Matplotlib. Figures use a noninteractive backend, so the same command works in a terminal, notebook, or SLURM job without a display server.
+Figures use a noninteractive backend, so the same command works in a terminal, notebook, or SLURM job without a display server. Plotting remains an explicit post-processing step and never runs automatically with regression.
 
 ## Create a plot
 
@@ -111,7 +111,7 @@ tutorial_outputs/trait_h2/postprocessing/liability-scale/
 
 The curve shows liability-scale h2 across assumed population prevalence, with a ribbon of one block-jackknife SE. The prevalence values are assumptions, not estimates, and their uncertainty is not propagated. The plot therefore describes sensitivity to \(K\); it does not correct or measure uncertainty in \(K\).
 
-For one known population prevalence, exact mode needs no plotting dependency and writes only a one-row table:
+For one known population prevalence, exact mode does not import Matplotlib and writes only a one-row table:
 
 ```bash
 ldsc convert-h2-scale \

@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-08
 
 This document summarizes the user-visible file streams for each public workflow. The diagrams use Mermaid `flowchart LR` because it maps cleanly onto the package's left-to-right data movement and layered module boundaries.
 
@@ -669,7 +669,7 @@ flowchart LR
 
 The target may be external to the fitted model and contributes only quantile membership. The projection uses fitted annotations only. See [continuous-annotation-quantile-h2.md](continuous-annotation-quantile-h2.md) for the exact contracts and formulas.
 
-## 8. Optional Plotting And h2 Scale Conversion
+## 8. Plotting And h2 Scale Conversion
 
 These derived workflows consume complete canonical result roots and never feed
 back into core estimation.
@@ -696,7 +696,7 @@ flowchart LR
 
 `ldsc plot` checks only the small plotting-relevant metadata contract and
 follows the declared source file. `ldsc convert-h2-scale` always starts from
-the observed h2 estimate and SE. Matplotlib is loaded only by figure-producing
-paths; exact conversion remains available in a core-only installation. See
+the observed h2 estimate and SE. Required Matplotlib is loaded only by
+figure-producing paths; exact conversion does not import it. See
 [plotting-module.md](plotting-module.md) for dispatch, ownership, and failure
 boundaries.

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-08
 
 This reference explains `ldsc` errors that can **abort a run** and have more than
 one likely cause. It is organized by command. Each entry lists the likely causes
@@ -699,6 +699,6 @@ By default, every target value must be numeric and finite. If exactly one token 
 | 4 | The artifact type or scientific regime has no approved plot | Compare the input with the supported table in [the plotting manual](../tutorials/plotting-results.md#which-result-directory-produces-which-plot). |
 
 The plot command does not infer from loose TSV files or reconstruct missing
-diagnostics. If the error asks for Matplotlib, install the optional extra with
-`python -m pip install -e ".[plot]"` (editable source install) or
-`python -m pip install "ldsc[plot]"` (installed distribution).
+diagnostics. Matplotlib is a required package dependency. If an existing
+environment reports that it is unavailable, repair that environment with
+`python -m pip install "matplotlib>=3.9,<4"` and rerun the command.

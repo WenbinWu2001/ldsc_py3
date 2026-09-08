@@ -32,8 +32,8 @@ def test_root_import_and_lazy_public_exports_do_not_import_matplotlib():
     assert completed.returncode == 0, completed.stderr
 
 
-@pytest.mark.skipif(HAS_MATPLOTLIB, reason="exercises the core-only dependency failure")
-def test_plot_and_range_conversion_fail_before_output_without_matplotlib(tmp_path):
+@pytest.mark.skipif(HAS_MATPLOTLIB, reason="exercises a damaged environment missing Matplotlib")
+def test_figure_paths_fail_before_output_when_required_matplotlib_is_missing(tmp_path):
     from ldsc.errors import LDSCDependencyError
     from ldsc.h2_scale import convert_h2_scale
     from ldsc.plotting import plot_result
@@ -73,9 +73,9 @@ def test_plot_and_range_conversion_fail_before_output_without_matplotlib(tmp_pat
         encoding="utf-8",
     )
 
-    with pytest.raises(LDSCDependencyError, match=r"ldsc\[plot\]"):
+    with pytest.raises(LDSCDependencyError, match="required LDSC dependency"):
         plot_result(result_dir)
-    with pytest.raises(LDSCDependencyError, match=r"ldsc\[plot\]"):
+    with pytest.raises(LDSCDependencyError, match="required LDSC dependency"):
         convert_h2_scale(
             result_dir,
             samp_prev=0.5,

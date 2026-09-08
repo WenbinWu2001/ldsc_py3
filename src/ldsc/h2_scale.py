@@ -10,8 +10,8 @@ Overview
 The workflow always reads ``total_h2_obs`` and ``total_h2_obs_se`` from the
 declared h2 summary. It delegates the numerical conversion to the LDSC kernel,
 so post-processing uses the same formula as the regression shortcuts. Exact
-conversion has no plotting dependency; range conversion imports Matplotlib
-only when it is explicitly requested.
+Exact conversion does not import Matplotlib; range conversion imports it only
+when a sensitivity figure is requested.
 """
 
 from __future__ import annotations
@@ -135,8 +135,9 @@ def convert_h2_scale(
         If prevalence arguments are missing, mutually incompatible, outside
         ``(0, 1)``, or define an invalid sensitivity grid.
     LDSCDependencyError
-        If sensitivity mode is requested without the optional Matplotlib
-        dependency. Exact mode does not require Matplotlib.
+        If sensitivity mode is requested and the required Matplotlib
+        dependency cannot be imported from the active environment. Exact mode
+        does not import Matplotlib.
     FileExistsError
         If a fixed conversion artifact exists and ``overwrite`` is ``False``.
 
@@ -387,8 +388,8 @@ def _load_pyplot():
         import matplotlib.pyplot as pyplot
     except ImportError as exc:
         raise LDSCDependencyError(
-            "Prevalence-range conversion requires Matplotlib. Install the optional plotting dependency with "
-            "`pip install 'ldsc[plot]'`, then rerun the command."
+            "Prevalence-range conversion requires Matplotlib, which is a required LDSC dependency. "
+            "Repair the active environment with `pip install 'matplotlib>=3.9,<4'`, then rerun the command."
         ) from exc
     return pyplot
 

@@ -70,7 +70,7 @@ def test_exact_conversion_uses_observed_fields_and_default_destination(tmp_path,
     assert metadata["mode"] == "exact"
 
 
-@pytest.mark.skipif(not HAS_MATPLOTLIB, reason="requires the optional plotting dependency")
+@pytest.mark.skipif(not HAS_MATPLOTLIB, reason="requires Matplotlib")
 def test_range_conversion_is_inclusive_and_uses_python_output_override(tmp_path):
     from ldsc.h2_scale import convert_h2_scale
 
@@ -94,7 +94,7 @@ def test_range_conversion_is_inclusive_and_uses_python_output_override(tmp_path)
     )
 
 
-@pytest.mark.skipif(not HAS_MATPLOTLIB, reason="requires the optional plotting dependency")
+@pytest.mark.skipif(not HAS_MATPLOTLIB, reason="requires Matplotlib")
 def test_exact_overwrite_removes_stale_sensitivity_plot(tmp_path):
     from ldsc.h2_scale import convert_h2_scale
 

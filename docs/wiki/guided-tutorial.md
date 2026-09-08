@@ -1,6 +1,6 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-08
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
@@ -192,7 +192,7 @@ h2/mdd2025/
         h2.log
 ```
 
-The bin table records the exact fitted-data summary used by the optional binned LD Score regression diagnostic. Install the plotting extra and run `ldsc plot --result-dir "${H2_OUTPUT_DIR}"` to create it.
+The bin table records the exact fitted-data summary used by the binned LD Score regression diagnostic. Matplotlib is included in the default package installation; run `ldsc plot --result-dir "${H2_OUTPUT_DIR}"` to create the figure explicitly.
 
 ## Analysis 2: estimate cross-trait genetic correlation between multiple traits
 

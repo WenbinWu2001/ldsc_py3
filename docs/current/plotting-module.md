@@ -1,8 +1,8 @@
 # Plotting and Heritability-Scale Post-processing
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-08
 
-This document is the developer-facing contract for the optional plotting layer and the post-fit observed-to-liability-scale conversion workflow. For scientist-facing commands and interpretation, see [the plotting results manual](../../tutorials/plotting-results.md).
+This document is the developer-facing contract for the plotting layer and the post-fit observed-to-liability-scale conversion workflow. For scientist-facing commands and interpretation, see [the plotting results manual](../../tutorials/plotting-results.md).
 
 ## Scope
 
@@ -11,7 +11,7 @@ The integration adds two public workflows without coupling figure generation to 
 - `ldsc plot --result-dir RESULT_DIR` selects one approved plot from canonical result metadata.
 - `ldsc convert-h2-scale --h2-result-dir H2_RESULT ...` converts a saved observed-scale h2 estimate at one population prevalence or over a prevalence range.
 
-Core workflows never generate plots automatically. Matplotlib is available only through the `plot` package extra, Seaborn is not used, and no plotting module is imported by ordinary package imports or core numerical commands.
+Core workflows never generate plots automatically. Matplotlib is a required package dependency, Seaborn is not used, and ordinary package imports and numerical commands do not import the plotting runtime.
 
 ## Package boundaries
 
@@ -24,7 +24,7 @@ flowchart LR
     WRITERS --> RESULT[(canonical result directory)]
     RESULT --> PLOT
     RESULT --> CONVERT
-    PLOT -. optional import .-> MPL[Matplotlib]
+    PLOT -. lazy import .-> MPL[Matplotlib]
     CONVERT --> KERNEL
     CONVERT -. range mode only .-> MPL
 ```
@@ -155,13 +155,13 @@ Every public materializing CLI or corresponding high-level Python workflow uses 
 
 The marker reports the command/API boundary, UTC timestamp, exception, detailed log path when one opened, and that the directory may contain incomplete or mixed artifacts. Marker handling adds no quarantine, rollback, restoration, or action-order change. If a workflow opened its normal log before failing, that log remains with its ordinary failure footer and traceback; artifacts already written by the existing workflow order also remain. A successful materializing retry removes the applicable marker after normal success. A no-overwrite collision creates no marker.
 
-## Optional dependency and headless behavior
+## Required dependency and headless behavior
 
-`setup.py` defines a `plot` extra containing only Matplotlib. `_builders.py` selects `Agg` before importing `matplotlib.pyplot`, so commands work on SLURM and other display-free systems. If Matplotlib is unavailable, `ldsc plot` and sensitivity conversion raise an actionable dependency error directing users to install `ldsc[plot]`; exact conversion and every core workflow remain available.
+`setup.py` includes Matplotlib in `install_requires`; there is no plotting extra or opt-out installation mode. A normal LDSC installation therefore fails if pip cannot install a compatible Matplotlib. `_builders.py` selects `Agg` before importing `matplotlib.pyplot`, so commands work on SLURM and other display-free systems. Lazy imports remain an execution-isolation boundary: ordinary imports and numerical commands do not initialize Matplotlib, exact conversion does not import it, and a damaged environment missing the required dependency produces actionable repair guidance only when a figure-producing path is invoked.
 
 ## Deterministic visual examples
 
-`tools/generate_plot_examples.py` creates small canonical source-result trees and all seven approved figures. Run it with a new destination after installing the plot extra:
+`tools/generate_plot_examples.py` creates small canonical source-result trees and all seven approved figures. Run it with a new destination in a normal package environment:
 
 ```bash
 python tools/generate_plot_examples.py /tmp/ldsc-plot-examples

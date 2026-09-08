@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-08
 
 This document records the current public input/output naming contract after the
 LD-score result-directory refactor. The LD-score workflow uses a canonical
@@ -563,7 +563,7 @@ The CLI intentionally has no `--output-dir` or plot-type flag.
 | `--h2-result-dir` | input/destination root | yes | canonical h2 result directory | Reads observed h2 from the metadata-declared summary and writes below `<h2-result-dir>/postprocessing/liability-scale/`. |
 | `--samp-prev` | model | yes | sample case fraction | Scalar probability \(P\) in `(0, 1)`. |
 | `--pop-prev` | model | conditional | one population prevalence | Exact mode. Mutually exclusive with `--pop-prev-range`; writes one conversion row and no plot. |
-| `--pop-prev-range` | model | conditional | two population-prevalence endpoints | Sensitivity mode. Inclusive linear range `(MIN, MAX)`; mutually exclusive with `--pop-prev`; requires the plot extra. |
+| `--pop-prev-range` | model | conditional | two population-prevalence endpoints | Sensitivity mode. Inclusive linear range `(MIN, MAX)`; mutually exclusive with `--pop-prev`; uses the default Matplotlib dependency. |
 | `--num-points` | model | no | sensitivity grid size | Integer at least 2; defaults to `201` and is used only for range mode. |
 | `--overwrite` | output mode | no | collision policy | Replaces the conversion family. Exact mode removes a stale sensitivity PNG after its new table, metadata, and log are published. |
 | `--log-level` | logging | no | workflow log verbosity | Controls `diagnostics/convert-h2-scale.log`; defaults to `INFO`. |
@@ -781,7 +781,7 @@ sidecar; the parquet footer carries the minimal identity fields
 - [x] Munging writes fixed files under `output_dir`.
 - [x] Regression writes fixed TSV files under required `output_dir`; query-mode
   partitioned-h2 always writes per-query folders.
-- [x] Optional plotting and h2 scale conversion use fixed nested CLI
+- [x] Plotting and h2 scale conversion use fixed nested CLI
   destinations and Python-only `output_dir=` overrides.
 - [x] Build-ref-panel no longer accepts a separate panel label; output identity
   comes from the directory name.

@@ -1,12 +1,12 @@
 # Plotting and Post-processing Integration Specification
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-08
 
 Status: approved; design closed; implemented and validated
 
 ## Problem and goal
 
-LDSC3 produces structured numerical results but does not provide a small, coherent set of plots for scientists who want to explore and interpret those results. Plotting must remain optional: an unavailable plotting dependency or plotting defect must not prevent installation or use of the numerical workflows.
+LDSC3 produces structured numerical results but does not provide a small, coherent set of plots for scientists who want to explore and interpret those results. Plot generation remains an explicit post-processing action, while Matplotlib is installed as a required default dependency.
 
 The successful implementation adds a lightweight Matplotlib-only plotting layer, a post-fit observed-to-liability-scale conversion workflow, and the upstream diagnostic data needed for a faithful binned LD Score regression plot. Every figure is derived from a canonical saved result without refitting LDSC or reconstructing scientific quantities from incomplete summaries.
 
@@ -16,13 +16,13 @@ The detached [`ldsc_plotting_sandbox`](../../../ldsc_plotting_sandbox/README.md)
 
 ## Observable behavior
 
-### Optional plotting
+### Plotting installation and execution
 
-- A default LDSC3 installation runs every core numerical workflow without Matplotlib.
-- Installing `ldsc[plot]` enables plotting through `ldsc plot --result-dir RESULT_DIR`.
+- A default LDSC3 installation requires Matplotlib; there is no plotting extra or opt-out mode. Failure to install a compatible Matplotlib fails normal LDSC installation.
+- Plotting is invoked explicitly through `ldsc plot --result-dir RESULT_DIR`; regression workflows never generate figures automatically.
 - The plot command identifies the supported analysis from canonical `diagnostics/metadata.json`; users do not select a plot type or provide an internal table path.
 - The command writes one scientifically appropriate PNG below `<result-dir>/plots/`, plus plot metadata and a plot log.
-- Invoking the plot command without Matplotlib fails with a nonzero, actionable message that instructs the user to install `ldsc[plot]`. Ordinary imports, core command help, and numerical workflows remain usable.
+- Matplotlib remains lazily imported. Ordinary imports and numerical commands do not initialize it; a damaged environment missing the required dependency fails a figure-producing path with actionable repair guidance.
 
 ### Supported result suites
 
@@ -46,7 +46,7 @@ The command rejects raw LDSC2 output, loose TSV files, manually assembled result
 - Exact mode writes a one-row conversion table and no plot.
 - Range mode writes an inclusive, linearly spaced conversion table and `h2_prevalence_sensitivity.png`. `--num-points` defaults to 201.
 - The CLI has no output-directory option. Its destination is `<h2-result-dir>/postprocessing/liability-scale/`.
-- Exact mode remains usable without Matplotlib. Range mode requires `ldsc[plot]` and fails preflight without writing a partial conversion family when Matplotlib is unavailable.
+- Exact mode does not import Matplotlib. Range mode uses the default dependency and fails preflight without writing a partial conversion family if the environment is damaged and Matplotlib cannot be imported.
 - Every conversion starts from `total_h2_obs` and `total_h2_obs_se`; populated liability-scale fields are never conversion inputs.
 
 The existing one-command exact-\(K\) shortcut remains unchanged: `h2` and `partitioned-h2` accept one scalar `--samp-prev`/`--pop-prev` pair, while `rg` accepts one pair per input trait through its existing positional or manifest mapping.
@@ -194,15 +194,16 @@ If a failed overwrite opened its ordinary workflow log, that log remains at its 
 - Query-annotation p-values are one-sided conditional coefficient tests from separate baseline-plus-query fits. Their summary plot does not imply direct effect-size comparability among queries.
 - The genetic-correlation heatmap and forest plot report the scale-invariant \(r_g\); liability conversion does not alter it.
 - Headless and SLURM execution must not require a display server.
-- Optional plotting failures must not affect core result production because plotting is never automatic.
+- Plotting failures must not affect core result production because plotting is never automatic.
 
 ## Validation strategy
 
-### Dependency isolation
+### Dependency and import isolation
 
-- Install the package without the plot extra and verify imports, core help, exact-\(K\) conversion, and representative numerical workflows.
-- Verify that `ldsc plot` and range conversion fail with the expected installation guidance when Matplotlib is absent.
-- Install `ldsc[plot]` and exercise all supported dispatch paths under a headless backend.
+- Inspect built distribution metadata and verify Matplotlib is a required dependency and no `plot` extra is published.
+- Verify imports, core help, and exact-\(K\) conversion do not import Matplotlib eagerly.
+- Exercise all supported dispatch paths under a headless backend.
+- Simulate a damaged environment missing Matplotlib and verify that `ldsc plot` and range conversion fail before output with repair guidance.
 
 ### h2 diagnostic numerics
 

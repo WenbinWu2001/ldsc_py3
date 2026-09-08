@@ -1,6 +1,6 @@
 # ldsc3_Jerry
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-08
 
 This repository is the active refactored LDSC package.
 
@@ -98,16 +98,14 @@ conda env update -f environment.yml -n ldsc3-dev --prune
 python -m pip install -e ".[dev]"
 ```
 
-The package supports Python 3.11 through 3.13. The base install includes the
-core NumPy/pandas/SciPy/PyArrow stack. Optional extras are split by workflow:
+The package supports Python 3.11 through 3.13. The base install includes
+NumPy, pandas, SciPy, PyArrow, and Matplotlib. Optional extras are split by workflow:
 `.[plink]` installs `bitarray` for PLINK-backed LD computation, `.[bed]`
 installs `pybedtools` for BED projection, and `.[liftover]` installs
 `pyliftover` for chain-file liftover in sumstats munging and cross-build
-reference-panel output. `.[plot]` installs Matplotlib for optional result
-visualization and prevalence-sensitivity figures. Plotting is never automatic,
-so a core install and every numerical workflow remain usable without this
-extra. `.[dev]` installs the PLINK, BED, and liftover extras plus pytest;
-combine it with `.[plot]` when developing figures. BED-based annotation projection also requires the
+reference-panel output. Matplotlib is installed by default, but plotting is
+never automatic and is imported only by figure-producing paths. `.[dev]`
+installs the PLINK, BED, and liftover extras plus pytest. BED-based annotation projection also requires the
 external `bedtools` executable, which `environment.yml` installs from bioconda.
 For non-conda installs, make sure `bedtools` is available on `PATH` before
 running BED annotation workflows.
@@ -140,8 +138,8 @@ Subcommands:
 - `ldsc query-r2`
 - `ldsc rg`
 
-Install `.[plot]`, then pass a canonical h2, partitioned-h2, quantile-h2, or
-rg result root to `ldsc plot --result-dir RESULT_DIR`. The command selects one
+Pass a canonical h2, partitioned-h2, quantile-h2, or rg result root to
+`ldsc plot --result-dir RESULT_DIR`. The command selects one
 approved plot from result metadata and writes it below `RESULT_DIR/plots/`;
 it does not accept an output directory and never runs automatically. Use
 `ldsc convert-h2-scale` to recompute liability-scale h2 from a saved observed-scale

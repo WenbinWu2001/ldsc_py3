@@ -1,6 +1,6 @@
 # Architecture 
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-08
 
 `ldsc_py3_Jerry` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
@@ -10,7 +10,7 @@ Related docs:
 - [class-and-features.md](class-and-features.md): public API surface and major types
 - [code-structure.md](code-structure.md): module map and change guide
 - [workflow-logging.md](workflow-logging.md): per-run log naming, preflight, and API boundaries
-- [plotting-module.md](plotting-module.md): optional plotting, post-fit h2 conversion, dispatch, and derived-output ownership
+- [plotting-module.md](plotting-module.md): plotting, post-fit h2 conversion, dispatch, and derived-output ownership
 - [gene-list-input-format.md](gene-list-input-format.md): gene-list parsing, catalog, projection, and diagnostics
 - [ref-panel-r2-query.md](ref-panel-r2-query.md): pairwise R2 lookup contract for package-built panels
 - [liftover-harmonization-decisions.md](liftover-harmonization-decisions.md): current liftover contracts and follow-up handoff prompt
@@ -81,7 +81,7 @@ ldsc_py3_Jerry/
 │   ├── sumstats_munger.py
 │   ├── regression_runner.py
 │   ├── h2_scale.py        # post-fit observed-to-liability conversion
-│   ├── plotting/          # optional metadata dispatcher and private Matplotlib builders
+│   ├── plotting/          # metadata dispatcher and private Matplotlib builders
 │   ├── overlap_matrix.py    # overlap container, serde, assembly, overlap-aware summary
 │   ├── outputs.py           # LD-score and partitioned-h2 artifact writers
 │   └── _kernel/

@@ -47,7 +47,7 @@ Related docs:
 - **Compute Kernel**: private file-format and numerical code in `ldsc._kernel.*`
 - **Output And Derived-Result Layer**: canonical LD-score, h2, partitioned-h2, quantile-h2, and rg artifact writing
   in `ldsc.outputs`, plus the fixed h2 summary writer in
-  `ldsc.regression_runner`; optional metadata-driven plotting in
+  `ldsc.regression_runner`; metadata-driven plotting in
   `ldsc.plotting`; post-fit scale conversion in `ldsc.h2_scale`
 
 ## File Tree

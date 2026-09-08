@@ -35,8 +35,8 @@ uses the same whole-tree staging and replacement policy for optional
 Unpartitioned h2 results also carry
 ``diagnostics/ld_score_regression_bins.tsv``. This table summarizes the exact
 SNP population and final fitted model used by h2 and is the authoritative input
-for the optional binned LD Score regression diagnostic plot. The writer layer
-persists the table but never imports a plotting library.
+for the post-processing binned LD Score regression diagnostic plot. The writer
+layer persists the table but never imports a plotting library.
 """
 
 from __future__ import annotations

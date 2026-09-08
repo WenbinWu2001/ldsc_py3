@@ -203,7 +203,6 @@ If a failed overwrite opened its ordinary workflow log, that log remains at its 
 - Inspect built distribution metadata and verify Matplotlib is a required dependency and no `plot` extra is published.
 - Verify imports, core help, and exact-\(K\) conversion do not import Matplotlib eagerly.
 - Exercise all supported dispatch paths under a headless backend.
-- Simulate a damaged environment missing Matplotlib and verify that `ldsc plot` and range conversion fail before output with repair guidance.
 
 ### h2 diagnostic numerics
 

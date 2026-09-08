@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import builtins
 import json
-import importlib.util
 import sys
 
 import numpy as np
@@ -11,9 +10,6 @@ import pytest
 
 from ldsc._kernel.regression import liability_conversion_factor
 from ldsc.errors import LDSCInputError
-
-HAS_MATPLOTLIB = importlib.util.find_spec("matplotlib") is not None
-
 
 def _write_h2_result(tmp_path):
     result_dir = tmp_path / "h2-result"
@@ -70,7 +66,6 @@ def test_exact_conversion_uses_observed_fields_and_default_destination(tmp_path,
     assert metadata["mode"] == "exact"
 
 
-@pytest.mark.skipif(not HAS_MATPLOTLIB, reason="requires Matplotlib")
 def test_range_conversion_is_inclusive_and_uses_python_output_override(tmp_path):
     from ldsc.h2_scale import convert_h2_scale
 
@@ -94,7 +89,6 @@ def test_range_conversion_is_inclusive_and_uses_python_output_override(tmp_path)
     )
 
 
-@pytest.mark.skipif(not HAS_MATPLOTLIB, reason="requires Matplotlib")
 def test_exact_overwrite_removes_stale_sensitivity_plot(tmp_path):
     from ldsc.h2_scale import convert_h2_scale
 

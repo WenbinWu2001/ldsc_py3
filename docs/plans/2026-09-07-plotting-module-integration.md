@@ -128,7 +128,7 @@ Validation:
 
 - Dispatch tests cover both rg regimes and h2, exact fixed filenames, metadata/log contents, returned objects, default and override roots, collisions, unsupported artifact types, missing files/columns, duplicate rg pairs, and old h2 results without bins.
 - Numerical artist tests assert h2 point coordinates, fitted path, normalized weight ordering, rg cell/forest coordinates, one-SE intervals, lower-triangle masking, failed labels, and absence of a heatmap color bar.
-- Verify `import ldsc`, top-level help, and non-plot commands do not import Matplotlib; verify `ldsc plot` reports the optional-extra installation command when unavailable.
+- Verify `import ldsc`, top-level help, and non-plot commands do not import Matplotlib; verify distribution metadata requires Matplotlib and publishes no plotting extra.
 - Run focused plotting, CLI, output, and import-isolation tests under a headless backend.
 
 Checkpoint: inspect one h2, all-pairs rg, and anchor rg example image against the approved sandbox outputs before expanding dispatch to additional result types.
@@ -211,13 +211,11 @@ Checkpoint: do not mark completion until built package metadata requires Matplot
 
 ## Completion evidence
 
-The dependency policy changed on 2026-09-08: Matplotlib moved from the `plot` extra to the default required dependency set. The original isolation results below remain historical evidence for the lazy-import boundary, not the current installation contract.
-
-- The updated packaging test verifies that distribution metadata requires `matplotlib>=3.9,<4` and publishes no `plot` extra. A pip resolver dry-run selected Matplotlib 3.11.1 for Python 3.13, and the full suite completed with 1,320 passed, 4 expected skips, and 126 subtests.
-- The core-only pytest run completed with 1,319 passed and 4 expected skips; Matplotlib was absent, while package import, exact conversion, and all core workflows remained available.
+- The packaging test verifies that distribution metadata requires `matplotlib>=3.9,<4` and publishes no `plot` extra. A pip resolver dry-run selected Matplotlib 3.11.1 for Python 3.13.
+- After removing dependency-based test skips, the complete suite ran all plotting coverage with Matplotlib 3.11.1 and completed with 1,328 passed, 1 unrelated skip, and 126 subtests.
 - The plotting-enabled focused matrix completed with 37 passed across plotting, h2 conversion, h2 diagnostics, derived-output lifecycle, and failure markers.
 - Standard-library discovery ran 1,015 tests successfully with 2 expected skips after the plotting module was made compatible with both test runners.
-- Installed and module CLI help succeeded for the full command surface, `plot`, and `convert-h2-scale`; the former core-only installation check also established the failure boundary now retained for damaged environments.
+- Installed and module CLI help succeeded for the full command surface, `plot`, and `convert-h2-scale`.
 - `tools/generate_plot_examples.py` produced all seven approved figures. Each PNG recorded approximately 300 dpi, and all 13 generated metadata documents pointed only to files that existed.
 - Python compilation, documentation/contract review, `git diff --check`, and the final repository status review completed successfully; the pre-existing wiki edit remained untouched.
 

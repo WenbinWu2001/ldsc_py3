@@ -1,16 +1,10 @@
 from __future__ import annotations
 
-import importlib.util
 import json
-import unittest
 
 import numpy as np
 import pandas as pd
 import pytest
-
-if importlib.util.find_spec("matplotlib") is None:
-    raise unittest.SkipTest("requires Matplotlib")
-
 
 def _write_result(tmp_path, *, name, metadata, filename, rows):
     result_dir = tmp_path / name

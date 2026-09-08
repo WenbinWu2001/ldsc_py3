@@ -31,7 +31,7 @@ As a motivating example, we study the `mdd2025` trait, using 1000 Genomes Phase 
 
 All of these resources can be found under `ldsc3_test_bundle/resources/`, except for the raw GWAS sumstats files.
 
-Before running the commands below, follow the README to clone the `main` branch of the GitHub repo and install it in a suitable conda environment. Then run `conda activate ldsc3` before the analysis.
+Before running the commands below, follow the README to clone the `main` branch of the GitHub repo and install it in a suitable conda environment. The default LDSC installation includes Matplotlib and exposes `ldsc plot`; there is no separate plotting extra. Then run `conda activate ldsc3` before the analysis.
 
 We first set up the input and output directories:
 

@@ -10,8 +10,8 @@ Overview
 The workflow always reads ``total_h2_obs`` and ``total_h2_obs_se`` from the
 declared h2 summary. It delegates the numerical conversion to the LDSC kernel,
 so post-processing uses the same formula as the regression shortcuts. Exact
-Exact conversion does not import Matplotlib; range conversion imports it only
-when a sensitivity figure is requested.
+conversion does not import Matplotlib; range conversion imports it only when a
+sensitivity figure is requested.
 """
 
 from __future__ import annotations

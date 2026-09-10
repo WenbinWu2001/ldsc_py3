@@ -3,6 +3,10 @@
 
 Last updated on: 2026-09-10
 
+## Streamed summary assembly must preserve its schema
+
+- Summary/root cause/correction: Reconstructing a batch summary from per-source pandas Series preserved repeated row labels and inferred plain integer types; reset the shared row index and explicitly retain nullable count and diagnostic dtypes before publishing or comparing summaries.
+
 ## Wrapper retirement must account for unmigrated callers
 
 - Summary/root cause/correction: Mechanical wrapper removal during a staged migration left an active caller and an empty import block; search every call site before retirement, replace still-needed forwarding calls directly, and parse edited modules before running the affected suite.

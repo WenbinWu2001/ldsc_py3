@@ -319,6 +319,14 @@ class GeneListBatchResolution:
     resolution_policy: str
     has_fatal_gate_a_issues: bool
 
+    def audit_frames(self):
+        """Yield the audit owned by this explicitly materialized resolution result."""
+        yield self.audit
+
+    def write_audit(self, path):
+        """Write the complete diagnostic audit."""
+        self.audit.to_csv(path, sep="\t", index=False, na_rep="", compression="gzip")
+
     def selection(self, input_role: str, source_ordinal: int) -> GeneSourceSelection:
         """Return one declared source selection by stable role and ordinal."""
         for selection in self.selections:

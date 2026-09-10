@@ -148,7 +148,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             self.assertEqual(args.log_level, "DEBUG")
             raise RuntimeError("stop after inspecting args")
 
-        with mock.patch.object(ldscore_calculator, "_normalize_run_args", side_effect=_assert_args):
+        with mock.patch.object(ldscore_calculator, "run_ldscore_from_args", side_effect=_assert_args):
             with self.assertRaisesRegex(RuntimeError, "stop after inspecting args"):
                 ldscore_calculator.run_ldscore(
                     output_dir="results/example",

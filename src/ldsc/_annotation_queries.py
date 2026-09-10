@@ -62,7 +62,7 @@ def prepare_bed_queries(paths, workspace, *, chunk_rows=4096):
     return sources
 
 
-def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0, support_kind='annotation'):
+def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0, support_kind='annotation', evaluate_support=True):
     """Project one query at a time, retaining only per-query and per-gene counts.
 
     Zero-valued chromosome shards are retained for globally supported queries.
@@ -81,7 +81,7 @@ def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0,
     require_unique_annotation_names(baseline_names, names)
     totals = dict.fromkeys(names, 0)
     support = None
-    if gene_batch is not None:
+    if gene_batch is not None and evaluate_support:
         selected = np.zeros(len(gene_batch.catalog.frame), dtype=bool)
         for selection in gene_batch.selections:
             selected[list(selection.catalog_indices)] = True
@@ -101,8 +101,9 @@ def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0,
                 store.write(0, values[:, None], columns=[selection.query])
                 if selection.input_role == 'focal':
                     totals[selection.query] += int(values.sum())
-            genes = gene_batch.catalog.frame.loc[selected & gene_batch.catalog.frame.chrom.eq(chrom).to_numpy()]
-            support.loc[genes.index] = projector.counts(genes.start0, genes.end, padding_bp=padding_bp)
+            if evaluate_support:
+                genes = gene_batch.catalog.frame.loc[selected & gene_batch.catalog.frame.chrom.eq(chrom).to_numpy()]
+                support.loc[genes.index] = projector.counts(genes.start0, genes.end, padding_bp=padding_bp)
         else:
             for source in bed_sources:
                 if not source.n_intervals:
@@ -116,7 +117,7 @@ def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0,
         bundle.shards[chrom] = replace(shard, stores=(*shard.stores, store))
         del metadata, projector
         values = genes = intervals = selection = None
-    if gene_batch is not None:
+    if gene_batch is not None and evaluate_support:
         gene_batch = gene_batch.with_snp_support(support, support_kind=support_kind)
         statuses = gene_query_statuses(gene_batch)
         bundle.gene_list_batch = gene_batch
@@ -126,9 +127,10 @@ def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0,
             count = totals[status.query]
             # BED retains its existing standalone semantics, including nonempty
             # inputs that happen not to overlap this baseline grid.
-            if gene_batch is not None and count == 0:
+            if gene_batch is not None and evaluate_support and count == 0:
                 status = status.updated(status='skipped', reason='zero_annotation_snps')
-            status = status.updated(n_annotation_snps=float(count))
+            if gene_batch is None or evaluate_support:
+                status = status.updated(n_annotation_snps=float(count))
         elif status.reason == 'zero_annotation_snps':
             status = status.updated(n_annotation_snps=0.0)
         finalized.append(status)

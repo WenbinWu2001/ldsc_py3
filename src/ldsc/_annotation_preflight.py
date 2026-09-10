@@ -1,6 +1,6 @@
 """Resolve annotation declarations while collecting every missing input."""
 
-from .path_resolution import resolve_file_group, split_cli_path_tokens, normalize_path_token
+from .path_resolution import ANNOTATION_SUFFIXES, resolve_file_group, split_cli_path_tokens, normalize_path_token
 from .errors import LDSCUserError
 
 AUTOSOMES = tuple(map(str, range(1, 23)))
@@ -20,7 +20,7 @@ def resolve_annotation_inputs(tokens, *, role='baseline'):
         members = [(token.replace('@', chrom), chrom) for chrom in AUTOSOMES] if '@' in token else [(token, '')]
         for path, chrom in members:
             try:
-                matches = resolve_file_group([path], label=f'{role} annotation')
+                matches = resolve_file_group([path], suffixes=ANNOTATION_SUFFIXES, label=f'{role} annotation')
                 for match in matches:
                     if match not in paths:
                         paths.append(match)

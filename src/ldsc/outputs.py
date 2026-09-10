@@ -725,13 +725,7 @@ class LDScoreDirectoryWriter:
     def _write_gene_list_diagnostic_files(batch: Any, paths: dict[str, Path]) -> None:
         """Serialize the approved row audit and per-source summary schemas."""
         paths["gene_list_audit"].parent.mkdir(parents=True, exist_ok=True)
-        batch.audit.to_csv(
-            paths["gene_list_audit"],
-            sep="\t",
-            index=False,
-            na_rep="",
-            compression="gzip",
-        )
+        batch.write_audit(paths["gene_list_audit"])
         batch.summary.to_csv(
             paths["gene_list_resolution_summary"],
             sep="\t",

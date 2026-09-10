@@ -36,6 +36,7 @@ class PreparedAnnotationSources:
     query_columns: tuple[str, ...]
     drops: FrameSpool
     scope_chromosomes: tuple[str, ...] = ()
+    input_chromosomes: tuple = ()
 
 
 @dataclass
@@ -207,4 +208,5 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
         error.annotation_drops = drops
         raise error
     scope = tuple(sorted(set().union(*(s.chromosomes for s in baselines)), key=_chrom_sort_key))
-    return PreparedAnnotationSources(shards, baseline_columns, query_columns, drops, scope)
+    return PreparedAnnotationSources(shards, baseline_columns, query_columns, drops, scope,
+        tuple((str(s.path), "baseline" if s in baselines else "query", tuple(s.chromosomes)) for s in sources))

@@ -311,6 +311,40 @@ def test_sequential_threads_does_not_construct_pool(run_minimal_ldscore, monkeyp
     assert calls["n"] == 0
 
 
+def test_scheduler_bounds_submitted_work_by_workers(monkeypatch):
+    from concurrent.futures import Future
+    from types import SimpleNamespace
+    from ldsc import ldscore_calculator as mod
+
+    active = peak = 0
+    class MeasuredFuture(Future):
+        def result(self, *args, **kwargs):
+            nonlocal active
+            active -= 1
+            return super().result(*args, **kwargs)
+    class Pool:
+        def __init__(self, **kwargs):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def submit(self, function, chrom, *args):
+            nonlocal active,peak
+            active += 1
+            peak = max(peak,active)
+            future = MeasuredFuture()
+            future.set_result(mod._ChromOutcome(chrom,None,True,'empty'))
+            return future
+    monkeypatch.setattr(mod,'ProcessPoolExecutor',Pool)
+    monkeypatch.setattr(mod,'_slice_annotation_bundle',lambda bundle,chrom: chrom)
+    result = mod.LDScoreCalculator()._run_chromosomes(
+        list(map(str,range(1,8))),None,SimpleNamespace(spec=None),None,
+        SimpleNamespace(log_level='INFO'),None,2)
+    assert len(result) == 7
+    assert peak <= 2
+
+
 def test_parallel_worker_crash_message_names_threads_flag(two_chrom_panel, monkeypatch):
     import multiprocessing as mp
 
@@ -321,9 +355,12 @@ def test_parallel_worker_crash_message_names_threads_flag(two_chrom_panel, monke
     chrom, bundle, _spec, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
     ref_panel = RefPanelLoader(gcfg).load(_spec)
 
-    class CrashingFuture:
-        def result(self):
-            raise mp.ProcessError("simulated worker crash")
+    from concurrent.futures import Future
+
+    class CrashingFuture(Future):
+        def __init__(self):
+            super().__init__()
+            self.set_exception(mp.ProcessError("simulated worker crash"))
 
     class CrashingPool:
         def __init__(self, *args, **kwargs):

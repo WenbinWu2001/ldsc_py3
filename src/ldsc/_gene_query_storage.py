@@ -25,6 +25,31 @@ from .path_resolution import normalize_path_token
 
 
 @dataclass(frozen=True)
+class GeneListDiagnostics:
+    """Completed resolution summaries and a persistent, streamed row audit."""
+
+    summary: pd.DataFrame
+    resolution_policy: str
+    audit_path: Path
+
+    def audit_frames(self):
+        """Read bounded audit chunks from the canonical output artifact."""
+        yield from pd.read_csv(self.audit_path, sep='\t', chunksize=4096)
+
+    def write_audit(self, path):
+        """Copy an existing complete audit when writing another output directory."""
+        if Path(path).resolve() != self.audit_path.resolve():
+            shutil.copyfile(self.audit_path, path)
+
+
+def persistent_gene_diagnostics(batch, output_paths):
+    """Detach a completed result from private resolution storage after writing."""
+    if batch is None:
+        return None
+    return GeneListDiagnostics(batch.summary, batch.resolution_policy, Path(output_paths['gene_list_audit']))
+
+
+@dataclass(frozen=True)
 class StagedGeneListBatch:
     """Compact batch result owning paths through the caller's annotation workspace."""
 
@@ -219,5 +244,8 @@ def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, control_path=N
         np.save(path / f'{label}.npy', np.asarray(selected, dtype=np.int64))
         summaries.append(counts)
         spools.append(spool)
-    summary = pd.DataFrame(summaries).reindex(columns=SUMMARY_COLUMNS)
+    summary = pd.DataFrame(summaries).reindex(columns=SUMMARY_COLUMNS).reset_index(drop=True)
+    for column in ('nonblank_input_rows','uniquely_resolved_rows','rejected_rows','unique_resolved_genes','duplicate_rows','excluded_genes'):
+        summary[column] = pd.to_numeric(summary[column],errors='coerce').astype('Int64')
+    summary['resolution_fraction'] = summary['resolution_fraction'].astype(object)
     return StagedGeneListBatch(catalog, path, tuple(declarations), tuple(spools), summary, resolution_policy, fatal)

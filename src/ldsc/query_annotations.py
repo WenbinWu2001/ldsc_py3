@@ -59,6 +59,8 @@ def assess_gene_coverage(batch, chromosomes):
     left unknown here, including for genes outside the evaluated scope.
     Return the enriched batch and every focal/control coverage failure.
     """
+    if hasattr(batch, "with_coverage"):
+        return batch.with_coverage(chromosomes)
     scope = set(map(str, chromosomes))
     summary, audit = batch.summary.copy(), batch.audit.copy()
     for column in ("coverage_status", "missing_chromosomes", "uncovered_gene_ids"):
@@ -297,47 +299,33 @@ def _log_gene_list_rejections(batch: Any) -> None:
             row.source,
             row.source_reasons,
         )
-    rejected = batch.audit[batch.audit["disposition"].eq("rejected")]
-    for row in rejected.itertuples(index=False):
-        LOGGER.warning(
-            "Gene-list row rejected: role=%s source=%s line=%s input_gene=%r reason=%s",
-            row.input_role,
-            row.source,
-            row.line,
-            row.input_gene,
-            row.reason,
-        )
-    excluded = batch.audit[batch.audit["disposition"].eq("excluded")]
-    for row in excluded.itertuples(index=False):
-        LOGGER.info(
-            "Gene intentionally excluded by region policy: role=%s source=%s line=%s "
-            "input_gene=%r canonical_gene_id=%s reason=%s",
-            row.input_role,
-            row.source,
-            row.line,
-            row.input_gene,
-            row.canonical_gene_id,
-            row.reason,
-        )
+    for disposition in ('rejected', 'excluded'):
+        for frame in batch.audit_frames():
+            for row in frame.loc[frame.disposition.eq(disposition)].itertuples(index=False):
+                if disposition == 'rejected':
+                    LOGGER.warning("Gene-list row rejected: role=%s source=%s line=%s input_gene=%r reason=%s",
+                        row.input_role, row.source, row.line, row.input_gene, row.reason)
+                else:
+                    LOGGER.info("Gene intentionally excluded by region policy: role=%s source=%s line=%s input_gene=%r canonical_gene_id=%s reason=%s",
+                        row.input_role, row.source, row.line, row.input_gene, row.canonical_gene_id, row.reason)
 
 
 def _log_gene_list_snp_support(batch: Any) -> None:
     """Write every zero-support gene to the complete file log."""
-    unsupported = batch.audit[batch.audit["disposition"].eq("unsupported")]
-    for row in unsupported.itertuples(index=False):
-        LOGGER.warning(
-            "Gene has zero retained reference-SNP support: role=%s source=%s line=%s input_gene=%r canonical_gene_id=%s",
-            row.input_role,
-            row.source,
-            row.line,
-            row.input_gene,
-            row.canonical_gene_id,
-        )
+    for frame in batch.audit_frames():
+        for row in frame.loc[frame.disposition.eq('unsupported')].itertuples(index=False):
+            LOGGER.warning("Gene has zero retained reference-SNP support: role=%s source=%s line=%s input_gene=%r canonical_gene_id=%s",
+                row.input_role, row.source, row.line, row.input_gene, row.canonical_gene_id)
 
 
 def _gene_list_gate_a_message(batch: Any) -> str:
     """Return one bounded, actionable catalog-preflight failure message."""
-    rejected = batch.audit[batch.audit["disposition"].eq("rejected")]
+    examples, n_rejected = [], 0
+    for frame in batch.audit_frames():
+        rejected_rows = frame.loc[frame.disposition.eq('rejected')]
+        n_rejected += len(rejected_rows)
+        examples.extend(rejected_rows.head(max(0,MAX_CONSOLE_GENE_ISSUES-len(examples))).to_dict('records'))
+    rejected = pd.DataFrame(examples)
     submitted = int(batch.summary["nonblank_input_rows"].fillna(0).sum())
     breakdown = "; ".join(
         f"{row.source}: {int(row.rejected_rows or 0)}/{int(row.nonblank_input_rows or 0)} rejected"
@@ -348,7 +336,7 @@ def _gene_list_gate_a_message(batch: Any) -> str:
         f"line {row.line}, {row.input_gene!r}, {row.reason}"
         for row in rejected.head(MAX_CONSOLE_GENE_ISSUES).itertuples(index=False)
     )
-    omitted = max(0, len(rejected) - MAX_CONSOLE_GENE_ISSUES)
+    omitted = max(0, n_rejected - MAX_CONSOLE_GENE_ISSUES)
     omitted_text = f"; {omitted} more rejected row(s) are in the audit" if omitted else ""
     source_errors = batch.summary[batch.summary["source_status"].eq("error")]
     def source_reason_text(reason: str, source: str, role: str) -> str:
@@ -392,7 +380,7 @@ def _gene_list_gate_a_message(batch: Any) -> str:
     else:
         source_filter = "disposition == 'rejected'"
     return (
-        f"Gene-list catalog preflight rejected {len(rejected)} of {submitted} submitted row(s) "
+        f"Gene-list catalog preflight rejected {n_rejected} of {submitted} submitted row(s) "
         f"({breakdown}). First issues: {issue_text}{omitted_text}. "
         "Complete diagnostics: diagnostics/gene_list_audit.tsv.gz and "
         "diagnostics/gene_list_resolution_summary.tsv. "

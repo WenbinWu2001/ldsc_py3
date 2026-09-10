@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .annotation_builder import AnnotationBuilder
+from ._annotation_parsing import normalize_annotation_chunk
 from .chromosome_inference import normalize_chromosome
 from .config import RefPanelConfig
 from .errors import LDSCInputError, LDSCUserError
@@ -41,14 +41,14 @@ class DirectInputPreflight:
         return self.scope["chromosomes"]
 
 
-def inspect_direct_inputs(args, global_config):
+def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_sources=None, annotation_issues=()):
     """Inspect all selected annotation and reference artifacts before filtering.
 
     Validate BED/BIM/FAM integrity or the complete R2/sidecar binding, without
     computing correlations. Errors from independent files accumulate in one
     table. Input chromosomes are never inferred from annotation filenames.
     """
-    issues = []
+    issues = list(annotation_issues)
     declarations = []
 
     def issue(role, source, chrom, reason, details):
@@ -76,33 +76,50 @@ def inspect_direct_inputs(args, global_config):
                 selected.extend((path, chrom) for path in matches)
         return list(dict.fromkeys(selected))
 
-    builder = AnnotationBuilder(global_config)
     sets = {"baseline": set(), "reference": set()}
     reference_prefixes = {}
     query_sets = []
-    for role, attribute in (("baseline", "baseline_annot_sources"), ("query", "query_annot_sources")):
-        for path, declared_chrom in files(getattr(args, attribute, None), role):
-            try:
-                metadata, _ = builder.parse_annotation_file(path)
-                chroms = set(metadata.CHR.astype(str))
-                if not chroms or not chroms <= set(AUTOSOMES):
-                    raise LDSCInputError("Annotation contents must identify a nonempty autosomal chromosome set.")
-                if declared_chrom and chroms != {declared_chrom}:
-                    raise LDSCInputError(f"@ member for chromosome {declared_chrom} contains chromosomes {sorted(chroms, key=int)}.")
-                if role == "baseline":
-                    sets[role].update(chroms)
-                else:
-                    query_sets.append((path, chroms))
-            except (OSError, EOFError, ValueError, LDSCUserError) as exc:
-                issue(role, path, declared_chrom, "invalid_required_input", exc)
+    declarations.extend(split_cli_path_tokens(getattr(args, 'baseline_annot_sources', None)))
+    declarations.extend(split_cli_path_tokens(getattr(args, 'query_annot_sources', None)))
+    if annotation_sources is not None:
+        sets['baseline'].update(annotation_sources.scope_chromosomes)
+        query_sets.extend((path, set(chroms)) for path,role,chroms in annotation_sources.input_chromosomes if role == 'query')
+    elif not annotation_issues:
+        for role, attribute in (("baseline", "baseline_annot_sources"), ("query", "query_annot_sources")):
+            for path, declared_chrom in files(getattr(args, attribute, None), role):
+                try:
+                    width = len(pd.read_csv(path, sep=r"\s+", nrows=0).columns)
+                    chunk_rows = max(1,min(65536,16*1024*1024//(8*max(1,width))))
+                    chroms = set()
+                    with pd.read_csv(path,sep=r"\s+",chunksize=chunk_rows) as reader:
+                        for chunk in reader:
+                            metadata, _ = normalize_annotation_chunk(chunk,path,global_config.snp_identifier)
+                            chroms.update(metadata.CHR.astype(str))
+                    if not chroms or not chroms <= set(AUTOSOMES):
+                        raise LDSCInputError("Annotation contents must identify a nonempty autosomal chromosome set.")
+                    if declared_chrom and chroms != {declared_chrom}:
+                        raise LDSCInputError(f"@ member for chromosome {declared_chrom} contains chromosomes {sorted(chroms, key=int)}.")
+                    if role == "baseline":
+                        sets[role].update(chroms)
+                    else:
+                        query_sets.append((path, chroms))
+                except (OSError, EOFError, ValueError, LDSCUserError) as exc:
+                    issue(role, path, declared_chrom, "invalid_required_input", exc)
 
-    for path, _ in files(getattr(args, "query_annot_bed_sources", None), "query"):
-        try:
-            with (gzip.open(path, "rt") if path.endswith(".gz") else open(path)) as stream:
-                intervals = regions.parse_bed_text(stream.read(), label=path)
-            query_sets.append((path, {normalize_chromosome(row.chrom) for row in intervals}))
-        except (OSError, EOFError, ValueError, LDSCUserError) as exc:
-            issue("query", path, "", "invalid_required_input", exc)
+    if bed_sources is not None:
+        for source in bed_sources:
+            if source.failure_reason:
+                issue('query',source.source,'','invalid_required_input',source.details)
+            else:
+                query_sets.append((source.source,set(source.shards)))
+    else:
+        for path, _ in files(getattr(args, "query_annot_bed_sources", None), "query"):
+            try:
+                with (gzip.open(path, "rt") if path.endswith(".gz") else open(path)) as stream:
+                    chroms = {normalize_chromosome(row.chrom) for row in regions.iter_bed_rows(stream, label=path)}
+                query_sets.append((path,chroms))
+            except (OSError, EOFError, ValueError, LDSCUserError) as exc:
+                issue("query", path, "", "invalid_required_input", exc)
 
     r2_dir = getattr(args, "r2_dir", None)
     if r2_dir:
@@ -183,7 +200,7 @@ def inspect_direct_inputs(args, global_config):
     )
 
 
-def validate_direct_scope(args, global_config, batch, output_config):
+def validate_direct_scope(args, global_config, batch, output_config, **prepared_inputs):
     """Write available batch diagnostics and fail once after scope inspection."""
     import logging
     from types import SimpleNamespace
@@ -192,7 +209,7 @@ def validate_direct_scope(args, global_config, batch, output_config):
     from .query_annotations import assess_gene_coverage, gene_query_statuses, gene_control_errors
 
     logger = logging.getLogger("LDSC.ldscore_calculator")
-    evidence = inspect_direct_inputs(args, global_config)
+    evidence = inspect_direct_inputs(args, global_config, **prepared_inputs)
     errors = []
     if batch is not None:
         batch, coverage_errors = assess_gene_coverage(batch, evidence.chromosomes)

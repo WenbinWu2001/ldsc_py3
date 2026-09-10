@@ -89,7 +89,7 @@ Exit checkpoint: real standalone BED and gene-list runs emit reloadable canonica
 
 ### 3. Batch direct LD projection within one traversal and restrict score rows
 
-Status: not started. The numerical core depends on slice 1 and the prepared/result interfaces; complete gene-route integration and its release checks also depend on slice 2.
+Status: numerical projection primitives implemented and verified; prepared-state and public workflow integration remain. Both backends reuse each LD block across query batches and support output-row-only float64 accumulation with full reference contributors. Parquet reads bound decoded batches within oversized row groups. The focused projection, PLINK I/O, reference preparation, direct workflow, and gene-index checks passed 257 tests and 29 subtests. Existing production preparation still supplies chromosome matrices until its cutover.
 
 Likely areas: [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py), [config.py](../../src/ldsc/config.py), [_kernel/ref_panel.py](../../src/ldsc/_kernel/ref_panel.py), [_kernel/ldscore.py](../../src/ldsc/_kernel/ldscore.py), [_kernel/plink_bed.py](../../src/ldsc/_kernel/plink_bed.py), [_kernel/overlap.py](../../src/ldsc/_kernel/overlap.py), and annotation semantics/count helpers.
 

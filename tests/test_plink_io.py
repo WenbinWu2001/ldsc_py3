@@ -318,10 +318,11 @@ class IndexParquetRuntimeTest(unittest.TestCase):
                 {"i": 1, "j": 2, "R2": 0.6, "sign": "+"},
                 {"i": 2, "j": 3, "R2": 0.5, "sign": "+"},
             ]
-            r2 = self._write_index_panel(tmpdir, panel, pairs, row_group_size=2)
+            r2 = self._write_index_panel(tmpdir, panel, pairs, row_group_size=4)
             reader = self._reader(r2, self._reader_meta(snps, bps))
             seen = {}
-            for i, j, r2v in reader.iter_all_pairs():
+            for i, j, r2v in reader.iter_all_pairs(batch_rows=2):
+                self.assertLessEqual(len(i), 2)
                 self.assertEqual(i.dtype, np.dtype("int32"))
                 self.assertEqual(r2v.dtype, np.dtype("float32"))
                 for a, b, v in zip(i.tolist(), j.tolist(), r2v.tolist()):

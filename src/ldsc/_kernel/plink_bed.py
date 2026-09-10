@@ -14,6 +14,7 @@ except ImportError:  # pragma: no cover - optional dependency
     ba = None
 
 from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError
+from .ldscore_projection import ArrayAnnotations, ProjectionAccumulator
 
 
 class __GenotypeArrayInMemory__(object):
@@ -84,11 +85,19 @@ class __GenotypeArrayInMemory__(object):
         """Apply backend-specific SNP and MAF filtering to the genotype matrix."""
         raise NotImplementedError
 
-    def ldScoreVarBlocks(self, block_left, c, annot=None):
-        """Compute LD-score block sums using the unbiased :math:`r^2` transform."""
+    def ldScoreVarBlocks(self, block_left, c, annot=None, *, output_rows=None,
+                         n_baseline=None, query_batch_size=1000, weight_mask=None):
+        """Project shared and batched annotations in one genotype traversal.
+
+        ``annot`` is a selected-read source or a caller-owned numerical array.
+        Only ``output_rows`` receive float64 score buffers; all aligned SNPs
+        remain contributors. The optional weight mask has its own universe.
+        """
         func = lambda x: self.__l2_unbiased__(x, self.n)
         snp_getter = self.nextSNPs
-        return self.__corSumVarBlocks__(block_left, c, func, snp_getter, annot)
+        return self.__corSumVarBlocks__(block_left, c, func, snp_getter, annot,
+            output_rows=output_rows, n_baseline=n_baseline,
+            query_batch_size=query_batch_size, weight_mask=weight_mask)
 
     def ldScoreBlockJackknife(self, block_left, c, annot=None, jN=10):
         """Compute block-jackknife LD-score summaries using squared correlations."""
@@ -102,7 +111,9 @@ class __GenotypeArrayInMemory__(object):
         sq = np.square(x)
         return sq - (1 - sq) / denom
 
-    def __corSumVarBlocks__(self, block_left, c, func, snp_getter, annot=None):
+    def __corSumVarBlocks__(self, block_left, c, func, snp_getter, annot=None, *,
+                            output_rows=None, n_baseline=None, query_batch_size=1000,
+                            weight_mask=None):
         """Accumulate transformed correlation sums over LDSC-style LD blocks."""
         m, n = self.m, self.n
         block_sizes = np.array(np.arange(m) - block_left)
@@ -119,8 +130,11 @@ class __GenotypeArrayInMemory__(object):
                     "computation. Re-run with DEBUG logging and report the traceback."
                 )
 
-        n_a = annot.shape[1]
-        cor_sum = np.zeros((m, n_a))
+        if isinstance(annot, np.ndarray):
+            annot = ArrayAnnotations(annot, tuple(str(i) for i in range(annot.shape[1])))
+        accumulator = ProjectionAccumulator(annot,
+            n_baseline=annot.shape[1] if n_baseline is None else n_baseline,
+            output_rows=output_rows, query_batch_size=query_batch_size, weight_mask=weight_mask)
         b = np.nonzero(block_left > 0)
         if np.any(b):
             b = b[0][0]
@@ -138,7 +152,7 @@ class __GenotypeArrayInMemory__(object):
             B = A[:, l_B:l_B + c]
             np.dot(A.T, B / n, out=rfuncAB)
             rfuncAB = func(rfuncAB)
-            cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + c, :])
+            accumulator.add_dense(np.arange(l_A, l_A+b), np.arange(l_B, l_B+c), rfuncAB)
         b0 = b
         md = int(c * np.floor(m / c))
         end = md + 1 if md != m else md
@@ -161,18 +175,14 @@ class __GenotypeArrayInMemory__(object):
             if b != old_b:
                 rfuncAB = np.zeros((b, c))
             B = snp_getter(c)
-            p1 = np.all(annot[l_A:l_A + b, :] == 0)
-            p2 = np.all(annot[l_B:l_B + c, :] == 0)
-            if p1 and p2:
-                continue
             np.dot(A.T, B / n, out=rfuncAB)
             rfuncAB = func(rfuncAB)
-            cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + c, :])
-            cor_sum[l_B:l_B + c, :] += np.dot(annot[l_A:l_A + b, :].T, rfuncAB).T
+            accumulator.add_dense(np.arange(l_A, l_A+b), np.arange(l_B, l_B+c), rfuncAB)
+            accumulator.add_dense(np.arange(l_B, l_B+c), np.arange(l_A, l_A+b), rfuncAB.T)
             np.dot(B.T, B / n, out=rfuncBB)
             rfuncBB = func(rfuncBB)
-            cor_sum[l_B:l_B + c, :] += np.dot(rfuncBB, annot[l_B:l_B + c, :])
-        return cor_sum
+            accumulator.add_dense(np.arange(l_B, l_B+c), np.arange(l_B, l_B+c), rfuncBB)
+        return accumulator.values
 
 
 if ba is not None:

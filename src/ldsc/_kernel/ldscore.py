@@ -75,6 +75,7 @@ from .annotation import _annotation_parse_error_message, _validate_annotation_va
 from .identifiers import build_snp_id_series, read_snp_restriction_keys
 from .overlap import OverlapContribution, compute_overlap
 from .plink_bed import PlinkBEDFile  # Re-exported for the reference-panel adapters.
+from .ldscore_projection import ArrayAnnotations, ProjectionAccumulator
 from .snp_identity import (
     RestrictionIdentityKeys,
     empty_identity_drop_frame,
@@ -1139,24 +1140,8 @@ class SortedR2BlockReader:
             values = np.minimum(values, np.float32(1.0))
         return values
 
-    def _decode_index_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
-        """Decode one index row group: dequantize R2, gather endpoints through the remap.
-
-        ``IDX_1``/``IDX_2`` are panel (build) indices; ``self._remap`` maps each
-        to its retained matrix index (or ``-1`` when the endpoint SNP is not in
-        the analysis universe). Pairs with either endpoint dropped are removed.
-        When ``self._r2_scale`` is set (int16 panels), the raw int16 column is
-        divided by the scale to produce float32 before the raw→unbiased transform.
-        ``SIGN`` is not read: it is unused by LD-score computation.
-        """
-        if self._pf is None:
-            raise LDSCInternalError(
-                "LD-score parquet reader failed in SortedR2BlockReader._decode_index_row_group(): "
-                "the parquet file handle is not initialized. Most likely row-group decoding "
-                "was called before reader setup completed. Re-run with DEBUG logging and "
-                "report the traceback."
-            )
-        table = self._pf.read_row_group(int(row_group_index), columns=["IDX_1", "IDX_2", "R2"])
+    def _decode_index_batch(self, table, row_group_index: int) -> _DecodedR2RowGroup:
+        """Dequantize and remap one bounded Arrow batch of stored pairs."""
         idx1 = _arrow_column_to_numpy(table.column("IDX_1")).astype(np.int64, copy=False)
         idx2 = _arrow_column_to_numpy(table.column("IDX_2")).astype(np.int64, copy=False)
         r2_raw = _arrow_column_to_numpy(table.column("R2")).astype(np.float32, copy=False)
@@ -1173,14 +1158,11 @@ class SortedR2BlockReader:
             r2=r2[keep].astype(np.float32, copy=False),
         )
 
-    def iter_all_pairs(self):
-        """Yield ``(i, j, r2)`` arrays for every row group, decoding each once.
+    def iter_all_pairs(self, *, batch_rows=65_536):
+        """Yield each pair once in bounded batches, including oversized row groups.
 
-        Streams the whole chromosome's stored pairs in IDX_1 order with no
-        window pruning and no row-group cache: each row group is decoded a
-        single time, remapped to retained indices, and dropped endpoints
-        removed. Empty groups (all endpoints outside the analysis universe) are
-        skipped.
+        Panel indices are remapped to the retained reference universe before
+        yielding. SIGN is unused. No decoded row group is cached.
         """
         if self._pf is None:
             raise LDSCInternalError(
@@ -1189,10 +1171,11 @@ class SortedR2BlockReader:
                 "and report the traceback."
             )
         for rg_index in range(self._pf.metadata.num_row_groups):
-            group = self._decode_index_row_group(rg_index)
-            if group.i.size == 0:
-                continue
-            yield group.i, group.j, group.r2
+            for table in self._pf.iter_batches(batch_size=batch_rows,
+                    row_groups=[rg_index], columns=["IDX_1", "IDX_2", "R2"]):
+                group = self._decode_index_batch(table, rg_index)
+                if group.i.size:
+                    yield group.i, group.j, group.r2
 
 
 def _accumulate_pair_contributions(
@@ -1227,51 +1210,50 @@ def _accumulate_pair_contributions(
 
 def ld_score_streaming_from_r2_reader(
     block_left: np.ndarray,
-    annot: np.ndarray,
+    annot,
     block_reader: SortedR2BlockReader,
     chunk_pairs: int = _CSR_CHUNK_PAIRS,
+    *, output_rows=None, n_baseline=None, query_batch_size=1000, weight_mask=None,
 ) -> np.ndarray:
-    """Compute ``cor_sum = R @ annot`` by streaming the parquet's stored R2 pairs.
+    """Project selected annotation batches through each stored R² chunk once.
 
-    The diagonal (R2=1) seeds ``cor_sum`` from ``annot``; stored within-window pairs
-    are buffered into chunks of ~``chunk_pairs`` and accumulated with a float64 CSR
-    SpMM (:func:`_accumulate_pair_contributions`), restricted to the ldscore window
-    by ``block_left``. Each stored pair is touched exactly once (O(nnz * n_a)).
+    Only output SNPs own score buffers, but both pair directions retain every
+    eligible reference contributor. Diagonals and the separate regression
+    weight mask use the same float64 accumulator; direct results are float32.
     """
     block_left = np.asarray(block_left, dtype=np.int64)
-    annot64 = annot.astype(np.float64, copy=False)
-    cor_sum = annot64.copy()  # diagonal R2 = 1 for every SNP
-    buf_i: list[np.ndarray] = []
-    buf_j: list[np.ndarray] = []
-    buf_r2: list[np.ndarray] = []
+    if isinstance(annot, np.ndarray):
+        annot = ArrayAnnotations(annot, tuple(str(i) for i in range(annot.shape[1])))
+    accumulator = ProjectionAccumulator(annot,
+        n_baseline=annot.shape[1] if n_baseline is None else n_baseline,
+        output_rows=output_rows, query_batch_size=query_batch_size, weight_mask=weight_mask)
+    accumulator.add_diagonal()
+    buf_i, buf_j, buf_r2 = [], [], []
     buffered = 0
 
-    def flush() -> None:
+    def flush():
         nonlocal buffered
-        if buffered == 0:
-            return
-        _accumulate_pair_contributions(
-            cor_sum,
-            np.concatenate(buf_i),
-            np.concatenate(buf_j),
-            np.concatenate(buf_r2),
-            annot64,
-            block_left,
-        )
-        buf_i.clear()
-        buf_j.clear()
-        buf_r2.clear()
-        buffered = 0
+        if buffered:
+            accumulator.add_pairs(np.concatenate(buf_i), np.concatenate(buf_j),
+                                  np.concatenate(buf_r2), block_left)
+            buf_i.clear()
+            buf_j.clear()
+            buf_r2.clear()
+            buffered = 0
 
     for i, j, r2 in block_reader.iter_all_pairs():
-        buf_i.append(i)
-        buf_j.append(j)
-        buf_r2.append(r2)
-        buffered += int(i.size)
-        if buffered >= chunk_pairs:
-            flush()
+        start = 0
+        while start < len(i):
+            stop = min(len(i), start + chunk_pairs-buffered)
+            buf_i.append(i[start:stop])
+            buf_j.append(j[start:stop])
+            buf_r2.append(r2[start:stop])
+            buffered += stop-start
+            start = stop
+            if buffered == chunk_pairs:
+                flush()
     flush()
-    return np.asarray(cor_sum, dtype=np.float32)
+    return np.asarray(accumulator.values, dtype=np.float32)
 
 
 def compute_counts(

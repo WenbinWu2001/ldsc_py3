@@ -209,9 +209,15 @@ class AnnotationShard:
         lookup = {column: store for store in self.stores for column in store.columns}
         if not columns:
             return self.stores[0].read(rows=rows, columns=(), max_read_rows=max_read_rows)
-        first = lookup[columns[0]].read(rows=rows, columns=[columns[0]], max_read_rows=max_read_rows)
-        result = np.empty((len(first), len(columns)), dtype=first.dtype)
-        result[:, 0] = first[:, 0]
-        for j, column in enumerate(columns[1:], 1):
-            result[:, j] = lookup[column].read(rows=rows, columns=[column], max_read_rows=max_read_rows)[:, 0]
+        groups = {}
+        for index, name in enumerate(columns):
+            groups.setdefault(lookup[name], []).append((index, name))
+        if len(groups) == 1:
+            return lookup[columns[0]].read(rows=rows, columns=columns, max_read_rows=max_read_rows)
+        result = None
+        for store, selection in groups.items():
+            values = store.read(rows=rows, columns=[name for _, name in selection], max_read_rows=max_read_rows)
+            if result is None:
+                result = np.empty((len(values), len(columns)), dtype=np.result_type(*[item.dtype for item in groups]))
+            result[:, [index for index, _ in selection]] = values
         return result

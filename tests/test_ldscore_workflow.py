@@ -3593,10 +3593,10 @@ class R2DequantizationTest(unittest.TestCase):
                 identifier_mode="chr_pos", r2_bias_mode="unbiased",
                 r2_sample_size=None, genome_build="hg19")
             self.assertEqual(reader._r2_scale, 32767.0)
-            decoded = reader._decode_index_row_group(0)
-            self.assertEqual(decoded.r2.dtype, np.float32)
+            i, j, r2_values = next(reader.iter_all_pairs())
+            self.assertEqual(r2_values.dtype, np.float32)
             # endpoint exact; 0.2 within half-step
-            got = dict(zip(zip(decoded.i.tolist(), decoded.j.tolist()), decoded.r2.tolist()))
+            got = dict(zip(zip(i.tolist(), j.tolist()), r2_values.tolist()))
             self.assertEqual(got[(0, 1)], 1.0)
             self.assertAlmostEqual(got[(0, 2)], 0.2, delta=2e-5)
 
@@ -3632,8 +3632,8 @@ class R2DequantizationTest(unittest.TestCase):
                 identifier_mode="chr_pos", r2_bias_mode="unbiased",
                 r2_sample_size=None, genome_build="hg19")
             self.assertIsNone(reader._r2_scale)
-            decoded = reader._decode_index_row_group(0)
-            self.assertAlmostEqual(float(decoded.r2[0]), 0.5, delta=1e-7)
+            i, j, r2_values = next(reader.iter_all_pairs())
+            self.assertAlmostEqual(float(r2_values[0]), 0.5, delta=1e-7)
 
 
 def test_ldscore_parser_regr_snp_region_flag_default_and_legacy_alias():

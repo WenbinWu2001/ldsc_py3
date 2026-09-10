@@ -26,7 +26,6 @@ are not retained for the full-table concatenation step.
 """
 import pandas as pd
 import numpy as np
-#import os
 import gzip
 import bz2
 import argparse
@@ -39,7 +38,7 @@ from .._coordinates import (
     normalize_chr_pos_frame,
     positive_int_position_series,
 )
-from ..errors import LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
+from ..errors import LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
 from ..column_inference import (
     RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS,
     RAW_SUMSTATS_SIGNED_STAT_SPECS,
@@ -90,15 +89,6 @@ class _SumstatsRestriction:
     @property
     def n_rows_removed(self):
         return self.n_rows_before_filter - self.n_rows_kept
-
-try:
-    x = pd.DataFrame({'A': [1, 2, 3]})
-    x.sort_values(by='A')
-except AttributeError:
-    raise LDSCDependencyError(
-        "munge-sumstats requires pandas version >= 0.17.0, but the installed pandas is older. "
-        "Most likely the active environment is stale. Upgrade pandas or activate the ldsc3-dev environment."
-    )
 
 null_values = {
     'LOG_ODDS': 0,
@@ -259,15 +249,6 @@ def filter_frq(frq, args):
 def filter_alleles(a):
     '''Remove alleles that do not describe strand-unambiguous SNPs'''
     return a.isin(sumstats.VALID_SNPS)
-
-
-def filter_signed_sumstats(x, null_value):
-    '''Remove signed statistics that equal the declared null value.'''
-    ii = x != null_value
-    removed = (~ii).sum()
-    if removed > 0:
-        LOGGER.info(f"Removed {removed} SNPs with null signed summary statistics.")
-    return ii
 
 
 def _looks_missing_info_token(value):

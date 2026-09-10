@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field, replace
-import json
 import logging
 from os import PathLike
 from pathlib import Path
@@ -56,7 +55,6 @@ from .errors import (
     LDSCConfigError,
     LDSCDependencyError,
     LDSCInputError,
-    LDSCInternalError,
     LDSCUsageError,
     LDSCUserError,
 )
@@ -87,22 +85,10 @@ LOGGER = logging.getLogger("LDSC.sumstats_munger")
 parser = kernel_munge.parser
 null_values = kernel_munge.null_values
 default_cnames = kernel_munge.default_cnames
-describe_cname = kernel_munge.describe_cname
-numeric_cols = kernel_munge.numeric_cols
 read_header = kernel_munge.read_header
 get_cname_map = kernel_munge.get_cname_map
 get_compression = kernel_munge.get_compression
 clean_header = kernel_munge.clean_header
-filter_pvals = kernel_munge.filter_pvals
-filter_info = kernel_munge.filter_info
-filter_frq = kernel_munge.filter_frq
-filter_alleles = kernel_munge.filter_alleles
-parse_dat = kernel_munge.parse_dat
-process_n = kernel_munge.process_n
-p_to_z = kernel_munge.p_to_z
-check_median = kernel_munge.check_median
-parse_flag_cnames = kernel_munge.parse_flag_cnames
-munge_sumstats = kernel_munge.munge_sumstats
 
 _SUMSTATS_OUTPUT_FORMATS = {"parquet", "tsv.gz", "both"}
 _RAW_SUMSTATS_FORMATS = {"auto", "plain", "daner-old", "daner-new"}

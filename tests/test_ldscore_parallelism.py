@@ -9,6 +9,7 @@ parallel path is exercised end-to-end through `SortedR2BlockReader`, not a mock.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 from pathlib import Path
 
@@ -361,6 +362,72 @@ def test_parallel_output_matches_sequential(run_minimal_ldscore):
     seq_base = pd.read_parquet(seq / "ldscore.baseline.parquet")
     par_base = pd.read_parquet(par / "ldscore.baseline.parquet")
     pd.testing.assert_frame_equal(seq_base, par_base)
+
+
+def test_partitioned_parallel_preserves_scores_counts_overlap_and_classification(two_chrom_panel, tmp_path):
+    from ldsc.config import GlobalConfig, set_global_config
+    from ldsc.ldscore_calculator import run_ldscore
+    from ldsc.regression_runner import load_ldscore_from_dir
+
+    metadata = pd.concat([panel for panel, _ in _PANEL_CHROMS.values()], ignore_index=True)
+    baseline = metadata.loc[:, ["CHR", "POS", "SNP"]].assign(
+        base=1, cont=[0, 0.5, 1, 1.5, 0, 2, 3]
+    )
+    query = metadata.loc[:, ["CHR", "POS", "SNP"]].assign(query=[1, 0, 1, 0, 1, 0, 1])
+    baseline_path = tmp_path / "baseline.annot"
+    query_path = tmp_path / "query.annot"
+    baseline.to_csv(baseline_path, sep="\t", index=False)
+    query.to_csv(query_path, sep="\t", index=False)
+    regression_path = tmp_path / "regression.tsv"
+    regression_path.write_text("SNP\nrs6\nrs1\nrs5\nrs3\n", encoding="utf-8")
+
+    outputs = []
+    for threads in (1, 2):
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
+        output = tmp_path / f"threads_{threads}"
+        result = run_ldscore(
+            r2_dir=str(two_chrom_panel),
+            baseline_annot_sources=[str(baseline_path)],
+            query_annot_sources=[str(query_path)],
+            output_dir=str(output),
+            regr_snps_file=str(regression_path),
+            ld_wind_kb=1.0,
+            common_maf_min=0.3,
+            snp_batch_size=2,
+            yes_really=True,
+            threads=threads,
+            regr_snps_exclude_regions="none",
+        )
+        assert not hasattr(result, "annotation_fingerprints")
+        assert all(not hasattr(chrom, "common_annotation_values") for chrom in result.chromosome_results)
+        persisted = json.loads((output / "metadata.json").read_text(encoding="utf-8"))
+        assert "annotation_fingerprints" not in persisted
+        loaded = load_ldscore_from_dir(output)
+        assert loaded.annotation_types == {"base": "binary", "cont": "quantitative", "query": "binary"}
+        assert loaded.baseline_table["SNP"].tolist() == ["rs1", "rs3", "rs5", "rs6"]
+        np.testing.assert_allclose(
+            loaded.baseline_table[["base", "cont", "regression_ld_scores"]],
+            [[1.6, 0.35, 1.1], [2.1, 2.1, 1.1], [1.5, 1.0, 1.5], [1.8, 2.9, 1.5]],
+            rtol=0, atol=1e-4,  # The fixture's R2 values use int16 parquet quantization.
+        )
+        np.testing.assert_allclose(loaded.query_table["query"], [1.1, 1.1, 1.0, 0.8], rtol=0, atol=1e-4)
+        assert [record["all_reference_snp_count"] for record in loaded.count_records] == [7, 8, 4]
+        assert [record["common_reference_snp_count"] for record in loaded.count_records] == [5, 4.5, 3]
+        np.testing.assert_array_equal(loaded.overlap.baseline_block_all, [[7, 8, 4], [8, 16.5, 4]])
+        np.testing.assert_array_equal(loaded.overlap.baseline_block_common, [[5, 4.5, 3], [4.5, 7.25, 1]])
+        np.testing.assert_array_equal(loaded.overlap.query_diagonal_all, [4])
+        np.testing.assert_array_equal(loaded.overlap.query_diagonal_common, [3])
+        assert loaded.overlap.total_all_reference_snps == 7
+        assert loaded.overlap.total_common_reference_snps == 5
+        outputs.append(output)
+
+    for filename in ("ldscore.baseline.parquet", "ldscore.query.parquet", "ldscore.overlap.parquet"):
+        pd.testing.assert_frame_equal(
+            pd.read_parquet(outputs[0] / filename), pd.read_parquet(outputs[1] / filename)
+        )
+    sequential, parallel = [json.loads((output / "metadata.json").read_text()) for output in outputs]
+    for field in ("counts", "count_config", "overlap_config", "annotation_types", "chromosomes"):
+        assert sequential[field] == parallel[field]
 
 
 def test_all_cores_output_matches_sequential(run_minimal_ldscore):

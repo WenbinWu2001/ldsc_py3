@@ -279,12 +279,6 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         result = dataclass_replace(
             make_split_ldscore_result(query=True),
             annotation_types={"base": "binary", "query": "quantitative"},
-            annotation_fingerprints={
-                "algorithm": "sha256",
-                "canonicalization": "ldsc_common_annotation_v1",
-                "common_reference_snp_universe": "universe",
-                "annotation_values": {"base": "base-hash", "query": "query-hash"},
-            },
         )
         writer = LDScoreDirectoryWriter()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -302,7 +296,10 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             self.assertEqual(metadata["baseline_columns"], ["base"])
             self.assertEqual(metadata["query_columns"], ["query"])
             self.assertEqual(metadata["annotation_types"], {"base": "binary", "query": "quantitative"})
-            self.assertEqual(metadata["annotation_fingerprints"]["canonicalization"], "ldsc_common_annotation_v1")
+            self.assertNotIn("annotation_fingerprints", metadata)
+            loaded = load_ldscore_from_dir(output_dir)
+            self.assertEqual(loaded.annotation_types, result.annotation_types)
+            self.assertFalse(hasattr(loaded, "annotation_fingerprints"))
             self.assertEqual(metadata["counts"][1]["column"], "query")
             self.assertEqual(
                 metadata["count_config"],

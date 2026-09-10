@@ -687,7 +687,7 @@ such a directory cannot be partitioned.
 | 1 | An aggregate cell-type root was supplied | Select one `diagnostics/query_annotations/<query>/` directory; aggregate rows are separate fits. |
 | 2 | The fitted result predates coefficient-delete persistence | Check for `coefficient_delete_values.parquet`; rerun `partitioned-h2` with current LDSC3. |
 | 3 | Not every original fitted annotation was resupplied | Compare `retained_ld_columns` in model metadata with source headers. |
-| 4 | Reference metadata or annotations come from a different panel/release | Inspect common-universe size, annotation-sum, overlap, or SHA256 mismatch text. |
+| 4 | Reference metadata or annotations come from a different panel/release | Inspect SNP-universe size, annotation-sum, or overlap mismatch text. |
 | 5 | Effective SNP identities are duplicated or target coverage is incomplete | Inspect `diagnostics/snp_alignment_issues.tsv.gz`. |
 
 Resupply the exact original annotation sources and matching reference metadata. Parquet-R2 users can use the existing `chr*_meta.tsv.gz` sidecars; PLINK users should regenerate LD scores with `--export-ref-metadata`. Do not concatenate coefficient tables from different query directories.

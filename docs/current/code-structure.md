@@ -72,7 +72,7 @@ ldsc_py3_restructured/
 | `ldsc._kernel.regions` | packaged and user BED interval loading plus region-exclusion masks |
 | `ldsc._kernel.plink_bed` | PLINK genotype reader (`PlinkBEDFile` and its `__GenotypeArrayInMemory__` base, incl. the in-class LD-score block sums): lazy header read, per-SNP selective decode with fused individual filter, and opt-in disk streaming for unrestricted builds; never materializes the whole-chromosome bitarray |
 | `ldsc.annotation_builder` | public annotation workflow: path resolution, bundle loading, BED/gene interval projection, query-local source isolation, and query `.annot.gz` writing for `annotate` |
-| `ldsc.annotation_semantics` | global annotation-name uniqueness, binary/quantitative classification, and compact common-universe SHA256 semantic fingerprints |
+| `ldsc.annotation_semantics` | global annotation-name uniqueness and advisory binary/quantitative classification |
 | `ldsc.ref_panel_builder` | parquet reference-panel build workflow, including source-build inference, optional coordinate liftover, explicit SNP/sample restrictions, and optional `min_r2` pair-emission threshold |
 | `ldsc.r2_query` | public `query-r2` CLI/API, `R2Panel`, one-shot `query_r2()`, sidecar-binding validation, endpoint key resolution, sign harmonization, and optional adjusted-R2-to-Pearson-r conversion |
 | `ldsc.ldscore_calculator` | LD-score orchestration, catalog-build selection, direct prepared-SNP support measurement, optional synthetic `base`, aggregation, and output routing through shared query finalization |
@@ -121,7 +121,7 @@ ldsc_py3_restructured/
 | change LD-score math | `src/ldsc/_kernel/ldscore.py` |
 | change raw sumstats ingestion, format inference, `CHR`/`POS` handling, sumstats SNP keep-list filtering, liftover drop audit sidecars, footer provenance, or curated loading | `src/ldsc/sumstats_munger.py`, then `src/ldsc/_kernel/sumstats_munger.py` |
 | change regression dataset assembly or CLI summaries | `src/ldsc/regression_runner.py`, then `src/ldsc/outputs.py`, `docs/current/partitioned-h2-results.md` for partitioned-h2 output layout, `docs/current/partitioned-ldsc-workflow.md` for rg output contracts, and `docs/current/regression-configuration.md` for the tunable estimator parameters and defaults |
-| change continuous-annotation classification or fingerprints | `src/ldsc/annotation_semantics.py`, then `src/ldsc/ldscore_calculator.py` and `src/ldsc/outputs.py` |
+| change annotation-name validation or continuous-annotation classification | `src/ldsc/annotation_semantics.py`, then `src/ldsc/ldscore_calculator.py` and `src/ldsc/outputs.py` |
 | change target quantiles, standardized coefficients, or post-fit alignment | `src/ldsc/quantile_h2.py`, then `src/ldsc/outputs.py` and `docs/current/continuous-annotation-quantile-h2.md` |
 | change LDSC estimators | `src/ldsc/_kernel/regression.py` |
 | change binary-trait prevalence parsing or observed-to-liability conversion | `src/ldsc/prevalence.py` (input parsing/validation), then `src/ldsc/regression_runner.py` (summary/metadata wiring) and `src/ldsc/_kernel/regression.py` (`liability_conversion_factor`) |

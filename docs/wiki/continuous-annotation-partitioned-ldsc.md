@@ -1,6 +1,6 @@
 # Continuous annotations in partitioned LDSC
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-10
 
 This page starts after the partitioned-LDSC steps in the [guided tutorial](guided-tutorial.md). The regression itself does not use quantile bins: fit the continuous annotation directly, then use `ldsc quantile-h2` to summarize how the complete fitted joint model distributes heritability from low to high target values.
 
@@ -27,7 +27,7 @@ Do not pass the aggregate multi-query root: its rows belong to different baselin
 
 ## 2. Prepare the resupplied sources
 
-You need every annotation source used to fit the selected model, one target source, and reference metadata. LDSC3 stores compact fingerprints and regression delete values, not copies of the large annotation matrices.
+You need every annotation source used to fit the selected model, one target source, and reference metadata. LDSC3 stores regression delete values and annotation aggregate statistics. You must resupply the annotation matrices. The workflow checks alignment, counts, annotation sums, and available overlap cross-products; passing these checks does not establish the original annotation value at every SNP.
 
 - Parquet-R2 users can supply the existing `chr*_meta.tsv.gz` sidecars.
 - PLINK users should first run `ldsc ldscore --export-ref-metadata`; use the resulting `ref_metadata/chr@_meta.tsv.gz` files.

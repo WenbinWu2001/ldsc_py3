@@ -657,7 +657,7 @@ flowchart LR
   A[Original fitted annotation sources]
   R[Reference metadata]
   T[Target annotation]
-  V[Identity, aggregate, and SHA256 verification]
+  V[Identity alignment and aggregate validation]
   Q[Legacy-compatible target quantiles]
   P[Within-quantile annotation sums x fitted tau vectors]
   O[quantile_h2.tsv + standardized_coefficients.tsv + diagnostics]

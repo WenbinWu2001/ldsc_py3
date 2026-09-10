@@ -3222,7 +3222,6 @@ def load_ldscore_from_dir(
         config_snapshot=config_snapshot,
         overlap=overlap,
         annotation_types={str(key): str(value) for key, value in (metadata.get("annotation_types") or {}).items()},
-        annotation_fingerprints=metadata.get("annotation_fingerprints"),
     )
     result.validate(require_query_alignment=False)
     query_rows = 0 if query_table is None else len(query_table)

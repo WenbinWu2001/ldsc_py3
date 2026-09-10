@@ -20,10 +20,6 @@ from scipy import stats
 
 from .errors import LDSCInputError
 from .annotation_builder import AnnotationBuilder
-from .annotation_semantics import (
-    FINGERPRINT_CANONICALIZATION,
-    build_annotation_fingerprint_metadata,
-)
 from .column_inference import (
     A1_COLUMN_SPEC,
     A2_COLUMN_SPEC,
@@ -637,7 +633,11 @@ def _alignment_issue_rows(
 
 
 def _prepare_quantile_inputs(args, model: FittedPartitionedModel):
-    """Reconstruct and verify fitted/target values over the inherited universe."""
+    """Align resupplied values and check stored counts and cross-products.
+
+    Aggregate agreement does not establish the original annotation value at
+    every SNP. A same-named target must still match the resupplied fitted values.
+    """
     ldscore_metadata = json.loads((model.ldscore_dir / "metadata.json").read_text(encoding="utf-8"))
     mode = str(ldscore_metadata.get("snp_identifier"))
     genome_build = ldscore_metadata.get("genome_build")
@@ -794,34 +794,6 @@ def _prepare_quantile_inputs(args, model: FittedPartitionedModel):
                 "quantile-h2 reconstructed fitted-annotation cross-products that disagree with the linked "
                 "LD-score overlap artifact. Resupply the exact original annotations and reference metadata."
             )
-    current_fingerprints = build_annotation_fingerprint_metadata(
-        common["effective_snp_id"], common.loc[:, model.annotation_names]
-    )
-    stored_fingerprints = ldscore_metadata.get("annotation_fingerprints")
-    verification_level = "aggregate_only"
-    if stored_fingerprints:
-        verification_level = "exact_common_values"
-        fingerprints_match = (
-            current_fingerprints["algorithm"] == stored_fingerprints.get("algorithm")
-            and current_fingerprints["canonicalization"] == stored_fingerprints.get("canonicalization")
-            and current_fingerprints["common_reference_snp_universe"]
-            == stored_fingerprints.get("common_reference_snp_universe")
-            and all(
-                current_fingerprints["annotation_values"][name]
-                == (stored_fingerprints.get("annotation_values") or {}).get(name)
-                for name in model.annotation_names
-            )
-        )
-        if not fingerprints_match:
-            raise LDSCInputError(
-                "quantile-h2 SHA256 semantic fingerprint mismatch for the common reference-SNP universe or fitted "
-                "annotation values. Resupply the exact inputs used to build the linked LD-score artifact."
-            )
-    else:
-        LOGGER.warning(
-            "Linked LD-score artifact has no annotation fingerprints; using aggregate-only verification. "
-            "Regenerate LD scores with the current package for exact common-value verification."
-        )
     if args.target_annotation in model.annotation_names:
         fitted_target = common[args.target_annotation].to_numpy(dtype=np.float64)
         external_target = common["target_value"].to_numpy(dtype=np.float64)
@@ -831,7 +803,7 @@ def _prepare_quantile_inputs(args, model: FittedPartitionedModel):
                 f"Target annotation '{args.target_annotation}' matches a fitted annotation name but its values differ. "
                 "Supply the same values or rename the external target annotation."
             )
-    return common, issues, ldscore_metadata, reference_paths, target_paths, verification_level, common_maf_min
+    return common, issues, ldscore_metadata, reference_paths, target_paths, common_maf_min
 
 
 class AlignmentError(LDSCInputError):
@@ -892,6 +864,8 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
     universe from the original annotation sources and reference metadata,
     assigns eligible SNPs to target-value quantiles, and projects the saved
     whole-data and delete-one-block coefficient vectors onto those quantiles.
+    Alignment, counts, and available overlap cross-products are checked; these
+    checks do not establish the original annotation value at every SNP.
     It does not refit LDSC. A successful overwrite removes the default plot
     root derived from the superseded quantile result.
 
@@ -930,7 +904,7 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
         )
         model = load_fitted_partitioned_model(args.partitioned_h2_result_dir)
         try:
-            common, issue_frames, ldscore_metadata, reference_paths, target_paths, verification_level, common_maf_min = (
+            common, issue_frames, ldscore_metadata, reference_paths, target_paths, common_maf_min = (
                 _prepare_quantile_inputs(args, model)
             )
         except AlignmentError as exc:
@@ -1005,8 +979,6 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
             "target_missing_value": args.target_missing_value,
             "num_quantiles": int(args.num_quantiles),
             "quantile_boundary_rule": "round_i_times_n_minus_1_over_q; lower_ties",
-            "verification_level": verification_level,
-            "fingerprint_canonicalization": FINGERPRINT_CANONICALIZATION,
             "enrichment_p_test": "two_sided_normal_inside_vs_complement",
             "tau_star_scale": "fixed_full_common_reference_snp_universe_total",
             "samp_prev": None if not np.isfinite(samp_prev) else float(samp_prev),
@@ -1014,13 +986,12 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
         }
         LOGGER.info(
             "Fitted model=%s; target=%s; common MAF rule=MAF >= %g; common reference-SNP universe=%d; "
-            "target missing exclusions=%d; verification=%s.",
+            "target missing exclusions=%d.",
             model.model_type,
             args.target_annotation,
             common_maf_min,
             len(common),
             int((~eligible).sum()),
-            verification_level,
         )
         for row in quantile_result.itertuples(index=False):
             LOGGER.info(

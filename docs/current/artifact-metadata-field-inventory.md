@@ -224,7 +224,6 @@ annotation columns; a single-annotation (e.g. base-only) run omits it.
 | `count_config` | Common-SNP count settings, including the actual threshold operator (`>=` for native LDSC3 computation; strict `>` for LDSC2 conversion). | Required to interpret count universes and checked against overlap metadata. |
 | `overlap_config` | Overlap-matrix provenance: `total_all_reference_snps`, `total_common_reference_snps`, `common_maf_min`, `common_maf_operator`, `stored_block`. `null` for single-annotation runs that write no overlap matrix. | Provides `M_tot` and the universe definition for overlap-aware partitioned-h2. |
 | `annotation_types` | Per-column `binary` or `quantitative` classification. | Interpretation and logging only; never changes fitting. |
-| `annotation_fingerprints` | SHA256 hashes for the ordered common reference-SNP universe and each fitted annotation's canonical float32 values. | Lets `quantile-h2` verify resupplied sources without storing annotation matrices. |
 | `n_baseline_rows` | Number of rows in the baseline parquet table. | Reporting. |
 | `n_query_rows` | Number of rows in the query parquet table, or zero. | Reporting. |
 | `row_group_layout` | Row-group strategy. | Reporting/technical provenance. |
@@ -328,7 +327,7 @@ quantile-h2/
     snp_alignment_issues.tsv.gz
 ```
 
-The root tables are scientific outputs. Diagnostic metadata records selected-model provenance, inherited common-MAF definition, target/reference sources, quantile and missing-token policies, verification level, and statistic definitions. The alignment table is always created with a stable schema; row-addressable exclusions and fatal identity/MAF problems are reported there.
+The root tables are scientific outputs. Diagnostic metadata records selected-model provenance, inherited common-MAF definition, target/reference sources, quantile and missing-token policies, and statistic definitions. The alignment table is always created with a stable schema; row-addressable exclusions and fatal identity/MAF problems are reported there.
 
 ### `rg`
 

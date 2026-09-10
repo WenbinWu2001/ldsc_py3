@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 import numpy as np
+import pandas as pd
 
 from ldsc.errors import LDSCInputError
 from ldsc.quantile_h2 import (
@@ -125,8 +126,6 @@ class QuantileH2NumericsTest(unittest.TestCase):
         self.assertTrue(math.isnan(result.loc[0, "tau_star_p"]))
 
     def test_loader_accepts_one_complete_per_query_model(self):
-        import pandas as pd
-
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             ldscore_dir = root / "ldscores"
@@ -166,122 +165,244 @@ class QuantileH2NumericsTest(unittest.TestCase):
             with self.assertRaisesRegex(LDSCInputError, "aggregate multi-query"):
                 load_fitted_partitioned_model(root)
 
+
+
+class QuantileH2WorkflowTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = self.root = Path(temporary.name)
+        ldscore_dir = root / "ldscores"
+        ldscore_dir.mkdir()
+        (ldscore_dir / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "artifact_type": "ldscore",
+                    "snp_identifier": "rsid",
+                    "genome_build": None,
+                    "baseline_columns": ["base", "cont"],
+                    "query_columns": [],
+                    "count_config": {
+                        "common_reference_snp_maf_min": 0.05,
+                        "common_reference_snp_maf_operator": ">=",
+                    },
+                    "overlap_config": {"total_all_reference_snps": 4, "total_common_reference_snps": 4},
+                    "files": {"overlap": "ldscore.overlap.parquet"},
+                    "counts": [
+                        {"column": "base", "common_reference_snp_count": 4.0},
+                        {"column": "cont", "common_reference_snp_count": 6.0},
+                    ],
+                    "annotation_types": {"base": "binary", "cont": "quantitative"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        fitted_dir = root / "fitted"
+        (fitted_dir / "diagnostics").mkdir(parents=True)
+        (fitted_dir / "diagnostics" / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "artifact_type": "partitioned_h2_result",
+                    "analysis_type": "functional_category",
+                    "ldscore_dir": str(ldscore_dir),
+                    "retained_ld_columns": ["base", "cont"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        pd.DataFrame(
+            {
+                "category": ["base", "cont"],
+                "coefficient": [0.05, 0.10],
+                "coefficient_se": [0.01, 0.02],
+                "samp_prev": [np.nan, np.nan],
+                "pop_prev": [np.nan, np.nan],
+            }
+        ).to_csv(fitted_dir / "partitioned_h2.tsv", sep="\t", index=False, na_rep="NaN")
+        pd.DataFrame(
+            {
+                "delete_block": [0, 1],
+                "base": np.array([0.04, 0.06], dtype=np.float64),
+                "cont": np.array([0.09, 0.11], dtype=np.float64),
+            }
+        ).to_parquet(fitted_dir / "diagnostics" / "coefficient_delete_values.parquet", index=False)
+        annot = root / "annotations.tsv"
+        annot.write_text(
+            "CHR\tPOS\tSNP\tCM\tbase\tcont\n"
+            "1\t10\trs1\t0\t1\t0\n"
+            "1\t20\trs2\t0\t1\t1\n"
+            "1\t30\trs3\t0\t1\t2\n"
+            "1\t40\trs4\t0\t1\t3\n",
+            encoding="utf-8",
+        )
+        target = root / "target.tsv"
+        target.write_text(
+            "CHR\tPOS\tSNP\ttarget\n"
+            "1\t10\trs1\t0\n"
+            "1\t20\trs2\t1\n"
+            "1\t30\trs3\t2\n"
+            "1\t40\trs4\t3\n",
+            encoding="utf-8",
+        )
+        reference = root / "ref.tsv"
+        reference.write_text(
+            "CHR\tPOS\tSNP\tMAF\n"
+            "1\t10\trs1\t0.2\n"
+            "1\t20\trs2\t0.2\n"
+            "1\t30\trs3\t0.2\n"
+            "1\t40\trs4\t0.2\n",
+            encoding="utf-8",
+        )
+        output = root / "quantile"
+        pd.DataFrame(
+            {
+                "row_annotation": ["base", "base", "cont", "cont"],
+                "col_annotation": ["base", "cont", "base", "cont"],
+                "overlap_all_snps": [4.0, 6.0, 6.0, 14.0],
+                "overlap_common_snps": [4.0, 6.0, 6.0, 14.0],
+            }
+        ).to_parquet(ldscore_dir / "ldscore.overlap.parquet", index=False)
+        self.args = Namespace(
+            partitioned_h2_result_dir=str(fitted_dir),
+            baseline_annot_sources=[str(annot)],
+            query_annot_sources=None,
+            query_annot_bed_sources=None,
+            query_annot_gene_list_sources=None,
+            gene_coordinate_file=None,
+            control_gene_list_file=None,
+            gene_list_resolution_policy="strict",
+            gene_exclude_regions="none",
+            padding_bp=0,
+            target_annot_sources=[str(target)],
+            target_annotation="target",
+            ref_metadata_sources=[str(reference)],
+            target_missing_value=None,
+            num_quantiles=2,
+            output_dir=str(output),
+            overwrite=False,
+            log_level="INFO",
+        )
+
     def test_baseline_only_workflow_writes_complete_result_family(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            ldscore_dir = root / "ldscores"
-            ldscore_dir.mkdir()
-            (ldscore_dir / "metadata.json").write_text(
-                json.dumps(
-                    {
-                        "artifact_type": "ldscore",
-                        "snp_identifier": "rsid",
-                        "genome_build": None,
-                        "baseline_columns": ["base", "cont"],
-                        "query_columns": [],
-                        "count_config": {
-                            "common_reference_snp_maf_min": 0.05,
-                            "common_reference_snp_maf_operator": ">=",
-                        },
-                        "overlap_config": {"total_common_reference_snps": 4},
-                        "counts": [
-                            {"column": "base", "common_reference_snp_count": 4.0},
-                            {"column": "cont", "common_reference_snp_count": 6.0},
-                        ],
-                        "annotation_types": {"base": "binary", "cont": "quantitative"},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            fitted_dir = root / "fitted"
-            (fitted_dir / "diagnostics").mkdir(parents=True)
-            (fitted_dir / "diagnostics" / "metadata.json").write_text(
-                json.dumps(
-                    {
-                        "artifact_type": "partitioned_h2_result",
-                        "analysis_type": "functional_category",
-                        "ldscore_dir": str(ldscore_dir),
-                        "retained_ld_columns": ["base", "cont"],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            import pandas as pd
+        result = run_quantile_h2_from_args(self.args)
+        output = Path(self.args.output_dir)
+        self.assertEqual(result.quantile_h2["n_snps"].tolist(), [3, 1])
+        self.assertTrue((output / "quantile_h2.tsv").is_file())
+        self.assertTrue((output / "standardized_coefficients.tsv").is_file())
+        self.assertTrue((output / "diagnostics" / "snp_alignment_issues.tsv.gz").is_file())
+        metadata = json.loads((output / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(metadata["artifact_type"], "quantile_h2_result")
+        self.assertNotIn("verification_level", metadata)
+        self.assertNotIn("fingerprint_canonicalization", metadata)
+        log = (output / "diagnostics" / "quantile-h2.log").read_text(encoding="utf-8")
+        self.assertNotIn("fingerprint", log.lower())
+        np.testing.assert_allclose(result.quantile_h2["h2_obs"], [0.45, 0.35])
 
-            pd.DataFrame(
-                {
-                    "category": ["base", "cont"],
-                    "coefficient": [0.05, 0.10],
-                    "coefficient_se": [0.01, 0.02],
-                    "samp_prev": [np.nan, np.nan],
-                    "pop_prev": [np.nan, np.nan],
-                }
-            ).to_csv(fitted_dir / "partitioned_h2.tsv", sep="\t", index=False, na_rep="NaN")
-            pd.DataFrame(
-                {
-                    "delete_block": [0, 1],
-                    "base": np.array([0.04, 0.06], dtype=np.float64),
-                    "cont": np.array([0.09, 0.11], dtype=np.float64),
-                }
-            ).to_parquet(fitted_dir / "diagnostics" / "coefficient_delete_values.parquet", index=False)
-            annot = root / "annotations.tsv"
-            annot.write_text(
-                "CHR\tPOS\tSNP\tCM\tbase\tcont\n"
-                "1\t10\trs1\t0\t1\t0\n"
-                "1\t20\trs2\t0\t1\t1\n"
-                "1\t30\trs3\t0\t1\t2\n"
-                "1\t40\trs4\t0\t1\t3\n",
-                encoding="utf-8",
-            )
-            target = root / "target.tsv"
-            target.write_text(
-                "CHR\tPOS\tSNP\ttarget\n"
-                "1\t10\trs1\t0\n"
-                "1\t20\trs2\t1\n"
-                "1\t30\trs3\t2\n"
-                "1\t40\trs4\t3\n",
-                encoding="utf-8",
-            )
-            reference = root / "ref.tsv"
-            reference.write_text(
-                "CHR\tPOS\tSNP\tMAF\n"
-                "1\t10\trs1\t0.2\n"
-                "1\t20\trs2\t0.2\n"
-                "1\t30\trs3\t0.2\n"
-                "1\t40\trs4\t0.2\n",
-                encoding="utf-8",
-            )
-            output = root / "quantile"
-            result = run_quantile_h2_from_args(
-                Namespace(
-                    partitioned_h2_result_dir=str(fitted_dir),
-                    baseline_annot_sources=[str(annot)],
-                    query_annot_sources=None,
-                    query_annot_bed_sources=None,
-                    query_annot_gene_list_sources=None,
-                    gene_coordinate_file=None,
-                    control_gene_list_file=None,
-                    gene_list_resolution_policy="strict",
-                    gene_exclude_regions="none",
-                    padding_bp=0,
-                    target_annot_sources=[str(target)],
-                    target_annotation="target",
-                    ref_metadata_sources=[str(reference)],
-                    target_missing_value=None,
-                    num_quantiles=2,
-                    output_dir=str(output),
-                    overwrite=False,
-                    log_level="INFO",
-                )
-            )
+    def test_aggregate_preserving_value_reassignment_is_accepted(self):
+        path = self.root / "annotations.tsv"
+        annotations = pd.read_csv(path, sep="\t")
+        # Reassign values to SNPs while preserving sums and the full Gram matrix.
+        annotations["cont"] = [3, 2, 1, 0]
+        annotations.to_csv(path, sep="\t", index=False)
 
-            self.assertEqual(result.quantile_h2["n_snps"].tolist(), [3, 1])
-            self.assertTrue((output / "quantile_h2.tsv").is_file())
-            self.assertTrue((output / "standardized_coefficients.tsv").is_file())
-            self.assertTrue((output / "diagnostics" / "snp_alignment_issues.tsv.gz").is_file())
-            metadata = json.loads((output / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["artifact_type"], "quantile_h2_result")
-            self.assertEqual(metadata["verification_level"], "aggregate_only")
+        result = run_quantile_h2_from_args(self.args)
+
+        self.assertEqual(result.quantile_h2["n_snps"].tolist(), [3, 1])
+        np.testing.assert_allclose(result.quantile_h2["h2_obs"], [0.75, 0.05])
+        self.assertAlmostEqual(result.quantile_h2["h2_obs"].sum(), 0.8)
+
+    def test_reordered_source_rows_keep_values_aligned(self):
+        for filename in ("annotations.tsv", "target.tsv", "ref.tsv"):
+            path = self.root / filename
+            frame = pd.read_csv(path, sep="\t")
+            frame.iloc[::-1].to_csv(path, sep="\t", index=False)
+
+        result = run_quantile_h2_from_args(self.args)
+
+        np.testing.assert_allclose(result.quantile_h2["h2_obs"], [0.45, 0.35])
+
+    def test_annotation_sum_mismatch_is_rejected(self):
+        path = self.root / "annotations.tsv"
+        annotations = pd.read_csv(path, sep="\t")
+        annotations["cont"] = [0, 1, 2, 4]
+        annotations.to_csv(path, sep="\t", index=False)
+
+        with self.assertRaisesRegex(LDSCInputError, "annotation 'cont'.*sum 7.0, expected 6.0"):
+            run_quantile_h2_from_args(self.args)
+
+    def test_overlap_mismatch_with_matching_sums_is_rejected(self):
+        path = self.root / "annotations.tsv"
+        annotations = pd.read_csv(path, sep="\t")
+        annotations["cont"] = [0, 0, 3, 3]
+        annotations.to_csv(path, sep="\t", index=False)
+
+        with self.assertRaisesRegex(LDSCInputError, "cross-products.*disagree"):
+            run_quantile_h2_from_args(self.args)
+
+    def test_both_snp_universe_counts_are_checked(self):
+        path = self.root / "ldscores" / "metadata.json"
+        original = path.read_text(encoding="utf-8")
+        for universe in ("all", "common"):
+            with self.subTest(universe=universe):
+                metadata = json.loads(original)
+                metadata["overlap_config"][f"total_{universe}_reference_snps"] = 5
+                path.write_text(json.dumps(metadata), encoding="utf-8")
+                self.args.output_dir = str(self.root / universe)
+                with self.assertRaisesRegex(LDSCInputError, f"different {universe}.*universe size"):
+                    run_quantile_h2_from_args(self.args)
+
+    def test_duplicate_reference_and_target_identities_are_rejected(self):
+        for filename in ("ref.tsv", "target.tsv"):
+            with self.subTest(source=filename):
+                path = self.root / filename
+                original = path.read_text(encoding="utf-8")
+                frame = pd.read_csv(path, sep="\t")
+                pd.concat([frame, frame.iloc[[0]]]).to_csv(path, sep="\t", index=False)
+                self.args.output_dir = str(self.root / filename.replace(".tsv", "_duplicate"))
+                with self.assertRaisesRegex(LDSCInputError, "duplicate effective SNP identities"):
+                    run_quantile_h2_from_args(self.args)
+                path.write_text(original, encoding="utf-8")
+
+    def test_missing_target_row_is_rejected(self):
+        path = self.root / "target.tsv"
+        target = pd.read_csv(path, sep="\t")
+        target.iloc[:-1].to_csv(path, sep="\t", index=False)
+
+        with self.assertRaisesRegex(LDSCInputError, "does not cover the common reference-SNP universe"):
+            run_quantile_h2_from_args(self.args)
+        issues = pd.read_csv(
+            Path(self.args.output_dir) / "diagnostics" / "snp_alignment_issues.tsv.gz", sep="\t"
+        )
+        self.assertEqual(issues["SNP"].tolist(), ["rs4"])
+        self.assertEqual(issues["issue"].tolist(), ["missing_target_annotation"])
+
+    def test_same_named_fitted_target_values_must_match(self):
+        path = self.root / "target.tsv"
+        target = pd.read_csv(path, sep="\t").rename(columns={"target": "cont"})
+        target["cont"] = [3, 2, 1, 0]
+        target.to_csv(path, sep="\t", index=False)
+        self.args.target_annotation = "cont"
+
+        with self.assertRaisesRegex(LDSCInputError, "matches a fitted annotation name but its values differ"):
+            run_quantile_h2_from_args(self.args)
+
+    def test_matching_fitted_target_is_accepted(self):
+        self.args.target_annotation = "cont"
+        self.args.target_annot_sources = self.args.baseline_annot_sources
+
+        result = run_quantile_h2_from_args(self.args)
+
+        np.testing.assert_allclose(result.quantile_h2["h2_obs"], [0.45, 0.35])
+
+    def test_counts_are_usable_without_an_overlap_artifact(self):
+        path = self.root / "ldscores" / "metadata.json"
+        metadata = json.loads(path.read_text(encoding="utf-8"))
+        metadata["files"] = {}
+        path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        result = run_quantile_h2_from_args(self.args)
+
+        np.testing.assert_allclose(result.quantile_h2["h2_obs"], [0.45, 0.35])
 
 
 if __name__ == "__main__":

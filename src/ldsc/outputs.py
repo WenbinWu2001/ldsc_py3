@@ -713,7 +713,6 @@ class LDScoreDirectoryWriter:
                     ]
                 }
             ),
-            "annotation_fingerprints": getattr(result, "annotation_fingerprints", None),
             "counts": list(getattr(result, "count_records", [])),
             "count_config": dict(getattr(result, "count_config", None) or DEFAULT_COUNT_CONFIG),
             "overlap_config": overlap_config,

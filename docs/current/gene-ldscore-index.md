@@ -208,7 +208,7 @@ incremental appearance of chromosome shards in a private run stage is only a
 memory and durability strategy; it is not restart, resume, checkpoint reuse,
 or incremental index-update support.
 
-Online assembly and direct gene-list workflows share `query_annotations.assess_gene_coverage()`, `gene_query_statuses()`, `gene_viability_errors()`, and `finalize_query_statuses()`. Indexed support comes from gene-to-atom counts; direct support comes from the prepared reference/annotation intersection. Shared finalization prunes query tables, counts, overlap blocks, chromosome results, classification metadata, and fingerprints together. Online outputs include `diagnostics/chromosome_scope.json`; invalid indexes produce `diagnostics/input_issues.tsv` in the requested LD-score output directory without altering the index.
+Online assembly and direct gene-list workflows share `query_annotations.assess_gene_coverage()`, `gene_query_statuses()`, `gene_viability_errors()`, and `finalize_query_statuses()`. Indexed support comes from gene-to-atom counts; direct support comes from the prepared reference/annotation intersection. Shared finalization prunes query tables, counts, overlap blocks, chromosome results, and classification metadata together. Online outputs include `diagnostics/chromosome_scope.json`; invalid indexes produce `diagnostics/input_issues.tsv` in the requested LD-score output directory without altering the index.
 
 ## Output preflight, logging, and replacement
 

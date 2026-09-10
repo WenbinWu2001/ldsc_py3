@@ -47,7 +47,9 @@ No target value is excluded by default. A nonnumeric, `NaN`, or infinite target 
 
 ## Reconstruction and provenance checks
 
-The workflow inherits the linked LD-score artifact's inclusive common-MAF threshold; it has no common-MAF override. It validates effective SNP identity, duplicate rows, reference/annotation intersections, common reference-SNP universe size, fitted annotation sums, and available overlap cross-products. New LD-score artifacts also store compact SHA256 semantic fingerprints for the ordered common reference-SNP universe and each fitted annotation's float32 values. These hashes provide exact resupply verification without retaining annotation matrices. Older artifacts fall back to aggregate-only checks and emit a warning.
+The workflow inherits the linked LD-score artifact's inclusive common-MAF threshold; it has no common-MAF override. It validates effective SNP identity, duplicate rows, reference/annotation intersections, recorded all-reference and common reference-SNP universe sizes, recorded common-SNP fitted annotation sums, and available overlap cross-products. Aggregate comparisons retain `rtol=1e-6` and `atol=1e-8`. A target whose name matches a fitted annotation must match that resupplied fitted column's float32 values on target-eligible SNPs.
+
+These checks establish alignment among resupplied sources and agreement with the available stored aggregate statistics. They do not establish the original annotation value at every SNP: value reassignments that preserve the checked sums and cross-products can pass and change the quantile projections. Resupply the original sources even when alternative sources pass validation. See `quantile_h2._prepare_quantile_inputs()` for the validation sequence.
 
 Rows outside an otherwise valid intersection are recorded as exclusions. Duplicate identities, missing target coverage on the common universe, invalid MAF, and provenance mismatches are fatal. Row-addressable issues are written to `diagnostics/snp_alignment_issues.tsv.gz` even when the run fails.
 
@@ -73,4 +75,4 @@ When that contrast has zero or missing jackknife SE, `enrichment_p` is `NaN`. `c
 
 `quantile_h2.tsv` contains `quantile`, target bounds, `n_snps`, `prop_snps`, observed/liability `h2` and SE, `prop_h2` and SE, `enrichment` and SE, and `enrichment_p`. Liability fields are `NaN` unless the fitted regression recorded both prevalences. `standardized_coefficients.tsv` contains every fitted annotation's classification, SD, `tau`, SE, z, two-sided p-value, and corresponding `tau_star` fields.
 
-`diagnostics/metadata.json` records the selected model, linked LD-score directory, target and reference sources, inherited common-MAF rule, common and eligible SNP counts, missing-token policy, quantile rule, verification level, and statistic definitions.
+`diagnostics/metadata.json` records the selected model, linked LD-score directory, target and reference sources, inherited common-MAF rule, common and eligible SNP counts, missing-token policy, quantile rule, and statistic definitions.

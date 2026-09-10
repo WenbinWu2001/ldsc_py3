@@ -170,7 +170,7 @@ under that directory's `diagnostics/` tree.
 its destination from an existing h2 result. `plot` does the same for any
 supported result suite.
 
-LD-score logs list binary and quantitative fitted annotations. Partitioned-h2 logs repeat an actionable interpretation warning when quantitative annotations are present: legacy numerical proportion/enrichment summaries remain visible, but only coefficient-based fields retain their ordinary interpretation for those annotations. Quantile-h2 logs the selected fitted model, target, inherited common-MAF rule, common reference-SNP universe size, missing exclusions, verification level, and realized quantile bounds/counts. Row-addressable alignment issues are written to `snp_alignment_issues.tsv.gz` rather than expanded into the log.
+LD-score logs list binary and quantitative fitted annotations. Partitioned-h2 logs repeat an actionable interpretation warning when quantitative annotations are present: legacy numerical proportion/enrichment summaries remain visible, but only coefficient-based fields retain their ordinary interpretation for those annotations. Quantile-h2 logs the selected fitted model, target, inherited common-MAF rule, common reference-SNP universe size, missing exclusions, and realized quantile bounds/counts. Row-addressable alignment issues are written to `snp_alignment_issues.tsv.gz` rather than expanded into the log.
 
 ## Exact gene-index build log
 

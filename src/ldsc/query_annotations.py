@@ -227,13 +227,6 @@ def finalize_query_statuses(
         query_statuses=tuple(finalized),
         annotation_types={name: kind for name, kind in result.annotation_types.items()
                           if name in [*result.baseline_columns, *retained_queries]},
-        annotation_fingerprints=(
-            None if result.annotation_fingerprints is None else {
-                **result.annotation_fingerprints,
-                "annotation_values": {name: value for name, value in result.annotation_fingerprints["annotation_values"].items()
-                                      if name in [*result.baseline_columns, *retained_queries]},
-            }
-        ),
     )
     finalized_result.validate()
     return finalized_result
@@ -288,10 +281,6 @@ def _select_chromosome_result_queries(
         overlap=overlap,
         annotation_types={name: kind for name, kind in result.annotation_types.items()
                           if name in [*result.baseline_columns, *retained]},
-        common_annotation_values=result.common_annotation_values.loc[:, [
-            name for name in result.common_annotation_values.columns
-            if name == "effective_snp_id" or name in [*result.baseline_columns, *retained]
-        ]].copy(),
     )
     selected.validate()
     return selected

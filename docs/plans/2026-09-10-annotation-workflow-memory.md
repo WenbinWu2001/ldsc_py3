@@ -2,7 +2,7 @@
 
 Last updated on: 2026-09-10
 
-Status: execution plan ready; implementation not started. The complete design was confirmed on 2026-09-10. This plan guides the current or continuing implementation effort once implementation is requested.
+Status: implementation in progress. The complete design was confirmed on 2026-09-10 and implementation was authorized afterward. Design documentation was committed as `56d426a`.
 
 Reference specification: [annotation and workflow memory optimization](../specs/2026-09-10-annotation-workflow-memory-design.md). Confirmed scope and decisions are recorded in [annotation memory decisions](../current/annotation-memory-decisions.md); standalone gene-list behavior is governed by [annotate gene-list decisions](../current/annotate-gene-list-decisions.md), especially its condition–outcome table. Keep this plan current as implementation evidence becomes available.
 
@@ -57,7 +57,9 @@ Follow the numbered order below by default. Slice 1 establishes common storage/l
 
 ### 1. Establish bounded annotation preparation and ownership
 
-Status: not started. This supplies the shared foundation for all later slices.
+Status: shared storage and preparation primitives implemented and verified; public workflow migration remains in slices 2–4 and 6. The original whole-genome bundle remains only on unmigrated paths during the agreed expand–migrate–contract sequence.
+
+Evidence: the independent source-to-selected-read tests cover both layouts, aligned column sources, cross-chunk/cross-chromosome duplicates, allele cleanup, detached reads, float64 target preservation, and owner closure. The focused annotation/storage/identity check passed 110 tests and 27 subtests. Before code changes, the full baseline passed 1,409 tests with one skip and 132 subtests. The [storage pilot](../audits/annotation-memory/progress.md) records memory, preparation runtime, and private disk separately; broader command benchmarks remain pending.
 
 Likely areas: [annotation_builder.py](../../src/ldsc/annotation_builder.py), [config.py](../../src/ldsc/config.py), [_ldscore_preflight.py](../../src/ldsc/_ldscore_preflight.py), [snp_identity.py](../../src/ldsc/_kernel/snp_identity.py), annotation parsing and path/identity helpers, and a narrowly scoped shared storage module if the approved interface needs one.
 

@@ -1,0 +1,9 @@
+{
+  "revision": "a505c45d61d35b39a3fc086c2b623dd7d6936d96",
+  "workload": "annotation preparation: 6000 SNPs, 3 chromosomes, 2 baseline and 1000 query columns, whole-genome gzip inputs",
+  "wall_seconds": 0.3333403749857098,
+  "peak_rss_bytes": 477347840,
+  "temporary_disk_bytes": 0,
+  "n_snps": 6000,
+  "n_queries": 1000
+}

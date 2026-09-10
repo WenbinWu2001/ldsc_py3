@@ -1,0 +1,10 @@
+{
+  "implementation": "bounded preparation pilot",
+  "workload": "same 6000-SNP / 1000-query inputs as baseline-annotation.json",
+  "wall_seconds": 0.9912376671563834,
+  "selected_read_seconds": 0.2763392908964306,
+  "peak_rss_bytes": 367542272,
+  "peak_temporary_disk_bytes_sampled": 41334521,
+  "n_snps": 6000,
+  "n_queries": 1000
+}

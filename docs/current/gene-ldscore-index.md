@@ -288,3 +288,5 @@ policy select persisted rows and `regression_ld_scores` contributors.
 
 See also the task-oriented [build guide](../wiki/utility-functionalities/build-gene-ldscore-index.md)
 and [indexed LD-score guide](../wiki/main-functionalities/ldscore-from-gene-list.md).
+
+The build lifecycle retains preceding/current lock coordination in `_gene_index_build_lock` and recognized old-log archival in `_migrate_legacy_gene_index_build_state`. This protects destinations that may still have an earlier writer and preserves operational history. Active build-state locking, validated publication, and interrupted-publication recovery remain required; these are not unused runtime helpers.

@@ -46,6 +46,7 @@ from ._kernel.gene_ldscore_index import (
     map_snps_to_atoms,
     assemble_atom_selector,
     assemble_indexed_ld_scores,
+    assemble_selected_atom_statistics,
     validate_ldscore_operator,
 )
 from ._kernel.regions import RegionIntervals
@@ -1972,34 +1973,30 @@ def run_indexed_ldscore(
         baseline_count_common[:b] += record.baseline_count_common
         block_all[:b, :b] += record.baseline_overlap_all
         block_common[:b, :b] += record.baseline_overlap_common
-        atom_all = record.atom_statistics.atom_count_all.astype(np.float64)
-        atom_common = record.atom_statistics.atom_count_common.astype(np.float64)
-        baseline_atom_all = record.atom_statistics.baseline_atom_overlap_all
-        baseline_atom_common = record.atom_statistics.baseline_atom_overlap_common
         if control_selector is not None:
-            control_pos = b
-            baseline_count_all[control_pos] += atom_all @ control_selector
-            baseline_count_common[control_pos] += atom_common @ control_selector
-            base_control_all = baseline_atom_all @ control_selector.astype(np.float64)
-            base_control_common = baseline_atom_common @ control_selector.astype(np.float64)
-            block_all[:b, control_pos] += base_control_all
-            block_all[control_pos, :b] += base_control_all
-            block_common[:b, control_pos] += base_control_common
-            block_common[control_pos, :b] += base_control_common
-            block_all[control_pos, control_pos] += atom_all @ control_selector
-            block_common[control_pos, control_pos] += atom_common @ control_selector
+            control = assemble_selected_atom_statistics(record.atom_statistics, control_selector)
+            baseline_count_all[b] += control.count_all
+            baseline_count_common[b] += control.count_common
+            block_all[:b, b] += control.baseline_overlap_all
+            block_all[b, :b] += control.baseline_overlap_all
+            block_common[:b, b] += control.baseline_overlap_common
+            block_common[b, :b] += control.baseline_overlap_common
+            block_all[b, b] += control.count_all
+            block_common[b, b] += control.count_common
         for query_pos, selector in enumerate(selectors):
+            selected = assemble_selected_atom_statistics(
+                record.atom_statistics, selector, control_selector=control_selector,
+            )
             column_pos = len(baseline_columns) + query_pos
-            query_count_all[query_pos] += atom_all @ selector
-            query_count_common[query_pos] += atom_common @ selector
-            query_diag_all[query_pos] += atom_all @ selector
-            query_diag_common[query_pos] += atom_common @ selector
-            block_all[:b, column_pos] += baseline_atom_all @ selector.astype(np.float64)
-            block_common[:b, column_pos] += baseline_atom_common @ selector.astype(np.float64)
+            query_count_all[query_pos] += selected.count_all
+            query_count_common[query_pos] += selected.count_common
+            query_diag_all[query_pos] += selected.count_all
+            query_diag_common[query_pos] += selected.count_common
+            block_all[:b, column_pos] += selected.baseline_overlap_all
+            block_common[:b, column_pos] += selected.baseline_overlap_common
             if control_selector is not None:
-                intersection = selector & control_selector
-                block_all[b, column_pos] += atom_all @ intersection
-                block_common[b, column_pos] += atom_common @ intersection
+                block_all[b, column_pos] += selected.control_overlap_all
+                block_common[b, column_pos] += selected.control_overlap_common
         total_all += record.total_reference_snps_all
         total_common += record.total_reference_snps_common
 

@@ -10,7 +10,6 @@ from ldsc._kernel.gene_ldscore_index import (
     assemble_atom_selector,
     assemble_indexed_ld_scores,
     assemble_selected_atom_statistics,
-    assemble_snp_annotation,
     build_disjoint_atoms,
     compute_atom_statistics,
     iter_snp_atom_blocks,
@@ -53,7 +52,8 @@ def test_disjoint_atoms_reproduce_boolean_interval_unions():
     snp_pos0 = np.array([0, 4, 5, 6, 7, 8, 9, 10, 14, 15, 19, 20, 25])
     snp_atoms = map_snps_to_atoms(snp_pos0, model)
     selector = assemble_atom_selector(model.gene_to_atom, [0, 1, 0])
-    actual = assemble_snp_annotation(snp_atoms, selector)
+    # Independent reconstruction on the SNP grid, without production scattering.
+    actual = np.array([atom >= 0 and selector[atom] for atom in snp_atoms], dtype=bool)
     expected = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0], dtype=bool)
     np.testing.assert_array_equal(actual, expected)
     assert actual.max(initial=False) <= 1

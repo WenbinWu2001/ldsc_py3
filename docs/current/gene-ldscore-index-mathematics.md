@@ -1,6 +1,6 @@
 # Exact gene LD-score index: mathematical algorithm
 
-Last updated on: 2026-08-16
+Last updated on: 2026-09-10
 
 This document gives the input-to-output mathematical specification for the
 exact gene-list index used by `ldsc ldscore`. It describes the online indexed
@@ -444,3 +444,7 @@ tolerance of $10^{-7}$.
   [`src/ldsc/gene_ldscore_index.py`](../../src/ldsc/gene_ldscore_index.py)
 - Atom construction and matrix kernels:
   [`src/ldsc/_kernel/gene_ldscore_index.py`](../../src/ldsc/_kernel/gene_ldscore_index.py)
+
+## Computation and verification seams
+
+`ldsc._kernel.gene_ldscore_index.assemble_selected_atom_statistics` assembles the counts and baseline/control overlaps consumed by `run_indexed_ldscore`. SNP-grid reconstruction is a test oracle, not a second runtime implementation. `tests/test_gene_ldscore_index_kernel.py` checks hand-computed counts/overlaps and reconstructs interval-union membership independently; `tests/test_gene_ldscore_index.py` checks live-versus-indexed outputs.

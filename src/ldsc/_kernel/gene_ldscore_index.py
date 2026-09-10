@@ -167,16 +167,6 @@ def assemble_atom_selector(
     return np.asarray(gene_to_atom[rows].max(axis=0).toarray()).reshape(-1).astype(bool)
 
 
-def assemble_snp_annotation(snp_atom_indices: np.ndarray, atom_selector: np.ndarray) -> np.ndarray:
-    """Scatter one selected-atom vector to the retained reference-SNP grid."""
-    mapped = np.asarray(snp_atom_indices, dtype=np.int32)
-    selector = np.asarray(atom_selector, dtype=bool)
-    annotation = np.zeros(len(mapped), dtype=bool)
-    inside = mapped >= 0
-    if np.any(mapped[inside] >= len(selector)):
-        raise LDSCInternalError("SNP-to-atom mapping references an undeclared atom.")
-    annotation[inside] = selector[mapped[inside]]
-    return annotation
 
 
 def iter_snp_atom_blocks(

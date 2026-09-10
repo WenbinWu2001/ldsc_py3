@@ -3,12 +3,10 @@ import contextlib
 import gzip
 import importlib.util
 import io
-import json
 import sys
 import tempfile
 import unittest
 import warnings
-from argparse import Namespace
 from unittest import mock
 
 import numpy as np
@@ -27,6 +25,7 @@ try:
     import ldsc
     from ldsc import sumstats_munger as sumstats_workflow
     from ldsc._kernel import sumstats_munger as kernel_munge
+    from ldsc import _sumstats_input as munge_input
     from ldsc._kernel.snp_identity import IDENTITY_DROP_COLUMNS
     from ldsc.sumstats_munger import SumstatsMunger
 except ImportError:
@@ -333,20 +332,24 @@ class SumstatsMungerTest(unittest.TestCase):
                 use_hm3_quick_liftover=True,
             )
 
-    def test_kernel_reports_actionable_signed_sumstats_format_error(self):
-        args = kernel_munge.parser.parse_args(["--signed-sumstats", "BETA"])
-
-        with self.assertRaisesRegex(ldsc.LDSCUsageError, "could not parse --signed-sumstats='BETA'.*BETA,0"):
-            kernel_munge.parse_flag_cnames(args)
+    def test_workflow_reports_actionable_signed_sumstats_format_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            raw_path = Path(tmpdir) / "raw.tsv"
+            self._write_raw_sumstats(raw_path)
+            with self.assertRaisesRegex(ldsc.LDSCUsageError, "could not parse --signed-sumstats='BETA'.*BETA,0"):
+                SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path, output_dir=Path(tmpdir) / "out", signed_sumstats_spec="BETA"),
+                    global_config=GlobalConfig(snp_identifier="rsid"),
+                )
 
     def test_kernel_p_to_z_matches_legacy_direction_convention(self):
         z = kernel_munge.p_to_z(pd.Series([0.1, 0.1, 0.1]), pd.Series([1, 2, 3]))
         np.testing.assert_allclose(np.asarray(z), [1.644854, 1.644854, 1.644854], atol=1e-5)
 
     def test_kernel_filters_reject_invalid_p_info_frq_and_alleles(self):
-        args = kernel_munge.parser.parse_args("")
+        args = kernel_munge.MungeQC()
         assert_series_equal(
-            kernel_munge.filter_pvals(pd.Series([0, 0.1, 1, 2]), args),
+            kernel_munge.filter_pvals(pd.Series([0, 0.1, 1, 2])),
             pd.Series([False, True, True, False]),
         )
         assert_series_equal(
@@ -363,8 +366,7 @@ class SumstatsMungerTest(unittest.TestCase):
         )
 
     def test_kernel_filter_frq_is_inclusive_at_maf_min(self):
-        args = kernel_munge.parser.parse_args("")
-        args.maf_min = 0.01
+        args = kernel_munge.MungeQC()
         # Folded MAF exactly at the floor is kept (inclusive >=); just below is dropped.
         assert_series_equal(
             kernel_munge.filter_frq(pd.Series([0.0099, 0.01, 0.9901]), args),
@@ -456,14 +458,7 @@ class SumstatsMungerTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             keep_path = tmpdir / "keep.tsv"
             keep_path.write_text("SNP\tA1\tA2\nrs1\tA\tC\n", encoding="utf-8")
-            args = Namespace(
-                sumstats_snps=str(keep_path),
-                snp_identifier="rsid_allele_aware",
-                genome_build=None,
-                _coordinate_metadata={},
-            )
-
-            restriction = kernel_munge._prepare_sumstats_restriction(args)
+            restriction = kernel_munge.prepare_sumstats_restriction(str(keep_path), "rsid_allele_aware", None)
 
             self.assertEqual(restriction.identity_keys.match_kind, "identity")
             self.assertEqual(restriction.identity_keys.keys, {"rs1:A:C"})
@@ -524,28 +519,15 @@ class SumstatsMungerTest(unittest.TestCase):
                 normalized["POS"] = pd.to_numeric(normalized["POS"], errors="raise").astype(int) + 1
                 return normalized, inference
 
-            def assert_auto_resolved_before_parse(dat_gen, convert_colname, args, **_kwargs):
-                self.assertEqual(args.genome_build, "hg19")
-                self.assertEqual(args._coordinate_metadata["genome_build"], "hg19")
-                self.assertTrue(args._coordinate_metadata["genome_build_inferred"])
-                self.assertEqual(args._coordinate_metadata["coordinate_basis"], "0-based")
-                args._coordinates_finalized_chunkwise = True
-                args._coordinate_drop_counts = kernel_munge._empty_coordinate_drop_counts()
-                args._coordinate_drop_counts.update({"n_input": 1, "n_retained": 1})
-                return pd.DataFrame(
-                    {
-                        "SNP": ["rs1"],
-                        "CHR": ["1"],
-                        "POS": [100],
-                        "A1": ["A"],
-                        "A2": ["G"],
-                        "P": [0.05],
-                        "SIGNED_SUMSTAT": [0.1],
-                        "N": [1000.0],
-                    }
-                )
+            original_parse = kernel_munge.parse_dat
 
-            with mock.patch.object(kernel_munge, "resolve_chr_pos_table", side_effect=fake_resolve_chr_pos_table), \
+            def assert_auto_resolved_before_parse(dat_gen, request):
+                self.assertEqual(request.genome_build, "hg19")
+                self.assertTrue(request.coordinate_metadata["genome_build_inferred"])
+                self.assertEqual(request.coordinate_basis, "0-based")
+                return original_parse(dat_gen, request)
+
+            with mock.patch.object(munge_input, "resolve_chr_pos_table", side_effect=fake_resolve_chr_pos_table), \
                  mock.patch.object(kernel_munge, "parse_dat", side_effect=assert_auto_resolved_before_parse):
                 table = SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
@@ -894,12 +876,11 @@ class SumstatsMungerTest(unittest.TestCase):
             (output_dir / "sumstats.log").write_text("legacy log\n", encoding="utf-8")
             (root_drop_dir / "dropped.tsv.gz").write_text("legacy drops\n", encoding="utf-8")
 
-            with mock.patch.object(kernel_munge, "munge_sumstats", return_value=self._fake_munged_frame()):
-                SumstatsMunger().run(
-                    MungeConfig(raw_sumstats_file=raw_path),
-                    MungeConfig(output_dir=output_dir, output_format="tsv.gz"),
-                    GlobalConfig(snp_identifier="rsid"),
-                )
+            SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path),
+                MungeConfig(output_dir=output_dir, output_format="tsv.gz"),
+                GlobalConfig(snp_identifier="rsid"),
+            )
 
             self.assertEqual((output_dir / "sumstats.log").read_text(encoding="utf-8"), "legacy log\n")
             self.assertEqual((root_drop_dir / "dropped.tsv.gz").read_text(encoding="utf-8"), "legacy drops\n")
@@ -988,7 +969,10 @@ class SumstatsMungerTest(unittest.TestCase):
                 }
             )
 
-            with mock.patch.object(kernel_munge, "munge_sumstats", return_value=returned):
+            with mock.patch.object(kernel_munge, "munge_sumstats", return_value=kernel_munge.MungeResult(
+                returned, len(returned), {}, "input_columns",
+                {"snp_identifier": "chr_pos", "genome_build": "hg38"}, pd.DataFrame(), pd.DataFrame(),
+            )):
                 SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=str(raw_path), trait_name="trait"),
                     MungeConfig(
@@ -1019,23 +1003,12 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path = tmpdir / "raw.tsv"
             raw_path.write_text("CHR POS SNP A1 A2 P BETA N\n1 100 rs1 A G 0.05 0.1 1000\n", encoding="utf-8")
 
-            def fake_munge(args, p=False):
-                args._coordinate_metadata = {
-                    "snp_identifier": "chr_pos",
-                    "genome_build": "hg38",
-                    "genome_build_inferred": False,
-                    "coordinate_basis": "1-based",
-                }
-                return pd.DataFrame(
-                    {"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "A1": ["A"], "A2": ["G"], "Z": [1.0], "N": [1000.0]}
-                )
 
-            with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=fake_munge):
-                SumstatsMunger().run(
-                    MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                    MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
-                    GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                )
+            SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+            )
 
             import pyarrow.parquet as pq
 
@@ -1089,16 +1062,12 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path = tmpdir / "raw.tsv"
             self._write_raw_sumstats(raw_path)
 
-            def fake_munge(args, p=False):
-                args._coordinate_metadata = {}
-                return self._fake_munged_frame()
 
-            with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=fake_munge):
-                SumstatsMunger().run(
-                    MungeConfig(raw_sumstats_file=raw_path),
-                    MungeConfig(output_dir=tmpdir / "munged", output_format="tsv.gz"),
-                    GlobalConfig(snp_identifier="rsid"),
-                )
+            SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path),
+                MungeConfig(output_dir=tmpdir / "munged", output_format="tsv.gz"),
+                GlobalConfig(snp_identifier="rsid"),
+            )
 
             sidecar = tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
             self.assertTrue(sidecar.exists())
@@ -1114,12 +1083,11 @@ class SumstatsMungerTest(unittest.TestCase):
             self._write_raw_sumstats(raw_path)
             munger = SumstatsMunger()
 
-            with mock.patch.object(kernel_munge, "munge_sumstats", return_value=self._fake_munged_frame()):
-                table = munger.run(
-                    MungeConfig(raw_sumstats_file=raw_path),
-                    MungeConfig(output_dir=tmpdir / "munged", output_format="tsv.gz"),
-                    GlobalConfig(snp_identifier="rsid"),
-                )
+            table = munger.run(
+                MungeConfig(raw_sumstats_file=raw_path),
+                MungeConfig(output_dir=tmpdir / "munged", output_format="tsv.gz"),
+                GlobalConfig(snp_identifier="rsid"),
+            )
 
             summary = munger.build_run_summary(table)
             self.assertEqual(
@@ -1153,12 +1121,11 @@ class SumstatsMungerTest(unittest.TestCase):
             sidecar.parent.mkdir(parents=True)
             sidecar.write_text("stale\n", encoding="utf-8")
 
-            with mock.patch.object(kernel_munge, "munge_sumstats", return_value=self._fake_munged_frame()):
-                SumstatsMunger().run(
-                    MungeConfig(raw_sumstats_file=raw_path),
-                    MungeConfig(output_dir=tmpdir / "munged", output_format="tsv.gz", overwrite=True),
-                    GlobalConfig(snp_identifier="rsid"),
-                )
+            SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path),
+                MungeConfig(output_dir=tmpdir / "munged", output_format="tsv.gz", overwrite=True),
+                GlobalConfig(snp_identifier="rsid"),
+            )
 
             dropped = self._read_dropped_snps_sidecar(sidecar)
             self.assertEqual(len(dropped), 0)
@@ -1180,9 +1147,11 @@ class SumstatsMungerTest(unittest.TestCase):
                 }
             )
 
-            def fake_munge(args, p=False):
-                args._coordinate_metadata = {"liftover_drop_frame": drop_frame}
-                return self._fake_munged_frame()
+            def fake_munge(request):
+                return kernel_munge.MungeResult(
+                    self._fake_munged_frame(), 2, {"liftover": 1}, "input_columns",
+                    request.coordinate_metadata, drop_frame, pd.DataFrame(),
+                )
 
             with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=fake_munge):
                 SumstatsMunger().run(
@@ -1274,75 +1243,36 @@ class SumstatsMungerTest(unittest.TestCase):
         patched.assert_called_once()
         self.assertEqual(rc, 11)
 
-    def test_main_chr_pos_auto_defers_genome_build_inference_to_kernel(self):
+    def test_main_resolves_source_build_before_calling_kernel(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "CHR\tPOS\tSNP\tA1\tA2\tP\tN\n"
-                "1\t100\trs1\tA\tG\t0.05\t1000\n",
-                encoding="utf-8",
-            )
-
-            with mock.patch.object(
-                kernel_munge,
-                "munge_sumstats",
-                return_value=pd.DataFrame(
-                    {"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "A1": ["A"], "A2": ["G"], "Z": [1.0], "N": [1000]}
-                ),
-            ) as patched_munge:
-                sumstats_workflow.main(
-                    [
-                        "--raw-sumstats-file",
-                        str(raw_path),
-                        "--output-dir",
-                        str(tmpdir / "out"),
-                        "--snp-identifier",
-                        "chr_pos",
-                        "--source-genome-build",
-                        "auto",
-                        "--output-genome-build",
-                        "hg38",
-                    ]
-                )
-
-            self.assertEqual(patched_munge.call_args.args[0].genome_build, "auto")
+            raw_path.write_text("CHR POS SNP A1 A2 P BETA N\n1 99 rs1 A G .05 .05 1000\n")
+            inference = mock.Mock(genome_build="hg38", coordinate_basis="0-based", inspected_snp_count=1,
+                                  match_counts={}, match_fractions={}, summary_message="inferred hg38 0-based")
+            with mock.patch.object(munge_input, "resolve_chr_pos_table", return_value=(pd.DataFrame(), inference)), \
+                 mock.patch.object(kernel_munge, "munge_sumstats", wraps=kernel_munge.munge_sumstats) as kernel:
+                sumstats_workflow.main([
+                    "--raw-sumstats-file", str(raw_path), "--output-dir", str(tmpdir / "out"),
+                    "--snp-identifier", "chr_pos", "--source-genome-build", "auto", "--output-genome-build", "hg38",
+                ])
+            self.assertEqual(kernel.call_args.args[0].genome_build, "hg38")
+            table = ldsc.load_sumstats(tmpdir / "out" / "sumstats.parquet")
+            self.assertEqual(table.data.POS.tolist(), [100])
 
     def test_main_accepts_sumstats_snps_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "CHR\tPOS\tSNP\tA1\tA2\tP\tN\n"
-                "1\t100\trs1\tA\tG\t0.05\t1000\n",
-                encoding="utf-8",
-            )
+            raw_path.write_text("SNP P BETA N\nrs1 .05 .05 1000\nrs2 .05 -.05 1000\n")
             keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("SNP\nrs1\n", encoding="utf-8")
-
-            with mock.patch.object(
-                kernel_munge,
-                "munge_sumstats",
-                return_value=pd.DataFrame(
-                    {"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "A1": ["A"], "A2": ["G"], "Z": [1.0], "N": [1000]}
-                ),
-            ) as patched_munge:
-                sumstats_workflow.main(
-                    [
-                        "--raw-sumstats-file",
-                        str(raw_path),
-                        "--output-dir",
-                        str(tmpdir / "out"),
-                        "--sumstats-snps-file",
-                        str(keep_path),
-                        "--source-genome-build",
-                        "auto",
-                        "--output-genome-build",
-                        "hg38",
-                    ]
-                )
-
-            self.assertEqual(patched_munge.call_args.args[0].sumstats_snps, str(keep_path))
+            keep_path.write_text("SNP\nrs2\n")
+            sumstats_workflow.main([
+                "--raw-sumstats-file", str(raw_path), "--output-dir", str(tmpdir / "out"),
+                "--snp-identifier", "rsid", "--sumstats-snps-file", str(keep_path),
+            ])
+            table = ldsc.load_sumstats(tmpdir / "out" / "sumstats.parquet")
+            self.assertEqual(table.data.SNP.tolist(), ["rs2"])
 
     def test_main_requires_output_genome_build_for_default_coordinate_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1413,14 +1343,12 @@ class SumstatsMungerTest(unittest.TestCase):
             (output_dir / "sumstats.parquet").write_text("existing\n", encoding="utf-8")
             returned = pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5], "A1": ["A"], "A2": ["G"]})
 
-            with mock.patch.object(kernel_munge, "munge_sumstats", return_value=returned) as patched:
-                table = SumstatsMunger().run(
-                    MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                    MungeConfig(output_dir=output_dir, overwrite=True),
-                    GlobalConfig(snp_identifier="rsid"),
-                )
+            table = SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(output_dir=output_dir, overwrite=True),
+                GlobalConfig(snp_identifier="rsid"),
+            )
 
-            patched.assert_called_once()
             self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
 
     def test_run_accepts_path_objects_for_input_and_output(self):
@@ -1459,19 +1387,18 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.source_path, str(raw_path))
             self.assertTrue((output_dir / "sumstats.parquet").exists())
 
-    def test_kernel_missing_sample_size_error_names_fix_options(self):
+    def test_workflow_missing_sample_size_error_names_fix_options(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
             raw_path.write_text("SNP A1 A2 P OR\nrs1 A G 0.05 1.1\n", encoding="utf-8")
-            args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
 
             with self.assertRaisesRegex(
                 ldsc.LDSCInputError,
                 "munge-sumstats could not determine sample size \\(N\\).*"
                 "--N.*--N-cas.*--N-con.*N column",
             ):
-                kernel_munge.munge_sumstats(args)
+                SumstatsMunger().run(MungeConfig(raw_sumstats_file=raw_path, output_dir=tmpdir / "out"), global_config=GlobalConfig(snp_identifier="rsid"))
 
     def test_sumstats_table_missing_required_columns_uses_input_error(self):
         table = sumstats_workflow.SumstatsTable(
@@ -1488,22 +1415,21 @@ class SumstatsMungerTest(unittest.TestCase):
         ):
             table.validate()
 
-    def test_kernel_error_path_does_not_write_progress_to_stdout(self):
+    def test_workflow_error_path_does_not_write_progress_to_stdout(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
             raw_path.write_text("SNP A1 A2 P OR\nrs1 A G 0.05 1.1\n", encoding="utf-8")
-            args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
             stdout = io.StringIO()
 
             with contextlib.redirect_stdout(stdout):
                 with self.assertRaisesRegex(ldsc.LDSCInputError, "munge-sumstats could not determine sample size"):
-                    kernel_munge.munge_sumstats(args)
+                    SumstatsMunger().run(MungeConfig(raw_sumstats_file=raw_path, output_dir=tmpdir / "out"), global_config=GlobalConfig(snp_identifier="rsid"))
 
             self.assertEqual(stdout.getvalue(), "")
 
     def test_internal_sample_size_guard_uses_internal_error(self):
-        args = Namespace(N=None, N_cas=None, N_con=None, daner_old=False, n_min=None, nstudy_min=None)
+        args = kernel_munge.MungeQC()
 
         with self.assertRaisesRegex(
             ldsc.LDSCInternalError,
@@ -1516,100 +1442,59 @@ class SumstatsMungerTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
             raw_path.write_text("CHR POS SNP P BETA N\n1 100 rs1 0.05 0.1 1000\n", encoding="utf-8")
-            args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
 
             with self.assertRaisesRegex(
                 ldsc.LDSCInputError,
                 "snp_identifier='chr_pos_allele_aware'.*--snp-identifier chr_pos",
             ):
-                kernel_munge.munge_sumstats(args)
+                SumstatsMunger().run(MungeConfig(raw_sumstats_file=raw_path, output_dir=tmpdir / "out", source_genome_build="hg38", output_genome_build="hg38"), global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
 
-    def test_kernel_parser_rejects_removed_no_alleles_flag(self):
+    def test_parser_rejects_removed_no_alleles_flag(self):
         with self.assertRaises(SystemExit):
-            kernel_munge.parser.parse_args(
+            sumstats_workflow.build_parser().parse_args(
                 [
-                    "--sumstats",
+                    "--raw-sumstats-file",
                     "raw.tsv",
-                    "--out",
+                    "--output-dir",
                     "sumstats",
                     "--no-alleles",
                 ]
             )
 
-    def test_kernel_missing_allele_error_suggests_ref_alt_columns(self):
+    def test_workflow_infers_ref_alt_allele_columns(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text("SNP REF ALT P OR N\nrs1 A G 0.05 1.1 1000\n", encoding="utf-8")
-            args = kernel_munge.parser.parse_args(
-                [
-                    "--sumstats",
-                    str(raw_path),
-                    "--out",
-                    str(tmpdir / "sumstats"),
-                    "--snp-identifier",
-                    "rsid_allele_aware",
-                ]
+            raw_path = Path(tmpdir) / "raw.tsv"
+            raw_path.write_text("SNP REF ALT P OR N\nrs1 A G 0.05 1.0 1000\n")
+            table = SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path, output_dir=Path(tmpdir) / "out"),
+                global_config=GlobalConfig(snp_identifier="rsid_allele_aware"),
             )
-
-            with self.assertRaisesRegex(ldsc.LDSCInputError, "--a1 REF --a2 ALT"):
-                kernel_munge.munge_sumstats(args)
+            self.assertEqual(table.data.A1.tolist(), ["A"])
+            self.assertEqual(table.data.A2.tolist(), ["G"])
 
     def test_rsid_allele_aware_requires_alleles(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
             raw_path.write_text("SNP P BETA N\nrs1 0.05 0.1 1000\n", encoding="utf-8")
-            args = kernel_munge.parser.parse_args(
-                [
-                    "--sumstats",
-                    str(raw_path),
-                    "--out",
-                    str(tmpdir / "sumstats"),
-                    "--snp-identifier",
-                    "rsid_allele_aware",
-                ]
-            )
-
             with self.assertRaisesRegex(
                 ldsc.LDSCInputError,
                 "snp_identifier='rsid_allele_aware'.*--snp-identifier rsid",
             ):
-                kernel_munge.munge_sumstats(args)
+                SumstatsMunger().run(MungeConfig(raw_sumstats_file=raw_path, output_dir=tmpdir / "out"), global_config=GlobalConfig(snp_identifier="rsid_allele_aware"))
 
     def test_base_modes_run_without_alleles_without_extra_flag(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            rsid_raw = tmpdir / "rsid.tsv"
-            rsid_raw.write_text("SNP P BETA N\nrs1 0.05 0.1 1000\n", encoding="utf-8")
-            chr_pos_raw = tmpdir / "chr_pos.tsv"
-            chr_pos_raw.write_text("CHR POS SNP P BETA N\n1 100 rs1 0.05 0.1 1000\n", encoding="utf-8")
-
-            rsid_args = kernel_munge.parser.parse_args(
-                [
-                    "--sumstats",
-                    str(rsid_raw),
-                    "--out",
-                    str(tmpdir / "rsid_out"),
-                    "--snp-identifier",
-                    "rsid",
-                ]
-            )
-            chr_pos_args = kernel_munge.parser.parse_args(
-                [
-                    "--sumstats",
-                    str(chr_pos_raw),
-                    "--out",
-                    str(tmpdir / "chr_pos_out"),
-                    "--snp-identifier",
-                    "chr_pos",
-                    "--genome-build",
-                    "hg38",
-                ]
-            )
-
-            self.assertEqual(kernel_munge.munge_sumstats(rsid_args)["SNP"].tolist(), ["rs1"])
-            self.assertEqual(kernel_munge.munge_sumstats(chr_pos_args)["SNP"].tolist(), ["rs1"])
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("CHR POS SNP P BETA N\n1 100 rs1 0.05 0.1 1000\n")
+            for mode in ("rsid", "chr_pos"):
+                build = {"source_genome_build": "hg38", "output_genome_build": "hg38"} if mode == "chr_pos" else {}
+                table = SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path, output_dir=tmpdir / mode, **build),
+                    global_config=GlobalConfig(snp_identifier=mode, genome_build="hg38" if mode == "chr_pos" else None),
+                )
+                self.assertEqual(table.data.SNP.tolist(), ["rs1"])
 
     def test_base_modes_keep_singletons_with_bad_allele_columns(self):
         rows = (
@@ -1624,20 +1509,11 @@ class SumstatsMungerTest(unittest.TestCase):
             for mode in ("rsid", "chr_pos"):
                 raw_path = tmpdir / f"{mode}.tsv"
                 raw_path.write_text(rows, encoding="utf-8")
-                args = kernel_munge.parser.parse_args(
-                    [
-                        "--sumstats",
-                        str(raw_path),
-                        "--out",
-                        str(tmpdir / f"{mode}_out"),
-                        "--snp-identifier",
-                        mode,
-                        "--genome-build",
-                        "hg38",
-                    ]
-                )
-
-                munged = kernel_munge.munge_sumstats(args)
+                build = {"source_genome_build": "hg38", "output_genome_build": "hg38"} if mode == "chr_pos" else {}
+                munged = SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path, output_dir=tmpdir / f"{mode}_out", **build),
+                    global_config=GlobalConfig(snp_identifier=mode, genome_build="hg38" if mode == "chr_pos" else None),
+                ).data
 
                 self.assertEqual(munged["SNP"].tolist(), ["missing", "ambiguous", "multibase", "identical"])
 
@@ -1852,29 +1728,27 @@ class SumstatsMungerTest(unittest.TestCase):
             ):
                 ldsc.load_sumstats(sumstats_file)
 
-    def test_kernel_missing_sample_size_error_explains_neff_is_not_n(self):
+    def test_workflow_missing_sample_size_error_explains_neff_is_not_n(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
             raw_path.write_text("SNP A1 A2 P OR NEFF\nrs1 A G 0.05 1.1 1000\n", encoding="utf-8")
-            args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
 
             with self.assertRaisesRegex(ldsc.LDSCInputError, "NEFF is not treated as N.*--N-col NEFF"):
-                kernel_munge.munge_sumstats(args)
+                SumstatsMunger().run(MungeConfig(raw_sumstats_file=raw_path, output_dir=tmpdir / "out"), global_config=GlobalConfig(snp_identifier="rsid"))
 
-    def test_kernel_missing_signed_stat_error_suggests_likely_effect_column(self):
+    def test_workflow_missing_signed_stat_error_suggests_likely_effect_column(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
             raw_path.write_text("SNP A1 A2 P EFFECT_SIZE N\nrs1 A G 0.05 0.2 1000\n", encoding="utf-8")
-            args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
 
             with self.assertRaisesRegex(ldsc.LDSCInputError, "--signed-sumstats EFFECT_SIZE,0"):
-                kernel_munge.munge_sumstats(args)
+                SumstatsMunger().run(MungeConfig(raw_sumstats_file=raw_path, output_dir=tmpdir / "out"), global_config=GlobalConfig(snp_identifier="rsid"))
 
-    def test_kernel_parser_rejects_removed_merge_alleles(self):
+    def test_parser_rejects_removed_merge_alleles(self):
         with self.assertRaises(SystemExit):
-            kernel_munge.parser.parse_args(["--sumstats", "raw.tsv", "--out", "sumstats", "--merge-alleles", "hm3.tsv.gz"])
+            sumstats_workflow.build_parser().parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "sumstats", "--merge-alleles", "hm3.tsv.gz"])
 
     def test_run_restricts_sumstats_snps_file_by_rsid_without_reordering(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2186,7 +2060,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 normalized["POS"] = normalized["POS"].astype(int) + 1
                 return normalized, inference
 
-            with mock.patch.object(kernel_munge, "resolve_chr_pos_table", side_effect=fake_resolve_chr_pos_table):
+            with mock.patch.object(munge_input, "resolve_chr_pos_table", side_effect=fake_resolve_chr_pos_table):
                 table = SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(
@@ -2518,10 +2392,10 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
 
     def test_a1_a2_descriptions_explain_signed_statistic_orientation(self):
-        self.assertIn("signed statistic", kernel_munge.describe_cname["A1"])
-        self.assertIn("counterpart", kernel_munge.describe_cname["A2"])
-        self.assertNotIn("ref allele", kernel_munge.describe_cname["A1"].lower())
-        self.assertNotIn("non-ref allele", kernel_munge.describe_cname["A2"].lower())
+        self.assertIn("signed statistic", munge_input.describe_cname["A1"])
+        self.assertIn("counterpart", munge_input.describe_cname["A2"])
+        self.assertNotIn("ref allele", munge_input.describe_cname["A1"].lower())
+        self.assertNotIn("non-ref allele", munge_input.describe_cname["A2"].lower())
 
     def test_signed_statistic_orients_output_z_relative_to_a1(self):
         with tempfile.TemporaryDirectory() as tmpdir:

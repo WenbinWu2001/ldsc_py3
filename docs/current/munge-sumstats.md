@@ -24,18 +24,35 @@ The normal workflow is:
    coordinates.
 5. Load the optional SNP keep-list once. `--use-hm3-snps` uses the packaged
    curated HM3 map; `--sumstats-snps-file` uses a custom headered keep-list.
-6. Stream the raw file in chunks, apply core LDSC QC, normalize coordinates,
-   apply the SNP restriction, and compute or validate `Z` and `N`.
-7. Clean identity keys for the active `--snp-identifier` mode. Duplicate
-   effective identities are dropped as whole duplicate groups.
-8. If the resolved source build differs from the requested output build, apply
-   exactly one liftover method.
-9. Write the self-describing `sumstats.parquet` (identity payload in its footer)
-   and diagnostic audit files.
+6. Stream the raw file in chunks: drop required missing values, normalize coordinates, apply INFO/MAF/p-value QC, then apply the SNP restriction before concatenation.
+7. Apply whole-table sample-size filtering and convert p-values into Z scores oriented by the selected signed statistic.
+8. If the resolved source build differs from the requested output build, apply exactly one liftover method, including source/target coordinate duplicate cleanup.
+9. Clean identity keys globally across all retained chunks. Duplicate effective identities are dropped as whole groups.
+10. Write the self-describing `sumstats.parquet` (identity payload in its footer) and diagnostic audit files.
 
 The default identity mode is `chr_pos_allele_aware`, so `A1/A2` are required by
 default. Use `--snp-identifier chr_pos` for coordinate identity without
 allele-aware matching, or `--snp-identifier rsid` for rsID-only identity.
+
+## Preparation and Run Accounting
+
+The public workflow and tests use `_sumstats_input.prepare_munge_input()` to resolve column aliases and hints, DANER sample-size settings, the raw coordinate build/basis, and the optional keep-list. The kernel accepts a `ResolvedMungeInput` and returns a `MungeResult` containing the curated table, counts, coordinate provenance, and separate identity/liftover drop records. CLI parsing and artifact ownership stay in `sumstats_munger.py`; the kernel neither parses CLI flags nor mutates configuration to return results.
+
+Source-build inference reads only `CHR`/`POS` in bounded chunks and stops when sufficient evidence is available. It precedes all QC, and shares its coordinate evidence reader with `--infer-only`. The main parsing pass counts raw records as it reads them; it does not reopen the full raw file to count lines after munging.
+
+For Python users, `munger.build_run_summary(table)` reports parsed `n_input_rows`, final `n_retained_rows`, and `drop_counts`. Headers, leading `##` metadata, and blank lines are excluded. Every drop belongs to the first stage that removes that row, so `sum(drop_counts.values()) == n_input_rows - n_retained_rows`.
+
+| Count key | Exclusive removal stage |
+| --- | --- |
+| `NA` | Missing required non-coordinate/non-allele fields |
+| `coordinates` | Missing or invalid source `CHR`/`POS` in coordinate-family modes |
+| `INFO`, `FRQ`, `P` | INFO, folded MAF, and p-value filters, in that order |
+| `sumstats_snps` | Optional SNP keep-list restriction |
+| `N`, `NSTUDY` | Whole-table sample-size or study-count filtering |
+| `liftover` | Liftover-stage exclusions, including source/target duplicate coordinates |
+| `identity` | Final global identity cleanup |
+
+All keys are present, including stages with zero drops. Detailed coordinate reason counts in provenance can overlap when a row has multiple invalid fields; the `coordinates` stage count counts that row once. `used_n_rule` reports the strategy actually used: `input_columns`, `fixed_N`, or `fixed_case_control_N`. Per-variant N or case/control columns retain their existing precedence over supplied constant sample sizes. Row-level audit sidecars remain limited to identity and liftover drops.
 
 ## Raw Format Profiles
 

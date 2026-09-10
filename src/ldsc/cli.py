@@ -104,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sumstats_munger = _load_sumstats_munger()
     munge_parser = subparsers.add_parser("munge-sumstats", help=_SUBCOMMAND_HELP["munge-sumstats"])
-    _copy_actions(munge_parser, sumstats_munger.kernel_parser())
+    _copy_actions(munge_parser, sumstats_munger.build_parser())
 
     regression_runner = _load_regression_runner()
     h2_parser = subparsers.add_parser("h2", help=_SUBCOMMAND_HELP["h2"])

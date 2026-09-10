@@ -118,3 +118,11 @@ Last updated on: 2026-09-10
 ## Read-only CLI modes must bypass the entire failure-marker lifecycle
 
 - Summary/root cause/correction: The overwrite marker wrapper treated argparse's successful help exit as a failed run; exclude help and inference-only parsing checks from the marker scope and verify absent directories and existing markers remain untouched on success and failure.
+
+## Munging summaries must use parser accounting
+
+- Summary/root cause/correction: Munging discarded chunk QC counters and reconstructed input counts from physical lines while returning provenance through mutated parser attributes; return a typed result with parser row counts, exclusive stage removals, and provenance, and test conservation on raw files containing blank lines and overlapping rejection reasons, including bad-allele rows deferred by keep-list filtering to final identity cleanup.
+
+## Test runners that share pybedtools temporary files must run sequentially
+
+- Summary/root cause/correction: Concurrent pytest and unittest runs intermittently lost BED overlap files because `pybedtools.cleanup(remove_all=True)` deletes other processes' files in the shared temporary directory; run these compatibility checks sequentially or isolate their temporary roots.

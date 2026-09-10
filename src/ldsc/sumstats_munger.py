@@ -9,9 +9,10 @@ Overview
 --------
 This module converts the historical munging script behavior into explicit
 Python dataclasses and a small service object. The public workflow boundary
-accepts path-like inputs, normalizes them once, and then passes primitive
-values into the internal kernel so numerical behavior stays aligned with
-established LDSC outputs. The workflow layer owns CLI orchestration, output
+accepts path-like inputs and resolves the schema, sample-size choices, source
+build and keep-list through ``_sumstats_input.prepare_munge_input``. It passes
+a ``ResolvedMungeInput`` to the kernel and consumes an explicit ``MungeResult``.
+The workflow layer owns CLI orchestration, output
 preflight, the self-describing ``sumstats.parquet`` footer, diagnostics, and
 result objects; the kernel keeps the legacy-compatible parsing and filtering
 primitives. Coordinate-family runs separate raw source-build interpretation
@@ -58,7 +59,7 @@ from .errors import (
     LDSCUsageError,
     LDSCUserError,
 )
-from .genome_build_inference import collect_chr_pos_build_evidence_frame, resolve_genome_build
+from .genome_build_inference import resolve_genome_build
 from .hm3 import packaged_hm3_curated_map_path
 from .path_resolution import (
     ensure_output_directory,
@@ -79,21 +80,20 @@ from ._kernel.snp_identity import (
 )
 from ._kernel.liftover import SumstatsLiftoverRequest, default_liftover_metadata
 from ._kernel import sumstats_munger as kernel_munge
+from . import _sumstats_input as munge_input
 
 
 LOGGER = logging.getLogger("LDSC.sumstats_munger")
-parser = kernel_munge.parser
-null_values = kernel_munge.null_values
-default_cnames = kernel_munge.default_cnames
-read_header = kernel_munge.read_header
-get_cname_map = kernel_munge.get_cname_map
-get_compression = kernel_munge.get_compression
-clean_header = kernel_munge.clean_header
+null_values = munge_input.null_values
+default_cnames = munge_input.default_cnames
+read_header = munge_input.read_header
+get_cname_map = munge_input.get_cname_map
+get_compression = munge_input.get_compression
+clean_header = munge_input.clean_header
 
 _SUMSTATS_OUTPUT_FORMATS = {"parquet", "tsv.gz", "both"}
 _RAW_SUMSTATS_FORMATS = {"auto", "plain", "daner-old", "daner-new"}
 _SUMSTATS_PARQUET_COMPRESSION = "snappy"
-_INFER_ONLY_COORDINATE_CHUNKSIZE = 5_000
 _REQUIRED_COLUMN_TROUBLESHOOTING = (
     "docs/troubleshooting.md#munge-sumstats-could-not-map-a-required-column"
 )
@@ -259,6 +259,15 @@ class MungeRunSummary:
     ``output_paths`` records curated sumstats data artifacts and the dropped-SNP
     audit sidecar. It intentionally excludes ``diagnostics/sumstats.log`` so Python result
     contracts stay aligned with other workflow modules.
+
+    ``n_input_rows`` counts parsed records, excluding headers, leading metadata
+    and blank lines. ``drop_counts`` records exclusive removals in stage order:
+    ``NA``, ``coordinates``, ``INFO``, ``FRQ``, ``P``, ``sumstats_snps``, ``N``,
+    ``NSTUDY``, ``liftover``, and ``identity``. Their sum equals input minus
+    retained rows. Coordinate reason counts in provenance may overlap, whereas
+    these stage totals count each removed row once. ``used_n_rule`` identifies
+    the strategy actually used: ``input_columns``, ``fixed_N``, or
+    ``fixed_case_control_N``.
     """
     n_input_rows: int
     n_retained_rows: int
@@ -537,7 +546,7 @@ class SumstatsMunger:
             overwrite=munge_config.overwrite,
             label="munged output artifact",
         )
-        args = self._build_args(raw_sumstats_config, munge_config, config_snapshot, liftover_request)
+        restriction_path = _resolve_sumstats_snps_path(munge_config)
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         with workflow_logging("munge-sumstats", log_path, log_level=config_snapshot.log_level):
             log_inputs(
@@ -559,13 +568,18 @@ class SumstatsMunger:
                 f"output_genome_build='{liftover_request.target_build}', "
                 f"liftover_method='{liftover_request.method}'."
             )
-            data = kernel_munge.munge_sumstats(args)
-            coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
+            request = munge_input.prepare_munge_input(
+                source_path, raw_sumstats_config, munge_config, config_snapshot,
+                liftover_request, restriction_path,
+            )
+            result = kernel_munge.munge_sumstats(request)
+            data = result.data
+            coordinate_metadata = result.coordinate_metadata
             drop_frame = _coerce_sumstats_dropped_snps_frame(
-                coordinate_metadata.pop("liftover_drop_frame", None)
+                result.liftover_drop_frame
             )
             identity_drop_frame = _coerce_sumstats_dropped_snps_frame(
-                getattr(args, "_identity_drop_frame", None),
+                result.identity_drop_frame,
                 default_stage=None,
             )
             drop_frame = _coerce_sumstats_dropped_snps_frame(
@@ -617,11 +631,11 @@ class SumstatsMunger:
                 "dropped_snps_tsv_gz": str(dropped_snps_path),
             }
             self._last_summary = MungeRunSummary(
-                n_input_rows=_count_data_rows(source_path),
+                n_input_rows=result.n_input_rows,
                 n_retained_rows=len(table.data),
-                drop_counts={},
+                drop_counts=result.drop_counts,
                 inferred_columns={**dict(raw_sumstats_config.column_hints), "detected_format": inference.detected_format},
-                used_n_rule=_infer_used_n_rule(args),
+                used_n_rule=result.used_n_rule,
                 output_paths=run_output_paths,
             )
             log_outputs(**run_output_paths)
@@ -711,47 +725,6 @@ class SumstatsMunger:
             )
         return self._last_summary
 
-    def _build_args(
-        self,
-        raw_sumstats_config: MungeConfig,
-        munge_config: MungeConfig,
-        global_config: GlobalConfig,
-        liftover_request: SumstatsLiftoverRequest | None = None,
-    ) -> argparse.Namespace:
-        """Translate dataclass configuration into the legacy parser namespace."""
-        args = parser.parse_args("")
-        args.sumstats = resolve_scalar_path(raw_sumstats_config.raw_sumstats_file, label="raw sumstats")
-        output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
-        args.out = str(output_dir / "sumstats")
-        args.N = munge_config.N
-        args.N_cas = munge_config.N_cas
-        args.N_con = munge_config.N_con
-        args.info_min = munge_config.info_min
-        args.maf_min = munge_config.maf_min
-        args.n_min = munge_config.n_min
-        args.nstudy_min = munge_config.nstudy_min
-        args.chunksize = munge_config.chunk_size
-        args.sumstats_snps = _resolve_sumstats_snps_path(munge_config)
-        args.signed_sumstats = munge_config.signed_sumstats_spec
-        args.ignore = ",".join(munge_config.ignore_columns) if munge_config.ignore_columns else None
-        args.info_list = ",".join(munge_config.info_list_columns) if munge_config.info_list_columns else None
-        args.a1_inc = munge_config.a1_inc
-        args.keep_maf = munge_config.keep_maf
-        # DANER parsing is driven solely by sumstats_format (auto-detection
-        # resolves it to a concrete value during inference; see _apply_raw_sumstats_inference).
-        args.daner_old = munge_config.sumstats_format == "daner-old"
-        args.daner_new = munge_config.sumstats_format == "daner-new"
-        args.snp_identifier = global_config.snp_identifier
-        args.genome_build = global_config.genome_build
-        args._liftover_request = liftover_request or _liftover_request_from_config(munge_config)
-        for key, value in raw_sumstats_config.column_hints.items():
-            attr = _COLUMN_HINT_ATTRS.get(key)
-            if attr is not None:
-                setattr(args, attr, value)
-        if munge_config.info_list_columns:
-            args.info_list = ",".join(munge_config.info_list_columns)
-        return args
-
 
 def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | RawSumstatsInference:
     """Run summary-statistics munging from parsed CLI arguments.
@@ -765,8 +738,7 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
     ----------
     args : argparse.Namespace
         Parsed arguments from :func:`build_parser`. The namespace must include
-        ``raw_sumstats_file`` plus any legacy-compatible munging options copied
-        from the kernel parser. ``output_dir`` is required for every CLI run,
+        ``raw_sumstats_file`` and the public munging options. ``output_dir`` is required for every CLI run,
         including ``infer_only`` runs (which still write no artifacts).
 
     Returns
@@ -978,7 +950,7 @@ def _column_hints_from_args(args: argparse.Namespace) -> dict[str, str]:
     """Collect explicit raw-column hints from parsed CLI arguments."""
     hints: dict[str, str] = {}
     for key in _COLUMN_HINT_ARG_KEYS:
-        value = getattr(args, _COLUMN_HINT_ATTRS[key], None)
+        value = getattr(args, key, None)
         if value is not None:
             hints[key] = value
     return hints
@@ -1000,18 +972,13 @@ def _info_list_columns_from_args(args: argparse.Namespace) -> tuple[str, ...]:
     return tuple(token.strip() for token in info_list.split(",") if token.strip())
 
 
-def kernel_parser():
-    """Expose the public munging parser for CLI action cloning."""
-    return build_parser()
-
-
 def build_parser() -> argparse.ArgumentParser:
     """Build the public summary-statistics munging parser.
 
     Coordinate-family runs infer the raw source build by default and require an
     explicit output build for downstream-compatible artifacts.
     """
-    public = argparse.ArgumentParser(description=getattr(parser, "description", None), allow_abbrev=False)
+    public = argparse.ArgumentParser(allow_abbrev=False)
     public.add_argument("--raw-sumstats-file", required=True, help="Raw summary-statistics file path.")
     public.add_argument("--output-dir", required=True, help="Output directory for munged sumstats and logs.")
     public.add_argument(
@@ -1078,51 +1045,69 @@ def build_parser() -> argparse.ArgumentParser:
         default="parquet",
         help="Curated sumstats output format. Default is parquet.",
     )
-    for action in parser._actions:
-        if action.dest in {"help", "sumstats", "out", "genome_build"}:
-            continue
-        option_strings = list(action.option_strings)
-        if not option_strings:
-            continue
-        kwargs = {
-            "dest": action.dest,
-            "default": action.default,
-            "required": action.required,
-            "help": action.help,
-        }
-        if getattr(action, "choices", None) is not None:
-            kwargs["choices"] = action.choices
-        if getattr(action, "type", None) is not None:
-            kwargs["type"] = action.type
-        if getattr(action, "nargs", None) is not None:
-            kwargs["nargs"] = action.nargs
-        if action.const is not None:
-            kwargs["const"] = action.const
-        if action.__class__.__name__ == "_StoreTrueAction":
-            public.add_argument(*option_strings, action="store_true", default=action.default, help=action.help)
-        elif action.__class__.__name__ == "_StoreFalseAction":
-            public.add_argument(*option_strings, action="store_false", default=action.default, help=action.help)
-        else:
-            public.add_argument(*option_strings, **kwargs)
+    public.add_argument('--N', default=None, type=float,
+                        help="Sample size If this option is not set, will try to infer the sample "
+                        "size from the input file. If the input file contains a sample size "
+                        "column, and this flag is set, the argument to this flag has priority.")
+    public.add_argument('--N-cas', default=None, type=float,
+                        help="Number of cases. If this option is not set, will try to infer the number "
+                        "of cases from the input file. If the input file contains a number of cases "
+                        "column, and this flag is set, the argument to this flag has priority.")
+    public.add_argument('--N-con', default=None, type=float,
+                        help="Number of controls. If this option is not set, will try to infer the number "
+                        "of controls from the input file. If the input file contains a number of controls "
+                        "column, and this flag is set, the argument to this flag has priority.")
+    public.add_argument('--info-min', default=0.9, type=float,
+                        help="Minimum INFO score.")
+    public.add_argument('--maf-min', default=0.01, type=float,
+                        help="Minimum MAF.")
+    public.add_argument('--n-min', default=None, type=float,
+                        help='Minimum N (sample size). Default is (90th percentile N) / 2.')
+    public.add_argument('--chunksize', default=1_000_000, type=int,
+                        help='Chunksize.')
+    public.add_argument('--snp', default=None, type=str,
+                        help='Name of SNP column (if not a name that ldsc understands). NB: case insensitive.')
+    public.add_argument('--chr', default=None, type=str,
+                        help='Name of chromosome column (if not a name that ldsc understands). NB: case insensitive.')
+    public.add_argument('--pos', default=None, type=str,
+                        help='Name of base-pair position column (if not a name that ldsc understands). NB: case insensitive.')
+    public.add_argument('--N-col', default=None, type=str,
+                        help='Name of the direct per-variant N column. Suppresses inferred case/control columns; '
+                        'mutually exclusive with --N-cas-col/--N-con-col. NB: case insensitive.')
+    public.add_argument('--N-cas-col', default=None, type=str,
+                        help='Name of the per-variant case-count column. Must be paired with --N-con-col; the pair '
+                        'suppresses inferred direct N. NB: case insensitive.')
+    public.add_argument('--N-con-col', default=None, type=str,
+                        help='Name of the per-variant control-count column. Must be paired with --N-cas-col; the pair '
+                        'suppresses inferred direct N. NB: case insensitive.')
+    public.add_argument('--a1', default=None, type=str,
+                        help='Name of A1 column: the allele that the signed statistic is relative to. NB: case insensitive.')
+    public.add_argument('--a2', default=None, type=str,
+                        help='Name of A2 column: the counterpart allele to A1. NB: case insensitive.')
+    public.add_argument('--p', default=None, type=str,
+                        help='Name of p-value column (if not a name that ldsc understands). NB: case insensitive.')
+    public.add_argument('--frq', default=None, type=str,
+                        help='Name of FRQ or MAF column (if not a name that ldsc understands). NB: case insensitive.')
+    public.add_argument('--signed-sumstats', default=None, type=str,
+                        help='Name of signed sumstat column, comma null value (e.g., Z,0 or OR,1), oriented relative to A1. NB: case insensitive.')
+    public.add_argument('--info', default=None, type=str,
+                        help='Name of INFO column (if not a name that ldsc understands). NB: case insensitive.')
+    public.add_argument('--info-list', default=None, type=str,
+                        help='Comma-separated list of numeric/NA per-study INFO columns. Filters on the mean, e.g. IMPINFO=0.852,0.113,NA. NB: case insensitive.')
+    public.add_argument('--nstudy', default=None, type=str,
+                        help='Name of NSTUDY column (if not a name that ldsc understands). NB: case insensitive.')
+    public.add_argument('--nstudy-min', default=None, type=float,
+                        help='Minimum # of studies. Default is to remove everything below the max, unless there is an N column,'
+                        ' in which case do nothing.')
+    public.add_argument('--ignore', default=None, type=str,
+                        help='Comma-separated list of column names to ignore.')
+    public.add_argument('--a1-inc', default=False, action='store_true',
+                        help='A1 is the increasing allele.')
+    public.add_argument('--keep-maf', default=False, action='store_true',
+                        help='Keep the MAF column (if one exists).')
+    public.add_argument('--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
+                        help="SNP identity mode for filtering, duplicate policy, and emitted artifact provenance. Allele-aware modes require usable A1/A2; base modes are allele-blind.")
     return public
-
-
-def _count_data_rows(path: str) -> int:
-    """Count raw data rows after leading ``##`` metadata lines and the header."""
-    openfunc, _compression = kernel_munge.get_compression(path)
-    skiprows = kernel_munge.count_leading_sumstats_comment_lines(path)
-    with openfunc(path) as handle:
-        count = sum(1 for _ in handle)
-    return max(count - skiprows - 1, 0)
-
-
-def _infer_used_n_rule(args: argparse.Namespace) -> str:
-    """Summarize which sample-size rule the current munging run will apply."""
-    if getattr(args, "N", None) is not None:
-        return "fixed_N"
-    if getattr(args, "N_cas", None) is not None and getattr(args, "N_con", None) is not None:
-        return "fixed_case_control_N"
-    return "input_columns"
 
 
 def infer_raw_sumstats(
@@ -1224,7 +1209,7 @@ def _read_first_data_row(path: str) -> dict[str, str]:
     """Return the first data row keyed by raw header names."""
     file_cnames = read_header(path)
     openfunc, _compression = get_compression(path)
-    skiprows = kernel_munge.count_leading_sumstats_comment_lines(path)
+    skiprows = munge_input.count_leading_sumstats_comment_lines(path)
     with openfunc(path) as handle:
         for _idx in range(skiprows + 1):
             handle.readline()
@@ -1276,26 +1261,8 @@ def _sample_value_is_info_list(value: str | None) -> bool:
 
 def _inferred_targets(file_cnames: list[str], column_hints: dict[str, str]) -> set[str]:
     targets = {default_cnames[clean_header(column)] for column in file_cnames if clean_header(column) in default_cnames}
-    for key, value in column_hints.items():
-        attr = _COLUMN_HINT_ATTRS.get(key)
-        if value is None or attr is None:
-            continue
-        target = {
-            "snp": "SNP",
-            "chr": "CHR",
-            "pos": "POS",
-            "N_col": "N",
-            "N_cas_col": "N_CAS",
-            "N_con_col": "N_CON",
-            "a1": "A1",
-            "a2": "A2",
-            "p": "P",
-            "frq": "FRQ",
-            "info": "INFO",
-            "nstudy": "NSTUDY",
-        }.get(attr)
-        if target is not None:
-            targets.add(target)
+    targets.update(munge_input.COLUMN_HINT_TARGETS[key] for key, value in column_hints.items()
+                   if value is not None and key in munge_input.COLUMN_HINT_TARGETS)
     return targets
 
 
@@ -1432,27 +1399,12 @@ def _read_infer_only_coordinate_frame(
     flag = {clean_header(value): target.upper() for target, value in hints.items() if target in {"chr", "pos"}}
     cname_map = get_cname_map(flag, default_cnames, munge_config.ignore_columns)
     translation = {column: cname_map[clean_header(column)] for column in file_cnames if clean_header(column) in cname_map}
-    raw_chr = [raw for raw, target in translation.items() if target == "CHR"]
-    raw_pos = [raw for raw, target in translation.items() if target == "POS"]
-    if not raw_chr or not raw_pos:
-        raise LDSCInputError(
-            f"munge-sumstats --infer-only could not infer source genome build from '{source_path}' because "
-            "the raw input has no inferable CHR/POS column pair. Most likely the coordinate columns use "
-            "unrecognized names. Pass --chr <column> and --pos <column>, or pass --source-genome-build hg19/hg38."
-        )
     _openfunc, compression = get_compression(source_path)
-    reader = pd.read_csv(
-        source_path,
-        sep=r"\s+",
-        header=0,
-        compression=compression,
-        usecols=[raw_chr[0], raw_pos[0]],
-        na_values=[".", "NA"],
-        skiprows=kernel_munge.count_leading_sumstats_comment_lines(source_path),
-        chunksize=_INFER_ONLY_COORDINATE_CHUNKSIZE,
+    return munge_input.read_coordinate_evidence(
+        source_path, translation, compression=compression,
+        metadata_skiprows=munge_input.count_leading_sumstats_comment_lines(source_path),
     )
-    frames = (chunk.rename(columns={raw_chr[0]: "CHR", raw_pos[0]: "POS"}) for chunk in reader)
-    return collect_chr_pos_build_evidence_frame(frames, context=source_path)
+
 
 
 def _expected_chain_label(source_build: str, output_build: str) -> str:
@@ -1974,25 +1926,6 @@ def _format_log_value(value: Any) -> str:
     return str(value)
 
 
-_COLUMN_HINT_ATTRS = {
-    "snp": "snp",
-    "chr": "chr",
-    "pos": "pos",
-    "N": "N_col",
-    "N_col": "N_col",
-    "N_cas": "N_cas_col",
-    "N_cas_col": "N_cas_col",
-    "N_con": "N_con_col",
-    "N_con_col": "N_con_col",
-    "a1": "a1",
-    "a2": "a2",
-    "p": "p",
-    "frq": "frq",
-    "signed_sumstats": "signed_sumstats",
-    "info": "info",
-    "info_list": "info_list",
-    "nstudy": "nstudy",
-}
 _COLUMN_HINT_ARG_KEYS = (
     "snp",
     "chr",

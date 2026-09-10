@@ -1,53 +1,29 @@
-"""Legacy-compatible summary-statistics munging kernel.
+"""Summary-statistics QC over resolved raw inputs.
 
-Core functionality:
-    Parse heterogeneous GWAS summary-statistics files, infer canonical LDSC
-    columns, apply quality-control filters, and emit LDSC-ready outputs.
+``ResolvedMungeInput`` supplies the raw reader schema, concrete source build,
+coordinate basis, numeric thresholds and prepared keep-list. Header inference,
+DANER choices and build inference live in ``ldsc._sumstats_input``; CLI parsing
+and artifact writing live in ``ldsc.sumstats_munger``.
 
-Overview
---------
-This module contains the low-level munging implementation reused by the public
-``ldsc.sumstats_munger`` workflow wrapper. It stays close to the historical
-LDSC behavior so filtering semantics and output formats remain stable while the
-rest of the refactored package gains a cleaner public interface. Public CLI
-orchestration, output preflight, metadata sidecars, and file ownership live in
-``ldsc.sumstats_munger``. This module emits ordinary package logger records and
-returns an in-memory table; it does not write user-facing artifacts.
-
-The physical raw-input reader accepts plain, gzip-compressed, or bzip2-compressed
-whitespace-delimited text. DANER inputs are distinguished by schema flags rather
-than file suffix: ``--daner-old`` reads case/control counts from
-``FRQ_A_<Ncas>`` and ``FRQ_U_<Ncon>`` headers, while ``--daner-new`` reads
-per-SNP case/control counts from exact ``Nca`` and ``Nco`` columns. Optional
-HM3 or ``--sumstats-snps-file`` restrictions are prepared once before chunk
-parsing and applied inside ``parse_dat`` after canonical columns, coordinate
-normalization, and chunk-local QC are complete, so rows outside the keep-list
-are not retained for the full-table concatenation step.
+``munge_sumstats`` streams plain/gzip/bzip2 input, normalizes coordinates and
+applies chunk QC and SNP restriction before concatenation. Whole-table sample
+size filtering and sign conversion precede optional liftover and global
+identity cleanup. ``MungeResult`` returns the curated table, exclusive drop
+counts, coordinate provenance and row-level liftover/identity audit records.
+No input configuration is mutated and no artifacts are written here.
 """
-import pandas as pd
-import numpy as np
-import gzip
-import bz2
-import argparse
 import logging
-import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+
+import numpy as np
+import pandas as pd
 from scipy.stats import chi2
 from .._coordinates import (
     coordinate_missing_mask,
     normalize_chr_pos_frame,
     positive_int_position_series,
 )
-from ..errors import LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
-from ..column_inference import (
-    RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS,
-    RAW_SUMSTATS_SIGNED_STAT_SPECS,
-    build_cleaned_alias_lookup,
-    clean_header,
-    normalize_genome_build,
-    normalize_snp_identifier_mode,
-)
-from ..genome_build_inference import collect_chr_pos_build_evidence_frame, resolve_chr_pos_table
+from ..errors import LDSCInputError, LDSCInternalError
 from . import regression as sumstats
 from .identifiers import (
     build_packed_chr_pos_series,
@@ -62,13 +38,10 @@ from .snp_identity import (
     allele_set_series,
     base_key_series,
     clean_identity_artifact_table,
-    identity_base_mode,
     identity_mode_family,
     is_allele_aware_mode,
     restriction_membership_mask,
 )
-
-_BUILD_INFERENCE_CHUNKSIZE = 5_000
 
 LOGGER = logging.getLogger("LDSC.sumstats_munger.kernel")
 
@@ -90,111 +63,79 @@ class _SumstatsRestriction:
     def n_rows_removed(self):
         return self.n_rows_before_filter - self.n_rows_kept
 
-null_values = {
-    'LOG_ODDS': 0,
-    'BETA': 0,
-    'OR': 1,
-    'Z': 0
-}
 
-default_cnames = build_cleaned_alias_lookup(
-    RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS + RAW_SUMSTATS_SIGNED_STAT_SPECS
-)
+@dataclass(frozen=True)
+class MungeQC:
+    """Resolved numeric thresholds and constant sample sizes."""
 
-describe_cname = {
-    'SNP': 'Variant ID (e.g., rs number)',
-    'CHR': 'Chromosome',
-    'POS': 'Base-pair position',
-    'P': 'p-Value',
-    'A1': 'Allele 1; the allele that the signed statistic is relative to, usually the effect/increasing allele.',
-    'A2': 'Allele 2; the counterpart allele to A1.',
-    'N': 'Sample size',
-    'N_CAS': 'Number of cases',
-    'N_CON': 'Number of controls',
-    'Z': 'Z-score (0 --> no effect; above 0 --> A1 is trait/risk increasing)',
-    'OR': 'Odds ratio (1 --> no effect; above 1 --> A1 is risk increasing)',
-    'BETA': '[linear/logistic] regression coefficient (0 --> no effect; above 0 --> A1 is trait/risk increasing)',
-    'LOG_ODDS': 'Log odds ratio (0 --> no effect; above 0 --> A1 is risk increasing)',
-    'INFO': 'INFO score (imputation quality; higher --> better imputation)',
-    'FRQ': 'Allele frequency',
-    'SIGNED_SUMSTAT': 'Directional summary statistic as specified by --signed-sumstats.',
-    'NSTUDY': 'Number of studies in which the SNP was genotyped.'
-}
+    info_min: float = 0.9
+    maf_min: float = 0.01
+    n_min: float | None = None
+    nstudy_min: float | None = None
+    N: float | None = None
+    N_cas: float | None = None
+    N_con: float | None = None
+    keep_maf: bool = False
+
+
+@dataclass(frozen=True)
+class ResolvedMungeInput:
+    """Raw reader and scientific settings resolved before chunk filtering.
+
+    Coordinate-family inputs carry a concrete source build and raw coordinate
+    basis. There are no CLI flags, output paths or hidden result attributes.
+    The kernel does not mutate this request, including its prepared keep-list.
+    """
+
+    source_path: str
+    column_map: dict[str, str]
+    compression: str | None
+    metadata_skiprows: int
+    chunk_size: int
+    info_list_columns: tuple[str, ...]
+    signed_sumstat_null: float | None
+    signed_sumstat_name: str
+    a1_inc: bool
+    snp_identifier: str
+    genome_build: str | None
+    coordinate_basis: str | None
+    coordinate_metadata: dict
+    restriction: _SumstatsRestriction | None
+    liftover_request: SumstatsLiftoverRequest
+    qc: MungeQC
+
+
+@dataclass(frozen=True)
+class MungeResult:
+    """Curated rows and explicit accounting/provenance from one kernel run.
+
+    Drop counts are exclusive, ordered stage counts; their sum equals parsed
+    input rows minus curated output rows. Detailed coordinate reasons may
+    overlap and are recorded separately in coordinate_metadata. Drop frames
+    describe liftover and global identity cleanup, not every QC exclusion.
+    """
+
+    data: pd.DataFrame
+    n_input_rows: int
+    drop_counts: dict[str, int]
+    used_n_rule: str
+    coordinate_metadata: dict
+    liftover_drop_frame: pd.DataFrame
+    identity_drop_frame: pd.DataFrame
+
+
+@dataclass
+class _ParsedChunks:
+    data: pd.DataFrame
+    n_input_rows: int
+    drop_counts: dict[str, int]
+    coordinate_counts: dict
+
 
 numeric_cols = ['P', 'N', 'N_CAS', 'N_CON', 'POS', 'Z', 'OR', 'BETA', 'LOG_ODDS', 'INFO', 'FRQ', 'SIGNED_SUMSTAT', 'NSTUDY']
 
 
-def _decode_header_line(line):
-    """Decode one raw header/comment line from plain or compressed input."""
-    if isinstance(line, bytes):
-        return line.decode('utf-8')
-    return line
-
-
-def count_leading_sumstats_comment_lines(fh):
-    """Count leading raw sumstats metadata lines that begin with ``##``."""
-    openfunc, _compression = get_compression(fh)
-    count = 0
-    with openfunc(fh) as handle:
-        for raw_line in handle:
-            line = _decode_header_line(raw_line)
-            if not line.startswith('##'):
-                break
-            count += 1
-    return count
-
-
-def read_header(fh):
-    '''Read the first non-metadata line of a file and return its column names.'''
-    skiprows = count_leading_sumstats_comment_lines(fh)
-    (openfunc, _compression) = get_compression(fh)
-    with openfunc(fh) as handle:
-        for _idx in range(skiprows):
-            handle.readline()
-        line = _decode_header_line(handle.readline())
-        return [x.rstrip('\n') for x in line.split()]
-
-
-def get_cname_map(flag, default, ignore):
-    '''
-    Figure out which column names to use.
-
-    Priority is
-    (1) ignore everything in ignore
-    (2) use everything in flags that is not in ignore
-    (3) use everything in default that is not in ignore or in flags
-
-    The keys of flag are cleaned. The entries of ignore are not cleaned. The keys of defualt
-    are cleaned. But all equality is modulo clean_header().
-    
-    added list wrapper to flag.keys() for py3
-    '''
-    clean_ignore = [clean_header(x) for x in ignore]
-    cname_map = {x: flag[x] for x in flag if x not in clean_ignore}
-    used_targets = set(cname_map.values())
-    cname_map.update(
-        {x: default[x] for x in default if x not in clean_ignore + list(flag.keys()) and default[x] not in used_targets})
-    return cname_map
-
-
-def get_compression(fh):
-    '''
-    Read filename suffixes and figure out whether it is gzipped,bzip2'ed or not compressed
-    '''
-    if fh.endswith('gz'):
-        compression = 'gzip'
-        openfunc = gzip.open
-    elif fh.endswith('bz2'):
-        compression = 'bz2'
-        openfunc = bz2.BZ2File
-    else:
-        openfunc = open
-        compression = None
-
-    return openfunc, compression
-
-
-def filter_pvals(P, args):
+def filter_pvals(P):
     '''Remove out-of-bounds P-values'''
     ii = (P > 0) & (P <= 1)
     bad_p = (~ii).sum()
@@ -204,15 +145,15 @@ def filter_pvals(P, args):
     return ii
 
 
-def filter_info(info, args):
-    '''Remove INFO < args.info_min (default 0.9) and complain about out-of-bounds INFO.'''
+def filter_info(info, qc: MungeQC):
+    '''Remove INFO < qc.info_min (default 0.9) and complain about out-of-bounds INFO.'''
     if type(info) is pd.Series:  # one INFO column
         jj = ((info > 2.0) | (info < 0)) & info.notnull()
-        ii = info >= args.info_min
+        ii = info >= qc.info_min
     elif type(info) is pd.DataFrame:  # several INFO columns
         jj = (((info > 2.0) & info.notnull()).any(axis=1) | (
             (info < 0) & info.notnull()).any(axis=1))
-        ii = (info.sum(axis=1) >= args.info_min * (len(info.columns)))
+        ii = (info.sum(axis=1) >= qc.info_min * (len(info.columns)))
     else:
         raise LDSCInternalError(
             "munge-sumstats received an invalid INFO object inside _kernel.sumstats_munger.filter_info(); "
@@ -229,9 +170,9 @@ def filter_info(info, args):
     return ii
 
 
-def filter_frq(frq, args):
+def filter_frq(frq, qc: MungeQC):
     '''
-    Filter on MAF. Remove MAF < args.maf_min and out-of-bounds MAF.
+    Filter on MAF. Remove MAF < qc.maf_min and out-of-bounds MAF.
     '''
     jj = (frq < 0) | (frq > 1)
     bad_frq = jj.sum()
@@ -242,7 +183,7 @@ def filter_frq(frq, args):
     # below is a local mask for the --maf-min threshold only; never reorient
     # A1/A2 or overwrite FRQ here (FRQ stays freq(A1), may exceed 0.5).
     frq = np.minimum(frq, 1 - frq)
-    ii = frq >= args.maf_min
+    ii = frq >= qc.maf_min
     return ii & ~jj
 
 
@@ -277,28 +218,24 @@ def _mean_info_list_value(value, column):
     return float(np.mean(numeric))
 
 
-def _coerce_info_list_columns(dat, convert_colname, args):
-    if not getattr(args, 'info_list', None):
-        return dat
-    info_list = {clean_header(column) for column in args.info_list.split(',') if column.strip()}
-    for raw_col in list(dat.columns):
-        if clean_header(raw_col) in info_list and convert_colname.get(raw_col) == 'INFO':
-            dat[raw_col] = dat[raw_col].map(lambda value, column=raw_col: _mean_info_list_value(value, column))
+def _coerce_info_list_columns(dat, columns):
+    for raw_col in columns:
+        dat[raw_col] = dat[raw_col].map(lambda value, column=raw_col: _mean_info_list_value(value, column))
     return dat
 
 
-def parse_dat(dat_gen, convert_colname, args, restriction=None):
-    '''Parse and filter a sumstats file chunk-wise'''
+def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
+    """Parse chunks once, returning their retained rows and exclusive counts."""
+    convert_colname = request.column_map
+    restriction = replace(request.restriction) if request.restriction is not None else None
+    coordinate_counts = _empty_coordinate_drop_counts()
+    qc = request.qc
     tot_snps = 0
     dat_list = []
-    LOGGER.info(f"Reading sumstats from {args.sumstats} into memory {int(args.chunksize)} SNPs at a time.")
-    drops = {'NA': 0, 'P': 0, 'INFO': 0,
-             'FRQ': 0, 'A': 0, 'SNP': 0}
-    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
-    if identity_mode_family(mode) == 'chr_pos':
-        args._coordinates_finalized_chunkwise = True
-        args._coordinate_drop_counts = _empty_coordinate_drop_counts()
-    for block_num, dat in enumerate(dat_gen):
+    LOGGER.info(f"Reading sumstats from {request.source_path} into memory {request.chunk_size} SNPs at a time.")
+    drops = dict.fromkeys(('NA', 'coordinates', 'INFO', 'FRQ', 'P', 'sumstats_snps', 'N', 'NSTUDY', 'liftover', 'identity'), 0)
+    mode = request.snp_identifier
+    for dat in dat_gen:
         tot_snps += len(dat)
         old = len(dat)
         required_raw_cols = [
@@ -307,7 +244,7 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
         ]
         dat = dat.dropna(axis=0, how="any", subset=required_raw_cols).reset_index(drop=True)
         drops['NA'] += old - len(dat)
-        dat = _coerce_info_list_columns(dat, convert_colname, args)
+        dat = _coerce_info_list_columns(dat, request.info_list_columns)
         dat.columns = map(lambda x: convert_colname[x], dat.columns)
 
         wrong_types = [
@@ -316,39 +253,39 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
         ]
         if len(wrong_types) > 0:
             raise LDSCInputError(
-                f"munge-sumstats could not parse numeric column(s) {wrong_types} from '{args.sumstats}'. "
+                f"munge-sumstats could not parse numeric column(s) {wrong_types} from '{request.source_path}'. "
                 "Most likely one of these columns contains text values or was mapped to the wrong header. "
                 "Check the raw header and pass the correct column hints or clean the non-numeric values."
             )
 
         if identity_mode_family(mode) == 'chr_pos':
-            dat = _normalize_chr_pos_chunk(dat, args)
+            dat = _normalize_chr_pos_chunk(dat, request, coordinate_counts)
             if len(dat) == 0:
                 continue
 
         ii = np.array([True for i in range(len(dat))])
         if 'INFO' in dat.columns:
             old = ii.sum()
-            ii &= filter_info(dat['INFO'], args)
+            ii &= filter_info(dat['INFO'], qc)
             new = ii.sum()
             drops['INFO'] += old - new
             old = new
 
         if 'FRQ' in dat.columns:
             old = ii.sum()
-            ii &= filter_frq(dat['FRQ'], args)
+            ii &= filter_frq(dat['FRQ'], qc)
             new = ii.sum()
             drops['FRQ'] += old - new
             old = new
 
         old = ii.sum()
-        if args.keep_maf:
+        if qc.keep_maf:
             dat.drop(
                 [x for x in ['INFO'] if x in dat.columns], inplace=True, axis=1)
         else:
             dat.drop(
                 [x for x in ['INFO', 'FRQ'] if x in dat.columns], inplace=True, axis=1)
-        ii &= filter_pvals(dat.P, args)
+        ii &= filter_pvals(dat.P)
         new = ii.sum()
         drops['P'] += old - new
         old = new
@@ -360,7 +297,7 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
             continue
 
         retained = dat[ii].reset_index(drop=True)
-        retained = _filter_sumstats_chunk_to_restriction(retained, restriction, args)
+        retained = _filter_sumstats_chunk_to_restriction(retained, restriction, request.source_path)
         if len(retained) == 0:
             continue
 
@@ -370,36 +307,33 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
     msg = (
         f"Read {tot_snps} SNPs from --sumstats file.\n"
         f"Removed {drops['NA']} SNPs with missing values.\n"
-        f"Removed {drops['INFO']} SNPs with INFO < {args.info_min}.\n"
-        f"Removed {drops['FRQ']} SNPs with MAF < {args.maf_min}.\n"
+        f"Removed {drops['INFO']} SNPs with INFO < {qc.info_min}.\n"
+        f"Removed {drops['FRQ']} SNPs with MAF < {qc.maf_min}.\n"
         f"Removed {drops['P']} SNPs with out-of-bounds p-values.\n"
-        f"Removed {drops['A']} variants that were not SNPs or were strand-ambiguous.\n"
         f"{len(dat)} SNPs remain."
     )
     LOGGER.info(msg)
-    _log_coordinate_drop_summary(args)
+    _log_coordinate_drop_summary(coordinate_counts, request.source_path)
     if restriction is not None:
         _log_sumstats_restriction_summary(restriction)
         if len(dat) == 0 and restriction.n_rows_before_filter > 0 and restriction.n_rows_kept == 0:
             _raise_sumstats_restriction_empty(restriction)
-    return dat
+    drops['coordinates'] = coordinate_counts['n_dropped']
+    drops['sumstats_snps'] = restriction.n_rows_removed if restriction is not None else 0
+    return _ParsedChunks(dat, tot_snps, {key: int(value) for key, value in drops.items()}, coordinate_counts)
 
 
-def _prepare_sumstats_restriction(args):
+def prepare_sumstats_restriction(snps_path: str | None, mode: str, genome_build: str | None):
     """
     Load the active summary-statistics keep-list before raw chunk parsing.
 
     The returned object stores either rsID strings or packed uint64 CHR/POS
-    keys, depending on ``args.snp_identifier``. Empty files with no usable
+    keys, depending on the resolved identity mode. Empty files with no usable
     identifiers fail here, before the raw sumstats iterator is consumed.
     """
-    snps_path = getattr(args, 'sumstats_snps', None)
     if not snps_path:
         return None
 
-    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
-    coordinate_metadata = getattr(args, '_coordinate_metadata', {})
-    genome_build = coordinate_metadata.get('genome_build', getattr(args, 'genome_build', None))
     if identity_mode_family(mode) == 'chr_pos' and (
         mode == 'chr_pos' or not restriction_file_has_allele_columns(snps_path, context=str(snps_path))
     ):
@@ -444,7 +378,7 @@ def _prepare_sumstats_restriction(args):
     return restriction
 
 
-def _filter_sumstats_chunk_to_restriction(dat, restriction, args):
+def _filter_sumstats_chunk_to_restriction(dat, restriction, source_path):
     """
     Apply a prepared keep-list to one canonical, already-QCed chunk.
 
@@ -456,7 +390,7 @@ def _filter_sumstats_chunk_to_restriction(dat, restriction, args):
         return dat
 
     if restriction.identity_keys is not None:
-        return _filter_allele_aware_chunk_to_identity_restriction(dat, restriction, args)
+        return _filter_allele_aware_chunk_to_identity_restriction(dat, restriction, source_path)
     old = len(dat)
     if identity_mode_family(restriction.mode) == 'rsid':
         keys = dat['SNP'].astype(str)
@@ -466,7 +400,7 @@ def _filter_sumstats_chunk_to_restriction(dat, restriction, args):
         keys = build_packed_chr_pos_series(
             dat['CHR'].reset_index(drop=True),
             dat['POS'].reset_index(drop=True),
-            context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
+            context=f"--sumstats-snps-file filtering for {source_path}",
         )
         keys.index = dat.index
         usable_mask = pd.Series(True, index=dat.index)
@@ -478,7 +412,7 @@ def _filter_sumstats_chunk_to_restriction(dat, restriction, args):
     return dat.loc[keep].reset_index(drop=True)
 
 
-def _filter_allele_aware_chunk_to_identity_restriction(dat, restriction, args):
+def _filter_allele_aware_chunk_to_identity_restriction(dat, restriction, source_path):
     """
     Apply an allele-aware restriction without raising on raw rows with bad alleles.
 
@@ -491,7 +425,7 @@ def _filter_allele_aware_chunk_to_identity_restriction(dat, restriction, args):
     work[original_row_column] = range(len(work))
     _, allele_reasons = allele_set_series(
         work,
-        context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
+        context=f"--sumstats-snps-file filtering for {source_path}",
     )
     matchable = work.loc[allele_reasons.isna()].copy()
     if len(matchable) > 0:
@@ -499,21 +433,19 @@ def _filter_allele_aware_chunk_to_identity_restriction(dat, restriction, args):
             matchable,
             restriction.identity_keys,
             restriction.mode,
-            context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
+            context=f"--sumstats-snps-file filtering for {source_path}",
         )
         kept_matchable = matchable.loc[keep_matchable].copy()
-        kept = int(keep_matchable.sum())
         matchable_original_rows = set(matchable[original_row_column].tolist())
     else:
         kept_matchable = matchable
-        kept = 0
         matchable_original_rows = set()
 
     unmatchable_mask = ~work[original_row_column].isin(matchable_original_rows)
     base_keys = base_key_series(
         work,
         restriction.mode,
-        context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
+        context=f"--sumstats-snps-file filtering for {source_path}",
     )
     unmatchable_base_universe = _restriction_base_key_universe(restriction.identity_keys)
     unmatchable = work.loc[unmatchable_mask & base_keys.isin(unmatchable_base_universe)].copy()
@@ -522,7 +454,9 @@ def _filter_allele_aware_chunk_to_identity_restriction(dat, restriction, args):
 
     restriction.n_rows_before_filter += len(dat)
     restriction.n_usable_row_identifiers += len(matchable)
-    restriction.n_rows_kept += kept
+    # Bad allele rows retained by base key are counted as drops only when
+    # global identity cleanup actually removes them.
+    restriction.n_rows_kept += len(retained)
     return retained.reset_index(drop=True)
 
 
@@ -579,33 +513,29 @@ def _empty_coordinate_drop_counts():
     }
 
 
-def _normalize_chr_pos_chunk(dat, args):
+def _normalize_chr_pos_chunk(dat, request, counts):
     if 'CHR' not in dat.columns:
         dat['CHR'] = pd.NA
     if 'POS' not in dat.columns:
         dat['POS'] = pd.NA
 
-    coordinate_basis = getattr(args, '_coordinate_basis', None)
+    coordinate_basis = request.coordinate_basis
     min_position = 0 if coordinate_basis == '0-based' else 1
     normalized, report = normalize_chr_pos_frame(
         dat,
-        context=getattr(args, 'sumstats', 'sumstats'),
+        context=request.source_path,
         coordinate_policy='drop',
         logger=None,
         example_columns=('SNP', 'CHR', 'POS'),
         min_position=min_position,
     )
-    _accumulate_coordinate_drop_counts(args, report)
+    _accumulate_coordinate_drop_counts(counts, report)
     if coordinate_basis == '0-based' and len(normalized) > 0:
         normalized['POS'] = normalized['POS'].astype('int64') + 1
     return normalized.reset_index(drop=True)
 
 
-def _accumulate_coordinate_drop_counts(args, report):
-    counts = getattr(args, '_coordinate_drop_counts', None)
-    if counts is None:
-        counts = _empty_coordinate_drop_counts()
-        args._coordinate_drop_counts = counts
+def _accumulate_coordinate_drop_counts(counts, report):
     counts['n_input'] += int(report.n_input)
     counts['n_retained'] += int(report.n_retained)
     counts['n_dropped'] += int(report.n_dropped)
@@ -618,25 +548,24 @@ def _accumulate_coordinate_drop_counts(args, report):
         counts['examples'].extend(report.examples[:remaining])
 
 
-def _log_coordinate_drop_summary(args):
-    counts = getattr(args, '_coordinate_drop_counts', None)
+def _log_coordinate_drop_summary(counts, source_path):
     if not counts or counts.get('n_dropped', 0) == 0:
         return
     LOGGER.warning(
         f"Dropped {counts['n_dropped']} SNPs with invalid or missing CHR/POS in "
-        f"{getattr(args, 'sumstats', 'sumstats')}; {counts['n_retained']} rows remain "
+        f"{source_path}; {counts['n_retained']} rows remain "
         f"(missing CHR={counts['n_missing_chr']}, missing POS={counts['n_missing_pos']}, "
         f"invalid CHR={counts['n_invalid_chr']}, invalid POS={counts['n_invalid_pos']})."
     )
     if counts['examples']:
         LOGGER.warning(
             f"Example rows dropped for invalid or missing CHR/POS in "
-            f"{getattr(args, 'sumstats', 'sumstats')}: {counts['examples']}"
+            f"{source_path}: {counts['examples']}"
         )
 
 
-def process_n(dat, args):
-    '''Determine sample size from --N* flags or N* columns. Filter out low N SNPs.s'''
+def process_n(dat, qc: MungeQC):
+    """Apply the resolved N strategy and whole-table N/NSTUDY filters."""
     if all(i in dat.columns for i in ['N_CAS', 'N_CON']):
         N = dat.N_CAS + dat.N_CON
         P = dat.N_CAS / N
@@ -645,14 +574,14 @@ def process_n(dat, args):
         # NB no filtering on N done here -- that is done in the next code block
 
     if 'N' in dat.columns:
-        n_min = args.n_min if args.n_min else dat.N.quantile(0.9) / 1.5
+        n_min = qc.n_min if qc.n_min else dat.N.quantile(0.9) / 1.5
         old = len(dat)
         dat = dat[dat.N >= n_min].reset_index(drop=True)
         new = len(dat)
         LOGGER.info(f"Removed {old - new} SNPs with N < {n_min} ({new} SNPs remain).")
 
     elif 'NSTUDY' in dat.columns and 'N' not in dat.columns:
-        nstudy_min = args.nstudy_min if args.nstudy_min else dat.NSTUDY.max()
+        nstudy_min = qc.nstudy_min if qc.nstudy_min else dat.NSTUDY.max()
         old = len(dat)
         dat = dat[dat.NSTUDY >= nstudy_min].drop(
             ['NSTUDY'], axis=1).reset_index(drop=True)
@@ -660,13 +589,12 @@ def process_n(dat, args):
         LOGGER.info(f"Removed {old - new} SNPs with NSTUDY < {nstudy_min} ({new} SNPs remain).")
 
     if 'N' not in dat.columns:
-        if args.N:
-            dat['N'] = args.N
-            LOGGER.info(f"Using N = {args.N}")
-        elif args.N_cas and args.N_con:
-            dat['N'] = args.N_cas + args.N_con
-            if not args.daner_old:
-                LOGGER.info(f"Using N_cas = {args.N_cas}; N_con = {args.N_con}")
+        if qc.N:
+            dat['N'] = qc.N
+            LOGGER.info(f"Using N = {qc.N}")
+        elif qc.N_cas and qc.N_con:
+            dat['N'] = qc.N_cas + qc.N_con
+            LOGGER.info(f"Using N_cas = {qc.N_cas}; N_con = {qc.N_con}")
         else:
             raise LDSCInternalError(
                 "munge-sumstats could not derive a sample size (N) and reached a state that should be unreachable. "
@@ -697,682 +625,53 @@ def check_median(x, expected_median, tolerance, name):
     return msg
 
 
-def parse_flag_cnames(args):
-    '''
-    Parse flags that specify how to interpret nonstandard column names.
-
-    flag_cnames is a dict that maps (cleaned) arguments to internal column names
-    '''
-    cname_options = [
-        [args.nstudy, 'NSTUDY', '--nstudy'],
-        [args.snp, 'SNP', '--snp'],
-        [args.chr, 'CHR', '--chr'],
-        [args.pos, 'POS', '--pos'],
-        [args.N_col, 'N', '--N'],
-        [args.N_cas_col, 'N_CAS', '--N-cas-col'],
-        [args.N_con_col, 'N_CON', '--N-con-col'],
-        [args.a1, 'A1', '--a1'],
-        [args.a2, 'A2', '--a2'],
-        [args.p, 'P', '--P'],
-        [args.frq, 'FRQ', '--nstudy'],
-        [args.info, 'INFO', '--info']
-    ]
-    flag_cnames = {clean_header(x[0]): x[1]
-                   for x in cname_options if x[0] is not None}
-    if args.info_list:
-        try:
-            flag_cnames.update(
-                {clean_header(x): 'INFO' for x in args.info_list.split(',')})
-        except ValueError as exc:
-            raise LDSCUsageError(
-                f"munge-sumstats could not parse --info-list={args.info_list!r}. "
-                "Most likely the value is not a comma-separated list of column names. "
-                "Use a value such as --info-list INFO,INFO_SCORE."
-            ) from exc
-
-    null_value = None
-    if args.signed_sumstats:
-        try:
-            cname, null_value = args.signed_sumstats.split(',')
-            null_value = float(null_value)
-            flag_cnames[clean_header(cname)] = 'SIGNED_SUMSTAT'
-        except ValueError as exc:
-            raise LDSCUsageError(
-                f"munge-sumstats could not parse --signed-sumstats={args.signed_sumstats!r}. "
-                "Most likely the value is missing '<column>,<null_value>' or the null value is not numeric. "
-                "Use a value such as --signed-sumstats BETA,0 or --signed-sumstats OR,1."
-            ) from exc
-
-    return [flag_cnames, null_value]
-
-
-def _validate_explicit_sample_size_column_strategy(args):
-    """Validate mutually exclusive direct-N and case/control column hints."""
-    has_direct_n = args.N_col is not None
-    has_n_cas = args.N_cas_col is not None
-    has_n_con = args.N_con_col is not None
-    if has_n_cas != has_n_con:
-        missing = '--N-con-col' if has_n_cas else '--N-cas-col'
-        raise LDSCUsageError(
-            f"munge-sumstats --N-cas-col and --N-con-col must be provided together; {missing} is missing. "
-            "Pass both case/control column names, or drop the incomplete case/control hint and use --N-col."
-        )
-    if has_direct_n and has_n_cas:
-        raise LDSCUsageError(
-            "munge-sumstats --N-col cannot be combined with --N-cas-col and --N-con-col. "
-            "Choose one sample-size strategy: a direct per-variant N column, or a paired case/control column strategy."
-        )
-
-
-def _warn_sample_size_column_suppression(message):
-    """Emit one visible and logged warning for explicit sample-size precedence."""
-    warnings.warn(message, UserWarning, stacklevel=3)
-    LOGGER.warning(message)
-
-
-def _resolve_sample_size_column_strategy(args, cname_translation):
-    """Apply explicit sample-size precedence and reject ambiguous inference."""
-    if args.N_col is not None:
-        suppressed = [
-            source for source, target in cname_translation.items()
-            if target in {'N_CAS', 'N_CON'}
-        ]
-        for source in suppressed:
-            del cname_translation[source]
-        if suppressed:
-            _warn_sample_size_column_suppression(
-                f"--N-col {args.N_col} selected the direct-N sample-size strategy; ignored automatically inferred "
-                f"N_CAS/N_CON column(s): {', '.join(suppressed)}."
-            )
-        return
-
-    if args.N_cas_col is not None:
-        suppressed = [
-            source for source, target in cname_translation.items()
-            if target == 'N'
-        ]
-        for source in suppressed:
-            del cname_translation[source]
-        if suppressed:
-            _warn_sample_size_column_suppression(
-                f"--N-cas-col {args.N_cas_col} and --N-con-col {args.N_con_col} selected the case/control "
-                f"sample-size strategy; ignored automatically inferred direct-N column(s): {', '.join(suppressed)}."
-            )
-        return
-
-    sources_by_target = {
-        target: [source for source, mapped_target in cname_translation.items() if mapped_target == target]
-        for target in ('N', 'N_CAS', 'N_CON')
-    }
-    if all(sources_by_target[target] for target in ('N', 'N_CAS', 'N_CON')):
-        direct = sources_by_target['N'][0]
-        n_cas = sources_by_target['N_CAS'][0]
-        n_con = sources_by_target['N_CON'][0]
-        raise LDSCInputError(
-            f"munge-sumstats found multiple sample-size strategies through automatic inference in '{args.sumstats}': "
-            f"direct N column '{direct}' and case/control columns '{n_cas}'/'{n_con}'. "
-            "LDSC3 will not choose one silently because the values can differ. Choose one explicitly with "
-            f"--N-col {direct} or --N-cas-col {n_cas} --N-con-col {n_con}."
-        )
-
-
-def _suggest_allele_fix(file_cnames):
-    clean_to_original = {clean_header(column): column for column in file_cnames}
-    if 'REF' in clean_to_original and 'ALT' in clean_to_original:
-        return f" Try --a1 {clean_to_original['REF']} --a2 {clean_to_original['ALT']} if the signed statistic is relative to REF."
-    return ""
-
-
-def _suggest_signed_sumstat_fix(file_cnames):
-    likely = {'EFFECT_SIZE', 'EFFECTSIZE', 'LOGOR', 'LOG_OR', 'BETA_HAT'}
-    for column in file_cnames:
-        if clean_header(column) in likely:
-            return f" Try --signed-sumstats {column},0 if that column is the signed effect relative to A1."
-    return ""
-
-
-def _suggest_n_fix(file_cnames):
-    if any(clean_header(column) == 'NEFF' for column in file_cnames):
-        return " NEFF is not treated as N automatically; pass --N-col NEFF only if that is appropriate for this analysis."
-    return ""
-
-
-def _resolve_auto_genome_build_before_chunks(args, cname_translation, compression, metadata_skiprows):
-    """
-    Resolve ``genome_build=auto`` for chr_pos sumstats before chunk parsing.
-
-    The prepass reads only the raw coordinate columns selected by column
-    inference, then delegates the build and coordinate-basis decision to the
-    shared genome-build inference module used by ref-panel-builder.
-    """
-    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
-    genome_build = normalize_genome_build(getattr(args, 'genome_build', None))
-    if identity_mode_family(mode) != 'chr_pos' or genome_build != 'auto':
-        if identity_mode_family(mode) == 'chr_pos':
-            args._coordinate_basis = '1-based'
-        return
-
-    coordinate_frame = _read_raw_sumstats_coordinate_frame(
-        args,
-        cname_translation,
-        compression=compression,
-        metadata_skiprows=metadata_skiprows,
-    )
-    try:
-        _normalized, inference = resolve_chr_pos_table(
-            coordinate_frame,
-            context=getattr(args, 'sumstats', 'sumstats'),
-            logger=None,
-        )
-    except ValueError as exc:
-        raise LDSCInputError(
-            f"munge-sumstats could not infer genome_build from raw CHR/POS coordinates in "
-            f"'{getattr(args, 'sumstats', 'sumstats')}'. Most likely too few coordinates match a known build. "
-            "Pass --genome-build hg19 or --genome-build hg38 explicitly."
-        ) from exc
-
-    args.genome_build = inference.genome_build
-    args._coordinate_basis = inference.coordinate_basis
-    args._coordinate_metadata = {
-        'snp_identifier': mode,
-        'genome_build': inference.genome_build,
-        'genome_build_inferred': True,
-        'coordinate_basis': inference.coordinate_basis,
-        'build_inference': {
-            'inspected_snp_count': int(inference.inspected_snp_count),
-            'match_counts': dict(inference.match_counts),
-            'match_fractions': dict(inference.match_fractions),
-            'summary_message': inference.summary_message,
-        },
-    }
-    if inference.coordinate_basis == '0-based':
-        LOGGER.warning(inference.summary_message)
-    else:
-        LOGGER.info(inference.summary_message)
-    LOGGER.info(
-        f"Resolved genome_build='{inference.genome_build}' before chunk parsing for chr_pos summary statistics."
-    )
-
-
-def _read_raw_sumstats_coordinate_frame(args, cname_translation, *, compression, metadata_skiprows):
-    """Read only raw CHR/POS evidence needed for early genome-build inference."""
-    raw_chr = [raw for raw, target in cname_translation.items() if target == 'CHR']
-    raw_pos = [raw for raw, target in cname_translation.items() if target == 'POS']
-    if not raw_chr or not raw_pos:
-        raise LDSCInputError(
-            f"munge-sumstats could not infer genome_build='auto' for '{getattr(args, 'sumstats', 'sumstats')}' "
-            "because no CHR/POS column pair was mapped. Most likely the coordinate columns use unrecognized names. "
-            "Pass --chr/--pos column hints, or pass --genome-build hg19 or hg38 explicitly."
-        )
-    raw_columns = [raw_chr[0], raw_pos[0]]
-    reader = pd.read_csv(
-        args.sumstats,
-        sep=r'\s+',
-        header=0,
-        compression=compression,
-        usecols=raw_columns,
-        na_values=['.', 'NA'],
-        skiprows=metadata_skiprows,
-        chunksize=_BUILD_INFERENCE_CHUNKSIZE,
-    )
-    frames = (chunk.rename(columns={raw_chr[0]: 'CHR', raw_pos[0]: 'POS'}) for chunk in reader)
-    return collect_chr_pos_build_evidence_frame(frames, context=getattr(args, 'sumstats', 'sumstats'))
-
-
-def _finalize_coordinate_columns(dat, args):
-    """Ensure canonical CHR/POS columns exist and normalize them when requested."""
-    if 'CHR' not in dat.columns:
-        dat['CHR'] = pd.NA
-    if 'POS' not in dat.columns:
-        dat['POS'] = pd.NA
-
-    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
-    genome_build = normalize_genome_build(getattr(args, 'genome_build', None))
-    existing_metadata = dict(getattr(args, '_coordinate_metadata', {}) or {})
-    pre_inferred_basis = existing_metadata.get('coordinate_basis')
-    source_columns = getattr(args, '_coordinate_source_columns', {})
+def _coordinate_metadata(dat, request, counts):
+    """Record the chunk coordinate policy and validate optional rsID coordinates."""
+    for column in ('CHR', 'POS'):
+        if column not in dat.columns:
+            dat[column] = pd.NA
     metadata = {
-        'snp_identifier': mode,
-        'genome_build': genome_build,
-        'genome_build_inferred': bool(existing_metadata.get('genome_build_inferred', False)),
-        'coordinate_basis': pre_inferred_basis if pre_inferred_basis in {'0-based', '1-based'} else None,
-        'coordinate_columns': {
-            'CHR': source_columns.get('CHR'),
-            'POS': source_columns.get('POS'),
-        },
-        'n_rows': int(len(dat)),
-        'n_retained_after_chr_pos_policy': int(len(dat)),
-        'n_missing_chr_pos': 0,
-        'n_invalid_chr_pos': 0,
-        'n_dropped_invalid_chr_pos': 0,
+        **request.coordinate_metadata,
+        'coordinate_columns': {target: next((raw for raw, canonical in request.column_map.items() if canonical == target), None) for target in ('CHR', 'POS')},
+        'n_rows': int(len(dat)), 'n_retained_after_chr_pos_policy': int(len(dat)),
+        'n_missing_chr_pos': 0, 'n_invalid_chr_pos': 0, 'n_dropped_invalid_chr_pos': 0,
     }
-    if 'build_inference' in existing_metadata:
-        metadata['build_inference'] = existing_metadata['build_inference']
-
-    if identity_mode_family(mode) == 'chr_pos':
-        if getattr(args, '_coordinates_finalized_chunkwise', False):
-            counts = getattr(args, '_coordinate_drop_counts', _empty_coordinate_drop_counts())
-            metadata.update(
-                {
-                    'n_rows': int(counts['n_input']),
-                    'n_retained_after_chr_pos_policy': int(counts['n_retained']),
-                    'n_missing_chr_pos': int(counts['n_missing_chr'] + counts['n_missing_pos']),
-                    'n_invalid_chr_pos': int(counts['n_invalid_chr'] + counts['n_invalid_pos']),
-                    'n_dropped_invalid_chr_pos': int(counts['n_dropped']),
-                    'coordinate_drop_report': {
-                        'n_input': int(counts['n_input']),
-                        'n_retained': int(counts['n_retained']),
-                        'n_dropped': int(counts['n_dropped']),
-                        'n_missing_chr': int(counts['n_missing_chr']),
-                        'n_missing_pos': int(counts['n_missing_pos']),
-                        'n_invalid_chr': int(counts['n_invalid_chr']),
-                        'n_invalid_pos': int(counts['n_invalid_pos']),
-                        'examples': list(counts['examples']),
-                    },
-                }
-            )
-            if genome_build == 'auto' and len(dat) > 0:
-                normalized, inference = resolve_chr_pos_table(
-                    dat,
-                    context=getattr(args, 'sumstats', 'sumstats'),
-                    logger=LOGGER,
-                )
-                dat = normalized
-                metadata.update(
-                    {
-                        'genome_build': inference.genome_build,
-                        'genome_build_inferred': True,
-                        'coordinate_basis': inference.coordinate_basis,
-                        'build_inference': {
-                            'inspected_snp_count': int(inference.inspected_snp_count),
-                            'match_counts': dict(inference.match_counts),
-                            'match_fractions': dict(inference.match_fractions),
-                            'summary_message': inference.summary_message,
-                        },
-                    }
-                )
-            elif genome_build == 'auto':
-                metadata['genome_build'] = None
-                LOGGER.warning('WARNING: Cannot infer genome build because no rows have valid CHR/POS coordinates.')
-            elif len(dat) > 0 and genome_build is not None and metadata['coordinate_basis'] is None:
-                metadata['coordinate_basis'] = '1-based'
-            args._coordinate_metadata = metadata
-            return dat
-        min_position = 0 if genome_build == 'auto' or pre_inferred_basis == '0-based' else 1
-        dat, coordinate_report = normalize_chr_pos_frame(
-            dat,
-            context=getattr(args, 'sumstats', 'sumstats'),
-            coordinate_policy='drop',
-            logger=LOGGER,
-            example_columns=('SNP', 'CHR', 'POS'),
-            min_position=min_position,
-        )
+    if identity_mode_family(request.snp_identifier) == 'chr_pos':
         metadata.update(
-            {
-                'n_retained_after_chr_pos_policy': int(len(dat)),
-                'n_missing_chr_pos': int(
-                    coordinate_report.n_missing_chr + coordinate_report.n_missing_pos
-                ),
-                'n_invalid_chr_pos': int(
-                    coordinate_report.n_invalid_chr + coordinate_report.n_invalid_pos
-                ),
-                'n_dropped_invalid_chr_pos': int(coordinate_report.n_dropped),
-                'coordinate_drop_report': {
-                    'n_input': int(coordinate_report.n_input),
-                    'n_retained': int(coordinate_report.n_retained),
-                    'n_dropped': int(coordinate_report.n_dropped),
-                    'n_missing_chr': int(coordinate_report.n_missing_chr),
-                    'n_missing_pos': int(coordinate_report.n_missing_pos),
-                    'n_invalid_chr': int(coordinate_report.n_invalid_chr),
-                    'n_invalid_pos': int(coordinate_report.n_invalid_pos),
-                    'examples': coordinate_report.examples,
-                },
-            }
+            n_rows=counts['n_input'], n_retained_after_chr_pos_policy=counts['n_retained'],
+            n_missing_chr_pos=counts['n_missing_chr'] + counts['n_missing_pos'],
+            n_invalid_chr_pos=counts['n_invalid_chr'] + counts['n_invalid_pos'],
+            n_dropped_invalid_chr_pos=counts['n_dropped'], coordinate_drop_report=counts,
         )
-        if (
-            pre_inferred_basis == '0-based'
-            and len(dat) > 0
-            and _should_shift_pre_inferred_zero_based(dat, existing_metadata)
-        ):
-            dat['POS'] = dat['POS'].astype('int64') + 1
-        if genome_build == 'auto' and len(dat) > 0:
-            normalized, inference = resolve_chr_pos_table(
-                dat,
-                context=getattr(args, 'sumstats', 'sumstats'),
-                logger=LOGGER,
-            )
-            dat = normalized
-            metadata.update(
-                {
-                    'genome_build': inference.genome_build,
-                    'genome_build_inferred': True,
-                    'coordinate_basis': inference.coordinate_basis,
-                    'build_inference': {
-                        'inspected_snp_count': int(inference.inspected_snp_count),
-                        'match_counts': dict(inference.match_counts),
-                        'match_fractions': dict(inference.match_fractions),
-                        'summary_message': inference.summary_message,
-                    },
-                }
-            )
-        elif genome_build == 'auto':
-            metadata['genome_build'] = None
-            LOGGER.warning('WARNING: Cannot infer genome build because no rows have valid CHR/POS coordinates.')
-        elif len(dat) > 0 and genome_build is not None and metadata['coordinate_basis'] is None:
-            metadata['coordinate_basis'] = '1-based'
     else:
         complete = ~(coordinate_missing_mask(dat['CHR']) | coordinate_missing_mask(dat['POS']))
         if complete.any():
-            positive_int_position_series(
-                dat.loc[complete, 'POS'],
-                context=getattr(args, 'sumstats', 'sumstats'),
-                label='POS',
-            )
-
-    args._coordinate_metadata = metadata
-    return dat
+            positive_int_position_series(dat.loc[complete, 'POS'], context=request.source_path, label='POS')
+    return metadata
 
 
-def _should_shift_pre_inferred_zero_based(dat, existing_metadata):
-    """Return whether parsed rows still appear to be in raw 0-based coordinates."""
-    raw_examples = existing_metadata.get('_raw_pos_examples')
-    if not raw_examples:
-        return True
-    n = min(len(raw_examples), len(dat))
-    if n == 0:
-        return False
-    parsed = pd.to_numeric(dat['POS'].head(n), errors='coerce').tolist()
-    raw = pd.to_numeric(pd.Series(raw_examples[:n]), errors='coerce').tolist()
-    return parsed == raw
+def munge_sumstats(request: ResolvedMungeInput) -> MungeResult:
+    """Execute resolved chunk QC, global N filtering, sign conversion and liftover.
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--sumstats', default=None, type=str,
-                    help="Input filename.")
-parser.add_argument('--N', default=None, type=float,
-                    help="Sample size If this option is not set, will try to infer the sample "
-                    "size from the input file. If the input file contains a sample size "
-                    "column, and this flag is set, the argument to this flag has priority.")
-parser.add_argument('--N-cas', default=None, type=float,
-                    help="Number of cases. If this option is not set, will try to infer the number "
-                    "of cases from the input file. If the input file contains a number of cases "
-                    "column, and this flag is set, the argument to this flag has priority.")
-parser.add_argument('--N-con', default=None, type=float,
-                    help="Number of controls. If this option is not set, will try to infer the number "
-                    "of controls from the input file. If the input file contains a number of controls "
-                    "column, and this flag is set, the argument to this flag has priority.")
-parser.add_argument('--out', default=None, type=str,
-                    help="Output filename prefix.")
-parser.add_argument('--info-min', default=0.9, type=float,
-                    help="Minimum INFO score.")
-parser.add_argument('--maf-min', default=0.01, type=float,
-                    help="Minimum MAF.")
-parser.add_argument('--n-min', default=None, type=float,
-                    help='Minimum N (sample size). Default is (90th percentile N) / 2.')
-parser.add_argument('--chunksize', default=1_000_000, type=int,
-                    help='Chunksize.')
-
-# optional args to specify column names
-parser.add_argument('--snp', default=None, type=str,
-                    help='Name of SNP column (if not a name that ldsc understands). NB: case insensitive.')
-parser.add_argument('--chr', default=None, type=str,
-                    help='Name of chromosome column (if not a name that ldsc understands). NB: case insensitive.')
-parser.add_argument('--pos', default=None, type=str,
-                    help='Name of base-pair position column (if not a name that ldsc understands). NB: case insensitive.')
-parser.add_argument('--N-col', default=None, type=str,
-                    help='Name of the direct per-variant N column. Suppresses inferred case/control columns; '
-                    'mutually exclusive with --N-cas-col/--N-con-col. NB: case insensitive.')
-parser.add_argument('--N-cas-col', default=None, type=str,
-                    help='Name of the per-variant case-count column. Must be paired with --N-con-col; the pair '
-                    'suppresses inferred direct N. NB: case insensitive.')
-parser.add_argument('--N-con-col', default=None, type=str,
-                    help='Name of the per-variant control-count column. Must be paired with --N-cas-col; the pair '
-                    'suppresses inferred direct N. NB: case insensitive.')
-parser.add_argument('--a1', default=None, type=str,
-                    help='Name of A1 column: the allele that the signed statistic is relative to. NB: case insensitive.')
-parser.add_argument('--a2', default=None, type=str,
-                    help='Name of A2 column: the counterpart allele to A1. NB: case insensitive.')
-parser.add_argument('--p', default=None, type=str,
-                    help='Name of p-value column (if not a name that ldsc understands). NB: case insensitive.')
-parser.add_argument('--frq', default=None, type=str,
-                    help='Name of FRQ or MAF column (if not a name that ldsc understands). NB: case insensitive.')
-parser.add_argument('--signed-sumstats', default=None, type=str,
-                    help='Name of signed sumstat column, comma null value (e.g., Z,0 or OR,1), oriented relative to A1. NB: case insensitive.')
-parser.add_argument('--info', default=None, type=str,
-                    help='Name of INFO column (if not a name that ldsc understands). NB: case insensitive.')
-parser.add_argument('--info-list', default=None, type=str,
-                    help='Comma-separated list of numeric/NA per-study INFO columns. Filters on the mean, e.g. IMPINFO=0.852,0.113,NA. NB: case insensitive.')
-parser.add_argument('--nstudy', default=None, type=str,
-                    help='Name of NSTUDY column (if not a name that ldsc understands). NB: case insensitive.')
-parser.add_argument('--nstudy-min', default=None, type=float,
-                    help='Minimum # of studies. Default is to remove everything below the max, unless there is an N column,'
-                    ' in which case do nothing.')
-parser.add_argument('--ignore', default=None, type=str,
-                    help='Comma-separated list of column names to ignore.')
-parser.add_argument('--a1-inc', default=False, action='store_true',
-                    help='A1 is the increasing allele.')
-parser.add_argument('--keep-maf', default=False, action='store_true',
-                    help='Keep the MAF column (if one exists).')
-parser.add_argument('--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
-                    help="SNP identity mode for filtering, duplicate policy, and emitted artifact provenance. Allele-aware modes require usable A1/A2; base modes are allele-blind.")
-parser.add_argument('--genome-build', default=None, choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
-                    help="Genome build for CHR/POS coordinates. Required for chr_pos-family modes; use 'auto' to infer when possible.")
-
-
-# set p = False for testing in order to prevent printing
-def munge_sumstats(args):
-    """Run the historical LDSC munging pipeline.
-
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Parsed legacy-style munging arguments.
-    p : bool, optional
-        Historical flag controlling whether the processed table is returned for
-        programmatic reuse. Default is ``True``.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Munged summary-statistics table when ``p`` is true.
+    The input is read once here. Source-build inference and keep-list loading
+    have already completed; all data and accounting are returned explicitly.
     """
-    if args.out is None:
-        raise LDSCUserError(
-            "No output path given to munge-sumstats. Most likely --out was omitted. Pass --out <stem>."
-        )
-    args._coordinate_metadata = {
-        'snp_identifier': normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware')),
-        'genome_build': normalize_genome_build(getattr(args, 'genome_build', None)),
-        'genome_build_inferred': False,
-    }
-    # DANER mode is resolved by the public workflow from sumstats_format; default
-    # both to False for direct kernel callers that omit them.
-    args.daner_old = getattr(args, 'daner_old', False)
-    args.daner_new = getattr(args, 'daner_new', False)
-
-    if args.sumstats is None:
-        raise LDSCUserError(
-            "No input summary statistics given to munge-sumstats. Most likely --sumstats was omitted. "
-            "Pass --sumstats <file>."
-        )
-    if args.daner_old and args.daner_new:
-        raise LDSCUsageError(
-            "munge-sumstats cannot use --daner-old and --daner-new together. Most likely both DANER "
-            "formats were selected. Use --daner-old for FRQ_A/FRQ_U headers or --daner-new for Nca/Nco columns."
-        )
-    _validate_explicit_sample_size_column_strategy(args)
-
-    file_cnames = read_header(args.sumstats)  # note keys not cleaned
-    flag_cnames, signed_sumstat_null = parse_flag_cnames(args)
-    if args.ignore:
-        ignore_cnames = [clean_header(x) for x in args.ignore.split(',')]
-    else:
-        ignore_cnames = []
-
-    # remove LOG_ODDS, BETA, Z, OR from the default list
-    if args.signed_sumstats is not None or args.a1_inc:
-        mod_default_cnames = {x: default_cnames[
-            x] for x in default_cnames if default_cnames[x] not in null_values}
-    else:
-        mod_default_cnames = default_cnames
-
-    cname_map = get_cname_map(
-        flag_cnames, mod_default_cnames, ignore_cnames)
-    if args.daner_old:
-        frq_u = list(filter(lambda x: x.startswith('FRQ_U_'), file_cnames))[0]
-        frq_a = list(filter(lambda x: x.startswith('FRQ_A_'), file_cnames))[0]
-        N_cas = float(frq_a[6:])
-        N_con = float(frq_u[6:])
-        LOGGER.info(
-            f"Inferred that N_cas = {N_cas}, N_con = {N_con} from the FRQ_[A/U] columns."
-        )
-        args.N_cas = N_cas
-        args.N_con = N_con
-        # drop any N, N_cas, N_con or FRQ columns
-        for c in ['N', 'N_CAS', 'N_CON', 'FRQ']:
-            for d in [x for x in cname_map if cname_map[x] == 'c']:
-                del cname_map[d]
-        cname_map[frq_u] = 'FRQ'
-
-    if args.daner_new:
-        frq_u = list(filter(lambda x: x.startswith('FRQ_U_'), file_cnames))[0]
-        cname_map[frq_u] = 'FRQ'
-        try:
-            dan_cas = clean_header(file_cnames[file_cnames.index('Nca')])
-        except ValueError as exc:
-            raise LDSCInputError(
-                f"munge-sumstats could not find the Nca column required by --daner-new in '{args.sumstats}'. "
-                "Most likely the file is not in new-DANER format or uses a different case-count header. "
-                "Drop --daner-new or pass the correct case-count column with --N-cas-col."
-            ) from exc
-        try:
-            dan_con = clean_header(file_cnames[file_cnames.index('Nco')])
-        except ValueError as exc:
-            raise LDSCInputError(
-                f"munge-sumstats could not find the Nco column required by --daner-new in '{args.sumstats}'. "
-                "Most likely the file is not in new-DANER format or uses a different control-count header. "
-                "Drop --daner-new or pass the correct control-count column with --N-con-col."
-            ) from exc
-        cname_map[dan_cas] = 'N_CAS'
-        cname_map[dan_con] = 'N_CON'
-
-    cname_translation = {x: cname_map[clean_header(x)] for x in file_cnames if
-                         clean_header(x) in cname_map}  # note keys not cleaned
-    _resolve_sample_size_column_strategy(args, cname_translation)
-    args._coordinate_source_columns = {
-        target: source for source, target in cname_translation.items()
-        if target in {'CHR', 'POS'}
-    }
-    cname_description = {
-        x: describe_cname[cname_translation[x]] for x in cname_translation}
-    if args.signed_sumstats is None and not args.a1_inc:
-        sign_cnames = [
-            x for x in cname_translation if cname_translation[x] in null_values]
-        if len(sign_cnames) > 1:
-            raise LDSCInputError(
-                f"munge-sumstats found multiple signed statistic columns in '{args.sumstats}': {sign_cnames}. "
-                "Most likely more than one effect column is present. Pass --signed-sumstats <column>,<null_value> "
-                "or use --ignore for the extra signed-statistic columns."
-            )
-        if len(sign_cnames) == 0:
-            available = ', '.join(file_cnames)
-            accepted = ', '.join(sorted(null_values))
-            raise LDSCInputError(
-                f"munge-sumstats could not find a signed summary statistic column in '{args.sumstats}'. "
-                f"Available columns: {available}. Most likely the effect column has an unrecognized name. "
-                f"Expected one of: {accepted}, or pass --signed-sumstats <column>,<null_value>."
-                f"{_suggest_signed_sumstat_fix(file_cnames)}"
-            )
-        sign_cname = sign_cnames[0]
-        signed_sumstat_null = null_values[cname_translation[sign_cname]]
-        cname_translation[sign_cname] = 'SIGNED_SUMSTAT'    
-    else:
-        sign_cname = 'SIGNED_SUMSTATS'
-
-    # check that we have all the columns we need
-    if not args.a1_inc:
-        req_cols = ['SNP', 'P', 'SIGNED_SUMSTAT']
-    else:
-        req_cols = ['SNP', 'P']
-
-    for c in req_cols:
-        if c not in cname_translation.values():
-            available = ', '.join(file_cnames)
-            raise LDSCInputError(
-                f"munge-sumstats could not map the required column '{c}' from the header of '{args.sumstats}'. "
-                f"Available columns: {available}. Most likely the file uses an unrecognized name for it. "
-                "Pass the matching column flag or rename the column. Other causes & fixes: "
-                "docs/troubleshooting.md#munge-sumstats-could-not-map-a-required-column"
-            )
-
-    # check aren't any duplicated column names in mapping
-    for field in cname_translation:
-        numk = file_cnames.count(field)
-        if numk > 1:
-            raise LDSCInputError(
-                f"munge-sumstats found {numk} columns named '{field}' in '{args.sumstats}'. "
-                "Most likely the raw header contains duplicate labels. Rename or remove the duplicate column before munging."
-            )
-
-    # check multiple different column names don't map to same data field
-    for head in cname_translation.values():
-        numc = list(cname_translation.values()).count(head)
-        if numc > 1:
-            raise LDSCInputError(
-                f"munge-sumstats mapped {numc} different input columns to canonical field '{head}' in '{args.sumstats}'. "
-                "Most likely an explicit column hint conflicts with an auto-detected alias. "
-                "Use --ignore for the extra column or remove the conflicting hint."
-            )
-
-    if (not args.N) and (not (args.N_cas and args.N_con)) and ('N' not in cname_translation.values()) and\
-            (any(x not in cname_translation.values() for x in ['N_CAS', 'N_CON'])):
-        raise LDSCInputError(
-            f"munge-sumstats could not determine sample size (N) for '{args.sumstats}'. "
-            "Most likely the input has no recognized N, N_CAS/N_CON, or DANER sample-size columns. "
-            "Provide --N, provide both --N-cas and --N-con, or include an inferable N column."
-            f"{_suggest_n_fix(file_cnames)}"
-        )
-    if ('N' in cname_translation.values() or all(x in cname_translation.values() for x in ['N_CAS', 'N_CON']))\
-            and 'NSTUDY' in cname_translation.values():
-        nstudy = [
-            x for x in cname_translation if cname_translation[x] == 'NSTUDY']
-        for x in nstudy:
-            del cname_translation[x]
-    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
-    requires_alleles = is_allele_aware_mode(mode)
-    if requires_alleles and not all(x in cname_translation.values() for x in ['A1', 'A2']):
-        raise LDSCInputError(
-            f"This run is using snp_identifier={mode!r}, which requires A1/A2 allele columns. "
-            f"munge-sumstats could not map usable allele columns from '{args.sumstats}'. "
-            "Most likely the file uses REF/ALT or other unrecognized allele headers. "
-            f"Pass --a1/--a2 column hints, or rerun with --snp-identifier {identity_base_mode(mode)}."
-            f"{_suggest_allele_fix(file_cnames)}"
-        )
-
-    LOGGER.info('Interpreting column names as follows:')
-    LOGGER.info('\n'.join([x + ':\t' + cname_description[x]
-                       for x in cname_description]) + '\n')
-
-    (openfunc, compression) = get_compression(args.sumstats)
-    metadata_skiprows = count_leading_sumstats_comment_lines(args.sumstats)
-    _resolve_auto_genome_build_before_chunks(
-        args,
-        cname_translation,
-        compression,
-        metadata_skiprows,
-    )
-    restriction = _prepare_sumstats_restriction(args)
-    args._prepared_sumstats_restriction = restriction
-
+    cname_translation = request.column_map
+    qc = request.qc
+    signed_sumstat_null = request.signed_sumstat_null
+    sign_cname = request.signed_sumstat_name
     # figure out which columns are going to involve sign information, so we can ensure
     # they're read as floats
     signed_sumstat_cols = [k for k,v in cname_translation.items() if v=='SIGNED_SUMSTAT']
-    dat_gen = pd.read_csv(args.sumstats, sep=r'\s+', header=0,
-            compression=compression, usecols=cname_translation.keys(),
-            na_values=['.', 'NA'], iterator=True, chunksize=args.chunksize,
-            skiprows=metadata_skiprows,
+    dat_gen = pd.read_csv(request.source_path, sep=r'\s+', header=0,
+            compression=request.compression, usecols=cname_translation.keys(),
+            na_values=['.', 'NA'], iterator=True, chunksize=request.chunk_size,
+            skiprows=request.metadata_skiprows,
             dtype={c:np.float64 for c in signed_sumstat_cols})
 
-    dat = parse_dat(dat_gen, cname_translation, args, restriction=restriction)
+    with dat_gen:
+        parsed = parse_dat(dat_gen, request)
+    dat = parsed.data
     if len(dat) == 0:
         raise LDSCInputError(
             "munge-sumstats removed every SNP during quality filtering. Most likely --info-min/--maf-min "
@@ -1382,18 +681,36 @@ def munge_sumstats(args):
 
     dat = dat.reset_index(drop=True)
     median_msg = None
-    if not args.a1_inc:
+    if not request.a1_inc:
         median_msg = check_median(dat.SIGNED_SUMSTAT, signed_sumstat_null, 0.1, sign_cname)
-    dat = _finalize_coordinate_columns(dat, args)
+    coordinate_metadata = _coordinate_metadata(dat, request, parsed.coordinate_counts)
     # filtering on N cannot be done chunkwise
-    dat = process_n(dat, args)
+    n_before = len(dat)
+    has_n_column = 'N' in dat or {'N_CAS', 'N_CON'}.issubset(dat.columns)
+    used_n_rule = 'input_columns' if has_n_column else ('fixed_N' if qc.N else 'fixed_case_control_N')
+    dat = process_n(dat, qc)
+    parsed.drop_counts['N' if has_n_column else 'NSTUDY'] = n_before - len(dat)
     dat.P = p_to_z(dat.P, dat.N)
     dat.rename(columns={'P': 'Z'}, inplace=True)
-    if not args.a1_inc:
+    if not request.a1_inc:
         LOGGER.info(median_msg)
         dat.Z *= (-1) ** (dat.SIGNED_SUMSTAT < signed_sumstat_null)
         dat.drop('SIGNED_SUMSTAT', inplace=True, axis=1)
-    dat = _apply_liftover_if_requested(dat, args)
+    n_before = len(dat)
+    dat, liftover_report, liftover_drop_frame = apply_sumstats_liftover(
+        dat, request.liftover_request, source_build=request.genome_build,
+        snp_identifier=request.snp_identifier, logger=LOGGER,
+    )
+    parsed.drop_counts['liftover'] = n_before - len(dat)
+    cleanup = clean_identity_artifact_table(
+        dat, request.snp_identifier, context="munged sumstats",
+        stage="post_liftover_identity_cleanup", logger=LOGGER,
+    )
+    parsed.drop_counts['identity'] = len(dat) - len(cleanup.cleaned)
+    dat = cleanup.cleaned
+    coordinate_metadata['liftover'] = liftover_report
+    if liftover_report.get('applied'):
+        coordinate_metadata['genome_build'] = liftover_report['target_build']
 
     LOGGER.info(
         f"Prepared summary statistics for {len(dat)} SNPs ({dat.N.notnull().sum()} with nonmissing beta)."
@@ -1409,34 +726,12 @@ def munge_sumstats(args):
     LOGGER.info(f"Lambda GC = {round(CHISQ.median() / 0.4549, 3)}")
     LOGGER.info(f"Max chi^2 = {round(CHISQ.max(), 3)}")
     LOGGER.info(f"{(CHISQ > 29).sum()} Genome-wide significant SNPs (some may have been removed by filtering).")
-    return dat
-
-
-def _apply_liftover_if_requested(dat, args):
-    """Apply optional summary-statistics liftover after source-build filters."""
-    coordinate_metadata = dict(getattr(args, '_coordinate_metadata', {}))
-    request = getattr(args, '_liftover_request', None) or SumstatsLiftoverRequest()
-    mode = normalize_snp_identifier_mode(
-        coordinate_metadata.get('snp_identifier', getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
+    return MungeResult(
+        data=dat,
+        n_input_rows=parsed.n_input_rows,
+        drop_counts=parsed.drop_counts,
+        used_n_rule=used_n_rule,
+        coordinate_metadata=coordinate_metadata,
+        liftover_drop_frame=liftover_drop_frame,
+        identity_drop_frame=cleanup.dropped,
     )
-    dat, liftover_report, liftover_drop_frame = apply_sumstats_liftover(
-        dat,
-        request,
-        source_build=coordinate_metadata.get('genome_build', getattr(args, 'genome_build', None)),
-        snp_identifier=mode,
-        logger=LOGGER,
-    )
-    cleanup = clean_identity_artifact_table(
-        dat,
-        mode,
-        context="munged sumstats",
-        stage="post_liftover_identity_cleanup",
-        logger=LOGGER,
-    )
-    coordinate_metadata['liftover'] = liftover_report
-    coordinate_metadata['liftover_drop_frame'] = liftover_drop_frame
-    args._identity_drop_frame = cleanup.dropped
-    if liftover_report.get('applied'):
-        coordinate_metadata['genome_build'] = liftover_report['target_build']
-    args._coordinate_metadata = coordinate_metadata
-    return cleanup.cleaned

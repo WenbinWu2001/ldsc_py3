@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-09-08
+Last updated on: 2026-09-10
 
 This document summarizes the user-visible file streams for each public workflow. The diagrams use Mermaid `flowchart LR` because it maps cleanly onto the package's left-to-right data movement and layered module boundaries.
 
@@ -473,6 +473,8 @@ workflow runs format and column inference:
 VCF-style headers, old DANER, and new DANER. `--infer-only` runs that inference
 pass, still requires `--output-dir` for the uniform CLI contract, creates no
 output directory, and prints missing fields plus exact repair suggestions.
+`_sumstats_input.prepare_munge_input()` resolves the raw schema, sample-size settings, source build/basis and keep-list into `ResolvedMungeInput`. The kernel returns a `MungeResult` with parsed row counts, exclusive per-stage drop counts, coordinate provenance and separate identity/liftover drop records. Row counting occurs during chunk parsing; there is no post-run full-file count pass. Source-build inference uses the shared bounded coordinate evidence reader before chunk QC, including when those informative rows will later be filtered out.
+
 Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
 also supports the legacy `sumstats.sumstats.gz` artifact. With overwrite
 enabled, stale sibling formats not produced by the current run are removed
@@ -514,14 +516,14 @@ flowchart LR
   end
 
   subgraph W4[Workflow (public)<br/>ldsc.sumstats_munger]
-    D3[Normalize CLI/API config<br/>Build typed munging args]
+    D3[Normalize CLI/API config<br/>Resolve schema, source build + keep-list<br/>ResolvedMungeInput]
     D4[Own parquet footer metadata + diagnostics<br/>Capture run summary]
   end
 
   subgraph K4[Kernel (private)<br/>ldsc._kernel.sumstats_munger]
-    D5[QC and infer columns]
-    D6[Compute Z/N<br/>Finalize CHR/POS]
-    D7[Optional source-to-target liftover<br/>drop missing, unmapped, and colliding coordinates]
+    D5[Parse chunks + count rows<br/>Normalize coordinates, QC + SNP restriction]
+    D6[Whole-table N filtering<br/>Signed Z conversion]
+    D7[Optional source-to-target liftover<br/>drop missing, unmapped, and colliding coordinates<br/>Global identity cleanup + MungeResult]
   end
 
   I1 --> D1 --> D2 --> D3 --> D5 --> D6 --> D7 --> D4
@@ -541,7 +543,7 @@ flowchart LR
 ### Modules used
 
 - Preprocessing: `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`
-- Workflow: `ldsc.sumstats_munger`
+- Workflow: `ldsc.sumstats_munger`, `ldsc._sumstats_input`
 - Kernel: `ldsc._kernel.sumstats_munger`, `ldsc._kernel.liftover`
 - Postprocessing: workflow-owned Parquet/TSV writing, log, and metadata writing
 

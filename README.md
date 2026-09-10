@@ -166,6 +166,8 @@ regression commands need only that one file -- no `metadata.json` sidecar is
 written. The legacy `sumstats.sumstats.gz` carries no embedded metadata and is
 treated as an rsID lookup artifact at regression time. Footerless Parquet is
 rejected rather than guessed.
+Python run summaries from `munger.build_run_summary(table)` report parsed input rows, retained rows, exclusive per-stage `drop_counts`, and the sample-size rule actually used. Counts are collected while parsing, excluding headers and blank lines; their totals reconcile with the retained output. See [munging preparation and accounting](docs/current/munge-sumstats.md#preparation-and-run-accounting).
+
 Detailed coordinate and liftover bookkeeping is written to `sumstats.log`. The default
 `snp_identifier` is `chr_pos_allele_aware`, which requires usable `A1/A2`; rerun
 with `--snp-identifier chr_pos` to use coordinate identity without

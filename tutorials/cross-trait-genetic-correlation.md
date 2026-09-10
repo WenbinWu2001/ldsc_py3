@@ -1,6 +1,6 @@
 # Cross-Trait Genetic Correlation
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-10
 
 Goal: estimate genetic correlation for two or more traits from munged summary statistics and one matched LD-score reference.
 
@@ -54,7 +54,8 @@ GLOBAL_CONFIG = GlobalConfig(
 set_global_config(GLOBAL_CONFIG)
 
 # Option A: munge raw sumstats in the same workflow.
-trait_1 = SumstatsMunger().run(
+trait_1_munger = SumstatsMunger()
+trait_1 = trait_1_munger.run(
     MungeConfig(
         raw_sumstats_file="data/trait_1.tsv.gz",
         trait_name="trait_1",
@@ -69,6 +70,10 @@ trait_1 = SumstatsMunger().run(
     ),
     global_config=GLOBAL_CONFIG,
 )
+
+trait_1_summary = trait_1_munger.build_run_summary(trait_1)
+print(trait_1_summary.n_input_rows, trait_1_summary.n_retained_rows)
+print(trait_1_summary.drop_counts)
 
 trait_2 = SumstatsMunger().run(
     MungeConfig(

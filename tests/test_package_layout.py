@@ -507,8 +507,9 @@ class PackageLayoutTest(unittest.TestCase):
         from ldsc import sumstats_munger
 
         self.assertFalse(hasattr(sumstats_munger, "allele_merge"))
-        self.assertNotIn("--merge-alleles", sumstats_munger.parser.format_help())
-        self.assertNotIn("--no-alleles", sumstats_munger.parser.format_help())
+        help_text = sumstats_munger.build_parser().format_help()
+        self.assertNotIn("--merge-alleles", help_text)
+        self.assertNotIn("--no-alleles", help_text)
 
     def test_ldscore_subcommand_rejects_removed_print_snps_and_regression_snps_flags(self):
         from ldsc import cli

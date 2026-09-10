@@ -1,5 +1,7 @@
 # Liftover Harmonization Decisions
 
+Last updated on: 2026-09-10
+
 Date: 2026-05-10
 Branch: `codex/liftover-sumstats-munger`
 
@@ -36,6 +38,8 @@ output, and metadata contracts.
   workflow-aware labels and flag hints.
 
 ## Summary-Statistics Munger Contract
+
+The workflow resolves the source build and raw coordinate basis before chunk QC. The kernel receives these in `ResolvedMungeInput`; after source-coordinate filtering and N/Z processing it performs liftover and then global identity cleanup. `MungeResult` returns coordinate provenance and separate liftover/identity drop tables explicitly. `MungeRunSummary.drop_counts` assigns removals exclusively to their execution stage; detailed liftover and coordinate reason reports remain separate.
 
 - Liftover is meaningful only in chr_pos-family modes.
 - `SNP` is always a label field in chr_pos-family modes. Sumstats liftover updates

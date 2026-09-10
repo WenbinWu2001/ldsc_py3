@@ -137,8 +137,7 @@ annotations equals the number of retained baseline LD-score columns
 | Counts | `M_5_50` common counts (`--count-kind common`). |
 | Jackknife | `n_blocks = 200`. |
 
-Reported diagnostics (`metadata.json`) include the **post-filter** SNP count
-(`n_snps`) and the `effective_chisq_max` actually applied (`null` when uncapped).
+Reported diagnostics (`diagnostics/metadata.json`) include the **post-filter** SNP count (`n_snps`), the `effective_chisq_max` actually applied (`null` when uncapped), and `n_blocks_used`. These values come from the internal fit outcome, which retains the ordered final SNP population and annotation columns. Single-annotation diagnostic bins use this same population, including SNPs outside the two-step estimator’s first-stage subset. Partitioned-h2 model metadata and rg pair metadata likewise consume their actual fit outcomes; reporting never reapplies a filter. Public `estimate_h2` and `estimate_rg` continue to return kernel estimators.
 
 *Mechanism:* `RegressionRunner.estimate_h2` in `regression_runner.py`.
 

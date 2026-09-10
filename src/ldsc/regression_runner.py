@@ -230,6 +230,28 @@ class RGRegressionDataset:
 
 
 @dataclass(frozen=True)
+class _FitOutcome:
+    """Estimator and the realized population supplied to its final fit.
+
+    The fitted dataset preserves SNP order, annotation order, reference counts
+    and identity provenance. It reflects the workflow's chi-square filter;
+    the two-step estimator's first-stage subset is not the final population.
+    Reporting consumes these facts instead of reconstructing selection rules.
+    """
+
+    estimator: reg.Hsq | reg.RG
+    dataset: RegressionDataset | RGRegressionDataset
+    n_blocks: int
+    effective_chisq_max: float | None
+    diagnostic_bins: pd.DataFrame | None = None
+
+    @property
+    def n_snps(self) -> int:
+        """Number of rows actually supplied to the final estimator."""
+        return len(self.dataset.merged)
+
+
+@dataclass(frozen=True)
 class PartitionedH2BatchResult:
     """Batch partitioned-h2 summaries plus optional per-query detail tables.
 
@@ -708,6 +730,14 @@ class RegressionRunner:
         default the two-step cutoff to ``30`` instead. See
         :func:`_resolve_default_chisq_max`.
         """
+        return self._fit_h2_dataset(dataset, config=config).estimator
+
+    def _fit_h2_dataset(
+        self,
+        dataset: RegressionDataset,
+        config: RegressionConfig | None = None,
+    ) -> _FitOutcome:
+        """Fit h2 once and retain its exact SNP population and diagnostic bins."""
         config = config or self.regression_config
         merged = dataset.merged
         n_snp = len(merged)
@@ -757,8 +787,9 @@ class RegressionRunner:
             twostep=two_step,
             old_weights=old_weights,
         )
+        diagnostic_bins = None
         if len(dataset.retained_ld_columns) == 1:
-            hsq.ld_score_regression_bins = summarize_ld_score_regression_bins(
+            diagnostic_bins = summarize_ld_score_regression_bins(
                 hsq,
                 ld_score=x[:, 0],
                 chi_square=chisq,
@@ -766,7 +797,10 @@ class RegressionRunner:
                 regression_ld_score=np.asarray(merged[[dataset.weight_column]]),
                 reference_snp_count=float(reference_snp_counts[0, 0]),
             )
-        return hsq
+        return _FitOutcome(
+            estimator=hsq, dataset=replace(dataset, merged=merged), n_blocks=n_blocks,
+            effective_chisq_max=chisq_max, diagnostic_bins=diagnostic_bins,
+        )
 
     def estimate_partitioned_h2(
         self,
@@ -875,16 +909,21 @@ class RegressionRunner:
                     dataset.retained_ld_columns[0],
                 )
             with _log_phase_timing("estimator execution"):
-                hsq = self.estimate_h2(dataset, config=config)
+                outcome = self._fit_h2_dataset(dataset, config=config)
+                hsq, dataset = outcome.estimator, outcome.dataset
             summary = summarize_partitioned_h2(
                 hsq, dataset, dataset.retained_ld_columns, samp_prev=samp_prev, pop_prev=pop_prev
             )
-            effective_chisq_max, n_snps_used = _effective_regression_filter(dataset, config)
+            effective_chisq_max, n_snps_used = outcome.effective_chisq_max, outcome.n_snps
             return PartitionedH2BatchResult(
                 summary=summary,
                 per_query_category_tables={},
                 per_query_metadata={},
-                aggregate_metadata={"n_snps": n_snps_used, "effective_chisq_max": effective_chisq_max},
+                aggregate_metadata={
+                    "n_snps": n_snps_used,
+                    "effective_chisq_max": effective_chisq_max,
+                    "n_blocks_used": outcome.n_blocks,
+                },
                 coefficient_delete_values=_coefficient_delete_frame(hsq, dataset.retained_ld_columns),
             )
 
@@ -900,7 +939,8 @@ class RegressionRunner:
                     sumstats_table, ldscore_result, config=config, query_columns=[query_column]
                 )
             with _log_phase_timing("estimator execution"):
-                hsq = self.estimate_h2(dataset, config=config)
+                outcome = self._fit_h2_dataset(dataset, config=config)
+                hsq, dataset = outcome.estimator, outcome.dataset
             rows.append(
                 summarize_partitioned_h2(hsq, dataset, [query_column], samp_prev=samp_prev, pop_prev=pop_prev)
             )
@@ -908,11 +948,12 @@ class RegressionRunner:
                 per_query_category_tables[query_column] = summarize_partitioned_h2(
                     hsq, dataset, dataset.retained_ld_columns, samp_prev=samp_prev, pop_prev=pop_prev
                 )
-                effective_chisq_max, n_snps_used = _effective_regression_filter(dataset, config)
+                effective_chisq_max, n_snps_used = outcome.effective_chisq_max, outcome.n_snps
                 per_query_metadata[query_column] = {
                     "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
                     "retained_ld_columns": list(dataset.retained_ld_columns),
                     "n_snps": n_snps_used,
+                    "n_blocks_used": outcome.n_blocks,
                     "effective_chisq_max": effective_chisq_max,
                     "effective_snp_identifier": dataset.effective_snp_identifier,
                     "identity_downgrade_applied": dataset.identity_downgrade_applied,
@@ -949,14 +990,14 @@ class RegressionRunner:
         """
         config = config or self.regression_config
         dataset = self.build_rg_dataset(sumstats_table_1, sumstats_table_2, ldscore_result, config=config)
-        return self._fit_rg_dataset(dataset, config=config)
+        return self._fit_rg_dataset(dataset, config=config).estimator
 
     def _fit_rg_dataset(
         self,
         dataset: RGRegressionDataset,
         config: RegressionConfig | None = None,
-    ):
-        """Fit one prepared genetic-correlation dataset with the legacy kernel."""
+    ) -> _FitOutcome:
+        """Fit rg and retain the population selected by its explicit product cap."""
         config = config or self.regression_config
         merged = dataset.merged
         n_snp = len(merged)
@@ -978,7 +1019,7 @@ class RegressionRunner:
         two_step = config.two_step_cutoff
         if two_step is None and intercept_hsq is None and len(dataset.retained_ld_columns) == 1:
             two_step = 30
-        return reg.RG(
+        fitted = reg.RG(
             np.asarray(merged[["Z1"]]),
             np.asarray(merged[["Z2"]]),
             np.asarray(merged[dataset.retained_ld_columns]),
@@ -991,6 +1032,11 @@ class RegressionRunner:
             intercept_gencov=intercept_gencov,
             n_blocks=n_blocks,
             twostep=two_step,
+        )
+
+        return _FitOutcome(
+            estimator=fitted, dataset=replace(dataset, merged=merged), n_blocks=n_blocks,
+            effective_chisq_max=config.chisq_max,
         )
 
     def estimate_rg_pairs(
@@ -1056,8 +1102,9 @@ class RegressionRunner:
         h2_rows = []
         for table, (samp_prev, pop_prev) in zip(tables, prev):
             h2_dataset = self.build_dataset(table, ldscore_result, config=config)
-            hsq = self.estimate_h2(h2_dataset, config=config)
-            _, n_snps_used = _effective_regression_filter(h2_dataset, config)
+            outcome = self._fit_h2_dataset(h2_dataset, config=config)
+            hsq, h2_dataset = outcome.estimator, outcome.dataset
+            n_snps_used = outcome.n_snps
             h2_rows.append(
                 summarize_total_h2(
                     hsq, h2_dataset, trait_name=_trait_label(table), n_snps_used=n_snps_used,
@@ -1075,15 +1122,16 @@ class RegressionRunner:
             trait_2 = _trait_label(tables[j])
             try:
                 dataset = self.build_rg_dataset(tables[i], tables[j], ldscore_result, config=config)
-                fitted = self._fit_rg_dataset(dataset, config=config)
-                _, n_snps_used = _effective_rg_filter(dataset, config)
+                outcome = self._fit_rg_dataset(dataset, config=config)
+                fitted, dataset = outcome.estimator, outcome.dataset
+                n_snps_used = outcome.n_snps
                 full_row = _summarize_rg_pair(
                     fitted, dataset, trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind,
                     n_snps_used=n_snps_used,
                     samp_prev_1=prev[i][0], pop_prev_1=prev[i][1],
                     samp_prev_2=prev[j][0], pop_prev_2=prev[j][1],
                 )
-                metadata = _rg_pair_metadata(tables[i], tables[j], dataset, full_row, config, pair_kind)
+                metadata = _rg_pair_metadata(tables[i], tables[j], outcome, full_row, config, pair_kind)
             except Exception as exc:
                 error = _format_exception(exc)
                 LOGGER.warning(f"Failed rg for pair '{trait_1}' vs '{trait_2}': {error}", exc_info=True)
@@ -1703,8 +1751,8 @@ def summarize_total_h2(
     liability (``total_h2_liab``) scales, plus the prevalences applied. Liability
     columns are NaN unless both ``samp_prev`` and ``pop_prev`` are finite
     probabilities in (0, 1). ``n_snps_used`` is the post-chi-square-filter SNP
-    count from :func:`_effective_regression_filter`; when omitted it falls back
-    to the full merged SNP count (correct only when no cap was applied).
+    count from the internal fit outcome; when omitted it falls back
+    to the supplied dataset's row count. Workflows supply the fitted dataset.
     """
     obs = _scalar(hsq.tot)
     obs_se = _scalar(hsq.tot_se)
@@ -1927,9 +1975,8 @@ def _summarize_rg_pair(
     (``rg``/``rg_se``/``z``/``p``) is scale-invariant and unconverted. A trait's
     ``h2_*_liab`` is NaN unless its prevalence is finite; ``gencov_liab`` is NaN
     only when no prevalence was supplied for the run. ``n_snps_used`` is the
-    post-product-filter SNP count from :func:`_effective_rg_filter`; it falls
-    back to the full merged count, which is correct only when no ``--chisq-max``
-    was supplied.
+    post-product-filter SNP count from the internal fit outcome; it falls
+    back to the supplied dataset's row count. Workflows supply the fitted dataset.
     """
     h2_1_obs = _numeric_attr(getattr(rg_result, "hsq1", None), "tot", "h2_1_obs")
     h2_1_obs_se = _numeric_attr(getattr(rg_result, "hsq1", None), "tot_se", "h2_1_obs_se")
@@ -2025,21 +2072,12 @@ def _concise_rg_row(full_row: dict[str, object]) -> dict[str, object]:
 def _h2_metadata(
     args,
     sumstats_table: SumstatsTable,
-    dataset: RegressionDataset,
-    n_snps_used: int | None = None,
-    effective_chisq_max: float | None = None,
+    outcome: _FitOutcome,
     samp_prev: float | None = None,
     pop_prev: float | None = None,
 ) -> dict[str, object]:
-    """Build the metadata sidecar for one unpartitioned h2 output.
-
-    ``n_snps_used`` is the post-chi-square-filter SNP count and
-    ``effective_chisq_max`` is the cap actually applied (the legacy default for
-    partitioned models, the explicit ``--chisq-max`` value, or ``None`` when
-    uncapped); both come from :func:`_effective_regression_filter`. ``samp_prev``
-    / ``pop_prev`` are the validated scalar prevalences applied (``None`` for an
-    observed-scale run), which also set the reported ``scale``.
-    """
+    """Build h2 metadata from realized fit selection and validated prevalences."""
+    dataset = outcome.dataset
     config_snapshot = dataset.config_snapshot
     return {
         "artifact_type": "h2_result",
@@ -2052,8 +2090,9 @@ def _h2_metadata(
         "count_key_used_for_regression": dataset.count_key_used_for_regression,
         "retained_ld_columns": list(dataset.retained_ld_columns),
         "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
-        "n_snps": int(n_snps_used) if n_snps_used is not None else int(len(dataset.merged)),
-        "effective_chisq_max": effective_chisq_max,
+        "n_snps": outcome.n_snps,
+        "effective_chisq_max": outcome.effective_chisq_max,
+        "n_blocks_used": outcome.n_blocks,
         "samp_prev": samp_prev,
         "pop_prev": pop_prev,
         "scale": _scale_label(samp_prev, pop_prev),
@@ -2072,16 +2111,13 @@ def _rg_prevalence_metadata(full_row: dict[str, object]) -> dict[str, object]:
 def _rg_pair_metadata(
     table_1: SumstatsTable,
     table_2: SumstatsTable,
-    dataset: RGRegressionDataset,
+    outcome: _FitOutcome,
     full_row: dict[str, object],
     config: RegressionConfig,
     pair_kind: str,
 ) -> dict[str, object]:
     """Build per-pair metadata for an estimated rg pair."""
-    # Reuse the post-product-filter count from the rg row so the table and the
-    # metadata agree. ``effective_chisq_max`` simply echoes config.chisq_max:
-    # rg has no default cap (legacy ldsc2 ``_rg`` only filters when given one).
-    n_snps = int(full_row["n_snps_used"])
+    dataset = outcome.dataset
     return {
         "trait_1": full_row["trait_1"],
         "trait_2": full_row["trait_2"],
@@ -2090,9 +2126,9 @@ def _rg_pair_metadata(
         "pair_kind": pair_kind,
         "status": full_row["status"],
         "error": full_row["error"],
-        "n_snps_used": n_snps,
-        "n_blocks_used": min(n_snps, int(config.n_blocks)),
-        "effective_chisq_max": config.chisq_max,
+        "n_snps_used": outcome.n_snps,
+        "n_blocks_used": outcome.n_blocks,
+        "effective_chisq_max": outcome.effective_chisq_max,
         **_rg_prevalence_metadata(full_row),
         "count_key_used_for_regression": dataset.count_key_used_for_regression,
         "retained_ld_columns": list(dataset.retained_ld_columns),
@@ -2470,39 +2506,6 @@ def _resolve_default_chisq_max(chisq_max: float | None, n_annot: int, n_max: flo
     return None
 
 
-def _effective_regression_filter(dataset, config) -> tuple[float | None, int]:
-    """Return the effective chi-square cap and post-filter SNP count for an h2 fit.
-
-    Mirrors the filter :meth:`RegressionRunner.estimate_h2` applies, recomputed
-    from the same pre-filter inputs so reporting matches the fit exactly: the cap
-    from :func:`_resolve_default_chisq_max` (``None`` for an uncapped single-
-    annotation model) and the number of SNPs retained at ``chi^2 <= cap``.
-    """
-    chisq_max = _resolve_default_chisq_max(
-        config.chisq_max, len(dataset.retained_ld_columns), dataset.merged["N"].max()
-    )
-    if chisq_max is None:
-        return None, len(dataset.merged)
-    n_used = int(((dataset.merged["Z"] ** 2) <= chisq_max).sum())
-    return chisq_max, n_used
-
-
-def _effective_rg_filter(dataset, config) -> tuple[float | None, int]:
-    """Return the effective cap and post-filter SNP count for an rg pair fit.
-
-    rg has no default cap: legacy ldsc2 ``_rg`` filters only when ``--chisq-max``
-    is supplied, so the effective cap simply echoes ``config.chisq_max`` (``None``
-    when unset). The retained count applies the legacy product form
-    ``Z1^2 * Z2^2 <= chisq_max^2`` (inclusive per the -max convention), matching
-    :meth:`RegressionRunner._fit_rg_dataset`.
-    """
-    chisq_max = config.chisq_max
-    if chisq_max is None:
-        return None, len(dataset.merged)
-    products = (dataset.merged["Z1"] ** 2) * (dataset.merged["Z2"] ** 2)
-    return chisq_max, int((products <= chisq_max ** 2).sum())
-
-
 def _add_scalar_prevalence_arguments(parser) -> None:
     """Add the scalar binary-trait prevalence flags shared by h2 and partitioned-h2."""
     parser.add_argument(
@@ -2636,8 +2639,9 @@ def run_h2_from_args(args):
             dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
         if not legacy_drops.empty:
             dataset = replace(dataset, legacy_sumstats_drops=legacy_drops)
-        hsq = runner.estimate_h2(dataset, config=config)
-        effective_chisq_max, n_snps_used = _effective_regression_filter(dataset, config)
+        outcome = runner._fit_h2_dataset(dataset, config=config)
+        hsq, dataset = outcome.estimator, outcome.dataset
+        n_snps_used = outcome.n_snps
         summary = summarize_total_h2(
             hsq, dataset, trait_name=sumstats_table.trait_name, n_snps_used=n_snps_used,
             samp_prev=config.samp_prev, pop_prev=config.pop_prev,
@@ -2653,13 +2657,11 @@ def run_h2_from_args(args):
                 metadata=_h2_metadata(
                     args,
                     sumstats_table,
-                    dataset,
-                    n_snps_used=n_snps_used,
-                    effective_chisq_max=effective_chisq_max,
+                    outcome,
                     samp_prev=config.samp_prev,
                     pop_prev=config.pop_prev,
                 ),
-                diagnostic_bins=hsq.ld_score_regression_bins,
+                diagnostic_bins=outcome.diagnostic_bins,
             )
             audit_path = _write_or_remove_legacy_sumstats_audit(
                 Path(output_dir_arg),

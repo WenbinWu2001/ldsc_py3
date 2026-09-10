@@ -281,6 +281,7 @@ rank-bin summaries used by `ldsc plot`; it is a required current h2 artifact.
 | `dropped_zero_variance_ld_columns` | LD-score columns removed before fitting. | None. |
 | `n_snps` | Number of SNPs retained after the effective chi-square filter. | None. |
 | `effective_chisq_max` | Chi-square cap actually applied (`null` when uncapped). | None. |
+| `n_blocks_used` | Realized jackknife block count from the fit outcome. | None. |
 | `samp_prev` | Sample (case) prevalence applied for liability conversion, or `null` for an observed-scale run. | None. |
 | `pop_prev` | Population prevalence applied, or `null`. | None. |
 | `scale` | `observed` or `liability` (the latter when both prevalences are supplied). | None. |
@@ -310,6 +311,8 @@ root file is self-describing about the analysis: `analysis_type`
 (`functional_category` | `cell_type_specific`), `headline_metric` (`enrichment` |
 `coefficient`), `enrichment_p_test` (`two_sided_t`), and `coefficient_p_test`
 (`one_sided_greater`).
+
+Model metadata records `n_snps`, `effective_chisq_max`, and `n_blocks_used` from the fitted population: at the root for a baseline-only model and in each per-query metadata file for query models.
 
 The root coefficient-delete file is present for a baseline-only fitted model. In the cell-type regime, each written per-query directory contains the delete values for that complete baseline-plus-query fit. Metadata records the block count, fitted annotation order, and relative file path. These float64 matrices are required by `quantile-h2` and must never be concatenated across query runs.
 

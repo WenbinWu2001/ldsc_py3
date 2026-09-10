@@ -239,6 +239,8 @@ When no baseline and no query annotations are supplied, the workflow writes a
 synthetic all-ones baseline column named exactly `base` in
 `ldscore.baseline.parquet`.
 Query annotation inputs still require explicit `--baseline-annot-sources`.
+Regression diagnostics report the SNP population and jackknife block count actually used for fitting. The h2 LD-score regression plot summarizes that same fitted population; see [regression configuration](docs/current/regression-configuration.md).
+
 Use this synthetic `base` directory for `ldsc h2` or `ldsc rg`. A baseline-only
 directory is also accepted by `ldsc partitioned-h2` in its functional-category
 regime, although a single all-ones `base` column is a degenerate one-category

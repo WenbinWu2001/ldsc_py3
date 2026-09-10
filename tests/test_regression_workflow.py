@@ -40,6 +40,19 @@ except ImportError:
     AnnotationBundle = None
 
 
+@contextlib.contextmanager
+def _stub_h2_kernel(estimator):
+    """Stub numerical estimation while exercising real selection and diagnostics."""
+    if "coef" not in vars(estimator):
+        estimator.coef = np.array([0.001])
+    if "intercept" not in vars(estimator):
+        estimator.intercept = np.array([1.0])
+    weights = regression_runner.reg.Hsq.weights
+    with mock.patch.object(regression_runner.reg, "Hsq", wraps=regression_runner.reg.Hsq, return_value=estimator) as kernel:
+        kernel.weights = weights
+        yield kernel
+
+
 @unittest.skipIf(RegressionRunner is None, "regression_runner module is not available")
 class RegressionWorkflowTest(unittest.TestCase):
     def setUp(self):
@@ -1126,6 +1139,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             )
         )
         dataset = runner.build_dataset(sumstats, self.make_ldscore_result(), query_columns=["query2"])
+        # The toy LD columns are collinear; exercise selection independently.
         with mock.patch.object(regression_runner, "_raise_on_model_collinearity"), mock.patch.object(
             regression_runner.reg, "Hsq", return_value=mock.sentinel.hsq
         ) as patched, self.assertLogs("LDSC.regression_runner", level="INFO") as logs:
@@ -1165,11 +1179,11 @@ class RegressionWorkflowTest(unittest.TestCase):
         ) as summarize_bins, mock.patch.object(
             regression_runner.reg, "Hsq", return_value=fitted_hsq
         ) as patched:
-            result = runner.estimate_h2(dataset)
+            result = runner._fit_h2_dataset(dataset)
         chisq_arg = patched.call_args.args[0]
         self.assertEqual(chisq_arg.shape[0], 3)
         summarize_bins.assert_called_once()
-        self.assertIs(result.ld_score_regression_bins, expected_bins)
+        self.assertIs(result.diagnostic_bins, expected_bins)
 
     def test_rg_applies_default_two_step_when_single_annotation_and_unset(self):
         # Legacy estimate_rg (sumstats.py:400) sets two_step=30 for the rg fit
@@ -1205,35 +1219,6 @@ class RegressionWorkflowTest(unittest.TestCase):
                 }
             )
         )
-
-    def test_effective_regression_filter_partitioned_default_cap(self):
-        # Multi-annotation, --chisq-max unset: cap is the legacy default 100 and
-        # the retained count reflects the inclusive (<=) filter (144 dropped).
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        dataset = runner.build_dataset(
-            self._high_chisq_sumstats(), self.make_ldscore_result(), query_columns=["query2"]
-        )
-        cap, n_used = regression_runner._effective_regression_filter(dataset, RegressionConfig())
-        self.assertAlmostEqual(cap, 100.0)
-        self.assertEqual(n_used, 2)
-
-    def test_effective_regression_filter_single_annotation_uncapped(self):
-        # Single annotation, --chisq-max unset: no cap, all SNPs retained.
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        dataset = runner.build_dataset(self._high_chisq_sumstats(), self.make_ldscore_result())
-        cap, n_used = regression_runner._effective_regression_filter(dataset, RegressionConfig())
-        self.assertIsNone(cap)
-        self.assertEqual(n_used, 3)
-
-    def test_effective_regression_filter_explicit_chisq_max_single_annotation(self):
-        # Explicit --chisq-max is reported and applied even for single annotation:
-        # cap=4 keeps only rs3 (chi^2=4, inclusive).
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        config = RegressionConfig(chisq_max=4.0)
-        dataset = runner.build_dataset(self._high_chisq_sumstats(), self.make_ldscore_result(), config=config)
-        cap, n_used = regression_runner._effective_regression_filter(dataset, config)
-        self.assertAlmostEqual(cap, 4.0)
-        self.assertEqual(n_used, 1)
 
     def test_summarize_total_h2_reports_post_filter_count(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -1294,19 +1279,8 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(row["samp_prev"], 0.5)
         self.assertEqual(row["pop_prev"], 0.01)
 
-    def test_h2_metadata_records_post_filter_count_and_effective_chisq_max(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        dataset = runner.build_dataset(self._high_chisq_sumstats(), self.make_ldscore_result())
-        args = type("Args", (), {"sumstats_file": "trait.sumstats.gz", "ldscore_dir": "ld"})()
-        metadata = regression_runner._h2_metadata(
-            args, self._high_chisq_sumstats(), dataset, n_snps_used=2, effective_chisq_max=100.0
-        )
-        self.assertEqual(metadata["n_snps"], 2)
-        self.assertAlmostEqual(metadata["effective_chisq_max"], 100.0)
-
     def test_partitioned_per_query_metadata_reports_post_filter_count_and_cap(self):
-        # The per-query count is recomputed from the dataset and config, so an
-        # explicit cap that drops a SNP is reflected even with estimate_h2 mocked.
+        # The real fit preparation selects the SNP population before the kernel stub.
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(chisq_max=100.0))
         ldscore_result = self.make_ldscore_result()
         annotation_bundle = self.make_annotation_bundle()
@@ -1325,7 +1299,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             n_blocks=200,
             n_annot=2,
         )
-        with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq):
+        # The toy LD columns are collinear; exercise selection independently.
+        with mock.patch.object(regression_runner, "_raise_on_model_collinearity"), _stub_h2_kernel(fake_hsq):
             result = runner.estimate_partitioned_h2_batch(
                 self._high_chisq_sumstats(),
                 ldscore_result,
@@ -1336,32 +1311,11 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(meta["n_snps"], 2)
         self.assertAlmostEqual(meta["effective_chisq_max"], 100.0)
 
-    def test_effective_rg_filter_uses_product_form_and_echoes_explicit_cap(self):
-        # rg has no default cap; the cap echoes config.chisq_max and the count
-        # uses the legacy product filter Z1^2 * Z2^2 <= chisq_max^2 (inclusive).
-        # Z1=Z2=[2,1,0.5] -> products [16,1,0.0625]; chisq_max=1 keeps rs2,rs3.
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        config = RegressionConfig(chisq_max=1.0)
-        dataset = runner.build_rg_dataset(
-            self.make_sumstats_table(),
-            replace(self.make_sumstats_table(), trait_name="trait2"),
-            self.make_ldscore_result(),
-            config=config,
-        )
-        cap, n_used = regression_runner._effective_rg_filter(dataset, config)
-        self.assertAlmostEqual(cap, 1.0)
-        self.assertEqual(n_used, 2)
-        # No cap -> echoes None, all SNPs retained.
-        cap0, n0 = regression_runner._effective_rg_filter(dataset, RegressionConfig())
-        self.assertIsNone(cap0)
-        self.assertEqual(n0, 3)
-
     def test_rg_pair_count_and_metadata_reflect_product_filter(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(chisq_max=1.0))
         t1 = self.make_sumstats_table()
         t2 = replace(self.make_sumstats_table(), trait_name="trait2")
-        with mock.patch.object(
-            runner, "estimate_h2", return_value=self.make_rg_kernel_result().hsq1
+        with _stub_h2_kernel(self.make_rg_kernel_result().hsq1
         ), mock.patch.object(regression_runner.reg, "RG", return_value=self.make_rg_kernel_result()):
             result = runner.estimate_rg_pairs([t1, t2], self.make_ldscore_result())
         meta = result.per_pair_metadata[0]
@@ -1382,7 +1336,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             prop=np.array([1.0]), prop_cov=np.array([[0.0]]), prop_se=np.array([0.0]),
             enrichment=np.array([1.0]), n_blocks=200, n_annot=1,
         )
-        with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq):
+        with _stub_h2_kernel(fake_hsq):
             result = runner.estimate_partitioned_h2_batch(
                 self._high_chisq_sumstats(),
                 ldscore_result,
@@ -1402,7 +1356,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             prop=np.array([1.0]), prop_cov=np.array([[0.0]]), prop_se=np.array([0.0]),
             enrichment=np.array([1.0]), n_blocks=200, n_annot=1,
         )
-        with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq), self.assertLogs(
+        with _stub_h2_kernel(fake_hsq), self.assertLogs(
             "LDSC.regression_runner", level="WARNING"
         ) as logs:
             runner.estimate_partitioned_h2_batch(
@@ -1422,8 +1376,11 @@ class RegressionWorkflowTest(unittest.TestCase):
             prop=np.array([0.0, 0.4]), prop_cov=np.diag([0.0001, 0.0016]), prop_se=np.array([0.01, 0.04]),
             enrichment=np.array([0.0, 2.0]), n_blocks=200, n_annot=2,
         )
-        with mock.patch.object(regression_runner.LOGGER, "warning") as warn, mock.patch.object(
-            runner, "estimate_h2", return_value=fake_hsq
+        # The toy LD columns are collinear; exercise selection independently.
+        with (
+            mock.patch.object(regression_runner, "_raise_on_model_collinearity"),
+            mock.patch.object(regression_runner.LOGGER, "warning") as warn,
+            _stub_h2_kernel(fake_hsq),
         ):
             runner.estimate_partitioned_h2_batch(
                 self.make_sumstats_table(), self.make_ldscore_result(), self.make_annotation_bundle()
@@ -1742,10 +1699,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             replace(self.make_sumstats_table(), trait_name="C", source_path="C.sumstats.gz"),
         ]
 
-        with mock.patch.object(
-            runner,
-            "estimate_h2",
-            return_value=self.make_rg_kernel_result().hsq1,
+        with _stub_h2_kernel(self.make_rg_kernel_result().hsq1,
         ), mock.patch.object(
             regression_runner.reg,
             "RG",
@@ -1775,7 +1729,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             replace(self.make_sumstats_table(), trait_name="C", source_path="C.sumstats.gz"),
         ]
 
-        with mock.patch.object(runner, "estimate_h2", return_value=self.make_rg_kernel_result().hsq1), mock.patch.object(
+        with _stub_h2_kernel(self.make_rg_kernel_result().hsq1), mock.patch.object(
             regression_runner.reg,
             "RG",
             return_value=self.make_rg_kernel_result(),
@@ -1793,7 +1747,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             replace(self.make_sumstats_table(), trait_name="C", source_path="C.sumstats.gz"),
         ]
 
-        with mock.patch.object(runner, "estimate_h2", return_value=self.make_rg_kernel_result().hsq1), mock.patch.object(
+        with _stub_h2_kernel(self.make_rg_kernel_result().hsq1), mock.patch.object(
             regression_runner.reg,
             "RG",
             side_effect=[
@@ -1818,7 +1772,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             replace(self.make_sumstats_table(), trait_name="C", source_path="C.sumstats.gz"),
         ]
 
-        with mock.patch.object(runner, "estimate_h2", return_value=self.make_rg_kernel_result().hsq1), mock.patch.object(
+        with _stub_h2_kernel(self.make_rg_kernel_result().hsq1), mock.patch.object(
             regression_runner.reg,
             "RG",
             side_effect=[
@@ -1955,7 +1909,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             prop=np.array([1.0]), prop_cov=np.array([[0.0]]), prop_se=np.array([0.0]),
             n_blocks=200, n_annot=1,
         )
-        with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq):
+        with _stub_h2_kernel(fake_hsq):
             result = runner.estimate_partitioned_h2_batch(
                 self.make_sumstats_table(), ldscore_result, replace(self.make_annotation_bundle(), query_columns=[]),
             )
@@ -2006,11 +1960,12 @@ class RegressionWorkflowTest(unittest.TestCase):
             n_annot=2,
         )
 
-        with mock.patch.object(
+        # The toy LD columns are collinear; exercise selection independently.
+        with mock.patch.object(regression_runner, "_raise_on_model_collinearity"), mock.patch.object(
             runner,
             "build_dataset",
             wraps=runner.build_dataset,
-        ) as build_dataset, mock.patch.object(runner, "estimate_h2", return_value=fake_hsq):
+        ) as build_dataset, _stub_h2_kernel(fake_hsq):
             result = runner.estimate_partitioned_h2(
                 self.make_sumstats_table(),
                 self.make_ldscore_result(),
@@ -2050,9 +2005,12 @@ class RegressionWorkflowTest(unittest.TestCase):
             n_blocks=200,
             n_annot=2,
         )
-        with self.assertLogs("LDSC.regression_runner", level="INFO") as captured, mock.patch.object(
-            runner, "estimate_h2", return_value=fake_hsq
-        ) as patched:
+        # The toy LD columns are collinear; exercise selection independently.
+        with (
+            mock.patch.object(regression_runner, "_raise_on_model_collinearity"),
+            self.assertLogs("LDSC.regression_runner", level="INFO") as captured,
+            _stub_h2_kernel(fake_hsq) as patched,
+        ):
             result = runner.estimate_partitioned_h2_batch(table, ldscore_result, annotation_bundle)
         self.assertEqual(patched.call_count, 2)
         phase_lines = "\n".join(captured.output)
@@ -2085,7 +2043,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             n_blocks=200,
             n_annot=2,
         )
-        with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq):
+        # The toy LD columns are collinear; exercise selection independently.
+        with mock.patch.object(regression_runner, "_raise_on_model_collinearity"), _stub_h2_kernel(fake_hsq):
             result = runner.estimate_partitioned_h2_batch(
                 table,
                 ldscore_result,
@@ -2363,10 +2322,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 },
             )()
 
-            with mock.patch.object(
-                regression_runner.RegressionRunner,
-                "estimate_h2",
-                return_value=mock.Mock(
+            with _stub_h2_kernel(
+                mock.Mock(
                     tot=np.array([0.1]),
                     tot_se=np.array([0.01]),
                     intercept=np.array([1.0]),
@@ -2375,15 +2332,13 @@ class RegressionWorkflowTest(unittest.TestCase):
                     lambda_gc=np.array([1.0]),
                     ratio=0.0,
                     ratio_se=0.0,
-                    ld_score_regression_bins=pd.DataFrame(
-                        [{column: 0 for column in regression_runner.H2_REGRESSION_BIN_COLUMNS}]
-                    ),
+                    coef=np.array([0.001]),
                 ),
             ) as patched:
                 summary = regression_runner.run_h2_from_args(args)
 
             patched.assert_called_once()
-            self.assertEqual(patched.call_args.args[0].retained_ld_columns, ["base"])
+            self.assertEqual(patched.call_args.args[1].shape[1], 1)
             self.assertEqual(summary.loc[0, "trait_name"], "trait")
             self.assertTrue((tmpdir / "h2_out" / "h2.tsv").exists())
             self.assertFalse((tmpdir / "h2_out" / "metadata.json").exists())
@@ -2406,6 +2361,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "retained_ld_columns": ["base"],
                     "dropped_zero_variance_ld_columns": [],
                     "n_snps": 1,
+                    "n_blocks_used": 1,
                     "effective_chisq_max": None,
                     "samp_prev": None,
                     "pop_prev": None,
@@ -2451,10 +2407,8 @@ class RegressionWorkflowTest(unittest.TestCase):
         return self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
 
     def _patched_h2(self):
-        return mock.patch.object(
-            regression_runner.RegressionRunner,
-            "estimate_h2",
-            return_value=mock.Mock(
+        return _stub_h2_kernel(
+            mock.Mock(
                 tot=np.array([0.2]),
                 tot_se=np.array([0.03]),
                 intercept=np.array([1.0]),
@@ -2463,9 +2417,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 lambda_gc=np.array([1.0]),
                 ratio=0.0,
                 ratio_se=0.0,
-                ld_score_regression_bins=pd.DataFrame(
-                    [{column: 0 for column in regression_runner.H2_REGRESSION_BIN_COLUMNS}]
-                ),
+                coef=np.array([0.001]),
             ),
         )
 
@@ -2557,10 +2509,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 },
             )()
 
-            with mock.patch.object(
-                regression_runner.RegressionRunner,
-                "estimate_h2",
-                return_value=mock.Mock(
+            with _stub_h2_kernel(
+                mock.Mock(
                     tot=np.array([0.1]),
                     tot_se=np.array([0.01]),
                     intercept=np.array([1.0]),
@@ -2569,9 +2519,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     lambda_gc=np.array([1.0]),
                     ratio=0.0,
                     ratio_se=0.0,
-                    ld_score_regression_bins=pd.DataFrame(
-                        [{column: 0 for column in regression_runner.H2_REGRESSION_BIN_COLUMNS}]
-                    ),
+                    coef=np.array([0.001]),
                 ),
             ):
                 summary = regression_runner.run_h2_from_args(args)
@@ -3704,10 +3652,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 },
             )()
 
-            with mock.patch.object(
-                regression_runner.RegressionRunner,
-                "estimate_h2",
-                return_value=mock.Mock(
+            with _stub_h2_kernel(
+                mock.Mock(
                     tot=np.array([0.1]),
                     tot_se=np.array([0.01]),
                     intercept=np.array([1.0]),
@@ -3716,9 +3662,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     lambda_gc=np.array([1.0]),
                     ratio=0.0,
                     ratio_se=0.0,
-                    ld_score_regression_bins=pd.DataFrame(
-                        [{column: 0 for column in regression_runner.H2_REGRESSION_BIN_COLUMNS}]
-                    ),
+                    coef=np.array([0.001]),
                 ),
             ):
                 regression_runner.run_h2_from_args(args)
@@ -3755,10 +3699,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 },
             )()
 
-            with mock.patch.object(
-                regression_runner.RegressionRunner,
-                "estimate_h2",
-                return_value=mock.Mock(
+            with _stub_h2_kernel(
+                mock.Mock(
                     tot=np.array([0.1]),
                     tot_se=np.array([0.01]),
                     intercept=np.array([1.0]),
@@ -3767,9 +3709,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     lambda_gc=np.array([1.0]),
                     ratio=0.0,
                     ratio_se=0.0,
-                    ld_score_regression_bins=pd.DataFrame(
-                        [{column: 0 for column in regression_runner.H2_REGRESSION_BIN_COLUMNS}]
-                    ),
+                    coef=np.array([0.001]),
                 ),
             ):
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
@@ -3806,7 +3746,7 @@ class RegressionWorkflowTest(unittest.TestCase):
 
             with mock.patch.object(
                 regression_runner.RegressionRunner,
-                "estimate_h2",
+                "_fit_h2_dataset",
                 side_effect=AssertionError("estimation should not run after preflight failure"),
             ):
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
@@ -3876,10 +3816,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 },
             )()
 
-            with mock.patch.object(
-                regression_runner.RegressionRunner,
-                "estimate_h2",
-                return_value=mock.Mock(
+            with _stub_h2_kernel(
+                mock.Mock(
                     tot=np.array([0.1]),
                     tot_se=np.array([0.01]),
                     intercept=np.array([1.0]),
@@ -3888,9 +3826,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     lambda_gc=np.array([1.0]),
                     ratio=0.0,
                     ratio_se=0.0,
-                    ld_score_regression_bins=pd.DataFrame(
-                        [{column: 0 for column in regression_runner.H2_REGRESSION_BIN_COLUMNS}]
-                    ),
+                    coef=np.array([0.001]),
                 ),
             ):
                 regression_runner.run_h2_from_args(args)

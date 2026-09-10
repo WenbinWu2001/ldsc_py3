@@ -59,32 +59,7 @@ def assess_gene_coverage(batch, chromosomes):
     left unknown here, including for genes outside the evaluated scope.
     Return the enriched batch and every focal/control coverage failure.
     """
-    if hasattr(batch, "with_coverage"):
-        return batch.with_coverage(chromosomes)
-    scope = set(map(str, chromosomes))
-    summary, audit = batch.summary.copy(), batch.audit.copy()
-    for column in ("coverage_status", "missing_chromosomes", "uncovered_gene_ids"):
-        summary[column] = summary[column].astype(object)
-    audit["coverage_status"] = audit["coverage_status"].astype(object)
-    errors = []
-    for selection in batch.selections:
-        mask = summary.input_role.eq(selection.input_role) & summary.source_ordinal.eq(selection.source_ordinal)
-        missing = [(gene, interval[0]) for gene, interval in zip(selection.canonical_gene_ids, selection.intervals, strict=True) if interval[0] not in scope]
-        selected = len(selection.canonical_gene_ids)
-        covered = selected - len(missing)
-        status = "empty" if not selected else "full" if not missing else "none" if not covered else "partial"
-        missing_chroms = ",".join(sorted({chrom for _, chrom in missing}, key=int))
-        summary.loc[mask, "coverage_status"] = status
-        summary.loc[mask, "selected_genes"] = selected
-        summary.loc[mask, "covered_genes"] = covered
-        summary.loc[mask, "uncovered_genes"] = len(missing)
-        summary.loc[mask, "missing_chromosomes"] = missing_chroms
-        summary.loc[mask, "uncovered_gene_ids"] = ",".join(gene for gene, _ in missing)
-        rows = audit.input_role.eq(selection.input_role) & audit.source_ordinal.eq(selection.source_ordinal) & audit.canonical_gene_id.isin(selection.canonical_gene_ids)
-        audit.loc[rows, "coverage_status"] = audit.loc[rows, "chrom"].map(lambda chrom: "covered" if str(chrom) in scope else "uncovered")
-        if missing:
-            errors.append(f"{selection.input_role} {selection.query!r}: incomplete chromosome coverage ({covered}/{selected} selected genes covered); missing chromosomes {missing_chroms}; affected genes {', '.join(gene for gene, _ in missing)}. Supply matching baseline/reference inputs covering these genes or explicitly revise the submitted list.")
-    return replace(batch, summary=summary, audit=audit), errors
+    return batch.with_coverage(chromosomes)
 
 
 def gene_query_statuses(batch):

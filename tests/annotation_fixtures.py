@@ -92,3 +92,15 @@ def replace_fixture_queries(bundle, *, query_annotations, query_columns=None):
                                   query_columns=list(query_annotations.columns) if query_columns is None else query_columns,
                                   chromosomes=bundle.chromosomes, source_summary=bundle.source_summary,
                                   config_snapshot=bundle.config_snapshot)
+
+
+def resolve_gene_fixture(focal_paths, catalog, *, output_dir, **kwargs):
+    """Stage gene fixtures under the test framework's owned output parent."""
+    from ldsc._gene_query_storage import resolve_gene_lists_staged
+    return resolve_gene_lists_staged(focal_paths, catalog, AnnotationWorkspace(output_dir), **kwargs)
+
+
+def fixture_gene_audit(batch):
+    """Explicitly inspect the complete small audit used by an independent test."""
+    from ldsc.gene_list_resolver import AUDIT_COLUMNS
+    return pd.concat(batch.audit_frames(), ignore_index=True) if any(spool.n_rows for spool in batch.audit_spools) else pd.DataFrame(columns=AUDIT_COLUMNS)

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.annotation_fixtures import resolve_gene_fixture, fixture_gene_audit
 
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
@@ -146,7 +147,7 @@ def make_multi_chrom_result(chromosomes: list[str] | None = None) -> LDScoreResu
 
 class LDScoreDirectoryWriterTest(unittest.TestCase):
     def test_ldscore_writer_emits_query_status_gene_audit_and_concise_provenance(self):
-        from ldsc.gene_list_resolver import GeneCatalog, resolve_gene_lists
+        from ldsc.gene_list_resolver import GeneCatalog
         from ldsc.query_annotations import QueryAnnotationStatus
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -160,7 +161,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
                 encoding="utf-8",
             )
             catalog = GeneCatalog.load(catalog_path)
-            batch = resolve_gene_lists((source,), catalog, resolution_policy="resolved-only")
+            batch = resolve_gene_fixture((source,), catalog, resolution_policy="resolved-only", output_dir=Path(tmpdir))
             status = QueryAnnotationStatus(
                 "query",
                 "query.txt",

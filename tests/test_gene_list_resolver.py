@@ -1,4 +1,6 @@
 from __future__ import annotations
+from tests.annotation_fixtures import resolve_gene_fixture, fixture_gene_audit
+from ldsc import _gene_query_storage
 
 import gzip
 from pathlib import Path
@@ -15,7 +17,6 @@ from ldsc.gene_list_resolver import (
     GeneCatalog,
     GeneCatalogValidationError,
     gene_list_query_name,
-    resolve_gene_lists,
 )
 
 
@@ -104,9 +105,9 @@ def test_unique_name_referencing_a_duplicate_catalog_id_is_rejected_with_all_lin
     source = tmp_path / "genes.txt"
     source.write_text("NAME1\n", encoding="utf-8")
 
-    result = resolve_gene_lists((source,), catalog, resolution_policy="resolved-only")
+    result = resolve_gene_fixture((source,), catalog, resolution_policy="resolved-only", output_dir=tmp_path)
 
-    assert result.audit.loc[0, ["match_type", "catalog_lines", "reason"]].tolist() == [
+    assert fixture_gene_audit(result).loc[0, ["match_type", "catalog_lines", "reason"]].tolist() == [
         "gene_name",
         "2,3",
         "catalog_duplicate_id",
@@ -122,23 +123,23 @@ def test_batch_resolution_is_exact_ordered_and_policy_independent(tmp_path):
     control = tmp_path / "control.tsv"
     control.write_text("ENSG3\nOFFCHR\n", encoding="utf-8")
 
-    strict = resolve_gene_lists(
+    strict = resolve_gene_fixture(
         (focal_a, focal_b),
         _catalog(tmp_path),
         control_path=control,
         resolution_policy="strict",
-    )
-    exploratory = resolve_gene_lists(
+     output_dir=tmp_path)
+    exploratory = resolve_gene_fixture(
         (focal_a, focal_b),
         _catalog(tmp_path),
         control_path=control,
         resolution_policy="resolved-only",
-    )
+     output_dir=tmp_path)
 
-    pd.testing.assert_frame_equal(strict.audit, exploratory.audit)
-    assert list(strict.audit.columns) == list(AUDIT_COLUMNS)
+    pd.testing.assert_frame_equal(fixture_gene_audit(strict), fixture_gene_audit(exploratory))
+    assert list(fixture_gene_audit(strict).columns) == list(AUDIT_COLUMNS)
     assert list(strict.summary.columns) == list(SUMMARY_COLUMNS)
-    assert strict.audit[["input_role", "source", "line"]].values.tolist() == [
+    assert fixture_gene_audit(strict)[["input_role", "source", "line"]].values.tolist() == [
         ["focal", "pathway-a.txt", 1],
         ["focal", "pathway-a.txt", 2],
         ["focal", "pathway-a.txt", 3],
@@ -150,7 +151,7 @@ def test_batch_resolution_is_exact_ordered_and_policy_independent(tmp_path):
         ["control", "control.tsv", 1],
         ["control", "control.tsv", 2],
     ]
-    assert strict.audit[["input_gene", "disposition", "reason"]].values.tolist() == [
+    assert fixture_gene_audit(strict)[["input_gene", "disposition", "reason"]].values.tolist() == [
         ["GENEA", "retained", ""],
         ["GENEA", "duplicate", "duplicate_canonical_gene"],
         ["ENSG1.2", "rejected", "unmatched_identifier"],
@@ -169,27 +170,28 @@ def test_batch_resolution_is_exact_ordered_and_policy_independent(tmp_path):
     assert exploratory.summary["unique_resolved_genes"].tolist() == [1, 1, 1]
 
 
-def test_many_sources_enter_one_bulk_row_resolution_pass(tmp_path, monkeypatch):
+def test_many_sources_resolve_with_bounded_rows(tmp_path, monkeypatch):
     paths = []
     for index in range(120):
         source = tmp_path / f"pathway-{index:03d}.txt"
         source.write_text("GENEA\n" * 25, encoding="utf-8")
         paths.append(source)
     real_resolve_rows = gene_list_resolver._resolve_rows
-    calls = 0
+    calls = []
 
     def count_bulk_pass(*args, **kwargs):
         nonlocal calls
-        calls += 1
+        calls.append(len(args[0]))
         return real_resolve_rows(*args, **kwargs)
 
-    monkeypatch.setattr(gene_list_resolver, "_resolve_rows", count_bulk_pass)
+    monkeypatch.setattr(_gene_query_storage, "_resolve_rows", count_bulk_pass)
 
-    result = resolve_gene_lists(paths, _catalog(tmp_path), resolution_policy="resolved-only")
+    result = resolve_gene_fixture(paths, _catalog(tmp_path), resolution_policy="resolved-only", output_dir=tmp_path)
 
-    assert calls == 1
+    assert len(calls) > 1
+    assert max(calls) <= 4096
     assert len(result.summary) == 120
-    assert len(result.audit) == 3_000
+    assert len(fixture_gene_audit(result)) == 3_000
     assert result.summary["unique_resolved_genes"].eq(1).all()
 
 
@@ -197,10 +199,10 @@ def test_malformed_rows_remain_fatal_under_resolved_only(tmp_path):
     source = tmp_path / "bad.list"
     source.write_text("GENEA\textra\nUNKNOWN\n", encoding="utf-8")
 
-    result = resolve_gene_lists((source,), _catalog(tmp_path), resolution_policy="resolved-only")
+    result = resolve_gene_fixture((source,), _catalog(tmp_path), resolution_policy="resolved-only", output_dir=tmp_path)
 
     assert result.has_fatal_gate_a_issues
-    assert result.audit["reason"].tolist() == ["malformed_input", "unmatched_identifier"]
+    assert fixture_gene_audit(result)["reason"].tolist() == ["malformed_input", "unmatched_identifier"]
 
 
 def test_mhc_exclusion_is_audited_before_duplicate_precedence_without_resolution_failure(tmp_path):
@@ -213,13 +215,13 @@ def test_mhc_exclusion_is_audited_before_duplicate_precedence_without_resolution
     source = tmp_path / "mhc-genes.txt"
     source.write_text("HLA-A\nMHC1\n", encoding="utf-8")
 
-    result = resolve_gene_lists(
+    result = resolve_gene_fixture(
         (source,),
         catalog,
         gene_exclude_regions="mhc",
-    )
+     output_dir=tmp_path)
 
-    assert result.audit[["disposition", "reason"]].values.tolist() == [
+    assert fixture_gene_audit(result)[["disposition", "reason"]].values.tolist() == [
         ["excluded", "excluded_gene_region"],
         ["duplicate", "duplicate_canonical_gene"],
     ]
@@ -237,28 +239,28 @@ def test_duplicate_query_names_are_batched_with_identifier_issues(tmp_path):
     with gzip.open(right, "wt", encoding="utf-8") as handle:
         handle.write("ENSG1\n")
 
-    result = resolve_gene_lists((left, right), _catalog(tmp_path), resolution_policy="resolved-only")
+    result = resolve_gene_fixture((left, right), _catalog(tmp_path), resolution_policy="resolved-only", output_dir=tmp_path)
 
     assert result.has_fatal_gate_a_issues
     assert result.summary["source_reasons"].tolist() == ["duplicate_query_name", "duplicate_query_name"]
-    assert result.audit.loc[0, "reason"] == "unmatched_identifier"
+    assert fixture_gene_audit(result).loc[0, "reason"] == "unmatched_identifier"
 
 
 def test_repeated_focal_source_is_not_silently_deduplicated(tmp_path):
     source = tmp_path / "same.txt"
     source.write_text("GENEA\n", encoding="utf-8")
 
-    result = resolve_gene_lists(
+    result = resolve_gene_fixture(
         (source, source),
         _catalog(tmp_path),
         resolution_policy="resolved-only",
-    )
+     output_dir=tmp_path)
 
     assert result.summary[["source", "source_ordinal", "source_reasons"]].values.tolist() == [
         ["same.txt", 1, "duplicate_query_name"],
         ["same.txt", 2, "duplicate_query_name"],
     ]
-    assert result.audit[["source_ordinal", "input_gene"]].values.tolist() == [
+    assert fixture_gene_audit(result)[["source_ordinal", "input_gene"]].values.tolist() == [
         [1, "GENEA"],
         [2, "GENEA"],
     ]
@@ -269,11 +271,11 @@ def test_focal_globs_expand_lexically_but_unmatched_and_control_globs_are_audite
     (tmp_path / "set-b.txt").write_text("ENSG2\n", encoding="utf-8")
     (tmp_path / "set-a.txt").write_text("GENEA\n", encoding="utf-8")
 
-    expanded = resolve_gene_lists(
+    expanded = resolve_gene_fixture(
         (tmp_path / "set-*.txt",),
         _catalog(tmp_path),
         resolution_policy="resolved-only",
-    )
+     output_dir=tmp_path)
 
     assert expanded.summary[["source", "source_ordinal"]].values.tolist() == [
         ["set-a.txt", 1],
@@ -281,23 +283,23 @@ def test_focal_globs_expand_lexically_but_unmatched_and_control_globs_are_audite
     ]
     assert not expanded.has_fatal_gate_a_issues
 
-    unmatched = resolve_gene_lists(
+    unmatched = resolve_gene_fixture(
         (tmp_path / "missing-*.txt",),
         _catalog(tmp_path),
         resolution_policy="resolved-only",
-    )
+     output_dir=tmp_path)
     assert unmatched.summary.loc[0, ["source_status", "source_reasons"]].tolist() == [
         "error",
         "unreadable_gene_list",
     ]
     assert unmatched.has_fatal_gate_a_issues
 
-    control_glob = resolve_gene_lists(
+    control_glob = resolve_gene_fixture(
         (tmp_path / "set-a.txt",),
         _catalog(tmp_path),
         control_path=tmp_path / "set-*.txt",
         resolution_policy="resolved-only",
-    )
+     output_dir=tmp_path)
     assert control_glob.summary.iloc[-1][["input_role", "source_reasons"]].tolist() == [
         "control",
         "unreadable_gene_list",
@@ -312,11 +314,11 @@ def test_control_path_expands_environment_variables(tmp_path, monkeypatch):
     control.write_text("ENSG2\n", encoding="utf-8")
     monkeypatch.setenv("LDSC_TEST_GENE_CONTROL", str(control))
 
-    result = resolve_gene_lists(
+    result = resolve_gene_fixture(
         (focal,),
         _catalog(tmp_path),
         control_path="$LDSC_TEST_GENE_CONTROL",
-    )
+     output_dir=tmp_path)
 
     assert result.summary.iloc[-1][["input_role", "source", "source_status"]].tolist() == [
         "control",
@@ -329,17 +331,17 @@ def test_resolved_only_does_not_relax_outside_index_coverage(tmp_path):
     source = tmp_path / "genes.txt"
     source.write_text("GENEA\n", encoding="utf-8")
 
-    result = resolve_gene_lists(
+    result = resolve_gene_fixture(
         (source,),
         _catalog(tmp_path),
         resolution_policy="resolved-only",
-    )
+     output_dir=tmp_path)
 
     from ldsc.query_annotations import assess_gene_coverage
 
     result, errors = assess_gene_coverage(result, ("22",))
-    assert result.audit.loc[0, "coverage_status"] == "uncovered"
-    assert result.audit.loc[0, "reason"] == ""
+    assert fixture_gene_audit(result).loc[0, "coverage_status"] == "uncovered"
+    assert fixture_gene_audit(result).loc[0, "reason"] == ""
     assert not result.has_fatal_gate_a_issues
     assert len(errors) == 1
 
@@ -437,16 +439,16 @@ def test_live_and_embedded_catalogs_have_identical_resolution_truth(tmp_path):
     source = tmp_path / "pathway.txt"
     source.write_text("GENE1\nMISSING\nG2\n", encoding="utf-8")
 
-    live_result = resolve_gene_lists(
+    live_result = resolve_gene_fixture(
         (source,),
         live,
         resolution_policy="resolved-only",
-    )
-    indexed_result = resolve_gene_lists(
+     output_dir=tmp_path)
+    indexed_result = resolve_gene_fixture(
         (source,),
         embedded,
         resolution_policy="resolved-only",
-    )
+     output_dir=tmp_path)
 
-    pd.testing.assert_frame_equal(live_result.audit, indexed_result.audit)
+    pd.testing.assert_frame_equal(fixture_gene_audit(live_result), fixture_gene_audit(indexed_result))
     pd.testing.assert_frame_equal(live_result.summary, indexed_result.summary)

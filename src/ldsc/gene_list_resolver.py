@@ -9,7 +9,7 @@ projection. This module is pure workflow logic: it does not log or write files.
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 import glob
 import gzip
 from pathlib import Path
@@ -85,7 +85,6 @@ SUMMARY_COLUMNS = (
     "missing_chromosomes",
     "uncovered_gene_ids",
 )
-RESOLUTION_POLICIES = ("strict", "resolved-only")
 RESOLVED_ONLY_REASONS = frozenset(
     {
         "unmatched_identifier",
@@ -309,65 +308,6 @@ class GeneSourceSelection:
     intervals: tuple[tuple[str, int, int], ...]
 
 
-@dataclass(frozen=True)
-class GeneListBatchResolution:
-    """Complete Gate A result for all focal sources and the optional control."""
-
-    audit: pd.DataFrame
-    summary: pd.DataFrame
-    selections: tuple[GeneSourceSelection, ...]
-    resolution_policy: str
-    has_fatal_gate_a_issues: bool
-
-    def audit_frames(self):
-        """Yield the audit owned by this explicitly materialized resolution result."""
-        yield self.audit
-
-    def write_audit(self, path):
-        """Write the complete diagnostic audit."""
-        self.audit.to_csv(path, sep="\t", index=False, na_rep="", compression="gzip")
-
-    def selection(self, input_role: str, source_ordinal: int) -> GeneSourceSelection:
-        """Return one declared source selection by stable role and ordinal."""
-        for selection in self.selections:
-            if selection.input_role == input_role and selection.source_ordinal == source_ordinal:
-                return selection
-        raise KeyError((input_role, source_ordinal))
-
-    def with_snp_support(self, support_by_catalog_index: pd.Series | dict[int, int]) -> "GeneListBatchResolution":
-        """Return Gate B audit/summary fields updated from per-catalog-row SNP counts."""
-        support = pd.Series(support_by_catalog_index, dtype="Int64")
-        audit = self.audit.copy()
-        selection_map = pd.DataFrame(
-            {
-                "input_role": [item.input_role for item in self.selections],
-                "source_ordinal": [item.source_ordinal for item in self.selections],
-                "canonical_gene_id": [item.canonical_gene_ids for item in self.selections],
-                "_catalog_index": [item.catalog_indices for item in self.selections],
-            }
-        ).explode(["canonical_gene_id", "_catalog_index"], ignore_index=True)
-        selection_map["_support"] = selection_map["_catalog_index"].map(support)
-        counts = audit.merge(
-            selection_map.drop(columns="_catalog_index"),
-            on=["input_role", "source_ordinal", "canonical_gene_id"],
-            how="left",
-            sort=False,
-        )["_support"].astype("Int64")
-        audit["reference_snp_count"] = counts
-        unsupported = audit["disposition"].eq("retained") & counts.notna() & counts.eq(0)
-        audit.loc[unsupported, "disposition"] = "unsupported"
-        audit.loc[unsupported, "reason"] = "zero_reference_snp_support"
-        audit.loc[unsupported, "details"] = "No retained reference-panel SNP overlaps this gene interval."
-        summary = self.summary.copy()
-        for selection in self.selections:
-            mask = summary["input_role"].eq(selection.input_role) & summary["source_ordinal"].eq(selection.source_ordinal)
-            counts = support.reindex(selection.catalog_indices)
-            if counts.isna().any():
-                summary.loc[mask, ["zero_support_genes", "genes_with_snp_support"]] = pd.NA
-            else:
-                summary.loc[mask, "zero_support_genes"] = int(counts.eq(0).sum())
-                summary.loc[mask, "genes_with_snp_support"] = int(counts.gt(0).sum())
-        return replace(self, audit=audit.loc[:, AUDIT_COLUMNS], summary=summary)
 
 
 def gene_list_query_name(path: str | Path) -> str:
@@ -400,113 +340,6 @@ def _expand_focal_gene_list_sources(
     return tuple(expanded)
 
 
-def resolve_gene_lists(
-    focal_paths: Sequence[str | Path],
-    catalog: GeneCatalog,
-    *,
-    control_path: str | Path | None = None,
-    resolution_policy: str = "strict",
-    gene_exclude_regions: str = "none",
-) -> GeneListBatchResolution:
-    """Resolve all focal/control sources together using vectorized table operations."""
-    if resolution_policy not in RESOLUTION_POLICIES:
-        raise LDSCInputError(
-            f"Unsupported gene-list resolution policy {resolution_policy!r}; use 'strict' or 'resolved-only'."
-        )
-    if gene_exclude_regions not in {"none", "mhc"}:
-        raise LDSCInputError("gene_exclude_regions must be 'none' or 'mhc'.")
-
-    focal_paths = _expand_focal_gene_list_sources(focal_paths)
-    if control_path is not None:
-        control_path = normalize_path_token(control_path)
-
-    declarations = [
-        {
-            "argument": "--query-annot-gene-list-sources",
-            "input_role": "focal",
-            "query": gene_list_query_name(path),
-            "source": Path(path).name,
-            "source_path": str(path),
-            "source_ordinal": ordinal,
-        }
-        for ordinal, path in enumerate(focal_paths, start=1)
-    ]
-    if control_path is not None:
-        declarations.append(
-            {
-                "argument": "--control-gene-list-file",
-                "input_role": "control",
-                "query": "gene_control",
-                "source": Path(control_path).name,
-                "source_path": str(control_path),
-                "source_ordinal": 0,
-            }
-        )
-    declaration_frame = pd.DataFrame(declarations)
-    if declaration_frame.empty:
-        return GeneListBatchResolution(
-            audit=pd.DataFrame(columns=AUDIT_COLUMNS),
-            summary=pd.DataFrame(columns=SUMMARY_COLUMNS),
-            selections=(),
-            resolution_policy=resolution_policy,
-            has_fatal_gate_a_issues=False,
-        )
-
-    source_frames: list[pd.DataFrame] = []
-    source_errors: dict[tuple[str, int], str] = {}
-    for declaration in declarations:
-        source_frame, source_reason = _read_gene_list_source(declaration)
-        if source_frame is not None:
-            source_frames.append(source_frame)
-        if source_reason:
-            source_errors[(declaration["input_role"], declaration["source_ordinal"])] = source_reason
-    rows = pd.concat(source_frames, ignore_index=True) if source_frames else pd.DataFrame()
-    if rows.empty:
-        rows = pd.DataFrame(
-            columns=[
-                "argument",
-                "input_role",
-                "query",
-                "source",
-                "source_ordinal",
-                "line",
-                "input_gene",
-                "_malformed",
-            ]
-        )
-
-    duplicate_names = declaration_frame["query"].duplicated(keep=False) & declaration_frame["input_role"].eq("focal")
-    for row in declaration_frame.loc[duplicate_names].itertuples(index=False):
-        source_errors[(row.input_role, row.source_ordinal)] = _combine_reasons(
-            source_errors.get((row.input_role, row.source_ordinal), ""), "duplicate_query_name"
-        )
-
-    audit = _resolve_rows(rows, catalog, gene_exclude_regions)
-    source_seed = declaration_frame.drop(columns="source_path").copy()
-    source_seed["source_status"] = [
-        "error" if source_errors.get((role, ordinal)) else "ok"
-        for role, ordinal in zip(source_seed["input_role"], source_seed["source_ordinal"], strict=True)
-    ]
-    source_seed["source_reasons"] = [
-        source_errors.get((role, ordinal), "")
-        for role, ordinal in zip(source_seed["input_role"], source_seed["source_ordinal"], strict=True)
-    ]
-    summary = _summarize_sources(audit, source_seed, resolution_policy, support_evaluated=False)
-    selections = _build_selections(audit, catalog, declaration_frame)
-
-    source_fatal = bool(source_errors)
-    malformed_fatal = bool(audit["reason"].eq("malformed_input").any())
-    rejected_reasons = set(audit.loc[audit["disposition"].eq("rejected"), "reason"].astype(str))
-    policy_fatal = bool(rejected_reasons) and (
-        resolution_policy == "strict" or not rejected_reasons.issubset(RESOLVED_ONLY_REASONS)
-    )
-    return GeneListBatchResolution(
-        audit=audit.loc[:, AUDIT_COLUMNS].reset_index(drop=True),
-        summary=summary.loc[:, SUMMARY_COLUMNS].reset_index(drop=True),
-        selections=selections,
-        resolution_policy=resolution_policy,
-        has_fatal_gate_a_issues=source_fatal or malformed_fatal or policy_fatal,
-    )
 
 
 def select_index_eligible_gene_indices(
@@ -813,37 +646,6 @@ def _append_namespace_issues(
             )
 
 
-def _read_gene_list_source(declaration: dict[str, Any]) -> tuple[pd.DataFrame | None, str]:
-    path = Path(declaration["source_path"])
-    if any(token in str(path) for token in ("*", "?", "[", "]")):
-        return None, "unreadable_gene_list"
-    try:
-        payload = path.read_bytes()
-    except OSError:
-        return None, "unreadable_gene_list"
-    try:
-        raw = gzip.decompress(payload) if path.name.lower().endswith(".gz") else payload
-    except (OSError, EOFError):
-        return None, "invalid_gzip"
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return None, "invalid_utf8"
-    lines = pd.Series(text.splitlines(), dtype="string")
-    if lines.empty:
-        return pd.DataFrame(columns=[*AUDIT_COLUMNS[:7], "_malformed"]), ""
-    stripped = lines.str.strip()
-    keep = stripped.ne("")
-    frame = pd.DataFrame(
-        {
-            "line": np.arange(1, len(lines) + 1, dtype=int)[keep.to_numpy()],
-            "input_gene": stripped[keep].to_numpy(),
-            "_malformed": lines[keep].str.contains("\t", regex=False).to_numpy(),
-        }
-    )
-    for field in ("argument", "input_role", "query", "source", "source_ordinal"):
-        frame[field] = declaration[field]
-    return frame[["argument", "input_role", "query", "source", "source_ordinal", "line", "input_gene", "_malformed"]], ""
 
 
 def _resolve_rows(
@@ -1000,45 +802,6 @@ def _resolve_rows(
     return audit.reindex(columns=AUDIT_COLUMNS).reset_index(drop=True)
 
 
-def _build_selections(
-    audit: pd.DataFrame,
-    catalog: GeneCatalog,
-    declarations: pd.DataFrame,
-) -> tuple[GeneSourceSelection, ...]:
-    catalog_lookup = catalog.frame.reset_index().set_index("gene_id")
-    selections: list[GeneSourceSelection] = []
-    ordered = declarations.assign(_role_order=declarations["input_role"].map({"focal": 0, "control": 1})).sort_values(
-        ["_role_order", "source_ordinal"], kind="stable"
-    )
-    for declaration in ordered.itertuples(index=False):
-        selected = audit[
-            (audit["input_role"] == declaration.input_role)
-            & (audit["source_ordinal"] == declaration.source_ordinal)
-            & audit["disposition"].eq("retained")
-        ]
-        gene_ids = tuple(selected["canonical_gene_id"].astype(str))
-        if gene_ids:
-            rows = catalog_lookup.loc[list(gene_ids)]
-            catalog_indices = tuple(rows["index"].astype(int))
-            intervals = tuple(
-                zip(rows["chrom"].astype(str), rows["start0"].astype(int), rows["end"].astype(int), strict=True)
-            )
-        else:
-            catalog_indices = ()
-            intervals = ()
-        selections.append(
-            GeneSourceSelection(
-                input_role=declaration.input_role,
-                argument=declaration.argument,
-                query=declaration.query,
-                source=declaration.source,
-                source_ordinal=int(declaration.source_ordinal),
-                canonical_gene_ids=gene_ids,
-                catalog_indices=catalog_indices,
-                intervals=intervals,
-            )
-        )
-    return tuple(selections)
 
 
 def _summarize_sources(

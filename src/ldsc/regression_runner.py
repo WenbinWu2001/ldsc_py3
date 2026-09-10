@@ -3057,7 +3057,7 @@ def _resolve_anchor_index(
             if Path(path).resolve(strict=False) == anchor_path:
                 path_matches.add(idx)
     except OSError:
-        LOGGER.debug(f"Could not resolve anchor trait path candidate '{anchor_trait}' against rg inputs.", exc_info=True)
+        pass  # The actionable unknown-anchor error below includes valid inputs.
     if len(path_matches) != 1:
         available = [table.trait_name or Path(path).name for table, path in zip(sumstats_tables, sumstats_paths)]
         raise LDSCUsageError(

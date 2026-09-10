@@ -67,9 +67,7 @@ from ._kernel.snp_identity import (
 from ._row_alignment import assert_same_snp_rows
 from .chromosome_inference import normalize_chromosome
 from .column_inference import (
-    CHR_COLUMN_SPEC,
     normalize_genome_build,
-    resolve_optional_column,
 )
 from .config import (
     AnnotationBuildConfig,

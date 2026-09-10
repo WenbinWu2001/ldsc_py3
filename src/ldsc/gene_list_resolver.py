@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 import glob
 import gzip
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd

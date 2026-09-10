@@ -169,7 +169,6 @@ Dependencies
 from __future__ import annotations
 
 import argparse
-from collections import OrderedDict
 import logging
 import os
 import sys
@@ -190,13 +189,10 @@ from ..column_inference import (
     CM_COLUMN_ALIASES,
     CM_COLUMN_SPEC,
     ColumnSpec,
-    MAF_COLUMN_ALIASES,
     MAF_COLUMN_SPEC,
     POS_COLUMN_ALIASES,
     POS_COLUMN_SPEC,
     REFERENCE_METADATA_SPEC_MAP,
-    RESTRICTION_CHRPOS_SPEC_MAP,
-    RESTRICTION_RSID_SPEC_MAP,
     SNP_COLUMN_ALIASES,
     SNP_COLUMN_SPEC,
     normalize_genome_build,

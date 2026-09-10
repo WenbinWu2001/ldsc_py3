@@ -40,7 +40,6 @@ from ._chr_sampler import sample_frame_from_chr_pattern
 from ._kernel.snp_identity import clean_identity_artifact_table, effective_merge_key_series, empty_identity_drop_frame, identity_base_mode, identity_mode_family, is_allele_aware_mode
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from .config import (
-    ConfigMismatchError,
     GlobalConfig,
     AnnotationBuildConfig,
     LDScoreConfig,

@@ -26,9 +26,9 @@ from ..column_inference import (
     resolve_required_column,
 )
 from ..config import GlobalConfig, RefPanelConfig, validate_config_compatibility
-from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
+from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCUsageError
 from ..genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
-from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group, resolve_scalar_path
+from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group
 from . import formats as legacy_parse
 from . import ldscore as kernel_ldscore
 from .identifiers import (
@@ -38,7 +38,6 @@ from .identifiers import (
     validate_unique_snp_ids,
 )
 from .snp_identity import (
-    REGENERATE_ARTIFACT_MESSAGE,
     clean_identity_artifact_table,
     identity_mode_family,
     is_allele_aware_mode,

@@ -776,7 +776,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         from ldsc._kernel.overlap import OverlapContribution
 
         contribution = OverlapContribution(np.array([[2.0]]), None, np.array([]), None, 2, None)
-        legacy_result = ldscore_workflow._LegacyChromResult(
+        legacy_result = kernel_ldscore.ChromComputationResult(
             chrom="1",
             metadata=pd.DataFrame(
                 {"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "POS": [10, 20], "CM": [0.1, 0.2], "MAF": [0.2, 0.3]}
@@ -865,7 +865,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertIsNone(result.overlap)
 
     def test_wrap_legacy_result_derives_allele_aware_regression_ids_before_split(self):
-        legacy_result = ldscore_workflow._LegacyChromResult(
+        legacy_result = kernel_ldscore.ChromComputationResult(
             chrom="1",
             metadata=pd.DataFrame(
                 {
@@ -1152,7 +1152,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")
         metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(int)
         metadata["MAF"] = pd.to_numeric(metadata["MAF"], errors="coerce")
-        block_left = kernel_ldscore.getBlockLefts(np.arange(bed.m), 10)
+        block_left = kernel_ldscore.get_block_lefts(np.arange(bed.m), 10)
         ld_scores = bed.ldScoreVarBlocks(block_left, 50, annot=np.ones((bed.m, 1), dtype=np.float32))
         return metadata.reset_index(drop=True), np.ravel(ld_scores)
 

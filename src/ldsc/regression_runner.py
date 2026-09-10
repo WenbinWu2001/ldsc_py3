@@ -65,12 +65,7 @@ from .config import (
     print_global_config_banner,
     suppress_global_config_banner,
 )
-from .path_resolution import (
-    ensure_output_directory,
-    ensure_output_paths_available,
-    normalize_path_token,
-    resolve_file_group,
-)
+from .path_resolution import ensure_output_directory, normalize_path_token, resolve_file_group
 from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ._kernel import regression as reg
 from ._kernel.identifiers import build_snp_id_series
@@ -3299,21 +3294,3 @@ def _global_config_from_metadata(metadata: dict[str, Any]) -> GlobalConfig | Non
         genome_build=metadata.get("genome_build"),
         log_level="INFO",
     )
-
-
-def _maybe_write_dataframe(
-    df: pd.DataFrame,
-    output_dir: str | None,
-    filename: str,
-    overwrite: bool = False,
-) -> None:
-    """Write a fixed-name summary table only when an output directory is requested.
-
-    Existing ``h2.tsv``, ``partitioned_h2.tsv``, or ``rg.tsv`` files are refused
-    before writing unless ``overwrite`` is true.
-    """
-    if not output_dir:
-        return
-    path = ensure_output_directory(output_dir, label="output directory") / filename
-    ensure_output_paths_available([path], overwrite=overwrite, label="regression output artifact")
-    df.to_csv(path, sep="\t", index=False)

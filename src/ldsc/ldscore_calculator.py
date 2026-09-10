@@ -102,19 +102,6 @@ _LDSCORE_PARQUET_DOC = "docs/troubleshooting.md#ldscore-parquet-r2-input-is-inco
 _LDSCORE_BUILD_DOC = "docs/troubleshooting.md#ldscore-genome-build-could-not-be-resolved-consistently"
 
 
-@dataclass(frozen=True)
-class _LegacyChromResult:
-    """Compatibility record for chromosome outputs produced by the kernel."""
-    chrom: str
-    metadata: pd.DataFrame
-    ld_scores: np.ndarray
-    w_ld: np.ndarray
-    M: np.ndarray
-    M_5_50: np.ndarray | None
-    ldscore_columns: list[str]
-    baseline_columns: list[str]
-    query_columns: list[str]
-    overlap: OverlapContribution | None = None
 
 
 @dataclass(frozen=True)
@@ -647,7 +634,7 @@ class LDScoreCalculator:
 
     def _wrap_legacy_chrom_result(
         self,
-        legacy_result: _LegacyChromResult | Any,
+        legacy_result: kernel_ldscore.ChromComputationResult,
         global_config: GlobalConfig,
         regression_snps: set[str] | RestrictionIdentityKeys | None = None,
         regression_regions: kernel_regions.RegionIntervals | None = None,
@@ -657,7 +644,6 @@ class LDScoreCalculator:
         """Convert one kernel chromosome result into the typed public result."""
         reference_metadata = legacy_result.metadata.reset_index(drop=True).copy()
         ld_scores = pd.DataFrame(legacy_result.ld_scores, columns=list(legacy_result.ldscore_columns))
-        reference_ids = frozenset(build_snp_id_series(reference_metadata, global_config.snp_identifier))
         regression_selected = pd.Series(
             kernel_ldscore.regression_mask_from_keys(
                 reference_metadata,

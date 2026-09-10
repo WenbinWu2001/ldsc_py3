@@ -361,9 +361,6 @@ def infer_chr_pos_columns(header: Iterable[str], *, context: str | None = None) 
     )
 
 
-def infer_chr_bp_columns(header: Iterable[str], *, context: str | None = None) -> tuple[str, str]:
-    """Backward-compatible alias for :func:`infer_chr_pos_columns`."""
-    return infer_chr_pos_columns(header, context=context)
 
 
 def _restriction_header_error(columns: Iterable[str], missing: Sequence[str]) -> LDSCInputError:

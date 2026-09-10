@@ -68,8 +68,6 @@ from ..column_inference import (
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from ..path_resolution import (
-    ANNOTATION_SUFFIXES,
-    resolve_file_group,
     resolve_plink_prefix,
 )
 from .._row_alignment import assert_same_snp_rows
@@ -228,9 +226,6 @@ def get_block_lefts(coords: np.ndarray, max_dist: float) -> np.ndarray:
     return block_left
 
 
-def getBlockLefts(coords, max_dist):
-    """Backward-compatible alias for :func:`get_block_lefts`."""
-    return get_block_lefts(coords, max_dist)
 
 
 def validate_window_positions_sorted(metadata: pd.DataFrame, chrom: str) -> None:
@@ -354,14 +349,6 @@ def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
     return sort_df.drop(columns="_chrom_key").reset_index(drop=True)
 
 
-def resolve_annotation_files(spec: str | None) -> list[str]:
-    """Resolve comma-delimited annotation tokens into concrete file paths."""
-    return resolve_file_group(
-        split_arg_list(spec),
-        label="annotation input",
-        suffixes=ANNOTATION_SUFFIXES,
-        allow_chromosome_suite=True,
-    )
 
 
 def resolve_bfile_prefix(args: argparse.Namespace, chrom: str | None = None) -> str | None:
@@ -705,29 +692,6 @@ def load_regression_keys(args: argparse.Namespace) -> RestrictionIdentityKeys | 
     return read_identifier_list(args.regr_snps_file, args.snp_identifier)
 
 
-def chromosome_set_from_annotation_inputs(args: argparse.Namespace) -> list[str]:
-    """Discover the chromosome set implied by the supplied annotation inputs."""
-    chromosomes: set[str] = set()
-    all_files = resolve_annotation_files(args.query_annot) + resolve_annotation_files(args.baseline_annot)
-    for path in all_files:
-        df = read_text_table(path)
-        if "CHR" not in df.columns:
-            raise LDSCInputError(
-                f"ldscore could not discover chromosomes from annotation file '{path}': "
-                "the file is missing a CHR column. Most likely this is not an LDSC "
-                "annotation table or the header uses an unrecognized chromosome name. "
-                "Provide annotation files with CHR/POS/SNP/CM metadata columns."
-            )
-        chromosomes.update(df["CHR"].map(lambda value: normalize_chromosome(value, context=path)).unique().tolist())
-
-    if not chromosomes:
-        raise LDSCInputError(
-            "ldscore could not resolve any chromosomes from the supplied annotation inputs. "
-            "Most likely the annotation paths are empty after chromosome filtering or contain "
-            "no CHR values. Check the annotation headers and pass files that contain retained "
-            "chromosome rows."
-        )
-    return sorted(chromosomes, key=chrom_sort_key)
 
 
 def assert_cm_usable(cm: pd.Series, chrom: str) -> None:
@@ -1068,7 +1032,6 @@ class SortedR2BlockReader:
                 "the R2 path/glob is too broad or the directory contains duplicate chromosome "
                 "artifacts. Narrow `--r2-dir` or remove duplicate parquet files."
             )
-        self._runtime_layout = "index"
         self._pf = pq.ParquetFile(paths[0])
         try:
             self._init_index_path(paths[0], metadata)

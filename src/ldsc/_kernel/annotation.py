@@ -19,7 +19,6 @@ import pandas as pd
 
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..errors import LDSCDependencyError, LDSCInputError, LDSCInternalError
-from ..path_resolution import ensure_output_parent_directory, resolve_scalar_path
 from . import regions as kernel_regions
 
 _ANNOTATION_VALUES_DOC = "docs/troubleshooting.md#ldscore-annotation-values-are-malformed"
@@ -234,37 +233,3 @@ def _compute_bed_query_columns(
         )
     finally:
         pybedtools.cleanup(remove_all=True)
-
-
-def _make_single_annotation_file(
-    bimfile: str | Path,
-    annot_file: str | Path,
-    bed_for_annot,
-) -> Path:
-    """Project one BED-like input onto one BIM file and write a legacy ``.annot`` file."""
-    pybedtools = _get_pybedtools()
-    bimfile = Path(resolve_scalar_path(bimfile, label="PLINK BIM file"))
-    annot_file = ensure_output_parent_directory(annot_file, label="annot_file")
-
-    df_bim = pd.read_csv(
-        bimfile,
-        sep=r"\s+",
-        usecols=[0, 1, 2, 3],
-        names=["CHR", "SNP", "CM", "POS"],
-        header=None,
-    )
-    iter_bim = [[_to_bed_chromosome(chrom), int(pos) - 1, int(pos)] for chrom, pos in np.array(df_bim[["CHR", "POS"]])]
-    bim_bed = pybedtools.BedTool(iter_bim)
-    annot_bed = bim_bed.intersect(bed_for_annot)
-    pos = [feature.start + 1 for feature in annot_bed]
-    df_int = pd.DataFrame({"POS": pos, "ANNOT": 1})
-    df_annot = pd.merge(df_bim, df_int, how="left", on="POS")
-    df_annot.fillna(0, inplace=True)
-    df_annot = df_annot[["ANNOT"]].astype(int)
-    annot_file.parent.mkdir(parents=True, exist_ok=True)
-    if str(annot_file).endswith(".gz"):
-        with gzip.open(annot_file, "wt") as handle:
-            df_annot.to_csv(handle, sep="\t", index=False)
-    else:
-        df_annot.to_csv(annot_file, sep="\t", index=False)
-    return annot_file

@@ -3836,13 +3836,14 @@ class RegressionWorkflowTest(unittest.TestCase):
     def test_regression_writer_refuses_each_fixed_summary_filename(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
-            summary = pd.DataFrame({"value": [1]})
-            for filename in ("h2.tsv", "partitioned_h2.tsv", "rg.tsv"):
+            from ldsc.outputs import H2DirectoryWriter, PartitionedH2DirectoryWriter, RgDirectoryWriter
+
+            for filename, writer in (("h2.tsv", H2DirectoryWriter), ("partitioned_h2.tsv", PartitionedH2DirectoryWriter), ("rg.tsv", RgDirectoryWriter)):
                 with self.subTest(filename=filename):
                     existing = output_dir / filename
                     existing.write_text("existing\n", encoding="utf-8")
 
                     with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                        regression_runner._maybe_write_dataframe(summary, str(output_dir), filename)
+                        writer.artifact_family(output_dir).preflight(overwrite=False)
 
                     self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")

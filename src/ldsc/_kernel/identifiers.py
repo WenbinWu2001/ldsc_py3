@@ -49,19 +49,12 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from .._coordinates import (
-    CHR_POS_KEY_COLUMN,
-    build_chr_pos_key_frame,
-    coordinate_missing_mask,
-    normalize_chr_pos_frame,
-    positive_int_position_series,
-)
+from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame, normalize_chr_pos_frame, positive_int_position_series
 from ..chromosome_inference import normalize_chromosome, normalize_chromosome_series
 from ..column_inference import (
     A1_COLUMN_SPEC,
     A2_COLUMN_SPEC,
     clean_header,
-    infer_chr_bp_columns,
     infer_chr_pos_columns,
     infer_snp_column,
     normalize_genome_build,

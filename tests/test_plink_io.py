@@ -57,7 +57,7 @@ class LDScoreHelpersTest(unittest.TestCase):
             ((1, 4, 6, 7, 7, 8), 2, (0, 1, 1, 2, 2, 2)),
         ]
         for coords, max_dist, expected in cases:
-            assert_array_equal(ld.getBlockLefts(coords, max_dist), expected)
+            assert_array_equal(ld.get_block_lefts(coords, max_dist), expected)
 
     def test_block_left_to_right(self):
         cases = [

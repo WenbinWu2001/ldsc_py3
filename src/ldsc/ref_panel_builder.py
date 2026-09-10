@@ -66,15 +66,7 @@ from ._kernel.snp_identity import (
 from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
 from ._coordinates import normalize_chr_pos_frame
 from .genome_build_inference import resolve_genome_build, resolve_genome_build_from_chr_pos_frames
-from .path_resolution import (
-    ensure_output_directory,
-    preflight_output_artifact_family,
-    remove_output_artifacts,
-    resolve_file_group,
-    resolve_plink_prefix_group,
-    resolve_scalar_path,
-    split_cli_path_tokens,
-)
+from .path_resolution import ensure_output_directory, preflight_output_artifact_family, remove_output_artifacts, resolve_file_group, resolve_plink_prefix_group, resolve_scalar_path
 from ._logging import (
     configure_package_logging,
     log_inputs,

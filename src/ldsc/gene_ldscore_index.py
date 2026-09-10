@@ -78,7 +78,6 @@ from .gene_list_resolver import (
     resolve_gene_lists,
     select_index_eligible_gene_indices,
 )
-from .query_annotations import QueryAnnotationStatus
 from .hm3 import packaged_hm3_curated_map_path
 from .path_resolution import split_cli_path_tokens
 

@@ -12,7 +12,6 @@ import csv
 from dataclasses import dataclass, replace
 import glob
 import gzip
-from io import StringIO
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 

@@ -25,7 +25,7 @@ from ldsc._kernel.identifiers import (
     build_chr_pos_snp_id,
     build_snp_id_series,
     clean_header,
-    infer_chr_bp_columns,
+    infer_chr_pos_columns,
     infer_snp_column,
     normalize_chromosome,
     normalize_snp_identifier_mode,
@@ -561,8 +561,8 @@ class IdentifierHelpersTest(unittest.TestCase):
         for header in [["rsid"], ["rsID"], ["SNPID"], ["snp_id"], ["SNP"], ["id"]]:
             self.assertEqual(infer_snp_column(header), header[0])
 
-    def test_infer_chr_bp_columns(self):
-        self.assertEqual(infer_chr_bp_columns(["chromosome", "position"]), ("chromosome", "position"))
+    def test_infer_chr_pos_columns(self):
+        self.assertEqual(infer_chr_pos_columns(["chromosome", "position"]), ("chromosome", "position"))
 
     def test_normalize_chromosome(self):
         self.assertEqual(normalize_chromosome("chr01"), "1")

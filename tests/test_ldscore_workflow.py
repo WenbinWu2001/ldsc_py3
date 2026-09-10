@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, fixture_ids, replace_fixture_queries
 
 from tests.ref_panel_helpers import compute_plink, write_tiny_plink
 
@@ -269,7 +270,7 @@ class R2AutoLoadCLITest(unittest.TestCase):
                 {"CHR": ["1", "1"], "POS": [100, 120], "SNP": ["rs1", "rs2"], "CM": [0.0, 0.0], "MAF": [0.3, 0.3]}
             )
             reader = panel_loader.build_reader("1", metadata=reader_meta)
-            bundle = AnnotationBundle(
+            bundle = make_annotation_bundle(
                 metadata=reader_meta,
                 baseline_annotations=pd.DataFrame({"base": [1.0, 1.0]}),
                 query_annotations=pd.DataFrame(index=reader_meta.index),
@@ -667,7 +668,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         baseline = pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float32)})
         query = pd.DataFrame(index=metadata.index)
         chromosomes = metadata["CHR"].astype(str).drop_duplicates().tolist()
-        return AnnotationBundle(
+        return make_annotation_bundle(
             metadata=metadata,
             baseline_annotations=baseline,
             query_annotations=query,
@@ -1064,7 +1065,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertIsNotNone(bundle)
         self.assertEqual(bundle.baseline_columns, ["base_a"])
         self.assertEqual(bundle.query_columns, ["query_a"])
-        self.assertNotIn("A1", bundle.metadata.columns)
+        self.assertNotIn("A1", fixture_metadata(bundle).columns)
 
     def test_kernel_combine_annotation_groups_promotes_later_query_alleles_after_alignment(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1090,8 +1091,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
 
         self.assertIsNotNone(bundle)
-        self.assertEqual(bundle.metadata["A1"].tolist(), ["A"])
-        self.assertEqual(bundle.metadata["A2"].tolist(), ["G"])
+        self.assertEqual(fixture_metadata(bundle)["A1"].tolist(), ["A"])
+        self.assertEqual(fixture_metadata(bundle)["A2"].tolist(), ["G"])
         self.assertEqual(bundle.baseline_columns, ["base_a"])
         self.assertEqual(bundle.query_columns, ["query_a"])
 
@@ -1109,7 +1110,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(int)
         baseline = pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float32)})
         query = pd.DataFrame(index=metadata.index)
-        return AnnotationBundle(
+        return make_annotation_bundle(
             metadata=metadata,
             baseline_annotations=baseline,
             query_annotations=query,
@@ -1583,8 +1584,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
             workflow_bundle = self._build_annotation_bundle(prefix)
             bundle = kernel_ldscore.AnnotationBundle(
-                metadata=workflow_bundle.metadata,
-                annotations=workflow_bundle.baseline_annotations,
+                metadata=fixture_metadata(workflow_bundle),
+                annotations=fixture_values(workflow_bundle, 'baseline'),
                 baseline_columns=workflow_bundle.baseline_columns,
                 query_columns=workflow_bundle.query_columns,
             )
@@ -1623,10 +1624,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
             wb = self._build_annotation_bundle(prefix)
-            order = np.argsort(wb.metadata["POS"].to_numpy(), kind="mergesort")[::-1]
+            order = np.argsort(fixture_metadata(wb)["POS"].to_numpy(), kind="mergesort")[::-1]
             bundle = kernel_ldscore.AnnotationBundle(
-                metadata=wb.metadata.iloc[order].reset_index(drop=True),
-                annotations=wb.baseline_annotations.iloc[order].reset_index(drop=True),
+                metadata=fixture_metadata(wb).iloc[order].reset_index(drop=True),
+                annotations=fixture_values(wb, 'baseline').iloc[order].reset_index(drop=True),
                 baseline_columns=wb.baseline_columns,
                 query_columns=wb.query_columns,
             )
@@ -1652,7 +1653,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
             wb = self._build_annotation_bundle(prefix)
             bundle = kernel_ldscore.AnnotationBundle(
-                metadata=wb.metadata, annotations=wb.baseline_annotations,
+                metadata=fixture_metadata(wb), annotations=fixture_values(wb, 'baseline'),
                 baseline_columns=wb.baseline_columns, query_columns=wb.query_columns,
             )
             # The fixture .bim CM is all zero; without a map this must error even under
@@ -1665,7 +1666,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
             wb = self._build_annotation_bundle(prefix)
             bundle = kernel_ldscore.AnnotationBundle(
-                metadata=wb.metadata, annotations=wb.baseline_annotations,
+                metadata=fixture_metadata(wb), annotations=fixture_values(wb, 'baseline'),
                 baseline_columns=wb.baseline_columns, query_columns=wb.query_columns,
             )
             gmap = pd.DataFrame({"CHR": ["1", "1"], "POS": [1, 8], "CM": [0.0, 4.0]})
@@ -1699,18 +1700,18 @@ class LDScoreWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
             base_bundle = self._build_annotation_bundle(prefix)
-            generated = np.arange(len(base_bundle.metadata)) % 2 == 0
-            continuous = np.linspace(0.125, 0.875, len(base_bundle.metadata), dtype=np.float32)
-            bool_bundle = dataclass_replace(
+            generated = np.arange(len(fixture_metadata(base_bundle))) % 2 == 0
+            continuous = np.linspace(0.125, 0.875, len(fixture_metadata(base_bundle)), dtype=np.float32)
+            bool_bundle = replace_fixture_queries(
                 base_bundle,
                 query_annotations=pd.DataFrame(
                     {"generated": generated, "continuous": continuous}
                 ),
                 query_columns=["generated", "continuous"],
             )
-            float_bundle = dataclass_replace(
+            float_bundle = replace_fixture_queries(
                 bool_bundle,
-                query_annotations=bool_bundle.query_annotations.astype(np.float32),
+                query_annotations=fixture_values(bool_bundle, 'query').astype(np.float32),
             )
             global_config = GlobalConfig(snp_identifier="rsid")
             panel = PlinkRefPanel(
@@ -1742,7 +1743,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
     def test_run_rejects_annotation_bundle_snapshot_mismatch(self):
         calc = ldscore_workflow.LDScoreCalculator()
-        annotation_bundle = AnnotationBundle(
+        annotation_bundle = make_annotation_bundle(
             metadata=pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "POS": [10], "CM": [0.1]}),
             baseline_annotations=pd.DataFrame({"base": [1.0]}),
             query_annotations=pd.DataFrame(index=pd.RangeIndex(1)),
@@ -2040,9 +2041,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
             mixed.write_text("G1\nG2\n", encoding="utf-8")
             unsupported.write_text("G2\n", encoding="utf-8")
             control.write_text("G1\n", encoding="utf-8")
-            bundle = AnnotationBuilder(
+            bundle = build_annotation_fixture(AnnotationBuilder(
                 GlobalConfig(snp_identifier="rsid"), projection_genome_build="hg19"
-            ).run(
+            ),
                 AnnotationBuildConfig(
                     baseline_annot_sources=(baseline,),
                     query_annot_gene_list_sources=(mixed, unsupported),
@@ -2065,7 +2066,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 [(status.query, status.status, status.reason) for status in gated.query_statuses],
                 [("mixed", "warning", "partial_snp_support"), ("unsupported", "skipped", "zero_annotation_snps")],
             )
-            audit = gated.gene_list_batch.audit
+            audit = pd.concat(gated.gene_list_batch.audit_frames(), ignore_index=True)
             self.assertEqual(
                 audit.loc[audit["input_gene"].eq("G2"), "disposition"].tolist(),
                 ["unsupported", "unsupported"],
@@ -2102,9 +2103,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 encoding="utf-8",
             )
             genes.write_text("G1\n", encoding="utf-8")
-            bundle = AnnotationBuilder(
+            bundle = build_annotation_fixture(AnnotationBuilder(
                 GlobalConfig(snp_identifier="rsid"), projection_genome_build="hg19"
-            ).run(
+            ),
                 AnnotationBuildConfig(
                     baseline_annot_sources=(baseline,),
                     query_annot_gene_list_sources=(genes,),
@@ -2328,7 +2329,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             argv[argv.index("--baseline-annot-sources") + 1] = str(baseline_path)
             argv[argv.index("--query-annot-sources") + 1] = str(query_path)
             argv[argv.index("--plink-prefix") + 1] = str(prefix)
-            annotation_bundle = dataclass_replace(
+            annotation_bundle = replace_fixture_queries(
                 self.make_annotation_bundle([("1", "rs1", 10)]),
                 query_annotations=pd.DataFrame({"query": [1.0]}),
                 query_columns=["query"],
@@ -2684,7 +2685,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         metadata = bim.loc[:, ["CHR", "SNP", "CM", "POS"]].copy()
         metadata["CHR"] = metadata["CHR"].astype(str)
         baseline = pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float32)})
-        bundle = AnnotationBundle(
+        bundle = make_annotation_bundle(
             metadata=metadata,
             baseline_annotations=baseline,
             query_annotations=pd.DataFrame(index=metadata.index),
@@ -3439,18 +3440,18 @@ def test_gene_list_mhc_query_keeps_reference_counts_but_not_regression_row(tmp_p
         "ENSG_HLA_A\tHLA-A\t6\t29940000\t29950000\thg38\n",
         encoding="utf-8",
     )
-    bundle = AnnotationBuilder(
+    bundle = build_annotation_fixture(AnnotationBuilder(
         GlobalConfig(snp_identifier="rsid"), projection_genome_build="hg38"
-    ).run(
+    ),
         AnnotationBuildConfig(
             baseline_annot_sources=(baseline,),
             query_annot_gene_list_sources=(genes,),
             gene_coordinate_file=catalog,
         )
     )
-    metadata = bundle.metadata.copy()
+    metadata = fixture_metadata(bundle).copy()
     metadata["MAF"] = 0.2
-    annotations = bundle.annotation_matrix(include_query=True)
+    annotations = fixture_values(bundle, include_query=True)
     intervals = regions.load_preset_intervals(("mhc",), "hg38")
     regression_mask = kernel_ldscore.regression_mask_from_keys(
         metadata,
@@ -3461,7 +3462,7 @@ def test_gene_list_mhc_query_keeps_reference_counts_but_not_regression_row(tmp_p
     counts, common_counts = kernel_ldscore.compute_counts(metadata, annotations)
     overlap = kernel_ldscore.compute_overlap(metadata, annotations, n_baseline=1)
 
-    assert bundle.query_annotations["hla"].tolist() == [0.0, 1.0, 0.0]
+    assert fixture_values(bundle, 'query')["hla"].tolist() == [0.0, 1.0, 0.0]
     np.testing.assert_array_equal(regression_mask, np.array([1.0, 0.0, 1.0], dtype=np.float32))
     np.testing.assert_array_equal(counts, np.array([3.0, 1.0]))
     np.testing.assert_array_equal(common_counts, np.array([3.0, 1.0]))
@@ -3528,7 +3529,7 @@ def test_public_plink_calculation_prepares_genotypes_once():
         PLINK_FIXTURES / "plink.bim", sep=r"\s+", header=None,
         names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
     )
-    bundle = AnnotationBundle(
+    bundle = make_annotation_bundle(
         metadata=metadata,
         baseline_annotations=pd.DataFrame({"base": np.ones(len(metadata))}),
         query_annotations=pd.DataFrame(index=metadata.index),

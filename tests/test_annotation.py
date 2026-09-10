@@ -1,3 +1,4 @@
+from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, fixture_ids, read_annotation_fixture
 from pathlib import Path
 import contextlib
 import gzip
@@ -17,6 +18,7 @@ from ldsc import annotation_builder
 from ldsc.annotation_builder import AnnotationBuilder, AnnotationBundle, run_annotate
 from ldsc.config import AnnotationBuildConfig, GlobalConfig
 from ldsc.errors import LDSCInputError
+from ldsc.outputs import AnnotationDirectoryWriter
 
 
 ANNOT_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "annotation" / "test.annot"
@@ -41,31 +43,24 @@ def _write_gene_catalog(path: Path, *, genome_build: str = "hg38") -> Path:
 
 
 class AnnotationBuilderTest(unittest.TestCase):
-    def test_run_honors_output_dir_from_annotation_build_config(self):
+    def test_preparation_requires_owned_output_workspace(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            baseline = tmpdir / "baseline.annot"
-            query = tmpdir / "query.annot"
-            output_dir = tmpdir / "out"
-            _write_annot(baseline, [("1", 10, "rs1", 0.1)], {"base": [1]})
-            _write_annot(query, [("1", 10, "rs1", 0.1)], {"query": [1]})
-
-            bundle = AnnotationBuilder(GlobalConfig(snp_identifier="rsid")).run(
-                AnnotationBuildConfig(
-                    baseline_annot_sources=(baseline,),
-                    query_annot_sources=(query,),
-                    output_dir=output_dir,
-                )
-            )
-
-            self.assertEqual(bundle.query_columns, ["query"])
-            self.assertTrue((output_dir / "query.1.annot.gz").exists())
-            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
-            self.assertTrue((output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz").exists())
-            self.assertTrue((output_dir / "diagnostics" / "annotate.log").exists())
+            output = Path(tmpdir) / "out"
+            source = Path(tmpdir) / "baseline.annot"
+            _write_annot(source, [("1", 10, "rs1", .1)], {"base": [1]})
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"))
+            spec = AnnotationBuildConfig(baseline_annot_sources=(source,))
+            with self.assertRaises(TypeError):
+                builder.run(spec)
+            with builder.run(spec, output_dir=output) as bundle:
+                self.assertEqual(bundle.workspace.path.parent, output)
+                self.assertEqual(bundle.read("1").tolist(), [[1.]])
+                self.assertFalse(hasattr(bundle, "metadata"))
+                self.assertFalse(hasattr(bundle, "annotation_matrix"))
+            self.assertEqual(list(output.iterdir()), [])
 
     def test_bundle_rejects_duplicate_names_across_baseline_and_query(self):
-        bundle = AnnotationBundle(
+        bundle = make_annotation_bundle(
             metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [np.nan]}),
             baseline_annotations=pd.DataFrame({"shared": [1.0]}),
             query_annotations=pd.DataFrame({"shared": [0.0]}),
@@ -89,7 +84,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                     "whole_blood": [True, True, True],
                 }
             )
-            bundle = AnnotationBundle(
+            bundle = make_annotation_bundle(
                 metadata=pd.DataFrame(
                     {
                         "CHR": ["1", "1", "1"],
@@ -107,7 +102,8 @@ class AnnotationBuilderTest(unittest.TestCase):
                 config_snapshot=GlobalConfig(snp_identifier="rsid"),
             )
 
-            [path] = annotation_builder._write_bundle_query_as_annot_files(bundle, output_dir)
+            AnnotationDirectoryWriter().write(bundle, output_dir, overwrite=False, provenance={}, scope={})
+            path = output_dir / "query.1.annot.gz"
             with gzip.open(path, "rt", encoding="utf-8") as handle:
                 written_rows = [line.split("\t") for line in handle.read().splitlines()[1:]]
             metadata, actual = kernel_ldscore.parse_annotation_file(str(path))
@@ -133,10 +129,10 @@ class AnnotationBuilderTest(unittest.TestCase):
             )
             genes.write_text("OR4F5\nNOT_A_GENE\n", encoding="utf-8")
 
-            bundle = AnnotationBuilder(
+            bundle = build_annotation_fixture(AnnotationBuilder(
                 GlobalConfig(snp_identifier="rsid"),
                 projection_genome_build="hg38",
-            ).run(
+            ),
                 AnnotationBuildConfig(
                     baseline_annot_sources=(baseline,),
                     query_annot_gene_list_sources=(genes,),
@@ -148,14 +144,14 @@ class AnnotationBuilderTest(unittest.TestCase):
         self.assertEqual(bundle.query_columns, ["immune_genes"])
         self.assertEqual(bundle.baseline_columns, ["base"])
         self.assertFalse(any(item.input_role == "control" for item in bundle.gene_list_batch.selections))
-        self.assertEqual(bundle.query_annotations["immune_genes"].dtype, np.dtype("bool"))
-        self.assertEqual(bundle.query_annotations["immune_genes"].tolist(), [True, False, True])
+        self.assertEqual(fixture_values(bundle, 'query')["immune_genes"].dtype, np.dtype("float32"))
+        self.assertEqual(fixture_values(bundle, 'query')["immune_genes"].tolist(), [True, False, True])
         self.assertEqual(len(bundle.query_statuses), 1)
         self.assertEqual(bundle.query_statuses[0].status, "warning")
         self.assertEqual(bundle.query_statuses[0].reason, "partial_gene_resolution")
         self.assertEqual(bundle.gene_list_batch.selection("focal", 1).canonical_gene_ids, ("ENSG00000186092",))
         self.assertEqual(
-            bundle.gene_list_batch.audit.loc[bundle.gene_list_batch.audit["disposition"].eq("rejected"), "input_gene"].tolist(),
+            pd.concat(bundle.gene_list_batch.audit_frames(), ignore_index=True).loc[pd.concat(bundle.gene_list_batch.audit_frames(), ignore_index=True)["disposition"].eq("rejected"), "input_gene"].tolist(),
             ["NOT_A_GENE"],
         )
 
@@ -171,10 +167,10 @@ class AnnotationBuilderTest(unittest.TestCase):
             )
             genes.write_text("OR4F5\n", encoding="utf-8")
 
-            bundle = AnnotationBuilder(
+            bundle = build_annotation_fixture(AnnotationBuilder(
                 GlobalConfig(snp_identifier="rsid"),
                 projection_genome_build="hg38",
-            ).run(
+            ),
                 AnnotationBuildConfig(
                     baseline_annot_sources=(baseline,),
                     query_annot_gene_list_sources=(genes,),
@@ -202,10 +198,10 @@ class AnnotationBuilderTest(unittest.TestCase):
             genes.write_text("OR4F5\n", encoding="utf-8")
             control.write_text("OR4F5\nNOT_A_GENE\n", encoding="utf-8")
 
-            bundle = AnnotationBuilder(
+            bundle = build_annotation_fixture(AnnotationBuilder(
                 GlobalConfig(snp_identifier="rsid"),
                 projection_genome_build="hg38",
-            ).run(
+            ),
                 AnnotationBuildConfig(
                     baseline_annot_sources=(baseline,),
                     query_annot_gene_list_sources=(genes,),
@@ -216,7 +212,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 )
             )
 
-        self.assertEqual(bundle.baseline_annotations["gene_control"].tolist(), [1.0, 1.0, 1.0])
+        self.assertEqual(fixture_values(bundle, 'baseline')["gene_control"].tolist(), [1.0, 1.0, 1.0])
         control_summary = bundle.gene_list_batch.summary[bundle.gene_list_batch.summary["input_role"].eq("control")].iloc[0]
         self.assertEqual(control_summary["rejected_rows"], 1)
 
@@ -234,19 +230,18 @@ class AnnotationBuilderTest(unittest.TestCase):
             genes.write_text("OR4F5\n", encoding="utf-8")
             control.write_text("NOT_A_GENE\n", encoding="utf-8")
 
-            bundle = AnnotationBuilder(
-                GlobalConfig(snp_identifier="rsid"),
-                projection_genome_build="hg38",
-            ).run(
-                AnnotationBuildConfig(
-                    baseline_annot_sources=(baseline,),
-                    query_annot_gene_list_sources=(genes,),
-                    gene_coordinate_file=catalog,
-                    control_gene_list_file=control,
+            with self.assertRaisesRegex(LDSCInputError, "control.txt.*unmatched_identifier"):
+                bundle = build_annotation_fixture(AnnotationBuilder(
+                    GlobalConfig(snp_identifier="rsid"),
+                    projection_genome_build="hg38",
+                ),
+                    AnnotationBuildConfig(
+                        baseline_annot_sources=(baseline,),
+                        query_annot_gene_list_sources=(genes,),
+                        gene_coordinate_file=catalog,
+                        control_gene_list_file=control,
+                    )
                 )
-            )
-
-            self.assertTrue(bundle.gene_list_batch.has_fatal_gate_a_issues)
 
     def test_fatal_batched_source_issues_return_diagnostic_bundle_without_projection(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -266,24 +261,12 @@ class AnnotationBuilderTest(unittest.TestCase):
             left.write_text("OR4F5\n", encoding="utf-8")
             right.write_text("OR4F5\n", encoding="utf-8")
 
-            bundle = AnnotationBuilder(
-                GlobalConfig(snp_identifier="rsid"),
-                projection_genome_build="hg38",
-            ).run(
-                AnnotationBuildConfig(
-                    baseline_annot_sources=(baseline,),
-                    query_annot_gene_list_sources=(left, right),
-                    gene_coordinate_file=catalog,
-                )
-            )
-
-        self.assertTrue(bundle.gene_list_batch.has_fatal_gate_a_issues)
-        self.assertEqual(
-            bundle.gene_list_batch.summary["source_reasons"].tolist(),
-            ["duplicate_query_name", "duplicate_query_name"],
-        )
-        self.assertEqual(bundle.query_columns, [])
-        self.assertEqual(bundle.query_statuses, ())
+            with self.assertRaisesRegex(LDSCInputError, "duplicate_query_name"):
+                run_annotate(baseline_annot_sources=[baseline], query_annot_gene_list_sources=[left, right],
+                             gene_coordinate_file=catalog, padding_bp=0, genome_build="hg38",
+                             global_config=GlobalConfig(snp_identifier="rsid"), output_dir=tmpdir / "out")
+            summary = pd.read_csv(tmpdir / "out/diagnostics/gene_list_resolution_summary.tsv", sep="\t")
+            self.assertTrue(summary.source_reasons.str.contains("duplicate_query_name").all())
 
     def test_gene_control_rejects_reserved_baseline_column_collision(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -300,10 +283,10 @@ class AnnotationBuilderTest(unittest.TestCase):
             control.write_text("OR4F5\n", encoding="utf-8")
 
             with self.assertRaisesRegex(Exception, "gene_control"):
-                AnnotationBuilder(
+                build_annotation_fixture(AnnotationBuilder(
                     GlobalConfig(snp_identifier="rsid"),
                     projection_genome_build="hg38",
-                ).run(
+                ),
                     AnnotationBuildConfig(
                         baseline_annot_sources=(baseline,),
                         query_annot_gene_list_sources=(genes,),
@@ -322,7 +305,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             valid.write_text("chr1\t9\t11\n", encoding="utf-8")
             malformed.write_text("chr1\tbad\t11\n", encoding="utf-8")
 
-            bundle = AnnotationBuilder(GlobalConfig(snp_identifier="rsid")).run(
+            bundle = build_annotation_fixture(AnnotationBuilder(GlobalConfig(snp_identifier="rsid")),
                 AnnotationBuildConfig(
                     baseline_annot_sources=(baseline,),
                     query_annot_bed_sources=(valid, malformed),
@@ -330,7 +313,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             )
 
         self.assertEqual(bundle.query_columns, ["valid"])
-        self.assertEqual(bundle.query_annotations["valid"].tolist(), [1.0])
+        self.assertEqual(fixture_values(bundle, 'query')["valid"].tolist(), [1.0])
         self.assertEqual(
             [(row.query, row.status, row.reason) for row in bundle.query_statuses],
             [("valid", "ok", ""), ("malformed", "skipped", "malformed_input")],
@@ -355,7 +338,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             bed.write_text("chr1\t65418\t71585\n", encoding="utf-8")
             builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), projection_genome_build="hg38")
 
-            gene_bundle = builder.run(
+            gene_bundle = build_annotation_fixture(builder,
                 AnnotationBuildConfig(
                     baseline_annot_sources=(baseline,),
                     query_annot_gene_list_sources=(genes,),
@@ -363,7 +346,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                     padding_bp=10,
                 )
             )
-            bed_bundle = builder.run(
+            bed_bundle = build_annotation_fixture(builder,
                 AnnotationBuildConfig(
                     baseline_annot_sources=(baseline,),
                     query_annot_bed_sources=(bed,),
@@ -371,10 +354,10 @@ class AnnotationBuilderTest(unittest.TestCase):
                 )
             )
 
-        self.assertEqual(gene_bundle.query_annotations["or4f5"].tolist(), [1.0, 1.0, 1.0, 0.0])
+        self.assertEqual(fixture_values(gene_bundle, 'query')["or4f5"].tolist(), [1.0, 1.0, 1.0, 0.0])
         self.assertEqual(
-            gene_bundle.query_annotations["or4f5"].tolist(),
-            bed_bundle.query_annotations["or4f5"].tolist(),
+            fixture_values(gene_bundle, 'query')["or4f5"].tolist(),
+            fixture_values(bed_bundle, 'query')["or4f5"].tolist(),
         )
 
     def test_bed_to_annot_parser_genome_build_help_documents_chr_pos_requirement(self):
@@ -489,7 +472,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base, rows, {"base_a": [1, 0, 1]})
             _write_annot(query, rows, {"query_a": [0, 1, 1]})
 
-            bundle = builder.run(
+            bundle = build_annotation_fixture(builder,
                 AnnotationBuildConfig(
                     baseline_annot_sources=(str(base),),
                     query_annot_sources=(str(query),),
@@ -499,8 +482,8 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(bundle.baseline_columns, ["base_a"])
             self.assertEqual(bundle.query_columns, ["query_a"])
             self.assertEqual(bundle.chromosomes, ["1", "2"])
-            self.assertEqual(bundle.annotation_matrix(include_query=True).shape, (3, 2))
-            self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2", "rs3"})
+            self.assertEqual(fixture_values(bundle, include_query=True).shape, (3, 2))
+            self.assertEqual(fixture_ids(bundle, "rsid"), {"rs1", "rs2", "rs3"})
 
     def test_run_uses_annotation_config_from_builder_when_source_is_omitted(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -513,10 +496,10 @@ class AnnotationBuilderTest(unittest.TestCase):
                 AnnotationBuildConfig(baseline_annot_sources=(str(base),)),
             )
 
-            bundle = builder.run()
+            bundle = build_annotation_fixture(builder)
 
             self.assertEqual(bundle.baseline_columns, ["base_a"])
-            self.assertEqual(bundle.reference_snps("rsid"), {"rs1"})
+            self.assertEqual(fixture_ids(bundle, "rsid"), {"rs1"})
 
     def test_row_mismatch_raises(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
@@ -529,7 +512,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(query, list(reversed(rows)), {"query_a": [0, 1]})
 
             with self.assertRaises(LDSCInputError):
-                builder.run(
+                build_annotation_fixture(builder,
                     AnnotationBuildConfig(
                         baseline_annot_sources=(str(base),),
                         query_annot_sources=(str(query),),
@@ -549,15 +532,15 @@ class AnnotationBuilderTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="rsid"),
                 AnnotationBuildConfig(),
             )
-            bundle = builder.run(
+            bundle = build_annotation_fixture(builder,
                 AnnotationBuildConfig(
                     baseline_annot_sources=(str(base),),
                     query_annot_sources=(str(query),),
                 )
             )
 
-            self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2", "rs3"})
-            self.assertEqual(len(bundle.metadata), 3)
+            self.assertEqual(fixture_ids(bundle, "rsid"), {"rs1", "rs2", "rs3"})
+            self.assertEqual(len(fixture_metadata(bundle)), 3)
 
     def test_run_in_chr_pos_mode_keeps_all_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -570,8 +553,8 @@ class AnnotationBuilderTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 AnnotationBuildConfig(),
             )
-            bundle = builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
-            self.assertEqual(bundle.reference_snps("chr_pos"), {"1:10", "1:20", "2:30"})
+            bundle = build_annotation_fixture(builder, AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
+            self.assertEqual(fixture_ids(bundle, "chr_pos"), {"1:10", "1:20", "2:30"})
 
     def test_rsid_mode_drops_all_duplicate_identity_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -581,10 +564,10 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base, rows, {"base_a": [1, 0, 1]})
 
             builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
-            bundle = builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
+            bundle = build_annotation_fixture(builder, AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
 
-            self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs2"])
-            self.assertEqual(bundle.baseline_annotations["base_a"].tolist(), [1])
+            self.assertEqual(fixture_metadata(bundle)["SNP"].tolist(), ["rs2"])
+            self.assertEqual(fixture_values(bundle, 'baseline')["base_a"].tolist(), [1])
 
     def test_chr_pos_mode_drops_all_duplicate_identity_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -594,10 +577,10 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base, rows, {"base_a": [1, 0, 1]})
 
             builder = AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), AnnotationBuildConfig())
-            bundle = builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
+            bundle = build_annotation_fixture(builder, AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
 
-            self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs3"])
-            self.assertEqual(bundle.reference_snps("chr_pos"), {"1:30"})
+            self.assertEqual(fixture_metadata(bundle)["SNP"].tolist(), ["rs3"])
+            self.assertEqual(fixture_ids(bundle, "chr_pos"), {"1:30"})
 
     def test_run_in_allele_aware_mode_accepts_allele_free_annotations(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -610,10 +593,10 @@ class AnnotationBuilderTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
                 AnnotationBuildConfig(),
             )
-            bundle = builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
+            bundle = build_annotation_fixture(builder, AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
 
-        self.assertNotIn("A1", bundle.metadata.columns)
-        self.assertEqual(bundle.reference_snps("chr_pos_allele_aware"), {"1:10", "1:20"})
+        self.assertNotIn("A1", fixture_metadata(bundle).columns)
+        self.assertEqual(fixture_ids(bundle, "chr_pos_allele_aware"), {"1:10", "1:20"})
 
     def test_run_in_allele_aware_mode_aligns_allele_free_baseline_and_query(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -628,7 +611,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
                 AnnotationBuildConfig(),
             )
-            bundle = builder.run(
+            bundle = build_annotation_fixture(builder,
                 AnnotationBuildConfig(
                     baseline_annot_sources=(str(base),),
                     query_annot_sources=(str(query),),
@@ -637,7 +620,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
         self.assertEqual(bundle.baseline_columns, ["base_a"])
         self.assertEqual(bundle.query_columns, ["query_a"])
-        self.assertNotIn("A1", bundle.metadata.columns)
+        self.assertNotIn("A1", fixture_metadata(bundle).columns)
 
     def test_run_in_allele_aware_mode_promotes_later_query_alleles_after_alignment(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -661,15 +644,15 @@ class AnnotationBuilderTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
                 AnnotationBuildConfig(),
             )
-            bundle = builder.run(
+            bundle = build_annotation_fixture(builder,
                 AnnotationBuildConfig(
                     baseline_annot_sources=(str(base),),
                     query_annot_sources=(str(query),),
                 )
             )
 
-        self.assertEqual(bundle.metadata["A1"].tolist(), ["A", "C"])
-        self.assertEqual(bundle.metadata["A2"].tolist(), ["G", "T"])
+        self.assertEqual(fixture_metadata(bundle)["A1"].tolist(), ["A", "C"])
+        self.assertEqual(fixture_metadata(bundle)["A2"].tolist(), ["G", "T"])
         self.assertEqual(bundle.baseline_columns, ["base_a"])
         self.assertEqual(bundle.query_columns, ["query_a"])
 
@@ -686,10 +669,10 @@ class AnnotationBuilderTest(unittest.TestCase):
             )
 
             builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid_allele_aware"), AnnotationBuildConfig())
-            bundle = builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
+            bundle = build_annotation_fixture(builder, AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
 
-            self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs2"])
-            self.assertEqual(bundle.baseline_annotations["base_a"].tolist(), [1])
+            self.assertEqual(fixture_metadata(bundle)["SNP"].tolist(), ["rs2"])
+            self.assertEqual(fixture_values(bundle, 'baseline')["base_a"].tolist(), [1])
 
     def test_chr_pos_allele_aware_mode_drops_duplicate_effective_keys(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -707,10 +690,10 @@ class AnnotationBuilderTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
                 AnnotationBuildConfig(),
             )
-            bundle = builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
+            bundle = build_annotation_fixture(builder, AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
 
-            self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs3"])
-            self.assertEqual(bundle.baseline_annotations["base_a"].tolist(), [1])
+            self.assertEqual(fixture_metadata(bundle)["SNP"].tolist(), ["rs3"])
+            self.assertEqual(fixture_values(bundle, 'baseline')["base_a"].tolist(), [1])
 
     def test_allele_aware_mode_projects_bed_on_cleaned_grid(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -725,15 +708,15 @@ class AnnotationBuilderTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
                 AnnotationBuildConfig(),
             )
-            bundle = builder.run(
+            bundle = build_annotation_fixture(builder,
                 AnnotationBuildConfig(
                     baseline_annot_sources=(str(base),),
                     query_annot_bed_sources=(str(bed),),
                 )
             )
 
-            self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs3"])
-            self.assertEqual(bundle.query_annotations[bed.stem].tolist(), [1.0])
+            self.assertEqual(fixture_metadata(bundle)["SNP"].tolist(), ["rs3"])
+            self.assertEqual(fixture_values(bundle, 'query')[bed.stem].tolist(), [1.0])
 
     def test_bed_normalization_expands_intervals_by_padding_bp(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -857,7 +840,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             builder = AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), AnnotationBuildConfig())
             with self.assertRaisesRegex(LDSCInputError, "retained no annotation rows.*Other causes"):
-                builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
+                build_annotation_fixture(builder, AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
 
     def test_run_with_bed_paths_returns_bundle_with_binary_query_columns(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
@@ -869,29 +852,13 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base, rows, {"base_a": [1, 0, 1]})
             bed.write_text("chr1\t0\t100\tfeature\n", encoding="utf-8")
 
-            class _FakeBedTool:
-                def __init__(self, path: str):
-                    self.path = path
-
-            fake_pybedtools = mock.Mock()
-            fake_pybedtools.BedTool = _FakeBedTool
-
-            with mock.patch.object(kernel_annotation, "_get_pybedtools", return_value=fake_pybedtools), mock.patch.object(
-                kernel_annotation,
-                "_compute_bed_overlap_mask",
-                return_value=[True, False, True],
-            ):
-                bundle = builder.run(
-                    AnnotationBuildConfig(
-                        baseline_annot_sources=(str(base),),
-                        query_annot_bed_sources=(str(bed),),
-                    )
-                )
+            bundle = build_annotation_fixture(builder, AnnotationBuildConfig(
+                baseline_annot_sources=(str(base),), query_annot_bed_sources=(str(bed),)))
 
             self.assertEqual(bundle.query_columns, ["query"])
-            self.assertEqual(bundle.query_annotations["query"].dtype, np.dtype("bool"))
-            self.assertEqual(bundle.query_annotations["query"].tolist(), [True, False, True])
-            self.assertEqual(len(bundle.metadata), len(bundle.query_annotations))
+            self.assertEqual(fixture_values(bundle, 'query')["query"].dtype, np.dtype("float32"))
+            self.assertEqual(fixture_values(bundle, 'query')["query"].tolist(), [1.0, 1.0, 0.0])
+            self.assertEqual(len(fixture_metadata(bundle)), len(fixture_values(bundle, 'query')))
 
     def test_project_bed_annotations_refuses_existing_output_before_writing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -900,7 +867,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             output_dir.mkdir()
             existing = output_dir / "query.1.annot.gz"
             existing.write_text("existing\n", encoding="utf-8")
-            bundle = AnnotationBundle(
+            bundle = make_annotation_bundle(
                 metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
                 baseline_annotations=pd.DataFrame({"base": [1.0]}),
                 query_annotations=pd.DataFrame({"query": [1.0]}),
@@ -911,13 +878,16 @@ class AnnotationBuilderTest(unittest.TestCase):
                 config_snapshot=GlobalConfig(snp_identifier="rsid"),
             )
             builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
-            builder._workflow_log_path = output_dir / "diagnostics" / "annotate.log"
 
-            with mock.patch.object(builder, "run", return_value=bundle):
+            base = tmpdir / "baseline.annot"
+            bed = tmpdir / "query.bed"
+            _write_annot(base, [("1", 10, "rs1", .1)], {"base": [1]})
+            bed.write_text("1\t9\t11\n")
+            with contextlib.nullcontext():
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                    builder.project_bed_annotations(
-                        query_annot_bed_sources=("query.bed",),
-                        baseline_annot_sources=("baseline.1.annot.gz",),
+                    run_annotate(global_config=builder.global_config,
+                        query_annot_bed_sources=(str(bed),),
+                        baseline_annot_sources=(str(base),),
                         output_dir=output_dir,
                     )
 
@@ -931,7 +901,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             output_dir.mkdir()
             stale = output_dir / "query.2.annot.gz"
             stale.write_text("stale\n", encoding="utf-8")
-            bundle = AnnotationBundle(
+            bundle = make_annotation_bundle(
                 metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
                 baseline_annotations=pd.DataFrame({"base": [1.0]}),
                 query_annotations=pd.DataFrame({"query": [1.0]}),
@@ -943,11 +913,15 @@ class AnnotationBuilderTest(unittest.TestCase):
             )
             builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
 
-            with mock.patch.object(builder, "run", return_value=bundle):
+            base = tmpdir / "baseline.annot"
+            bed = tmpdir / "query.bed"
+            _write_annot(base, [("1", 10, "rs1", .1)], {"base": [1]})
+            bed.write_text("1\t9\t11\n")
+            with contextlib.nullcontext():
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
-                    builder.project_bed_annotations(
-                        query_annot_bed_sources=("query.bed",),
-                        baseline_annot_sources=("baseline.1.annot.gz",),
+                    run_annotate(global_config=builder.global_config,
+                        query_annot_bed_sources=(str(bed),),
+                        baseline_annot_sources=(str(base),),
                         output_dir=output_dir,
                     )
 
@@ -963,7 +937,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             (output_dir / "metadata.json").write_text('{"legacy": true}\n', encoding="utf-8")
             (output_dir / "annotate.log").write_text("legacy log\n", encoding="utf-8")
             (root_drop_dir / "dropped.tsv.gz").write_text("legacy drops\n", encoding="utf-8")
-            bundle = AnnotationBundle(
+            bundle = make_annotation_bundle(
                 metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
                 baseline_annotations=pd.DataFrame({"base": [1.0]}),
                 query_annotations=pd.DataFrame({"query": [1.0]}),
@@ -974,12 +948,15 @@ class AnnotationBuilderTest(unittest.TestCase):
                 config_snapshot=GlobalConfig(snp_identifier="rsid"),
             )
             builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
-            builder._workflow_log_path = output_dir / "diagnostics" / "annotate.log"
 
-            with mock.patch.object(builder, "run", return_value=bundle):
-                builder.project_bed_annotations(
-                    query_annot_bed_sources=("query.bed",),
-                    baseline_annot_sources=("baseline.1.annot.gz",),
+            base = tmpdir / "baseline.annot"
+            bed = tmpdir / "query.bed"
+            _write_annot(base, [("1", 10, "rs1", .1)], {"base": [1]})
+            bed.write_text("1\t9\t11\n")
+            with contextlib.nullcontext():
+                run_annotate(global_config=builder.global_config,
+                    query_annot_bed_sources=(str(bed),),
+                    baseline_annot_sources=(str(base),),
                     output_dir=output_dir,
                 )
 
@@ -998,7 +975,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             output_dir.mkdir()
             stale = output_dir / "query.2.annot.gz"
             stale.write_text("stale\n", encoding="utf-8")
-            bundle = AnnotationBundle(
+            bundle = make_annotation_bundle(
                 metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
                 baseline_annotations=pd.DataFrame({"base": [1.0]}),
                 query_annotations=pd.DataFrame({"query": [1.0]}),
@@ -1010,10 +987,14 @@ class AnnotationBuilderTest(unittest.TestCase):
             )
             builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
 
-            with mock.patch.object(builder, "run", return_value=bundle):
-                builder.project_bed_annotations(
-                    query_annot_bed_sources=("query.bed",),
-                    baseline_annot_sources=("baseline.1.annot.gz",),
+            base = tmpdir / "baseline.annot"
+            bed = tmpdir / "query.bed"
+            _write_annot(base, [("1", 10, "rs1", .1)], {"base": [1]})
+            bed.write_text("1\t9\t11\n")
+            with contextlib.nullcontext():
+                run_annotate(global_config=builder.global_config,
+                    query_annot_bed_sources=(str(bed),),
+                    baseline_annot_sources=(str(base),),
                     output_dir=output_dir,
                     overwrite=True,
                 )
@@ -1037,7 +1018,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 AnnotationBuildConfig(),
             )
-            builder.project_bed_annotations(
+            run_annotate(global_config=builder.global_config,
                 query_annot_bed_sources=(str(bed),),
                 baseline_annot_sources=(str(base),),
                 output_dir=output_dir,
@@ -1054,7 +1035,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(metadata["padding_bp"], 100000)
             self.assertEqual(
                 metadata["files"],
-                {"query_annotations": ["query.1.annot.gz"], "dropped_snps": "diagnostics/dropped_snps/dropped.tsv.gz"},
+                {"query_annotations": ["query.1.annot.gz"], "dropped_snps": "diagnostics/dropped_snps/dropped.tsv.gz", "query_annotation_status": "diagnostics/query_annotation_status.tsv", "chromosome_scope": "diagnostics/chromosome_scope.json"},
             )
             dropped = pd.read_csv(sidecar, sep="\t", compression="gzip")
             self.assertEqual(dropped["reason"].tolist(), ["duplicate_identity", "duplicate_identity"])
@@ -1072,7 +1053,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 AnnotationBuildConfig(),
             )
-            builder.project_bed_annotations(
+            run_annotate(global_config=builder.global_config,
                 query_annot_bed_sources=(str(bed),),
                 baseline_annot_sources=(str(base),),
                 output_dir=output_dir,
@@ -1101,7 +1082,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             bed.write_text("chr1\t29\t30\n", encoding="utf-8")
 
             builder = AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), AnnotationBuildConfig())
-            builder.project_bed_annotations(
+            run_annotate(global_config=builder.global_config,
                 query_annot_bed_sources=(str(bed),),
                 baseline_annot_sources=(str(base),),
                 output_dir=output_dir,
@@ -1172,7 +1153,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
     def test_parse_fixture_annotation(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
-        metadata, annotations = builder.parse_annotation_file(ANNOT_FIXTURE)
+        metadata, annotations = read_annotation_fixture(ANNOT_FIXTURE, builder.global_config.snp_identifier)
         self.assertEqual(list(metadata.columns), ["CHR", "POS", "SNP", "CM"])
         self.assertEqual(list(annotations.columns), ["C1", "C2", "C3"])
         self.assertEqual(len(metadata), 3)
@@ -1188,7 +1169,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            _metadata, annotations = builder.parse_annotation_file(path)
+            _metadata, annotations = read_annotation_fixture(path, builder.global_config.snp_identifier)
 
         self.assertEqual(annotations["continuous"].dtype, np.dtype("float32"))
         np.testing.assert_array_equal(
@@ -1205,7 +1186,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            metadata, annotations = builder.parse_annotation_file(path)
+            metadata, annotations = read_annotation_fixture(path, builder.global_config.snp_identifier)
 
             self.assertEqual(list(metadata.columns), ["CHR", "POS", "SNP", "CM"])
             self.assertEqual(metadata["POS"].tolist(), [10])
@@ -1224,7 +1205,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            metadata, annotations = builder.parse_annotation_file(path)
+            metadata, annotations = read_annotation_fixture(path, builder.global_config.snp_identifier)
 
         self.assertEqual(list(metadata.columns), ["CHR", "POS", "SNP", "CM", "A1", "A2"])
         self.assertEqual(metadata["A1"].tolist(), ["A"])
@@ -1245,14 +1226,14 @@ class AnnotationBuilderTest(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(LDSCInputError, "exactly one allele column"):
-                builder.parse_annotation_file(path)
+                read_annotation_fixture(path, builder.global_config.snp_identifier)
 
     def test_parse_annotation_file_accepts_file_without_cm(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "no_cm.annot"
             path.write_text("CHR\tBP\tSNP\tbase_a\n1\t10\trs1\t1\n", encoding="utf-8")
-            metadata, annotations = builder.parse_annotation_file(path)
+            metadata, annotations = read_annotation_fixture(path, builder.global_config.snp_identifier)
             self.assertIn("CM", metadata.columns)  # placeholder retained for legacy layout
             self.assertTrue(metadata["CM"].isna().all())
             self.assertEqual(list(annotations.columns), ["base_a"])
@@ -1262,7 +1243,7 @@ class AnnotationBuilderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "cm_maf.annot"
             path.write_text("CHR\tBP\tSNP\tCM\tMAF\tcoding\n1\t10\trs1\t0.5\t0.3\t1\n", encoding="utf-8")
-            metadata, annotations = builder.parse_annotation_file(path)
+            metadata, annotations = read_annotation_fixture(path, builder.global_config.snp_identifier)
             self.assertEqual(list(annotations.columns), ["coding"])  # CM/MAF excluded from values
             self.assertIn("CM", metadata.columns)  # CM kept as NaN placeholder
             self.assertTrue(metadata["CM"].isna().all())  # input CM value discarded
@@ -1275,7 +1256,7 @@ class AnnotationBuilderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "no_snp.annot"
             path.write_text("CHR\tBP\tcoding\n1\t10\t1\n", encoding="utf-8")
-            metadata, annotations = builder.parse_annotation_file(path)
+            metadata, annotations = read_annotation_fixture(path, builder.global_config.snp_identifier)
             self.assertNotIn("SNP", metadata.columns)
             self.assertEqual(list(annotations.columns), ["coding"])
 
@@ -1285,7 +1266,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             path = Path(tmpdir) / "no_snp.annot"
             path.write_text("CHR\tBP\tcoding\n1\t10\t1\n", encoding="utf-8")
             with self.assertRaises(LDSCInputError):
-                builder.parse_annotation_file(path)
+                read_annotation_fixture(path, builder.global_config.snp_identifier)
 
     def test_annotation_builder_accepts_auto_genome_build(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="auto"), AnnotationBuildConfig())
@@ -1307,7 +1288,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(query1, rows1, {"query_a": [0, 1]})
             _write_annot(query2, rows2, {"query_a": [1, 0]})
 
-            bundle = builder.run(
+            bundle = build_annotation_fixture(builder,
                 AnnotationBuildConfig(
                     baseline_annot_sources=(str(base1), str(base2)),
                     query_annot_sources=(str(query1), str(query2)),
@@ -1317,8 +1298,8 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(bundle.chromosomes, ["1", "2"])
             self.assertEqual(bundle.baseline_columns, ["base_a"])
             self.assertEqual(bundle.query_columns, ["query_a"])
-            self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2", "rs3", "rs4"})
-            self.assertEqual(bundle.annotation_matrix().shape, (4, 2))
+            self.assertEqual(fixture_ids(bundle, "rsid"), {"rs1", "rs2", "rs3", "rs4"})
+            self.assertEqual(fixture_values(bundle).shape, (4, 2))
 
     def test_run_accepts_single_glob_tokens_for_annotation_groups(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
@@ -1335,7 +1316,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(query1, rows1, {"query_a": [0, 1]})
             _write_annot(query2, rows2, {"query_a": [1, 0]})
 
-            bundle = builder.run(
+            bundle = build_annotation_fixture(builder,
                 AnnotationBuildConfig(
                     baseline_annot_sources=str(tmpdir / "baseline.*.annot.gz"),
                     query_annot_sources=str(tmpdir / "query.*.annot.gz"),
@@ -1343,7 +1324,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             )
 
             self.assertEqual(bundle.chromosomes, ["1", "2"])
-            self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2", "rs3", "rs4"})
+            self.assertEqual(fixture_ids(bundle, "rsid"), {"rs1", "rs2", "rs3", "rs4"})
 
     def test_run_accepts_legacy_suite_tokens_for_annotation_groups(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
@@ -1356,14 +1337,14 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base1, rows1, {"base_a": [1]})
             _write_annot(base2, rows2, {"base_a": [0]})
 
-            bundle = builder.run(
+            bundle = build_annotation_fixture(builder,
                 AnnotationBuildConfig(
                     baseline_annot_sources=str(tmpdir / "baseline.@.annot.gz"),
                 )
             )
 
             self.assertEqual(bundle.chromosomes, ["1", "2"])
-            self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2"})
+            self.assertEqual(fixture_ids(bundle, "rsid"), {"rs1", "rs2"})
 
     def test_run_prefers_compressed_suite_shards_over_stale_plain_shards(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
@@ -1382,7 +1363,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(query1_gz, rows1, {"query_a": [1], "query_b": [0]})
             _write_annot(query2_gz, rows2, {"query_a": [0], "query_b": [1]})
 
-            bundle = builder.run(
+            bundle = build_annotation_fixture(builder,
                 AnnotationBuildConfig(
                     baseline_annot_sources=str(tmpdir / "baseline.@.annot.gz"),
                     query_annot_sources=str(tmpdir / "query.@.annot.gz"),
@@ -1403,7 +1384,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base1, rows1, {"base_a": [1, 0]})
             _write_annot(base2, rows2, {"base_a": [0]})
 
-            bundle = builder.run(
+            bundle = build_annotation_fixture(builder,
                 AnnotationBuildConfig(
                     baseline_annot_sources=(str(base1), str(base2)),
                 )
@@ -1411,7 +1392,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             self.assertEqual(bundle.chromosomes, ["1", "2"])
             self.assertEqual(bundle.query_columns, [])
-            self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2", "rs3"})
+            self.assertEqual(fixture_ids(bundle, "rsid"), {"rs1", "rs2", "rs3"})
 
     def test_run_rejects_mixed_whole_genome_and_per_chromosome_inputs(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
@@ -1424,8 +1405,8 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base_all, rows_all, {"base_a": [1, 0]})
             _write_annot(base1, rows1, {"base_b": [1]})
 
-            with self.assertRaisesRegex(LDSCInputError, "mix whole-genome and per-chromosome"):
-                builder.run(
+            with self.assertRaisesRegex(LDSCInputError, "mix whole-genome and chromosome-sharded"):
+                build_annotation_fixture(builder,
                     AnnotationBuildConfig(
                         baseline_annot_sources=(str(base_all), str(base1)),
                     )
@@ -1444,8 +1425,8 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base2, rows2, {"base_a": [0]})
             _write_annot(query1, rows1, {"query_a": [1]})
 
-            with self.assertRaisesRegex(LDSCInputError, "query shards do not match baseline shards"):
-                builder.run(
+            with self.assertRaisesRegex(LDSCInputError, "Query annotation shards do not match baseline chromosome shards"):
+                build_annotation_fixture(builder,
                     AnnotationBuildConfig(
                         baseline_annot_sources=(str(base1), str(base2)),
                         query_annot_sources=(str(query1),),
@@ -1465,8 +1446,8 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base2, rows2, {"base_a": [0]})
             _write_annot(query, rows1 + rows2, {"query_a": [1, 0]})
 
-            with self.assertRaisesRegex(LDSCInputError, "query shards.*do not match"):
-                builder.run(
+            with self.assertRaisesRegex(LDSCInputError, "Query annotation shards.*do not match"):
+                build_annotation_fixture(builder,
                     AnnotationBuildConfig(
                         baseline_annot_sources=(str(base1), str(base2)),
                         query_annot_sources=(str(query),),
@@ -1483,8 +1464,8 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base1a, rows, {"base_a": [1, 0]})
             _write_annot(base1b, rows, {"base_b": [0, 1]})
 
-            with self.assertRaisesRegex(LDSCInputError, "multiple baseline annotation files for chromosome"):
-                builder.run(
+            with self.assertRaisesRegex(LDSCInputError, "Multiple baseline annotation files describe chromosome"):
+                build_annotation_fixture(builder,
                     AnnotationBuildConfig(
                         baseline_annot_sources=(str(base1a), str(base1b)),
                     )
@@ -1507,7 +1488,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(query2, rows2, {"query_a": [1]})
 
             with self.assertRaisesRegex(LDSCInputError, "Annotation SNP rows do not match"):
-                builder.run(
+                build_annotation_fixture(builder,
                     AnnotationBuildConfig(
                         baseline_annot_sources=(str(base1), str(base2)),
                         query_annot_sources=(str(query1), str(query2)),

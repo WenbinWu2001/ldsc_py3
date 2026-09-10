@@ -1,3 +1,4 @@
+from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, fixture_ids
 import argparse
 import contextlib
 from dataclasses import replace
@@ -461,7 +462,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "CM": [0.1, 0.2, 0.3],
             }
         )
-        return AnnotationBundle(
+        return make_annotation_bundle(
             metadata=metadata,
             baseline_annotations=pd.DataFrame({"base": [1, 1, 1]}),
             query_annotations=pd.DataFrame({"query1": [1, 0, 0], "query2": [0, 1, 0]}),

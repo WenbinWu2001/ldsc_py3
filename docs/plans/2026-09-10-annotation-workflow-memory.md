@@ -141,7 +141,7 @@ Exit checkpoint: real baseline-only and single-query fitted-result inputs reprod
 
 ### 7. Verify workflow memory and finish user documentation
 
-Status: not started. Depends on slices 1–6; collect targeted resource evidence earlier as each seam becomes available.
+Status: in progress. The public `AnnotationBundle` now exports the shard handle, `AnnotationBuilder.run(..., output_dir=...)` prepares owned artifacts, and obsolete eager fields, projection wrappers, bundle writers, and calculator fallbacks are removed. Quantile source preparation shares the same loader. Scientific fixtures now use explicit small-fixture reads; 377 focused annotation/direct/reference/regression/quantile tests and 38 subtests passed after the cutover. Remaining work includes retiring the eager gene-resolution test interface, streaming final direct drop diagnostics, resource measurements, documentation, and final full checks.
 
 Complete the contract phase: remove migrated eager fields, obsolete BED-only wrappers, superseded readers/result collections, and temporary internal migration routes after a consumer search confirms they are unused. Update public exports and all remaining callers/tests/examples; do not retain compatibility aliases. Audit shared caches, query-resolution audits, alignment/drop diagnostics, writer conversions, completed futures, and returned objects across all workflows. Ensure each large payload has an explicit owner and release point and diagnostic completeness does not require reloading every row into result objects.
 

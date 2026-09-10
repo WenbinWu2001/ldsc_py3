@@ -12,10 +12,7 @@ import json
 import numpy as np
 import pandas as pd
 
-from ._annotation_bundle import AnnotationBundle
-from ._annotation_queries import build_query_shards, prepare_bed_queries
-from ._annotation_sources import prepare_annotation_sources
-from ._gene_query_storage import resolve_gene_lists_staged
+from ._annotation_loading import build_annotation_shards
 from ._kernel.snp_identity import effective_merge_key_series, identity_base_mode, is_allele_aware_mode
 from ._quantile_storage import QuantileIdentityStore, reference_chunks, target_chunks
 from .config import AnnotationBuildConfig, GlobalConfig
@@ -50,29 +47,8 @@ def _model_annotations(args, model, metadata, workspace):
             ("gene_list_resolution_policy", "strict"), ("gene_exclude_regions", "none"), ("padding_bp", 0))},
     )
     mode, build = str(metadata.get("snp_identifier")), metadata.get("genome_build")
-    baseline = resolve_file_group(spec.baseline_annot_sources, suffixes=ANNOTATION_SUFFIXES,
-                                  label="baseline annotation", allow_chromosome_suite=True)
-    query = resolve_file_group(spec.query_annot_sources, suffixes=ANNOTATION_SUFFIXES,
-                               label="query annotation", allow_chromosome_suite=True) if spec.query_annot_sources else []
-    prepared = prepare_annotation_sources(workspace, baseline, query, mode=mode)
-    bundle = AnnotationBundle(prepared.shards, list(prepared.baseline_columns), list(prepared.query_columns), workspace,
-                              config_snapshot=GlobalConfig(snp_identifier=mode, genome_build=build), identity_drops=prepared.drops)
-    if spec.query_annot_gene_list_sources:
-        from .annotate_workflow import _projection_build, _gate_a_error
-        from .gene_list_resolver import GeneCatalog
-
-        catalog = GeneCatalog.load(spec.gene_coordinate_file)
-        _projection_build(build, mode, spec.baseline_annot_sources, catalog)
-        batch = resolve_gene_lists_staged(spec.query_annot_gene_list_sources, catalog, workspace,
-                                         control_path=spec.control_gene_list_file,
-                                         resolution_policy=spec.gene_list_resolution_policy,
-                                         gene_exclude_regions=spec.gene_exclude_regions)
-        if batch.has_fatal_gate_a_issues:
-            raise _gate_a_error(batch)
-        build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp, evaluate_support=False)
-    elif spec.query_annot_bed_sources:
-        beds = prepare_bed_queries(resolve_file_group(spec.query_annot_bed_sources, label="BED file"), workspace)
-        build_query_shards(bundle, bed_sources=beds, padding_bp=spec.padding_bp, evaluate_support=False)
+    bundle = build_annotation_shards(spec, GlobalConfig(snp_identifier=mode, genome_build=build), workspace,
+                                     projection_genome_build=build)
     missing = [name for name in model.annotation_names if name not in bundle.baseline_columns + bundle.query_columns]
     if missing:
         raise LDSCInputError(f"quantile-h2 resupplied annotation sources are missing fitted annotation(s): {missing}. Resupply every original baseline/query source for this fitted model.")

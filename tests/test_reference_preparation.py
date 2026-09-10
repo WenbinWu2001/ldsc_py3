@@ -1,3 +1,4 @@
+from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, fixture_ids
 """Reference policies and numerical projection share the production preparation seam."""
 from pathlib import Path
 
@@ -41,7 +42,7 @@ def write_panel(root, *, bias="unbiased", n_samples=200, chrom="1", mode="rsid")
 
 def public_bundle(metadata, values=None):
     values = pd.DataFrame({"base": np.ones(len(metadata))}) if values is None else values
-    return AnnotationBundle(metadata=metadata, baseline_annotations=values,
+    return make_annotation_bundle(metadata=metadata, baseline_annotations=values,
                             query_annotations=pd.DataFrame(index=metadata.index),
                             baseline_columns=list(values.columns), query_columns=[],
                             chromosomes=metadata["CHR"].astype(str).unique().tolist(), source_summary={})

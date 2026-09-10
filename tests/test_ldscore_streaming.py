@@ -25,7 +25,6 @@ def test_direct_file_queries_use_shards_and_leave_only_persistent_outputs(tmp_pa
     def eager_path(*args,**kwargs):
         raise AssertionError('Whole-genome annotation preparation was invoked')
     monkeypatch.setattr(AnnotationBuilder,'run',eager_path)
-    monkeypatch.setattr(AnnotationBuilder,'parse_annotation_file',eager_path)
     output = tmp_path/'out'
     result = run_ldscore(output_dir=output,baseline_annot_sources=args.baseline_annot_sources,
         query_annot_sources=str(query),r2_dir=args.r2_dir,

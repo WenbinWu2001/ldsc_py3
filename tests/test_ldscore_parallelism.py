@@ -7,6 +7,7 @@ parallel path is exercised end-to-end through `SortedR2BlockReader`, not a mock.
 """
 
 from __future__ import annotations
+from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, fixture_ids
 
 import importlib.util
 import json
@@ -219,7 +220,7 @@ def _chrom1_inputs(build_dir: Path):
             "CM": [np.nan] * len(panel),
         }
     )
-    bundle = AnnotationBundle(
+    bundle = make_annotation_bundle(
         metadata=metadata,
         baseline_annotations=pd.DataFrame({"base": np.ones(len(panel), dtype=np.float32)}),
         query_annotations=pd.DataFrame(index=metadata.index),
@@ -508,7 +509,7 @@ def _run_with_one_empty_chrom(build_dir: Path, out_dir: Path, threads: int) -> P
         }
     )
     gcfg = GlobalConfig(snp_identifier="rsid")
-    bundle = AnnotationBundle(
+    bundle = make_annotation_bundle(
         metadata=metadata,
         baseline_annotations=pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float32)}),
         query_annotations=pd.DataFrame(index=metadata.index),

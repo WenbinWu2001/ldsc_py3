@@ -139,3 +139,7 @@ Last updated on: 2026-09-10
 ## Empty batch members can change pandas boolean-mask dtype
 
 - Summary/root cause/correction: Concatenating empty and populated gene lists coerced an internal boolean column to object, so bitwise inversion produced integer indices instead of a boolean mask; use an explicit boolean comparison and test mixed empty/nonempty batches through the real workflow.
+
+## Import rewrites need compilation, not only AST parsing
+
+- Summary/root cause/correction: Mechanical import edits left empty import groups and later moved future imports below ordinary imports; AST parsing did not catch the latter, so compile every edited module before running behavioral tests and preserve future-import placement.

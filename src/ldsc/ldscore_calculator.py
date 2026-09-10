@@ -1456,8 +1456,6 @@ def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config, glob
     errors.extend(gene_viability_errors(updated_batch, statuses))
     changes = dict(query_columns=retained_queries, query_statuses=statuses, gene_list_batch=updated_batch,
                    input_issues=pd.DataFrame(input_issues) if input_issues else None)
-    if not hasattr(annotation_bundle,'shards'):
-        changes['query_annotations'] = annotation_bundle.query_annotations.loc[:,retained_queries].copy()
     return dataclass_replace(annotation_bundle,**changes), "; ".join(errors) if errors else None
 
 
@@ -2208,69 +2206,23 @@ def _resolve_worker_count(threads: int, n_chromosomes: int) -> int:
 
 
 def _chromosomes_from_bundle(annotation_bundle) -> list[str]:
-    """Infer the chromosome processing order from an annotation bundle."""
-    chromosomes = getattr(annotation_bundle, "chromosomes", None)
-    if chromosomes:
-        return list(chromosomes)
-    return sorted(annotation_bundle.metadata["CHR"].astype(str).unique().tolist())
+    """Return declared chromosome order without reading annotation metadata."""
+    return list(annotation_bundle.chromosomes)
 
 
 def _slice_annotation_bundle(annotation_bundle, chrom: str):
-    """Return the per-chromosome view of an annotation bundle."""
-    if hasattr(annotation_bundle,'shards'):
-        return dataclass_replace(annotation_bundle,shards={str(chrom):annotation_bundle.shard(chrom)},gene_list_batch=None)
-    keep = annotation_bundle.metadata["CHR"].astype(str) == str(chrom)
-    return type(annotation_bundle)(
-        metadata=annotation_bundle.metadata.loc[keep].reset_index(drop=True),
-        baseline_annotations=annotation_bundle.baseline_annotations.loc[keep].reset_index(drop=True),
-        query_annotations=annotation_bundle.query_annotations.loc[keep].reset_index(drop=True),
-        baseline_columns=list(annotation_bundle.baseline_columns),
-        query_columns=list(annotation_bundle.query_columns),
-        chromosomes=[str(chrom)],
-        source_summary=dict(getattr(annotation_bundle, "source_summary", {})),
-        config_snapshot=getattr(annotation_bundle, "config_snapshot", None),
-        query_statuses=tuple(getattr(annotation_bundle, "query_statuses", ())),
-        gene_list_batch=getattr(annotation_bundle, "gene_list_batch", None),
-    )
+    """Borrow one chromosome descriptor without copying annotation payloads."""
+    return dataclass_replace(annotation_bundle, shards={str(chrom): annotation_bundle.shard(chrom)}, gene_list_batch=None)
 
 
 def _kernel_annotation_bundle(bundle, chrom):
     """Borrow one chromosome's metadata and selected annotation reader."""
-    if hasattr(bundle,'shards'):
-        from ._kernel.ldscore_projection import MappedAnnotations
-        shard = bundle.shard(chrom)
-        metadata = shard.metadata()
-        values = MappedAnnotations(shard,np.arange(shard.n_rows),tuple(bundle.baseline_columns+bundle.query_columns))
-    else:
-        metadata,values = bundle.metadata.copy(),_float32_annotation_frame(bundle)
-    return kernel_ldscore.AnnotationBundle(metadata,values,list(bundle.baseline_columns),list(bundle.query_columns))
+    from ._kernel.ldscore_projection import MappedAnnotations
 
-
-def _float32_annotation_frame(annotation_bundle) -> pd.DataFrame:
-    """Convert one chromosome's annotation blocks to one float32 numerical frame.
-
-    The destination is allocated once. Contiguous same-dtype column runs are
-    copied with vectorized NumPy casting, avoiding a second full mixed-type
-    staging matrix.
-    """
-    frames = (annotation_bundle.baseline_annotations, annotation_bundle.query_annotations)
-    columns = [*annotation_bundle.baseline_columns, *annotation_bundle.query_columns]
-    values = np.empty((len(annotation_bundle.metadata), len(columns)), dtype=np.float32)
-    destination_start = 0
-    for frame in frames:
-        source_start = 0
-        dtypes = frame.dtypes.tolist()
-        while source_start < len(dtypes):
-            source_end = source_start + 1
-            while source_end < len(dtypes) and dtypes[source_end] == dtypes[source_start]:
-                source_end += 1
-            values[
-                :,
-                destination_start + source_start : destination_start + source_end,
-            ] = frame.iloc[:, source_start:source_end].to_numpy(copy=False)
-            source_start = source_end
-        destination_start += frame.shape[1]
-    return pd.DataFrame(values, columns=columns, copy=False)
+    shard = bundle.shard(chrom)
+    metadata = shard.metadata()
+    values = MappedAnnotations(shard, np.arange(shard.n_rows), tuple(bundle.baseline_columns + bundle.query_columns))
+    return kernel_ldscore.AnnotationBundle(metadata, values, list(bundle.baseline_columns), list(bundle.query_columns))
 
 
 def _is_empty_intersection(error: Exception, chrom: str) -> bool:

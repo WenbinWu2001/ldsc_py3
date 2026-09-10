@@ -286,6 +286,8 @@ def _cli_failure_marker_scope(argv: Sequence[str]) -> tuple[Path, str] | None:
     """Return the authorized overwrite marker scope encoded by raw CLI args."""
     if not argv or "--overwrite" not in argv:
         return None
+    if "--help" in argv or "-h" in argv:
+        return None
     command = argv[0]
     if command not in _SUBCOMMAND_HELP:
         return None

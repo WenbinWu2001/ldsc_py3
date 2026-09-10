@@ -1,6 +1,6 @@
 # Workflow Logging
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-10
 
 Public workflow entry points share one logging policy:
 
@@ -95,6 +95,8 @@ ordinary artifacts or removes stale outputs. If the workflow log opened before
 the failure, it remains with the usual `Failed` footer and traceback. A
 successful materializing retry removes its applicable marker after normal
 success. No-overwrite failures create no marker.
+
+CLI help and `munge-sumstats --infer-only` bypass the marker lifecycle entirely. Even with `--overwrite`, they create no output directories or files and never create, replace, or remove a failure marker. This also applies when inference or argument parsing fails.
 
 ## Log Layout
 

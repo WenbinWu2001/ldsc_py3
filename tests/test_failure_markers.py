@@ -9,6 +9,7 @@ import pytest
 from ldsc import cli
 from ldsc._logging import overwrite_failure_marker
 from ldsc import ref_panel_builder
+from ldsc.errors import LDSCInputError
 
 
 def test_authorized_overwrite_failure_writes_durable_marker_without_rollback(tmp_path):
@@ -98,7 +99,67 @@ def test_cli_infer_only_munge_failure_writes_no_marker(tmp_path):
             ]
         )
 
-    assert not (tmp_path / "out" / "RUN_FAILED.txt").exists()
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("help_flag", ["--help", "-h"])
+@pytest.mark.parametrize("existing", [False, True])
+def test_cli_help_with_overwrite_leaves_output_scope_untouched(tmp_path, help_flag, existing):
+    output_dir = tmp_path / "out"
+    marker = output_dir / "RUN_FAILED.txt"
+    if existing:
+        output_dir.mkdir()
+        marker.write_text("previous failed run", encoding="utf-8")
+
+    status = cli.run_cli(["h2", "--output-dir", str(output_dir), "--overwrite", help_flag])
+
+    assert status == 0
+    if existing:
+        assert marker.read_text(encoding="utf-8") == "previous failed run"
+        assert list(output_dir.iterdir()) == [marker]
+    else:
+        assert not output_dir.exists()
+
+
+@pytest.mark.parametrize("entrypoint", ["cli", "python"])
+@pytest.mark.parametrize("input_state", ["valid", "missing", "omitted"])
+@pytest.mark.parametrize("existing", [False, True])
+def test_infer_only_with_overwrite_never_mutates_output_scope(
+    tmp_path, entrypoint, input_state, existing
+):
+    from ldsc import sumstats_munger
+
+    output_dir = tmp_path / "unused"
+    marker = output_dir / "RUN_FAILED.txt"
+    if existing:
+        output_dir.mkdir()
+        marker.write_text("previous failed run", encoding="utf-8")
+    raw_path = tmp_path / "raw.tsv"
+    if input_state == "valid":
+        raw_path.write_text("SNP A1 A2 P BETA N\nrs1 A G 0.05 0.2 1000\n", encoding="utf-8")
+    argv = [
+        "--output-dir", str(output_dir), "--overwrite", "--infer-only",
+        "--snp-identifier", "rsid",
+    ]
+    if input_state != "omitted":
+        argv.extend(["--raw-sumstats-file", str(raw_path)])
+
+    if entrypoint == "cli":
+        status = cli.run_cli(["munge-sumstats", *argv])
+        assert (status == 0) == (input_state == "valid")
+    elif input_state == "valid":
+        result = sumstats_munger.main(argv)
+        assert result.detected_format == "plain"
+    else:
+        error = SystemExit if input_state == "omitted" else LDSCInputError
+        with pytest.raises(error):
+            sumstats_munger.main(argv)
+
+    if existing:
+        assert marker.read_text(encoding="utf-8") == "previous failed run"
+        assert list(output_dir.iterdir()) == [marker]
+    else:
+        assert not output_dir.exists()
 
 
 def test_unknown_cli_command_does_not_claim_an_output_scope(tmp_path):

@@ -1,6 +1,6 @@
 # Munge-Sumstats
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-10
 
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`
@@ -177,6 +177,8 @@ values are available. Downstream LDSC commands do not consume this file.
 a small coordinate sample, prints the inferred configuration, and writes no
 artifacts. The CLI still requires `--output-dir` for a uniform command contract;
 the directory is not created in inference-only mode.
+
+This no-write contract applies on success and failure, including with `--overwrite`: no log, diagnostics, or `RUN_FAILED` marker is written, and existing output contents and markers remain untouched. The Python inference-only entry point follows the same rule.
 
 In coordinate-family modes, `--infer-only` also requires
 `--output-genome-build` because liftover status cannot be diagnosed without the

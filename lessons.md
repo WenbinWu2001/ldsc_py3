@@ -117,3 +117,7 @@ Last updated on: 2026-09-10
 ## Numerical error policies belong around the operations that need them
 
 - Summary/root cause/correction: Import-time `np.seterr` calls made behavior depend on import order, while eager `np.where` division crashed zero-variance quantile tests under strict settings; preserve caller policy, scope required estimator exceptions with `np.errstate`, and use masked division for undefined quantile tests.
+
+## Read-only CLI modes must bypass the entire failure-marker lifecycle
+
+- Summary/root cause/correction: The overwrite marker wrapper treated argparse's successful help exit as a failed run; exclude help and inference-only parsing checks from the marker scope and verify absent directories and existing markers remain untouched on success and failure.

@@ -1,6 +1,6 @@
 # ldsc3_Jerry
 
-Last updated on: 2026-09-08
+Last updated on: 2026-09-10
 
 This repository is the active refactored LDSC package.
 
@@ -222,6 +222,8 @@ those utilities. Concrete single-chromosome reference-panel attempts use
 `RUN_FAILED.chr<chrom>.txt`. The marker supplements the ordinary failed log;
 it does not roll back artifacts or change the existing workflow action order.
 A successful retry removes its applicable marker.
+
+Help and `munge-sumstats --infer-only` create no output directories, logs, artifacts, or failure markers, even with `--overwrite` or a failed inference check. Existing output contents, including failure markers, remain untouched.
 
 `ldsc ldscore` supports ordinary unpartitioned LD-score generation without
 baseline annotations:

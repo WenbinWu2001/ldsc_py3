@@ -129,7 +129,7 @@ Exit checkpoint: a multi-query run agrees with the corresponding separate fits, 
 
 ### 6. Accumulate exact global quantile statistics from shards
 
-Status: not started. Depends on slice 1's annotation access/lifetime work and the relevant selective-loading and persistent-fit interfaces from slice 5.
+Status: implemented. Reference/target readers select columns and stream bounded chunks into output-owned SQLite identity mappings with an 8 MiB page cache. Duplicate checks remain global, including omitted-allele inference. The first annotation pass validates counts/cross-products and accumulates stable centered moments plus eligible float64 targets. Exact global boundaries are selected once and the target vector is released; a second bounded pass accumulates quantile sums without dense indicators. Complete alignment records stream to persistent diagnostics and result objects retain their path. Focused quantile, regression-streaming, output, and failure-marker checks passed 130 tests and four subtests, including prebuilt/BED/gene single-query reconstruction, both baseline layouts, exact float64 targets, global ties/duplicates, bounded reads, and full-common standardization. Resource measurements remain in slice 7.
 
 Likely areas: [quantile_h2.py](../../src/ldsc/quantile_h2.py), shared annotation/reference readers, numerical quantile/statistics helpers, and diagnostics/output integration.
 

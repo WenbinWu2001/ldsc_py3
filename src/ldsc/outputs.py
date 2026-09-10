@@ -970,45 +970,11 @@ class QuantileH2DirectoryWriter:
             "plots": ("plots", False),
         }, label="quantile-h2 output artifact")
 
-    def write_diagnostics(
-        self,
-        issues: pd.DataFrame,
-        output_config: QuantileH2OutputConfig,
-    ) -> str:
-        """Write the always-present SNP alignment issue table.
-
-        Parameters
-        ----------
-        issues : pandas.DataFrame
-            Rows following :data:`SNP_ALIGNMENT_ISSUE_COLUMNS`; a clean run
-            supplies a header-only frame.
-        output_config : QuantileH2OutputConfig
-            Output directory and replacement policy.
-
-        Returns
-        -------
-        str
-            Written compressed TSV path.
-        """
-        output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
-        path = self.artifact_family(output_dir).paths["snp_alignment_issues"]
-        preflight_output_artifact_family(
-            [path],
-            [path],
-            overwrite=output_config.overwrite,
-            label="quantile-h2 diagnostic artifact",
-        )
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _select_columns(issues, SNP_ALIGNMENT_ISSUE_COLUMNS, label="SNP alignment issues").to_csv(
-            path, sep="\t", index=False, compression="gzip", na_rep=""
-        )
-        return str(path)
-
     def write(
         self,
         quantile_h2: pd.DataFrame,
         standardized_coefficients: pd.DataFrame,
-        issues: pd.DataFrame,
+        alignment_issues_path: str | Path,
         output_config: QuantileH2OutputConfig,
         metadata: dict[str, object],
     ) -> dict[str, str]:
@@ -1020,8 +986,8 @@ class QuantileH2DirectoryWriter:
             Low-to-high quantile rows in the stable public schema.
         standardized_coefficients : pandas.DataFrame
             One row per fitted annotation in coefficient order.
-        issues : pandas.DataFrame
-            SNP alignment exclusions and problems, or a header-only frame.
+        alignment_issues_path : str or pathlib.Path
+            Complete streamed gzip diagnostic table, including its header.
         output_config : QuantileH2OutputConfig
             Output directory and replacement policy.
         metadata : dict
@@ -1053,9 +1019,8 @@ class QuantileH2DirectoryWriter:
             paths["standardized_coefficients"],
             na_rep="NaN",
         )
-        _select_columns(issues, SNP_ALIGNMENT_ISSUE_COLUMNS, label="SNP alignment issues").to_csv(
-            paths["snp_alignment_issues"], sep="\t", index=False, compression="gzip", na_rep=""
-        )
+        if Path(alignment_issues_path).resolve() != paths["snp_alignment_issues"].resolve():
+            shutil.copyfile(alignment_issues_path, paths["snp_alignment_issues"])
         payload = _result_metadata(
             metadata,
             artifact_type="quantile_h2_result",

@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 
 from ldsc.errors import LDSCInputError
+from ldsc._quantile_storage import target_chunks
 from ldsc.quantile_h2 import (
-    _read_target_annotation,
     assign_legacy_quantiles,
     compute_quantile_h2,
     compute_standardized_coefficients,
@@ -28,7 +28,8 @@ class QuantileH2NumericsTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            _, values, excluded, _ = _read_target_annotation([str(target)], "target", "NaN")
+            chunk = next(target_chunks([str(target)], "target", "NaN"))
+            values, excluded = chunk.target_value, chunk.target_excluded
 
             self.assertEqual(excluded.tolist(), [True, False])
             self.assertTrue(math.isnan(values.iloc[0]))

@@ -720,12 +720,14 @@ class QuantileH2DirectoryWriterTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = QuantileH2OutputConfig(tmpdir)
             writer = QuantileH2DirectoryWriter()
+            issue_path = Path(tmpdir) / "source_issues.tsv.gz"
+            issues.to_csv(issue_path, sep="\t", index=False)
 
-            paths = writer.write(quantiles, coefficients, issues, config, metadata={})
+            paths = writer.write(quantiles, coefficients, issue_path, config, metadata={})
 
             self.assertTrue(Path(paths["snp_alignment_issues"]).is_file())
             with self.assertRaises(FileExistsError):
-                writer.write(quantiles, coefficients, issues, config, metadata={})
+                writer.write(quantiles, coefficients, issue_path, config, metadata={})
 
 
 class PartitionedH2DirectoryWriterTest(unittest.TestCase):

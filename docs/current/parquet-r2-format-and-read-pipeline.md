@@ -245,7 +245,7 @@ column is an integer dtype (quantized panels), the reader **dequantizes**
 (unused by LD-score computation). Each decoded group is a numeric
 `(i:int32, j:int32, r2:float32)` triple of retained-matrix index pairs.
 
-The public chromosome workflow (`ldscore_calculator._namespace_from_configs`) and `ParquetR2RefPanel.build_reader` both use `_resolve_r2_bias_from_meta` to resolve `ldsc:r2_bias` and `ldsc:n_samples` before constructing the reader. External raw R² values receive the existing sample-size correction in both ordinary and regression-weight LD scores; package-built unbiased panels receive no second correction.
+The public chromosome workflow calls `ParquetR2RefPanel.prepare_chromosome`, which aligns annotation rows to the filtered sidecar, takes authoritative CM/MAF from that sidecar, validates LD windows, and calls `build_reader`. That single reader factory uses `_resolve_r2_bias_from_meta` to resolve `ldsc:r2_bias` and `ldsc:n_samples`; production and adapter tests share the same path. The numerical kernel receives this prepared state, and its context manager closes the reader after success or failure. External raw R² values receive the existing sample-size correction in both ordinary and regression-weight LD scores; package-built unbiased panels receive no second correction.
 
 ### 3.3 Pair streaming (`iter_all_pairs`)
 
@@ -370,5 +370,5 @@ canonical index format offline. Existing 10-column panels must be regenerated.
 | `_kernel/plink_bed.py` | `PlinkBEDFile` genotype source for the build: selective per-SNP read (restricted) or disk streaming (unrestricted), feeding standardized columns to pairwise-R2 emission without loading the whole chromosome |
 | `ref_panel_builder.py` | build loop: sidecar built first, hash + `n_snps` passed to the writer |
 | `_kernel/ldscore.py` | `SortedR2BlockReader` index path: full-sidecar load, binding validation, `build_index_remap`, gather decode, `iter_all_pairs` streaming; `ld_score_streaming_from_r2_reader` pair accumulation; raw/legacy and block/query/cache paths removed |
-| `_kernel/ref_panel.py` | sidecar mandatory in `load_metadata` (synthesis fallback removed) |
+| `_kernel/ref_panel.py` | mandatory sidecar loading; shared `prepare_chromosome` alignment/window policy and `build_reader` bias resolution |
 | `tests/` | index writer/reader/binding/remap tests; cross-mode parity gate; build→read parity |

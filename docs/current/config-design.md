@@ -1,6 +1,6 @@
 # Config Design: Immutable Config + Provenance-Carrying Results
 
-Last updated on: 2026-08-24
+Last updated on: 2026-09-10
 
 ## Implementation Status
 
@@ -219,9 +219,9 @@ Annotation bundle rows B                      (AnnotationBuilder)
 
 | Concept | Owner | CLI flag | When applied | Artifact effect |
 | --- | --- | --- | --- | --- |
-| Reference-panel SNP restriction | `RefPanelConfig.ref_panel_snps_file` | `--ref-panel-snps-file` | `RefPanel.load_metadata()`; then `LDScoreCalculator.compute_chromosome()` aligns `B_chrom` to the restricted panel before the kernel call | Deliberately shrinks the compute-time universe to `ld_reference_snps = B ∩ A'`; affects LD scores and count records |
-| Reference-panel MAF/sample filters | `RefPanelConfig.maf_min`, `RefPanelConfig.keep_indivs_file` | `--maf-min`, `--keep-indivs-file` | `RefPanel.load_metadata()` and the kernel PLINK reader (`maf_min` is threaded through `_namespace_from_configs`, so the filter applies in both backends) | Affects the prepared panel A' and LD computation with inclusive `MAF >= maf_min`; separate from `LDScoreConfig.common_maf_min` |
-| PLINK genetic map (cM windows) | `RefPanelConfig.genetic_map_hg19_sources`, `genetic_map_hg38_sources` | `--genetic-map-hg19-sources`, `--genetic-map-hg38-sources` | `_namespace_from_configs` resolves the build and loads the map; the PLINK kernel interpolates `CM` at `.bim` positions (map always wins). Ignored with a warning for parquet. | Defines `CM` for `--ld-wind-cm` when the `.bim` `CM` is uninformative; no effect on SNP/kb windows |
+| Reference-panel SNP restriction | `RefPanelConfig.ref_panel_snps_file` | `--ref-panel-snps-file` | `RefPanel.prepare_chromosome()` restricts the panel and aligns `B_chrom` before the kernel call | Deliberately shrinks the compute-time universe to `ld_reference_snps = B ∩ A'`; affects LD scores and count records |
+| Reference-panel MAF/sample filters | `RefPanelConfig.maf_min`, `RefPanelConfig.keep_indivs_file` | `--maf-min`, `--keep-indivs-file` | `RefPanel.prepare_chromosome()` applies configured sample selection before PLINK genotype QC/MAF filtering, or filters parquet sidecar rows by MAF | Affects the prepared panel A' and LD computation with inclusive `MAF >= maf_min`; separate from `LDScoreConfig.common_maf_min` |
+| PLINK genetic map (cM windows) | `RefPanelConfig.genetic_map_hg19_sources`, `genetic_map_hg38_sources` | `--genetic-map-hg19-sources`, `--genetic-map-hg38-sources` | `PlinkRefPanel.prepare_chromosome()` resolves the build/map and interpolates `CM` at retained `.bim` positions (map always wins). Ignored with a warning for parquet. | Defines `CM` for `--ld-wind-cm` when the `.bim` `CM` is uninformative; no effect on SNP/kb windows |
 | Reference-metadata export | `LDScoreConfig.export_ref_metadata` | `--export-ref-metadata` | After each chromosome's compute (PLINK worker), writes `ref_metadata/chrN_meta.tsv.gz` | Opt-in provenance/QC artifact (`CHR POS SNP A1 A2 CM MAF`); accepted later by `quantile-h2 --ref-metadata-sources` |
 | Regression row restriction | `LDScoreConfig.regr_snps_file` or bundled HM3 default | `--regr-snps-file` | After LD computation, when normalized/public rows are selected; `--regr-snps-exclude-regions` subtracts named intervals here | Written rows are `ld_regression_snps = B ∩ A' ∩ C ∩ complement(regions)`; `regression_ld_scores` (`w_ld`) uses that identical contributor set |
 | Common-count threshold | `LDScoreConfig.common_maf_min` | `--common-maf-min` | During count-vector and overlap-matrix computation after LD scores are computed | Defines the common-SNP universe with inclusive `MAF >= common_maf_min` (deviates from legacy LDSC's strict `0.05 < FRQ < 0.95`); affects `common_reference_snp_count(s)` and the common-universe overlap matrix, but not LD rows, LD scores, or the stored regression-universe LD score |
@@ -232,13 +232,11 @@ Annotation bundle rows B                      (AnnotationBuilder)
 
 - `AnnotationBuilder.run()` still builds the full annotation universe `B`.
 - `run_bed_to_annot()` and `ldsc annotate` do **not** apply this restriction.
-- `RefPanel.load_metadata()` applies only the explicit restriction to the raw
-  panel `A`, producing `A'`. Bundled HM3 is never a convenience way to shrink
-  the LD-reference universe.
+- `RefPanel` applies the explicit restriction to the raw panel `A`, producing `A'`, alongside configured sample/MAF filters. Both metadata inspection and chromosome preparation honor it. Bundled HM3 is never a convenience way to shrink the LD-reference universe.
 - SNP restriction files are identity-only. Duplicate restriction keys collapse
   to one retained key, and non-identity columns such as `CM`, `MAF`, or other
   metadata are ignored rather than carried into LD-score or regression outputs.
-- `LDScoreCalculator.compute_chromosome()` then intersects the chromosome-local annotation bundle with that prepared metadata so the kernel sees `B_chrom ∩ A'_chrom`.
+- `RefPanel.prepare_chromosome()` aligns the chromosome-local annotation bundle to the filtered reference metadata so the kernel sees `B_chrom ∩ A'_chrom`.
 
 When `None`, the workflow uses the full reference panel `A`.
 
@@ -359,7 +357,7 @@ region-exclusion nor HM3 convenience flags.
 - Ordinary unpartitioned `run_ldscore()` calls may omit baseline/query annotation inputs; the workflow creates a synthetic all-ones `base` annotation after the reference panel has applied any explicit reference-panel restriction.
 - Prebuilt, BED, and gene-list query annotations are valid only with explicit baseline annotations, so the synthetic `base` path is not used for partitioned/query LDSC.
 - BED and gene-list sources are query-local failure units. Only `ok`/`warning` queries enter scientific result objects; every source remains represented in diagnostic status records.
-- Reference-panel SNP restrictions become visible only during LD-score calculation, when the workflow aligns `B_chrom` to `ref_panel.load_metadata(chrom)`.
+- Reference-panel SNP restrictions become visible only during LD-score calculation, when `ref_panel.prepare_chromosome()` aligns `B_chrom` to the filtered reference rows.
 - Count records are accumulated over `ld_reference_snps = B ∩ A'` and stored in LD-score root `metadata.json`.
 - Public `ldscore.baseline.parquet` and optional `ldscore.query.parquet` rows are `ld_regression_snps = B ∩ A' ∩ C ∩ complement(regions)`; `w_ld` uses that same final set.
 - LD-score `metadata.json` records `snp_universe_policy`, including independent reference and regression policies plus the regression-region removal count.

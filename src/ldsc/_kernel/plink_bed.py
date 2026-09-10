@@ -1,7 +1,8 @@
 """PLINK genotype reader and in-memory LD-score block sums.
 
-Moved verbatim from ``ldscore.py`` so the reader has a focused home; behavior
-is unchanged. Selective-read and streaming optimizations build on this module.
+Selective reads apply sample and SNP filters before genotype normalization.
+In-memory readers close the BED file after loading retained genotypes;
+streaming readers keep it open until their owner calls ``close()``.
 """
 from __future__ import annotations
 
@@ -188,21 +189,28 @@ if ba is not None:
             kept set spans the whole chromosome.
             """
             self._streaming = bool(streaming)
+            self._fh = None
             self._bedcode = {
                 2: ba.bitarray("11"),
                 9: ba.bitarray("10"),
                 1: ba.bitarray("01"),
                 0: ba.bitarray("00"),
             }
-            __GenotypeArrayInMemory__.__init__(
-                self,
-                fname,
-                n,
-                snp_list,
-                keep_snps=keep_snps,
-                keep_indivs=keep_indivs,
-                mafMin=mafMin,
-            )
+            try:
+                __GenotypeArrayInMemory__.__init__(
+                    self, fname, n, snp_list, keep_snps=keep_snps,
+                    keep_indivs=keep_indivs, mafMin=mafMin,
+                )
+            except BaseException:
+                self.close()
+                raise
+            if not self._streaming:
+                self.close()
+
+        def close(self):
+            """Close the BED file; in-memory genotype batches remain usable."""
+            if self._fh is not None:
+                self._fh.close()
 
         def __read__(self, fname, m, n):
             """Open the BED file, validate the header, and record geometry.
@@ -219,6 +227,7 @@ if ba is not None:
                     "without extension so LDSC can open `<prefix>.bed`."
                 )
             fh = open(fname, "rb")
+            self._fh = fh
             magicNumber = ba.bitarray(endian="little")
             magicNumber.fromfile(fh, 2)
             bedMode = ba.bitarray(endian="little")
@@ -237,7 +246,6 @@ if ba is not None:
                 )
             e = (4 - n % 4) if n % 4 != 0 else 0
             nru = n + e
-            self._fh = fh
             self._data_start = 3
             self._nru_source = nru
             self._source_bytes_per_snp = 2 * nru // 8

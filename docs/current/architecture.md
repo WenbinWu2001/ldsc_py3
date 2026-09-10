@@ -1,6 +1,6 @@
 # Architecture 
 
-Last updated on: 2026-09-08
+Last updated on: 2026-09-10
 
 `ldsc_py3_Jerry` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
@@ -113,7 +113,7 @@ This is the only command-line entry point. It parses subcommands, preserves the 
 
 ### `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, `ldsc.genome_build_inference`
 
-These modules define the package-wide contracts that every workflow shares. They normalize path tokens, chromosome ordering, genome-build aliases, exact SNP identifier modes, input header aliases, and `chr_pos`-family genome-build inference before the kernel is called. `ldsc.path_resolution` also owns output-directory creation, fixed-artifact collision preflight, coherent artifact-family preflight, and stale owned-sibling cleanup helpers. `ldsc.genome_build_inference` is public for Python callers through the top-level `ldsc` exports, while the CLI exposes it only through `--genome-build auto` on existing workflows. Architecture invariant: path discovery, header inference, output preflight, and user-facing build inference happen here or in the workflow layer, never inside `_kernel`.
+These modules define the package-wide contracts that every workflow shares. They normalize path tokens, chromosome ordering, genome-build aliases, exact SNP identifier modes, input header aliases, and `chr_pos`-family genome-build inference before the kernel is called. `ldsc.path_resolution` also owns output-directory creation, fixed-artifact collision preflight, coherent artifact-family preflight, and stale owned-sibling cleanup helpers. `ldsc.genome_build_inference` is public for Python callers through the top-level `ldsc` exports, while the CLI exposes it only through `--genome-build auto` on existing workflows. Architecture invariant: numerical functions consume resolved inputs. Shared normalization stays here or in the workflow layer; the runtime reference-panel adapters currently live at `ldsc._kernel.ref_panel` and resolve panel-specific inputs before numerical projection.
 
 ### `ldsc._logging`
 
@@ -168,6 +168,12 @@ This module is the public pair-query surface for package-built index-format R2 p
 ### `ldsc.ldscore_calculator`
 
 This module orchestrates chromosome-wise LD-score computation. It resolves annotation and reference-panel inputs, selects the gene-catalog projection build, synthesizes the all-ones `base` annotation when an unpartitioned run omits baseline/query inputs, builds per-chromosome runs, prunes zero-hit or zero-variance queries, aggregates them into `LDScoreResult`, routes artifact writing through `ldsc.outputs`, and writes `diagnostics/ldscore.log` for parsed workflow runs. Query-local BED/gene failures are status records; a run continues when at least one query is usable. Architecture invariant: computation stays chromosome-wise; the aggregate result is assembled only after all chromosome runs finish.
+
+### `ldsc._kernel.ref_panel`, `ldsc._kernel.ldscore`
+
+`RefPanel.prepare_chromosome(chrom, annotations, config)` is the shared preparation boundary for `LDScoreCalculator.compute_chromosome()` and PLINK gene-index construction. The PLINK/parquet adapters own source resolution, identity and SNP restrictions, sample/MAF filtering, annotation alignment, authoritative reference CM/MAF, LD-window validation, and reader policy. They return `PreparedChromosome`: metadata, a float32 annotation matrix, window bounds, and one owned reader describing the same retained SNP rows. PLINK preparation preserves physical BIM/BED row indices through sorting and filtering. Parquet preparation calls `ParquetR2RefPanel.build_reader()`, so bias/sample-size metadata and sidecar binding follow the same path in production and adapter tests.
+
+`_kernel.ldscore.compute_chromosome()` projects baseline/query annotations and regression weights together, then derives counts and overlap. It consumes prepared state without reopening sources. Use prepared state in a `with` block: readers close on success or failure, and metadata caches retain tables only. Separate `load_metadata()` inspection may read PLINK data independently; one chromosome calculation itself constructs one BED reader. `tests/test_reference_preparation.py` covers known raw/unbiased results, alignment, authoritative metadata, physical row mapping, and failure cleanup; `tests/test_ldscore_workflow.py` verifies the public single-reader path.
 
 ### `ldsc.legacy_ldscore_converter`
 

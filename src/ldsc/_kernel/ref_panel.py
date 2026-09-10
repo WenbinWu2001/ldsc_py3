@@ -1,19 +1,24 @@
 """Reference-panel configuration and workflow-to-kernel backend adapters.
 
-This module resolves public reference-panel configuration into concrete
-primitive strings before the execution kernel sees them.
+This module prepares chromosome-scoped reference data for LD-score projection.
+The PLINK and parquet adapters own identity and SNP restrictions, sample/MAF
+selection, annotation alignment, reader policy, LD windows, and file lifetime.
+Numerical kernels consume the resulting aligned state without resolving paths
+or reopening a panel. Metadata inspection caches tables, never live readers.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from types import SimpleNamespace
 import gzip
 import logging
 from pathlib import Path
 import re
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
@@ -22,13 +27,14 @@ from ..column_inference import (
     A1_COLUMN_SPEC,
     A2_COLUMN_SPEC,
     REFERENCE_METADATA_SPEC_MAP,
+    normalize_genome_build,
     resolve_optional_column,
     resolve_required_column,
 )
-from ..config import GlobalConfig, RefPanelConfig, validate_config_compatibility
+from ..config import GlobalConfig, LDScoreConfig, RefPanelConfig, validate_config_compatibility
 from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCUsageError
 from ..genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
-from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group
+from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group, split_cli_path_tokens
 from . import formats as legacy_parse
 from . import ldscore as kernel_ldscore
 from .identifiers import (
@@ -39,6 +45,8 @@ from .identifiers import (
 )
 from .snp_identity import (
     clean_identity_artifact_table,
+    empty_identity_drop_frame,
+    identity_base_mode,
     identity_mode_family,
     is_allele_aware_mode,
     restriction_membership_mask,
@@ -223,6 +231,43 @@ class RefPanel(ABC):
         """Build a backend-specific reader for ``chrom``."""
         raise NotImplementedError
 
+    @abstractmethod
+    def prepare_chromosome(
+        self, chrom: str, annotations: kernel_ldscore.AnnotationBundle,
+        config: LDScoreConfig, *, genetic_map: pd.DataFrame | None = None,
+    ) -> kernel_ldscore.PreparedChromosome:
+        """Prepare aligned reference data and an owned reader for LD-score computation.
+
+        Parameters
+        ----------
+        chrom : str
+            Chromosome label to resolve in this panel.
+        annotations : ldsc._kernel.ldscore.AnnotationBundle
+            SNP metadata in genomic order and numeric annotation columns in
+            baseline-then-query order. Input tables are not modified.
+        config : LDScoreConfig
+            Window geometry and whole-chromosome-window policy.
+        genetic_map : pandas.DataFrame or None, optional
+            Already resolved PLINK genetic map for cM windows. If absent, the
+            PLINK adapter resolves configured map sources when needed.
+
+        Returns
+        -------
+        ldsc._kernel.ldscore.PreparedChromosome
+            Reference metadata, float32 annotation matrix, window bounds, and
+            an owned reader over the same retained SNP rows. Panel identity,
+            SNP/sample/MAF restrictions, authoritative reference CM/MAF, and
+            reader bias settings are resolved together. Use the result as a
+            context manager to close the reader on success or failure.
+
+        Notes
+        -----
+        Preparation reads inputs but writes no artifacts. Metadata inspection
+        through ``load_metadata`` may read independently; its cache stores
+        tables rather than live readers.
+        """
+        raise NotImplementedError
+
     def filter_to_snps(self, chrom: str, snps: set[str] | list[str]) -> pd.DataFrame:
         """Subset chromosome metadata to the requested SNP identifiers."""
         metadata = self.load_metadata(chrom)
@@ -297,146 +342,131 @@ class PlinkRefPanel(RefPanel):
         chromosomes = sorted(df["CHR"].astype(str).map(normalize_chromosome).unique().tolist(), key=_chrom_sort_key)
         return chromosomes
 
-    def load_metadata(self, chrom: str) -> pd.DataFrame:
-        """Load and cache normalized PLINK metadata for one chromosome."""
-        chrom = normalize_chromosome(chrom)
-        if chrom in self._metadata_cache:
-            return self._metadata_cache[chrom].copy()
-
-        df = self._read_bim_table(chrom=chrom).reset_index(drop=False).rename(columns={"index": "_raw_index"})
-        df["CHR"] = df["CHR"].map(normalize_chromosome)
-        df["SNP"] = df["SNP"].astype(str)
-        df["CM"] = pd.to_numeric(df["CM"], errors="coerce")
-        df["POS"] = pd.to_numeric(df["POS"], errors="raise").astype(int)
-        metadata = df.loc[df["CHR"] == chrom, ["_raw_index", "CHR", "SNP", "CM", "POS", "A1", "A2"]].reset_index(drop=True)
-        if len(metadata) == 0:
-            raise LDSCInputError(
-                f"Reference-panel loading found no PLINK metadata rows for chromosome {chrom}. "
-                "Most likely the PLINK `.bim` file does not contain that chromosome or "
-                "chromosome labels do not match the requested run. Pass a PLINK prefix "
-                "with matching chromosome rows."
-            )
+    def _load_source(self, chrom: str):
+        """Resolve physical BED rows and apply panel identity/SNP restrictions once."""
+        prefix = resolve_plink_prefix(self.spec.plink_prefix, chrom=chrom)
+        bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
+        fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
+        metadata = bim.df.rename(columns={"BP": "POS"}).copy()
+        metadata["_raw_index"] = np.arange(len(metadata))
+        metadata["CHR"] = metadata["CHR"].map(normalize_chromosome)
+        metadata["SNP"] = metadata["SNP"].astype(str)
+        metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64)
+        metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")
+        metadata[["A1", "A2"]] = metadata[["A1", "A2"]].astype(str)
+        metadata = metadata.loc[metadata["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
+        if metadata.empty:
+            raise LDSCInputError(f"Reference-panel loading found no PLINK metadata rows for chromosome {chrom}.")
+        drops = empty_identity_drop_frame()
         if self.global_config.snp_identifier in {"rsid", "chr_pos"}:
             cleanup = clean_identity_artifact_table(
-                metadata,
-                self.global_config.snp_identifier,
+                metadata, self.global_config.snp_identifier,
                 context=f"PLINK reference-panel metadata chromosome {chrom}",
-                stage="plink_reference_identity_cleanup",
-                logger=LOGGER,
+                stage="plink_reference_identity_cleanup", logger=LOGGER,
             )
-            metadata = cleanup.cleaned
+            metadata, drops = cleanup.cleaned, cleanup.dropped
             if metadata.empty:
                 raise LDSCInputError(
-                    f"Reference-panel loading retained no PLINK rows on chromosome {chrom} "
-                    "after duplicate SNP identity cleanup."
+                    f"Reference-panel loading retained no PLINK rows on chromosome {chrom} after duplicate SNP identity cleanup."
                 )
         metadata = self._apply_snp_restriction(metadata)
-        validate_unique_snp_ids(metadata, self.global_config.snp_identifier, context=f"{type(self).__name__}[{chrom}]")
-        metadata = self._load_genotype_metadata(chrom, metadata)
         metadata = self._validate_metadata(metadata, chrom)
-        self._metadata_cache[chrom] = metadata.copy()
-        return metadata
+        return prefix, bim, fam, metadata, drops
 
-    def build_reader(self, chrom: str, keep_snps: set[str] | list[str] | None = None, keep_indivs: list[int] | None = None, maf_min: float | None = None):
-        """Build a PLINK BED reader with optional SNP, sample, and MAF filters."""
-        prefix = None if self.spec.plink_prefix is None else resolve_plink_prefix(self.spec.plink_prefix, chrom=chrom)
-        if prefix is None:
-            raise LDSCUsageError(
-                "PLINK reference-panel loading requires a PLINK prefix. Most likely "
-                "`RefPanelConfig(backend='plink')` was used without `plink_prefix`. "
-                "Pass the prefix shared by `.bed`, `.bim`, and `.fam`."
+    def _load_genotypes(self, chrom, source, annotations=None, *, keep_indivs=None, maf_min=None):
+        """Open one BED and align its retained rows to annotations without another read."""
+        prefix, bim, fam, reference, drops = source
+        if annotations is None:
+            annotations = kernel_ldscore.AnnotationBundle(
+                reference.drop(columns="_raw_index"), pd.DataFrame(index=reference.index), [], [],
             )
-        bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
-        fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
-
-        keep_snp_indices = None
-        if keep_snps is not None:
-            raw_metadata = self._read_bim_table(chrom=chrom)
-            raw_metadata["CHR"] = raw_metadata["CHR"].map(normalize_chromosome)
-            raw_metadata["SNP"] = raw_metadata["SNP"].astype(str)
-            raw_metadata["POS"] = pd.to_numeric(raw_metadata["POS"], errors="raise").astype(int)
-            raw_metadata = raw_metadata.loc[raw_metadata["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
-            kept = self.filter_to_snps(chrom, set(keep_snps))
-            raw_keys = _snp_id_series_for_matching(
-                raw_metadata,
-                self.global_config.snp_identifier,
-                context=f"PLINK raw SNP matching for chromosome {chrom}",
-            ).dropna()
-            kept_keys = _snp_id_series_for_matching(
-                kept,
-                self.global_config.snp_identifier,
-                context=f"PLINK kept SNP matching for chromosome {chrom}",
-            ).dropna()
-            key_to_index = dict(zip(raw_keys, raw_keys.index))
-            keep_snp_indices = [int(key_to_index[key]) for key in kept_keys]
-
-        return kernel_ldscore.PlinkBEDFile(
-            prefix + ".bed",
-            len(fam.IDList),
-            bim,
-            keep_snps=keep_snp_indices,
-            keep_indivs=keep_indivs,
-            mafMin=maf_min,
+        aligned = _align_annotations(annotations, reference, chrom, self.global_config, "PLINK")
+        mode = self.global_config.snp_identifier
+        raw_keys = kernel_ldscore.identifier_keys(reference, mode)
+        keys = kernel_ldscore.identifier_keys(aligned.metadata, mode)
+        physical_rows = pd.Series(reference["_raw_index"].to_numpy(), index=raw_keys).loc[keys].tolist()
+        if keep_indivs is None:
+            keep_indivs = kernel_ldscore.resolve_keep_individuals(self.spec.keep_indivs_file, fam)
+        geno = kernel_ldscore.PlinkBEDFile(
+            prefix + ".bed", len(fam.IDList), bim, keep_snps=physical_rows,
+            keep_indivs=keep_indivs, mafMin=self.spec.maf_min if maf_min is None else maf_min,
         )
-
-    def _load_genotype_metadata(self, chrom: str, metadata: pd.DataFrame) -> pd.DataFrame:
-        """Return PLINK metadata with genotype-derived MAF when the reader is available."""
-        prefix = None if self.spec.plink_prefix is None else resolve_plink_prefix(self.spec.plink_prefix, chrom=chrom)
-        if prefix is None:
-            raise LDSCUsageError(
-                "PLINK reference-panel metadata loading requires a PLINK prefix. Most likely "
-                "`RefPanelConfig(backend='plink')` was used without `plink_prefix`. Pass "
-                "the prefix shared by `.bed`, `.bim`, and `.fam`."
-            )
-        bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
-        fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
-        keep_indivs = self._resolve_keep_individuals(fam)
-        keep_snps = [int(index) for index in metadata["_raw_index"].tolist()]
         try:
-            bed = kernel_ldscore.PlinkBEDFile(
-                prefix + ".bed",
-                len(fam.IDList),
-                bim,
-                keep_snps=keep_snps,
-                keep_indivs=keep_indivs,
-                mafMin=self.spec.maf_min,
-            )
-        except Exception as exc:
-            if self.spec.maf_min is not None or self.spec.keep_indivs_file is not None:
-                raise
-            LOGGER.debug(f"Falling back to BIM-only PLINK metadata for chromosome {chrom}: {exc}", exc_info=True)
-            return metadata.drop(columns="_raw_index", errors="ignore").reset_index(drop=True)
+            metadata = pd.DataFrame(geno.df, columns=geno.colnames).rename(columns={"BP": "POS"})
+            metadata["CHR"] = metadata["CHR"].map(normalize_chromosome)
+            metadata["SNP"] = metadata["SNP"].astype(str)
+            metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64)
+            metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")
+            metadata["MAF"] = pd.to_numeric(metadata["MAF"], errors="coerce")
+            metadata = metadata.merge(reference[["CHR", "SNP", "POS", "A1", "A2"]],
+                                      on=["CHR", "SNP", "POS"], how="left", sort=False)
+            retained_keys = kernel_ldscore.identifier_keys(metadata, mode)
+            values = aligned.annotations.set_index(keys).loc[retained_keys].reset_index(drop=True)
+            return geno, metadata, values, drops, len(aligned.metadata)
+        except BaseException:
+            geno.close()
+            raise
 
-        allele_metadata = metadata.loc[:, ["CHR", "SNP", "POS", "A1", "A2"]].copy()
-        out = pd.DataFrame(bed.df, columns=bed.colnames)
-        if "BP" in out.columns:
-            out = out.rename(columns={"BP": "POS"})
-        out["CHR"] = out["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
-        out["SNP"] = out["SNP"].astype(str)
-        out["POS"] = pd.to_numeric(out["POS"], errors="raise").astype(int)
-        out["CM"] = pd.to_numeric(out["CM"], errors="coerce")
-        out["MAF"] = pd.to_numeric(out["MAF"], errors="coerce")
-        out = out.loc[out["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
-        allele_metadata["CHR"] = allele_metadata["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
-        allele_metadata["SNP"] = allele_metadata["SNP"].astype(str)
-        allele_metadata["POS"] = pd.to_numeric(allele_metadata["POS"], errors="raise").astype(int)
-        allele_metadata["A1"] = allele_metadata["A1"].astype(str)
-        allele_metadata["A2"] = allele_metadata["A2"].astype(str)
-        return out.merge(allele_metadata, how="left", on=["CHR", "SNP", "POS"], sort=False).reset_index(drop=True)
+    def load_metadata(self, chrom: str) -> pd.DataFrame:
+        """Load and cache genotype-derived metadata without retaining a BED reader."""
+        chrom = normalize_chromosome(chrom)
+        if chrom not in self._metadata_cache:
+            source = self._load_source(chrom)
+            try:
+                geno, metadata, _, _, _ = self._load_genotypes(chrom, source)
+            except Exception:
+                if self.spec.maf_min is not None or self.spec.keep_indivs_file is not None:
+                    raise
+                # Preserve the metadata-only BIM inspection contract for unavailable BED data.
+                metadata = source[3].drop(columns="_raw_index").reset_index(drop=True)
+            else:
+                geno.close()
+            self._metadata_cache[chrom] = metadata.copy()
+        return self._metadata_cache[chrom].copy()
 
-    def _resolve_keep_individuals(self, fam) -> list[int] | None:
-        """Return FAM row indices retained by ``RefPanelConfig.keep_indivs_file``."""
-        if self.spec.keep_indivs_file is None:
-            return None
-        keep_indivs = fam.loj(legacy_parse.FilterFile(self.spec.keep_indivs_file).IDList)
-        if len(keep_indivs) == 0:
-            raise LDSCInputError(
-                f"Reference-panel loading retained no PLINK individuals after applying "
-                f"keep file '{self.spec.keep_indivs_file}'. Most likely the keep-list IDs "
-                "do not match the `.fam` file. Check IID/FID columns and use a keep list "
-                "from the same PLINK sample set."
+    def build_reader(self, chrom: str, keep_snps=None, keep_indivs=None, maf_min=None):
+        """Build an owned BED reader through the same preparation used for LD scores.
+
+        Configured panel restrictions apply before optional ``keep_snps`` keys,
+        sample-index overrides, and MAF overrides. The caller must close the
+        returned reader.
+        """
+        source = self._load_source(chrom)
+        if keep_snps is not None:
+            prefix, bim, fam, metadata, drops = source
+            keys = _snp_id_series_for_matching(metadata, self.global_config.snp_identifier,
+                                              context=f"PLINK chromosome {chrom}")
+            source = prefix, bim, fam, metadata.loc[keys.isin(keep_snps)].reset_index(drop=True), drops
+        return self._load_genotypes(chrom, source, keep_indivs=keep_indivs, maf_min=maf_min)[0]
+
+    def prepare_chromosome(self, chrom, annotations, config, *, genetic_map=None):
+        """Prepare one genotype-filtered chromosome with aligned annotations and LD windows."""
+        source = self._load_source(chrom)
+        geno, metadata, values, drops, input_rows = self._load_genotypes(chrom, source, annotations)
+        try:
+            if config.ld_wind_cm is not None:
+                if genetic_map is None:
+                    genetic_map = _resolve_genetic_map(self, chrom, metadata)
+                if genetic_map is not None:
+                    from .ref_panel_builder import interpolate_genetic_map_cm
+                    metadata["CM"] = interpolate_genetic_map_cm(
+                        normalize_chromosome(chrom), metadata["POS"].to_numpy(dtype=np.int64), genetic_map,
+                    )
+                else:
+                    kernel_ldscore.assert_cm_usable(metadata["CM"], chrom)
+            block_left = _prepare_window(metadata, chrom, config, self.global_config.snp_identifier)
+            return kernel_ldscore.PreparedChromosome(
+                backend="plink", reader=geno, metadata=metadata,
+                annotation_matrix=values.to_numpy(dtype=np.float32), block_left=block_left,
+                baseline_columns=list(annotations.baseline_columns), query_columns=list(annotations.query_columns),
+                reference_rows_before_genotype_qc=input_rows,
+                genotype_qc_removed=geno.genotype_qc_removed, maf_removed=geno.maf_removed,
+                selected_individual_count=int(geno.n),
+                cm_source="explicit_genetic_map" if genetic_map is not None else "bim_cm", identity_drops=drops,
             )
-        return keep_indivs.tolist()
+        except BaseException:
+            geno.close()
+            raise
 
     def _read_bim_table(self, chrom: str | None) -> pd.DataFrame:
         """Read one or many `.bim` tables into a normalized DataFrame."""
@@ -470,8 +500,6 @@ class PlinkRefPanel(RefPanel):
 
 class ParquetR2RefPanel(RefPanel):
     """
-    Canonical parquet-R2 reference-panel adapter.
-
     Canonical index-format parquet R2 reference-panel adapter.
 
     The metadata sidecar (``chrN_meta.tsv.gz``) is mandatory and authoritative:
@@ -587,12 +615,13 @@ class ParquetR2RefPanel(RefPanel):
         r2_sample_size: float | None = None,
     ):
         """
-        Build a row-group-pruning reader with R2 bias settings resolved.
+        Build an owned streaming reader with R2 bias settings resolved.
 
         Runtime overrides are merged with ``RefPanelConfig`` first, then the
         first chromosome parquet's LDSC schema metadata is used to auto-fill
         missing R2 bias mode and sample size before constructing
-        ``SortedR2BlockReader``.
+        ``SortedR2BlockReader``. ``prepare_chromosome`` uses this same factory;
+        direct callers must close the returned reader.
         """
         metadata = metadata if metadata is not None else self.load_metadata(chrom)
         paths = self.resolve_r2_paths(chrom)
@@ -620,6 +649,32 @@ class ParquetR2RefPanel(RefPanel):
             r2_bias_mode=effective_bias,
             r2_sample_size=effective_n,
             genome_build=self.global_config.genome_build,
+        )
+
+    def prepare_chromosome(self, chrom, annotations, config, *, genetic_map=None):
+        """Prepare a sidecar-aligned streaming reader with one resolved R2 policy."""
+        reference = self.load_metadata(chrom)
+        aligned = _align_annotations(annotations, reference, chrom, self.global_config, "parquet")
+        keys = kernel_ldscore.identifier_keys(aligned.metadata, self.global_config.snp_identifier)
+        reference_keys = kernel_ldscore.identifier_keys(reference, self.global_config.snp_identifier)
+        lookup = reference.set_index(reference_keys)
+        metadata = aligned.metadata.copy()
+        for column in ("CM", "MAF"):
+            if column in reference:
+                metadata[column] = lookup.loc[keys, column].to_numpy()
+        if config.ld_wind_cm is not None:
+            _resolve_genetic_map(self, chrom, reference)
+        block_left = _prepare_window(metadata, chrom, config, self.global_config.snp_identifier)
+        kernel_ldscore.validate_ldscore_window_within_r2_panel_window(
+            config, parquet_paths=self.resolve_r2_paths(chrom), chrom=chrom,
+        )
+        values = aligned.annotations.to_numpy(dtype=np.float32)
+        reader = self.build_reader(chrom, metadata=metadata)
+        return kernel_ldscore.PreparedChromosome(
+            backend="parquet_r2", reader=reader, metadata=metadata,
+            annotation_matrix=values, block_left=block_left,
+            baseline_columns=list(annotations.baseline_columns), query_columns=list(annotations.query_columns),
+            cm_source="parquet_sidecar",
         )
 
     def resolve_r2_paths(self, chrom: str, *, required: bool = True) -> list[str]:
@@ -1024,3 +1079,123 @@ def _read_metadata_table(
     if chrom is not None and "CHR" in out.columns:
         out = out.loc[out["CHR"] == normalize_chromosome(chrom, context=context)].reset_index(drop=True)
     return out
+
+
+def _prepare_window(metadata, chrom, config, snp_identifier):
+    """Validate retained reference metadata and derive one LD-window traversal."""
+    kernel_ldscore.validate_retained_identifier_uniqueness(metadata, snp_identifier, chrom)
+    kernel_ldscore.require_reference_maf(metadata, chrom)
+    kernel_ldscore.validate_window_positions_sorted(metadata, chrom)
+    coords, distance = kernel_ldscore.build_window_coordinates(metadata, config)
+    block_left = kernel_ldscore.get_block_lefts(coords, distance)
+    kernel_ldscore.check_whole_chromosome_window(
+        block_left, SimpleNamespace(yes_really=config.whole_chromosome_ok), chrom,
+    )
+    return block_left
+
+
+def _resolve_genetic_map(panel, chrom, metadata):
+    """Resolve the configured PLINK map against the prepared reference coordinates."""
+    spec = panel.spec
+    if not (spec.genetic_map_hg19_sources or spec.genetic_map_hg38_sources):
+        return None
+    if spec.backend != "plink":
+        LOGGER.warning("Ignoring --genetic-map-*-sources for the parquet R2 reference panel: CM is taken from the panel metadata sidecar (authoritative). Genetic-map flags apply only to PLINK panels.")
+        return None
+    build = normalize_genome_build(panel.global_config.genome_build)
+    if build == "auto":
+        build = resolve_genome_build(build, panel.global_config.snp_identifier, metadata[["CHR", "POS"]],
+                                     context=f"PLINK panel chromosome {chrom} for genetic-map build selection")
+    if build not in ("hg19", "hg38"):
+        raise LDSCInputError("ldscore could not determine the genome build needed to select a genetic map for the PLINK panel. Pass --genome-build hg19 or hg38.")
+    sources = spec.genetic_map_hg38_sources if build == "hg38" else spec.genetic_map_hg19_sources
+    if sources is None:
+        raise LDSCInputError(f"ldscore needs a `--genetic-map-{build}-sources` file to derive CM for the PLINK panel (resolved build {build}), but it was not supplied.")
+    from .ref_panel_builder import load_genetic_map_group
+    return load_genetic_map_group(split_cli_path_tokens(sources))
+
+
+def _align_annotations(bundle, reference, chrom, global_config, backend):
+    """Align annotation rows once to retained reference identities and recover alleles."""
+    if is_allele_aware_mode(global_config.snp_identifier):
+        reference = clean_identity_artifact_table(
+            reference, global_config.snp_identifier,
+            context=f"reference panel chromosome {chrom}",
+            stage="annotation_reference_identity_cleanup", logger=LOGGER,
+        ).cleaned
+    mode = _annotation_reference_match_mode(bundle.metadata, global_config.snp_identifier)
+    reference_keys = build_snp_id_series(reference, mode)
+    annotation_keys = build_snp_id_series(bundle.metadata, mode)
+    keep = annotation_keys.isin(set(reference_keys))
+    if not keep.any():
+        raise LDSCInputError(
+            f"ldscore retained no annotation SNPs on chromosome {chrom} after intersecting with the {backend} reference panel. "
+            "Most likely the annotation SNP identifiers, genome build, or allele-aware identifier mode do not match the reference panel. "
+            "Use annotation and reference-panel artifacts built with the same SNP identifier mode and genome build. "
+            f"Other causes & fixes: {kernel_ldscore._LDSCORE_INTERSECTION_DOC}"
+        )
+    metadata = _annotation_metadata_with_reference_alleles(
+        annotation_metadata=bundle.metadata.loc[keep].reset_index(drop=True),
+        annotation_keys=annotation_keys.loc[keep].reset_index(drop=True),
+        reference_metadata=reference, reference_keys=reference_keys,
+        snp_identifier=global_config.snp_identifier,
+    )
+    return kernel_ldscore.AnnotationBundle(metadata, bundle.annotations.loc[keep].reset_index(drop=True),
+                                          list(bundle.baseline_columns), list(bundle.query_columns))
+
+
+def _annotation_reference_match_mode(
+    annotation_metadata: pd.DataFrame,
+    snp_identifier: str,
+) -> str:
+    """Return the identity mode usable by both annotation and reference metadata."""
+    mode = normalize_snp_identifier_mode(snp_identifier)
+    if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(annotation_metadata.columns):
+        return identity_base_mode(mode)
+    return mode
+
+
+def _annotation_metadata_with_reference_alleles(
+    *,
+    annotation_metadata: pd.DataFrame,
+    annotation_keys: pd.Series,
+    reference_metadata: pd.DataFrame,
+    reference_keys: pd.Series,
+    snp_identifier: str,
+) -> pd.DataFrame:
+    """Fill missing annotation alleles from unambiguous retained reference metadata."""
+    mode = normalize_snp_identifier_mode(snp_identifier)
+    if not is_allele_aware_mode(mode) or {"A1", "A2"}.issubset(annotation_metadata.columns):
+        return annotation_metadata
+    if not {"A1", "A2"}.issubset(reference_metadata.columns):
+        return annotation_metadata
+
+    reference_lookup = reference_metadata.loc[:, ["A1", "A2"]].copy()
+    reference_lookup["_match_key"] = reference_keys.to_numpy()
+    reference_lookup = reference_lookup.loc[reference_lookup["_match_key"].notna()].copy()
+    duplicate_mask = reference_lookup["_match_key"].duplicated(keep=False)
+    if bool(duplicate_mask.any()):
+        duplicate_key = str(reference_lookup.loc[duplicate_mask, "_match_key"].iloc[0])
+        raise LDSCInputError(
+            "ldscore could not infer missing annotation alleles from reference metadata. "
+            f"Base identity {duplicate_key!r} is not unique under SNP identifier mode "
+            f"'{mode}'. Most likely the reference panel contains duplicate base SNP "
+            "identities after dropping alleles. Provide allele-aware annotation columns "
+            "A1/A2, or regenerate the reference panel with unique retained SNP identities."
+        )
+    reference_lookup = reference_lookup.set_index("_match_key")
+    missing = ~annotation_keys.isin(reference_lookup.index)
+    if bool(missing.any()):
+        missing_key = str(annotation_keys.loc[missing].iloc[0])
+        raise LDSCInputError(
+            "ldscore could not infer missing annotation alleles from reference metadata. "
+            f"Retained annotation SNP {missing_key!r} has no matching A1/A2 values in "
+            "the reference metadata. Most likely the annotation and reference panel were "
+            "matched with base chr_pos/rsID identities but the allele metadata is incomplete. "
+            "Provide A1/A2 in the annotation input or regenerate the reference panel with allele columns."
+        )
+
+    enriched = annotation_metadata.copy()
+    enriched["A1"] = annotation_keys.map(reference_lookup["A1"]).astype(str)
+    enriched["A2"] = annotation_keys.map(reference_lookup["A2"]).astype(str)
+    return enriched

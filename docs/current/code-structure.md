@@ -1,6 +1,6 @@
 # Code Structure
 
-Last updated on: 2026-09-08
+Last updated on: 2026-09-10
 
 This is the contributor-facing module map for `ldsc_py3_Jerry`.
 
@@ -85,9 +85,9 @@ ldsc_py3_Jerry/
 | `ldsc._kernel.overlap` | low-level annotation overlap-block computation (`OverlapContribution`, `compute_overlap`, `sum_overlap_contributions`) |
 | `ldsc._kernel.annotation` | low-level annotation table reading and BED intersection helpers |
 | `ldsc._kernel.ref_panel_builder` | optional genetic-map parsing, optional liftover, parquet schemas, pairwise LD emission |
-| `ldsc._kernel.ref_panel` | runtime PLINK/parquet reference-panel adapters |
+| `ldsc._kernel.ref_panel` | runtime PLINK/parquet adapters; `RefPanel.prepare_chromosome` owns reference filtering, annotation alignment, window/bias policy, and reader lifetime |
 | `ldsc._kernel.r2_query` | low-level index-format parquet pair lookup used by `ldsc.r2_query` |
-| `ldsc._kernel.ldscore` | LD-score math, PLINK/parquet readers, chromosome computation, and count primitives; no LDSC2 artifact emitters |
+| `ldsc._kernel.ldscore` | `PreparedChromosome` data contract, LD-score projection from prepared state, streaming R2 reader, annotation/window/count primitives; no LDSC2 artifact emitters |
 | `ldsc._kernel.sumstats_munger` | legacy-compatible raw summary-statistics QC, normalization, and optional coordinate liftover; returns in-memory tables and owns no output files |
 | `ldsc._kernel.regression` | LDSC estimators for `Hsq` and `RG` |
 | `ldsc._kernel._jackknife`, `ldsc._kernel._irwls` | supporting numerical routines used by regression |

@@ -112,7 +112,7 @@ Last updated on: 2026-09-10
 
 ## Adapter correctness must reach the production numerical path
 
-- Summary/root cause/correction: Raw R² metadata was resolved by the panel adapter but bypassed by the chromosome workflow, silently omitting bias correction; reuse the metadata resolver at the production boundary and assert known ordinary and regression-weight LD scores through the public calculator.
+- Summary/root cause/correction: Raw R² metadata was resolved by the panel adapter but bypassed by the chromosome workflow, silently omitting bias correction; make `RefPanel.prepare_chromosome` the shared production/test path for aligned rows, windows, and reader policy, then assert known ordinary and regression-weight scores through the public calculator; keep physical BIM/BED indices through sorting and close chromosome readers on success or failure.
 
 ## Numerical error policies belong around the operations that need them
 

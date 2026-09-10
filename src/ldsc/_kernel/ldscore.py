@@ -1,169 +1,35 @@
-"""
-Description
------------
-New LD-score estimation core for SNP-level annotation files with support for
-either PLINK genotypes or sorted per-chromosome parquet `R2` tables as the
-reference panel.
+"""LD-score projection primitives and streaming index-format R2 reader.
 
-This module consumes SNP-level `.annot` / `.annot.gz` inputs only. It does not
-perform BED-to-SNP projection; that remains the responsibility of
-`utils/BED2annot.py`.
+``RefPanel.prepare_chromosome`` owns source resolution, reference filtering,
+annotation alignment, LD-window validation, and reader lifetime. This module's
+``compute_chromosome`` consumes that ``PreparedChromosome`` state and projects
+baseline/query annotations and regression weights in one traversal. It also
+provides annotation parsing, window geometry, and count primitives used by the
+workflow adapters. BED-to-SNP projection belongs to ``ldsc.annotation_builder``.
 
-Supported Inputs
-----------------
-- Query and baseline annotation inputs are provided separately. Each file must
-  contain SNP-level rows with required metadata columns `CHR POS SNP CM`, plus
-  one or more annotation columns.
-- Reference-panel input may be either:
-  - PLINK genotype files (`.bed/.bim/.fam`), or
-  - one per-chromosome sorted parquet `R2` file.
-- Optional frequency metadata may be provided to populate `MAF` in outputs and
-  to enable common-count generation when parquet input is used. For LD-score
-  calculation, the annotation file's `CM` is the first source. The sidecar
-  metadata only fills missing `CM` values; duplicate sidecar identity clusters
-  are dropped entirely before filling.
-- Optional regression SNP lists may be provided to define the SNP set used for
-  `w_ld`. If omitted, the retained reference SNP set is used.
-
-Index Parquet `R2` Format
---------------------------
-- Package-written parquet R2 files contain exactly four columns: `IDX_1`,
-  `IDX_2` (int32 sidecar-row indices), `R2` (int16, symmetric quantization scale
-  32767, dequantized to float32 on read), and `SIGN` (bit-packed bool, ``True``
-  for Pearson r >= 0). They carry no SNP identity; identity lives once-per-SNP in
-  the paired `chrN_meta.tsv.gz` sidecar. See
-  ``docs/current/parquet-r2-format-and-read-pipeline.md``.
-- The sort build is recorded under `ldsc:sorted_by_build`; the runtime query
-  build must match it. The parquet is bound to its sidecar by `ldsc:n_snps` and
-  `ldsc:sidecar_identity_sha256`; the sidecar is mandatory.
-- Rows are sorted by non-decreasing `IDX_1`. Footer statistics for `IDX_1` form
-  a row-group index so each window reads only overlapping row groups; decoded
-  row groups are cached across overlapping sliding-window queries.
-- The same index parquet serves all four identifier modes: the reader resolves
-  each panel SNP to a retained matrix index once per chromosome (the remap), and
-  per-pair decode is a pure integer gather. Legacy 10-column and external raw
-  schemas are not supported; such files raise a regenerate error.
-- In `chr_pos`-family modes, retained reference SNP rows must have unique
-  chromosome positions after active identity cleanup. If two retained SNPs
-  share the same `CHR` and `POS` in base `chr_pos`, matching to the `R2` table
-  is ambiguous and the code fails fast; allele-aware multi-allelic base-key
-  clusters are removed before matching.
-
-Identifier and Genome-Build Rules
----------------------------------
-- Supported SNP identifier modes are `rsid`, `rsid_allele_aware`, `chr_pos`,
-  and `chr_pos_allele_aware`.
-- In chr-pos-family modes, retained reference SNP rows are matched by
-  chromosome and position, plus A1/A2 identity when the active mode and input
-  schema require it.
-- Canonical parquet files are build-specific. If `ldsc:sorted_by_build`
-  conflicts with the selected `genome_build`, reader initialization raises a
-  `ValueError`. If the metadata key is absent, the reader infers the build from
-  the first row group and logs a warning.
-
-Outputs
--------
-This module is an internal compute kernel and does not write artifacts. The
-public ``ldsc ldscore`` workflow wraps kernel results in ``LDScoreResult`` and
-writes a canonical directory:
-
-- ``metadata.json``
-- ``ldscore.baseline.parquet``, containing ``CHR``, ``POS``, ``SNP``, ``regression_ld_scores``,
-  and baseline LD-score columns
-- optional ``ldscore.query.parquet``, containing ``CHR``, ``POS``, ``SNP``, and query
-  LD-score columns
-
-Count records are stored in root metadata rather than as public ``.M`` sidecar
-files. LDSC2 suites are handled only by the explicit workflow-layer converter.
-
-Example Usage
--------------
-Python
-    from ldsc import run_ldscore
-
-    run_ldscore(
-        output_dir="results/example_ldscores",
-        baseline_annot_sources="data/baseline.@.annot.gz",
-        query_annot_sources="data/query.annot.gz",
-        r2_dir="data/ref_panel/hg38",
-        r2_bias_mode="unbiased",
-        ld_wind_cm=1,
-    )
-
-CLI
-    python -m ldsc ldscore \
-        --output-dir results/example_ldscores \
-        --baseline-annot-sources data/baseline.@.annot.gz \
-        --query-annot-sources data/query.annot.gz \
-        --r2-dir data/ref_panel/hg38 \
-        --snp-identifier rsid \
-        --r2-bias-mode unbiased \
-        --ld-wind-cm 1
-
-Computation Overview
+Scientific contracts
 --------------------
-1. Load query and baseline SNP-level annotation files chromosome by chromosome.
-2. Normalize SNP identity using the selected identifier mode and require all
-   annotation files for a chromosome to have identical retained SNP rows.
-3. Build the canonical reference SNP table from annotation inputs.
-4. Intersect annotation SNPs with the reference-panel SNP universe. Metadata
-   sidecars define the full universe when present; otherwise the workflow falls
-   back to the partial SNP universe recoverable from parquet pair endpoints.
-5. Compute LD scores per chromosome:
-   - PLINK mode reuses the original genotype-block implementation.
-   - parquet mode follows the old LDSC sliding-block accumulation workflow and
-     fills block-local dense `R2` matrices from the sorted parquet file.
-6. Compute all partitioned LD-score columns and `w_ld` from the same block
-   traversal.
-7. Aggregate chromosome results; the public wrapper writes the canonical
-   LD-score result directory.
+Prepared metadata, float32 annotation rows, and window bounds describe the
+same retained SNP universe in genomic order. Reference-panel CM and MAF are
+authoritative. PLINK sample selection precedes genotype QC and inclusive MAF
+filtering; chromosome LD scores retain the existing float32 result conversion.
+Parquet projection accumulates in float64. Common-SNP counts and overlap use
+``MAF >= common_maf_min`` (0.05 by default), independently of panel filtering.
 
-Raw-vs-Unbiased `R2` Handling
------------------------------
-- parquet input requires the user to declare whether `R2` is `raw` sample
-  `r^2` or already `unbiased`.
-- If `R2` is raw, off-diagonal entries are transformed using the original LDSC
-  correction:
+Canonical parquet R2 inputs contain sidecar-row indices ``IDX_1``/``IDX_2``,
+``R2``, and ``SIGN``. The required sidecar is bound by its identity digest and
+row count. Each chromosome builds one identity remap; pairs stream through
+``iter_all_pairs`` without a dense chromosome matrix or row-group cache. Int16
+R2 values use scale 32767; floating-point inputs are also accepted. Each
+unordered off-diagonal pair contributes in both directions, and the diagonal
+is added internally as one. The panel adapter resolves raw/unbiased metadata
+and sample size before reader construction. Raw values receive the correction
+``r2_raw - (1 - r2_raw) / (n - 2)``; unbiased values receive no second correction.
 
-      r2_unbiased = r2_raw - (1 - r2_raw) / (n - 2)
-
-  where `n` is the LD reference sample size.
-- If `R2` is already unbiased, it is used as-is.
-- Each unordered SNP pair contributes to two symmetric matrix entries in the
-  block-local dense matrices.
-- The diagonal is always added internally as `r_jj^2 = 1`.
-
-Window Rules
-------------
-- `--ld-wind-snps`, `--ld-wind-kb`, and `--ld-wind-cm` follow the same semantics
-  as the original codebase.
-- In parquet mode, `block_left` and the old sliding-block iteration determine
-  the query bounds and accumulation order.
-- `--ld-wind-cm` requires non-missing CM coordinates for retained SNPs. Those
-  coordinates come first from annotation metadata, with sidecar metadata filling
-  only missing `CM` values.
-
-MAF and Common-Count Rules
---------------------------
-- In PLINK mode, MAF is taken from the genotype data after SNP filtering.
-- In parquet mode, MAF is only available when supplied via an optional
-  frequency/metadata file.
-- If MAF is unavailable, `MAF` is written as `NA` in LD-score outputs and
-  common counts are not emitted.
-
-- Runtime parquet input must be the canonical 4-column index format
-  (``IDX_1``, ``IDX_2``, ``R2``, ``SIGN``), paired with its metadata sidecar.
-  The same parquet serves all four identifier modes; mode-specific matching
-  happens once per chromosome when the reader builds its remap.
-- parquet input requires `pyarrow` at runtime.
-- Per-query partitioned LDSC wrappers are intentionally out of scope for this
-  module; this module computes LD scores only.
-
-Dependencies
-------------
-- `numpy`
-- `pandas`
-- `pyarrow` for sorted parquet conversion and runtime queries
+This module returns in-memory results and writes no artifacts. Public result
+normalization and aggregation live in ``ldsc.ldscore_calculator``; canonical
+output layout belongs to ``ldsc.outputs``. See
+``docs/current/parquet-r2-format-and-read-pipeline.md`` for the file contract.
 """
 
 from __future__ import annotations
@@ -171,7 +37,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -204,9 +69,6 @@ from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from ..path_resolution import (
     ANNOTATION_SUFFIXES,
-    FREQUENCY_SUFFIXES,
-    PARQUET_SUFFIXES,
-    resolve_chromosome_group,
     resolve_file_group,
     resolve_plink_prefix,
 )
@@ -215,10 +77,9 @@ from . import formats as legacy_parse
 from .annotation import _annotation_parse_error_message, _validate_annotation_values
 from .identifiers import build_snp_id_series, read_snp_restriction_keys
 from .overlap import OverlapContribution, compute_overlap
-from .plink_bed import __GenotypeArrayInMemory__, PlinkBEDFile  # noqa: F401
+from .plink_bed import PlinkBEDFile  # Re-exported for the reference-panel adapters.
 from .snp_identity import (
     RestrictionIdentityKeys,
-    clean_identity_artifact_table,
     empty_identity_drop_frame,
     effective_merge_key_series,
     identity_base_mode,
@@ -228,11 +89,6 @@ from .snp_identity import (
     sidecar_identity_sha256,
 )
 from .regions import RegionIntervals, region_exclusion_keep_mask
-
-try:  # pragma: no cover - optional dependency
-    import bitarray as ba
-except ImportError:  # pragma: no cover - optional dependency
-    ba = None
 
 
 LOGGER = logging.getLogger("LDSC.ldscore")
@@ -293,13 +149,21 @@ class ChromComputationResult:
 
 
 @dataclass
-class PreparedPlinkChromosome:
-    """One filtered PLINK chromosome reused across annotation-column batches."""
+class PreparedChromosome:
+    """Aligned reference state whose reader belongs to one chromosome calculation.
 
-    geno: object
+    ``annotation_matrix`` has shape (n_retained_snps, n_annotations) in exactly
+    ``metadata`` order. ``block_left`` describes that same retained universe.
+    Use as a context manager; closing it releases the backend file handle.
+    """
+
+    backend: str
+    reader: object
     metadata: pd.DataFrame
     annotation_matrix: np.ndarray
     block_left: np.ndarray
+    baseline_columns: list[str]
+    query_columns: list[str]
     reference_rows_before_genotype_qc: int = 0
     genotype_qc_removed: int = 0
     maf_removed: int = 0
@@ -307,16 +171,18 @@ class PreparedPlinkChromosome:
     cm_source: str = "bim_cm"
     identity_drops: pd.DataFrame = field(default_factory=empty_identity_drop_frame)
 
+    def close(self):
+        """Release the chromosome reader on success or failure."""
+        self.reader.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
 
 # Shared computational helpers.
-def get_legacy_ld_module():
-    """Return the bitarray-backed LD kernel or raise a dependency error."""
-    if ba is None:
-        raise LDSCDependencyError(
-            "ldscore could not use PLINK reference-panel mode because the bitarray-backed LD kernel is unavailable. "
-            "Most likely the optional dependency 'bitarray' is not installed. Install bitarray and retry."
-        )
-    return sys.modules[__name__]
 
 
 def split_arg_list(value: str | None) -> list[str]:
@@ -498,52 +364,11 @@ def resolve_annotation_files(spec: str | None) -> list[str]:
     )
 
 
-def resolve_parquet_files(args: argparse.Namespace, chrom: str | None = None) -> list[str]:
-    """Resolve the sorted parquet R2 files participating in one LD-score run."""
-    r2_table = getattr(args, "r2_table", None)
-    if r2_table:
-        tokens = split_arg_list(r2_table)
-        if chrom is not None:
-            return resolve_chromosome_group(
-                tokens,
-                chrom=chrom,
-                label="r2_table",
-                suffixes=PARQUET_SUFFIXES,
-            )
-        return resolve_file_group(
-            tokens,
-            label="r2_table",
-            suffixes=PARQUET_SUFFIXES,
-            allow_chromosome_suite=True,
-        )
-    return []
-
-
 def resolve_bfile_prefix(args: argparse.Namespace, chrom: str | None = None) -> str | None:
     """Resolve the PLINK prefix for the requested chromosome, if any."""
     if args.bfile is None:
         return None
     return resolve_plink_prefix(args.bfile, chrom=chrom)
-
-
-def resolve_frequency_files(args: argparse.Namespace, chrom: str | None = None) -> list[str]:
-    """Resolve optional frequency or metadata files for one chromosome."""
-    tokens = split_arg_list(args.frqfile)
-    if not tokens:
-        return []
-    if chrom is not None:
-        return resolve_chromosome_group(
-            tokens,
-            chrom=chrom,
-            label="frqfile",
-            suffixes=FREQUENCY_SUFFIXES,
-        )
-    return resolve_file_group(
-        tokens,
-        label="frqfile",
-        suffixes=FREQUENCY_SUFFIXES,
-        allow_chromosome_suite=True,
-    )
 
 
 def read_text_table(path: str) -> pd.DataFrame:
@@ -880,149 +705,6 @@ def load_regression_keys(args: argparse.Namespace) -> RestrictionIdentityKeys | 
     return read_identifier_list(args.regr_snps_file, args.snp_identifier)
 
 
-def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str) -> pd.DataFrame:
-    """Parse an optional sidecar metadata file into ``_key``/``CM``/``MAF`` columns."""
-    df = read_text_table(path)
-    identifier_mode = normalize_snp_identifier_mode(identifier_mode)
-    context = path
-    chr_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CHR"], context=context)
-    pos_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["POS"], context=context)
-    snp_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["SNP"], context=context)
-    cm_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CM"], context=context)
-    maf_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["MAF"], context=context)
-    a1_col = resolve_optional_column(df.columns, A1_COLUMN_SPEC, context=context)
-    a2_col = resolve_optional_column(df.columns, A2_COLUMN_SPEC, context=context)
-    if (a1_col is None) != (a2_col is None):
-        raise LDSCInputError(
-            f"ldscore could not parse frequency metadata '{path}': it has only one allele "
-            "column. Most likely the file contains A1 without A2, or A2 without A1. "
-            "Provide both allele columns, or remove both and use a base SNP identifier mode."
-        )
-
-    if chrom is not None and chr_col is not None and identity_mode_family(identifier_mode) == "rsid":
-        keep = df[chr_col].map(lambda value: normalize_chromosome(value, context=path)) == normalize_chromosome(chrom, context=path)
-        df = df.loc[keep].reset_index(drop=True)
-
-    if len(df) == 0:
-        return pd.DataFrame(columns=["_key", "_key_mode", "CM", "MAF"])
-
-    out = pd.DataFrame(index=df.index)
-    key_frame = pd.DataFrame(index=df.index)
-    if identity_mode_family(identifier_mode) == "rsid":
-        if snp_col is None:
-            raise LDSCInputError(
-                f"ldscore could not parse frequency metadata '{path}' in rsID-family mode: "
-                "no SNP column was found. Most likely the sidecar uses CHR/POS-only "
-                "identifiers or an unrecognized SNP column name. Add a SNP column or run "
-                "with a chr_pos-family SNP identifier mode."
-            )
-        key_frame["SNP"] = df[snp_col].astype(str)
-    else:
-        if chr_col is None or pos_col is None:
-            raise LDSCInputError(
-                f"ldscore could not parse frequency metadata '{path}' in chr_pos-family mode: "
-                "CHR and POS columns are required. Most likely the sidecar uses rsID-only "
-                "identifiers or unrecognized CHR/POS column names. Add CHR and POS columns "
-                "or run with an rsID-family SNP identifier mode."
-            )
-        key_frame["CHR"] = df[chr_col]
-        key_frame["POS"] = df[pos_col]
-    has_alleles = a1_col is not None and a2_col is not None
-    if has_alleles:
-        key_frame["A1"] = df[a1_col].astype(str)
-        key_frame["A2"] = df[a2_col].astype(str)
-    key_mode = identifier_mode if is_allele_aware_mode(identifier_mode) and has_alleles else identity_base_mode(identifier_mode)
-    out["_key"] = build_snp_id_series(key_frame, key_mode)
-    out["_key_mode"] = key_mode
-
-    if cm_col is not None:
-        out["CM"] = pd.to_numeric(df[cm_col], errors="coerce")
-    if maf_col is not None:
-        maf = pd.to_numeric(df[maf_col], errors="coerce").astype(float)
-        out["MAF"] = np.minimum(maf, 1.0 - maf)
-
-    out = out.loc[out["_key"].notna()].copy()
-    if chrom is not None and chr_col is not None:
-        keep_chrom = df.loc[out.index, chr_col].map(lambda value: normalize_chromosome(value, context=path)) == normalize_chromosome(chrom, context=path)
-        out = out.loc[keep_chrom.to_numpy()].copy()
-    return out.reset_index(drop=True)
-
-
-def merge_frequency_metadata(
-    metadata: pd.DataFrame,
-    args: argparse.Namespace,
-    chrom: str,
-    identifier_mode: str,
-) -> pd.DataFrame:
-    """
-    Merge reference-panel sidecar ``CM`` and ``MAF`` onto retained SNP metadata.
-
-    The reference-panel sidecar is **authoritative** for ``CM`` and ``MAF``: for
-    every SNP the sidecar covers, its ``CM``/``MAF`` overwrite any
-    annotation-provided values. ``CM``/``MAF`` are population-specific and belong
-    to the reference panel, not the annotation. Frequency sidecars are metadata
-    providers, not SNP filters: when multiple sidecar rows share the active
-    effective identity key, the whole duplicate-key cluster is ignored and a
-    warning is logged, so those SNPs keep whatever ``CM``/``MAF`` they already had
-    (typically missing, which `--ld-wind-cm` then rejects).
-    """
-    files = resolve_frequency_files(args, chrom=chrom)
-    if not files:
-        return metadata
-
-    frames = [parse_frequency_metadata(path, chrom=chrom, identifier_mode=identifier_mode) for path in files]
-    freq_df = pd.concat(frames, axis=0, ignore_index=True) if frames else pd.DataFrame(columns=["_key", "_key_mode", "CM", "MAF"])
-    duplicate_mask = freq_df[["_key_mode", "_key"]].duplicated(keep=False)
-    if bool(duplicate_mask.any()):
-        message = (
-            f"Dropping {int(duplicate_mask.sum())} frequency metadata rows in duplicate SNP identity clusters "
-            f"for chromosome {chrom}; CM/MAF will remain missing for those keys unless already present in "
-            "annotation metadata."
-        )
-        LOGGER.warning(message)
-        freq_df = freq_df.loc[~duplicate_mask].reset_index(drop=True)
-
-    merged = metadata.copy()
-    for key_mode, freq_part in freq_df.groupby("_key_mode", sort=False):
-        merged_keys = build_snp_id_series(merged, str(key_mode))
-        freq_part = freq_part.set_index("_key")
-        # The reference-panel sidecar is authoritative for CM/MAF: overwrite any
-        # annotation-provided values for every SNP the sidecar covers, so the
-        # reference panel (not the annotation) determines CM and MAF.
-        if "CM" in freq_part.columns:
-            if "CM" not in merged.columns:
-                merged["CM"] = np.nan
-            present_cm = merged_keys.isin(freq_part.index)
-            merged.loc[present_cm, "CM"] = freq_part.loc[merged_keys.loc[present_cm], "CM"].to_numpy()
-        if "MAF" in freq_part.columns:
-            if "MAF" not in merged.columns:
-                merged["MAF"] = np.nan
-            present_maf = merged_keys.isin(freq_part.index)
-            merged.loc[present_maf, "MAF"] = freq_part.loc[merged_keys.loc[present_maf], "MAF"].to_numpy()
-    return merged
-
-
-def apply_maf_filter(
-    metadata: pd.DataFrame,
-    annotations: pd.DataFrame,
-    maf_min: float | None,
-    context: str,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Apply the optional MAF threshold to metadata and annotation rows together."""
-    if maf_min is None:
-        return metadata, annotations
-    if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
-        LOGGER.warning(f"Cannot apply --maf-min in {context} because MAF metadata is unavailable.")
-        return metadata, annotations
-    keep = metadata["MAF"] >= maf_min
-    removed = int((~keep).sum())
-    if removed:
-        LOGGER.info(f"Removed {removed} SNPs with MAF < {maf_min} in {context}.")
-    metadata = metadata.loc[keep].reset_index(drop=True)
-    annotations = annotations.loc[keep].reset_index(drop=True)
-    return metadata, annotations
-
-
 def chromosome_set_from_annotation_inputs(args: argparse.Namespace) -> list[str]:
     """Discover the chromosome set implied by the supplied annotation inputs."""
     chromosomes: set[str] = set()
@@ -1304,12 +986,12 @@ class _DecodedR2RowGroup:
 
 class SortedR2BlockReader:
     """
-    Query block-local dense R2 matrices from a per-chromosome parquet table.
+    Stream retained R2 pairs from a chromosome-scoped index parquet table.
 
     Index-format parquet files use logical fields ``IDX_1``, ``IDX_2``, ``R2``
     (int16 on-disk, dequantized to float32 by dividing by ``ldsc:r2_scale``),
-    and ``SIGN``. Files are queried via row-group pruning on sorted ``IDX_1``
-    bounds. Legacy float32 ``R2`` columns (absent ``ldsc:r2_encoding`` metadata)
+    and ``SIGN``. Each row group is decoded once and remapped to retained SNP
+    indices. Float32 ``R2`` columns (absent ``ldsc:r2_encoding`` metadata)
     are read unscaled for backward compatibility.
     """
 
@@ -1363,7 +1045,7 @@ class SortedR2BlockReader:
                 "Install pyarrow or use PLINK reference-panel input instead."
             ) from exc
 
-        layout = _parquet_schema_layout(pq.ParquetFile(paths[0]).schema_arrow.names)
+        layout = _parquet_schema_layout(pq.read_schema(paths[0]).names)
         if layout != "index":
             raise LDSCInputError(
                 f"ldscore could not use R2 parquet '{paths[0]}': it is not an index-format "
@@ -1388,7 +1070,16 @@ class SortedR2BlockReader:
             )
         self._runtime_layout = "index"
         self._pf = pq.ParquetFile(paths[0])
-        self._init_index_path(paths[0], metadata)
+        try:
+            self._init_index_path(paths[0], metadata)
+        except BaseException:
+            self.close()
+            raise
+
+    def close(self):
+        """Release the parquet handle owned by this chromosome reader."""
+        if self._pf is not None:
+            self._pf.close()
 
     def _init_index_path(self, path: str, retained_metadata: pd.DataFrame) -> None:
         """Validate index-format metadata, the sidecar binding, and build the remap."""
@@ -1684,311 +1375,45 @@ def regression_mask_from_keys(
     return keep.astype(np.float32)
 
 
-def _plink_bed_column_indices(panel_df: pd.DataFrame, retained_metadata: pd.DataFrame) -> list[int]:
-    """Map retained canonical row order back to physical BIM/BED column indices."""
-    panel_index = panel_df.set_index("_key", verify_integrity=True)["_raw_index"]
-    try:
-        indices = panel_index.loc[retained_metadata["_key"]].to_numpy(dtype=np.int64)
-    except KeyError as exc:
-        raise LDSCInternalError(
-            "ldscore could not map canonical retained SNP rows back to physical BED columns. "
-            "Most likely row sorting discarded or changed an effective identity key."
-        ) from exc
-    return indices.tolist()
-
-
-# Per-chromosome compute backends.
-def prepare_plink_chromosome(
-    chrom: str,
-    bundle: AnnotationBundle,
-    args: argparse.Namespace,
-) -> PreparedPlinkChromosome:
-    """Prepare aligned, genotype-filtered PLINK state without computing scores."""
-    legacy_ld = get_legacy_ld_module()
-    prefix = resolve_bfile_prefix(args, chrom=chrom)
-    if prefix is None:
-        raise LDSCUsageError(
-            "ldscore cannot run PLINK mode without a PLINK prefix. Most likely PLINK "
-            "mode was selected but `--plink-prefix`/`--bfile` was omitted."
-        )
-    bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
-    fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
-    panel_df = bim.df.loc[:, ["CHR", "SNP", "CM", "BP", "A1", "A2"]].copy().rename(columns={"BP": "POS"})
-    panel_df["CHR"] = panel_df["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
-    panel_df["SNP"] = panel_df["SNP"].astype(str)
-    panel_df["POS"] = pd.to_numeric(panel_df["POS"], errors="raise").astype(np.int64)
-    panel_df["CM"] = pd.to_numeric(panel_df["CM"], errors="coerce")
-    panel_df["A1"] = panel_df["A1"].astype(str)
-    panel_df["A2"] = panel_df["A2"].astype(str)
-    panel_df = panel_df.loc[panel_df["CHR"] == normalize_chromosome(chrom, context=prefix + ".bim")].copy()
-    if len(panel_df) == 0:
-        raise LDSCInputError(
-            f"ldscore found no PLINK SNPs for chromosome {chrom} in prefix '{prefix}'."
-        )
-    panel_df["_raw_index"] = panel_df.index.to_numpy(dtype=np.int64)
-    panel_drops = empty_identity_drop_frame()
-    if args.snp_identifier in {"rsid", "chr_pos"}:
-        panel_cleanup = clean_identity_artifact_table(
-            panel_df,
-            args.snp_identifier,
-            context=f"direct PLINK metadata chromosome {chrom}",
-            stage="plink_reference_identity_cleanup",
-            logger=(
-                None
-                if getattr(args, "_plink_identity_cleanup_already_logged", False)
-                else LOGGER
-            ),
-        )
-        panel_df = panel_cleanup.cleaned
-        panel_drops = panel_cleanup.dropped
-        if panel_df.empty:
-            raise LDSCInputError(
-                f"ldscore retained no PLINK SNPs for chromosome {chrom} after duplicate identity cleanup."
-            )
-    panel_df["_key"] = identifier_keys(panel_df, args.snp_identifier)
-
-    metadata = bundle.metadata.copy()
-    annotations = bundle.annotations.copy()
-    metadata["_key"] = identifier_keys(metadata, args.snp_identifier)
-    panel_keys = pd.Index(panel_df["_key"])
-    keep = metadata["_key"].isin(panel_keys)
-    removed = int((~keep).sum())
-    if removed:
-        LOGGER.warning(
-            f"Dropping {removed} annotated SNPs on chromosome {chrom} because they are absent from the PLINK reference panel."
-        )
-    metadata = metadata.loc[keep].reset_index(drop=True)
-    annotations = annotations.loc[keep].reset_index(drop=True)
-    if len(metadata) == 0:
-        raise LDSCInputError(
-            f"ldscore retained no annotation SNPs on chromosome {chrom} after PLINK intersection. "
-            f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
-        )
-
-    keep_indivs = resolve_keep_individuals(getattr(args, "keep", None), fam)
-    keep_snps = _plink_bed_column_indices(panel_df, metadata)
-    geno = legacy_ld.PlinkBEDFile(
-        prefix + ".bed",
-        len(fam.IDList),
-        bim,
-        keep_snps=keep_snps,
-        keep_indivs=keep_indivs,
-        mafMin=getattr(args, "maf_min", getattr(args, "maf", None)),
-    )
-    geno_meta = pd.DataFrame(geno.df, columns=geno.colnames)
-    if "BP" in geno_meta.columns:
-        geno_meta = geno_meta.rename(columns={"BP": "POS"})
-    geno_meta["CHR"] = geno_meta["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
-    geno_meta["SNP"] = geno_meta["SNP"].astype(str)
-    geno_meta["POS"] = pd.to_numeric(geno_meta["POS"], errors="raise").astype(np.int64)
-    geno_meta["CM"] = pd.to_numeric(geno_meta["CM"], errors="coerce")
-    geno_meta["MAF"] = pd.to_numeric(geno_meta["MAF"], errors="coerce")
-    geno_meta = geno_meta.merge(
-        panel_df.loc[:, ["CHR", "SNP", "POS", "A1", "A2"]],
-        how="left",
-        on=["CHR", "SNP", "POS"],
-        sort=False,
-    )
-    geno_meta["_key"] = identifier_keys(geno_meta, args.snp_identifier)
-    annotation_matrix = annotations.set_index(metadata["_key"]).loc[geno_meta["_key"]].to_numpy(dtype=np.float32)
-    if len(geno_meta) == 0:
-        raise LDSCInputError(
-            f"ldscore retained no PLINK reference SNPs on chromosome {chrom} after genotype filtering."
-        )
-    require_reference_maf(geno_meta, chrom)
-    genetic_map = getattr(args, "genetic_map", None)
-    if args.ld_wind_cm is not None:
-        if genetic_map is not None:
-            from .ref_panel_builder import interpolate_genetic_map_cm
-
-            geno_meta["CM"] = interpolate_genetic_map_cm(
-                normalize_chromosome(chrom, context=prefix + ".bim"),
-                geno_meta["POS"].to_numpy(dtype=np.int64),
-                genetic_map,
-            )
-        else:
-            assert_cm_usable(geno_meta["CM"], chrom)
-    validate_window_positions_sorted(geno_meta, chrom)
-    coords, max_dist = build_window_coordinates(geno_meta.drop(columns="_key"), args)
-    block_left = legacy_ld.getBlockLefts(coords, max_dist)
-    check_whole_chromosome_window(block_left, args, chrom)
-    return PreparedPlinkChromosome(
-        geno=geno,
-        metadata=geno_meta.drop(columns="_key").reset_index(drop=True),
-        annotation_matrix=annotation_matrix,
-        block_left=np.asarray(block_left),
-        reference_rows_before_genotype_qc=len(metadata),
-        genotype_qc_removed=int(getattr(geno, "genotype_qc_removed", 0)),
-        maf_removed=int(getattr(geno, "maf_removed", 0)),
-        selected_individual_count=int(geno.n),
-        cm_source="explicit_genetic_map" if genetic_map is not None else "bim_cm",
-        identity_drops=panel_drops,
-    )
-
-
-def compute_chrom_from_parquet(
-    chrom: str,
-    bundle: AnnotationBundle,
-    args: argparse.Namespace,
-    regression_keys: set[str] | RestrictionIdentityKeys | None,
+def compute_chromosome(
+    chrom: str, prepared: PreparedChromosome, *, snp_identifier: str,
+    snp_batch_size: int, common_maf_min: float = 0.05,
+    regression_keys: set[str] | RestrictionIdentityKeys | None = None,
     regression_regions: RegionIntervals | None = None,
 ) -> ChromComputationResult:
-    """
-    Compute all LD-score outputs for one chromosome from sorted parquet R2 input.
+    """Project annotations and regression weights through one prepared chromosome.
 
-    Main steps:
-    1. Merge optional CM/MAF metadata and apply any MAF filter. For LD-score
-       calculation, the annotation file's CM is the first source. The sidecar
-       metadata only fills missing CM values.
-    2. Treat the sidecar-aligned metadata rows as the authoritative retained SNP universe.
-    3. Validate the LD window against the retained SNP coordinates.
-    4. Query block-local dense R2 matrices from the sorted parquet file while
-       following the old LDSC sliding-block traversal.
-    5. Return chromosome-level LD scores plus all-SNP and common-SNP counts.
+    Preparation owns identity, sample/MAF selection, reader policy, and window
+    validation. This function only projects the aligned matrices and derives
+    counts and overlap; it never resolves paths or reopens a reference panel.
     """
-    metadata = merge_frequency_metadata(bundle.metadata.copy(), args, chrom=chrom, identifier_mode=args.snp_identifier)
-    metadata, annotations = apply_maf_filter(
-        metadata,
-        bundle.annotations,
-        getattr(args, "maf_min", getattr(args, "maf", None)),
-        context="parquet mode",
-    )
-    if len(metadata) == 0:
-        raise LDSCInputError(
-            f"ldscore retained no annotation SNPs on chromosome {chrom} after parquet "
-            "sidecar alignment. Most likely the annotation SNP identifiers, genome build, "
-            "or allele-aware identifier mode do not match the parquet R2 sidecar. Use "
-            "annotation and R2 artifacts built with the same SNP identifier mode and "
-            "genome build. "
-            f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
-        )
-
-    validate_retained_identifier_uniqueness(metadata, args.snp_identifier, chrom)
-    require_reference_maf(metadata, chrom)
-    validate_window_positions_sorted(metadata, chrom)
-    coords, max_dist = build_window_coordinates(metadata, args)
-    block_left = get_block_lefts(
-        coords,
-        max_dist,
-    )
+    metadata = prepared.metadata
+    annotations = pd.DataFrame(prepared.annotation_matrix,
+                               columns=prepared.baseline_columns + prepared.query_columns)
     regression_mask = regression_mask_from_keys(
-        metadata, regression_keys, args.snp_identifier, region_intervals=regression_regions
-    ).reshape(-1, 1)
-    annot_matrix = annotations.to_numpy(dtype=np.float32, copy=False)
-    combined_annot = np.c_[annot_matrix, regression_mask]
-    parquet_paths = resolve_parquet_files(args, chrom=chrom)
-    validate_ldscore_window_within_r2_panel_window(
-        args,
-        parquet_paths=parquet_paths,
-        chrom=chrom,
+        metadata, regression_keys, snp_identifier, region_intervals=regression_regions,
     )
-    check_whole_chromosome_window(block_left, args, chrom)
-    block_reader = SortedR2BlockReader(
-        paths=parquet_paths,
-        chrom=chrom,
-        metadata=metadata,
-        identifier_mode=args.snp_identifier,
-        r2_bias_mode=getattr(args, "r2_bias_mode", "unbiased"),
-        r2_sample_size=getattr(args, "r2_sample_size", None),
-        genome_build=args.genome_build,
-    )
-    combined_scores = ld_score_streaming_from_r2_reader(
-        block_left=block_left,
-        annot=combined_annot,
-        block_reader=block_reader,
-    )
-    ld_scores = combined_scores[:, :annot_matrix.shape[1]]
-    w_ld = combined_scores[:, annot_matrix.shape[1]:]
-    out_metadata = metadata.reset_index(drop=True)
-    if "MAF" not in out_metadata.columns:
-        out_metadata["MAF"] = np.nan
-    M, M_5_50 = compute_counts(
-        out_metadata,
-        annotations,
-        common_maf_min=getattr(args, "common_maf_min", 0.05),
-    )
-    overlap = compute_overlap(
-        out_metadata,
-        annotations,
-        n_baseline=len(bundle.baseline_columns),
-        common_maf_min=getattr(args, "common_maf_min", 0.05),
-    )
-    return ChromComputationResult(
-        chrom=chrom,
-        metadata=out_metadata,
-        ld_scores=ld_scores,
-        w_ld=w_ld,
-        M=M,
-        M_5_50=M_5_50,
-        ldscore_columns=bundle.baseline_columns + bundle.query_columns,
-        baseline_columns=bundle.baseline_columns,
-        query_columns=bundle.query_columns,
-        overlap=overlap,
-    )
-
-
-def compute_chrom_from_plink(
-    chrom: str,
-    bundle: AnnotationBundle,
-    args: argparse.Namespace,
-    regression_keys: set[str] | RestrictionIdentityKeys | None,
-    regression_regions: RegionIntervals | None = None,
-) -> ChromComputationResult:
-    """
-    Compute all LD-score outputs for one chromosome from a PLINK reference panel.
-
-    Main steps:
-    1. Align annotation SNPs to the PLINK BIM table.
-    2. Reuse the legacy PLINK genotype reader and LD-score kernel.
-    3. Compute partitioned reference LD scores and the one-column regression-universe
-       LD scores together in one genotype-correlation traversal.
-    4. Return chromosome-level LD scores plus all-SNP and common-SNP counts.
-    """
-    prepared = prepare_plink_chromosome(chrom, bundle, args)
-    geno = prepared.geno
-    geno_meta = prepared.metadata
-    annotation_matrix = pd.DataFrame(
-        prepared.annotation_matrix,
-        columns=[*bundle.baseline_columns, *bundle.query_columns],
-    )
-    block_left = prepared.block_left
-    regression_mask = regression_mask_from_keys(
-        geno_meta, regression_keys, args.snp_identifier, region_intervals=regression_regions
-    )
-    n_annotation_columns = prepared.annotation_matrix.shape[1]
     combined_annotation = np.column_stack([prepared.annotation_matrix, regression_mask])
-    geno._currentSNP = 0
-    combined_scores = geno.ldScoreVarBlocks(
-        block_left,
-        args.snp_batch_size,
-        annot=combined_annotation,
-    )
-    ld_scores = combined_scores[:, :n_annotation_columns]
-    w_ld = combined_scores[:, n_annotation_columns:]
-    out_metadata = geno_meta.reset_index(drop=True)
-    M, M_5_50 = compute_counts(
-        out_metadata,
-        annotation_matrix.reset_index(drop=True),
-        common_maf_min=getattr(args, "common_maf_min", 0.05),
-    )
-    overlap = compute_overlap(
-        out_metadata,
-        annotation_matrix.reset_index(drop=True),
-        n_baseline=len(bundle.baseline_columns),
-        common_maf_min=getattr(args, "common_maf_min", 0.05),
-    )
+    if prepared.backend == "plink":
+        prepared.reader._currentSNP = 0
+        combined_scores = np.asarray(prepared.reader.ldScoreVarBlocks(
+            prepared.block_left, snp_batch_size, annot=combined_annotation,
+        ), dtype=np.float32)
+    else:
+        combined_scores = ld_score_streaming_from_r2_reader(
+            block_left=prepared.block_left, annot=combined_annotation, block_reader=prepared.reader,
+        )
+    n_columns = prepared.annotation_matrix.shape[1]
+    M, M_5_50 = compute_counts(metadata, annotations, common_maf_min=common_maf_min)
+    overlap = compute_overlap(metadata, annotations, n_baseline=len(prepared.baseline_columns),
+                              common_maf_min=common_maf_min)
     return ChromComputationResult(
-        chrom=chrom,
-        metadata=out_metadata,
-        ld_scores=np.asarray(ld_scores, dtype=np.float32),
-        w_ld=np.asarray(w_ld, dtype=np.float32),
-        M=M,
-        M_5_50=M_5_50,
-        ldscore_columns=bundle.baseline_columns + bundle.query_columns,
-        baseline_columns=bundle.baseline_columns,
-        query_columns=bundle.query_columns,
-        overlap=overlap,
-        identity_drops=prepared.identity_drops,
+        chrom=chrom, metadata=metadata.reset_index(drop=True),
+        ld_scores=combined_scores[:, :n_columns], w_ld=combined_scores[:, n_columns:],
+        M=M, M_5_50=M_5_50,
+        ldscore_columns=prepared.baseline_columns + prepared.query_columns,
+        baseline_columns=prepared.baseline_columns, query_columns=prepared.query_columns,
+        overlap=overlap, identity_drops=prepared.identity_drops,
     )
 
 

@@ -3,9 +3,9 @@
 This module is the public boundary for LD-score path handling and result
 normalization. Callers may provide exact paths, glob patterns, or explicit
 chromosome-suite tokens using ``@``. The workflow resolves those tokens into
-concrete per-chromosome files, aligns each chromosome-local annotation bundle
-to the prepared reference-panel metadata returned by ``ref_panel.load_metadata``,
-and only then dispatches to the primitive-only kernel.
+concrete per-chromosome files and asks ``ref_panel.prepare_chromosome`` for
+aligned reference data, annotations, window bounds, and an owned reader. The
+numerical kernel consumes that prepared state without reopening the panel.
 
 For ordinary unpartitioned LD-score runs, callers may omit both baseline and
 query annotations. In that case the workflow constructs an all-ones baseline
@@ -37,7 +37,7 @@ import numpy as np
 import pandas as pd
 
 from ._chr_sampler import sample_frame_from_chr_pattern
-from ._kernel.snp_identity import clean_identity_artifact_table, effective_merge_key_series, empty_identity_drop_frame, identity_base_mode, identity_mode_family, is_allele_aware_mode
+from ._kernel.snp_identity import effective_merge_key_series, empty_identity_drop_frame, identity_mode_family, is_allele_aware_mode
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from .config import (
     GlobalConfig,
@@ -61,7 +61,6 @@ from .path_resolution import (
     remove_output_artifacts,
     normalize_optional_path_token,
     normalize_path_token,
-    resolve_plink_prefix,
     resolve_scalar_path,
     split_cli_path_tokens,
 )
@@ -332,12 +331,10 @@ class LDScoreCalculator:
     This service assembles annotation and reference-panel inputs, delegates the
     heavy computation to the internal LD-score kernel, aggregates chromosome
     outputs, and optionally hands the result to the output layer. The calculator
-    treats ``ref_panel`` as the owner of the reference-panel SNP universe:
-    chromosome bundles are intersected with ``ref_panel.load_metadata(chrom)``
-    before the kernel runs so ``RefPanelConfig.ref_panel_snps_file`` is honored
-    without leaking that setting into the calculator interface. For LD-score
-    calculation, the annotation file's ``CM`` is the first source. The sidecar
-    metadata only fills missing ``CM`` values.
+    delegates reference filtering, annotation alignment, LD windows, and reader
+    policy to ``ref_panel.prepare_chromosome``. Reference-panel CM and MAF are
+    authoritative. The prepared reader is closed at the chromosome boundary,
+    including when numerical computation fails.
     """
 
     def __init__(self, output_writer: LDScoreDirectoryWriter | None = None) -> None:
@@ -369,11 +366,10 @@ class LDScoreCalculator:
         annotation_bundle : AnnotationBundle
             Aligned SNP-level baseline and query annotations.
         ref_panel : RefPanel
-            Reference-panel adapter that supplies chromosome readers and
-            metadata. Any ``RefPanelConfig.ref_panel_snps_file`` restriction is
-            already applied when the workflow calls ``ref_panel.load_metadata``.
-            Reference-panel sidecar ``CM`` values are used only to fill missing
-            annotation ``CM`` values during LD-score calculation.
+            Reference-panel adapter that prepares the aligned SNP universe,
+            annotation matrix, LD windows, and reader. Preparation applies the
+            configured SNP/sample/MAF restrictions and supplies reference CM
+            and MAF independently of annotation-file metadata.
         ldscore_config : LDScoreConfig
             LD-window and retained-SNP settings.
         global_config : GlobalConfig
@@ -658,51 +654,36 @@ class LDScoreCalculator:
     ) -> ChromLDScoreResult:
         """Compute normalized LD-score outputs for one chromosome.
 
-        The workflow first asks ``ref_panel`` for the prepared chromosome
-        metadata, which already reflects any ``ref_panel_snps_file`` restriction.
-        It then restricts the chromosome-local ``AnnotationBundle`` to the same
-        identifier set so the legacy kernel sees ``B_chrom ∩ A'_chrom`` rather
-        than the raw annotation universe ``B_chrom``. ``regression_snps`` is
-        applied later when the normalized row table is formed.
+        ``ref_panel.prepare_chromosome`` aligns annotations to the filtered
+        reference universe ``B_chrom ∩ A'_chrom`` and owns the reader until the
+        kernel returns or raises. The same aligned annotation values feed
+        numerical projection, counts, overlap, and result provenance.
+        ``regression_snps`` defines weight contributions and later restricts
+        the normalized output rows.
         """
         backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
         LOGGER.info(
             f"Computing chromosome {chrom} LD scores with backend '{backend or 'unknown'}' "
             f"and {len(annotation_bundle.metadata)} annotation rows."
         )
-        annotation_bundle = _align_annotation_bundle_to_ref_panel(
-            annotation_bundle=annotation_bundle,
-            ref_panel=ref_panel,
-            chrom=chrom,
-            global_config=global_config,
-        )
-        annotation_values = _float32_annotation_frame(annotation_bundle)
-        annotation_types = classify_annotation_values(annotation_values)
-        args = _namespace_from_configs(
-            chrom=chrom,
-            ref_panel=ref_panel,
-            ldscore_config=ldscore_config,
-            global_config=global_config,
-        )
-        if backend == "plink":
-            # RefPanel.load_metadata() already emitted the one user-facing
-            # duplicate summary. The kernel repeats cleanup to recover the
-            # physical BED-column mapping and audit rows, but does not log it twice.
-            args._plink_identity_cleanup_already_logged = True
         legacy_bundle = kernel_ldscore.AnnotationBundle(
             metadata=annotation_bundle.metadata.copy(),
             annotations=_float32_annotation_frame(annotation_bundle),
             baseline_columns=list(annotation_bundle.baseline_columns),
             query_columns=list(annotation_bundle.query_columns),
         )
-        if getattr(ref_panel.spec, "backend", None) == "parquet_r2":
-            kernel = kernel_ldscore.compute_chrom_from_parquet
-        else:
-            kernel = kernel_ldscore.compute_chrom_from_plink
-        if regression_regions is None:
-            legacy_result = kernel(chrom, legacy_bundle, args, regression_snps)
-        else:
-            legacy_result = kernel(chrom, legacy_bundle, args, regression_snps, regression_regions)
+        with ref_panel.prepare_chromosome(chrom, legacy_bundle, ldscore_config) as prepared:
+            annotation_values = pd.DataFrame(
+                prepared.annotation_matrix,
+                columns=prepared.baseline_columns + prepared.query_columns,
+            )
+            annotation_types = classify_annotation_values(annotation_values)
+            legacy_result = kernel_ldscore.compute_chromosome(
+                chrom, prepared, snp_identifier=global_config.snp_identifier,
+                snp_batch_size=ldscore_config.snp_batch_size,
+                common_maf_min=ldscore_config.common_maf_min,
+                regression_keys=regression_snps, regression_regions=regression_regions,
+            )
         reference_metadata = legacy_result.metadata.reset_index(drop=True)
         common_mask = (
             pd.to_numeric(reference_metadata["MAF"], errors="coerce").to_numpy(dtype=float)
@@ -1337,9 +1318,10 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     diagnostics when applicable, and ``diagnostics/ldscore.log`` under
     ``output_dir``. With
     overwrite enabled, successful baseline-only runs remove stale query parquet
-    siblings. For each chromosome it intersects annotation rows with
-    ``ref_panel.load_metadata(chrom)`` before calling the kernel, then returns
-    the normalized public ``LDScoreResult`` with split baseline/query tables.
+    siblings. Each chromosome uses ``ref_panel.prepare_chromosome`` to bind
+    aligned annotations to one configured reader before numerical projection.
+    The workflow returns the normalized public ``LDScoreResult`` with split
+    baseline/query tables.
     The result ``output_paths`` mapping contains data artifacts only.
     """
     _validate_padding_usage(args)
@@ -2883,124 +2865,6 @@ def _float32_annotation_frame(annotation_bundle) -> pd.DataFrame:
     return pd.DataFrame(values, columns=columns, copy=False)
 
 
-def _align_annotation_bundle_to_ref_panel(annotation_bundle, ref_panel, chrom: str, global_config: GlobalConfig):
-    """Restrict one chromosome bundle to the prepared reference-panel universe.
-
-    ``AnnotationBuilder`` defines the annotation universe ``B``. The reference
-    panel owns the optional ``A -> A'`` restriction through
-    ``RefPanelConfig.ref_panel_snps_file``. This helper materializes the intended
-    compute-time universe ``B_chrom ∩ A'_chrom`` immediately before the legacy
-    kernel call. It restricts annotation rows but does not replace annotation
-    metadata; for LD-score calculation, the annotation file's ``CM`` is the
-    first source, and sidecar metadata only fills missing ``CM`` values later in
-    the kernel.
-    """
-    reference_metadata = ref_panel.load_metadata(chrom)
-    reference_cleanup = clean_identity_artifact_table(
-        reference_metadata,
-        global_config.snp_identifier,
-        context=f"reference panel chromosome {chrom}",
-        stage="annotation_reference_identity_cleanup",
-        logger=LOGGER,
-    )
-    reference_metadata = reference_cleanup.cleaned
-    match_mode = _annotation_reference_match_mode(annotation_bundle.metadata, global_config.snp_identifier)
-    reference_keys = build_snp_id_series(reference_metadata, match_mode)
-    annotation_keys = build_snp_id_series(annotation_bundle.metadata, match_mode)
-    reference_ids = set(reference_keys)
-    keep = annotation_keys.isin(reference_ids)
-    if not bool(keep.any()):
-        backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
-        intersection = "parquet" if backend == "parquet_r2" else "PLINK"
-        raise LDSCInputError(
-            f"ldscore retained no annotation SNPs on chromosome {chrom} after intersecting "
-            f"with the {intersection} reference panel. Most likely the annotation SNP "
-            "identifiers, genome build, or allele-aware identifier mode do not match the "
-            "reference panel. Use annotation and reference-panel artifacts built with the "
-            "same SNP identifier mode and genome build. "
-            f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
-        )
-    metadata = annotation_bundle.metadata.loc[keep].reset_index(drop=True)
-    metadata = _annotation_metadata_with_reference_alleles(
-        annotation_metadata=metadata,
-        annotation_keys=annotation_keys.loc[keep].reset_index(drop=True),
-        reference_metadata=reference_metadata,
-        reference_keys=reference_keys,
-        snp_identifier=global_config.snp_identifier,
-    )
-    if bool(keep.all()) and metadata.equals(annotation_bundle.metadata.reset_index(drop=True)):
-        return annotation_bundle
-    return type(annotation_bundle)(
-        metadata=metadata,
-        baseline_annotations=annotation_bundle.baseline_annotations.loc[keep].reset_index(drop=True),
-        query_annotations=annotation_bundle.query_annotations.loc[keep].reset_index(drop=True),
-        baseline_columns=list(annotation_bundle.baseline_columns),
-        query_columns=list(annotation_bundle.query_columns),
-        chromosomes=list(getattr(annotation_bundle, "chromosomes", [str(chrom)])),
-        source_summary=dict(getattr(annotation_bundle, "source_summary", {})),
-        config_snapshot=getattr(annotation_bundle, "config_snapshot", None),
-        query_statuses=tuple(getattr(annotation_bundle, "query_statuses", ())),
-        gene_list_batch=getattr(annotation_bundle, "gene_list_batch", None),
-    )
-
-
-def _annotation_reference_match_mode(
-    annotation_metadata: pd.DataFrame,
-    snp_identifier: str,
-) -> str:
-    """Return the identity mode usable by both annotation and reference metadata."""
-    mode = normalize_snp_identifier_mode(snp_identifier)
-    if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(annotation_metadata.columns):
-        return identity_base_mode(mode)
-    return mode
-
-
-def _annotation_metadata_with_reference_alleles(
-    *,
-    annotation_metadata: pd.DataFrame,
-    annotation_keys: pd.Series,
-    reference_metadata: pd.DataFrame,
-    reference_keys: pd.Series,
-    snp_identifier: str,
-) -> pd.DataFrame:
-    """Fill missing annotation alleles from unambiguous retained reference metadata."""
-    mode = normalize_snp_identifier_mode(snp_identifier)
-    if not is_allele_aware_mode(mode) or {"A1", "A2"}.issubset(annotation_metadata.columns):
-        return annotation_metadata
-    if not {"A1", "A2"}.issubset(reference_metadata.columns):
-        return annotation_metadata
-
-    reference_lookup = reference_metadata.loc[:, ["A1", "A2"]].copy()
-    reference_lookup["_match_key"] = reference_keys.to_numpy()
-    reference_lookup = reference_lookup.loc[reference_lookup["_match_key"].notna()].copy()
-    duplicate_mask = reference_lookup["_match_key"].duplicated(keep=False)
-    if bool(duplicate_mask.any()):
-        duplicate_key = str(reference_lookup.loc[duplicate_mask, "_match_key"].iloc[0])
-        raise LDSCInputError(
-            "ldscore could not infer missing annotation alleles from reference metadata. "
-            f"Base identity {duplicate_key!r} is not unique under SNP identifier mode "
-            f"'{mode}'. Most likely the reference panel contains duplicate base SNP "
-            "identities after dropping alleles. Provide allele-aware annotation columns "
-            "A1/A2, or regenerate the reference panel with unique retained SNP identities."
-        )
-    reference_lookup = reference_lookup.set_index("_match_key")
-    missing = ~annotation_keys.isin(reference_lookup.index)
-    if bool(missing.any()):
-        missing_key = str(annotation_keys.loc[missing].iloc[0])
-        raise LDSCInputError(
-            "ldscore could not infer missing annotation alleles from reference metadata. "
-            f"Retained annotation SNP {missing_key!r} has no matching A1/A2 values in "
-            "the reference metadata. Most likely the annotation and reference panel were "
-            "matched with base chr_pos/rsID identities but the allele metadata is incomplete. "
-            "Provide A1/A2 in the annotation input or regenerate the reference panel with allele columns."
-        )
-
-    enriched = annotation_metadata.copy()
-    enriched["A1"] = annotation_keys.map(reference_lookup["A1"]).astype(str)
-    enriched["A2"] = annotation_keys.map(reference_lookup["A2"]).astype(str)
-    return enriched
-
-
 def _is_empty_intersection(error: Exception, chrom: str) -> bool:
     """Return whether ``error`` is the recoverable empty-intersection case."""
     message = str(error)
@@ -3097,113 +2961,3 @@ def _init_worker(regression_snps, regression_regions=None, log_level: str = "INF
     for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ.setdefault(var, "1")
     configure_package_logging(log_level)
-
-
-def _resolve_build_for_ldscore_genetic_map(ref_panel, global_config: GlobalConfig, chrom: str) -> str:
-    """Resolve hg19/hg38 for selecting a PLINK genetic-map source.
-
-    Uses the explicit ``--genome-build`` when given, otherwise infers from the
-    panel positions when ``genome_build='auto'`` (chr_pos-family only). Raises if
-    the build cannot be determined, since the map must match the ``.bim`` build.
-    """
-    build = normalize_genome_build(global_config.genome_build)
-    if build == "auto":
-        build = resolve_genome_build(
-            global_config.genome_build,
-            global_config.snp_identifier,
-            ref_panel.load_metadata(chrom)[["CHR", "POS"]],
-            context=f"PLINK panel chromosome {chrom} for genetic-map build selection",
-        )
-    if build not in ("hg19", "hg38"):
-        raise LDSCInputError(
-            "ldscore could not determine the genome build needed to select a genetic map for the "
-            "PLINK panel. Pass `--genome-build hg19` or `--genome-build hg38` (automatic inference "
-            "returns None in rsID identifier modes and needs sufficient HM3 overlap in chr_pos modes)."
-        )
-    return build
-
-
-def _resolve_ldscore_genetic_map(ref_panel, spec, backend, global_config: GlobalConfig, chrom: str):
-    """Load the genetic map for a PLINK cM-window run, or warn and ignore for parquet."""
-    hg19 = getattr(spec, "genetic_map_hg19_sources", None)
-    hg38 = getattr(spec, "genetic_map_hg38_sources", None)
-    if not (hg19 or hg38):
-        return None
-    if backend != "plink":
-        LOGGER.warning(
-            "Ignoring --genetic-map-*-sources for the parquet R2 reference panel: CM is taken from "
-            "the panel metadata sidecar (authoritative). Genetic-map flags apply only to PLINK panels."
-        )
-        return None
-    from ._kernel.ref_panel_builder import load_genetic_map_group
-
-    build = _resolve_build_for_ldscore_genetic_map(ref_panel, global_config, chrom)
-    sources = hg38 if build == "hg38" else hg19
-    if sources is None:
-        raise LDSCInputError(
-            f"ldscore needs a `--genetic-map-{build}-sources` file to derive CM for the PLINK panel "
-            f"(resolved build {build}), but it was not supplied."
-        )
-    return load_genetic_map_group(split_cli_path_tokens(sources))
-
-
-def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig, global_config: GlobalConfig) -> argparse.Namespace:
-    """Build the legacy-kernel namespace expected by the chromosome backends."""
-    spec = getattr(ref_panel, "spec", None)
-    backend = getattr(spec, "backend", None)
-    bfile = None
-    r2_table = None
-    r2_bias_mode = None
-    r2_sample_size = getattr(spec, "sample_size", None)
-    frqfile = None
-    if backend == "plink" and getattr(spec, "plink_prefix", None) is not None:
-        bfile = resolve_plink_prefix(spec.plink_prefix, chrom=chrom)
-    if backend == "parquet_r2":
-        if hasattr(ref_panel, "resolve_r2_paths"):
-            from ._kernel.ref_panel import _read_r2_schema_meta, _resolve_r2_bias_from_meta
-
-            r2_paths = ref_panel.resolve_r2_paths(chrom, required=False)
-            r2_table = ",".join(r2_paths) or None
-            if r2_paths:
-                r2_bias_mode, r2_sample_size = _resolve_r2_bias_from_meta(
-                    None, r2_sample_size, _read_r2_schema_meta(r2_paths[0])
-                )
-    if hasattr(ref_panel, "resolve_metadata_paths"):
-        frqfile = ",".join(ref_panel.resolve_metadata_paths(chrom)) or None
-    genetic_map = None
-    if ldscore_config.ld_wind_cm is not None:
-        genetic_map = _resolve_ldscore_genetic_map(ref_panel, spec, backend, global_config, chrom)
-    return argparse.Namespace(
-        out=None,
-        query_annot=None,
-        query_annot_chr=None,
-        baseline_annot=None,
-        baseline_annot_chr=None,
-        bfile=bfile,
-        bfile_chr=None,
-        r2_table=r2_table,
-        r2_table_chr=None,
-        snp_identifier=global_config.snp_identifier,
-        genome_build=global_config.genome_build,
-        r2_bias_mode=r2_bias_mode,
-        r2_sample_size=r2_sample_size,
-        frqfile=frqfile,
-        frqfile_chr=None,
-        keep=getattr(spec, "keep_indivs_file", None),
-        ld_wind_snps=ldscore_config.ld_wind_snps,
-        ld_wind_kb=ldscore_config.ld_wind_kb,
-        ld_wind_cm=ldscore_config.ld_wind_cm,
-        maf=None,
-        # Apply the reference-panel MAF filter in the kernel for both backends. For
-        # PLINK this is the only place --maf-min takes effect (the PLINK adapter cannot
-        # filter MAF before the genotype read); for parquet it is idempotent with the
-        # adapter's already-applied filter.
-        maf_min=getattr(spec, "maf_min", None),
-        common_maf_min=ldscore_config.common_maf_min,
-        genetic_map=genetic_map,
-        export_ref_metadata=ldscore_config.export_ref_metadata,
-        snp_batch_size=ldscore_config.snp_batch_size,
-        per_chr_output=False,
-        yes_really=ldscore_config.whole_chromosome_ok,
-        log_level=global_config.log_level,
-    )

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.ref_panel_helpers import compute_plink
+
 from argparse import Namespace
 from dataclasses import replace as dataclass_replace
 import gzip
@@ -22,8 +24,8 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ldsc.config import ConfigMismatchError, GlobalConfig, set_global_config
-from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
+from ldsc.config import ConfigMismatchError, GlobalConfig
+from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 from ldsc.query_annotations import QueryAnnotationStatus
 
 try:
@@ -38,10 +40,8 @@ try:
     from ldsc import ldscore_calculator as ldscore_workflow
     from ldsc.ldscore_calculator import (
         build_parser,
-        _ref_panel_from_args,
         _normalize_run_args,
         _resolve_regression_region_build,
-        run_ldscore,
     )
     from ldsc._kernel import formats as kernel_formats
     from ldsc._kernel import ldscore as kernel_ldscore
@@ -56,9 +56,7 @@ except ImportError:
     kernel_formats = None
     ldscore_workflow = None
     build_parser = None
-    _ref_panel_from_args = None
     _normalize_run_args = None
-    run_ldscore = None
     kernel_ldscore = None
     RestrictionIdentityKeys = None
     empty_identity_drop_frame = None
@@ -1583,131 +1581,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
         np.testing.assert_array_equal(mask, np.array([1.0, 0.0, 1.0], dtype=np.float32))
 
-    def test_frequency_metadata_uses_allele_aware_keys_when_available(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            freq_path = Path(tmpdir) / "freq.tsv"
-            freq_path.write_text(
-                "CHR\tPOS\tSNP\tA1\tA2\tCM\tMAF\n"
-                "1\t10\trs1\tA\tC\t0.1\t0.2\n"
-                "1\t20\trs2\tA\tG\t0.2\t0.3\n",
-                encoding="utf-8",
-            )
-            metadata = pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "POS": [10, 20],
-                    "SNP": ["rs1", "rs2"],
-                    "A1": ["A", "A"],
-                    "A2": ["C", "G"],
-                    "CM": [np.nan, np.nan],
-                }
-            )
-
-            merged = kernel_ldscore.merge_frequency_metadata(
-                metadata,
-                Namespace(frqfile=str(freq_path)),
-                chrom="1",
-                identifier_mode="chr_pos_allele_aware",
-            )
-
-        self.assertEqual(merged["CM"].tolist(), [0.1, 0.2])
-        self.assertEqual(merged["MAF"].tolist(), [0.2, 0.3])
-
-    def test_frequency_metadata_without_alleles_matches_base_keys(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            freq_path = Path(tmpdir) / "freq.tsv"
-            freq_path.write_text(
-                "CHR\tPOS\tSNP\tCM\tMAF\n"
-                "1\t10\trs1\t0.1\t0.2\n"
-                "1\t20\trs2\t0.2\t0.3\n",
-                encoding="utf-8",
-            )
-            metadata = pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "POS": [10, 20],
-                    "SNP": ["rs1", "rs2"],
-                    "A1": ["A", "A"],
-                    "A2": ["C", "G"],
-                    "CM": [np.nan, np.nan],
-                }
-            )
-
-            merged = kernel_ldscore.merge_frequency_metadata(
-                metadata,
-                Namespace(frqfile=str(freq_path)),
-                chrom="1",
-                identifier_mode="chr_pos_allele_aware",
-            )
-
-        self.assertEqual(merged["CM"].tolist(), [0.1, 0.2])
-        self.assertEqual(merged["MAF"].tolist(), [0.2, 0.3])
-
-    def test_frequency_metadata_duplicate_keys_drop_all_cluster_values(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            freq_path = Path(tmpdir) / "freq.tsv"
-            freq_path.write_text(
-                "CHR\tPOS\tSNP\tCM\tMAF\n"
-                "1\t10\trs1\t0.1\t0.2\n"
-                "1\t10\trs1\t9.9\t0.4\n"
-                "1\t20\trs2\t0.2\t0.3\n",
-                encoding="utf-8",
-            )
-            metadata = pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "POS": [10, 20],
-                    "SNP": ["rs1", "rs2"],
-                    "CM": [np.nan, np.nan],
-                }
-            )
-
-            with self.assertLogs("LDSC.ldscore", level="WARNING"):
-                merged = kernel_ldscore.merge_frequency_metadata(
-                    metadata,
-                    Namespace(frqfile=str(freq_path)),
-                    chrom="1",
-                    identifier_mode="chr_pos",
-                )
-
-        self.assertTrue(pd.isna(merged.loc[0, "CM"]))
-        self.assertTrue(pd.isna(merged.loc[0, "MAF"]))
-        self.assertEqual(merged.loc[1, "CM"], 0.2)
-        self.assertEqual(merged.loc[1, "MAF"], 0.3)
-
-    def test_allele_aware_frequency_metadata_without_alleles_drops_duplicate_base_key_cluster_values(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            freq_path = Path(tmpdir) / "freq.tsv"
-            freq_path.write_text(
-                "CHR\tPOS\tSNP\tCM\tMAF\n"
-                "1\t10\trs1\t0.1\t0.2\n"
-                "1\t10\trs1\t9.9\t0.4\n"
-                "1\t20\trs2\t0.2\t0.3\n",
-                encoding="utf-8",
-            )
-            metadata = pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "POS": [10, 20],
-                    "SNP": ["rs1", "rs2"],
-                    "A1": ["A", "A"],
-                    "A2": ["C", "G"],
-                    "CM": [np.nan, np.nan],
-                }
-            )
-
-            with self.assertLogs("LDSC.ldscore", level="WARNING"):
-                merged = kernel_ldscore.merge_frequency_metadata(
-                    metadata,
-                    Namespace(frqfile=str(freq_path)),
-                    chrom="1",
-                    identifier_mode="chr_pos_allele_aware",
-                )
-
-        self.assertTrue(pd.isna(merged.loc[0, "CM"]))
-        self.assertTrue(pd.isna(merged.loc[0, "MAF"]))
-        self.assertEqual(merged.loc[1, "CM"], 0.2)
-        self.assertEqual(merged.loc[1, "MAF"], 0.3)
 
     def test_plink_compute_accepts_restriction_identity_keys(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1740,7 +1613,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 n_retained_keys=2,
             )
 
-            result = kernel_ldscore.compute_chrom_from_plink("1", bundle, args, restriction)
+            result = compute_plink("1", bundle, args, restriction)
 
             self.assertEqual(result.chrom, "1")
             self.assertGreater(len(result.metadata), 0)
@@ -1767,7 +1640,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 snp_identifier="rsid",
             )
             with self.assertRaisesRegex(LDSCInternalError, "non-decreasing order"):
-                kernel_ldscore.compute_chrom_from_plink("1", bundle, args, None)
+                compute_plink("1", bundle, args, None)
 
     def _plink_cm_args(self, prefix: Path, genetic_map) -> Namespace:
         return Namespace(
@@ -1788,7 +1661,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             # The fixture .bim CM is all zero; without a map this must error even under
             # --yes-really (yes_really=True below).
             with self.assertRaisesRegex(LDSCInputError, "uninformative|all zero"):
-                kernel_ldscore.compute_chrom_from_plink("1", bundle, self._plink_cm_args(prefix, None), None)
+                compute_plink("1", bundle, self._plink_cm_args(prefix, None), None)
 
     def test_plink_cm_window_uses_genetic_map(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1799,7 +1672,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 baseline_columns=wb.baseline_columns, query_columns=wb.query_columns,
             )
             gmap = pd.DataFrame({"CHR": ["1", "1"], "POS": [1, 8], "CM": [0.0, 4.0]})
-            result = kernel_ldscore.compute_chrom_from_plink("1", bundle, self._plink_cm_args(prefix, gmap), None)
+            result = compute_plink("1", bundle, self._plink_cm_args(prefix, gmap), None)
             self.assertGreater(len(result.metadata), 0)
             # interpolated CM is non-degenerate -> a real cM window, not whole-chromosome
             self.assertGreaterEqual(result.metadata["CM"].nunique(), 2)
@@ -2768,51 +2641,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             baseline_df = pd.read_parquet(result.output_paths["baseline"])
             self.assertEqual(baseline_df["SNP"].tolist(), ["rs2"])
 
-    def test_namespace_from_configs_emits_string_paths(self):
-        from ldsc._kernel.ref_panel import RefPanelConfig
-
-        common = GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            r2_path = tmpdir / "r2" / "chr1.parquet"
-            meta_path = tmpdir / "meta" / "chr1.tsv.gz"
-            keep_path = tmpdir / "filters" / "samples.keep"
-            r2_path.parent.mkdir(parents=True, exist_ok=True)
-            meta_path.parent.mkdir(parents=True, exist_ok=True)
-            keep_path.parent.mkdir(parents=True, exist_ok=True)
-            _write_minimal_r2_parquet(r2_path, {b"ldsc:r2_bias": b"unbiased"})
-            with gzip.open(meta_path, "wt", encoding="utf-8") as handle:
-                handle.write("CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
-            keep_path.write_text("iid1\n", encoding="utf-8")
-            spec = RefPanelConfig(
-                backend="parquet_r2",
-                r2_dir=str(tmpdir / "panel" / "hg19"),
-            )
-            ref_panel = SimpleNamespace(
-                spec=spec,
-                resolve_r2_paths=lambda chrom, required=False: [str(r2_path)],
-                resolve_metadata_paths=lambda chrom: [str(meta_path)],
-            )
-
-            args = ldscore_workflow._namespace_from_configs(
-                chrom="1",
-                ref_panel=ref_panel,
-                ldscore_config=ldscore_workflow.LDScoreConfig(
-                    ld_wind_cm=1.0,
-                    snp_batch_size=64,
-                    common_maf_min=0.05,
-                ),
-                global_config=common,
-            )
-
-            self.assertIsInstance(args.r2_table, str)
-            self.assertIsInstance(args.frqfile, str)
-            self.assertEqual(args.r2_table, str(r2_path))
-            self.assertEqual(args.frqfile, str(meta_path))
-            self.assertIsNone(args.keep)
-            self.assertEqual(args.genome_build, "hg19")
-            self.assertEqual(args.snp_batch_size, 64)
-            self.assertFalse(hasattr(args, "chunk_size"))
 
     def test_run_ldscore_from_args_passes_path_tokens_to_builder_and_ref_panel_loader(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3158,358 +2986,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(result.baseline_table["CHR"].tolist(), ["22"])
         self.assertTrue(any("Skipping chromosome 1" in str(item.message) for item in caught))
 
-    def test_compute_chromosome_filters_annotation_bundle_to_ref_panel_metadata_before_kernel_call(self):
-        annotation_bundle = self.make_annotation_bundle(
-            [("1", "rs1", 10), ("1", "rs2", 20), ("1", "rs3", 30)],
-        )
-        ref_panel = self.make_ref_panel_stub(backend="parquet_r2")
-        ref_panel.load_metadata = mock.Mock(
-            return_value=pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["rs1", "rs3"],
-                    "CM": [0.1, 0.3],
-                    "POS": [10, 30],
-                }
-            )
-        )
-
-        def _compute_side_effect(chrom, bundle, args, regression_snps):
-            self.assertEqual(chrom, "1")
-            self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs1", "rs3"])
-            self.assertEqual(bundle.annotations["base"].tolist(), [1.0, 1.0])
-            return ldscore_workflow._LegacyChromResult(
-                chrom="1",
-                metadata=pd.DataFrame(
-                    {
-                        "CHR": ["1", "1"],
-                        "SNP": ["rs1", "rs3"],
-                        "POS": [10, 30],
-                        "CM": [0.1, 0.3],
-                        "MAF": [0.2, 0.2],
-                    }
-                ),
-                ld_scores=np.array([[1.0], [2.0]], dtype=np.float32),
-                w_ld=np.array([[3.0], [4.0]], dtype=np.float32),
-                M=np.array([2.0]),
-                M_5_50=np.array([2.0]),
-                ldscore_columns=["base"],
-                baseline_columns=["base"],
-                query_columns=[],
-            )
-
-        with mock.patch.object(
-            ldscore_workflow.kernel_ldscore,
-            "compute_chrom_from_parquet",
-            side_effect=_compute_side_effect,
-        ):
-            result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
-                chrom="1",
-                annotation_bundle=annotation_bundle,
-                ref_panel=ref_panel,
-                ldscore_config=LDScoreConfig(ld_wind_snps=10),
-                global_config=GlobalConfig(snp_identifier="rsid"),
-            )
-
-        ref_panel.load_metadata.assert_called_once_with("1")
-        self.assertEqual(result.baseline_table["SNP"].tolist(), ["rs1", "rs3"])
-        self.assertEqual(result.count_records[0]["all_reference_snp_count"], 2.0)
-
-    def test_compute_chromosome_converts_mixed_annotation_columns_to_float32_at_kernel_boundary(self):
-        annotation_bundle = self.make_annotation_bundle(
-            [("1", "rs1", 10), ("1", "rs2", 20)],
-        )
-        annotation_bundle = dataclass_replace(
-            annotation_bundle,
-            query_annotations=pd.DataFrame({"generated": [True, False]}),
-            query_columns=["generated"],
-        )
-        ref_panel = self.make_ref_panel_stub(backend="parquet_r2")
-        ref_panel.load_metadata = mock.Mock(return_value=annotation_bundle.metadata.copy())
-
-        def _compute_side_effect(chrom, bundle, args, regression_snps):
-            self.assertEqual(bundle.annotations.dtypes.tolist(), [np.dtype("float32"), np.dtype("float32")])
-            return ldscore_workflow._LegacyChromResult(
-                chrom=chrom,
-                metadata=bundle.metadata.assign(MAF=0.2),
-                ld_scores=np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
-                w_ld=np.array([[1.0], [1.0]], dtype=np.float32),
-                M=np.array([2.0, 1.0]),
-                M_5_50=np.array([2.0, 1.0]),
-                ldscore_columns=["base", "generated"],
-                baseline_columns=["base"],
-                query_columns=["generated"],
-            )
-
-        with mock.patch.object(
-            ldscore_workflow.kernel_ldscore,
-            "compute_chrom_from_parquet",
-            side_effect=_compute_side_effect,
-        ):
-            result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
-                chrom="1",
-                annotation_bundle=annotation_bundle,
-                ref_panel=ref_panel,
-                ldscore_config=LDScoreConfig(ld_wind_snps=10),
-                global_config=GlobalConfig(snp_identifier="rsid"),
-            )
-
-        self.assertEqual(result.query_columns, ["generated"])
-
-    def test_compute_chromosome_aligns_allele_free_annotations_in_base_family_mode(self):
-        annotation_bundle = self.make_annotation_bundle(
-            [("1", "rs1", 10), ("1", "rs2", 20), ("1", "rs3", 30)],
-        )
-        ref_panel = self.make_ref_panel_stub(backend="parquet_r2")
-        ref_panel.load_metadata = mock.Mock(
-            return_value=pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["rs1", "rs3"],
-                    "CM": [0.1, 0.3],
-                    "POS": [10, 30],
-                    "A1": ["A", "A"],
-                    "A2": ["C", "G"],
-                }
-            )
-        )
-
-        def _compute_side_effect(chrom, bundle, args, regression_snps):
-            self.assertEqual(chrom, "1")
-            self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs1", "rs3"])
-            self.assertEqual(bundle.metadata["A1"].tolist(), ["A", "A"])
-            self.assertEqual(bundle.metadata["A2"].tolist(), ["C", "G"])
-            return ldscore_workflow._LegacyChromResult(
-                chrom="1",
-                metadata=pd.DataFrame(
-                    {
-                        "CHR": ["1", "1"],
-                        "SNP": ["rs1", "rs3"],
-                        "POS": [10, 30],
-                        "A1": ["A", "A"],
-                        "A2": ["C", "G"],
-                        "CM": [0.1, 0.3],
-                        "MAF": [0.2, 0.2],
-                    }
-                ),
-                ld_scores=np.array([[1.0], [2.0]], dtype=np.float32),
-                w_ld=np.array([[3.0], [4.0]], dtype=np.float32),
-                M=np.array([2.0]),
-                M_5_50=None,
-                ldscore_columns=["base"],
-                baseline_columns=["base"],
-                query_columns=[],
-            )
-
-        with mock.patch.object(
-            ldscore_workflow.kernel_ldscore,
-            "compute_chrom_from_parquet",
-            side_effect=_compute_side_effect,
-        ):
-            result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
-                chrom="1",
-                annotation_bundle=annotation_bundle,
-                ref_panel=ref_panel,
-                ldscore_config=LDScoreConfig(ld_wind_snps=10),
-                global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
-            )
-
-        ref_panel.load_metadata.assert_called_once_with("1")
-        self.assertEqual(result.baseline_table["SNP"].tolist(), ["rs1", "rs3"])
-
-    def test_compute_chromosome_uses_annotation_alleles_for_allele_aware_matching(self):
-        annotation_bundle = AnnotationBundle(
-            metadata=pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["rs1"],
-                    "POS": [10],
-                    "CM": [0.1],
-                    "A1": ["A"],
-                    "A2": ["C"],
-                }
-            ),
-            baseline_annotations=pd.DataFrame({"base": [1.0]}),
-            query_annotations=pd.DataFrame(index=pd.RangeIndex(1)),
-            baseline_columns=["base"],
-            query_columns=[],
-            chromosomes=["1"],
-            source_summary={},
-            config_snapshot=None,
-        )
-        ref_panel = self.make_ref_panel_stub(backend="parquet_r2")
-        ref_panel.load_metadata = mock.Mock(
-            return_value=pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["rs1"],
-                    "CM": [0.1],
-                    "POS": [10],
-                    "A1": ["A"],
-                    "A2": ["G"],
-                }
-            )
-        )
-
-        with mock.patch.object(ldscore_workflow.kernel_ldscore, "compute_chrom_from_parquet") as patched_compute:
-            with self.assertRaisesRegex(LDSCInputError, "retained no annotation SNPs"):
-                ldscore_workflow.LDScoreCalculator().compute_chromosome(
-                    chrom="1",
-                    annotation_bundle=annotation_bundle,
-                    ref_panel=ref_panel,
-                    ldscore_config=LDScoreConfig(ld_wind_snps=10),
-                    global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
-                )
-
-        patched_compute.assert_not_called()
-
-    def test_compute_chromosome_uses_later_query_alleles_for_allele_aware_matching(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            base = tmpdir / "base.annot"
-            query = tmpdir / "query.annot"
-            base.write_text(
-                "CHR\tBP\tSNP\tCM\tbase\n"
-                "1\t10\trs1\t0.1\t1\n",
-                encoding="utf-8",
-            )
-            query.write_text(
-                "CHR\tBP\tSNP\tCM\tA1\tA2\tquery\n"
-                "1\t10\trs1\t0.1\tA\tG\t1\n",
-                encoding="utf-8",
-            )
-            annotation_bundle = AnnotationBuilder(
-                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
-            ).run(
-                AnnotationBuildConfig(
-                    baseline_annot_sources=(str(base),),
-                    query_annot_sources=(str(query),),
-                )
-            )
-
-        self.assertEqual(annotation_bundle.metadata["A2"].tolist(), ["G"])
-        ref_panel = self.make_ref_panel_stub(backend="parquet_r2")
-        ref_panel.load_metadata = mock.Mock(
-            return_value=pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["rs1"],
-                    "CM": [0.1],
-                    "POS": [10],
-                    "A1": ["A"],
-                    "A2": ["C"],
-                }
-            )
-        )
-
-        with mock.patch.object(ldscore_workflow.kernel_ldscore, "compute_chrom_from_parquet") as patched_compute:
-            with self.assertRaisesRegex(LDSCInputError, "retained no annotation SNPs"):
-                ldscore_workflow.LDScoreCalculator().compute_chromosome(
-                    chrom="1",
-                    annotation_bundle=annotation_bundle,
-                    ref_panel=ref_panel,
-                    ldscore_config=LDScoreConfig(ld_wind_snps=10),
-                    global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
-                )
-
-        patched_compute.assert_not_called()
-
-    def test_compute_chromosome_matches_cleaned_reference_panel_before_annotation_alignment(self):
-        annotation_bundle = self.make_annotation_bundle(
-            [("1", "rs1", 10), ("1", "rs2", 20)],
-        )
-        ref_panel = self.make_ref_panel_stub(backend="parquet_r2")
-        ref_panel.load_metadata = mock.Mock(
-            return_value=pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "SNP": ["rs2"],
-                    "CM": [0.2],
-                    "POS": [20],
-                    "A1": ["A"],
-                    "A2": ["C"],
-                }
-            )
-        )
-
-        def _compute_side_effect(chrom, bundle, args, regression_snps):
-            self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs2"])
-            return ldscore_workflow._LegacyChromResult(
-                chrom=chrom,
-                metadata=bundle.metadata.assign(MAF=0.2),
-                ld_scores=np.array([[1.0]], dtype=np.float32),
-                w_ld=np.array([[2.0]], dtype=np.float32),
-                M=np.array([1.0]),
-                M_5_50=None,
-                ldscore_columns=["base"],
-                baseline_columns=["base"],
-                query_columns=[],
-            )
-
-        with mock.patch.object(
-            ldscore_workflow.kernel_ldscore,
-            "compute_chrom_from_parquet",
-            side_effect=_compute_side_effect,
-        ):
-            result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
-                chrom="1",
-                annotation_bundle=annotation_bundle,
-                ref_panel=ref_panel,
-                ldscore_config=LDScoreConfig(ld_wind_snps=10),
-                global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
-            )
-
-        self.assertEqual(result.baseline_table["SNP"].tolist(), ["rs2"])
-
-    def test_compute_chromosome_drops_reference_multiallelic_sites_before_allele_free_annotation_matching(self):
-        annotation_bundle = self.make_annotation_bundle(
-            [("1", "rs_multi", 10), ("1", "rs_keep", 20)],
-        )
-        ref_panel = self.make_ref_panel_stub(backend="parquet_r2")
-        ref_panel.load_metadata = mock.Mock(
-            return_value=pd.DataFrame(
-                {
-                    "CHR": ["1", "1", "1"],
-                    "SNP": ["rs_multi_c", "rs_multi_g", "rs_keep"],
-                    "CM": [0.1, 0.1, 0.2],
-                    "POS": [10, 10, 20],
-                    "A1": ["A", "A", "A"],
-                    "A2": ["C", "G", "C"],
-                }
-            )
-        )
-
-        def _compute_side_effect(chrom, bundle, args, regression_snps):
-            self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs_keep"])
-            self.assertEqual(bundle.metadata["A1"].tolist(), ["A"])
-            self.assertEqual(bundle.metadata["A2"].tolist(), ["C"])
-            self.assertEqual(bundle.annotations["base"].tolist(), [1.0])
-            return ldscore_workflow._LegacyChromResult(
-                chrom=chrom,
-                metadata=bundle.metadata.assign(MAF=0.2),
-                ld_scores=np.array([[1.0]], dtype=np.float32),
-                w_ld=np.array([[2.0]], dtype=np.float32),
-                M=np.array([1.0]),
-                M_5_50=None,
-                ldscore_columns=["base"],
-                baseline_columns=["base"],
-                query_columns=[],
-            )
-
-        with mock.patch.object(
-            ldscore_workflow.kernel_ldscore,
-            "compute_chrom_from_parquet",
-            side_effect=_compute_side_effect,
-        ):
-            result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
-                chrom="1",
-                annotation_bundle=annotation_bundle,
-                ref_panel=ref_panel,
-                ldscore_config=LDScoreConfig(ld_wind_snps=10),
-                global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
-            )
-
-        self.assertEqual(result.baseline_table["SNP"].tolist(), ["rs_keep"])
 
     def test_pseudo_base_annotation_preserves_ref_panel_alleles(self):
         ref_panel = self.make_ref_panel_stub(
@@ -3661,93 +3137,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertEqual(result.baseline_table["SNP"].tolist(), expected_metadata["SNP"].tolist())
             np.testing.assert_allclose(result.baseline_table["base"].to_numpy(), expected_ld)
 
-    def test_ldscore_calculator_run_warns_and_skips_empty_intersection_chromosome(self):
-        annotation_bundle = AnnotationBundle(
-            metadata=pd.DataFrame(
-                {
-                    "CHR": ["1", "22"],
-                    "SNP": ["rs1", "rs22"],
-                    "POS": [10, 220],
-                    "CM": [0.1, 0.2],
-                }
-            ),
-            baseline_annotations=pd.DataFrame({"base": [1.0, 1.0]}, dtype=np.float32),
-            query_annotations=pd.DataFrame(index=pd.RangeIndex(2)),
-            baseline_columns=["base"],
-            query_columns=[],
-            chromosomes=["1", "22"],
-            source_summary={},
-        )
-        def _compute_side_effect(chrom, bundle, args, regression_snps):
-            if chrom == "1":
-                raise ValueError("No retained annotation SNPs remain on chromosome 1 after parquet intersection.")
-            return ldscore_workflow._LegacyChromResult(
-                chrom="22",
-                metadata=pd.DataFrame(
-                    {
-                        "CHR": ["22"],
-                        "SNP": ["rs22"],
-                        "POS": [220],
-                        "CM": [0.2],
-                        "MAF": [0.3],
-                    }
-                ),
-                ld_scores=np.array([[2.0]], dtype=np.float32),
-                w_ld=np.array([[3.0]], dtype=np.float32),
-                M=np.array([5.0]),
-                M_5_50=np.array([4.0]),
-                ldscore_columns=["base"],
-                baseline_columns=["base"],
-                query_columns=[],
-            )
-
-        calculator = ldscore_workflow.LDScoreCalculator()
-        ref_panel = SimpleNamespace(spec=SimpleNamespace(backend="parquet_r2"))
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            with mock.patch.object(
-                ldscore_workflow.kernel_ldscore,
-                "compute_chrom_from_parquet",
-                side_effect=_compute_side_effect,
-            ):
-                result = calculator.run(
-                    annotation_bundle=annotation_bundle,
-                    ref_panel=SimpleNamespace(
-                        spec=SimpleNamespace(backend="parquet_r2"),
-                        load_metadata=lambda chrom: pd.DataFrame(
-                            {
-                                "CHR": [chrom],
-                                "SNP": [f"rs{chrom}"],
-                                "POS": [10 if chrom == "1" else 220],
-                                "CM": [0.1 if chrom == "1" else 0.2],
-                            }
-                        ),
-                    ),
-                    ldscore_config=LDScoreConfig(ld_wind_cm=1.0),
-                    global_config=GlobalConfig(snp_identifier="rsid"),
-                )
-
-        self.assertEqual([chrom_result.chrom for chrom_result in result.chromosome_results], ["22"])
-        self.assertEqual(result.baseline_table["CHR"].tolist(), ["22"])
-        self.assertTrue(any("Skipping chromosome 1" in str(item.message) for item in caught))
-
 
 @unittest.skipIf(kernel_ldscore is None, "ldscore kernel is not available")
 class LDScoreParquetNormalizationTest(unittest.TestCase):
-    def test_resolve_parquet_files_accepts_chromosome_specific_resolution(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            path1 = tmpdir / "r2.1.parquet"
-            path2 = tmpdir / "r2.2.parquet"
-            path1.write_text("", encoding="utf-8")
-            path2.write_text("", encoding="utf-8")
-
-            args = Namespace(r2_table=str(tmpdir / "r2.@.parquet"))
-
-            self.assertEqual(
-                kernel_ldscore.resolve_parquet_files(args, chrom="1"),
-                [str(path1)],
-            )
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet reader coverage")
     def test_sorted_r2_block_reader_rejects_auto_genome_build_at_kernel_boundary(self):
@@ -4424,26 +3816,6 @@ def test_assert_canonical_maf_passes_for_minor():
     ldscore_workflow._assert_canonical_maf(ok)  # no raise
 
 
-def test_merge_frequency_metadata_sidecar_is_authoritative(monkeypatch, tmp_path):
-    """Reference-panel sidecar CM/MAF overwrite annotation-provided values."""
-    metadata = pd.DataFrame(
-        {"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [99.0], "MAF": [0.99]}
-    )
-    sidecar = tmp_path / "chr1_meta.tsv.gz"
-    pd.DataFrame(
-        {"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.5], "MAF": [0.2]}
-    ).to_csv(sidecar, sep="\t", index=False)
-    monkeypatch.setattr(
-        kernel_ldscore, "resolve_frequency_files", lambda args, chrom=None: [str(sidecar)]
-    )
-    args = Namespace(frqfile=str(sidecar), frqfile_chr=None)
-    merged = kernel_ldscore.merge_frequency_metadata(
-        metadata, args, chrom="1", identifier_mode="rsid"
-    )
-    assert merged.loc[0, "CM"] == 0.5  # sidecar wins, not annotation 99.0
-    assert merged.loc[0, "MAF"] == 0.2  # sidecar wins (folded)
-
-
 def test_cm_window_consistent_across_backends():
     """Both backends feed reference CM into the same window builder, so identical
     reference CM yields identical block-lefts (the headline cross-backend invariant)."""
@@ -4486,16 +3858,38 @@ def test_require_reference_maf_passes_with_any_value():
     kernel_ldscore.require_reference_maf(pd.DataFrame({"MAF": [0.1, np.nan]}), chrom="1")  # no raise
 
 
-def test_namespace_from_configs_propagates_plink_maf_min():
-    """--maf-min reaches the kernel for PLINK (previously hardcoded to None)."""
-    spec = SimpleNamespace(
-        backend="plink", plink_prefix=None, maf_min=0.4, keep_indivs_file=None, sample_size=None
+def test_public_plink_calculation_prepares_genotypes_once():
+    pytest.importorskip("bitarray")
+    metadata = pd.read_csv(
+        PLINK_FIXTURES / "plink.bim", sep=r"\s+", header=None,
+        names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
     )
-    ref_panel = SimpleNamespace(spec=spec)
-    ns = ldscore_workflow._namespace_from_configs(
-        "1", ref_panel, LDScoreConfig(ld_wind_snps=10), GlobalConfig(snp_identifier="rsid")
+    bundle = AnnotationBundle(
+        metadata=metadata,
+        baseline_annotations=pd.DataFrame({"base": np.ones(len(metadata))}),
+        query_annotations=pd.DataFrame(index=metadata.index),
+        baseline_columns=["base"], query_columns=[], chromosomes=["1"], source_summary={},
     )
-    assert ns.maf_min == 0.4
+    config = GlobalConfig(snp_identifier="rsid")
+    panel = PlinkRefPanel(config, RefPanelConfig(backend="plink", plink_prefix=PLINK_FIXTURES / "plink"))
+    readers = []
+    reader_class = kernel_ldscore.PlinkBEDFile
+
+    def open_reader(*args, **kwargs):
+        reader = reader_class(*args, **kwargs)
+        readers.append(reader)
+        return reader
+
+    with mock.patch.object(kernel_ldscore, "PlinkBEDFile", side_effect=open_reader):
+        result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
+            "1", bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True), config,
+        )
+
+    assert len(readers) == 1
+    assert readers[0]._fh.closed
+    assert len(result.baseline_table) == 4
+    assert result.count_records[0]["all_reference_snp_count"] == 4.0
+    assert result.count_records[0]["common_reference_snp_count"] == 4.0
 
 
 def test_build_parser_accepts_genetic_map_and_export_flags():
@@ -4506,22 +3900,6 @@ def test_build_parser_accepts_genetic_map_and_export_flags():
     ])
     assert args.genetic_map_hg38_sources == "map_hg38.txt"
     assert args.export_ref_metadata is True
-
-
-def test_genetic_map_ignored_for_parquet_with_warning(caplog):
-    import logging
-    spec = SimpleNamespace(
-        backend="parquet_r2", plink_prefix=None, maf_min=None, keep_indivs_file=None,
-        sample_size=None, genetic_map_hg19_sources="m19", genetic_map_hg38_sources=None,
-    )
-    ref_panel = SimpleNamespace(spec=spec)
-    with caplog.at_level(logging.WARNING):
-        ns = ldscore_workflow._namespace_from_configs(
-            "1", ref_panel, LDScoreConfig(ld_wind_cm=1.0),
-            GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-        )
-    assert ns.genetic_map is None  # flags ignored; sidecar CM is authoritative
-    assert any("Ignoring --genetic-map" in r.message for r in caplog.records)
 
 
 def test_validate_window_positions_sorted_accepts_non_decreasing():

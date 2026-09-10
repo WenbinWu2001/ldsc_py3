@@ -312,6 +312,8 @@ from ldsc import (
 )
 ```
 
+`LDScoreCalculator` delegates reference filtering, annotation alignment, and reader lifetime to `RefPanel.prepare_chromosome()`. PLINK and parquet calculations use the same prepared-state contract, also used by gene-index construction and numerical tests. See the [reference preparation boundary](docs/current/architecture.md) for contributor guidance.
+
 Genome-build inference for `chr_pos` tables is public through the Python API:
 use `infer_chr_pos_build()` when you only need the `hg19`/`hg38` decision, and
 use `resolve_chr_pos_table()` when you also want 0-based inputs converted to

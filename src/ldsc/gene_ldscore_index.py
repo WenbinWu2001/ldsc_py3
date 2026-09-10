@@ -519,6 +519,7 @@ def _run_gene_ldscore_index_build(
                 maf_min=config.maf_min,
                 maf=None,
                 snp_identifier=config.snp_identifier,
+                genome_build=config.genome_build,
                 ld_wind_snps=None,
                 ld_wind_kb=None,
                 ld_wind_cm=config.ld_wind_cm,
@@ -2177,102 +2178,119 @@ def build_plink_index_chromosome(
     atom_batch_size: int,
 ) -> IndexChromosomeData:
     """Construct exact common and atom payloads from one prepared PLINK chromosome."""
-    prepared = kernel_ldscore.prepare_plink_chromosome(chrom, baseline_bundle, args)
-    metadata = prepared.metadata
-    baseline = np.asarray(prepared.annotation_matrix, dtype=np.float64)
-    geno = prepared.geno
+    from .config import LDScoreConfig, RefPanelConfig
+    from ._kernel.ref_panel import PlinkRefPanel
 
-    persisted = kernel_ldscore.regression_mask_from_keys(
-        metadata,
-        regression_keys,
-        args.snp_identifier,
-        region_intervals=regression_regions,
-    ).astype(bool)
-    n_baseline_columns = baseline.shape[1]
-    combined_annotation = np.column_stack([baseline, persisted])
-    geno._currentSNP = 0
-    combined_scores = np.asarray(
-        geno.ldScoreVarBlocks(
-            prepared.block_left,
-            args.snp_batch_size,
-            annot=combined_annotation,
-        ),
-        dtype=np.float64,
+    global_options = {"snp_identifier": args.snp_identifier}
+    if hasattr(args, "genome_build"):
+        global_options["genome_build"] = args.genome_build
+    panel = PlinkRefPanel(
+        GlobalConfig(**global_options),
+        RefPanelConfig(backend="plink", plink_prefix=kernel_ldscore.resolve_bfile_prefix(args, chrom),
+                       keep_indivs_file=getattr(args, "keep", None), maf_min=getattr(args, "maf_min", None)),
     )
-    baseline_scores = combined_scores[:, :n_baseline_columns]
-    regression_scores = combined_scores[:, n_baseline_columns]
+    config = LDScoreConfig(
+        ld_wind_snps=args.ld_wind_snps, ld_wind_kb=args.ld_wind_kb, ld_wind_cm=args.ld_wind_cm,
+        snp_batch_size=args.snp_batch_size, common_maf_min=getattr(args, "common_maf_min", 0.05),
+        whole_chromosome_ok=args.yes_really,
+    )
+    with panel.prepare_chromosome(chrom, baseline_bundle, config,
+                                  genetic_map=getattr(args, "genetic_map", None)) as prepared:
+        metadata = prepared.metadata
+        baseline = np.asarray(prepared.annotation_matrix, dtype=np.float64)
+        geno = prepared.reader
 
-    baseline_frame = pd.DataFrame(baseline, columns=baseline_bundle.baseline_columns)
-    baseline_count_all, baseline_count_common = kernel_ldscore.compute_counts(
-        metadata,
-        baseline_frame,
-        common_maf_min=getattr(args, "common_maf_min", 0.05),
-    )
-    overlap = kernel_ldscore.compute_overlap(
-        metadata,
-        baseline_frame,
-        n_baseline=len(baseline_bundle.baseline_columns),
-        common_maf_min=getattr(args, "common_maf_min", 0.05),
-    )
-    common_mask = metadata["MAF"].to_numpy(dtype=np.float64) >= float(
-        getattr(args, "common_maf_min", 0.05)
-    )
-
-    atom_model = build_disjoint_atoms(
-        chrom,
-        gene_intervals,
-        included=included,
-        padding_bp=padding_bp,
-    )
-    snp_atoms = map_snps_to_atoms(metadata["POS"].to_numpy(dtype=np.int64) - 1, atom_model)
-    atom_statistics = compute_atom_statistics(snp_atoms, atom_model.n_atoms, baseline, common_mask)
-    operator_blocks: list[sparse.csr_matrix] = []
-    for _start, _end, atom_block in iter_snp_atom_blocks(
-        snp_atoms,
-        atom_model.n_atoms,
-        atom_batch_size,
-    ):
+        persisted = kernel_ldscore.regression_mask_from_keys(
+            metadata,
+            regression_keys,
+            args.snp_identifier,
+            region_intervals=regression_regions,
+        ).astype(bool)
+        n_baseline_columns = baseline.shape[1]
+        combined_annotation = np.column_stack([baseline, persisted])
         geno._currentSNP = 0
-        block_scores = np.asarray(
+        combined_scores = np.asarray(
             geno.ldScoreVarBlocks(
                 prepared.block_left,
                 args.snp_batch_size,
-                annot=atom_block,
+                annot=combined_annotation,
             ),
             dtype=np.float64,
         )
-        operator_blocks.append(sparse.csr_matrix(block_scores[persisted], dtype=np.float64))
-    operator = (
-        sparse.hstack(operator_blocks, format="csr", dtype=np.float64)
-        if operator_blocks
-        else sparse.csr_matrix((int(persisted.sum()), 0), dtype=np.float64)
-    )
-    operator.sort_indices()
-    validate_ldscore_operator(operator, n_rows=int(persisted.sum()), n_atoms=atom_model.n_atoms)
+        baseline_scores = combined_scores[:, :n_baseline_columns]
+        regression_scores = combined_scores[:, n_baseline_columns]
 
-    identity_columns = ["CHR", "SNP", "POS", *[c for c in ("A1", "A2") if c in metadata.columns]]
-    baseline_rows = metadata.loc[persisted, identity_columns].reset_index(drop=True)
-    baseline_rows["regression_ld_scores"] = regression_scores[persisted]
-    for column_index, column in enumerate(baseline_bundle.baseline_columns):
-        baseline_rows[column] = baseline_scores[persisted, column_index]
-    return IndexChromosomeData(
-        baseline_rows=baseline_rows,
-        baseline_count_all=np.asarray(baseline_count_all, dtype=np.float64),
-        baseline_count_common=np.asarray(baseline_count_common, dtype=np.float64),
-        baseline_overlap_all=np.asarray(overlap.baseline_block_all, dtype=np.float64),
-        baseline_overlap_common=np.asarray(overlap.baseline_block_common, dtype=np.float64),
-        total_reference_snps_all=len(metadata),
-        total_reference_snps_common=int(common_mask.sum()),
-        atom_model=atom_model,
-        operator=operator,
-        atom_statistics=atom_statistics,
-        reference_metadata=metadata.copy(),
-        reference_rows_before_genotype_qc=prepared.reference_rows_before_genotype_qc,
-        genotype_qc_removed=prepared.genotype_qc_removed,
-        maf_removed=prepared.maf_removed,
-        selected_individual_count=prepared.selected_individual_count,
-        cm_source=prepared.cm_source,
-    )
+        baseline_frame = pd.DataFrame(baseline, columns=baseline_bundle.baseline_columns)
+        baseline_count_all, baseline_count_common = kernel_ldscore.compute_counts(
+            metadata,
+            baseline_frame,
+            common_maf_min=getattr(args, "common_maf_min", 0.05),
+        )
+        overlap = kernel_ldscore.compute_overlap(
+            metadata,
+            baseline_frame,
+            n_baseline=len(baseline_bundle.baseline_columns),
+            common_maf_min=getattr(args, "common_maf_min", 0.05),
+        )
+        common_mask = metadata["MAF"].to_numpy(dtype=np.float64) >= float(
+            getattr(args, "common_maf_min", 0.05)
+        )
+
+        atom_model = build_disjoint_atoms(
+            chrom,
+            gene_intervals,
+            included=included,
+            padding_bp=padding_bp,
+        )
+        snp_atoms = map_snps_to_atoms(metadata["POS"].to_numpy(dtype=np.int64) - 1, atom_model)
+        atom_statistics = compute_atom_statistics(snp_atoms, atom_model.n_atoms, baseline, common_mask)
+        operator_blocks: list[sparse.csr_matrix] = []
+        for _start, _end, atom_block in iter_snp_atom_blocks(
+            snp_atoms,
+            atom_model.n_atoms,
+            atom_batch_size,
+        ):
+            geno._currentSNP = 0
+            block_scores = np.asarray(
+                geno.ldScoreVarBlocks(
+                    prepared.block_left,
+                    args.snp_batch_size,
+                    annot=atom_block,
+                ),
+                dtype=np.float64,
+            )
+            operator_blocks.append(sparse.csr_matrix(block_scores[persisted], dtype=np.float64))
+        operator = (
+            sparse.hstack(operator_blocks, format="csr", dtype=np.float64)
+            if operator_blocks
+            else sparse.csr_matrix((int(persisted.sum()), 0), dtype=np.float64)
+        )
+        operator.sort_indices()
+        validate_ldscore_operator(operator, n_rows=int(persisted.sum()), n_atoms=atom_model.n_atoms)
+
+        identity_columns = ["CHR", "SNP", "POS", *[c for c in ("A1", "A2") if c in metadata.columns]]
+        baseline_rows = metadata.loc[persisted, identity_columns].reset_index(drop=True)
+        baseline_rows["regression_ld_scores"] = regression_scores[persisted]
+        for column_index, column in enumerate(baseline_bundle.baseline_columns):
+            baseline_rows[column] = baseline_scores[persisted, column_index]
+        return IndexChromosomeData(
+            baseline_rows=baseline_rows,
+            baseline_count_all=np.asarray(baseline_count_all, dtype=np.float64),
+            baseline_count_common=np.asarray(baseline_count_common, dtype=np.float64),
+            baseline_overlap_all=np.asarray(overlap.baseline_block_all, dtype=np.float64),
+            baseline_overlap_common=np.asarray(overlap.baseline_block_common, dtype=np.float64),
+            total_reference_snps_all=len(metadata),
+            total_reference_snps_common=int(common_mask.sum()),
+            atom_model=atom_model,
+            operator=operator,
+            atom_statistics=atom_statistics,
+            reference_metadata=metadata.copy(),
+            reference_rows_before_genotype_qc=prepared.reference_rows_before_genotype_qc,
+            genotype_qc_removed=prepared.genotype_qc_removed,
+            maf_removed=prepared.maf_removed,
+            selected_individual_count=prepared.selected_individual_count,
+            cm_source=prepared.cm_source,
+        )
 
 
 @dataclass(frozen=True)

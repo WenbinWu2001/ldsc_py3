@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.ref_panel_helpers import prepare_plink, compute_plink
+
 from argparse import Namespace
 from dataclasses import replace
 import gc
@@ -476,16 +478,16 @@ def test_prepared_plink_chromosome_is_reused_by_direct_ldscore():
         genetic_map=None,
     )
 
-    prepared = kernel_ldscore.prepare_plink_chromosome("1", bundle, args)
-    direct = kernel_ldscore.compute_chrom_from_plink("1", bundle, args, None)
+    prepared = prepare_plink("1", bundle, args)
+    direct = compute_plink("1", bundle, args, None)
 
     assert prepared.annotation_matrix.shape == (len(prepared.metadata), 1)
     np.testing.assert_array_equal(
         prepared.annotation_matrix[:, 0],
         prepared.metadata["POS"].to_numpy(dtype=np.float64),
     )
-    prepared.geno._currentSNP = 0
-    reused_scores = prepared.geno.ldScoreVarBlocks(
+    prepared.reader._currentSNP = 0
+    reused_scores = prepared.reader.ldScoreVarBlocks(
         prepared.block_left,
         args.snp_batch_size,
         annot=prepared.annotation_matrix,
@@ -524,24 +526,24 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
 
     # The former two-pass calculation is the numerical oracle for this
     # optimization: only traversal reuse may change, never the score values.
-    prepared = kernel_ldscore.prepare_plink_chromosome("1", bundle, args)
+    prepared = prepare_plink("1", bundle, args)
     regression_keys = set(prepared.metadata.loc[::2, "SNP"].astype(str))
     regression_mask = kernel_ldscore.regression_mask_from_keys(
         prepared.metadata, regression_keys, args.snp_identifier
     )
-    prepared.geno._currentSNP = 0
-    expected_ld_scores = prepared.geno.ldScoreVarBlocks(
+    prepared.reader._currentSNP = 0
+    expected_ld_scores = prepared.reader.ldScoreVarBlocks(
         prepared.block_left, args.snp_batch_size, annot=prepared.annotation_matrix
     )
-    assert prepared.geno._currentSNP == prepared.geno.m
-    prepared.geno._currentSNP = 0
-    expected_w_ld = prepared.geno.ldScoreVarBlocks(
+    assert prepared.reader._currentSNP == prepared.reader.m
+    prepared.reader._currentSNP = 0
+    expected_w_ld = prepared.reader.ldScoreVarBlocks(
         prepared.block_left, args.snp_batch_size, annot=regression_mask.reshape(-1, 1)
     )
-    assert prepared.geno._currentSNP == prepared.geno.m
+    assert prepared.reader._currentSNP == prepared.reader.m
 
     calls = []
-    geno_type = type(prepared.geno)
+    geno_type = type(prepared.reader)
     original = geno_type.ldScoreVarBlocks
 
     def traced_ldscore(self, block_left, batch_size, annot=None):
@@ -551,7 +553,7 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
         return scores
 
     monkeypatch.setattr(geno_type, "ldScoreVarBlocks", traced_ldscore)
-    result = kernel_ldscore.compute_chrom_from_plink(
+    result = compute_plink(
         "1", bundle, args, regression_keys
     )
 
@@ -637,18 +639,6 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
     ]
 
 
-def test_canonical_sort_maps_back_to_original_bim_bed_columns_without_per_snp_loop():
-    panel = pd.DataFrame(
-        {
-            "_key": ["22:30", "22:10", "22:20"],
-            "_raw_index": [0, 1, 2],
-        }
-    )
-    canonical_rows = pd.DataFrame({"_key": ["22:10", "22:20", "22:30"]})
-
-    assert kernel_ldscore._plink_bed_column_indices(panel, canonical_rows) == [1, 2, 0]
-
-
 def test_direct_plink_output_writes_header_only_duplicate_audit_when_no_rows_drop(tmp_path):
     prefix = Path(__file__).resolve().parent / "fixtures" / "plink" / "plink"
     bim = pd.read_csv(
@@ -667,7 +657,7 @@ def test_direct_plink_output_writes_header_only_duplicate_audit_when_no_rows_dro
         yes_really=True, snp_batch_size=3, common_maf_min=0.05,
         snp_identifier="rsid", genetic_map=None,
     )
-    legacy_result = kernel_ldscore.compute_chrom_from_plink("1", bundle, args, None)
+    legacy_result = compute_plink("1", bundle, args, None)
     calculator = LDScoreCalculator()
     chrom_result = calculator._wrap_legacy_chrom_result(
         legacy_result, GlobalConfig(snp_identifier="rsid")
@@ -708,7 +698,7 @@ def test_direct_plink_duplicate_group_is_dropped_and_recorded(tmp_path):
         snp_identifier="rsid", genetic_map=None,
     )
 
-    result = kernel_ldscore.compute_chrom_from_plink("1", bundle, args, None)
+    result = compute_plink("1", bundle, args, None)
 
     assert len(result.identity_drops) == 2
     assert set(result.identity_drops["reason"]) == {"duplicate_identity"}
@@ -773,7 +763,7 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches(snp_identifier
         ["base"],
         ["query"],
     )
-    direct = kernel_ldscore.compute_chrom_from_plink("1", direct_bundle, args, regression_keys)
+    direct = compute_plink("1", direct_bundle, args, regression_keys)
     persisted = kernel_ldscore.regression_mask_from_keys(
         direct.metadata, regression_keys, snp_identifier
     ).astype(bool)
@@ -811,23 +801,23 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
         snp_identifier="rsid", genetic_map=None,
     )
 
-    prepared = kernel_ldscore.prepare_plink_chromosome("1", bundle, args)
+    prepared = prepare_plink("1", bundle, args)
     regression_keys = set(prepared.metadata.loc[::2, "SNP"].astype(str))
     persisted = kernel_ldscore.regression_mask_from_keys(
         prepared.metadata, regression_keys, args.snp_identifier
     ).astype(bool)
     baseline64 = np.asarray(prepared.annotation_matrix, dtype=np.float64)
-    prepared.geno._currentSNP = 0
-    expected_baseline = prepared.geno.ldScoreVarBlocks(
+    prepared.reader._currentSNP = 0
+    expected_baseline = prepared.reader.ldScoreVarBlocks(
         prepared.block_left, args.snp_batch_size, annot=baseline64
     )
-    prepared.geno._currentSNP = 0
-    expected_weights = prepared.geno.ldScoreVarBlocks(
+    prepared.reader._currentSNP = 0
+    expected_weights = prepared.reader.ldScoreVarBlocks(
         prepared.block_left, args.snp_batch_size, annot=persisted.reshape(-1, 1)
     ).reshape(-1)
 
     calls = []
-    geno_type = type(prepared.geno)
+    geno_type = type(prepared.reader)
     original = geno_type.ldScoreVarBlocks
 
     def traced_ldscore(self, block_left, batch_size, annot=None):
@@ -1345,17 +1335,17 @@ def test_plink_operator_matches_independent_dense_adjusted_r2_reference():
         padding_bp=0,
         atom_batch_size=2,
     )
-    prepared = kernel_ldscore.prepare_plink_chromosome("1", bundle, args)
-    prepared.geno._currentSNP = 0
-    x = prepared.geno.nextSNPs(prepared.geno.m)
-    correlation = x.T @ x / prepared.geno.n
-    adjusted_r2 = correlation**2 - (1.0 - correlation**2) / (prepared.geno.n - 2)
-    within_window = np.abs(np.subtract.outer(np.arange(prepared.geno.m), np.arange(prepared.geno.m))) <= 1
+    prepared = prepare_plink("1", bundle, args)
+    prepared.reader._currentSNP = 0
+    x = prepared.reader.nextSNPs(prepared.reader.m)
+    correlation = x.T @ x / prepared.reader.n
+    adjusted_r2 = correlation**2 - (1.0 - correlation**2) / (prepared.reader.n - 2)
+    within_window = np.abs(np.subtract.outer(np.arange(prepared.reader.m), np.arange(prepared.reader.m))) <= 1
     dense_r = np.where(within_window, adjusted_r2, 0.0)
     persisted = prepared.metadata["SNP"].isin(persisted_keys).to_numpy()
 
     np.testing.assert_allclose(indexed.operator.toarray(), dense_r[persisted], rtol=0, atol=1e-15)
-    np.testing.assert_allclose(np.diag(dense_r), np.ones(prepared.geno.m), rtol=0, atol=1e-15)
+    np.testing.assert_allclose(np.diag(dense_r), np.ones(prepared.reader.m), rtol=0, atol=1e-15)
     assert indexed.operator.toarray()[0, 2] < 0
     assert indexed.operator.toarray()[0, 0] == pytest.approx(1.0)  # non-regression rs_4 still contributes
     assert indexed.operator.toarray()[0, 3] == 0.0  # outside the one-SNP window

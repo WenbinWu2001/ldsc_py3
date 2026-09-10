@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-09-08
+Last updated on: 2026-09-10
 
 This reference explains `ldsc` errors that can **abort a run** and have more than
 one likely cause. It is organized by command. Each entry lists the likely causes
@@ -364,6 +364,19 @@ written.
 
 For the complete reason vocabulary, column definitions, filters, and prioritized
 repair steps, see [Gene-list diagnostics and repair](current/gene-list-diagnostics-and-repair.md).
+
+### ldscore: chromosome coverage preflight
+
+**Raised by:** direct input/coverage validation or immutable index validation. **Symptom:** the batch fails before publishing scientific outputs.
+
+Read `diagnostics/input_issues.tsv` and `diagnostics/chromosome_scope.json`. For gene lists, inspect `coverage_status`, `selected_genes`, `covered_genes`, `missing_chromosomes`, and `uncovered_gene_ids` in `gene_list_resolution_summary.tsv`; audit rows with `coverage_status == 'uncovered'` identify affected input lines. Fix every reported issue before rerunning with `--overwrite`.
+
+- Missing, unreadable, malformed, or mismatched PLINK trio / R²-sidecar / baseline inputs: restore valid matched artifacts. `@` requires every autosome 1–22. All safely discoverable independent issues are reported at the current gate.
+- Baseline/reference chromosome-set disagreement: supply exactly matching validated sets. Glob matches are authoritative; filenames do not establish content. A missing file may be undetectable when the remaining groups consistently cover the same subset.
+- Incomplete focal/control coverage: supply matching inputs covering every selected gene, or deliberately revise the lists. Neither `resolved-only` nor chromosome-subset inputs authorize dropping cross-chromosome genes or pathways.
+- Invalid immutable index: restore or rebuild the complete public index. Resolution policy never repairs an index or changes its scientific configuration.
+
+Coverage follows unique identifier resolution and explicit gene exclusions, before SNP filtering. Unevaluated support remains blank. Fully covered genes with no retained computational reference SNPs have valid zero-support measurements; focal queries can be skipped for zero support/variance, whereas unusable controls and all-focal-skipped batches fail. See [the complete diagnostic vocabulary](current/gene-list-diagnostics-and-repair.md).
 
 ### ldscore: annotation values are malformed
 

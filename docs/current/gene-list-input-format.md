@@ -1,6 +1,6 @@
 # Gene-list query input
 
-Last updated on: 2026-08-16
+Last updated on: 2026-09-10
 
 `ldsc ldscore` accepts one or more focal gene lists through
 `--query-annot-gene-list-sources`. Direct mode requires an explicit coordinate
@@ -118,6 +118,31 @@ audited separately from failed resolution. A successful CLI run also prints one
 bounded Gate B notice when zero-support genes or skipped/warning queries occur;
 the detailed rows remain in the diagnostic files. The Python API returns these
 statuses and diagnostic paths without writing directly to its caller's console.
+
+## Direct query chromosome scope
+
+For both direct PLINK and parquet-R² runs:
+
+- `@` requires all autosomes 1–22. Missing, unreadable, or invalid required chromosome inputs fail the run.
+- Ordinary globs select their actual matches; validated file contents establish the chromosome set. A filename such as `*.22.annot.gz` does not prove chr22-only contents. Additional chromosomes in matched files participate in scope.
+- Baseline and reference inputs must have exactly the same validated chromosome set.
+- Every selected focal/control gene must lie within that shared scope. A pathway does not need genes on every chromosome in scope.
+
+Quote CLI glob patterns, for example `"annotations/*.22.annot.gz"`. Users own glob selection: a missing file may be undetectable if it disappears from the matches and all remaining required input groups consistently cover the same subset. `@` explicitly requires complete-autosomal coverage and cannot be paired with a chromosome-subset group.
+
+Each focal pathway and required control must lie wholly within scope after unique gene resolution and explicit gene-region exclusions. They need not touch every covered chromosome. Incomplete coverage fails the whole batch under both resolution policies, without truncation or automatic coverage-based skipping. Prebuilt query SNP rows and BED regions must likewise lie within scope. Empty focal selections and valid zero-support/variance focal skips remain supported; unusable controls and all-focal-skipped batches fail.
+
+The following examples describe the chromosome-coverage gate only; a passing example must still satisfy identifier resolution, input integrity, SNP support, and LD-score viability checks.
+
+| Validated baseline/reference inputs | Selected focal/control genes | Coverage outcome |
+| --- | --- | --- |
+| Both contain only chr22; no `@` declaration | All genes on chr22 | Pass. A direct chromosome-only run is allowed without a new flag. |
+| Both contain chr21–22; no `@` declaration | All genes on chr22 | Pass. Pathway chromosomes may be a subset of the shared scope. |
+| Both contain chr21–22; no `@` declaration | Any selected gene on chr1 | Fail the entire batch under either resolution policy. |
+| Baseline contains chr22; reference contains chr21–22 | All genes on chr22 | Fail: baseline/reference chromosome sets do not match exactly. |
+| Any required suite uses `@`, but another required input group contains only chr22 | All genes on chr22 | Fail: `@` requires autosomes 1–22, regardless of pathway contents. |
+
+The log names the chromosomes resolved and entering analysis. `diagnostics/chromosome_scope.json` records the scope and glob-selection caveat; `diagnostics/input_issues.tsv` records input failures. Gene coverage counts and affected genes extend the existing audit/summary. Unknown support is never zero. See [Gene-list diagnostics and repair](gene-list-diagnostics-and-repair.md#chromosome-scope-and-pathway-coverage).
 
 ## Direct example
 

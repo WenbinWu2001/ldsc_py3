@@ -1,6 +1,6 @@
 # Input Path Specification
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-10
 
 This note explains how to specify filesystem inputs in the refactored package.
 The goal is practical: help you choose the right path form for each workflow and
@@ -42,6 +42,19 @@ Output paths are different:
   replace those fixed files; for coherent result-directory workflows, a
   successful overwrite also removes stale owned siblings that the current run
   did not produce
+
+### Direct LD-score query scope
+
+Direct gene-list, BED, and prebuilt-query `ldscore` runs use these rules for both PLINK and parquet-R² reference backends:
+
+1. `@` declares all autosomes 1–22. Every required chromosome input must exist and validate; it does not mean “use whichever chromosomes are present.”
+2. Ordinary globs select the files they actually match. Validated contents, not filenames, determine their chromosome set. For example, `"annotations/*.22.annot.gz"` does not guarantee chr22-only contents: any additional chromosomes in its matched files participate in scope.
+3. Validated baseline and reference chromosome sets must match exactly. An `@` declaration paired with a chr22-only input group therefore fails alignment.
+4. Every selected focal/control gene must lie within that shared scope. Selection means unique successfully resolved genes after explicit gene-region exclusions, before SNP-support filtering. A pathway need not contain genes on every covered chromosome. Any nonempty incompletely covered pathway or control fails the entire batch under both `strict` and `resolved-only`; it is never automatically truncated or skipped. Query BED regions and prebuilt-query SNPs must also be within scope.
+
+Quote glob tokens on the command line so the package receives the pattern intact. Users own glob selection: a missing file may be undetectable if it disappears from the matches and the remaining baseline/reference artifacts consistently cover the same subset. Use `@` when complete-autosomal coverage is required.
+
+Scope is logged and persisted in `diagnostics/chromosome_scope.json`; input failures use `diagnostics/input_issues.tsv`. See the [gene-list scope examples](gene-list-input-format.md#direct-query-chromosome-scope). Public indexes remain complete-autosomal. `_ldscore_preflight.inspect_direct_inputs()` enforces the direct-query contract before projection; other commands retain their own path contracts.
 
 ### Coherent output artifact families
 

@@ -13,7 +13,7 @@ try:  # pragma: no cover - optional dependency
 except ImportError:  # pragma: no cover - optional dependency
     ba = None
 
-from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError
+from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError
 
 
 class __GenotypeArrayInMemory__(object):
@@ -61,7 +61,7 @@ class __GenotypeArrayInMemory__(object):
             self.geno, self.m, self.n, self.mafMin, keep_snps
         )
         if self.m <= 0:
-            raise LDSCInputError(
+            raise EmptyReferenceSNPs(
                 "PLINK BED loading retained no SNPs after SNP/MAF filtering. Most likely "
                 "the SNP restriction, chromosome selection, or MAF threshold removed every "
                 "variant. Relax the filters or use a matching PLINK reference panel."

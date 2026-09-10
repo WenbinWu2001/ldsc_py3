@@ -1,8 +1,21 @@
 # LD Score Calculation
 
-Last updated on: 2026-08-16
+Last updated on: 2026-09-10
 
 Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-built SNP-level annotations, or from raw BED/gene-list queries plus an explicit baseline.
+
+## Chromosome scope for direct query runs
+
+These rules apply to both PLINK and parquet-R² references, without an additional chromosome-testing flag:
+
+- `@` requires all autosomes 1–22. Missing or invalid required chromosome inputs fail; `@` is not an instruction to use whatever files happen to exist.
+- Ordinary globs select their actual matches. Validated contents establish chromosome scope, not filenames: `"annotations/*.22.annot.gz"` may match files containing chromosomes other than chr22, and those chromosomes participate.
+- Validated baseline and reference chromosome sets must match exactly. Mixing `@` with a chr22-only group fails.
+- Every selected focal/control gene must lie within the shared scope. Selected genes are unique successfully resolved genes after explicit gene-region exclusions, before SNP-support filtering. A chr22-only pathway is fully covered by matching chr21–22 baseline/reference inputs; a selected chr1 gene would fail the entire batch under both `strict` and `resolved-only`. Pathways are never automatically truncated or skipped for incomplete coverage. Query BED regions and prebuilt-query SNPs must also lie within scope.
+
+Quote CLI glob patterns so the package receives them intact. Users own glob selection: a missing file can be undetectable if it disappears from the matches and the remaining required artifacts consistently cover the same subset. Check the chromosomes resolved and entering analysis in `diagnostics/ldscore.log` and `diagnostics/chromosome_scope.json`. See the [pass/fail examples](../docs/current/gene-list-input-format.md#direct-query-chromosome-scope) and [coverage diagnostics](../docs/current/gene-list-diagnostics-and-repair.md#chromosome-scope-and-pathway-coverage). Public indexed workflows still require complete autosomes 1–22.
+
+## Reference inputs and conventions
 
 The examples below assume chromosome-pattern annotation inputs such as
 `annotations/baseline.1.annot.gz` and a package-built R2 directory such as
@@ -63,8 +76,7 @@ Resolution behavior:
 - there is no separate `*_chr` argument anymore; annotation arguments accept exact paths, globs, or explicit `@` suite tokens
 - `--plink-prefix` accepts one exact PLINK prefix or a plain chromosome-suite stem; for example, `panel_chr` discovers complete `panel_chr1.{bed,bim,fam}`, `panel_chr2.{bed,bim,fam}`, and so on. Globs and the older `panel_chr@` form remain supported
 - group inputs such as `--baseline-annot-sources`, `--query-annot-sources`, `--query-annot-bed-sources`, and `--query-annot-gene-list-sources` may resolve to many files; package-built parquet panels are supplied as one build directory with `--r2-dir`
-- when a group token resolves to chromosome-sharded files, the workflow tries to keep only the files whose names match the active chromosome
-- if filename-based chromosome filtering is not possible, the workflow reads the matched files and filters rows by `CHR` internally
+- direct query preflight validates all matched annotation/reference files before chromosome selection; chromosome-sharded annotation routing and PLINK trio selection use validated contents, not filename hints
 - scalar inputs still must resolve to exactly one file
 
 Genome-build behavior for `chr_pos` inputs:

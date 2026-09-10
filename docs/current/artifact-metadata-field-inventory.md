@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-10
 
 Downstream identity metadata lives in the `sumstats.parquet` footer (for munged
 sumstats) and in `ldscore/metadata.json` (for LD scores). Any metadata emitted by
@@ -198,6 +198,8 @@ ldscore/
     query_annotation_status.tsv
     gene_list_audit.tsv.gz
     gene_list_resolution_summary.tsv
+    chromosome_scope.json
+    input_issues.tsv
 ```
 
 `ldscore.query.parquet` is present only when query LD scores are written.
@@ -208,7 +210,7 @@ The row-complete audit and per-source summary are present for gene-list runs.
 that `partitioned-h2` requires. It is written only for runs with two or more
 annotation columns; a single-annotation (e.g. base-only) run omits it.
 
-`metadata.json` is downstream-required.
+`metadata.json` is downstream-required. Query workflows also persist `diagnostics/chromosome_scope.json`, including validated baseline/reference chromosome sets, the content-resolved PLINK chromosome-to-prefix mapping when applicable, the effective analysis scope, validation status, and ordinary-glob selection caveat. Structural input failures populate `diagnostics/input_issues.tsv` with `input_role`, `source`, `chrom`, `reason`, `details`, and `repair`; unavailable later assessments remain unknown. These diagnostics can exist without scientific outputs after a failed preflight.
 
 | Field | Explanation | Downstream usage |
 | --- | --- | --- || `artifact_type` | Must be `ldscore`. | Required and validated. |
@@ -230,7 +232,8 @@ annotation columns; a single-annotation (e.g. base-only) run omits it.
 | `query_row_groups` | Row-group metadata for `ldscore.query.parquet`, or `null`. | Reporting/technical provenance. |
 | `gene_list_resolution_policy` | `strict` or `resolved-only` for gene-list runs. | Scientific provenance; ignored by regression. |
 | `gene_list_resolution_counts` | Aggregate submitted, rejected, and unique-resolved counts. | Reproducibility/diagnostics; ignored by regression. |
-| `query_diagnostics` | Relative paths to query status and, for gene runs, the audit and source summary. | Troubleshooting/navigation; ignored by regression. |
+| `query_diagnostics` | Relative paths to available query status, scope, structural input issues, and, for gene runs, the audit and source summary. | Troubleshooting/navigation; ignored by regression. |
+| `chromosome_scope` | Validated input scope and selection semantics, separately from chromosomes with retained output rows. Empty for workflows without query coverage preflight. | Scientific provenance; ignored by regression. |
 | `legacy_ldsc2_import` | Present only for explicit LDSC2 conversion: profile, selected source directories/prefixes/files, streaming SHA-256 hashes, rsID intersection counts, count origins, strict common-frequency rule, coordinate evidence, and diagnostic paths. | Provenance and compatibility auditing; regression still consumes the ordinary canonical fields. |
 
 Native LDSC3 computation records an inclusive common operator (`>=`). Explicit

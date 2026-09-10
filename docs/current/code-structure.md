@@ -26,6 +26,7 @@ ldsc_py3_Jerry/
 │   ├── ref_panel_builder.py
 │   ├── r2_query.py
 │   ├── ldscore_calculator.py
+│   ├── _ldscore_preflight.py
 │   ├── legacy_ldscore_converter.py
 │   ├── sumstats_munger.py
 │   ├── regression_runner.py
@@ -62,7 +63,7 @@ ldsc_py3_Jerry/
 | `ldsc.genome_build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
 | `ldsc.hm3` | public packaged curated HM3 map loader and installed map path helper for workflow internals |
 | `ldsc.gene_list_resolver` | required/embedded catalog validation and vectorized focal/control resolution into exact IDs, intervals, audits, and summaries |
-| `ldsc.query_annotations` | internal ordered BED/gene query status record shared by annotation, LD-score, and output layers |
+| `ldsc.query_annotations` | shared gene coverage, resolution/support precedence, required-control and all-skipped failures, ordered diagnostics, and aligned result pruning; does not import workflow orchestration |
 | `tools/hm3/build_hm3_chr_pos_reference.py` | maintenance tool (outside the package) that rebuilds the compact HM3 coordinate reference used by genome-build inference |
 | `ldsc._kernel.liftover` | shared hg19/hg38 liftover helpers, chain-file translation, curated HM3 dual-build coordinate conversion, drop-all coordinate collision helpers, and readable drop reports |
 | `ldsc._kernel.regions` | packaged and user BED interval loading plus region-exclusion masks |
@@ -71,7 +72,8 @@ ldsc_py3_Jerry/
 | `ldsc.annotation_semantics` | global annotation-name uniqueness, binary/quantitative classification, and compact common-universe SHA256 semantic fingerprints |
 | `ldsc.ref_panel_builder` | parquet reference-panel build workflow, including source-build inference, optional coordinate liftover, explicit SNP/sample restrictions, and optional `min_r2` pair-emission threshold |
 | `ldsc.r2_query` | public `query-r2` CLI/API, `R2Panel`, one-shot `query_r2()`, sidecar-binding validation, endpoint key resolution, sign harmonization, and optional adjusted-R2-to-Pearson-r conversion |
-| `ldsc.ldscore_calculator` | LD-score orchestration, catalog-build selection, optional synthetic `base`, query-status finalization/pruning, aggregation, and output routing |
+| `ldsc.ldscore_calculator` | LD-score orchestration, catalog-build selection, direct prepared-SNP support measurement, optional synthetic `base`, aggregation, and output routing through shared query finalization |
+| `ldsc._ldscore_preflight` | validates direct annotation/reference contents and chromosome equality; enforces complete `@` declarations, authoritative glob matches, and consolidated required-input diagnostics |
 | `ldsc.legacy_ldscore_converter` | sole LDSC2 LD-score-suite import boundary: deterministic family discovery, rsID joins, count/overlap validation or reconstruction, provenance hashing, diagnostics, and canonical LDSC3 directory writing |
 | `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, `--format auto` / `--infer-only` header inference, Parquet/TSV curated output writing, self-describing `sumstats.parquet` footer identity metadata, diagnostics under `diagnostics/`, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
 | `ldsc._sumstats_input` | private workflow helper resolving raw schema, DANER/sample-size settings, bounded source-build evidence and keep-lists into `ResolvedMungeInput` |

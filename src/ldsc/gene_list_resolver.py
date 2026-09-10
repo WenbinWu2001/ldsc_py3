@@ -58,6 +58,8 @@ AUDIT_COLUMNS = (
     "start",
     "end",
     "details",
+    "coverage_status",
+    "reference_snp_count",
 )
 SUMMARY_COLUMNS = (
     "argument",
@@ -77,6 +79,12 @@ SUMMARY_COLUMNS = (
     "zero_support_genes",
     "genes_with_snp_support",
     "resolution_fraction",
+    "coverage_status",
+    "selected_genes",
+    "covered_genes",
+    "uncovered_genes",
+    "missing_chromosomes",
+    "uncovered_gene_ids",
 )
 RESOLUTION_POLICIES = ("strict", "resolved-only")
 RESOLVED_ONLY_REASONS = frozenset(
@@ -338,11 +346,20 @@ class GeneListBatchResolution:
             how="left",
             sort=False,
         )["_support"].astype("Int64")
-        unsupported = audit["disposition"].eq("retained") & counts.fillna(0).eq(0)
+        audit["reference_snp_count"] = counts
+        unsupported = audit["disposition"].eq("retained") & counts.notna() & counts.eq(0)
         audit.loc[unsupported, "disposition"] = "unsupported"
         audit.loc[unsupported, "reason"] = "zero_reference_snp_support"
         audit.loc[unsupported, "details"] = "No retained reference-panel SNP overlaps this gene interval."
-        summary = _summarize_sources(audit, self.summary, self.resolution_policy, support_evaluated=True)
+        summary = self.summary.copy()
+        for selection in self.selections:
+            mask = summary["input_role"].eq(selection.input_role) & summary["source_ordinal"].eq(selection.source_ordinal)
+            counts = support.reindex(selection.catalog_indices)
+            if counts.isna().any():
+                summary.loc[mask, ["zero_support_genes", "genes_with_snp_support"]] = pd.NA
+            else:
+                summary.loc[mask, "zero_support_genes"] = int(counts.eq(0).sum())
+                summary.loc[mask, "genes_with_snp_support"] = int(counts.gt(0).sum())
         return replace(self, audit=audit.loc[:, AUDIT_COLUMNS], summary=summary)
 
 
@@ -383,7 +400,6 @@ def resolve_gene_lists(
     control_path: str | Path | None = None,
     resolution_policy: str = "strict",
     gene_exclude_regions: str = "none",
-    index_chromosome_coverage: Iterable[str] | None = None,
 ) -> GeneListBatchResolution:
     """Resolve all focal/control sources together using vectorized table operations."""
     if resolution_policy not in RESOLUTION_POLICIES:
@@ -458,7 +474,7 @@ def resolve_gene_lists(
             source_errors.get((row.input_role, row.source_ordinal), ""), "duplicate_query_name"
         )
 
-    audit = _resolve_rows(rows, catalog, gene_exclude_regions, index_chromosome_coverage)
+    audit = _resolve_rows(rows, catalog, gene_exclude_regions)
     source_seed = declaration_frame.drop(columns="source_path").copy()
     source_seed["source_status"] = [
         "error" if source_errors.get((role, ordinal)) else "ok"
@@ -477,18 +493,12 @@ def resolve_gene_lists(
     policy_fatal = bool(rejected_reasons) and (
         resolution_policy == "strict" or not rejected_reasons.issubset(RESOLVED_ONLY_REASONS)
     )
-    empty_control = False
-    if control_path is not None:
-        control_summary = summary[summary["input_role"].eq("control")]
-        if not control_summary.empty and control_summary.iloc[0]["source_status"] == "ok":
-            selected_control = next(item for item in selections if item.input_role == "control")
-            empty_control = len(selected_control.canonical_gene_ids) == 0
     return GeneListBatchResolution(
         audit=audit.loc[:, AUDIT_COLUMNS].reset_index(drop=True),
         summary=summary.loc[:, SUMMARY_COLUMNS].reset_index(drop=True),
         selections=selections,
         resolution_policy=resolution_policy,
-        has_fatal_gate_a_issues=source_fatal or malformed_fatal or policy_fatal or empty_control,
+        has_fatal_gate_a_issues=source_fatal or malformed_fatal or policy_fatal,
     )
 
 
@@ -833,7 +843,6 @@ def _resolve_rows(
     rows: pd.DataFrame,
     catalog: GeneCatalog,
     gene_exclude_regions: str,
-    index_chromosome_coverage: Iterable[str] | None,
 ) -> pd.DataFrame:
     if rows.empty:
         return pd.DataFrame(columns=AUDIT_COLUMNS)
@@ -855,7 +864,7 @@ def _resolve_rows(
         "_outside_supported_chromosome",
         "_row_issue_reasons",
     ]
-    resolvable = working.loc[~working["_malformed"], ["_row_id", "input_gene"]]
+    resolvable = working.loc[working["_malformed"].eq(False), ["_row_id", "input_gene"]]
     id_matches = resolvable.merge(
         candidates_base[candidate_columns], left_on="input_gene", right_on="gene_id", how="inner", sort=False
     )
@@ -932,11 +941,7 @@ def _resolve_rows(
         invalid = stats["candidate_count"].eq(1) & stats["reason"].eq("") & ~stats["catalog_valid"].astype(bool)
         stats.loc[invalid, "reason"] = "catalog_invalid_coordinates"
 
-        coverage = None if index_chromosome_coverage is None else {str(value) for value in index_chromosome_coverage}
         unique_rows = unique_candidates.drop_duplicates("_row_id").set_index("_row_id")
-        if coverage is not None:
-            outside_coverage = stats["candidate_count"].eq(1) & stats["reason"].eq("") & ~unique_rows["chrom"].astype(str).isin(coverage)
-            stats.loc[outside_coverage, "reason"] = "outside_index_chromosome_coverage"
         matched_ids = stats.index
         audit.loc[matched_ids, "match_type"] = stats["match_type"]
         audit.loc[matched_ids, "catalog_lines"] = stats["catalog_lines"]
@@ -985,7 +990,7 @@ def _resolve_rows(
         )
     audit["_role_order"] = audit["input_role"].map({"focal": 0, "control": 1})
     audit = audit.sort_values(["_role_order", "source_ordinal", "line"], kind="stable").drop(columns="_role_order")
-    return audit.loc[:, AUDIT_COLUMNS].reset_index(drop=True)
+    return audit.reindex(columns=AUDIT_COLUMNS).reset_index(drop=True)
 
 
 def _build_selections(
@@ -1105,7 +1110,7 @@ def _summarize_sources(
         / summary.loc[nonempty, "nonblank_input_rows"].astype(float)
     )
     summary["_role_order"] = summary["input_role"].map({"focal": 0, "control": 1})
-    return summary.sort_values(["_role_order", "source_ordinal"], kind="stable").drop(columns="_role_order").loc[:, SUMMARY_COLUMNS]
+    return summary.sort_values(["_role_order", "source_ordinal"], kind="stable").drop(columns="_role_order").reindex(columns=SUMMARY_COLUMNS)
 
 
 def _mhc_overlap_mask(frame: pd.DataFrame, genome_build: str) -> pd.Series:

@@ -514,6 +514,8 @@ class LDScoreDirectoryWriter:
             "query": ("ldscore.query.parquet", scientific and getattr(result, "query_table", None) is not None),
             "overlap": ("ldscore.overlap.parquet", scientific and getattr(result, "overlap", None) is not None),
             "query_status": ("diagnostics/query_annotation_status.tsv", bool(getattr(result, "query_statuses", ()))),
+            "chromosome_scope": ("diagnostics/chromosome_scope.json", bool(getattr(result, "chromosome_scope", None) or getattr(result, "source_summary", {}).get("chromosome_scope"))),
+            "input_issues": ("diagnostics/input_issues.tsv", getattr(result, "input_issues", None) is not None),
             "gene_list_audit": ("diagnostics/gene_list_audit.tsv.gz", batch is not None),
             "gene_list_resolution_summary": ("diagnostics/gene_list_resolution_summary.tsv", batch is not None),
         }
@@ -544,13 +546,13 @@ class LDScoreDirectoryWriter:
         result: Any,
         output_config: LDScoreOutputConfig,
     ) -> dict[str, str]:
-        """Write only query-status/audit artifacts for an all-skipped batch."""
+        """Write available validation diagnostics without scientific artifacts."""
         output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
         family = self.artifact_family(output_dir, result, diagnostics_only=True)
         paths = family.paths
-        if "query_status" not in paths:
+        if not any(name in paths for name in ("query_status", "gene_list_audit", "chromosome_scope", "input_issues")):
             raise LDSCInternalError(
-                "LD-score diagnostics-only writing requires query-status records. "
+                "LD-score diagnostics-only writing requires query, gene, scope, or input-issue records. "
                 "Re-run with DEBUG logging and report the traceback."
             )
         stale_paths = family.preflight(overwrite=output_config.overwrite)
@@ -601,7 +603,7 @@ class LDScoreDirectoryWriter:
         self._write_query_diagnostic_files(result, paths)
         metadata = self.build_metadata(
             result,
-            files=family.metadata_files(exclude=("query_status", "gene_list_audit", "gene_list_resolution_summary")),
+            files=family.metadata_files(exclude=("query_status", "gene_list_audit", "gene_list_resolution_summary", "chromosome_scope", "input_issues")),
             baseline_rg=baseline_rg,
             query_rg=query_rg,
         )
@@ -614,6 +616,12 @@ class LDScoreDirectoryWriter:
         """Serialize fixed query diagnostics after family preflight."""
         query_statuses = tuple(getattr(result, "query_statuses", ()))
         gene_list_batch = getattr(result, "gene_list_batch", None)
+        if "chromosome_scope" in paths:
+            paths["chromosome_scope"].parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write_json(getattr(result, "chromosome_scope", None) or result.source_summary["chromosome_scope"], paths["chromosome_scope"])
+        if "input_issues" in paths:
+            paths["input_issues"].parent.mkdir(parents=True, exist_ok=True)
+            result.input_issues.to_csv(paths["input_issues"], sep="\t", index=False, na_rep="")
         if "query_status" in paths:
             paths["query_status"].parent.mkdir(parents=True, exist_ok=True)
             pd.DataFrame([record.as_dict() for record in query_statuses], columns=QUERY_STATUS_COLUMNS).to_csv(
@@ -692,6 +700,7 @@ class LDScoreDirectoryWriter:
             **identity_metadata,
             "files": dict(files),
             "chromosomes": chromosomes,
+            "chromosome_scope": getattr(result, "chromosome_scope", None),
             "baseline_columns": list(getattr(result, "baseline_columns", [])),
             "query_columns": list(getattr(result, "query_columns", [])),
             "annotation_types": (
@@ -718,6 +727,11 @@ class LDScoreDirectoryWriter:
         gene_list_batch = getattr(result, "gene_list_batch", None)
         if query_statuses:
             payload["query_diagnostics"] = {"status": "diagnostics/query_annotation_status.tsv"}
+        if getattr(result, "chromosome_scope", None):
+            payload.setdefault("query_diagnostics", {})["chromosome_scope"] = "diagnostics/chromosome_scope.json"
+        input_issues = getattr(result, "input_issues", None)
+        if input_issues is not None and not input_issues.empty:
+            payload.setdefault("query_diagnostics", {})["input_issues"] = "diagnostics/input_issues.tsv"
         if gene_list_batch is not None:
             payload["gene_list_resolution_policy"] = gene_list_batch.resolution_policy
             payload["gene_list_resolution_counts"] = {

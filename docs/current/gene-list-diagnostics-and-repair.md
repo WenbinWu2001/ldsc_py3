@@ -1,6 +1,6 @@
 # Gene-list diagnostics and repair
 
-Last updated on: 2026-08-16
+Last updated on: 2026-09-10
 
 This guide is the detailed reference for diagnosing direct and indexed
 gene-list `ldscore` runs. The design assumes that users do not inspect a file
@@ -22,6 +22,8 @@ when catalog line evidence shows that its upstream transformation is defective.
 | `diagnostics/gene_list_audit.tsv.gz` | Every readable direct/indexed gene-list run that reaches catalog resolution, including Gate A failure | Exactly one row for every nonblank row in every readable focal/control list. |
 | `diagnostics/gene_list_resolution_summary.tsv` | With the gene-list audit | Exactly one row for every declared focal/control source, including unreadable sources. |
 | `diagnostics/query_annotation_status.tsv` | After Gate A succeeds and scientific viability is evaluated | Final outcome for each focal query. Controls are not query-status rows. |
+| `diagnostics/chromosome_scope.json` | After input-scope assessment, including failures | Effective validated input chromosomes, analysis scope, validation status, and glob-selection caveat or index identity. |
+| `diagnostics/input_issues.tsv` | Input-integrity or preparation failures | Consolidated required-artifact issues and repair guidance. |
 | `diagnostics/ldscore.log` | Every ordinary `ldscore` workflow | Complete unbounded warnings, including every rejected and zero-support gene. |
 | `.<index-name>.build-state/gene_coordinate_catalog_issues.tsv.gz` | A gene-index build whose catalog is noncanonical | Every detected source-catalog defect. It is outside the unpublished index. |
 
@@ -33,6 +35,26 @@ affected query outcomes and the three diagnostic paths. The complete gene-level
 record remains in the audit and log. Python callers receive the same structured
 statuses and output paths in the result object without unsolicited console
 output.
+
+## Chromosome scope and pathway coverage
+
+Direct PLINK and parquet-R² query runs require exactly matching validated baseline/reference chromosome sets. Exact inputs and ordinary globs select their actual files; file contents establish chromosome membership. A filename such as `*.22.annot.gz` does not prove chr22-only contents. Additional chromosomes in matched files participate in scope. An `@` declaration requires every autosome 1–22, including all required members of each reference artifact. Mixing `@` with a chr22-only group fails alignment.
+
+For PLINK globs, the validated chromosome-to-trio mapping also drives the numerical reader, so filenames cannot redirect computation after preflight. Multiple selected trios containing the same chromosome are ambiguous and fail preflight; select one complete trio per chromosome.
+
+Users own glob selection. A missing file that disappears from glob matches may be undetectable when the remaining required artifacts consistently cover the same subset. This caveat and the effective scope are recorded in `diagnostics/chromosome_scope.json`; the run log names the chromosomes resolved and entering analysis. Indexed runs instead inherit their validated immutable index scope; public indexes remain complete-autosomal.
+
+Coverage uses unique successfully resolved genes after explicit gene-region exclusions, before chromosome or SNP-support filtering. Each focal pathway and required control must be wholly contained in scope, but need not have genes on every covered chromosome. A chr22-only pathway is fully covered by matching chr21–22 baseline/reference inputs. A selected chr1 gene in that run fails the entire batch under both resolution policies. Pathways are never automatically truncated or skipped for incomplete coverage.
+
+| Coverage status | Meaning |
+| --- | --- |
+| `full` | Every selected gene lies on a validated covered chromosome. |
+| `partial` | Some selected genes are covered and some are not. Fatal for focal pathways and controls. |
+| `none` | No selected genes are covered. Fatal for nonempty focal pathways and controls. |
+| `empty` | No genes remain after resolution and explicit exclusions. Skip a focal source; fail an empty control. |
+| blank | Coverage was not assessed because a prerequisite failed. |
+
+The chromosome/input gate reports all safely discoverable independent issues. `input_issues.tsv` records artifact role, source, chromosome, reason, details, and repair guidance; coverage failures appear in the gene summary and audit. Structural catalog/index failures can prevent reliable matching and therefore do not invent gene audit rows. Input failures never count as biological zero support. Later reference preparation can also fail, for example on an invalid runtime window; its issues are recorded before aborting.
 
 ## Inspect and filter the files
 
@@ -82,6 +104,8 @@ catalog. Blank values mean that the field is not knowable or not applicable.
 | `reason` | Stable machine-readable explanation described below. Blank for an ordinary retained row. |
 | `chrom`, `start`, `end` | Unique catalog interval when available, in one-based inclusive coordinates. |
 | `details` | Human-readable conflicting IDs, first duplicate line, catalog defect, exclusion, or support context. |
+| `coverage_status` | `covered` or `uncovered` for selected genes, including their duplicate aliases; blank when excluded, rejected, or not assessed. Resolution disposition is preserved. |
+| `reference_snp_count` | Measured retained computational reference-SNP count for this gene; zero is a valid measurement and blank is unknown or not applicable. |
 
 Every readable nonblank input row appears exactly once. Rows sort by focal then
 control, focal ordinal, and physical input line; the order never depends on
@@ -110,7 +134,6 @@ filesystem enumeration or dictionary construction.
 | `catalog_duplicate_id` | The authoritative ID occurs on multiple catalog lines. | Prefer removing that row from the list for an exploratory run; fix and rebuild the catalog/index for a durable analysis. Never choose a catalog row arbitrarily. |
 | `catalog_invalid_coordinates` | The referenced row lacks a usable one-based autosomal interval. | Remove/replace the list token, or regenerate the catalog from the authoritative annotation. |
 | `outside_supported_chromosome` | The referenced row is not on autosomes 1–22. | Remove it; this workflow does not analyze sex chromosomes or noncanonical contigs. |
-| `outside_index_chromosome_coverage` | An internal partial test index does not cover the gene chromosome. | Rebuild/use a complete production index. Public indexes must cover 1–22. |
 | `malformed_input` | A list row contains tab-separated extra fields rather than one identifier. | Keep exactly one identifier field on that line. This is fatal under both policies. |
 
 ## Resolution summary columns
@@ -130,12 +153,16 @@ filesystem enumeration or dictionary construction.
 | `zero_support_genes` | Distinct non-excluded genes with zero retained-SNP support. Blank if Gate B was not reached. |
 | `genes_with_snp_support` | Distinct non-excluded genes with at least one retained SNP. Blank if Gate B was not reached. |
 | `resolution_fraction` | `uniquely_resolved_rows / nonblank_input_rows`; blank for empty or unreadable sources. |
+| `coverage_status` | `full`, `partial`, `none`, or `empty`; blank before coverage assessment. |
+| `selected_genes`, `covered_genes`, `uncovered_genes` | Unique post-exclusion gene denominator and its coverage partition. |
+| `missing_chromosomes`, `uncovered_gene_ids` | Deterministic comma-separated missing chromosomes and affected canonical IDs. |
 
-After Gate B, each readable source satisfies:
+After complete SNP-support assessment, each readable source satisfies:
 
 ```text
 excluded_genes + zero_support_genes + genes_with_snp_support
     = unique_resolved_genes
+selected_genes = covered_genes + uncovered_genes
 ```
 
 Do not interpret blank Gate B counts as zero. They mean that an earlier hard
@@ -150,17 +177,18 @@ outcome.
 
 | Status | Reason | Meaning |
 | --- | --- | --- |
-| `ok` | blank | The focal annotation is usable without a warning condition. |
+| `ok` | blank | No query-local problem is known at the latest completed stage; a later or batch-wide failure may still prevent computation. |
+| `error` | `incomplete_chromosome_coverage` | A nonempty focal pathway contains uncovered genes; the entire batch fails. |
 | `warning` | `partial_gene_resolution` | `resolved-only` omitted one or more rejected list rows. |
 | `warning` | `partial_snp_support` | Some resolved genes have no retained-SNP support, but the query remains usable. |
 | `skipped` | `empty_gene_list` | The readable source contains no nonblank rows. |
-| `skipped` | `zero_resolved_genes` | A nonempty `resolved-only` source has no usable catalog genes. |
+| `skipped` | `zero_resolved_genes` | A nonempty source has no selected genes after allowed resolution omissions or explicit exclusions. |
 | `skipped` | `zero_annotation_snps` | The resolved annotation has no retained panel SNPs in this run. |
 | `skipped` | `zero_variance_ld_scores` | The computed query LD scores are constant on regression rows. |
 
 When both partial gene resolution and partial SNP support occur,
 `partial_gene_resolution` remains the primary reason and `details` plus the
-summary record the SNP-support condition. Skipping one focal query does not
+summary record the SNP-support condition. Incomplete coverage instead takes precedence and aborts the batch before support assessment. Skipping a validly evaluated focal query does not
 stop usable siblings. If every focal query is skipped, the command exits
 nonzero after writing diagnostics and publishes no baseline-only scientific
 result. A requested control instead fails if it has zero resolved genes, zero
@@ -186,9 +214,51 @@ appropriate, for example a preliminary screen of hundreds of pathways:
 It may omit unmatched, ambiguous, namespace-conflicting, duplicate-ID,
 invalid-coordinate, or unsupported-chromosome rows. It never relaxes malformed
 or unreadable input, source-name collisions, structural catalog/build defects,
-corrupt/partial indexes, or control viability. Successful subset runs emit a
+corrupt/partial indexes, incomplete chromosome coverage, or control viability. Successful subset runs emit a
 bounded console warning because relying only on a file log would be unsafe on
 batch systems.
+
+### Resolution policy versus computation mode
+
+`strict` and `resolved-only` are resolution policies; direct and indexed are computation modes. Both modes accept either policy through `--gene-list-resolution-policy`. Direct mode resolves genes against the supplied coordinate catalog. Indexed mode first validates the index, then resolves genes against its embedded catalog.
+
+In the table below, **fail** means stop the entire run. **Omit rows** means deliberately exclude the affected input rows and record them in diagnostics; continuation still requires a usable focal query and, when requested, a usable control. A **rejected row** is an input identifier that cannot provide one unique, valid catalog interval. A successfully resolved gene with no retained-SNP support is evaluated separately after resolution.
+
+| Input or validation condition | Direct + `strict` | Indexed + `strict` | Direct + `resolved-only` | Indexed + `resolved-only` |
+| --- | --- | --- | --- | --- |
+| All submitted identifiers resolve uniquely to valid genes | Check chromosome coverage, then SNP support. | Check chromosome coverage, then SNP support. | Check chromosome coverage, then SNP support. | Check chromosome coverage, then SNP support. |
+| Some identifiers are absent from the selected catalog (`unmatched_identifier`) | Fail Gate A. | Fail Gate A. | Omit rejected rows; evaluate the remaining genes. | Omit rejected rows; evaluate the remaining genes. |
+| A referenced name is ambiguous, or an identifier has an ID/name namespace conflict | Fail Gate A. | Such catalog ambiguity is rejected during index construction or validation. | Omit affected rows if the catalog is otherwise structurally readable. | Fail index validation if the embedded catalog is ambiguous; this policy cannot repair an invalid index. |
+| A referenced catalog row has a duplicate ID, invalid coordinates, or an unsupported chromosome | Fail Gate A. | Such catalog defects are rejected during index construction or validation. | Omit affected rows if the catalog is otherwise structurally readable. | Fail index validation if the embedded catalog is defective; this policy cannot repair an invalid index. |
+| A source is unreadable, an input row is malformed, or query names collide | Fail. | Fail. | Fail. | Fail. |
+| The catalog has an unreadable structural contract or incompatible build | Fail. | Fail index/catalog validation. | Fail. | Fail index/catalog validation. |
+| The index is corrupt or does not cover autosomes 1–22 | Not applicable: no index is used. | Fail index validation. | Not applicable: no index is used. | Fail index validation. |
+| A nonempty focal pathway or control has incomplete chromosome coverage | Fail the entire batch. | Fail; public index validation normally catches missing autosomes first. | Fail the entire batch. | Fail; public index validation normally catches missing autosomes first. |
+
+Public indexes require a canonical catalog and complete autosomal coverage. Consequently, a valid public index does not expose catalog ambiguities or missing autosomes for `resolved-only` to ignore. Coverage is assessed separately from identifier resolution, including for internal partial test indexes. The resolver's omission allowlist does not override input integrity or coverage validation.
+
+Repeated rows that resolve to the same canonical gene are deduplicated within each source under all four combinations. Genes removed by an explicitly selected gene-region exclusion are recorded as `excluded`, not `rejected`. Neither condition alone triggers strict rejection; subsequent query/control viability checks still apply.
+
+Implementation references: [`gene_list_resolver.py`](../../src/ldsc/gene_list_resolver.py), `RESOLVED_ONLY_REASONS`, `resolve_gene_lists()`, `_resolve_rows()`, and `GeneCatalog.from_embedded_frame()`; [`gene_ldscore_index.py`](../../src/ldsc/gene_ldscore_index.py), `_load_gene_ldscore_index()`.
+
+### Viability checks after resolution
+
+These checks apply after Gate A succeeds, under both resolution policies and both computation modes. The source-level checks also distinguish an empty focal list, which can be skipped, from an unusable requested control, which is fatal.
+
+| Condition | Behavior in both modes and under both policies |
+| --- | --- |
+| A readable focal list is empty or has no selected genes after allowed omissions or explicit exclusions | Skip that focal query; usable siblings may continue. Under `strict`, rejected rows would already have failed Gate A. |
+| A nonempty focal pathway or control has incomplete chromosome coverage | Fail the entire batch after consolidated diagnostics; do not truncate or skip the pathway. |
+| Required input artifacts are missing, unreadable, malformed, or chromosome sets disagree | Fail the input gate; unevaluated support remains unknown. |
+| Some selected genes have no retained reference-SNP support, but the focal query still has support | Retain the query with a warning and audit the unsupported genes. If partial resolution also occurred, `partial_gene_resolution` remains the primary reason. |
+| A focal query has no retained reference-SNP support | Skip the query with `zero_annotation_snps`. |
+| A focal query's LD scores are constant on regression SNP rows | Skip the query with `zero_variance_ld_scores`. |
+| A requested control has no selected genes, no retained-SNP support, or constant LD scores on regression SNP rows | Fail the entire run; silently dropping the control would change the conditioning model. |
+| No usable focal query remains | Fail after writing available diagnostics; do not publish a baseline-only scientific result for the requested gene-query run. |
+
+Direct mode measures support by intersecting projected gene intervals with the prepared baseline/reference intersection after genotype, sample, SNP, and MAF restrictions. Indexed mode obtains support from the stored gene-to-atom membership and atom SNP counts. Support is measured on the reference-SNP universe, whereas LD-score variation is checked on regression SNP rows. Agreement between modes requires matching catalogs, projection settings, and retained SNP universes; a matching gene-list filename alone does not establish equivalence.
+
+Implementation references: [`query_annotations.py`](../../src/ldsc/query_annotations.py), `assess_gene_coverage()`, `gene_query_statuses()`, `gene_viability_errors()`, and `finalize_query_statuses()` own shared policy and aligned pruning. [`_ldscore_preflight.py`](../../src/ldsc/_ldscore_preflight.py), `inspect_direct_inputs()` validates scope; [`ldscore_calculator.py`](../../src/ldsc/ldscore_calculator.py), `_apply_direct_gene_gate_b()` measures direct support; [`gene_ldscore_index.py`](../../src/ldsc/gene_ldscore_index.py), `_indexed_gene_support()` measures indexed support.
 
 ## Recommended list-first repair workflow
 

@@ -71,7 +71,11 @@ from ._kernel.identifiers import build_snp_id_series, read_snp_restriction_keys
 from ._kernel.snp_identity import RestrictionIdentityKeys
 from ._row_alignment import assert_same_snp_rows
 from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
-from .query_annotations import QueryAnnotationStatus
+from .query_annotations import (
+    QueryAnnotationStatus, finalize_query_statuses, gene_query_statuses, gene_viability_errors,
+    _log_gene_list_rejections, _log_gene_list_snp_support,
+    _gene_list_gate_a_message, _log_query_annotation_statuses, _all_query_annotations_skipped_message,
+)
 from .annotation_semantics import (
     build_annotation_fingerprint_metadata,
     classify_annotation_values,
@@ -241,6 +245,9 @@ class LDScoreResult:
         Ordered per-source outcomes for BED and gene-list query annotations.
     gene_list_batch : GeneListBatchResolution or None, optional
         Complete gene-list audit, source summary, policy, and selected genes.
+    chromosome_scope : dict, optional
+        Validated input chromosome coverage and effective analysis scope.
+        Empty for workflows that do not perform query coverage preflight.
     legacy_ldsc2_import : dict or None, optional
         Explicit converter provenance for an LDSC2 LD-score suite. ``None``
         for natively computed LDSC3 results.
@@ -271,6 +278,7 @@ class LDScoreResult:
     identity_drops_by_chrom: dict[str, pd.DataFrame] = field(default_factory=dict, repr=False)
     annotation_types: dict[str, str] = field(default_factory=dict)
     annotation_fingerprints: dict[str, object] | None = None
+    chromosome_scope: dict[str, Any] = field(default_factory=dict)
 
     def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""
@@ -459,6 +467,7 @@ class LDScoreCalculator:
         result = dataclass_replace(
             result,
             gene_list_batch=getattr(annotation_bundle, "gene_list_batch", None),
+            chromosome_scope=dict(annotation_bundle.source_summary.get("chromosome_scope", {})),
             snp_universe_policy=_snp_universe_policy(
                 ref_panel=ref_panel,
                 ldscore_config=ldscore_config,
@@ -466,11 +475,15 @@ class LDScoreCalculator:
                 chromosome_results=chromosome_results,
             ),
         )
-        result = self._finalize_query_statuses(
+        result = finalize_query_statuses(
             result,
             tuple(getattr(annotation_bundle, "query_statuses", ())),
         )
         if output_config is not None:
+            errors = gene_viability_errors(result.gene_list_batch, result.query_statuses, result)
+            if errors:
+                self.output_writer.write_query_diagnostics(result, output_config)
+                raise LDSCInputError("; ".join(errors))
             output_paths = self.output_writer.write(result, output_config)
             result = _replace_result_output_paths(result, output_paths)
             LOGGER.info(f"Wrote LD-score result directory to '{output_config.output_dir}'.")
@@ -479,84 +492,6 @@ class LDScoreCalculator:
             f"and {len(result.baseline_table)} retained SNP rows."
         )
         return result
-
-    def _finalize_query_statuses(
-        self,
-        result: LDScoreResult,
-        statuses: Sequence[QueryAnnotationStatus],
-    ) -> LDScoreResult:
-        """Attach final counts and prune zero-hit or constant query LD scores."""
-        if not statuses:
-            return result
-        count_by_column = {
-            str(record["column"]): float(record["all_reference_snp_count"])
-            for record in result.count_records
-            if record.get("group") == "query"
-        }
-        finalized: list[QueryAnnotationStatus] = []
-        retained_queries: list[str] = []
-        for status in statuses:
-            if status.status not in {"ok", "warning"}:
-                finalized.append(status)
-                continue
-            if status.query not in count_by_column or result.query_table is None:
-                raise LDSCInternalError(
-                    "LD-score query-status finalization could not find the scientific column for "
-                    f"usable query {status.query!r}. Re-run with DEBUG logging and report the traceback."
-                )
-            count = count_by_column[status.query]
-            if count <= 0:
-                finalized.append(
-                    status.updated(
-                        status="skipped",
-                        reason="zero_annotation_snps",
-                        n_annotation_snps=count,
-                        details="query overlaps no retained LD-reference SNPs",
-                    )
-                )
-                continue
-            values = pd.to_numeric(result.query_table[status.query], errors="coerce")
-            if values.nunique(dropna=False) <= 1:
-                finalized.append(
-                    status.updated(
-                        status="skipped",
-                        reason="zero_variance_ld_scores",
-                        n_annotation_snps=count,
-                        details="query LD scores have zero variance on regression SNP rows",
-                    )
-                )
-                continue
-            finalized.append(status.updated(n_annotation_snps=count))
-            retained_queries.append(status.query)
-
-        original_queries = list(result.query_columns)
-        query_table = None
-        if retained_queries:
-            metadata_columns = [column for column in result.query_table.columns if column not in original_queries]
-            query_table = result.query_table.loc[:, [*metadata_columns, *retained_queries]].copy()
-        count_records = [
-            record
-            for record in result.count_records
-            if record.get("group") != "query" or record.get("column") in retained_queries
-        ]
-        overlap = result.overlap
-        if overlap is not None:
-            overlap = overlap.select_queries(retained_queries)
-        chromosome_results = [
-            _select_chromosome_result_queries(chromosome_result, retained_queries)
-            for chromosome_result in result.chromosome_results
-        ]
-        finalized_result = dataclass_replace(
-            result,
-            query_table=query_table,
-            query_columns=retained_queries,
-            count_records=count_records,
-            overlap=overlap,
-            chromosome_results=chromosome_results,
-            query_statuses=tuple(finalized),
-        )
-        finalized_result.validate()
-        return finalized_result
 
     def _run_chromosomes(
         self,
@@ -945,57 +880,6 @@ class LDScoreCalculator:
         return self.output_writer.write(result, output_config)
 
 
-def _select_chromosome_result_queries(
-    result: ChromLDScoreResult,
-    retained_queries: Sequence[str],
-) -> ChromLDScoreResult:
-    """Return one chromosome result restricted to final usable query columns."""
-    retained = list(retained_queries)
-    original = list(result.query_columns)
-    query_positions = [original.index(column) for column in retained]
-    query_table = None
-    if retained and result.query_table is not None:
-        metadata_columns = [column for column in result.query_table.columns if column not in original]
-        query_table = result.query_table.loc[:, [*metadata_columns, *retained]].copy()
-    keep_positions = [*range(len(result.baseline_columns)), *[len(result.baseline_columns) + pos for pos in query_positions]]
-    snp_count_totals = {
-        key: np.asarray(values)[keep_positions]
-        for key, values in result.snp_count_totals.items()
-    }
-    overlap = result.overlap
-    if overlap is not None:
-        overlap = OverlapContribution(
-            baseline_block_all=np.asarray(overlap.baseline_block_all)[:, keep_positions],
-            baseline_block_common=(
-                None
-                if overlap.baseline_block_common is None
-                else np.asarray(overlap.baseline_block_common)[:, keep_positions]
-            ),
-            query_diagonal_all=np.asarray(overlap.query_diagonal_all)[query_positions],
-            query_diagonal_common=(
-                None
-                if overlap.query_diagonal_common is None
-                else np.asarray(overlap.query_diagonal_common)[query_positions]
-            ),
-            n_all=overlap.n_all,
-            n_common=overlap.n_common,
-        )
-    selected = dataclass_replace(
-        result,
-        query_table=query_table,
-        query_columns=retained,
-        count_records=[
-            record
-            for record in result.count_records
-            if record.get("group") != "query" or record.get("column") in retained
-        ],
-        snp_count_totals=snp_count_totals,
-        overlap=overlap,
-    )
-    selected.validate()
-    return selected
-
-
 def _assert_canonical_maf(metadata: pd.DataFrame) -> None:
     """Verify the canonical invariant that MAF = freq(A1) is the minor allele.
 
@@ -1332,45 +1216,51 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
 
     annotation_bundle = None
     catalog_authority = None
-    if _has_cli_tokens(getattr(args, "query_annot_gene_list_sources", None)):
+    chromosome_scope = {}
+    has_queries = any(_has_cli_tokens(getattr(args, name, None)) for name in (
+        "query_annot_gene_list_sources", "query_annot_bed_sources", "query_annot_sources",
+    ))
+    if has_queries and not _has_cli_tokens(getattr(args, "baseline_annot_sources", None)):
+        raise LDSCUsageError(_QUERY_REQUIRES_BASELINE_MESSAGE)
+    if has_queries:
+        from .gene_list_resolver import resolve_gene_lists
+        from ._ldscore_preflight import validate_direct_scope
+
         preflight_output_config = _output_config_from_args(args)
-        preflight_output_dir = ensure_output_directory(
-            preflight_output_config.output_dir,
-            label="LD-score output directory",
-        )
+        preflight_output_dir = ensure_output_directory(preflight_output_config.output_dir, label="LD-score output directory")
         preflight_log_path = preflight_output_dir / "diagnostics" / "ldscore.log"
         LDScoreDirectoryWriter.artifact_family(preflight_output_dir).preflight(
             overwrite=preflight_output_config.overwrite, additional_paths=[preflight_log_path],
         )
         preflight_log_path.parent.mkdir(parents=True, exist_ok=True)
-        with workflow_logging(
-            "ldscore",
-            preflight_log_path,
-            log_level=getattr(args, "log_level", "INFO"),
-        ):
-            catalog_authority = GeneCatalog.load(args.gene_coordinate_file)
-            _log_live_gene_catalog_issues(catalog_authority)
-            normalized_args, global_config = _normalize_run_args(
-                args, gene_catalog=catalog_authority
-            )
+        with workflow_logging("ldscore", preflight_log_path, log_level=getattr(args, "log_level", "INFO")):
+            batch = None
+            if _has_cli_tokens(getattr(args, "query_annot_gene_list_sources", None)):
+                catalog_authority = GeneCatalog.load(args.gene_coordinate_file)
+                _log_live_gene_catalog_issues(catalog_authority)
+                batch = resolve_gene_lists(
+                    split_cli_path_tokens(args.query_annot_gene_list_sources), catalog_authority,
+                    control_path=getattr(args, "control_gene_list_file", None),
+                    resolution_policy=getattr(args, "gene_list_resolution_policy", "strict"),
+                    gene_exclude_regions=getattr(args, "gene_exclude_regions", "none"),
+                )
+                _log_gene_list_rejections(batch)
+                if batch.has_fatal_gate_a_issues:
+                    LDScoreDirectoryWriter().write_gene_list_preflight(batch, preflight_output_config)
+                    raise LDSCInputError(_gene_list_gate_a_message(batch))
+            normalized_args, global_config = _normalize_run_args(args, gene_catalog=catalog_authority)
             print_global_config_banner("run_ldscore_from_args", global_config)
             _validate_run_args(normalized_args)
+            batch, chromosome_scope = validate_direct_scope(normalized_args, global_config, batch, preflight_output_config)
             annotation_bundle = AnnotationBuilder(
                 global_config,
                 projection_genome_build=getattr(normalized_args, "gene_catalog_build", None),
-                gene_catalog=catalog_authority,
+                gene_catalog=catalog_authority, gene_list_batch=batch,
             ).run(_annotation_build_config_from_args(normalized_args))
-            batch = annotation_bundle.gene_list_batch
-            if batch is None:
-                raise LDSCInternalError("Gene-list annotation construction returned no batch audit.")
-            if batch.has_fatal_gate_a_issues:
-                _log_gene_list_rejections(batch)
-                diagnostic_paths = LDScoreCalculator().output_writer.write_gene_list_preflight(
-                    batch,
-                    preflight_output_config,
-                )
-                log_outputs(**diagnostic_paths)
-                raise LDSCInputError(_gene_list_gate_a_message(batch))
+            annotation_bundle = dataclass_replace(
+                annotation_bundle,
+                source_summary={**annotation_bundle.source_summary, "chromosome_scope": chromosome_scope},
+            )
     else:
         normalized_args, global_config = _normalize_run_args(args)
         print_global_config_banner("run_ldscore_from_args", global_config)
@@ -1395,7 +1285,10 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
                 global_config,
                 projection_genome_build=getattr(normalized_args, "gene_catalog_build", None),
             ).run(_annotation_build_config_from_args(normalized_args))
-        ref_panel = _ref_panel_from_args(normalized_args, global_config)
+        ref_panel = _ref_panel_from_args(
+            normalized_args, global_config,
+            chromosome_prefixes=chromosome_scope.get("reference_prefixes_by_chrom"),
+        )
     else:
         ref_panel = _ref_panel_from_args(normalized_args, global_config)
         annotation_bundle = _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config)
@@ -1406,7 +1299,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     calculator = LDScoreCalculator()
     calculator.output_writer.artifact_family(output_dir).preflight(
         overwrite=output_config.overwrite,
-        additional_paths=[] if getattr(annotation_bundle, "gene_list_batch", None) is not None else [log_path],
+        additional_paths=[] if has_queries else [log_path],
     )
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     with workflow_logging("ldscore", log_path, log_level=global_config.log_level):
@@ -1419,6 +1312,9 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             regr_snps_file=ldscore_config.regr_snps_file or "packaged_hm3_default",
             regression_region_presets=", ".join(regression_regions.source_labels) if regression_regions else "none",
         )
+        if chromosome_scope:
+            LOGGER.info("Chromosomes resolved and entering the analysis: %s.", ", ".join(chromosome_scope["chromosomes"]))
+            LOGGER.info(chromosome_scope["glob_selection_caveat"])
         if catalog_authority is not None:
             # The successful-run logging context replaces the preflight log.
             # Re-emit latent catalog defects so its complete warning record is retained.
@@ -1431,7 +1327,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             )
         if getattr(annotation_bundle, "gene_list_batch", None) is not None:
             _log_gene_list_rejections(annotation_bundle.gene_list_batch)
-            annotation_bundle, control_gate_b_error = _apply_direct_gene_gate_b(annotation_bundle, ref_panel)
+            annotation_bundle, control_gate_b_error = _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config, global_config)
             _log_gene_list_snp_support(annotation_bundle.gene_list_batch)
             if control_gate_b_error is not None:
                 diagnostic_paths = calculator.output_writer.write_query_diagnostics(
@@ -1456,17 +1352,12 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             regression_regions=regression_regions,
         )
         _log_query_annotation_statuses(result.query_statuses)
-        control_variance_error = _gene_control_variance_error(result, annotation_bundle)
-        if control_variance_error is not None:
+        viability_error = "; ".join(gene_viability_errors(result.gene_list_batch, result.query_statuses, result))
+        if viability_error:
             diagnostic_paths = calculator.output_writer.write_query_diagnostics(result, output_config)
             result = _replace_result_output_paths(result, diagnostic_paths)
             log_outputs(**diagnostic_paths)
-            raise LDSCInputError(control_variance_error)
-        if result.query_statuses and not result.query_columns:
-            diagnostic_paths = calculator.output_writer.write_query_diagnostics(result, output_config)
-            result = _replace_result_output_paths(result, diagnostic_paths)
-            log_outputs(**diagnostic_paths)
-            raise LDSCInputError(_all_query_annotations_skipped_message(result.query_statuses))
+            raise LDSCInputError(viability_error)
         output_paths = calculator.output_writer.write(result, output_config)
         result = _replace_result_output_paths(result, output_paths)
         log_outputs(**result.output_paths)
@@ -1685,40 +1576,6 @@ def _annotation_build_config_from_args(args: argparse.Namespace) -> AnnotationBu
     )
 
 
-def _log_gene_list_rejections(batch: Any) -> None:
-    """Log every rejected row and intentional gene-region exclusion."""
-    source_errors = batch.summary[batch.summary["source_status"].eq("error")]
-    for row in source_errors.itertuples(index=False):
-        LOGGER.warning(
-            "Gene-list source rejected: role=%s source=%s reason=%s",
-            row.input_role,
-            row.source,
-            row.source_reasons,
-        )
-    rejected = batch.audit[batch.audit["disposition"].eq("rejected")]
-    for row in rejected.itertuples(index=False):
-        LOGGER.warning(
-            "Gene-list row rejected: role=%s source=%s line=%s input_gene=%r reason=%s",
-            row.input_role,
-            row.source,
-            row.line,
-            row.input_gene,
-            row.reason,
-        )
-    excluded = batch.audit[batch.audit["disposition"].eq("excluded")]
-    for row in excluded.itertuples(index=False):
-        LOGGER.info(
-            "Gene intentionally excluded by region policy: role=%s source=%s line=%s "
-            "input_gene=%r canonical_gene_id=%s reason=%s",
-            row.input_role,
-            row.source,
-            row.line,
-            row.input_gene,
-            row.canonical_gene_id,
-            row.reason,
-        )
-
-
 def _log_live_gene_catalog_issues(catalog: Any) -> None:
     """Log every nonstructural catalog defect discovered in live mode."""
     for row in catalog.issues.itertuples(index=False):
@@ -1732,88 +1589,10 @@ def _log_live_gene_catalog_issues(catalog: Any) -> None:
         )
 
 
-def _log_gene_list_snp_support(batch: Any) -> None:
-    """Write every zero-support gene to the complete file log."""
-    unsupported = batch.audit[batch.audit["disposition"].eq("unsupported")]
-    for row in unsupported.itertuples(index=False):
-        LOGGER.warning(
-            "Gene has zero retained reference-SNP support: role=%s source=%s line=%s input_gene=%r canonical_gene_id=%s",
-            row.input_role,
-            row.source,
-            row.line,
-            row.input_gene,
-            row.canonical_gene_id,
-        )
+def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config, global_config):
+    """Measure interval support on the prepared computational SNP universe."""
+    from .errors import EmptyReferenceSNPs, LDSCUserError
 
-
-def _gene_list_gate_a_message(batch: Any) -> str:
-    """Return one bounded, actionable catalog-preflight failure message."""
-    rejected = batch.audit[batch.audit["disposition"].eq("rejected")]
-    submitted = int(batch.summary["nonblank_input_rows"].fillna(0).sum())
-    breakdown = "; ".join(
-        f"{row.source}: {int(row.rejected_rows or 0)}/{int(row.nonblank_input_rows or 0)} rejected"
-        for row in batch.summary.itertuples(index=False)
-        if pd.notna(row.nonblank_input_rows)
-    )
-    sample = "; ".join(
-        f"line {row.line}, {row.input_gene!r}, {row.reason}"
-        for row in rejected.head(MAX_CONSOLE_GENE_ISSUES).itertuples(index=False)
-    )
-    omitted = max(0, len(rejected) - MAX_CONSOLE_GENE_ISSUES)
-    omitted_text = f"; {omitted} more rejected row(s) are in the audit" if omitted else ""
-    source_errors = batch.summary[batch.summary["source_status"].eq("error")]
-    def source_reason_text(reason: str, source: str, role: str) -> str:
-        if any(token in source for token in ("*", "?", "[", "]")):
-            return (
-                "glob patterns are not allowed"
-                if role == "control"
-                else "glob pattern matched no files"
-            )
-        return reason
-
-    source_error_text = "; ".join(
-        (
-            f"control gene-list file {row.source!r}: {source_reason_text(row.source_reasons, row.source, row.input_role)}"
-            if row.input_role == "control"
-            else f"query gene-list source {row.source!r}: {source_reason_text(row.source_reasons, row.source, row.input_role)}"
-        )
-        for row in source_errors.itertuples(index=False)
-    )
-    issue_text = "; ".join(value for value in (source_error_text, sample) if value)
-    zero_usable_sources = batch.summary[
-        batch.summary["source_status"].eq("ok")
-        & batch.summary["unique_resolved_genes"].fillna(0).eq(0)
-    ]
-    zero_usable_text = "; ".join(
-        f"{row.input_role} source {row.source!r} has zero usable genes"
-        for row in zero_usable_sources.itertuples(index=False)
-    )
-    issue_text = "; ".join(value for value in (issue_text, zero_usable_text) if value)
-    if not rejected.empty:
-        first_rejected = rejected.iloc[0]
-        source_filter = (
-            f"source == {first_rejected['source']!r} & disposition == 'rejected'"
-        )
-    elif not source_errors.empty:
-        first_source_error = source_errors.iloc[0]
-        source_filter = (
-            f"source == {first_source_error['source']!r} & source_status == 'error' "
-            "(in gene_list_resolution_summary.tsv)"
-        )
-    else:
-        source_filter = "disposition == 'rejected'"
-    return (
-        f"Gene-list catalog preflight rejected {len(rejected)} of {submitted} submitted row(s) "
-        f"({breakdown}). First issues: {issue_text}{omitted_text}. "
-        "Complete diagnostics: diagnostics/gene_list_audit.tsv.gz and "
-        "diagnostics/gene_list_resolution_summary.tsv. "
-        f"Suggested audit filter: {source_filter}. Repair the listed gene-list rows first, then rerun "
-        "with --overwrite into this owned output directory."
-    )
-
-
-def _apply_direct_gene_gate_b(annotation_bundle: Any, ref_panel: Any) -> tuple[Any, str | None]:
-    """Audit retained-SNP support and prune every zero-hit focal query together."""
     batch = annotation_bundle.gene_list_batch
     padding_bp = int(annotation_bundle.source_summary.get("padding_bp", 0))
     interval_frame = pd.DataFrame(
@@ -1836,97 +1615,43 @@ def _apply_direct_gene_gate_b(annotation_bundle: Any, ref_panel: Any) -> tuple[A
         interval_frame["start0"].astype(np.int64) - padding_bp
     ).clip(lower=0)
     interval_frame["end"] = interval_frame["end"].astype(np.int64) + padding_bp
-    support = pd.Series(0, index=interval_frame["catalog_index"], dtype="Int64")
-    for chrom in ref_panel.available_chromosomes():
-        chrom_text = str(chrom)
-        genes = interval_frame[interval_frame["chrom"].astype(str).eq(chrom_text)]
-        if genes.empty:
+    support = pd.Series(pd.NA, index=interval_frame["catalog_index"], dtype="Int64")
+    errors = []
+    input_issues = []
+    for chrom in _chromosomes_from_bundle(annotation_bundle):
+        genes = interval_frame[interval_frame["chrom"].astype(str).eq(str(chrom))]
+        chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
+        legacy_bundle = kernel_ldscore.AnnotationBundle(
+            metadata=chrom_bundle.metadata, annotations=_float32_annotation_frame(chrom_bundle),
+            baseline_columns=chrom_bundle.baseline_columns, query_columns=chrom_bundle.query_columns,
+        )
+        try:
+            with ref_panel.prepare_chromosome(chrom, legacy_bundle, ldscore_config) as prepared:
+                positions0 = np.sort(prepared.metadata["POS"].to_numpy(dtype=np.int64) - 1)
+        except EmptyReferenceSNPs:
+            positions0 = np.array([], dtype=np.int64)
+        except (OSError, EOFError, ValueError, LDSCUserError) as exc:
+            errors.append(f"Chromosome {chrom} reference preparation failed: {exc}")
+            input_issues.append({"input_role": "reference", "source": f"chromosome {chrom}", "chrom": str(chrom), "reason": "invalid_required_input",
+                                 "details": str(exc), "repair": "Repair reference inputs and runtime filters before retrying."})
             continue
-        metadata = ref_panel.load_metadata(chrom_text)
-        positions0 = np.sort(pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64).to_numpy() - 1)
-        starts = genes["start0"].to_numpy(dtype=np.int64)
-        ends = genes["end"].to_numpy(dtype=np.int64)
-        counts = np.searchsorted(positions0, ends, side="left") - np.searchsorted(
-            positions0, starts, side="left"
+        counts = np.searchsorted(positions0, genes["end"].to_numpy(dtype=np.int64), side="left") - np.searchsorted(
+            positions0, genes["start0"].to_numpy(dtype=np.int64), side="left"
         )
         support.loc[genes["catalog_index"].astype(int).to_numpy()] = counts
     updated_batch = batch.with_snp_support(support)
-    statuses: list[QueryAnnotationStatus] = []
-    retained_queries: list[str] = []
-    focal_by_query = {
-        item.query: item for item in updated_batch.selections if item.input_role == "focal"
-    }
-    for status in annotation_bundle.query_statuses:
-        if status.input_type != "gene_list" or status.status == "skipped":
-            statuses.append(status)
-            continue
-        selection = focal_by_query[status.query]
-        counts = support.reindex(selection.catalog_indices).fillna(0).astype(int)
-        supported = int(counts.gt(0).sum())
-        if supported == 0:
-            statuses.append(
-                status.updated(
-                    status="skipped",
-                    reason="zero_annotation_snps",
-                    n_annotation_snps=0.0,
-                    details="No resolved gene overlaps a retained reference-panel SNP.",
-                )
-            )
-            continue
-        if supported < len(selection.catalog_indices):
-            if status.reason == "partial_gene_resolution":
-                statuses.append(
-                    status.updated(
-                        details=(status.details or "") + " Some resolved genes also have zero reference-SNP support."
-                    )
-                )
-            else:
-                statuses.append(
-                    status.updated(
-                        status="warning",
-                        reason="partial_snp_support",
-                        details="Some resolved genes have zero retained reference-SNP support.",
-                    )
-                )
-        else:
-            statuses.append(status)
-        retained_queries.append(status.query)
-    query_annotations = annotation_bundle.query_annotations.loc[:, retained_queries].copy()
-    control_error = None
-    control = next((item for item in updated_batch.selections if item.input_role == "control"), None)
-    if control is not None and not support.reindex(control.catalog_indices).fillna(0).astype(int).gt(0).any():
-        control_error = (
-            "The requested control gene list has zero annotation SNPs in the retained reference-panel universe. "
-            "Inspect diagnostics/gene_list_audit.tsv.gz and gene_list_resolution_summary.tsv; use a control with "
-            "retained SNP support."
-        )
+    statuses = gene_query_statuses(updated_batch)
+    retained_queries = [status.query for status in statuses if status.status in {"ok", "warning"}]
+    errors.extend(gene_viability_errors(updated_batch, statuses))
     return (
         dataclass_replace(
             annotation_bundle,
-            query_annotations=query_annotations,
-            query_columns=retained_queries,
-            query_statuses=tuple(statuses),
-            gene_list_batch=updated_batch,
+            query_annotations=annotation_bundle.query_annotations.loc[:, retained_queries].copy(),
+            query_columns=retained_queries, query_statuses=statuses, gene_list_batch=updated_batch,
+            input_issues=pd.DataFrame(input_issues) if input_issues else None,
         ),
-        control_error,
+        "; ".join(errors) if errors else None,
     )
-
-
-def _gene_control_variance_error(result: LDScoreResult, annotation_bundle: Any) -> str | None:
-    """Return the fatal post-score control condition, if one was requested."""
-    batch = getattr(annotation_bundle, "gene_list_batch", None)
-    has_control = batch is not None and any(item.input_role == "control" for item in batch.selections)
-    if not has_control:
-        return None
-    if "gene_control" not in result.baseline_table:
-        return "The requested gene control is missing from the computed baseline LD-score table."
-    values = pd.to_numeric(result.baseline_table["gene_control"], errors="coerce")
-    if values.nunique(dropna=False) <= 1:
-        return (
-            "The requested control gene list produced zero-variance LD scores on regression SNP rows. "
-            "The conditioning model cannot be fitted; inspect the gene-list diagnostics and choose a usable control."
-        )
-    return None
 
 
 def _emit_resolved_only_notice(batch: Any | None) -> None:
@@ -2081,39 +1806,6 @@ def _validate_run_args(args: argparse.Namespace) -> None:
 def _has_cli_tokens(value: str | Sequence[str] | None) -> bool:
     """Return whether a CLI path field contains at least one non-empty token."""
     return bool(split_cli_path_tokens(value))
-
-
-def _log_query_annotation_statuses(statuses: Sequence[QueryAnnotationStatus]) -> None:
-    """Log every non-ok query and one compact batch-status summary."""
-    if not statuses:
-        return
-    counts: dict[str, int] = {"ok": 0, "warning": 0, "skipped": 0}
-    for status in statuses:
-        counts[status.status] = counts.get(status.status, 0) + 1
-        if status.status != "ok":
-            diagnostic = (
-                "diagnostics/gene_list_resolution_summary.tsv and diagnostics/gene_list_audit.tsv.gz"
-                if status.input_type == "gene_list"
-                else "diagnostics/query_annotation_status.tsv"
-            )
-            LOGGER.warning(
-                f"Query annotation '{status.query}' status={status.status}, reason={status.reason}; "
-                f"see {diagnostic}."
-            )
-    LOGGER.info(
-        "Query annotation status summary: "
-        f"ok={counts.get('ok', 0)}, warning={counts.get('warning', 0)}, skipped={counts.get('skipped', 0)}."
-    )
-
-
-def _all_query_annotations_skipped_message(statuses: Sequence[QueryAnnotationStatus]) -> str:
-    """Return the consolidated user-facing error for an unusable batch."""
-    reasons = ", ".join(f"{status.query}={status.reason}" for status in statuses)
-    return (
-        f"ldscore could not continue because all {len(statuses)} requested query annotations were skipped "
-        f"({reasons}). Check diagnostics/query_annotation_status.tsv for details, correct the inputs, "
-        "and rerun with --overwrite when reusing this output directory."
-    )
 
 
 def _format_ldscore_start_message(annotation_bundle, n_chromosomes: int) -> str:
@@ -2583,7 +2275,7 @@ def _regression_region_intervals(
     return kernel_regions.load_preset_intervals(presets, build)
 
 
-def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
+def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig, *, chromosome_prefixes=None):
     """Build the reference-panel adapter that owns the ``A -> A'`` restriction."""
     from ._kernel.ref_panel import RefPanelLoader
 
@@ -2609,6 +2301,10 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             genetic_map_hg19_sources=getattr(args, "genetic_map_hg19_sources", None),
             genetic_map_hg38_sources=getattr(args, "genetic_map_hg38_sources", None),
         )
+    if spec.backend == "plink" and chromosome_prefixes is not None:
+        from ._kernel.ref_panel import PlinkRefPanel
+
+        return PlinkRefPanel(global_config, spec, chromosome_prefixes=chromosome_prefixes)
     return RefPanelLoader(global_config).load(spec)
 
 
@@ -2799,6 +2495,10 @@ def _float32_annotation_frame(annotation_bundle) -> pd.DataFrame:
 
 def _is_empty_intersection(error: Exception, chrom: str) -> bool:
     """Return whether ``error`` is the recoverable empty-intersection case."""
+    from .errors import EmptyReferenceSNPs
+
+    if isinstance(error, EmptyReferenceSNPs):
+        return True
     message = str(error)
     old_shape = message.startswith("No retained annotation SNPs remain on chromosome ")
     new_shape = message.startswith("ldscore retained no annotation SNPs on chromosome ")

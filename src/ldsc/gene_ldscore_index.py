@@ -1753,23 +1753,43 @@ def _load_gene_ldscore_index(
             "Gene LD-score index catalog exclusion reasons disagree with its inclusion policy."
         )
     loaded: dict[str, IndexChromosomeData] = {}
+    issues = []
+    required_files = ("metadata.json", "baseline_rows.parquet", "baseline_statistics.npz",
+                      "atoms.parquet", "gene_to_atom.npz", "ldscore_operator.npz", "atom_statistics.npz")
     for chrom in chromosomes:
-        chromosome_catalog = catalog.loc[catalog["chrom"].astype(str) == str(chrom)]
-        expected_chromosome_rows = np.arange(len(chromosome_catalog), dtype=np.int64)
-        if not np.array_equal(
-            chromosome_catalog["chromosome_gene_row"].to_numpy(), expected_chromosome_rows
-        ):
-            raise LDSCInputError(
-                f"Gene LD-score index catalog chromosome_gene_row ordering is invalid for chromosome {chrom}."
+        missing = [name for name in required_files if not (index_path / "chromosomes" / f"chr{chrom}" / name).is_file()]
+        if missing:
+            issues.extend({"input_role": "index", "source": str(index_path / "chromosomes" / f"chr{chrom}" / name),
+                           "chrom": chrom, "reason": "missing_required_input", "details": "Required index component is missing.",
+                           "repair": "Restore or rebuild the complete immutable index."} for name in missing)
+            continue
+        try:
+            chromosome_catalog = catalog.loc[catalog["chrom"].astype(str) == str(chrom)]
+            expected_chromosome_rows = np.arange(len(chromosome_catalog), dtype=np.int64)
+            if not np.array_equal(
+                chromosome_catalog["chromosome_gene_row"].to_numpy(), expected_chromosome_rows
+            ):
+                raise LDSCInputError(
+                    f"Gene LD-score index catalog chromosome_gene_row ordering is invalid for chromosome {chrom}."
+                )
+            loaded[chrom] = _load_index_chromosome(
+                index_path,
+                chrom,
+                index_id=index_id,
+                snp_identifier=snp_identifier,
+                genome_build=genome_build,
+                expected_gene_rows=len(chromosome_catalog),
             )
-        loaded[chrom] = _load_index_chromosome(
-            index_path,
-            chrom,
-            index_id=index_id,
-            snp_identifier=snp_identifier,
-            genome_build=genome_build,
-            expected_gene_rows=len(chromosome_catalog),
-        )
+        except (OSError, ValueError, EOFError, LDSCInputError) as exc:
+            issues.append({"input_role": "index", "source": str(index_path / "chromosomes" / f"chr{chrom}"),
+                           "chrom": chrom, "reason": "invalid_required_input", "details": str(exc),
+                           "repair": "Restore or rebuild the complete immutable index."})
+    if issues:
+        error = LDSCInputError("Gene LD-score index chromosome preflight failed: " + "; ".join(
+            f"chromosome {row['chrom']} {row['source']}: {row['details']}" for row in issues
+        ))
+        error.input_issues = pd.DataFrame(issues)
+        raise error
     return LoadedGeneLDScoreIndex(
         index_id=index_id,
         chromosomes=chromosomes,
@@ -1829,13 +1849,26 @@ def run_indexed_ldscore(
     float64 and are narrowed only by the canonical Parquet writer.
     """
     from .config import GlobalConfig
-    from .ldscore_calculator import LDScoreCalculator, LDScoreResult
+    from .ldscore_calculator import LDScoreResult
+    from .query_annotations import assess_gene_coverage, gene_query_statuses, gene_control_errors, gene_viability_errors, finalize_query_statuses
     from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
     from .overlap_matrix import LDScoreOverlap
 
-    index = _load_gene_ldscore_index(
-        index_dir, _allow_partial_for_tests=_allow_partial_for_tests
-    )
+    try:
+        index = _load_gene_ldscore_index(index_dir, _allow_partial_for_tests=_allow_partial_for_tests)
+    except (OSError, ValueError, LDSCInputError) as exc:
+        from ._ldscore_preflight import ISSUE_COLUMNS
+
+        issues = getattr(exc, "input_issues", pd.DataFrame([{
+            "input_role": "index", "source": str(index_dir), "chrom": "", "reason": "invalid_required_input",
+            "details": str(exc), "repair": "Restore or rebuild the complete immutable autosomes 1–22 index.",
+        }], columns=ISSUE_COLUMNS))
+        diagnostic = SimpleNamespace(input_issues=issues, chromosome_scope={
+            "selection": "validated_immutable_index", "chromosomes": None,
+            "analysis_chromosomes": [], "validation_status": "failed",
+        })
+        LDScoreDirectoryWriter().write_query_diagnostics(diagnostic, LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite))
+        raise
     projection_build = str(index.index_identity.get("projection_build"))
     gene_policy = str(index.index_identity.get("gene_exclude_regions", "none"))
     catalog = GeneCatalog.from_embedded_frame(index.gene_catalog)
@@ -1847,9 +1880,8 @@ def run_indexed_ldscore(
         control_path=control_gene_list_file,
         resolution_policy=gene_list_resolution_policy,
         gene_exclude_regions=gene_policy,
-        index_chromosome_coverage=index.chromosomes,
     )
-    from .ldscore_calculator import (
+    from .query_annotations import (
         _gene_list_gate_a_message,
         _log_gene_list_rejections,
         _log_gene_list_snp_support,
@@ -1862,10 +1894,21 @@ def run_indexed_ldscore(
             LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
         )
         raise LDSCInputError(_gene_list_gate_a_message(batch))
+    batch, coverage_errors = assess_gene_coverage(batch, index.chromosomes)
+    scope = {"chromosomes": list(index.chromosomes), "analysis_chromosomes": list(index.chromosomes),
+             "selection": "validated_immutable_index", "index_id": index.index_id,
+             "validation_status": "passed"}
+    LOGGER.info("Chromosomes resolved and entering the analysis: %s.", ", ".join(index.chromosomes))
+    coverage_errors.extend(gene_control_errors(batch))
+    if coverage_errors:
+        diagnostic = SimpleNamespace(query_statuses=gene_query_statuses(batch), gene_list_batch=batch,
+                                     chromosome_scope={**scope, "validation_status": "failed", "analysis_chromosomes": []})
+        LDScoreDirectoryWriter().write_query_diagnostics(diagnostic, LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite))
+        raise LDSCInputError("; ".join(coverage_errors))
     support = _indexed_gene_support(index)
     batch = batch.with_snp_support(support)
     _log_gene_list_snp_support(batch)
-    statuses = _indexed_query_statuses(batch, support)
+    statuses = gene_query_statuses(batch)
     usable = [
         selection
         for selection, status in zip(
@@ -1876,20 +1919,14 @@ def run_indexed_ldscore(
         if status.status in {"ok", "warning"}
     ]
     control_resolution = next((item for item in batch.selections if item.input_role == "control"), None)
-    if control_resolution is not None and not support.reindex(control_resolution.catalog_indices).fillna(0).gt(0).any():
-        diagnostic_result = SimpleNamespace(query_statuses=statuses, gene_list_batch=batch)
+    control_errors = gene_viability_errors(batch, statuses)
+    if control_errors:
+        diagnostic_result = SimpleNamespace(query_statuses=statuses, gene_list_batch=batch, chromosome_scope=scope)
         LDScoreDirectoryWriter().write_query_diagnostics(
             diagnostic_result,
             LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
         )
-        raise LDSCInputError("The requested indexed control gene list has zero retained-SNP support.")
-    if not usable:
-        _write_indexed_all_skipped_diagnostics(
-            statuses,
-            batch,
-            output_dir=output_dir,
-            overwrite=overwrite,
-        )
+        raise LDSCInputError("; ".join(control_errors))
     if any(resolution.query == "gene_control" for resolution in usable):
         raise LDSCInputError("Focal query name 'gene_control' collides with the reserved fixed control column.")
 
@@ -2019,32 +2056,24 @@ def run_indexed_ldscore(
         overlap=overlap,
         query_statuses=statuses,
         gene_list_batch=batch,
+        chromosome_scope=scope,
         index_provenance={
             "index_id": index.index_id,
             "index_snp_identifier": index.snp_identifier,
             "index_genome_build": index.genome_build,
         },
     )
-    result = LDScoreCalculator()._finalize_query_statuses(result, statuses)
-    from .ldscore_calculator import _log_query_annotation_statuses
+    result = finalize_query_statuses(result, statuses)
+    from .query_annotations import _log_query_annotation_statuses
 
     _log_query_annotation_statuses(result.query_statuses)
-    if control_resolution is not None and pd.to_numeric(
-        result.baseline_table["gene_control"], errors="coerce"
-    ).nunique(dropna=False) <= 1:
+    control_errors = gene_viability_errors(batch, result.query_statuses, result)
+    if control_errors:
         LDScoreDirectoryWriter().write_query_diagnostics(
             result,
             LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
         )
-        raise LDSCInputError("The requested indexed control gene list produced zero-variance LD scores.")
-    if not result.query_columns:
-        LDScoreDirectoryWriter().write_query_diagnostics(
-            result,
-            LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
-        )
-        from .ldscore_calculator import _all_query_annotations_skipped_message
-
-        raise LDSCInputError(_all_query_annotations_skipped_message(result.query_statuses))
+        raise LDSCInputError("; ".join(control_errors))
     result.validate()
     output_paths = LDScoreDirectoryWriter().write(
         result,
@@ -2057,7 +2086,7 @@ def run_indexed_ldscore(
 
 def _indexed_gene_support(index: LoadedGeneLDScoreIndex) -> pd.Series:
     """Return retained reference-SNP support for every embedded catalog row."""
-    support = pd.Series(0, index=index.gene_catalog["gene_index"].astype(int), dtype="Int64")
+    support = pd.Series(pd.NA, index=index.gene_catalog["gene_index"].astype(int), dtype="Int64")
     for chrom in index.chromosomes:
         record = index.index_chromosomes[chrom]
         catalog_rows = index.gene_catalog.loc[
@@ -2066,80 +2095,6 @@ def _indexed_gene_support(index: LoadedGeneLDScoreIndex) -> pd.Series:
         counts = record.atom_model.gene_to_atom.astype(np.int64) @ record.atom_statistics.atom_count_all.astype(np.int64)
         support.loc[catalog_rows["gene_index"].astype(int).to_numpy()] = np.asarray(counts).reshape(-1)
     return support
-
-
-def _indexed_query_statuses(batch, support: pd.Series) -> tuple[QueryAnnotationStatus, ...]:
-    """Derive Gate A/B focal statuses from one shared indexed batch."""
-    statuses: list[QueryAnnotationStatus] = []
-    for selection in (item for item in batch.selections if item.input_role == "focal"):
-        summary = batch.summary.loc[
-            (batch.summary["input_role"] == "focal")
-            & (batch.summary["source_ordinal"] == selection.source_ordinal)
-        ].iloc[0]
-        nonblank = int(summary["nonblank_input_rows"])
-        rejected = int(summary["rejected_rows"])
-        support_counts = support.reindex(selection.catalog_indices).fillna(0).astype(int)
-        supported = int(support_counts.gt(0).sum())
-        if not selection.canonical_gene_ids:
-            status, reason = "skipped", "empty_gene_list" if nonblank == 0 else "zero_resolved_genes"
-        elif supported == 0:
-            status, reason = "skipped", "zero_annotation_snps"
-        elif rejected:
-            status, reason = "warning", "partial_gene_resolution"
-        elif supported < len(selection.catalog_indices):
-            status, reason = "warning", "partial_snp_support"
-        else:
-            status, reason = "ok", ""
-        details_parts: list[str] = []
-        if rejected:
-            details_parts.append(
-                f"{rejected} submitted row(s) were rejected during catalog resolution."
-            )
-        if selection.canonical_gene_ids and supported < len(selection.catalog_indices):
-            details_parts.append(
-                f"{len(selection.catalog_indices) - supported} resolved gene(s) have zero "
-                "retained reference-SNP support."
-            )
-        if status != "ok":
-            details_parts.append(
-                "See diagnostics/gene_list_resolution_summary.tsv and "
-                "diagnostics/gene_list_audit.tsv.gz."
-            )
-        statuses.append(
-            QueryAnnotationStatus(
-                selection.query,
-                selection.source,
-                "gene_list",
-                status,
-                reason,
-                n_annotation_snps=(0.0 if reason == "zero_annotation_snps" else None),
-                details=" ".join(details_parts) or None,
-            )
-        )
-    return tuple(statuses)
-
-
-def _write_indexed_all_skipped_diagnostics(
-    statuses: tuple[QueryAnnotationStatus, ...],
-    batch,
-    *,
-    output_dir: str | Path,
-    overwrite: bool,
-) -> None:
-    """Write the ordinary diagnostic-only family and raise the consolidated error."""
-    from types import SimpleNamespace
-    from .ldscore_calculator import _all_query_annotations_skipped_message
-    from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-
-    diagnostic_result = SimpleNamespace(
-        query_statuses=statuses,
-        gene_list_batch=batch,
-    )
-    LDScoreDirectoryWriter().write_query_diagnostics(
-        diagnostic_result,
-        LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
-    )
-    raise LDSCInputError(_all_query_annotations_skipped_message(statuses))
 
 
 def _baseline_columns_from_rows(frame: pd.DataFrame) -> list[str]:

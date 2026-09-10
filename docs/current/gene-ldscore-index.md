@@ -1,6 +1,6 @@
 # Exact gene LD-score indexes
 
-Last updated on: 2026-08-16
+Last updated on: 2026-09-10
 
 An exact gene LD-score index moves the repeated PLINK calculation for one
 baseline, reference panel, regression-row policy, and gene projection offline.
@@ -106,7 +106,7 @@ An individual chromosome may have zero regression rows after restriction and
 region subtraction, which produces a warning. Public construction always
 builds autosomes 1 through 22; `--chromosomes` is not a public option. Public
 loading rejects partial coverage. Smaller coverage exists only as a private
-test seam.
+test seam. Online coverage is assessed after resolution and explicit gene exclusions; an uncovered selected gene fails the batch under both policies. Uncovered genes are not rejected identifiers or zero-support genes. Independent missing/invalid chromosome shards are collected before aborting index preflight.
 
 ### Baseline LD-score contributor caveat
 
@@ -207,6 +207,8 @@ complete new 1–22 build. Partial production indexes are unsupported. The
 incremental appearance of chromosome shards in a private run stage is only a
 memory and durability strategy; it is not restart, resume, checkpoint reuse,
 or incremental index-update support.
+
+Online assembly and direct gene-list workflows share `query_annotations.assess_gene_coverage()`, `gene_query_statuses()`, `gene_viability_errors()`, and `finalize_query_statuses()`. Indexed support comes from gene-to-atom counts; direct support comes from the prepared reference/annotation intersection. Shared finalization prunes query tables, counts, overlap blocks, chromosome results, classification metadata, and fingerprints together. Online outputs include `diagnostics/chromosome_scope.json`; invalid indexes produce `diagnostics/input_issues.tsv` in the requested LD-score output directory without altering the index.
 
 ## Output preflight, logging, and replacement
 

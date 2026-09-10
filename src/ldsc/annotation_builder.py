@@ -212,6 +212,9 @@ class AnnotationBundle:
         records align with ``query_columns``; skipped records remain for audit.
     gene_list_batch : GeneListBatchResolution, optional
         Complete focal/control audit, source summary, and usable selections.
+    input_issues : pandas.DataFrame or None, optional
+        Structural reference-preparation failures for diagnostics-only output;
+        these are not zero-SNP-support observations.
     """
 
     metadata: pd.DataFrame
@@ -224,6 +227,7 @@ class AnnotationBundle:
     config_snapshot: GlobalConfig | None = None
     query_statuses: tuple[QueryAnnotationStatus, ...] = ()
     gene_list_batch: GeneListBatchResolution | None = None
+    input_issues: pd.DataFrame | None = None
 
     def validate(self, snp_identifier: str = "chr_pos_allele_aware") -> None:
         """Validate row alignment assumptions for the bundle.
@@ -337,6 +341,9 @@ class AnnotationBuilder:
     gene_catalog : GeneCatalog or None, optional
         Already validated catalog authority for one direct gene-list run. This
         private seam prevents a second catalog read after build preflight.
+    gene_list_batch : GeneListBatchResolution or None, optional
+        Already resolved and coverage-assessed batch from direct preflight.
+        Reuse its selections and diagnostics instead of resolving inputs again.
     """
 
     def __init__(
@@ -346,6 +353,7 @@ class AnnotationBuilder:
         *,
         projection_genome_build: str | None = None,
         gene_catalog: GeneCatalog | None = None,
+        gene_list_batch: GeneListBatchResolution | None = None,
     ) -> None:
         """Store shared configuration for bundle loading and BED projection."""
         assert global_config.genome_build in {"auto", "hg19", "hg38", None}, (
@@ -356,6 +364,7 @@ class AnnotationBuilder:
         self.build_config = build_config or AnnotationBuildConfig()
         self.projection_genome_build = projection_genome_build or global_config.genome_build
         self.gene_catalog = gene_catalog
+        self.gene_list_batch = gene_list_batch
         self._workflow_log_path: Path | None = None
         self._identity_drop_frame = empty_identity_drop_frame()
 
@@ -429,7 +438,7 @@ class AnnotationBuilder:
                     f"catalog={catalog.genome_build}, analysis={self.projection_genome_build}. "
                     "Use a catalog generated for the analysis build; no implicit liftover is performed."
                 )
-            gene_list_batch = resolve_gene_lists(
+            gene_list_batch = self.gene_list_batch or resolve_gene_lists(
                 source_spec.query_annot_gene_list_sources,
                 catalog,
                 control_path=source_spec.control_gene_list_file,
@@ -577,41 +586,13 @@ class AnnotationBuilder:
                     "Gene-list query names clash with loaded annotation columns: "
                     f"{duplicate_columns}. Rename the gene-list files or annotation columns."
                 )
+            from .query_annotations import gene_query_statuses
+
+            statuses_by_query = {item.query: item for item in gene_query_statuses(gene_list_batch)}
             for resolution in gene_resolutions:
-                source_summary = (
-                    gene_list_batch.summary[
-                        (gene_list_batch.summary["input_role"] == "focal")
-                        & (gene_list_batch.summary["source_ordinal"] == resolution.source_ordinal)
-                    ].iloc[0]
-                    if gene_list_batch is not None
-                    else None
-                )
-                rejected_rows = 0 if source_summary is None else int(source_summary["rejected_rows"])
-                nonblank_rows = 0 if source_summary is None else int(source_summary["nonblank_input_rows"])
-                if not resolution.canonical_gene_ids:
-                    status = "skipped"
-                    reason = "empty_gene_list" if nonblank_rows == 0 else "zero_resolved_genes"
-                elif rejected_rows:
-                    status = "warning"
-                    reason = "partial_gene_resolution"
-                else:
-                    status = "ok"
-                    reason = ""
-                query_statuses.append(
-                    QueryAnnotationStatus(
-                        query=resolution.query,
-                        source=resolution.source,
-                        input_type="gene_list",
-                        status=status,
-                        reason=reason,
-                        details=(
-                            "See diagnostics/gene_list_audit.tsv.gz and "
-                            "diagnostics/gene_list_resolution_summary.tsv."
-                            if status != "ok"
-                            else None
-                        ),
-                    )
-                )
+                record = statuses_by_query[resolution.query]
+                status = record.status
+                query_statuses.append(record)
                 if status == "skipped":
                     continue
                 query_blocks.append(
@@ -900,7 +881,9 @@ class AnnotationBuilder:
         saw_unsharded = False
         saw_sharded = False
         for path in files:
-            chrom = kernel_annotation._annotation_shard_chromosome(path)
+            metadata, _ = self.parse_annotation_file(path)
+            chroms = metadata["CHR"].astype(str).unique()
+            chrom = str(chroms[0]) if len(chroms) == 1 else None
             if chrom is None:
                 saw_unsharded = True
                 continue

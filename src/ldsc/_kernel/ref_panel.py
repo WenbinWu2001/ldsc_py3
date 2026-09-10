@@ -32,7 +32,7 @@ from ..column_inference import (
     resolve_required_column,
 )
 from ..config import GlobalConfig, LDScoreConfig, RefPanelConfig, validate_config_compatibility
-from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCUsageError
+from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCUsageError
 from ..genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group, split_cli_path_tokens
 from . import formats as legacy_parse
@@ -335,7 +335,19 @@ class RefPanel(ABC):
 
 
 class PlinkRefPanel(RefPanel):
-    """PLINK-backed reference-panel adapter."""
+    """PLINK-backed reference-panel adapter.
+
+    ``chromosome_prefixes`` optionally binds normalized chromosome labels to
+    complete PLINK prefixes validated by the calling workflow. This bypasses
+    filename-based routing for content-authoritative query input globs.
+    """
+
+    def __init__(self, global_config: GlobalConfig, spec: RefPanelConfig, *,
+                 chromosome_prefixes: dict[str, str] | None = None) -> None:
+        """Store panel configuration and optional validated chromosome routing."""
+        super().__init__(global_config, spec)
+        self._chromosome_prefixes = None if chromosome_prefixes is None else dict(chromosome_prefixes)
+
     def available_chromosomes(self) -> list[str]:
         """List normalized chromosomes present in the resolved PLINK inputs."""
         df = self._read_bim_table(chrom=None)
@@ -344,7 +356,8 @@ class PlinkRefPanel(RefPanel):
 
     def _load_source(self, chrom: str):
         """Resolve physical BED rows and apply panel identity/SNP restrictions once."""
-        prefix = resolve_plink_prefix(self.spec.plink_prefix, chrom=chrom)
+        prefix = (self._chromosome_prefixes[normalize_chromosome(chrom)] if self._chromosome_prefixes is not None
+                  else resolve_plink_prefix(self.spec.plink_prefix, chrom=chrom))
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
         metadata = bim.df.rename(columns={"BP": "POS"}).copy()
@@ -470,15 +483,13 @@ class PlinkRefPanel(RefPanel):
 
     def _read_bim_table(self, chrom: str | None) -> pd.DataFrame:
         """Read one or many `.bim` tables into a normalized DataFrame."""
-        prefixes = (
-            []
-            if self.spec.plink_prefix is None
-            else resolve_plink_prefix_group(
-                (self.spec.plink_prefix,),
-                chrom=chrom,
-                allow_chromosome_suite=(chrom is None),
-            )
-        )
+        if self._chromosome_prefixes is not None:
+            prefixes = ([self._chromosome_prefixes[normalize_chromosome(chrom)]] if chrom is not None
+                        else list(dict.fromkeys(self._chromosome_prefixes.values())))
+        else:
+            prefixes = ([] if self.spec.plink_prefix is None else resolve_plink_prefix_group(
+                (self.spec.plink_prefix,), chrom=chrom, allow_chromosome_suite=(chrom is None),
+            ))
         if not prefixes:
             raise LDSCUsageError(
                 "PLINK reference-panel loading requires a PLINK prefix. Most likely "
@@ -586,7 +597,7 @@ class ParquetR2RefPanel(RefPanel):
             )
         metadata = self._apply_snp_restriction(metadata)
         metadata = self._apply_maf_filter(metadata, chrom)
-        if metadata_is_external:
+        if metadata_is_external and not metadata.empty:
             cleanup = clean_identity_artifact_table(
                 metadata,
                 self.global_config.snp_identifier,
@@ -1128,7 +1139,7 @@ def _align_annotations(bundle, reference, chrom, global_config, backend):
     annotation_keys = build_snp_id_series(bundle.metadata, mode)
     keep = annotation_keys.isin(set(reference_keys))
     if not keep.any():
-        raise LDSCInputError(
+        raise EmptyReferenceSNPs(
             f"ldscore retained no annotation SNPs on chromosome {chrom} after intersecting with the {backend} reference panel. "
             "Most likely the annotation SNP identifiers, genome build, or allele-aware identifier mode do not match the reference panel. "
             "Use annotation and reference-panel artifacts built with the same SNP identifier mode and genome build. "

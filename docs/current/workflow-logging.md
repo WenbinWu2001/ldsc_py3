@@ -77,6 +77,10 @@ Early checks discard the returned stale list because the final scientific and di
 
 Annotation, munging, and reference-panel build workflows retain their local ownership declarations and existing cleanup stages. Reference-panel builds keep their chromosome scope, and gene-index publication retains its dedicated transaction. Logs and workflow-only audit extensions do not enter scientific metadata through `ArtifactFamily`. Failure markers remain owned by the marker helper. Validation lives in `tests/test_artifact_declarations.py`, `tests/test_output.py`, `tests/test_derived_output_lifecycle.py`, `tests/test_failure_markers.py`, and the reference-panel/index workflow tests.
 
+## LD-score chromosome diagnostics
+
+Direct query validation logs the validated baseline/reference chromosome sets, effective scope, and ordinary-glob selection caveat. The calculation log explicitly names chromosomes resolved and entering analysis. Indexed runs name their immutable validated scope. `diagnostics/chromosome_scope.json` persists this evidence; its `analysis_chromosomes` is empty when scope validation prevents analysis. The LD-score writer owns this file and `diagnostics/input_issues.tsv` along with existing query/gene diagnostics, so preflight, replacement, and diagnostics-only cleanup share one declaration. Scope is also carried on `LDScoreResult.chromosome_scope` and in root scientific metadata.
+
 ## Failed Overwrite Markers
 
 Every public materializing CLI workflow and corresponding high-level Python

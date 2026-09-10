@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.ref_panel_helpers import compute_plink
+from tests.ref_panel_helpers import compute_plink, write_tiny_plink
 
 from argparse import Namespace
 from dataclasses import replace as dataclass_replace
@@ -1201,7 +1201,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             QueryAnnotationStatus("q_bad", "bad.bed", "bed", "skipped", "malformed_input"),
         )
 
-        finalized = ldscore_workflow.LDScoreCalculator()._finalize_query_statuses(result, statuses)
+        finalized = ldscore_workflow.finalize_query_statuses(result, statuses)
 
         self.assertEqual(finalized.query_columns, ["q_good"])
         self.assertEqual(finalized.query_table.columns.tolist(), ["CHR", "SNP", "POS", "q_good"])
@@ -1845,14 +1845,22 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     "none",
                 ]
             )
+            fixture_root = Path(tmpdir)
+            baseline_path = fixture_root / "baseline.annot"
+            baseline_path.write_text("CHR\tSNP\tPOS\tbase\n1\trs1\t10\t1\n")
+            bed_path = fixture_root / "empty.bed"
+            bed_path.write_text("")
+            args.baseline_annot_sources = str(baseline_path)
+            args.query_annot_bed_sources = str(bed_path)
+            args.plink_prefix = str(write_tiny_plink(fixture_root / "panel", pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "POS": [10]})))
             annotation_bundle = self.make_annotation_bundle([("1", "rs1", 10)])
             status = QueryAnnotationStatus(
                 "bad",
                 "bad.bed",
                 "bed",
                 "skipped",
-                "malformed_input",
-                details="BED line 1 is malformed",
+                "empty_input",
+                details="BED source contains no intervals",
             )
             annotation_bundle = dataclass_replace(annotation_bundle, query_statuses=(status,))
             result = ldscore_workflow.LDScoreResult(
@@ -1896,7 +1904,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertTrue((output_dir / "diagnostics" / "query_annotation_status.tsv").exists())
             self.assertTrue((output_dir / "diagnostics" / "ldscore.log").exists())
             self.assertFalse((output_dir / "metadata.json").exists())
-            self.assertIn("malformed_input", (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8"))
+            self.assertIn("empty_input", (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8"))
 
     def test_run_ldscore_from_args_gene_list_writes_query_and_resolution_diagnostics(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1943,6 +1951,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     "none",
                 ]
             )
+            args.plink_prefix = str(write_tiny_plink(tmpdir / "panel", pd.read_csv(baseline, sep="\t")))
+            args.yes_really = True
             chrom_result = ldscore_workflow.ChromLDScoreResult(
                 chrom="1",
                 baseline_table=pd.DataFrame(
@@ -1969,16 +1979,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 config_snapshot=GlobalConfig(snp_identifier="rsid"),
             )
 
-            with mock.patch(
-                "ldsc._kernel.ref_panel.RefPanelLoader.load",
-                autospec=True,
-                return_value=self.make_ref_panel_stub(
-                    backend="plink",
-                    metadata=pd.DataFrame(
-                        {"CHR": ["1", "1"], "POS": [65419, 80000], "SNP": ["rs1", "rs2"]}
-                    ),
-                ),
-            ), mock.patch.object(
+            with mock.patch.object(
                 ldscore_workflow.LDScoreCalculator,
                 "compute_chromosome",
                 autospec=True,
@@ -2088,13 +2089,12 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     padding_bp=0,
                 )
             )
-            panel = self.make_ref_panel_stub(
-                backend="plink",
-                genome_build="hg19",
-                metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"]}),
-            )
+            metadata = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"]})
+            prefix = write_tiny_plink(tmpdir / "panel", metadata)
+            panel = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="plink", plink_prefix=prefix))
 
-            gated, control_error = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel)
+
+            gated, control_error = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True), GlobalConfig(snp_identifier="rsid"))
 
             self.assertIsNone(control_error)
             self.assertEqual(gated.query_columns, ["mixed"])
@@ -2149,13 +2149,12 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     padding_bp=10,
                 )
             )
-            panel = self.make_ref_panel_stub(
-                backend="plink",
-                genome_build="hg19",
-                metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"]}),
-            )
+            metadata = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"]})
+            prefix = write_tiny_plink(tmpdir / "panel", metadata)
+            panel = PlinkRefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(backend="plink", plink_prefix=prefix))
 
-            gated, control_error = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel)
+
+            gated, control_error = ldscore_workflow._apply_direct_gene_gate_b(bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True), GlobalConfig(snp_identifier="rsid"))
 
             self.assertIsNone(control_error)
             self.assertEqual(gated.query_columns, ["padded"])
@@ -2433,6 +2432,14 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 "--ld-wind-snps",
                 "10",
             ]
+            fixture_root = Path(tmpdir)
+            baseline_path, query_path = fixture_root / "baseline.annot", fixture_root / "query.annot"
+            baseline_path.write_text("CHR\tSNP\tPOS\tbase\n1\trs1\t10\t1\n")
+            query_path.write_text("CHR\tSNP\tPOS\tquery\n1\trs1\t10\t1\n")
+            prefix = write_tiny_plink(fixture_root / "panel", pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "POS": [10]}))
+            argv[argv.index("--baseline-annot-sources") + 1] = str(baseline_path)
+            argv[argv.index("--query-annot-sources") + 1] = str(query_path)
+            argv[argv.index("--plink-prefix") + 1] = str(prefix)
             annotation_bundle = dataclass_replace(
                 self.make_annotation_bundle([("1", "rs1", 10)]),
                 query_annotations=pd.DataFrame({"query": [1.0]}),

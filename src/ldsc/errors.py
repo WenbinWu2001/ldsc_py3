@@ -27,6 +27,10 @@ class LDSCInputError(LDSCUserError):
     """Raised when input paths, file schemas, or file contents are invalid."""
 
 
+class EmptyReferenceSNPs(LDSCInputError):
+    """Valid reference/annotation filtering retained no computational SNPs."""
+
+
 class LDSCDependencyError(LDSCUserError, ImportError):
     """Raised when an optional dependency is required for the requested workflow."""
 

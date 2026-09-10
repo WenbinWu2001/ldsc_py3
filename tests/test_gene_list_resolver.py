@@ -333,11 +333,15 @@ def test_resolved_only_does_not_relax_outside_index_coverage(tmp_path):
         (source,),
         _catalog(tmp_path),
         resolution_policy="resolved-only",
-        index_chromosome_coverage=("22",),
     )
 
-    assert result.audit.loc[0, "reason"] == "outside_index_chromosome_coverage"
-    assert result.has_fatal_gate_a_issues
+    from ldsc.query_annotations import assess_gene_coverage
+
+    result, errors = assess_gene_coverage(result, ("22",))
+    assert result.audit.loc[0, "coverage_status"] == "uncovered"
+    assert result.audit.loc[0, "reason"] == ""
+    assert not result.has_fatal_gate_a_issues
+    assert len(errors) == 1
 
 
 @pytest.mark.parametrize(
@@ -442,7 +446,6 @@ def test_live_and_embedded_catalogs_have_identical_resolution_truth(tmp_path):
         (source,),
         embedded,
         resolution_policy="resolved-only",
-        index_chromosome_coverage=("1", "2"),
     )
 
     pd.testing.assert_frame_equal(live_result.audit, indexed_result.audit)

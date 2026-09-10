@@ -1,6 +1,6 @@
 # LD-score SNP-universe contract
 
-Last updated on: 2026-08-06
+Last updated on: 2026-09-10
 
 This table distinguishes the SNP universes used by canonical LD Score
 Regression (LDSC) and stratified LDSC. It is especially important for MHC and
@@ -13,6 +13,10 @@ pericentromeric exclusions.
 | Regression-weight LD score `w_ld` | Computed within the filtered HapMap3 regression-SNP set; excluded-region SNPs are neither rows nor `w_ld` contributors |
 | `M`, `M_5_50`, and baseline-overlap counts | Broad retained reference/causal universe (with the ordinary MAF threshold for `M_5_50`), not only regression rows |
 | Final `h2`, `rg`, and `partitioned-h2` observations | Intersection of the filtered regression rows, written LD-score rows, regression weights, and munged summary statistics |
+
+## Chromosome coverage versus SNP support
+
+Direct query chromosome coverage is established from validated baseline/reference inputs before SNP, sample, or MAF filtering. Their chromosome sets must match exactly. `@` declares autosomes 1–22; exact paths and globs select actual artifacts whose contents establish scope. Every selected gene must lie within scope after explicit gene exclusions. Coverage failures abort the batch, whereas a valid chromosome whose retained computational SNP universe becomes empty supplies a measured zero-support outcome. Direct gene support uses the prepared baseline/reference intersection; indexed support uses immutable gene-to-atom counts. Unknown or unevaluated support stays blank. Query LD-score variance is assessed separately on regression rows. See [coverage diagnostics](gene-list-diagnostics-and-repair.md#chromosome-scope-and-pathway-coverage).
 
 ## Projection and traversal contract
 

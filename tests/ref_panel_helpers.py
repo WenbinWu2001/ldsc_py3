@@ -3,6 +3,16 @@ from ldsc import GlobalConfig, LDScoreConfig, PlinkRefPanel, RefPanelConfig
 from ldsc._kernel import ldscore
 
 
+def write_tiny_plink(prefix, metadata):
+    """Write a four-sample polymorphic panel on the supplied SNP coordinates."""
+    prefix.with_suffix(".bim").write_text("".join(
+        f"{row.CHR} {row.SNP} 0 {row.POS} A C\n" for row in metadata.itertuples(index=False)
+    ))
+    prefix.with_suffix(".fam").write_text("".join(f"F{i} I{i} 0 0 0 -9\n" for i in range(4)))
+    prefix.with_suffix(".bed").write_bytes(b"\x6c\x1b\x01" + b"\xf0" * len(metadata))
+    return prefix
+
+
 def prepare_plink(chrom, bundle, args):
     global_options = {"snp_identifier": args.snp_identifier}
     if hasattr(args, "genome_build"):

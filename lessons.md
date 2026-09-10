@@ -126,3 +126,7 @@ Last updated on: 2026-09-10
 ## Test runners that share pybedtools temporary files must run sequentially
 
 - Summary/root cause/correction: Concurrent pytest and unittest runs intermittently lost BED overlap files because `pybedtools.cleanup(remove_all=True)` deletes other processes' files in the shared temporary directory; run these compatibility checks sequentially or isolate their temporary roots.
+
+## Empty batch members can change pandas boolean-mask dtype
+
+- Summary/root cause/correction: Concatenating empty and populated gene lists coerced an internal boolean column to object, so bitwise inversion produced integer indices instead of a boolean mask; use an explicit boolean comparison and test mixed empty/nonempty batches through the real workflow.

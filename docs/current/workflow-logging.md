@@ -71,6 +71,12 @@ configurations, while preserving unrelated user files. Direct Python writer
 APIs apply the same rule to their data artifacts. Public materializing workflow
 methods, including `AnnotationBuilder.run()`, create their canonical log.
 
+The six directory writers in `ldsc.outputs` each expose `artifact_family()`, returning an `ArtifactFamily` with selected output paths and the complete owned scope. H2, partitioned-h2, rg, quantile-h2, query-r2, and LD-score workflow preflights consult their writer's declaration and add workflow-owned logs or audits. The LDSC2 converter and indexed LD-score CLI also consult the LD-score writer. Declarations only describe paths; the existing `path_resolution.preflight_output_artifact_family()` still performs collision checks.
+
+Early checks discard the returned stale list because the final scientific and diagnostic outputs are not yet known. Each writer derives its final declaration from the result or write options, uses those same selected paths for output and metadata file entries, and removes stale owned siblings after its existing publication step. LD-score diagnostics-only writes use this same declaration; existing `diagnostics/dropped_snps/chr*_dropped.tsv.gz` reports are included in early collision checks and final reconciliation. There is no second workflow cleanup based on an earlier prediction.
+
+Annotation, munging, and reference-panel build workflows retain their local ownership declarations and existing cleanup stages. Reference-panel builds keep their chromosome scope, and gene-index publication retains its dedicated transaction. Logs and workflow-only audit extensions do not enter scientific metadata through `ArtifactFamily`. Failure markers remain owned by the marker helper. Validation lives in `tests/test_artifact_declarations.py`, `tests/test_output.py`, `tests/test_derived_output_lifecycle.py`, `tests/test_failure_markers.py`, and the reference-panel/index workflow tests.
+
 ## Failed Overwrite Markers
 
 Every public materializing CLI workflow and corresponding high-level Python

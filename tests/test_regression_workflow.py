@@ -3835,8 +3835,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             normalized_output_dir, log_path = regression_runner._preflight_regression_outputs(
                 args,
                 "h2",
-                ["h2.tsv", "diagnostics/metadata.json"],
-                owned_output_names=["h2.tsv", "diagnostics/metadata.json"],
+                regression_runner.H2DirectoryWriter,
             )
 
             self.assertEqual(normalized_output_dir, str(output_dir))

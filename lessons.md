@@ -17,10 +17,7 @@ Last updated on: 2026-09-10
   prediction omitted overlap. With overwrite enabled, the pre-existing overlap
   was therefore captured as stale; path identity meant the later cleanup
   unlinked the replacement written at the same location.
-- Correction: Derive the early overlap prediction from the same public rule as
-  aggregation and writing (at least two baseline-plus-query LD-score columns),
-  and cover a full write-then-overwrite run by asserting every metadata-listed
-  path still exists and the result reloads with counts and overlap intact.
+- Correction: Declare artifact ownership once per directory writer and share it with early preflight, including chromosome drop reports; discard early stale predictions and let the final writer reconcile actual production. Cover write/overwrite/reload transitions, checking metadata-listed files, regenerated reports, obsolete overlap removal, and unrelated-file preservation.
 
 ## Regression-weight LD scores belong in the shared PLINK projection pass
 - Summary: Direct PLINK LD-score calculation and gene-index construction projected baseline/query annotations first, then reset the genotype cursor and recomputed the same correlation blocks for the one-column regression-SNP mask.

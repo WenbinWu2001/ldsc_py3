@@ -23,7 +23,7 @@ from ._kernel.ldscore import _load_full_panel_sidecar, _validate_index_binding
 from ._kernel.r2_query import lookup_pairs_in_parquet
 from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from .outputs import QueryR2DirectoryWriter, QueryR2OutputConfig
-from .path_resolution import ensure_output_directory, preflight_output_artifact_family
+from .path_resolution import ensure_output_directory
 from ._kernel.ref_panel import (
     _r2_dir_metadata_paths,
     _r2_dir_r2_paths,
@@ -543,11 +543,10 @@ def _write_query_r2_directory(args: argparse.Namespace, pairs: pd.DataFrame) -> 
     """Query against the panel and write the canonical result directory."""
     output_dir = ensure_output_directory(args.output_dir, label="output directory")
     diagnostics_dir = output_dir / "diagnostics"
-    result_path = output_dir / "query_r2.tsv"
-    metadata_path = diagnostics_dir / "metadata.json"
     log_path = diagnostics_dir / "query-r2.log"
-    family = [result_path, metadata_path, log_path]
-    preflight_output_artifact_family(family, family, overwrite=args.overwrite, label="query-r2 output artifact")
+    QueryR2DirectoryWriter.artifact_family(output_dir).preflight(
+        overwrite=args.overwrite, additional_paths=[log_path],
+    )
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     with workflow_logging("query-r2", log_path, log_level=args.log_level):
         log_inputs(panel_dir=args.panel_dir, pairs=args.pairs, output_dir=str(output_dir))

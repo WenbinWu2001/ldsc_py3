@@ -27,7 +27,7 @@ from .genome_build_inference import infer_chr_pos_build
 from .ldscore_calculator import LDScoreResult
 from .overlap_matrix import LDScoreOverlap
 from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-from .path_resolution import ensure_output_directory, ensure_output_paths_available, normalize_path_token
+from .path_resolution import ensure_output_directory, normalize_path_token
 
 
 LOGGER = logging.getLogger("LDSC.legacy_ldscore_converter")
@@ -159,15 +159,9 @@ class LegacyLDScoreConverter:
         diagnostics.mkdir(parents=True, exist_ok=True)
         issue_path = diagnostics / "conversion_issues.tsv.gz"
         log_path = diagnostics / "convert-ldsc2-ldscores.log"
-        owned = [
-            output_root / "metadata.json",
-            output_root / "ldscore.baseline.parquet",
-            output_root / "ldscore.query.parquet",
-            output_root / "ldscore.overlap.parquet",
-            issue_path,
-            log_path,
-        ]
-        ensure_output_paths_available(owned, overwrite=overwrite, label="converted LD-score output artifact")
+        LDScoreDirectoryWriter.artifact_family(output_root).preflight(
+            overwrite=overwrite, additional_paths=[issue_path, log_path],
+        )
         issues: list[dict[str, object]] = []
         with workflow_logging("convert-ldsc2-ldscores", str(log_path), log_level=log_level):
             log_inputs(

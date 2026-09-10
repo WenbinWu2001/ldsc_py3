@@ -69,7 +69,6 @@ from .path_resolution import (
     ensure_output_directory,
     ensure_output_paths_available,
     normalize_path_token,
-    preflight_output_artifact_family,
     resolve_file_group,
 )
 from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
@@ -2621,19 +2620,7 @@ def run_h2_from_args(args):
     before loading inputs. A successful overwrite removes default plots and
     liability-scale post-processing derived from the superseded h2 result.
     """
-    output_dir, log_path = _preflight_regression_outputs(
-        args,
-        "h2",
-        ["h2.tsv", "diagnostics/ld_score_regression_bins.tsv", "diagnostics/metadata.json"],
-        owned_output_names=[
-            "h2.tsv",
-            "diagnostics/ld_score_regression_bins.tsv",
-            "diagnostics/metadata.json",
-            "diagnostics/dropped_snps/legacy_sumstats.tsv.gz",
-            "plots",
-            "postprocessing",
-        ],
-    )
+    output_dir, log_path = _preflight_regression_outputs(args, "h2", H2DirectoryWriter)
     with workflow_logging("h2", log_path, log_level=getattr(args, "log_level", "INFO")):
         runner, config = _runner_from_args(args)
         print_global_config_banner("run_h2_from_args", runner.global_config)
@@ -2705,25 +2692,7 @@ def run_partitioned_h2_from_args(args):
     fitted-model artifacts at the result root. A successful overwrite removes
     the default plot root derived from the superseded result.
     """
-    preflight_names = [
-        "partitioned_h2.tsv",
-        "diagnostics/metadata.json",
-        "diagnostics/coefficient_delete_values.parquet",
-    ]
-    preflight_names.append("diagnostics/query_annotations")
-    output_dir, log_path = _preflight_regression_outputs(
-        args,
-        "partitioned-h2",
-        preflight_names,
-        owned_output_names=[
-            "partitioned_h2.tsv",
-            "diagnostics/metadata.json",
-            "diagnostics/coefficient_delete_values.parquet",
-            "diagnostics/query_annotations",
-            "diagnostics/dropped_snps/legacy_sumstats.tsv.gz",
-            "plots",
-        ],
-    )
+    output_dir, log_path = _preflight_regression_outputs(args, "partitioned-h2", PartitionedH2DirectoryWriter)
     with workflow_logging("partitioned-h2", log_path, log_level=getattr(args, "log_level", "INFO")):
         if getattr(args, "write_per_query_results", False):
             warnings.warn(
@@ -2861,23 +2830,7 @@ def run_rg_from_args(args):
     from .prevalence import resolve_rg_prevalences
 
     _validate_intercept_conflicts(args)
-    output_names = ["rg.tsv", "rg_full.tsv", "h2_per_trait.tsv", "diagnostics/metadata.json"]
-    if getattr(args, "write_per_pair_detail", False):
-        output_names.append("diagnostics/pairs")
-    output_dir, log_path = _preflight_regression_outputs(
-        args,
-        "rg",
-        output_names,
-        owned_output_names=[
-            "rg.tsv",
-            "rg_full.tsv",
-            "h2_per_trait.tsv",
-            "diagnostics/metadata.json",
-            "diagnostics/pairs",
-            "diagnostics/dropped_snps/legacy_sumstats.tsv.gz",
-            "plots",
-        ],
-    )
+    output_dir, log_path = _preflight_regression_outputs(args, "rg", RgDirectoryWriter)
     sumstats_paths = resolve_file_group(getattr(args, "sumstats_sources", ()), label="sumstats sources")
     if len(sumstats_paths) < 2:
         raise LDSCUserError(
@@ -3000,8 +2953,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None
 def _preflight_regression_outputs(
     args,
     workflow_name: str,
-    output_names: list[str],
-    owned_output_names: list[str] | None = None,
+    writer,
 ) -> tuple[str, Path]:
     """Preflight regression outputs and return normalized output dir plus log path."""
     output_dir_arg = getattr(args, "output_dir", None)
@@ -3011,23 +2963,18 @@ def _preflight_regression_outputs(
             "Pass an explicit result directory."
         )
     output_dir = ensure_output_directory(output_dir_arg, label="output directory")
-    paths = [output_dir / name for name in output_names]
     log_path = output_dir / "diagnostics" / f"{workflow_name}.log"
-    if owned_output_names is None:
-        ensure_output_paths_available(
-            [*paths, log_path],
-            overwrite=getattr(args, "overwrite", False),
-            label="regression output artifact",
-        )
-    else:
-        preflight_output_artifact_family(
-            [*paths, log_path],
-            [*(output_dir / name for name in owned_output_names), log_path],
-            overwrite=getattr(args, "overwrite", False),
-            label="regression output artifact",
-        )
+    writer.artifact_family(output_dir).preflight(
+        overwrite=getattr(args, "overwrite", False),
+        additional_paths=[log_path, _legacy_sumstats_audit_path(output_dir)],
+    )
     log_path.parent.mkdir(parents=True, exist_ok=True)
     return str(output_dir), log_path
+
+
+def _legacy_sumstats_audit_path(output_dir: Path) -> Path:
+    """Declare the workflow-owned legacy projection audit shared by h2 and rg."""
+    return output_dir / "diagnostics" / "dropped_snps" / "legacy_sumstats.tsv.gz"
 
 
 def _write_or_remove_legacy_sumstats_audit(
@@ -3038,7 +2985,7 @@ def _write_or_remove_legacy_sumstats_audit(
     overwrite: bool,
 ) -> Path | None:
     """Write the stable legacy projection audit, or remove a stale owned copy."""
-    path = output_dir / "diagnostics" / "dropped_snps" / "legacy_sumstats.tsv.gz"
+    path = _legacy_sumstats_audit_path(output_dir)
     if not legacy_used:
         if overwrite and path.exists():
             path.unlink()

@@ -19,9 +19,15 @@ table. The writer creates missing directories, reuses existing directories, and
 refuses existing canonical family files unless the caller explicitly sets
 ``overwrite=True``; successful overwrites remove stale owned siblings that the
 current result did not produce. Root ``metadata.json`` is part of the
-downstream contract only for sumstats and LD-score directories. Regression
+downstream contract for LD-score directories. Regression
 metadata emitted by this module is diagnostic provenance and is written below
 ``diagnostics/`` without legacy top-level ``format`` discriminators.
+
+Each directory writer's ``artifact_family`` declares its owned paths and
+conditional outputs. Workflows consult that declaration for early collision
+checks, adding their own log/audit paths. Writers use the final result to
+select produced paths, metadata file entries, and post-write stale cleanup;
+workflows do not retain a predicted stale list across computation.
 
 Partitioned-h2 regression summaries use the same directory-oriented output
 policy. ``PartitionedH2DirectoryWriter`` writes the aggregate ``partitioned_h2.tsv``
@@ -50,7 +56,7 @@ import unicodedata
 from dataclasses import asdict, dataclass, is_dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
@@ -236,8 +242,87 @@ class H2OutputConfig:
         object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
 
 
+@dataclass(frozen=True)
+class ArtifactFamily:
+    """Resolved writer declaration shared by collision checks and publication.
+
+    Parameters
+    ----------
+    output_dir : pathlib.Path
+        Result root used to make metadata file entries relative.
+    paths : dict of str to pathlib.Path
+        Outputs selected for this write, keyed by their artifact names.
+    owned_paths : tuple of pathlib.Path
+        All owned paths, including conditional siblings and derived roots
+        eligible for cleanup after a successful replacement.
+    label : str
+        Workflow-specific description used in collision errors.
+
+    Notes
+    -----
+    Construction only describes paths. Callers retain their existing write
+    order and remove returned stale paths only after successful publication.
+    """
+
+    output_dir: Path
+    paths: dict[str, Path]
+    owned_paths: tuple[Path, ...]
+    label: str
+
+    def preflight(
+        self, *, overwrite: bool, additional_paths: Iterable[str | PathLike[str]] = (),
+    ) -> list[Path]:
+        """Check ownership, including workflow-only paths such as the run log.
+
+        ``overwrite=False`` raises ``FileExistsError`` for any existing owned
+        path. With overwrite enabled, return existing owned paths that this
+        declaration does not produce. ``additional_paths`` are protected
+        workflow outputs; their writer controls their cleanup separately.
+
+        Early callers discard the return value because production is not yet
+        known. Writers call again with the final declaration and use that
+        stale list after writing. Additional paths never enter result metadata.
+        """
+        additional_paths = tuple(additional_paths)
+        return preflight_output_artifact_family(
+            [*self.paths.values(), *additional_paths],
+            [*self.owned_paths, *additional_paths],
+            overwrite=overwrite, label=self.label,
+        )
+
+    def metadata_files(self, *, exclude: Iterable[str] = ()) -> dict[str, str]:
+        """Return selected paths relative to the result root, excluding metadata itself."""
+        omitted = {"metadata", *exclude}
+        return {
+            name: str(path.relative_to(self.output_dir))
+            for name, path in self.paths.items() if name not in omitted
+        }
+
+
+def _declare_artifacts(output_dir, entries, *, label, extra_owned=()) -> ArtifactFamily:
+    """Resolve each named (relative path, produced) entry exactly once."""
+    output_dir = Path(output_dir)
+    owned = {name: output_dir / relative for name, (relative, _) in entries.items()}
+    return ArtifactFamily(
+        output_dir,
+        {name: owned[name] for name, (_, produced) in entries.items() if produced},
+        (*owned.values(), *extra_owned), label,
+    )
+
+
 class H2DirectoryWriter:
     """Write the unpartitioned h2 summary, exact fitted-bin diagnostic, and metadata."""
+
+    @staticmethod
+    def artifact_family(output_dir) -> ArtifactFamily:
+        """Declare h2 outputs and derived roots invalidated by a successful rewrite."""
+        return _declare_artifacts(output_dir, {
+            "summary": ("h2.tsv", True),
+            "ld_score_regression_bins": ("diagnostics/ld_score_regression_bins.tsv", True),
+            "metadata": ("diagnostics/metadata.json", True),
+            "plots": ("plots", False),
+            "postprocessing": ("postprocessing", False),
+        }, label="h2 output artifact")
 
     def write(
         self,
@@ -281,22 +366,13 @@ class H2DirectoryWriter:
         roots derived from the superseded h2 result.
         """
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
-        summary_path = output_dir / "h2.tsv"
-        diagnostics_dir = output_dir / "diagnostics"
-        metadata_path = diagnostics_dir / "metadata.json"
-        bins_path = diagnostics_dir / "ld_score_regression_bins.tsv"
-        stale = preflight_output_artifact_family(
-            [summary_path, bins_path, metadata_path],
-            [
-                summary_path,
-                bins_path,
-                metadata_path,
-                output_dir / "plots",
-                output_dir / "postprocessing",
-            ],
-            overwrite=output_config.overwrite,
-            label="h2 output artifact",
-        )
+        family = self.artifact_family(output_dir)
+        paths = family.paths
+        summary_path = paths["summary"]
+        metadata_path = paths["metadata"]
+        bins_path = paths["ld_score_regression_bins"]
+        diagnostics_dir = metadata_path.parent
+        stale = family.preflight(overwrite=output_config.overwrite)
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         _atomic_write_dataframe(summary, summary_path, na_rep="NaN")
         _atomic_write_dataframe(
@@ -308,19 +384,12 @@ class H2DirectoryWriter:
             _result_metadata(
                 metadata,
                 artifact_type="h2_result",
-                files={
-                    "summary": "h2.tsv",
-                    "ld_score_regression_bins": "diagnostics/ld_score_regression_bins.tsv",
-                },
+                files=family.metadata_files(),
             ),
             metadata_path,
         )
         remove_output_artifacts(stale)
-        return {
-            "summary": str(summary_path),
-            "ld_score_regression_bins": str(bins_path),
-            "metadata": str(metadata_path),
-        }
+        return {name: str(path) for name, path in family.paths.items()}
 
 
 @dataclass(frozen=True)
@@ -346,6 +415,14 @@ class QueryR2OutputConfig:
 class QueryR2DirectoryWriter:
     """Write the query-r2 pair table and its diagnostic metadata sidecar."""
 
+    @staticmethod
+    def artifact_family(output_dir) -> ArtifactFamily:
+        """Declare the pair-query result table and provenance."""
+        return _declare_artifacts(output_dir, {
+            "result": ("query_r2.tsv", True),
+            "metadata": ("diagnostics/metadata.json", True),
+        }, label="query-r2 output artifact")
+
     def write(
         self,
         result: pd.DataFrame,
@@ -359,25 +436,18 @@ class QueryR2DirectoryWriter:
         written. Replacement requires ``output_config.overwrite=True``.
         """
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
-        result_path = output_dir / "query_r2.tsv"
-        diagnostics_dir = output_dir / "diagnostics"
-        metadata_path = diagnostics_dir / "metadata.json"
-        preflight_output_artifact_family(
-            [result_path, metadata_path],
-            [result_path, metadata_path],
-            overwrite=output_config.overwrite,
-            label="query-r2 output artifact",
-        )
+        family = self.artifact_family(output_dir)
+        result_path = family.paths["result"]
+        metadata_path = family.paths["metadata"]
+        diagnostics_dir = metadata_path.parent
+        family.preflight(overwrite=output_config.overwrite)
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         _atomic_write_dataframe(result, result_path, na_rep="NaN")
         _atomic_write_json(
-            _result_metadata(metadata, artifact_type="query_r2_result", files={"result": "query_r2.tsv"}),
+            _result_metadata(metadata, artifact_type="query_r2_result", files=family.metadata_files()),
             metadata_path,
         )
-        return {
-            "result": str(result_path),
-            "metadata": str(metadata_path),
-        }
+        return {name: str(path) for name, path in family.paths.items()}
 
 
 @dataclass(frozen=True)
@@ -426,6 +496,35 @@ class LDScoreDirectoryWriter:
     row groups are chromosome-aligned and described in root metadata.
     """
 
+    @staticmethod
+    def artifact_family(output_dir, result=None, *, diagnostics_only=False, gene_list_batch=None) -> ArtifactFamily:
+        """Describe all owned LD-score artifacts and the outputs selected by a result.
+
+        With no result, describe ownership for early collision checks without
+        predicting scientific outputs. Diagnostic-only writes use the same
+        declaration. Existing chromosome drop reports remain owned even when
+        the current result has no drops for that chromosome.
+        """
+        output_dir = Path(output_dir)
+        scientific = result is not None and not diagnostics_only
+        batch = gene_list_batch if gene_list_batch is not None else getattr(result, "gene_list_batch", None)
+        entries = {
+            "metadata": ("metadata.json", scientific),
+            "baseline": ("ldscore.baseline.parquet", scientific),
+            "query": ("ldscore.query.parquet", scientific and getattr(result, "query_table", None) is not None),
+            "overlap": ("ldscore.overlap.parquet", scientific and getattr(result, "overlap", None) is not None),
+            "query_status": ("diagnostics/query_annotation_status.tsv", bool(getattr(result, "query_statuses", ()))),
+            "gene_list_audit": ("diagnostics/gene_list_audit.tsv.gz", batch is not None),
+            "gene_list_resolution_summary": ("diagnostics/gene_list_resolution_summary.tsv", batch is not None),
+        }
+        if scientific:
+            for chrom in (getattr(result, "identity_drops_by_chrom", {}) or {}):
+                entries[f"dropped_snps_chr{chrom}"] = (f"diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz", True)
+        return _declare_artifacts(
+            output_dir, entries, label="LD-score output artifact",
+            extra_owned=sorted((output_dir / "diagnostics/dropped_snps").glob("chr*_dropped.tsv.gz")),
+        )
+
     def write_gene_list_preflight(
         self,
         batch: Any,
@@ -433,13 +532,9 @@ class LDScoreDirectoryWriter:
     ) -> dict[str, str]:
         """Write Gate A audit/summary artifacts without scientific outputs."""
         output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
-        paths = self._gene_list_diagnostic_paths(batch, output_dir)
-        stale_paths = preflight_output_artifact_family(
-            paths.values(),
-            _ldscore_output_family(output_dir),
-            overwrite=output_config.overwrite,
-            label="LD-score output artifact",
-        )
+        family = self.artifact_family(output_dir, gene_list_batch=batch)
+        paths = family.paths
+        stale_paths = family.preflight(overwrite=output_config.overwrite)
         self._write_gene_list_diagnostic_files(batch, paths)
         remove_output_artifacts(stale_paths)
         return {name: str(path) for name, path in paths.items()}
@@ -451,18 +546,14 @@ class LDScoreDirectoryWriter:
     ) -> dict[str, str]:
         """Write only query-status/audit artifacts for an all-skipped batch."""
         output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
-        paths = self._query_diagnostic_paths(result, output_dir)
+        family = self.artifact_family(output_dir, result, diagnostics_only=True)
+        paths = family.paths
         if "query_status" not in paths:
             raise LDSCInternalError(
                 "LD-score diagnostics-only writing requires query-status records. "
                 "Re-run with DEBUG logging and report the traceback."
             )
-        stale_paths = preflight_output_artifact_family(
-            paths.values(),
-            _ldscore_output_family(output_dir),
-            overwrite=output_config.overwrite,
-            label="LD-score output artifact",
-        )
+        stale_paths = family.preflight(overwrite=output_config.overwrite)
         self._write_query_diagnostic_files(result, paths)
         remove_output_artifacts(stale_paths)
         return {name: str(path) for name, path in paths.items()}
@@ -488,26 +579,10 @@ class LDScoreDirectoryWriter:
         self._validate_tables(result)
 
         overlap = getattr(result, "overlap", None)
-        paths = {
-            "metadata": output_dir / "metadata.json",
-            "baseline": output_dir / "ldscore.baseline.parquet",
-        }
-        if query_table is not None:
-            paths["query"] = output_dir / "ldscore.query.parquet"
-        if overlap is not None:
-            paths["overlap"] = output_dir / "ldscore.overlap.parquet"
+        family = self.artifact_family(output_dir, result)
+        paths = family.paths
         identity_drops_by_chrom = dict(getattr(result, "identity_drops_by_chrom", {}) or {})
-        for chrom in identity_drops_by_chrom:
-            paths[f"dropped_snps_chr{chrom}"] = (
-                output_dir / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
-            )
-        paths.update(self._query_diagnostic_paths(result, output_dir))
-        stale_paths = preflight_output_artifact_family(
-            paths.values(),
-            _ldscore_output_family(output_dir),
-            overwrite=output_config.overwrite,
-            label="LD-score output artifact",
-        )
+        stale_paths = family.preflight(overwrite=output_config.overwrite)
 
         compression = None if output_config.parquet_compression in {None, "none"} else output_config.parquet_compression
         baseline_rg = _write_chromosome_aligned_parquet(baseline_table, paths["baseline"], compression)
@@ -526,36 +601,13 @@ class LDScoreDirectoryWriter:
         self._write_query_diagnostic_files(result, paths)
         metadata = self.build_metadata(
             result,
-            files={
-                name: str(path.relative_to(output_dir))
-                for name, path in paths.items()
-                if name not in {"metadata", "query_status", "gene_list_audit", "gene_list_resolution_summary"}
-            },
+            files=family.metadata_files(exclude=("query_status", "gene_list_audit", "gene_list_resolution_summary")),
             baseline_rg=baseline_rg,
             query_rg=query_rg,
         )
         paths["metadata"].write_text(json.dumps(_to_serializable(metadata), indent=2, sort_keys=True), encoding="utf-8")
         remove_output_artifacts(stale_paths)
         return {name: str(path) for name, path in paths.items()}
-
-    @staticmethod
-    def _query_diagnostic_paths(result: Any, output_dir: Path) -> dict[str, Path]:
-        """Return conditional diagnostic paths for one result."""
-        paths: dict[str, Path] = {}
-        if tuple(getattr(result, "query_statuses", ())):
-            paths["query_status"] = output_dir / "diagnostics" / "query_annotation_status.tsv"
-        batch = getattr(result, "gene_list_batch", None)
-        if batch is not None:
-            paths.update(LDScoreDirectoryWriter._gene_list_diagnostic_paths(batch, output_dir))
-        return paths
-
-    @staticmethod
-    def _gene_list_diagnostic_paths(batch: Any, output_dir: Path) -> dict[str, Path]:
-        """Return the fixed row-audit and per-source summary paths."""
-        return {
-            "gene_list_audit": output_dir / "diagnostics" / "gene_list_audit.tsv.gz",
-            "gene_list_resolution_summary": output_dir / "diagnostics" / "gene_list_resolution_summary.tsv",
-        }
 
     @staticmethod
     def _write_query_diagnostic_files(result: Any, paths: dict[str, Path]) -> None:
@@ -809,6 +861,17 @@ class QuantileH2DirectoryWriter:
     superseded quantile result.
     """
 
+    @staticmethod
+    def artifact_family(output_dir) -> ArtifactFamily:
+        """Declare quantile outputs, alignment diagnostics, and the derived plot root."""
+        return _declare_artifacts(output_dir, {
+            "quantile_h2": ("quantile_h2.tsv", True),
+            "standardized_coefficients": ("standardized_coefficients.tsv", True),
+            "metadata": ("diagnostics/metadata.json", True),
+            "snp_alignment_issues": ("diagnostics/snp_alignment_issues.tsv.gz", True),
+            "plots": ("plots", False),
+        }, label="quantile-h2 output artifact")
+
     def write_diagnostics(
         self,
         issues: pd.DataFrame,
@@ -830,7 +893,7 @@ class QuantileH2DirectoryWriter:
             Written compressed TSV path.
         """
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
-        path = output_dir / "diagnostics" / "snp_alignment_issues.tsv.gz"
+        path = self.artifact_family(output_dir).paths["snp_alignment_issues"]
         preflight_output_artifact_family(
             [path],
             [path],
@@ -873,20 +936,10 @@ class QuantileH2DirectoryWriter:
             Paths for both scientific tables, metadata, and SNP diagnostics.
         """
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
-        diagnostics_dir = output_dir / "diagnostics"
-        paths = {
-            "quantile_h2": output_dir / "quantile_h2.tsv",
-            "standardized_coefficients": output_dir / "standardized_coefficients.tsv",
-            "metadata": diagnostics_dir / "metadata.json",
-            "snp_alignment_issues": diagnostics_dir / "snp_alignment_issues.tsv.gz",
-        }
-        successful_paths = list(paths.values())
-        stale = preflight_output_artifact_family(
-            successful_paths,
-            [*successful_paths, output_dir / "plots"],
-            overwrite=output_config.overwrite,
-            label="quantile-h2 output artifact",
-        )
+        family = self.artifact_family(output_dir)
+        paths = family.paths
+        diagnostics_dir = paths["metadata"].parent
+        stale = family.preflight(overwrite=output_config.overwrite)
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         _atomic_write_dataframe(
             _select_columns(quantile_h2, QUANTILE_H2_COLUMNS, label="quantile-h2 summary"),
@@ -908,11 +961,7 @@ class QuantileH2DirectoryWriter:
         payload = _result_metadata(
             metadata,
             artifact_type="quantile_h2_result",
-            files={
-                "quantile_h2": "quantile_h2.tsv",
-                "standardized_coefficients": "standardized_coefficients.tsv",
-                "snp_alignment_issues": "diagnostics/snp_alignment_issues.tsv.gz",
-            },
+            files=family.metadata_files(),
         )
         _atomic_write_json(payload, paths["metadata"])
         remove_output_artifacts(stale)
@@ -963,6 +1012,17 @@ class PartitionedH2DirectoryWriter:
     partially populated final tree. A successful overwrite also removes the
     default plot root derived from the superseded result.
     """
+
+    @staticmethod
+    def artifact_family(output_dir, *, write_per_query_results=False, coefficient_delete_values=False) -> ArtifactFamily:
+        """Declare joint-model outputs and optional per-query or delete-value artifacts."""
+        return _declare_artifacts(output_dir, {
+            "summary": ("partitioned_h2.tsv", True),
+            "metadata": ("diagnostics/metadata.json", True),
+            "coefficient_delete_values": ("diagnostics/coefficient_delete_values.parquet", coefficient_delete_values),
+            "query_annotations": ("diagnostics/query_annotations", write_per_query_results),
+            "plots": ("plots", False),
+        }, label="partitioned-h2 output artifact")
 
     def write(
         self,
@@ -1017,31 +1077,18 @@ class PartitionedH2DirectoryWriter:
         """
         self._validate_summary(summary)
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
-        summary_path = output_dir / "partitioned_h2.tsv"
-        diagnostics_dir = output_dir / "diagnostics"
-        metadata_path = diagnostics_dir / "metadata.json"
-        query_root = diagnostics_dir / "query_annotations"
-        produced_paths = [summary_path, metadata_path]
-        coefficient_delete_path = diagnostics_dir / "coefficient_delete_values.parquet"
-        if coefficient_delete_values is not None:
-            produced_paths.append(coefficient_delete_path)
-        if output_config.write_per_query_results:
-            produced_paths.append(query_root)
-        stale_paths = preflight_output_artifact_family(
-            produced_paths,
-            [summary_path, metadata_path, coefficient_delete_path, query_root, output_dir / "plots"],
-            overwrite=output_config.overwrite,
-            label="partitioned-h2 output artifact",
+        family = self.artifact_family(
+            output_dir, write_per_query_results=output_config.write_per_query_results,
+            coefficient_delete_values=coefficient_delete_values is not None,
         )
-
-        root_files = {"summary": "partitioned_h2.tsv"}
-        if coefficient_delete_values is not None:
-            root_files["coefficient_delete_values"] = "diagnostics/coefficient_delete_values.parquet"
-        if output_config.write_per_query_results:
-            root_files["query_annotations"] = "diagnostics/query_annotations"
-        paths = {"summary": str(summary_path), "metadata": str(metadata_path)}
-        if coefficient_delete_values is not None:
-            paths["coefficient_delete_values"] = str(coefficient_delete_path)
+        summary_path = family.paths["summary"]
+        metadata_path = family.paths["metadata"]
+        diagnostics_dir = metadata_path.parent
+        query_root = family.paths.get("query_annotations")
+        coefficient_delete_path = family.paths.get("coefficient_delete_values")
+        stale_paths = family.preflight(overwrite=output_config.overwrite)
+        root_files = family.metadata_files()
+        paths = {name: str(path) for name, path in family.paths.items() if name != "query_annotations"}
         metadata_payload = dict(metadata or {})
         if coefficient_delete_values is not None:
             metadata_payload["coefficient_delete_block_count"] = int(len(coefficient_delete_values))
@@ -1241,6 +1288,18 @@ class RgDirectoryWriter:
     removes the default plot root derived from the superseded result.
     """
 
+    @staticmethod
+    def artifact_family(output_dir, *, include_pairs=False) -> ArtifactFamily:
+        """Declare rg summaries, optional pair details, and the derived plot root."""
+        return _declare_artifacts(output_dir, {
+            "metadata": ("diagnostics/metadata.json", True),
+            "rg": ("rg.tsv", True),
+            "rg_full": ("rg_full.tsv", True),
+            "h2_per_trait": ("h2_per_trait.tsv", True),
+            "pairs": ("diagnostics/pairs", include_pairs),
+            "plots": ("plots", False),
+        }, label="rg output artifact")
+
     def write(self, result: Any, output_config: RgOutputConfig) -> dict[str, str]:
         """Write an ``RgResultFamily``-like object to a result directory.
 
@@ -1281,34 +1340,21 @@ class RgDirectoryWriter:
             )
 
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
-        diagnostics_dir = output_dir / "diagnostics"
-        metadata_path = diagnostics_dir / "metadata.json"
-        rg_path = output_dir / "rg.tsv"
-        full_path = output_dir / "rg_full.tsv"
-        h2_path = output_dir / "h2_per_trait.tsv"
-        pairs_root = diagnostics_dir / "pairs"
-        produced_paths = [metadata_path, rg_path, full_path, h2_path]
-        if output_config.write_per_pair_detail:
-            produced_paths.append(pairs_root)
-        stale_paths = preflight_output_artifact_family(
-            produced_paths,
-            [metadata_path, rg_path, full_path, h2_path, pairs_root, output_dir / "plots"],
-            overwrite=output_config.overwrite,
-            label="rg output artifact",
-        )
-
-        paths = {
-            "metadata": str(metadata_path),
-            "rg": str(rg_path),
-            "rg_full": str(full_path),
-            "h2_per_trait": str(h2_path),
-        }
+        family = self.artifact_family(output_dir, include_pairs=output_config.write_per_pair_detail)
+        metadata_path = family.paths["metadata"]
+        diagnostics_dir = metadata_path.parent
+        rg_path = family.paths["rg"]
+        full_path = family.paths["rg_full"]
+        h2_path = family.paths["h2_per_trait"]
+        pairs_root = family.paths.get("pairs")
+        stale_paths = family.preflight(overwrite=output_config.overwrite)
+        paths = {name: str(path) for name, path in family.paths.items() if name != "pairs"}
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         if not output_config.write_per_pair_detail:
             _atomic_write_dataframe(rg, rg_path, na_rep="NaN")
             _atomic_write_dataframe(rg_full, full_path, na_rep="NaN")
             _atomic_write_dataframe(h2_per_trait, h2_path, na_rep="NaN")
-            _atomic_write_json(_rg_root_metadata(result, include_pairs=False), metadata_path)
+            _atomic_write_json(_rg_root_metadata(result, files=family.metadata_files()), metadata_path)
             remove_output_artifacts(stale_paths)
             return paths
 
@@ -1321,7 +1367,7 @@ class RgDirectoryWriter:
             _atomic_write_dataframe(rg, rg_path, na_rep="NaN")
             _atomic_write_dataframe(rg_full, full_path, na_rep="NaN")
             _atomic_write_dataframe(h2_per_trait, h2_path, na_rep="NaN")
-            _atomic_write_json(_rg_root_metadata(result, include_pairs=True), metadata_path)
+            _atomic_write_json(_rg_root_metadata(result, files=family.metadata_files()), metadata_path)
             if output_config.overwrite and pairs_root.exists():
                 backup_dir = Path(tempfile.mkdtemp(prefix=".pairs.backup.", dir=str(diagnostics_dir)))
                 backup_dir.rmdir()
@@ -1405,20 +1451,6 @@ class RgDirectoryWriter:
         return manifest_rows
 
 
-def _ldscore_output_family(output_dir: Path) -> list[Path]:
-    """Return all fixed data artifacts owned by one LD-score result directory."""
-    return [
-        output_dir / "metadata.json",
-        output_dir / "ldscore.baseline.parquet",
-        output_dir / "ldscore.query.parquet",
-        output_dir / "ldscore.overlap.parquet",
-        output_dir / "diagnostics" / "query_annotation_status.tsv",
-        output_dir / "diagnostics" / "gene_list_audit.tsv.gz",
-        output_dir / "diagnostics" / "gene_list_resolution_summary.tsv",
-        *sorted((output_dir / "diagnostics" / "dropped_snps").glob("chr*_dropped.tsv.gz")),
-    ]
-
-
 def _result_metadata(
     metadata: dict[str, object] | None,
     *,
@@ -1432,17 +1464,10 @@ def _result_metadata(
     return payload
 
 
-def _rg_root_metadata(result: Any, *, include_pairs: bool) -> dict[str, object]:
+def _rg_root_metadata(result: Any, *, files: dict[str, str]) -> dict[str, object]:
     """Build diagnostic metadata for an rg result directory from result tables."""
     rg_full = getattr(result, "rg_full", pd.DataFrame())
     h2_per_trait = getattr(result, "h2_per_trait", pd.DataFrame())
-    files = {
-        "rg": "rg.tsv",
-        "rg_full": "rg_full.tsv",
-        "h2_per_trait": "h2_per_trait.tsv",
-    }
-    if include_pairs:
-        files["pairs"] = "diagnostics/pairs"
     trait_names: list[str] = []
     if "trait_name" in h2_per_trait.columns:
         trait_names = [str(value) for value in h2_per_trait["trait_name"].dropna().tolist()]

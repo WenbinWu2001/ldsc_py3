@@ -57,8 +57,6 @@ from .outputs import (
 )
 from .path_resolution import (
     ensure_output_directory,
-    preflight_output_artifact_family,
-    remove_output_artifacts,
     normalize_optional_path_token,
     normalize_path_token,
     resolve_scalar_path,
@@ -1341,16 +1339,8 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             label="LD-score output directory",
         )
         preflight_log_path = preflight_output_dir / "diagnostics" / "ldscore.log"
-        preflight_paths = [
-            preflight_log_path,
-            preflight_output_dir / "diagnostics" / "gene_list_audit.tsv.gz",
-            preflight_output_dir / "diagnostics" / "gene_list_resolution_summary.tsv",
-        ]
-        preflight_output_artifact_family(
-            preflight_paths,
-            [*_ldscore_output_family(preflight_output_dir), preflight_log_path],
-            overwrite=preflight_output_config.overwrite,
-            label="LD-score output artifact",
+        LDScoreDirectoryWriter.artifact_family(preflight_output_dir).preflight(
+            overwrite=preflight_output_config.overwrite, additional_paths=[preflight_log_path],
         )
         preflight_log_path.parent.mkdir(parents=True, exist_ok=True)
         with workflow_logging(
@@ -1413,33 +1403,11 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
     diagnostics_dir = output_dir / "diagnostics"
     log_path = diagnostics_dir / "ldscore.log"
-    query_status_path = diagnostics_dir / "query_annotation_status.tsv"
-    gene_audit_path = diagnostics_dir / "gene_list_audit.tsv.gz"
-    gene_summary_path = diagnostics_dir / "gene_list_resolution_summary.tsv"
-    n_ld_columns = len(annotation_bundle.baseline_columns) + len(annotation_bundle.query_columns)
-    expected_paths = [
-        *_expected_ldscore_output_paths(
-            output_dir,
-            has_query=bool(annotation_bundle.query_columns),
-            has_overlap=n_ld_columns >= 2,
-        )
-    ]
-    if getattr(annotation_bundle, "gene_list_batch", None) is None:
-        expected_paths.append(log_path)
-    if getattr(annotation_bundle, "query_statuses", ()):
-        expected_paths.append(query_status_path)
-    if getattr(annotation_bundle, "gene_list_batch", None) is not None:
-        expected_paths.extend([gene_audit_path, gene_summary_path])
-    stale_paths = preflight_output_artifact_family(
-        expected_paths,
-        [
-            *_ldscore_output_family(output_dir),
-            *([] if getattr(annotation_bundle, "gene_list_batch", None) is not None else [log_path]),
-        ],
-        overwrite=output_config.overwrite,
-        label="LD-score output artifact",
-    )
     calculator = LDScoreCalculator()
+    calculator.output_writer.artifact_family(output_dir).preflight(
+        overwrite=output_config.overwrite,
+        additional_paths=[] if getattr(annotation_bundle, "gene_list_batch", None) is not None else [log_path],
+    )
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     with workflow_logging("ldscore", log_path, log_level=global_config.log_level):
         log_inputs(
@@ -1471,14 +1439,12 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
                     output_config,
                 )
                 log_outputs(**diagnostic_paths)
-                remove_output_artifacts(stale_paths)
                 raise LDSCInputError(control_gate_b_error)
         initial_statuses = tuple(getattr(annotation_bundle, "query_statuses", ()))
         if initial_statuses and not annotation_bundle.query_columns:
             _log_query_annotation_statuses(initial_statuses)
             diagnostic_paths = calculator.output_writer.write_query_diagnostics(annotation_bundle, output_config)
             log_outputs(**diagnostic_paths)
-            remove_output_artifacts(stale_paths)
             raise LDSCInputError(_all_query_annotations_skipped_message(initial_statuses))
         result = calculator.run(
             annotation_bundle=annotation_bundle,
@@ -1495,13 +1461,11 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             diagnostic_paths = calculator.output_writer.write_query_diagnostics(result, output_config)
             result = _replace_result_output_paths(result, diagnostic_paths)
             log_outputs(**diagnostic_paths)
-            remove_output_artifacts(stale_paths)
             raise LDSCInputError(control_variance_error)
         if result.query_statuses and not result.query_columns:
             diagnostic_paths = calculator.output_writer.write_query_diagnostics(result, output_config)
             result = _replace_result_output_paths(result, diagnostic_paths)
             log_outputs(**diagnostic_paths)
-            remove_output_artifacts(stale_paths)
             raise LDSCInputError(_all_query_annotations_skipped_message(result.query_statuses))
         output_paths = calculator.output_writer.write(result, output_config)
         result = _replace_result_output_paths(result, output_paths)
@@ -1512,7 +1476,6 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
                 getattr(result, "gene_list_batch", None),
             )
             _emit_resolved_only_notice(getattr(result, "gene_list_batch", None))
-        remove_output_artifacts(stale_paths)
     return result
 
 
@@ -1608,11 +1571,8 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
     from .gene_ldscore_index import run_indexed_ldscore
     output_dir = Path(args.output_dir)
     log_path = output_dir / "diagnostics" / "ldscore.log"
-    preflight_output_artifact_family(
-        [log_path],
-        [log_path],
-        overwrite=bool(getattr(args, "overwrite", False)),
-        label="LD-score output artifact",
+    LDScoreDirectoryWriter.artifact_family(output_dir).preflight(
+        overwrite=bool(getattr(args, "overwrite", False)), additional_paths=[log_path],
     )
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with workflow_logging(
@@ -2739,34 +2699,6 @@ def _output_config_from_args(args: argparse.Namespace) -> LDScoreOutputConfig:
         output_dir=normalize_path_token(args.output_dir),
         overwrite=getattr(args, "overwrite", False),
     )
-
-
-def _expected_ldscore_output_paths(
-    output_dir: Path,
-    *,
-    has_query: bool,
-    has_overlap: bool,
-) -> list[Path]:
-    """Return canonical LD-score output paths written by the directory writer."""
-    paths = [output_dir / "metadata.json", output_dir / "ldscore.baseline.parquet"]
-    if has_query:
-        paths.append(output_dir / "ldscore.query.parquet")
-    if has_overlap:
-        paths.append(output_dir / "ldscore.overlap.parquet")
-    return paths
-
-
-def _ldscore_output_family(output_dir: Path) -> list[Path]:
-    """Return all fixed artifacts owned by the LD-score workflow."""
-    return [
-        output_dir / "metadata.json",
-        output_dir / "ldscore.baseline.parquet",
-        output_dir / "ldscore.query.parquet",
-        output_dir / "ldscore.overlap.parquet",
-        output_dir / "diagnostics" / "query_annotation_status.tsv",
-        output_dir / "diagnostics" / "gene_list_audit.tsv.gz",
-        output_dir / "diagnostics" / "gene_list_resolution_summary.tsv",
-    ]
 
 
 def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, str]) -> LDScoreResult:

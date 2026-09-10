@@ -44,7 +44,6 @@ from .outputs import (
 from .path_resolution import (
     ANNOTATION_SUFFIXES,
     ensure_output_directory,
-    preflight_output_artifact_family,
     resolve_file_group,
     split_cli_path_tokens,
 )
@@ -917,24 +916,12 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
     """
     output_dir = ensure_output_directory(args.output_dir, label="output directory")
     diagnostics_dir = output_dir / "diagnostics"
-    paths = [
-        output_dir / "quantile_h2.tsv",
-        output_dir / "standardized_coefficients.tsv",
-        diagnostics_dir / "metadata.json",
-        diagnostics_dir / "snp_alignment_issues.tsv.gz",
-        diagnostics_dir / "quantile-h2.log",
-    ]
-    preflight_output_artifact_family(
-        paths,
-        [*paths, output_dir / "plots"],
-        overwrite=args.overwrite,
-        label="quantile-h2 output artifact",
-    )
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
     writer = QuantileH2DirectoryWriter()
+    log_path = diagnostics_dir / "quantile-h2.log"
+    writer.artifact_family(output_dir).preflight(overwrite=args.overwrite, additional_paths=[log_path])
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
     empty_issues = _empty_alignment_issues()
     writer.write_diagnostics(empty_issues, QuantileH2OutputConfig(output_dir=output_dir, overwrite=True))
-    log_path = diagnostics_dir / "quantile-h2.log"
     with workflow_logging("quantile-h2", log_path, log_level=args.log_level):
         log_inputs(
             partitioned_h2_result_dir=args.partitioned_h2_result_dir,

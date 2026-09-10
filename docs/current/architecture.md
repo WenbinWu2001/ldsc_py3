@@ -212,6 +212,8 @@ overwrite is supplied. Architecture invariant: public output customization
 chooses the directory name and explicit overwrite policy, not per-run filename
 prefixes.
 
+Each directory writer exposes `artifact_family()` as the single declaration of its named outputs, conditional siblings, and derived roots. Workflows use it for early collision checks; writers use the final declaration for writing, metadata `files`, and stale cleanup. `ArtifactFamily` describes paths and delegates collision checks to `path_resolution`; it does not introduce a publication transaction. LD-score preparation no longer predicts a cleanup list that survives computation. See [workflow-logging.md, Output-Family Preflight](workflow-logging.md#output-family-preflight) and `tests/test_artifact_declarations.py` for the lifecycle contract and overwrite/reload checks.
+
 ### `ldsc._kernel.*`
 
 The kernel layer contains the actual numerical methods and low-level readers. It includes annotation table/BED primitives, PLINK/parquet reference-panel access, LD-score math, legacy-compatible summary-statistics munging, and regression estimators. Private boundary: `_kernel` is not the supported import surface and should receive only resolved primitive inputs.

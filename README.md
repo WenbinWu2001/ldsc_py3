@@ -349,6 +349,8 @@ The overwrite flag applies only to the fixed files owned by that workflow. It
 does not remove unrelated files and never cleans a whole directory.
 The derived `plot` and `convert-h2-scale` commands instead use the fixed nested destinations described above.
 
+Directory writers share their artifact declarations with workflow preflight. Conditional files, including chromosome drop reports, are checked before the workflow log opens; successful overwrites reconcile the files actually produced. See [Output-Family Preflight](docs/current/workflow-logging.md#output-family-preflight) for ownership and cleanup rules.
+
 ## Verification
 
 ```bash

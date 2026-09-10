@@ -68,7 +68,6 @@ from .snp_identity import (
     is_allele_aware_mode,
     restriction_membership_mask,
 )
-np.seterr(invalid='ignore')
 
 _BUILD_INFERENCE_CHUNKSIZE = 5_000
 

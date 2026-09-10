@@ -6,6 +6,27 @@ from unittest import mock
 import numpy as np
 
 from ldsc._kernel import regression as reg
+from ldsc.errors import LDSCInternalError
+
+
+class NumericalErrorHandlingTest(unittest.TestCase):
+    def test_zero_se_retains_legacy_fallback_under_permissive_numpy_policy(self):
+        with np.errstate(divide="ignore", invalid="ignore"):
+            before = np.geterr().copy()
+            p, z = reg.p_z_norm(np.float64(0.0), np.float64(0.0))
+            self.assertEqual((p, z), (0.0, float("inf")))
+            self.assertEqual(np.geterr(), before)
+
+    def test_zero_weight_denominator_still_raises_under_permissive_numpy_policy(self):
+        ones = np.ones((2, 1))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            before = np.geterr().copy()
+            with self.assertRaisesRegex(LDSCInternalError, "variance denominator"):
+                reg.Gencov.weights(
+                    ones, ones, ones, ones, 10.0, 0.0, 0.0, 0.0,
+                    intercept_hsq1=0.0,
+                )
+            self.assertEqual(np.geterr(), before)
 
 
 class RGKernelTest(unittest.TestCase):

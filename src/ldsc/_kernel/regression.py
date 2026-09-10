@@ -16,7 +16,6 @@ from . import _jackknife as jk
 from ._irwls import IRWLS
 from scipy.stats import t as tdist
 from collections import namedtuple
-np.seterr(divide='raise', invalid='raise')
 
 # Allele-matching helpers reused by the public regression and munging workflows.
 COMPLEMENT = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
@@ -61,9 +60,10 @@ def update_separators(s, ii):
 
 
 def p_z_norm(est, se):
-    '''Convert estimate and se to Z-score and P-value.'''
+    '''Convert estimate and SE to Z and P, retaining the legacy zero-SE fallback.'''
     try:
-        Z = est / se
+        with np.errstate(divide='raise', invalid='raise'):
+            Z = est / se
     except (FloatingPointError, ZeroDivisionError):
         Z = float('inf')
 
@@ -161,9 +161,8 @@ def liability_conversion_factor(samp_prev, pop_prev):
             "Most likely `--samp-prev`/`--pop-prev` was given a value <= 0 or >= 1. "
             "Pass a probability strictly between 0 and 1, or `nan` for a quantitative trait."
         )
-    # Substitute a harmless in-range value where the trait is quantitative so the
-    # vectorized formula never evaluates NaN (np.seterr is invalid='raise'); the
-    # substituted entries are discarded by the final np.where.
+    # Substitute in-range values for quantitative traits; the final np.where
+    # replaces their unused factors with 1.
     K_safe = np.where(finite, K_b, 0.5)
     P_safe = np.where(finite, P_b, 0.5)
     thresh = norm.isf(K_safe)
@@ -806,7 +805,8 @@ class Gencov(LD_Score_Regression):
         sqrt_n1n2 = np.sqrt(np.multiply(N1, N2))
         c = np.multiply(sqrt_n1n2, rho_g * ld) / M + intercept_gencov
         try:
-            het_w = 1.0 / (np.multiply(a, b) + np.square(c))
+            with np.errstate(divide='raise', invalid='raise'):
+                het_w = 1.0 / (np.multiply(a, b) + np.square(c))
         except FloatingPointError:  # bizarre error; should never happen
             raise LDSCInternalError(
                 "Regression genetic-correlation weights became numerically invalid while computing heteroskedastic weights. "

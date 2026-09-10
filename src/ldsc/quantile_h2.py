@@ -185,7 +185,9 @@ def compute_quantile_h2(
     Returns
     -------
     pandas.DataFrame
-        Quantile summaries in :data:`QUANTILE_H2_COLUMNS` order.
+        Quantile summaries in :data:`QUANTILE_H2_COLUMNS` order. The enrichment
+        p-value is NaN when the inside-versus-complement contrast has zero or
+        missing jackknife SE.
     """
     sums = np.asarray(annotation_sums, dtype=np.float64)
     point_tau = np.asarray(tau, dtype=np.float64).reshape(-1)
@@ -223,11 +225,11 @@ def compute_quantile_h2(
     contrast = h2 / counts - (total - h2) / complement_counts
     contrast_delete = h2_delete / counts - (delete_totals[:, None] - h2_delete) / complement_counts
     contrast_se = _jackknife_se(contrast, contrast_delete)
-    enrichment_p = np.where(
-        contrast_se > 0,
-        2.0 * stats.norm.sf(np.abs(contrast / contrast_se)),
-        np.nan,
+    contrast_z = np.divide(
+        contrast, contrast_se,
+        out=np.full_like(contrast, np.nan), where=contrast_se > 0,
     )
+    enrichment_p = 2.0 * stats.norm.sf(np.abs(contrast_z))
 
     factor = float("nan") if liability_factor is None else float(liability_factor)
     result = pd.DataFrame(

@@ -1,6 +1,6 @@
 # Continuous-Annotation Quantile Heritability: Technical Contract
 
-Last updated on: 2026-08-24
+Last updated on: 2026-09-10
 
 `ldsc quantile-h2` is a post-fit projection workflow for interpreting a continuous target annotation. It consumes exactly one fitted joint `partitioned-h2` model, reconstructs that model's common reference-SNP universe, assigns eligible SNPs to target-value quantiles, and projects the saved whole-data and delete-one-block coefficient vectors onto those quantiles. It does not refit LDSC.
 
@@ -56,6 +56,8 @@ Rows outside an otherwise valid intersection are recorded as exclusions. Duplica
 The default is five quantiles. Boundaries use the LDSC2 rule `floor(i * (n - 1) / Q + 0.5)` on sorted eligible target values. Intervals are low-to-high; ties at an internal boundary remain in the lower quantile. An empty realized quantile is a fatal error.
 
 Within-quantile fitted-annotation sums are computed once. Matrix multiplication produces whole-data and all delete-one-block quantile totals. Ratio metrics are recomputed from every delete vector so denominator uncertainty is included. `enrichment_p` is the two-sided normal test of the inside-versus-complement per-SNP contrast; it is not `enrichment / enrichment_se` and does not test the target's coefficient.
+
+When that contrast has zero or missing jackknife SE, `enrichment_p` is `NaN`. `compute_quantile_h2` skips the undefined division, including under a caller's strict NumPy error policy, while retaining the other quantile summaries.
 
 ## Output family
 

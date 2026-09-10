@@ -79,6 +79,23 @@ class QuantileH2NumericsTest(unittest.TestCase):
         np.testing.assert_allclose(result["tau_star_se"], [1.0 / 45.0, 4.0 / 45.0])
         np.testing.assert_allclose(result["tau_star_p"], result["tau_p"])
 
+    def test_zero_variance_contrast_has_missing_p_under_strict_numpy_policy(self):
+        with np.errstate(divide="raise", invalid="raise"):
+            before = np.geterr().copy()
+            result = compute_quantile_h2(
+                annotation_sums=np.array([[1.0, 2.0]]),
+                tau=np.array([0.125]),
+                tau_delete=np.array([[0.125], [0.125]]),
+                snp_counts=np.array([1, 1]),
+                lower=np.array([0.0, 1.0]),
+                upper=np.array([1.0, 2.0]),
+            )
+            self.assertEqual(np.geterr(), before)
+
+        np.testing.assert_allclose(result["h2_obs"], [0.125, 0.25])
+        np.testing.assert_allclose(result["h2_obs_se"], [0.0, 0.0])
+        self.assertTrue(result["enrichment_p"].isna().all())
+
     def test_negative_nonzero_quantile_total_retains_ratios(self):
         result = compute_quantile_h2(
             annotation_sums=np.array([[1.0, 2.0]]),

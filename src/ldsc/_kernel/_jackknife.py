@@ -17,8 +17,6 @@ from scipy.optimize import nnls
 
 from ..errors import LDSCInternalError
 
-np.seterr(divide='raise', invalid='raise')
-
 
 def _check_shape(x, y):
     '''Check that x and y have the correct shapes (for regression jackknives).'''
@@ -566,8 +564,9 @@ class RatioJackknife(Jackknife):
         '''
         n_blocks, p = denom.shape
         pseudovalues = np.zeros((n_blocks, p))
-        for j in range(0, n_blocks):
-            pseudovalues[j, ...] = n_blocks * est - \
-                (n_blocks - 1) * numer[j, ...] / denom[j, ...]
+        with np.errstate(divide='raise', invalid='raise'):
+            for j in range(0, n_blocks):
+                pseudovalues[j, ...] = n_blocks * est - \
+                    (n_blocks - 1) * numer[j, ...] / denom[j, ...]
 
         return pseudovalues

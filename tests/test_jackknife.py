@@ -215,8 +215,11 @@ class TestRatioJackknife(unittest.TestCase):
         numer_delete_vals = np.ones((10, 1))
         denom_delete_vals = np.ones((10, 1))
         denom_delete_vals[9, 0] = 0
-        with self.assertRaises(FloatingPointError):
-            jk.RatioJackknife(est, numer_delete_vals, denom_delete_vals)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            before = np.geterr().copy()
+            with self.assertRaises(FloatingPointError):
+                jk.RatioJackknife(est, numer_delete_vals, denom_delete_vals)
+            self.assertEqual(np.geterr(), before)
 
     def test_2d(self):
         numer_delete_values = np.vstack((np.arange(1, 11), 2 * np.arange(1, 11))).T

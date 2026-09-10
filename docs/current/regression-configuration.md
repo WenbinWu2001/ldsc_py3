@@ -1,5 +1,7 @@
 # Regression Configuration Reference (Advanced)
 
+Last updated on: 2026-09-10
+
 This document describes the tunable configuration of the regression module
 (`ldsc h2`, `ldsc rg`, `ldsc partitioned-h2`). **You do not need any of this for
 a standard run.** The defaults reproduce the original LDSC behavior, and the
@@ -16,6 +18,8 @@ Source of truth in code: `RegressionConfig` in `src/ldsc/config.py`,
 `_runner_from_args` / `estimate_h2` / `_fit_rg_dataset` /
 `estimate_partitioned_h2_batch` in `src/ldsc/regression_runner.py`, and the
 kernel in `src/ldsc/_kernel/regression.py`.
+
+Importing regression or munging workflows preserves the caller's NumPy floating-point error policy. The kernel uses local error contexts for its existing zero-SE fallback, invalid genetic-covariance weight handling, and ratio-jackknife zero-denominator errors; these contexts restore the caller's settings on both success and failure.
 
 ---
 

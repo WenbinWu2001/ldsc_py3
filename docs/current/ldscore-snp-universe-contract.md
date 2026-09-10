@@ -20,14 +20,11 @@ Direct query chromosome coverage is established from validated baseline/referenc
 
 ## Projection and traversal contract
 
-For each chromosome, ordinary direct `ldscore` constructs one combined
-annotation matrix whose columns are ordered as baseline, query/control, then
-the binary regression-SNP mask. The PLINK backend computes genotype-correlation
-blocks once and projects all of those columns in the same `ldScoreVarBlocks`
-call; the parquet-R2 backend likewise streams stored pairs once over the same
-combined matrix. The result is split afterward into partitioned LD scores and
-`w_ld`. This also applies to an unpartitioned run, whose synthetic all-ones
-`base` column is projected together with the regression mask.
+For each chromosome, baseline/control annotations, query annotations, and the binary regression-SNP mask share one numerical LD traversal. PLINK computes each genotype-correlation block once; parquet-R2 decodes each stored pair chunk once. Baseline/control and regression-weight projections are computed once per block/chunk, and every query batch is projected against that same block/chunk before it is released. Query batching must not restart the chromosome kernel or repeat genotype/R2 traversal. The synthetic all-ones `base` annotation follows the same rule in unpartitioned runs.
+
+The approved memory refactor permits separate bounded annotation reads for query batches instead of requiring one combined all-query matrix. It resolves output rows before score allocation and accumulates scores only for those rows, while retaining every eligible reference-SNP contributor and the existing all/common counts and overlap universes. Non-output endpoints still contribute to output endpoints. `w_ld` keeps its distinct filtered-regression contributor set. A caller requesting all output rows remains supported.
+
+Implementation status: at commit `a505c45`, direct computation still materializes the combined annotation matrix and full-reference-row score buffers before filtering output rows. The preceding batching/output-row contract is approved but not implemented; see [memory decisions](annotation-memory-decisions.md#confirmed-direct-ld-score-batching-and-output-row-accumulation) and the [refactor plan](../plans/2026-09-10-annotation-workflow-memory.md). The public LD-score output remains one aggregated baseline Parquet file and one optional aggregated query Parquet file, not separate chromosome files.
 
 The gene-index builder applies the same rule to its fixed common payload:
 supplied baseline columns and the regression mask share one PLINK traversal.

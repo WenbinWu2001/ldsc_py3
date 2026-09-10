@@ -1645,48 +1645,6 @@ def _r2_dir_from_args(args: argparse.Namespace) -> str | None:
     return normalize_optional_path_token(getattr(args, "r2_dir", None))
 
 
-def _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config: GlobalConfig):
-    """Build an all-ones ``base`` bundle from retained reference-panel metadata.
-
-    The reference-panel adapter has already applied retained-panel SNP filters
-    when ``load_metadata(chrom)`` returns. Later runtime regression-SNP
-    restriction remains in the normal LD-score compute path.
-    """
-    from .annotation_builder import AnnotationBundle
-
-    metadata_frames = []
-    chromosomes = [str(chrom) for chrom in ref_panel.available_chromosomes()]
-    for chrom in chromosomes:
-        metadata = ref_panel.load_metadata(chrom).copy()
-        if len(metadata) == 0:
-            continue
-        if "POS" not in metadata.columns and "BP" in metadata.columns:
-            metadata = metadata.rename(columns={"BP": "POS"})
-        metadata_columns = ["CHR", "SNP", "CM", "POS", *[column for column in ("A1", "A2") if column in metadata.columns]]
-        metadata_frames.append(metadata.loc[:, metadata_columns].reset_index(drop=True))
-    if not metadata_frames:
-        raise LDSCInputError(
-            "ldscore could not build the synthetic `base` annotation from the reference panel: "
-            "no retained reference-panel SNP metadata rows were available. Most likely the "
-            "reference panel was filtered to zero SNPs by `--ref-panel-snps-file` or the "
-            "selected chromosomes are absent. Use a reference panel and SNP restriction file "
-            "with overlapping SNPs, or pass explicit baseline annotations."
-        )
-    metadata = pd.concat(metadata_frames, axis=0, ignore_index=True)
-    baseline = pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float32)})
-    query = pd.DataFrame(index=metadata.index)
-    bundle = AnnotationBundle(
-        metadata=metadata,
-        baseline_annotations=baseline,
-        query_annotations=query,
-        baseline_columns=["base"],
-        query_columns=[],
-        chromosomes=chromosomes,
-        source_summary={"baseline": "synthetic all-ones base annotation from retained reference-panel metadata"},
-        config_snapshot=global_config,
-    )
-    bundle.validate()
-    return bundle
 
 
 def run_ldscore(**kwargs) -> LDScoreResult:

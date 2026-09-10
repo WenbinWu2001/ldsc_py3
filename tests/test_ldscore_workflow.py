@@ -2671,28 +2671,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
 
 
-    def test_pseudo_base_annotation_preserves_ref_panel_alleles(self):
-        ref_panel = self.make_ref_panel_stub(
-            backend="parquet_r2",
-            metadata=pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["rs1", "rs2"],
-                    "CM": [0.1, 0.2],
-                    "POS": [10, 20],
-                    "A1": ["A", "A"],
-                    "A2": ["C", "G"],
-                }
-            ),
-        )
-
-        bundle = ldscore_workflow._pseudo_base_annotation_bundle_from_ref_panel(
-            ref_panel,
-            GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
-        )
-
-        self.assertEqual(bundle.metadata["A1"].tolist(), ["A", "A"])
-        self.assertEqual(bundle.metadata["A2"].tolist(), ["C", "G"])
 
     @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
     def test_plink_compute_chromosome_enriches_allele_free_annotations_in_default_mode(self):

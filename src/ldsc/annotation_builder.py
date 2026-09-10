@@ -213,9 +213,6 @@ class AnnotationBundle:
         """Return the effective annotation identity mode for this metadata."""
         return _annotation_identity_mode_for_metadata(self.metadata, snp_identifier)
 
-    def has_full_baseline_cover(self) -> bool:
-        """Return ``True`` when baseline annotations cover every metadata row."""
-        return bool(self.baseline_columns) and len(self.metadata) == len(self.baseline_annotations)
 
     def annotation_matrix(self, include_query: bool = True) -> pd.DataFrame:
         """Return the dense annotation matrix used by LD-score computation."""

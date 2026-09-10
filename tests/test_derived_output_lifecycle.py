@@ -67,3 +67,34 @@ def test_partitioned_successful_overwrite_removes_default_plots_only(tmp_path):
 
     assert not (output_dir / "plots").exists()
     assert unrelated.read_text() == "keep"
+
+
+@pytest.mark.parametrize("workflow", ["plot", "scale"])
+@pytest.mark.parametrize("source", ["absolute", "parent", "symlink", "missing"])
+def test_derived_workflows_reject_invalid_declared_inputs_before_writing(tmp_path, workflow, source):
+    import json
+    from ldsc.errors import LDSCInputError
+    from ldsc.h2_scale import convert_h2_scale
+    from ldsc.plotting import plot_result
+
+    outside = tmp_path / "outside.tsv"
+    outside.write_text("immutable input\n")
+    root = tmp_path / "result"
+    (root / "diagnostics").mkdir(parents=True)
+    if source == "symlink":
+        (root / "linked.tsv").symlink_to(outside)
+    token = {"absolute": str(outside), "parent": "../outside.tsv",
+             "symlink": "linked.tsv", "missing": "missing.tsv"}[source]
+    key = "summary" if workflow == "scale" else "ld_score_regression_bins"
+    metadata_path = root / "diagnostics" / "metadata.json"
+    metadata_path.write_text(json.dumps({"artifact_type": "h2_result", "files": {key: token}}))
+    original = metadata_path.read_bytes()
+    with pytest.raises(LDSCInputError, match="relative|escapes|missing"):
+        if workflow == "scale":
+            convert_h2_scale(root, samp_prev=0.5, pop_prev=0.01)
+        else:
+            plot_result(root)
+    assert not (root / "plots").exists()
+    assert not (root / "postprocessing").exists()
+    assert metadata_path.read_bytes() == original
+    assert outside.read_text() == "immutable input\n"

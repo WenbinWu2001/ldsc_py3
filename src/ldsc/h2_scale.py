@@ -16,6 +16,8 @@ sensitivity figure is requested.
 
 from __future__ import annotations
 
+from ._result_files import atomic_write_json, declared_result_file
+
 import argparse
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -154,7 +156,7 @@ def convert_h2_scale(
             "convert-h2-scale requires a canonical h2 result with "
             f"artifact_type='h2_result'; got {source_metadata.get('artifact_type')!r}."
         )
-    summary_path = _declared_source_file(source_dir, source_metadata, "summary")
+    summary_path = declared_result_file(source_dir, source_metadata, "summary", context="Canonical h2 metadata")
     source_row = _read_observed_h2(summary_path)
     prevalences, mode = _population_prevalence_grid(
         pop_prev=pop_prev,
@@ -235,7 +237,7 @@ def convert_h2_scale(
         _atomic_write_dataframe(table, paths["table"])
         if mode == "sensitivity":
             _plot_prevalence_sensitivity(table, paths["plot"], pyplot)
-        _atomic_write_json(metadata, paths["metadata"])
+        atomic_write_json(metadata, paths["metadata"])
         log_outputs(
             table=paths["table"],
             metadata=paths["metadata"],
@@ -306,21 +308,6 @@ def _read_json(path: Path) -> dict:
     return value
 
 
-def _declared_source_file(result_dir: Path, metadata: dict, key: str) -> Path:
-    files = metadata.get("files")
-    if not isinstance(files, dict) or not isinstance(files.get(key), str) or not files[key].strip():
-        raise LDSCInputError(f"Canonical h2 metadata must declare files.{key}.")
-    token = Path(files[key])
-    if token.is_absolute():
-        raise LDSCInputError(f"Canonical h2 metadata files.{key} must be relative to the result directory.")
-    path = (result_dir / token).resolve()
-    try:
-        path.relative_to(result_dir)
-    except ValueError as exc:
-        raise LDSCInputError(f"Canonical h2 metadata files.{key} escapes the result directory.") from exc
-    if not path.is_file():
-        raise LDSCInputError(f"Canonical h2 metadata declares files.{key}='{files[key]}', but that file is missing.")
-    return path
 
 
 def _read_observed_h2(path: Path) -> dict[str, object]:
@@ -426,20 +413,6 @@ def _atomic_write_dataframe(table: pd.DataFrame, path: Path) -> None:
     temporary_path = Path(temporary_name)
     try:
         table.to_csv(temporary_path, sep="\t", index=False, na_rep="NaN")
-        os.replace(temporary_path, path)
-    except Exception:
-        temporary_path.unlink(missing_ok=True)
-        raise
-
-
-def _atomic_write_json(payload: dict[str, object], path: Path) -> None:
-    file_descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
-    )
-    os.close(file_descriptor)
-    temporary_path = Path(temporary_name)
-    try:
-        temporary_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         os.replace(temporary_path, path)
     except Exception:
         temporary_path.unlink(missing_ok=True)

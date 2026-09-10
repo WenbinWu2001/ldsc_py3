@@ -14,6 +14,7 @@ ldsc_py3_Jerry/
 │   ├── __main__.py
 │   ├── cli.py
 │   ├── config.py
+│   ├── _result_files.py
 │   ├── path_resolution.py
 │   ├── _logging.py
 │   ├── column_inference.py
@@ -182,3 +183,5 @@ ldsc_py3_Jerry/
 | region exclusion | `tests/test_regions.py` |
 
 `AnnotationBundle.validate()` validates row alignment and annotation names; identity cleanup occurs during builder construction. It no longer accepts an ignored identifier argument. Column-name inference uses `infer_chr_pos_columns`; numerical window construction uses `get_block_lefts`. Their former forwarding spellings are removed without changing accepted input column aliases or legacy formats.
+
+`ldsc._result_files` owns contained declared-result input paths and atomic JSON publication for `h2_scale` and `plotting`. Each workflow retains its metadata interpretation, table loading and scientific dispatch. `outputs` keeps its separate JSON serialization of NumPy/dataclass payloads.

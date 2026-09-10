@@ -14,13 +14,14 @@ numerical workflows do not import the plotting runtime.
 
 from __future__ import annotations
 
+from .._result_files import atomic_write_json, declared_result_file
+
 import argparse
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
-import tempfile
 from typing import Any
 
 import pandas as pd
@@ -113,7 +114,7 @@ def plot_result(
     source_dir = _require_result_directory(result_dir)
     metadata = _read_source_metadata(source_dir)
     contract = _select_contract(metadata)
-    source_path = _declared_source_file(source_dir, metadata, contract.source_key)
+    source_path = declared_result_file(source_dir, metadata, contract.source_key, context="Canonical plotting metadata")
     try:
         table = pd.read_csv(source_path, sep="\t")
     except (OSError, pd.errors.ParserError) as exc:
@@ -148,7 +149,7 @@ def plot_result(
         with workflow_logging("plot", paths["log"], log_level=log_level):
             log_inputs(result_dir=source_dir, source_table=source_path, plot_kind=contract.kind)
             figure.savefig(paths["plot"], dpi=300, bbox_inches="tight", facecolor="white")
-            _atomic_write_json(plot_metadata, paths["metadata"])
+            atomic_write_json(plot_metadata, paths["metadata"])
             log_outputs(plot=paths["plot"], metadata=paths["metadata"])
     except Exception:
         builders.close_figure(figure)
@@ -272,21 +273,6 @@ def _select_contract(metadata: dict[str, Any]) -> _PlotContract:
     raise LDSCInputError(f"Artifact type {artifact_type!r} is not supported by `ldsc plot`.")
 
 
-def _declared_source_file(result_dir: Path, metadata: dict[str, Any], key: str) -> Path:
-    files = metadata.get("files")
-    if not isinstance(files, dict) or not isinstance(files.get(key), str) or not files[key].strip():
-        raise LDSCInputError(f"Canonical plotting metadata must declare files.{key}.")
-    token = Path(files[key])
-    if token.is_absolute():
-        raise LDSCInputError(f"Canonical plotting metadata files.{key} must be relative to the result directory.")
-    path = (result_dir / token).resolve()
-    try:
-        path.relative_to(result_dir)
-    except ValueError as exc:
-        raise LDSCInputError(f"Canonical plotting metadata files.{key} escapes the result directory.") from exc
-    if not path.is_file():
-        raise LDSCInputError(f"Canonical plotting metadata declares files.{key}='{files[key]}', but it is missing.")
-    return path
 
 
 def _load_builders():
@@ -303,18 +289,6 @@ def _load_builders():
     return _builders
 
 
-def _atomic_write_json(payload: dict[str, Any], path: Path) -> None:
-    file_descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
-    )
-    os.close(file_descriptor)
-    temporary_path = Path(temporary_name)
-    try:
-        temporary_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        os.replace(temporary_path, path)
-    except Exception:
-        temporary_path.unlink(missing_ok=True)
-        raise
 
 
 __all__ = ["PlotArtifact", "plot_result"]

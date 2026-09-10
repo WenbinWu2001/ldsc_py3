@@ -1,14 +1,10 @@
 from pathlib import Path
 import importlib.util
 import logging
-import sys
 import unittest
 
 import pandas as pd
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from ldsc.errors import LDSCInputError, LDSCUsageError
 

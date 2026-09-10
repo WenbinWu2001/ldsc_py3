@@ -1,23 +1,21 @@
 from __future__ import annotations
 
+import runpy
+
 import gzip
 from pathlib import Path
-import sys
 import tempfile
 import unittest
 
 import pandas as pd
 
-SRC = Path(__file__).resolve().parents[1] / "src"
 TOOL_DIR = Path(__file__).resolve().parents[1] / "tools" / "hm3"
-for _path in (SRC, TOOL_DIR):
-    if str(_path) not in sys.path:
-        sys.path.insert(0, str(_path))
+
 
 
 class Hm3ReferenceBuilderTest(unittest.TestCase):
     def test_build_hm3_chr_pos_reference_filters_and_caps_rows(self):
-        from build_hm3_chr_pos_reference import build_hm3_chr_pos_reference
+        build_hm3_chr_pos_reference = runpy.run_path(str(TOOL_DIR / "build_hm3_chr_pos_reference.py"))["build_hm3_chr_pos_reference"]
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -46,7 +44,7 @@ class Hm3ReferenceBuilderTest(unittest.TestCase):
             pd.testing.assert_frame_equal(written, result)
 
     def test_filter_reference_candidates_keeps_maf_at_threshold(self):
-        from build_hm3_chr_pos_reference import _filter_reference_candidates
+        _filter_reference_candidates = runpy.run_path(str(TOOL_DIR / "build_hm3_chr_pos_reference.py"))["_filter_reference_candidates"]
 
         frame = pd.DataFrame(
             {

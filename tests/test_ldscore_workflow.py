@@ -10,7 +10,6 @@ from io import StringIO
 import json
 from pathlib import Path
 from types import SimpleNamespace
-import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -20,9 +19,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from ldsc.config import ConfigMismatchError, GlobalConfig
 from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError

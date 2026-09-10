@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-import sys
 import unittest
 
 import numpy as np
 import pandas as pd
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from ldsc._row_alignment import assert_same_snp_rows
 from ldsc.errors import LDSCInputError

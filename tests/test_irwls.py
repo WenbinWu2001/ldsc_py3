@@ -1,13 +1,9 @@
 from pathlib import Path
-import sys
 import unittest
 
 import numpy as np
 from numpy.testing import assert_array_almost_equal, assert_array_equal
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from ldsc._kernel._irwls import IRWLS
 from ldsc.errors import LDSCInternalError

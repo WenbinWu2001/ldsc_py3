@@ -1,43 +1,6 @@
-"""Pytest fixtures and collection markers for the LDSC test suite."""
-
-from __future__ import annotations
-
-from pathlib import Path
+"""Collection markers for the LDSC test suite."""
 
 import pytest
-
-
-TESTS_ROOT = Path(__file__).resolve().parent
-FIXTURES_ROOT = TESTS_ROOT / "fixtures"
-ANNOTATION_FIXTURES = FIXTURES_ROOT / "annotation"
-FORMAT_FIXTURES = FIXTURES_ROOT / "formats"
-PLINK_FIXTURES = FIXTURES_ROOT / "plink"
-MINIMAL_EXTERNAL_RESOURCES = FIXTURES_ROOT / "minimal_external_resources"
-
-
-@pytest.fixture(scope="session")
-def fixtures_root() -> Path:
-    return FIXTURES_ROOT
-
-
-@pytest.fixture(scope="session")
-def annotation_fixtures() -> Path:
-    return ANNOTATION_FIXTURES
-
-
-@pytest.fixture(scope="session")
-def format_fixtures() -> Path:
-    return FORMAT_FIXTURES
-
-
-@pytest.fixture(scope="session")
-def plink_fixtures() -> Path:
-    return PLINK_FIXTURES
-
-
-@pytest.fixture(scope="session")
-def minimal_external_resources() -> Path:
-    return MINIMAL_EXTERNAL_RESOURCES
 
 
 def pytest_collection_modifyitems(items):

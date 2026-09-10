@@ -1,6 +1,5 @@
 from pathlib import Path
 import importlib
-import sys
 import tempfile
 import gzip
 import unittest
@@ -10,9 +9,6 @@ import numpy as np
 from numpy.testing import assert_array_almost_equal, assert_array_equal
 import pandas as pd
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from ldsc._kernel import formats as ps
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError

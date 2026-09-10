@@ -1,6 +1,5 @@
 from pathlib import Path
 import importlib
-import sys
 import tempfile
 import unittest
 import warnings
@@ -8,9 +7,6 @@ from unittest import mock
 
 import pandas as pd
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 import ldsc
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCUsageError

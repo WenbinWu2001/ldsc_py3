@@ -7,7 +7,6 @@ import io
 import json
 import math
 from pathlib import Path
-import sys
 import tempfile
 import unittest
 import warnings
@@ -17,9 +16,6 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from ldsc.config import ConfigMismatchError, GlobalConfig, RegressionConfig, reset_global_config, set_global_config
 from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError

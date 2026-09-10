@@ -147,11 +147,20 @@ def _read_r2(parquet_path):
 
 
 def test_build_ref_panel_parquet_golden(tmp_path):
+    assert BUILD_GOLDEN.is_file(), f"Missing immutable golden: {BUILD_GOLDEN}. Restore it from version control."
     out = _read_r2(_run_build_ref_panel(tmp_path))
-    if not BUILD_GOLDEN.exists():
-        np.savez(BUILD_GOLDEN, **out)
-        pytest.skip("captured build-ref-panel golden; rerun to assert")
     g = np.load(BUILD_GOLDEN)
     assert set(out) == set(g.files)
     for name in out:
         np.testing.assert_array_equal(out[name], g[name], err_msg=f"column {name} drifted")
+
+
+def test_missing_build_golden_fails_without_writes(tmp_path, monkeypatch):
+    missing = tmp_path / "missing.npz"
+    monkeypatch.setattr(__import__(__name__, fromlist=["BUILD_GOLDEN"]), "BUILD_GOLDEN", missing)
+    try:
+        with pytest.raises(AssertionError, match="Missing immutable golden"):
+            test_build_ref_panel_parquet_golden(tmp_path)
+    except pytest.skip.Exception:
+        pytest.fail("Missing golden must fail, never regenerate and skip")
+    assert list(tmp_path.iterdir()) == []

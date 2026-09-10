@@ -1,13 +1,9 @@
 import os
 from pathlib import Path
-import sys
 import tempfile
 import unittest
 
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from ldsc.path_resolution import (
     ensure_output_paths_available,

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
 import json
-import sys
 import tempfile
 import unittest
 import warnings
@@ -12,9 +11,6 @@ from types import SimpleNamespace
 import pandas as pd
 import numpy as np
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from ldsc.config import GlobalConfig
 from ldsc.errors import LDSCInputError, LDSCInternalError

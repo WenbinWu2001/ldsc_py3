@@ -3,7 +3,6 @@ import contextlib
 import gzip
 import io
 import json
-import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -11,9 +10,6 @@ from unittest import mock
 import numpy as np
 import pandas as pd
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from ldsc._kernel import annotation as kernel_annotation
 from ldsc._kernel import ldscore as kernel_ldscore

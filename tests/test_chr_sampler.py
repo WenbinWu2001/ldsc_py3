@@ -1,15 +1,11 @@
 import importlib.util
 from pathlib import Path
-import sys
 import tempfile
 import unittest
 
 import pandas as pd
 
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from ldsc._chr_sampler import sample_frame_from_chr_pattern
 from ldsc.errors import LDSCInputError

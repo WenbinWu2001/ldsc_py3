@@ -359,6 +359,8 @@ Directory writers share their artifact declarations with workflow preflight. Con
 
 ## Verification
 
+Use the editable development installation described above and run these commands from the repository root. Tests do not inject `src` into Python paths. Run pytest and unittest sequentially because pybedtools cleanup can affect another runner’s temporary files. Goldens are immutable expectations; restore missing NPZs from version control rather than regenerating them during tests.
+
 ```bash
 pytest
 ```

@@ -1,7 +1,6 @@
 from pathlib import Path
 import gzip
 import importlib
-import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -9,9 +8,6 @@ from unittest import mock
 import pandas as pd
 import pytest
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from ldsc.config import GlobalConfig, RefPanelConfig
 from ldsc.errors import LDSCInputError

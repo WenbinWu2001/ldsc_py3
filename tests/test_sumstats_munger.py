@@ -3,7 +3,6 @@ import contextlib
 import gzip
 import importlib.util
 import io
-import sys
 import tempfile
 import unittest
 import warnings
@@ -13,9 +12,6 @@ import numpy as np
 import pandas as pd
 from pandas.testing import assert_series_equal
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 _HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 

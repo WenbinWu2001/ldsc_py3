@@ -6,7 +6,6 @@ import logging
 import weakref
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
-import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -17,9 +16,6 @@ import pytest
 import numpy as np
 import pandas as pd
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 from ldsc._kernel import ref_panel_builder as kernel_builder
 from ldsc._kernel.snp_identity import IDENTITY_DROP_COLUMNS, RestrictionIdentityKeys, empty_identity_drop_frame

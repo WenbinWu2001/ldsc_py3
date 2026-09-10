@@ -1,5 +1,7 @@
 from pathlib import Path
 import runpy
+import tempfile
+import subprocess
 import sys
 import unittest
 import warnings
@@ -7,12 +9,30 @@ from unittest import mock
 
 import pandas as pd
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
 
 
 class PackageLayoutTest(unittest.TestCase):
+    def test_installed_import_cli_and_resources_outside_repository(self):
+        probe = """
+import sys
+from importlib.resources import files
+import ldsc
+assert 'matplotlib.pyplot' not in sys.modules
+resources = files('ldsc').joinpath('data')
+with resources.joinpath('hm3_curated_map.tsv.gz').open('rb') as stream:
+    assert stream.read(2) == b'\\x1f\\x8b'
+assert list(resources.joinpath('regions').iterdir())
+print(ldsc.__file__)
+"""
+        with tempfile.TemporaryDirectory() as outside:
+            for command in (
+                [sys.executable, "-I", "-c", probe],
+                [sys.executable, "-I", "-m", "ldsc", "--help"],
+                [str(Path(sys.executable).with_name("ldsc")), "--help"],
+            ):
+                completed = subprocess.run(command, cwd=outside, capture_output=True, text=True)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+
     def test_public_package_imports(self):
         import ldsc
         import ldsc.__main__
@@ -166,7 +186,7 @@ class PackageLayoutTest(unittest.TestCase):
             [sys.executable, "-c", probe],
             capture_output=True,
             text=True,
-            cwd=str(SRC),
+            cwd=tempfile.gettempdir(),
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         imported_heavy = completed.stdout.splitlines()[-1].strip()

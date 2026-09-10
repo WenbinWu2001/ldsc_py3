@@ -6,22 +6,21 @@ This module owns the supported annotation workflow: path-token resolution,
 annotation bundle loading, BED/gene-interval-to-SNP projection, CLI argument
 parsing, genome-build resolution, output preflight, and fixed
 ``query.<chrom>.annot.gz`` writing. Gene-list resolution itself lives in
-``ldsc.gene_list_resolver`` and is used only by the LD-score workflow; the
-standalone ``annotate`` command remains BED-only. Parsed workflow entry points
-also write ``diagnostics/annotate.log``; direct in-memory calls stay log-file
-free. Use this module for public annotation API calls; use
+``ldsc.gene_list_resolver``; staged batch resolution and standalone output
+orchestration live in ``ldsc.annotate_workflow``. Standalone BED and gene-list
+runs write ``diagnostics/annotate.log`` and return owned chromosome-shard handles. Use this module for public annotation API calls; use
 ``ldsc._kernel.annotation`` only for low-level table and BED primitives.
 
 Key Functions
 -------------
 AnnotationBuilder :
     Load aligned baseline/query annotation bundles and project BED inputs.
-run_bed_to_annot :
-    Project BED files with the registered ``GlobalConfig``.
+run_annotate :
+    Project BED or focal gene lists with the registered ``GlobalConfig``.
 run_annotate_from_args :
     Execute ``ldsc annotate`` from an already parsed namespace.
 main :
-    Standalone parser entry point for BED-to-annotation projection.
+    Standalone parser entry point for annotation projection.
 
 Design Notes
 ------------
@@ -49,7 +48,7 @@ import numpy as np
 import pandas as pd
 
 from ._annotation_parsing import normalize_annotation_chunk
-from ._chr_sampler import sample_frame_from_chr_pattern
+from ._annotation_projection import _project_intervals_to_metadata
 from ._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ._kernel import annotation as kernel_annotation
 from ._kernel.identifiers import (
@@ -66,17 +65,11 @@ from ._kernel.snp_identity import (
 )
 from ._row_alignment import assert_same_snp_rows
 from .chromosome_inference import normalize_chromosome
-from .column_inference import (
-    normalize_genome_build,
-)
 from .config import (
     AnnotationBuildConfig,
     GlobalConfig,
-    get_global_config,
-    print_global_config_banner,
 )
 from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
-from .genome_build_inference import resolve_genome_build
 from .gene_list_resolver import (
     GeneCatalog,
     GeneListBatchResolution,
@@ -89,7 +82,6 @@ from .path_resolution import (
     preflight_output_artifact_family,
     remove_output_artifacts,
     resolve_file_group,
-    split_cli_path_tokens,
 )
 from ._logging import (
     configure_package_logging,
@@ -100,60 +92,13 @@ from ._logging import (
 )
 from .query_annotations import QueryAnnotationStatus
 from .annotation_semantics import require_unique_annotation_names
+from .annotate_workflow import run_annotate
 
 
 LOGGER = logging.getLogger("LDSC.annotation")
 _ANNOTATE_NO_ROWS_DOC = "docs/troubleshooting.md#annotate-no-annotation-snp-rows-remain"
 
 
-def _project_intervals_to_metadata(
-    metadata: pd.DataFrame,
-    intervals: Sequence[tuple[str, int, int]],
-    *,
-    padding_bp: int,
-) -> np.ndarray:
-    """Project a union of 0-based half-open intervals onto 1-based SNP positions.
-
-    Intervals are padded, sorted, and merged per chromosome. SNP positions are
-    sorted only within each chromosome, then interval membership is assigned by
-    binary-search bounds. Runtime therefore scales with SNP and interval counts
-    rather than their product.
-    """
-    chrom = metadata["CHR"].map(normalize_chromosome).astype(str).to_numpy()
-    pos0 = pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64).to_numpy() - 1
-    values = np.zeros(len(metadata), dtype=bool)
-    intervals_by_chrom: dict[str, list[tuple[int, int]]] = {}
-    for interval_chrom, start0, end in intervals:
-        padded_start = max(0, int(start0) - padding_bp)
-        padded_end = int(end) + padding_bp
-        normalized_chrom = normalize_chromosome(interval_chrom)
-        intervals_by_chrom.setdefault(normalized_chrom, []).append((padded_start, padded_end))
-    for interval_chrom, chrom_intervals in intervals_by_chrom.items():
-        row_indices = np.flatnonzero(chrom == interval_chrom)
-        if not len(row_indices):
-            continue
-        order = np.argsort(pos0[row_indices], kind="stable")
-        sorted_indices = row_indices[order]
-        sorted_pos = pos0[sorted_indices]
-        difference = np.zeros(len(sorted_pos) + 1, dtype=np.int32)
-        for start, end in _merge_intervals(chrom_intervals):
-            left = int(np.searchsorted(sorted_pos, start, side="left"))
-            right = int(np.searchsorted(sorted_pos, end, side="left"))
-            difference[left] += 1
-            difference[right] -= 1
-        values[sorted_indices[np.cumsum(difference[:-1]) > 0]] = True
-    return values
-
-
-def _merge_intervals(intervals: Sequence[tuple[int, int]]) -> list[tuple[int, int]]:
-    """Return a sorted union of half-open intervals, joining touching bounds."""
-    merged: list[tuple[int, int]] = []
-    for start, end in sorted(intervals):
-        if not merged or start > merged[-1][1]:
-            merged.append((start, end))
-        else:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-    return merged
 
 
 @dataclass(frozen=True)
@@ -930,7 +875,7 @@ class AnnotationBuilder:
             or not query annotation files are written.
         """
         overwrite = self.build_config.overwrite if overwrite is None else overwrite
-        _configure_logging(log_level or self.global_config.log_level)
+        configure_package_logging(log_level or self.global_config.log_level)
         source_spec = AnnotationBuildConfig(
             baseline_annot_sources=baseline_annot_sources,
             query_annot_bed_sources=query_annot_bed_sources,
@@ -1044,90 +989,8 @@ class AnnotationBuilder:
         return pd.DataFrame(index=index)
 
 
-@materializing_overwrite_guard(
-    lambda *args, **kwargs: (
-        (kwargs.get("output_dir") if "output_dir" in kwargs else (args[2] if len(args) > 2 else None)),
-        kwargs.get("overwrite", args[4] if len(args) > 4 else False),
-        "RUN_FAILED.txt",
-    )
-    if (kwargs.get("output_dir") if "output_dir" in kwargs else (args[2] if len(args) > 2 else None))
-    else None,
-    command="run_bed_to_annot(...)",
-)
-def run_bed_to_annot(
-    query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
-    baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
-    output_dir: str | Path | None = None,
-    padding_bp: int = 0,
-    overwrite: bool = False,
-) -> AnnotationBundle:
-    """Project BED files to an ``AnnotationBundle`` using registered globals.
-
-    Python workflows read shared identifier, genome-build, and logging settings
-    from the registered ``GlobalConfig``. When ``output_dir`` is supplied,
-    fixed ``query.<chrom>.annot.gz`` outputs and diagnostics are refused before
-    writing unless ``overwrite=True``. With overwrite enabled, stale query
-    shards from earlier chromosome sets are removed after successful writes.
-    Materialized calls include ``diagnostics/annotate.log``; the returned bundle
-    remains an in-memory data object and does not expose the log path.
-
-    Parameters
-    ----------
-    query_annot_bed_sources : str, path-like, or sequence
-        BED input token or tokens. Exact paths, globs, and comma-separated CLI
-        token fragments are normalized by the workflow.
-    baseline_annot_sources : str, path-like, or sequence
-        Baseline annotation token or tokens defining the SNP grid.
-    output_dir : str or pathlib.Path, optional
-        Destination directory for generated query annotation shards. Omit to
-        keep the result in memory only.
-    padding_bp : int, optional
-        Number of base pairs to add to both sides of each BED interval before
-        projection. Starts are clipped at zero. Default is ``0``.
-    overwrite : bool, optional
-        Replace existing ``query.<chrom>.annot.gz`` files when true. Default is
-        ``False``.
-
-    Returns
-    -------
-    bundle : AnnotationBundle
-        Projected annotation bundle.
-    """
-    return _run_bed_to_annot_with_global_config(
-        query_annot_bed_sources=query_annot_bed_sources,
-        baseline_annot_sources=baseline_annot_sources,
-        output_dir=output_dir,
-        padding_bp=padding_bp,
-        overwrite=overwrite,
-        global_config=get_global_config(),
-        entrypoint="run_bed_to_annot",
-    )
 
 
-def _run_bed_to_annot_with_global_config(
-    query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
-    baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
-    output_dir: str | Path | None,
-    *,
-    padding_bp: int,
-    overwrite: bool,
-    global_config: GlobalConfig,
-    entrypoint: str,
-) -> AnnotationBundle:
-    """Run BED-to-annotation projection with an explicit resolved GlobalConfig."""
-    print_global_config_banner(entrypoint, global_config)
-    build_config = AnnotationBuildConfig(query_annot_bed_sources=query_annot_bed_sources, padding_bp=padding_bp)
-    builder = AnnotationBuilder(global_config, build_config)
-    if output_dir is not None:
-        builder._workflow_log_path = Path(output_dir) / "diagnostics" / "annotate.log"
-    return builder.project_bed_annotations(
-        query_annot_bed_sources=query_annot_bed_sources,
-        baseline_annot_sources=baseline_annot_sources,
-        output_dir=output_dir,
-        padding_bp=padding_bp,
-        log_level=global_config.log_level,
-        overwrite=overwrite,
-    )
 
 
 def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
@@ -1136,12 +999,16 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
     This is the shared argument definition used by the unified ``ldsc`` parser
     and by the standalone annotation parser built in this module.
     """
-    parser.add_argument(
+    queries = parser.add_mutually_exclusive_group(required=True)
+    queries.add_argument(
         "--query-annot-bed-sources",
         nargs="+",
-        required=True,
         help="BED files, comma-separated lists, or glob patterns.",
     )
+    queries.add_argument("--query-annot-gene-list-sources", nargs="+", help="Focal one-column gene lists or globs; requires a coordinate catalog and explicit padding.")
+    parser.add_argument("--gene-coordinate-file", help="One-build coordinate TSV/TSV.GZ for gene-list resolution.")
+    parser.add_argument("--gene-list-resolution-policy", choices=("strict", "resolved-only"), default=None, help="Gene-only resolution policy. Default: strict.")
+    parser.add_argument("--gene-exclude-regions", choices=("none", "mhc"), default=None, help="Gene-only exclusion before padding. Default: none.")
     parser.add_argument(
         "--baseline-annot-sources",
         nargs="+",
@@ -1156,8 +1023,8 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--padding-bp",
         type=int,
-        default=0,
-        help="Base pairs to add to both sides of each BED interval before projection. Default: 0.",
+        default=None,
+        help="Nonnegative interval padding. Required explicitly for genes; omitted BED padding is zero.",
     )
     parser.add_argument(
         "--overwrite",
@@ -1178,7 +1045,7 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         help=(
             "Genome build for chr_pos-family inputs. Required when --snp-identifier is "
             "chr_pos or chr_pos_allele_aware. Use 'auto' to infer hg19/hg38 and "
-            "0-based/1-based coordinates from data. Not used for rsid-family modes."
+            "0-based/1-based coordinates from data. Not used for rsid-family identity; gene projection records a separate catalog build."
         ),
     )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
@@ -1192,13 +1059,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser : argparse.ArgumentParser
         Parser for arguments accepted after ``ldsc annotate``.
     """
-    parser = argparse.ArgumentParser(description="Convert BED annotations into LDSC .annot.gz files.", allow_abbrev=False)
+    parser = argparse.ArgumentParser(description="Project BED or gene-list queries into LDSC .annot.gz files.", allow_abbrev=False)
     add_annotate_arguments(parser)
     return parser
 
 
-def parse_bed_to_annot_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse CLI arguments for the BED-to-annotation workflow.
+def parse_annotate_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments for BED or gene-list annotation.
 
     Parameters
     ----------
@@ -1235,44 +1102,26 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
     ----------
     args : argparse.Namespace
         Namespace produced by ``ldsc.cli.build_parser()`` or
-        ``parse_bed_to_annot_args()``.
+        ``parse_annotate_args()``.
 
     Returns
     -------
     bundle : AnnotationBundle
         Produced annotation bundle.
     """
-    if not getattr(args, "query_annot_bed_sources", None):
-        raise LDSCUserError(
-            "ldsc annotate requires `--query-annot-bed-sources`. Most likely the query BED input was omitted. "
-            "Pass one or more BED files to project."
-        )
-    if not getattr(args, "baseline_annot_sources", None):
-        raise LDSCUserError(
-            "ldsc annotate requires `--baseline-annot-sources`. Most likely the baseline SNP grid was omitted. "
-            "Pass one or more baseline `.annot` files."
-        )
-    if not getattr(args, "output_dir", None):
-        raise LDSCUserError(
-            "ldsc annotate requires `--output-dir`. Most likely the destination directory was omitted. "
-            "Pass `--output-dir <dir>` for generated query annotation shards."
-        )
-
-    normalized_mode = normalize_snp_identifier_mode(args.snp_identifier)
-    genome_build = _resolve_annotation_cli_genome_build(args, normalized_mode)
-    cli_global_config = GlobalConfig(
-        snp_identifier=normalized_mode,
-        genome_build=genome_build,
-        log_level=args.log_level,
-    )
-    return _run_bed_to_annot_with_global_config(
-        query_annot_bed_sources=split_cli_path_tokens(args.query_annot_bed_sources),
-        baseline_annot_sources=split_cli_path_tokens(args.baseline_annot_sources),
-        output_dir=args.output_dir,
-        padding_bp=getattr(args, "padding_bp", 0),
-        overwrite=args.overwrite,
-        global_config=cli_global_config,
-        entrypoint="run_annotate_from_args",
+    mode = normalize_snp_identifier_mode(args.snp_identifier)
+    genes = getattr(args, "query_annot_gene_list_sources", None)
+    requested = getattr(args, "genome_build", None)
+    if identity_mode_family(mode) == "chr_pos" and requested is None and not genes:
+        raise LDSCUsageError("annotate requires --genome-build for chr_pos-family identifiers. Supply auto, hg19, or hg38.")
+    config = GlobalConfig(snp_identifier=mode, genome_build=(requested or "auto") if identity_mode_family(mode) == "chr_pos" else None,
+                          log_level=getattr(args, "log_level", "INFO"))
+    return run_annotate(
+        baseline_annot_sources=getattr(args, "baseline_annot_sources", None), output_dir=getattr(args, "output_dir", None),
+        query_annot_bed_sources=getattr(args, "query_annot_bed_sources", None), query_annot_gene_list_sources=genes,
+        gene_coordinate_file=getattr(args, "gene_coordinate_file", None), padding_bp=getattr(args, "padding_bp", None),
+        gene_list_resolution_policy=getattr(args, "gene_list_resolution_policy", None), gene_exclude_regions=getattr(args, "gene_exclude_regions", None),
+        genome_build=requested, global_config=config, overwrite=getattr(args, "overwrite", False),
     )
 
 
@@ -1283,39 +1132,11 @@ def main(argv: Sequence[str] | None = None) -> AnnotationBundle:
     It is used by direct ``ldsc annotate`` dispatch and by script-style
     invocations that want parser behavior plus the produced result object.
     """
-    return run_annotate_from_args(parse_bed_to_annot_args(argv))
+    return run_annotate_from_args(parse_annotate_args(argv))
 
 
-def _resolve_annotation_cli_genome_build(args: argparse.Namespace, snp_identifier: str) -> str | None:
-    """Resolve the effective genome build for annotation CLI inputs."""
-    if identity_mode_family(snp_identifier) == "rsid":
-        return normalize_genome_build(args.genome_build)
-    genome_build = normalize_genome_build(args.genome_build)
-    if genome_build is None:
-        raise LDSCUsageError(
-            "annotate cannot use chr_pos-family SNP identifiers without a genome build. "
-            "Most likely `--snp-identifier chr_pos*` was used without `--genome-build`. "
-            "Pass `--genome-build auto`, `--genome-build hg19`, or `--genome-build hg38`."
-        )
-    if genome_build == "auto":
-        frame, sampled_path = sample_frame_from_chr_pattern(
-            split_cli_path_tokens(args.baseline_annot_sources),
-            context="annotation inputs",
-        )
-        genome_build = resolve_genome_build(
-            "auto",
-            "chr_pos",
-            frame,
-            context="annotation inputs",
-            logger=LOGGER,
-        )
-        LOGGER.info(f"Resolved annotation genome build from '{sampled_path}'.")
-    return genome_build
 
 
-def _configure_logging(level: str) -> None:
-    """Configure logging for standalone annotation entry points."""
-    configure_package_logging(level)
 
 
 def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Path) -> list[Path]:
@@ -1489,7 +1310,7 @@ __all__ = [
     "add_annotate_arguments",
     "build_parser",
     "main",
-    "parse_bed_to_annot_args",
+    "parse_annotate_args",
     "run_annotate_from_args",
-    "run_bed_to_annot",
+    "run_annotate",
 ]

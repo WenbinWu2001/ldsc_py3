@@ -27,4 +27,10 @@ The pilot supports explicit column-major `.npy` reads as the initial private for
 - Workspace closure removes only owned private staging, preserves public files, is idempotent, and invalidates bundle reads. A released read array is not retained by the bundle.
 - Focused annotation/storage/SNP-identity verification: **110 passed, 27 subtests passed**, in **2.10 seconds**. The original annotation parser now delegates normalization to the shared chunk normalizer; existing annotation behavior remains covered.
 
-Public command migrations, direct/indexed LD batching, regression/quantile changes, complete resource comparisons, and final documentation checks remain pending.
+## Standalone annotation migration
+
+`run_annotate()` and the real CLI now use staged baseline preparation, bounded BED parsing, staged gene-list resolution, chromosome-local projection, and incremental canonical writing. The old BED-only public wrapper and parser names are retired. One catalog lookup is shared; selections are loaded one source at a time and complete audits are replayed from private chunks. Query projection reuses a chromosome's sorted SNP positions, accumulates compact support counts, and releases that chromosome's working data before advancing. CLI-owned returned resources are closed on exit.
+
+The focused annotation/gene/storage/region/configuration/layout/output/failure-marker check passed **288 tests and 26 subtests**, with 24 existing warnings, in **16.91 seconds**. Added checks cover independently expected interval boundaries, matching BED equivalence in both baseline layouts, support/coverage distinctions, empty and globally unsupported siblings, all-skipped failure, exact source audit ordering, complete missing-suite diagnostics, failure markers, persistent outputs, and a real module CLI subprocess. The legacy direct/indexed paths remain on their original builder until their coherent migration.
+
+Direct/indexed LD batching, regression/quantile changes, complete resource comparisons, and final documentation checks remain pending.

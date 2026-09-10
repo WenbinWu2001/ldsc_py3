@@ -111,40 +111,28 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         self.assertEqual(config.snp_identifier, "chr_pos_allele_aware")
         self.assertEqual(config.genome_build, "auto")
 
-    def test_run_bed_to_annot_uses_registered_global_config_and_logs_once(self):
-        set_global_config(
-            GlobalConfig(
-                snp_identifier="rsid",
-                log_level="DEBUG",
-            )
-        )
+    def test_run_annotate_uses_registered_global_config_and_logs_once(self):
+        import tempfile
+        from pathlib import Path
 
-        with mock.patch.object(
-            annotation_builder.AnnotationBuilder,
-            "project_bed_annotations",
-            autospec=True,
-            return_value=mock.sentinel.bundle,
-        ) as patched, mock.patch("builtins.print") as patched_print:
-            with self.assertLogs("LDSC.config", level="INFO") as caught:
-                result = ldsc.run_bed_to_annot(
-                    query_annot_bed_sources="beds/*.bed",
-                    baseline_annot_sources="baseline.@.annot.gz",
-                    output_dir="out",
-                )
+        set_global_config(GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            baseline, bed = root / "base.annot", root / "query.bed"
+            baseline.write_text("CHR\tPOS\tSNP\tbase\n1\t10\trs1\t1\n")
+            bed.write_text("1\t9\t10\n")
+            with mock.patch("builtins.print") as patched_print, self.assertLogs("LDSC.config", level="INFO") as caught:
+                with ldsc.run_annotate(query_annot_bed_sources=[bed], baseline_annot_sources=[baseline], output_dir=root / "out") as result:
+                    self.assertEqual(result.config_snapshot.snp_identifier, "rsid")
+                    self.assertIsNone(result.config_snapshot.genome_build)
+                    self.assertEqual(result.config_snapshot.log_level, "DEBUG")
+            patched_print.assert_not_called()
+            self.assertEqual(len(caught.records), 1)
+            self.assertIn("GlobalConfig", caught.records[0].getMessage())
 
-        self.assertIs(result, mock.sentinel.bundle)
-        builder = patched.call_args.args[0]
-        self.assertEqual(builder.global_config.snp_identifier, "rsid")
-        self.assertIsNone(builder.global_config.genome_build)
-        self.assertEqual(builder.global_config.log_level, "DEBUG")
-        patched_print.assert_not_called()
-        self.assertEqual(len(caught.records), 1)
-        self.assertEqual(caught.records[0].levelname, "INFO")
-        self.assertIn("GlobalConfig", caught.records[0].getMessage())
-
-    def test_run_bed_to_annot_rejects_removed_shared_kwargs(self):
+    def test_run_annotate_rejects_removed_shared_kwargs(self):
         with self.assertRaises(TypeError):
-            ldsc.run_bed_to_annot(
+            ldsc.run_annotate(
                 query_annot_bed_sources="beds/*.bed",
                 baseline_annot_sources="baseline.@.annot.gz",
                 output_dir="out",

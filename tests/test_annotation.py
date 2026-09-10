@@ -14,7 +14,7 @@ import pandas as pd
 from ldsc._kernel import annotation as kernel_annotation
 from ldsc._kernel import ldscore as kernel_ldscore
 from ldsc import annotation_builder
-from ldsc.annotation_builder import AnnotationBuilder, AnnotationBundle, run_bed_to_annot
+from ldsc.annotation_builder import AnnotationBuilder, AnnotationBundle, run_annotate
 from ldsc.config import AnnotationBuildConfig, GlobalConfig
 from ldsc.errors import LDSCInputError
 
@@ -381,17 +381,17 @@ class AnnotationBuilderTest(unittest.TestCase):
         stdout = io.StringIO()
         with self.assertRaises(SystemExit):
             with contextlib.redirect_stdout(stdout):
-                annotation_builder.parse_bed_to_annot_args(["--help"])
+                annotation_builder.parse_annotate_args(["--help"])
 
         help_text = stdout.getvalue()
         self.assertIn("Required when", help_text)
-        self.assertIn("Not used for rsid-family modes", help_text)
+        self.assertIn("separate catalog build", " ".join(help_text.split()))
 
     def test_bed_to_annot_parser_rejects_removed_no_batch_flag(self):
         stderr = io.StringIO()
         with self.assertRaises(SystemExit):
             with contextlib.redirect_stderr(stderr):
-                annotation_builder.parse_bed_to_annot_args(
+                annotation_builder.parse_annotate_args(
                     [
                         "--query-annot-bed-sources",
                         "query.bed",
@@ -406,7 +406,7 @@ class AnnotationBuilderTest(unittest.TestCase):
         self.assertIn("unrecognized arguments: --no-batch", stderr.getvalue())
 
     def test_bed_to_annot_parser_accepts_padding_bp(self):
-        args = annotation_builder.parse_bed_to_annot_args(
+        args = annotation_builder.parse_annotate_args(
             [
                 "--query-annot-bed-sources",
                 "query.bed",
@@ -425,7 +425,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
     def test_bed_to_annot_parser_rejects_removed_bed_padding_option(self):
         with self.assertRaises(SystemExit):
-            annotation_builder.parse_bed_to_annot_args(
+            annotation_builder.parse_annotate_args(
                 [
                     "--query-annot-bed-sources",
                     "query.bed",
@@ -473,8 +473,8 @@ class AnnotationBuilderTest(unittest.TestCase):
         for name in (
             "AnnotationBuilder",
             "AnnotationBundle",
-            "run_bed_to_annot",
-            "parse_bed_to_annot_args",
+            "run_annotate",
+            "parse_annotate_args",
             "main_bed_to_annot",
         ):
             self.assertFalse(hasattr(kernel_annotation, name), f"{name} should live in ldsc.annotation_builder")
@@ -1519,79 +1519,35 @@ class AnnotationWrapperTest(unittest.TestCase):
     def test_make_annot_wrapper_is_removed(self):
         self.assertFalse(hasattr(annotation_builder, "main_make_annot"))
 
-    def test_run_bed_to_annot_returns_annotation_bundle(self):
+    def test_run_annotate_returns_annotation_bundle(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            baseline = tmpdir / "baseline.annot"
-            bed = tmpdir / "query.bed"
-            _write_annot(
-                baseline,
-                [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)],
-                {"base_a": [1, 0]},
-            )
+            root = Path(tmpdir)
+            baseline, bed = root / "baseline.annot", root / "query.bed"
+            _write_annot(baseline, [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)], {"base_a": [1, 0]})
             bed.write_text("chr1\t0\t100\tfeature\n", encoding="utf-8")
-
-            class _FakeBedTool:
-                def __init__(self, path: str):
-                    self.path = path
-
-            fake_pybedtools = mock.Mock()
-            fake_pybedtools.BedTool = _FakeBedTool
-
-            with mock.patch.object(kernel_annotation, "_get_pybedtools", return_value=fake_pybedtools), mock.patch.object(
-                kernel_annotation,
-                "_compute_bed_overlap_mask",
-                return_value=[True, False],
-            ):
-                result = run_bed_to_annot(
-                    query_annot_bed_sources=[str(bed)],
-                    baseline_annot_sources=[str(baseline)],
-                )
-
-            self.assertIsInstance(result, AnnotationBundle)
-            self.assertEqual(result.query_columns, ["query"])
-            self.assertEqual(result.source_summary["padding_bp"], 0)
+            with run_annotate(query_annot_bed_sources=[bed], baseline_annot_sources=[baseline],
+                              output_dir=root / "out", global_config=GlobalConfig(snp_identifier="rsid")) as result:
+                self.assertEqual(result.query_columns, ["query"])
+                self.assertEqual(result.read("1", columns=["query"]).ravel().tolist(), [1, 1])
+                self.assertEqual(result.source_summary["padding_bp"], 0)
+                self.assertTrue(Path(result.output_paths["query_annotations"][0]).is_file())
 
     def test_main_chr_pos_auto_resolves_build_before_running(self):
+        from ldsc import annotate_workflow
+
         with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            baseline = tmpdir / "baseline.1.annot"
-            bed = tmpdir / "query.bed"
+            root = Path(tmpdir)
+            baseline, bed = root / "baseline.1.annot", root / "query.bed"
             baseline.write_text("CHR\tBP\tSNP\tCM\tbase\n1\t100\trs1\t0.0\t1\n", encoding="utf-8")
             bed.write_text("chr1\t0\t100\tfeature\n", encoding="utf-8")
-
-            with mock.patch.object(
-                annotation_builder,
-                "sample_frame_from_chr_pattern",
-                return_value=(pd.DataFrame({"CHR": ["1"], "POS": [100]}), str(baseline)),
-            ) as patched_sample, mock.patch.object(
-                annotation_builder,
-                "resolve_genome_build",
-                return_value="hg19",
-            ) as patched_resolve, mock.patch.object(
-                annotation_builder,
-                "_run_bed_to_annot_with_global_config",
-                return_value=mock.sentinel.bundle,
-            ) as patched_run:
-                result = annotation_builder.main(
-                    [
-                        "--query-annot-bed-sources",
-                        str(bed),
-                        "--baseline-annot-sources",
-                        str(tmpdir / "baseline.@.annot"),
-                        "--output-dir",
-                        str(tmpdir / "out"),
-                        "--snp-identifier",
-                        "chr_pos",
-                        "--genome-build",
-                        "auto",
-                    ]
-                )
-
-            self.assertIs(result, mock.sentinel.bundle)
-            self.assertEqual(patched_sample.call_args.kwargs["context"], "annotation inputs")
-            self.assertEqual(patched_resolve.call_args.args[0], "auto")
-            self.assertEqual(patched_run.call_args.kwargs["global_config"].genome_build, "hg19")
+            with mock.patch.object(annotate_workflow, "resolve_genome_build", return_value="hg19") as resolve:
+                with annotation_builder.main([
+                    "--query-annot-bed-sources", str(bed), "--baseline-annot-sources", str(root / "baseline.@.annot"),
+                    "--output-dir", str(root / "out"), "--snp-identifier", "chr_pos", "--genome-build", "auto",
+                ]) as result:
+                    self.assertEqual(result.config_snapshot.genome_build, "hg19")
+                    self.assertEqual(result.read("1", columns=["query"]).ravel().tolist(), [1])
+            self.assertEqual(resolve.call_args.args[0], "auto")
 
     def test_main_bed_to_annot_public_entrypoint_is_removed(self):
         self.assertFalse(hasattr(annotation_builder, "main_bed_to_annot"))

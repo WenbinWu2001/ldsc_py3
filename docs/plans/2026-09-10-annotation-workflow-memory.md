@@ -75,7 +75,7 @@ Exit checkpoint: a deterministic multi-chromosome fixture produces the independe
 
 ### 2. Deliver incremental standalone BED and gene-list annotation
 
-Status: not started. Depends on slice 1.
+Status: standalone BED/gene CLI and `run_annotate()` migration implemented and verified. Shared staged gene resolution is ready for direct/indexed callers; their migration and retirement of the remaining eager builder belong to slices 3–4. Focused annotation, gene, region, output, CLI/layout, configuration, and failure-marker checks passed 288 tests and 26 subtests. Real module CLI coverage verifies persistent output reload and scratch cleanup. The full repository milestone remains scheduled after the shared LD/index cutover.
 
 Likely areas: [annotation_builder.py](../../src/ldsc/annotation_builder.py), [gene_list_resolver.py](../../src/ldsc/gene_list_resolver.py), [query_annotations.py](../../src/ldsc/query_annotations.py), CLI dispatch/exports, and output/logging helpers.
 

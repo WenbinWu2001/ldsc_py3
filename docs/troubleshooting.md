@@ -231,6 +231,18 @@ bad provenance / missing A1-A2 / duplicate identity rows)
 
 ## annotate
 
+### annotate: input preflight
+
+Missing files, invalid annotation values or headers, and incorrect chromosome members are recorded in `diagnostics/input_issues.tsv`. Exact paths and globs select their actual inputs. For gene-list annotation, `@` explicitly requires autosomes 1–22; each member must contain its declared chromosome. Repair all listed inputs before rerunning. Input defects are not interpreted as zero pathway support.
+
+### annotate: gene-list preflight
+
+Use exactly one BED or gene-list query route. Gene lists require a readable coordinate catalog and explicit nonnegative `--padding-bp`, including `0` for gene bodies. Check `diagnostics/gene_catalog_issues.tsv`, `diagnostics/gene_list_audit.tsv.gz`, and `diagnostics/gene_list_resolution_summary.tsv` for catalog defects, malformed or unreadable lists, naming collisions, and unresolved identifiers. `resolved-only` permits only the established identifier-resolution omission allowlist; it does not bypass malformed rows, missing sources, or incomplete chromosome coverage.
+
+After resolution, every selected gene must be covered by validated baseline contents. `diagnostics/chromosome_scope.json` and the gene audit explain missing coverage. Measured support is then reported as `annotation_snp_count` on cleaned baseline SNP rows; reference-panel support remains unevaluated. Empty and globally unsupported focal queries are skipped, usable siblings continue, and an all-skipped batch fails without publishing a new query family. All-one annotation columns remain valid.
+
+An authorized overwrite can leave `RUN_FAILED.txt` after failure. Inspect diagnostics and rerun with corrected inputs and `--overwrite`; no rollback to earlier results is promised. Private staging is removed on handled failure or bundle closure. Python callers should use `with run_annotate(...):` or call `close()` after consuming the returned handle; canonical `query.<chrom>.annot.gz` files remain available.
+
 ### annotate: no annotation SNP rows remain
 
 **Raised by:** `annotation_builder.AnnotationBuilder._run_single_universe()`,

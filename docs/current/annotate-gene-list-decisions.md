@@ -2,11 +2,11 @@
 
 Last updated on: 2026-09-10
 
-Status: standalone behavior approved; implementation deferred for integration with the chromosome-sharded `AnnotationBundle` refactor. This document records the agreed future contract, not behavior already available in the CLI. The user requested a documentation-only handoff before starting the memory refactor.
+Status: standalone BED/gene-list CLI and `run_annotate()` are implemented using staged chromosome access. Direct/indexed workflow migration continues under the [memory implementation plan](../plans/2026-09-10-annotation-workflow-memory.md). The decision table remains the behavior contract; implementation evidence is recorded in the [memory audit](../audits/annotation-memory/progress.md).
 
 ## Problem and scope
 
-Standalone `ldsc annotate` currently requires BED queries, although `AnnotationBuilder` already projects resolved gene intervals. Extend the standalone command to expose that shared capability over the explicitly supplied baseline annotation SNP grid. Work locally in `ldsc_py3_restructured` on `restructure`; do not access the HPC.
+Standalone `ldsc annotate` accepts BED or focal gene-list queries over the explicitly supplied baseline annotation SNP grid. The implementation is local to `ldsc_py3_restructured`; no HPC execution is part of this refactor.
 
 The inspected implementation is commit `a505c45` (`refactor: remove annotation fingerprints`). Relevant seams are [annotation_builder.py](../../src/ldsc/annotation_builder.py), `add_annotate_arguments()`, `run_annotate_from_args()`, `AnnotationBuilder.run()`, and `_project_intervals_to_metadata()`; [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py), `build_parser()` and `_normalize_run_args()`; and [gene_list_resolver.py](../../src/ldsc/gene_list_resolver.py), `GeneCatalog.load()` and `resolve_gene_lists()`.
 
@@ -94,7 +94,7 @@ The memory-refactor discussion subsequently approved dataset-wide annotation ide
 
 ## Implementation acceptance checks
 
-Implementation has not started. Once the shared interface is agreed, update affected Python entry points/exports, CLI help, README, current contracts, troubleshooting, tutorials/examples, and tests. Use shared resolution and projection logic rather than copying direct-ldscore orchestration or its reference/regression checks.
+The standalone implementation uses `annotate_workflow.run_annotate()`, shared chunk normalization, output-contained shard storage, staged gene resolution, and `AnnotationDirectoryWriter`. Affected parser/export tests now use `run_annotate()` and `parse_annotate_args()`. The complete documentation/tutorial migration and full-suite milestone remain part of the continuing memory-refactor plan.
 
 Validate independently expected SNP membership, interval boundaries, overlap unions, padding, clipping, exact aliases and duplicates, and explicit exclusions. For example, an unpadded catalog interval `[101, 110]` must mark one-based SNP positions 101 and 110 but not 100 or 111, matching BED `[100, 110)`. Repeat with matching BED intervals and padding using independently derived expected values.
 

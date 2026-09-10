@@ -17,13 +17,14 @@ import pyarrow.parquet as pq
 
 from ._annotation_identity import DiskIdentityIndex, IdentityDropSpool
 from ._annotation_parsing import normalize_annotation_chunk
+from ._annotation_preflight import AUTOSOMES, INPUT_ISSUE_COLUMNS, input_issue
 from ._annotation_storage import AnnotationShard, ColumnStore, FrameSpool
 from ._kernel.annotation import _chrom_sort_key, _annotation_parse_error_message
 from ._kernel.snp_identity import identity_base_mode, is_allele_aware_mode
 from ._row_alignment import assert_same_snp_rows
 from .annotation_semantics import require_unique_annotation_names
 from .chromosome_inference import normalize_chromosome
-from .errors import LDSCInputError
+from .errors import LDSCInputError, LDSCUserError
 
 
 @dataclass
@@ -34,6 +35,7 @@ class PreparedAnnotationSources:
     baseline_columns: tuple[str, ...]
     query_columns: tuple[str, ...]
     drops: FrameSpool
+    scope_chromosomes: tuple[str, ...] = ()
 
 
 @dataclass
@@ -119,7 +121,7 @@ def _finish_shard(spool, root, columns, metadata_columns):
     return AnnotationShard(metadata_path, (store,), spool.n_rows)
 
 
-def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, chunk_rows=None, chrom=None):
+def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, chunk_rows=None, chrom=None, declared_chromosomes=None, input_issues=(), autosomes_only=False):
     """Scan, validate, and stage aligned whole-genome or chromosome-sharded inputs.
 
     ``workspace`` owns every scratch file. Automatic chunk sizes target 16 MiB
@@ -128,12 +130,34 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     """
     workspace.require_open()
     paths = [*baseline_files, *query_files]
-    if not baseline_files:
+    if not baseline_files and not input_issues:
         raise LDSCInputError("Annotation preparation requires baseline annotation sources.")
+    issues = list(input_issues)
+    declared_chromosomes = declared_chromosomes or {}
     if chunk_rows is None:
-        width = sum(len(pd.read_csv(path, sep=r"\s+", nrows=0).columns) for path in paths)
+        width = 0
+        for path in paths:
+            try:
+                width += len(pd.read_csv(path, sep=r"\s+", nrows=0).columns)
+            except (OSError, EOFError, ValueError, UnicodeError):
+                pass  # The complete scan below records this file's issue once.
         chunk_rows = max(1, min(65536, (16 * 1024 * 1024) // (max(1, width) * 8)))
-    sources = [_scan(path, workspace.path / f"source-{i}", mode, chunk_rows) for i, path in enumerate(paths)]
+    sources = []
+    for i, path in enumerate(paths):
+        declared = declared_chromosomes.get(str(path), '')
+        try:
+            source = _scan(path, workspace.path / f"source-{i}", mode, chunk_rows)
+            if autosomes_only and not source.chromosomes.issubset(AUTOSOMES):
+                raise LDSCInputError('Annotation contents must identify an autosomal chromosome set.')
+            if declared and source.chromosomes != {declared}:
+                raise LDSCInputError(f'@ member for chromosome {declared} contains chromosomes {sorted(source.chromosomes)}.')
+            sources.append(source)
+        except (OSError, EOFError, ValueError, UnicodeError, LDSCUserError) as exc:
+            issues.append(input_issue('baseline' if i < len(baseline_files) else 'query', path, declared, 'invalid_required_input', exc))
+    if issues:
+        error = LDSCInputError('Annotation input preflight failed: ' + '; '.join(f"{row['source']}: {row['details']}" for row in issues[:10]) + '. Complete diagnostics: diagnostics/input_issues.tsv. Other causes & fixes: docs/troubleshooting.md#annotate-input-preflight')
+        error.input_issues = pd.DataFrame(issues, columns=INPUT_ISSUE_COLUMNS)
+        raise error
     baselines, queries = sources[:len(baseline_files)], sources[len(baseline_files):]
     baseline_layout = _layout(baselines, "baseline")
     query_layout = _layout(queries, "query") if queries else {}
@@ -182,4 +206,5 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
         error = LDSCInputError("annotate retained no annotation rows after SNP identity cleanup. Supply valid, unique SNP identities. Other causes & fixes: docs/troubleshooting.md#annotate-no-annotation-snp-rows-remain")
         error.annotation_drops = drops
         raise error
-    return PreparedAnnotationSources(shards, baseline_columns, query_columns, drops)
+    scope = tuple(sorted(set().union(*(s.chromosomes for s in baselines)), key=_chrom_sort_key))
+    return PreparedAnnotationSources(shards, baseline_columns, query_columns, drops, scope)

@@ -118,10 +118,14 @@ def _is_bed_header(fields: Sequence[str]) -> bool:
 
 def parse_bed_text(text: str, label: str) -> list[BedIntervalRow]:
     """Parse standard BED3+ text into interval rows with line provenance."""
-    rows: list[BedIntervalRow] = []
+    return list(iter_bed_rows(text.splitlines(), label))
+
+
+def iter_bed_rows(lines, label):
+    """Validate and yield BED rows from a text stream, preserving line state."""
     seen_data = False
     seen_header = False
-    for lineno, raw in enumerate(text.splitlines(), start=1):
+    for lineno, raw in enumerate(lines, start=1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
@@ -168,9 +172,8 @@ def parse_bed_text(text: str, label: str) -> list[BedIntervalRow]:
                 f"BED parsing failed in '{label}' line {lineno}: start {start} is not "
                 f"less than end {end}. BED intervals are 0-based half-open with start < end."
             )
-        rows.append(BedIntervalRow(chrom, start, end, tuple(fields[3:]), lineno))
+        yield BedIntervalRow(chrom, start, end, tuple(fields[3:]), lineno)
         seen_data = True
-    return rows
 
 
 def _parse_bed_text(text: str, label: str) -> list[tuple[str, int, int]]:

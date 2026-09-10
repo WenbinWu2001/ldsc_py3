@@ -47,7 +47,7 @@ _USER_ERROR_TYPES = (
 # Single source of truth for the subcommand list shown in `ldsc --help`. Used by
 # both the full parser and the lightweight help parser so the two cannot drift.
 _SUBCOMMAND_HELP = {
-    "annotate": "Project BED files to SNP-level query annotations.",
+    "annotate": "Project BED or gene lists to SNP-level query annotations.",
     "ldscore": "Compute LD scores.",
     "build-ref-panel": "Build standard parquet reference panels.",
     "build-gene-ldscore-index": "Build an exact disjoint-atom gene LD-score index.",
@@ -247,10 +247,11 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
     if cli_mode:
         reset_workflow_log_path()
         install_cli_console_handler()
+    result = None
     try:
         marker_scope = _cli_failure_marker_scope(raw_argv)
         if marker_scope is None:
-            main(argv)
+            result = main(argv)
         else:
             output_dir, marker_name = marker_scope
             with overwrite_failure_marker(
@@ -259,7 +260,7 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
                 command=shlex.join(["ldsc", *raw_argv]),
                 marker_name=marker_name,
             ):
-                main(argv)
+                result = main(argv)
     except SystemExit as exc:
         if exc.code is None:
             return 0
@@ -277,6 +278,9 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         _log_internal_error(exc)
         return 2
     finally:
+        close = getattr(result, "close", None)
+        if callable(close):
+            close()
         if cli_mode:
             remove_cli_console_handler()
     return 0

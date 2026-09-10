@@ -37,7 +37,7 @@ from importlib import import_module
 from .annotation_builder import (
     AnnotationBuilder,
     AnnotationBundle,
-    run_bed_to_annot,
+    run_annotate,
 )
 from .config import (
     AnnotationBuildConfig,
@@ -196,7 +196,7 @@ __all__ = [
     "infer_raw_sumstats",
     "run_build_ref_panel",
     "build_gene_ldscore_index",
-    "run_bed_to_annot",
+    "run_annotate",
     "run_ldscore",
     "load_fitted_partitioned_model",
     "run_quantile_h2_from_args",

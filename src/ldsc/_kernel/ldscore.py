@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -181,18 +180,6 @@ class PreparedChromosome:
 
 
 # Shared computational helpers.
-
-
-def split_arg_list(value: str | None) -> list[str]:
-    """Split a comma-delimited CLI argument into normalized path tokens."""
-    if not value:
-        return []
-    out = []
-    for token in value.split(","):
-        token = os.path.expanduser(os.path.expandvars(token.strip()))
-        if token:
-            out.append(token)
-    return out
 
 
 def find_column(columns: Iterable[str], aliases: Sequence[str]) -> str | None:

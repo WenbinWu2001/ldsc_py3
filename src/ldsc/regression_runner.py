@@ -41,7 +41,6 @@ in-memory APIs.
 
 from __future__ import annotations
 
-import argparse
 from contextlib import contextmanager
 import hashlib
 import json
@@ -56,7 +55,6 @@ from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
-from scipy import stats
 
 from ._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from .config import (
@@ -78,7 +76,6 @@ from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, wo
 from ._kernel import regression as reg
 from ._kernel.identifiers import build_snp_id_series
 from ._kernel.snp_identity import (
-    REGENERATE_ARTIFACT_MESSAGE,
     clean_identity_artifact_table,
     effective_merge_key_series,
     identity_base_mode,
@@ -106,7 +103,7 @@ from .outputs import (
     _validate_ldscore_allele_columns,
 )
 from .sumstats_munger import SumstatsTable, load_sumstats
-from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
+from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
 
 
 COMMON_COUNT_KEY = "common_reference_snp_counts"

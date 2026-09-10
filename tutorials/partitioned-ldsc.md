@@ -1,6 +1,6 @@
 # Partitioned LDSC
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-10
 
 Goal: run partitioned LDSC in the refactored package by building query annotations, computing baseline-plus-query LD scores, and fitting one partitioned model per query annotation.
 
@@ -283,6 +283,5 @@ For query-annotation runs, the same command keeps the aggregate
 `diagnostics/query_annotations/0001_enhancer_a/`. Each query folder contains its one-row
 `partitioned_h2.tsv`, the fitted baseline-plus-query `partitioned_h2_full.tsv`,
 `coefficient_delete_values.parquet`, and `metadata.json` with the original query annotation name.
-The deprecated `--write-per-query-results` flag remains accepted as a no-op and
-emits one warning; new commands should omit it. Baseline-only runs do not create
+The retired `--write-per-query-results` flag is rejected; omit it. Baseline-only runs do not create
 the per-query tree and keep their complete-model artifacts at the result root.

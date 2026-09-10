@@ -427,3 +427,5 @@ MungeConfig(
     output_dir="outputs/trait_hg38",
 )
 ```
+
+`SumstatsMunger.build_run_summary()` takes no table argument: it returns accounting from the most recent successful `run()`. Requesting it before a completed run raises `LDSCUsageError`.

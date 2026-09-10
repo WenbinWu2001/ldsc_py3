@@ -146,7 +146,6 @@ results, because those results carry their own frozen snapshots.
 | `genome_build` | Critical | Hard error (`ConfigMismatchError`) |
 | `snp_identifier` | Critical | Hard error (`ConfigMismatchError`) |
 | `log_level` | Advisory | Ignored during compatibility checks |
-| `fail_on_missing_metadata` | Advisory | Ignored during compatibility checks |
 
 The compatibility helper compares only `GlobalConfig` snapshots, so the table
 above lists only `GlobalConfig` fields. Workflow-specific LD-score controls such
@@ -449,3 +448,7 @@ error message explains the mismatch clearly. It is not a silent corruption.
 
 **The `run_ldscore()` and `run_build_ref_panel()` convenience wrappers read the global
 registry at call time.** Explicit `global_config=` arguments are always preferred.
+
+## Retired inert configuration
+
+`GlobalConfig` no longer accepts or serializes `fail_on_missing_metadata`: it had no effect. Required identity/footer/sidecar provenance continues to fail unconditionally at artifact loaders. Older snapshots may contain that extra descriptive key; loaders recover the required identity fields explicitly rather than constructing configs from arbitrary snapshot keys.

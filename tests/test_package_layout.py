@@ -349,7 +349,6 @@ print(ldsc.__file__)
                 "ldscores",
                 "--output-dir",
                 "out/partitioned",
-                "--write-per-query-results",
                 "--overwrite",
             ],
             [

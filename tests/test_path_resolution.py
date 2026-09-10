@@ -1,4 +1,5 @@
 import os
+import warnings
 from pathlib import Path
 import tempfile
 import unittest
@@ -7,6 +8,7 @@ import unittest
 
 from ldsc.path_resolution import (
     ensure_output_paths_available,
+    ensure_output_directory,
     normalize_path_token,
     normalize_path_tokens,
     resolve_chromosome_group,
@@ -19,6 +21,17 @@ from ldsc.errors import LDSCInputError
 
 
 class PathResolutionTest(unittest.TestCase):
+    def test_requested_directory_creation_is_information(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            destination = Path(tmpdir) / "results"
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                with self.assertLogs("LDSC.path_resolution", level="INFO") as logged:
+                    self.assertEqual(ensure_output_directory(destination), destination)
+            self.assertTrue(destination.is_dir())
+            self.assertEqual(caught, [])
+            self.assertIn(str(destination), logged.output[0])
+
     def test_normalize_path_token_expands_user_and_env(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             os.environ["LDSC_TEST_ROOT"] = tmpdir

@@ -71,7 +71,7 @@ trait_1 = trait_1_munger.run(
     global_config=GLOBAL_CONFIG,
 )
 
-trait_1_summary = trait_1_munger.build_run_summary(trait_1)
+trait_1_summary = trait_1_munger.build_run_summary()
 print(trait_1_summary.n_input_rows, trait_1_summary.n_retained_rows)
 print(trait_1_summary.drop_counts)
 

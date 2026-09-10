@@ -37,7 +37,7 @@ def test_summary_counts_parsed_rows_and_exclusive_filter_stages(tmp_path, suffix
         MungeConfig(raw_sumstats_file=raw, output_dir=tmp_path / "out", sumstats_snps_file=keep, chunk_size=chunk_size),
         global_config=GlobalConfig(snp_identifier="rsid"),
     )
-    summary = munger.build_run_summary(table)
+    summary = munger.build_run_summary()
     assert table.data.SNP.tolist() == ["keep1", "keep2"]
     np.testing.assert_allclose(table.data.Z, [-1.95996398454, 1.95996398454])
     assert summary.n_input_rows == 10
@@ -87,7 +87,7 @@ def test_allele_restriction_counts_deferred_bad_alleles_only_at_identity_cleanup
         MungeConfig(raw_sumstats_file=raw, output_dir=tmp_path / "out", sumstats_snps_file=keep, chunk_size=2),
         global_config=GlobalConfig(snp_identifier="rsid_allele_aware"),
     )
-    summary = munger.build_run_summary(table)
+    summary = munger.build_run_summary()
     assert table.data.SNP.tolist() == ["keep"]
     assert summary.drop_counts["sumstats_snps"] == 2
     assert summary.drop_counts["identity"] == 1
@@ -112,7 +112,7 @@ def test_summary_reports_the_sample_size_rule_actually_used(tmp_path, columns, r
         MungeConfig(raw_sumstats_file=raw, output_dir=tmp_path / "out", **options),
         global_config=GlobalConfig(snp_identifier="rsid"),
     )
-    summary = munger.build_run_summary(table)
+    summary = munger.build_run_summary()
     assert summary.used_n_rule == rule
     assert table.data.N.tolist() == [n_value] * (2 - nstudy_drops)
     assert summary.drop_counts["NSTUDY"] == nstudy_drops
@@ -149,7 +149,7 @@ def test_production_build_inference_uses_bounded_raw_evidence_before_qc(tmp_path
     assert table.config_snapshot.genome_build == "hg19"
     assert table.data.POS.tolist() == [950000001, 950000101]
     assert table.provenance["coordinate_provenance"]["coordinate_basis"] == "0-based"
-    summary = munger.build_run_summary(table)
+    summary = munger.build_run_summary()
     assert summary.n_input_rows == 5302
     assert summary.n_retained_rows == 2
     assert summary.drop_counts["P"] == 5300
@@ -190,7 +190,7 @@ def test_coordinate_liftover_and_identity_counts_are_exclusive(tmp_path, monkeyp
                     output_genome_build="hg38", liftover_chain_file="test.chain", chunk_size=2),
         global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"),
     )
-    summary = munger.build_run_summary(table)
+    summary = munger.build_run_summary()
     assert table.data.SNP.tolist() == ["keep"]
     assert table.data.POS.tolist() == [1400]
     assert table.config_snapshot.genome_build == "hg38"

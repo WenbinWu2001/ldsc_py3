@@ -29,7 +29,7 @@ Not supported:
 Output paths are different:
 
 - `output_dir` is treated as a literal directory
-- if an output directory does not exist, the program warns once and creates it
+- if an output directory does not exist, the program creates it and logs creation at INFO
 - if the directory already exists, it is reused
 - public workflows do not use output prefixes; output filenames inside
   `output_dir` are fixed by the workflow
@@ -540,8 +540,8 @@ Output:
   `ldscore.overlap.parquet`. Baseline-only directories run the functional-category
   regime; directories with query columns run the cell-type-specific regime.
 - Query-annotation `ldsc partitioned-h2` runs always write a staged
-  `diagnostics/query_annotations/` tree under `output_dir`. The deprecated
-  `--write-per-query-results` flag is accepted as a warning-producing no-op. The tree contains
+  `diagnostics/query_annotations/` tree under `output_dir`. The retired
+  `--write-per-query-results` flag is rejected. The tree contains
   `manifest.tsv` and one folder per query annotation, with per-query
   `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json`.
   Existing final per-query output is refused unless `--overwrite` is supplied;

@@ -343,7 +343,7 @@ filenames inside the selected `output_dir`.
 
 For workflows that accept `--output-dir` or `output_dir`, the value is always a directory:
 
-- missing output directories are created with a warning
+- missing output directories are created and logged at INFO
 - existing directories are reused
 - known output files fail the run before writing starts
 - reruns that intentionally replace known files must pass `--overwrite` on the

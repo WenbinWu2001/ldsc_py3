@@ -732,7 +732,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(footer[b"ldsc:genome_build"], b"")
             self.assertEqual(footer[b"ldsc:trait_name"], b"trait")
             self.assertNotIn(b"ldsc:schema_version", footer)
-            summary = munger.build_run_summary(table)
+            summary = munger.build_run_summary()
             self.assertEqual(summary.n_retained_rows, 2)
             self.assertIn("sumstats_parquet", summary.output_paths)
             self.assertNotIn("sumstats_gz", summary.output_paths)
@@ -1085,7 +1085,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="rsid"),
             )
 
-            summary = munger.build_run_summary(table)
+            summary = munger.build_run_summary()
             self.assertEqual(
                 summary.output_paths["dropped_snps_tsv_gz"],
                 str(tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"),
@@ -2364,7 +2364,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data["SNP"].tolist(), ["rs2073813"])
             self.assertEqual(table.data["CHR"].tolist(), ["1"])
             self.assertEqual(table.data["POS"].tolist(), [753541])
-            self.assertEqual(munger.build_run_summary(table).n_input_rows, 1)
+            self.assertEqual(munger.build_run_summary().n_input_rows, 1)
 
     def test_run_accepts_chrom_and_bp_aliases_for_coordinates(self):
         with tempfile.TemporaryDirectory() as tmpdir:

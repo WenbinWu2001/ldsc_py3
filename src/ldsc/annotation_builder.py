@@ -229,15 +229,8 @@ class AnnotationBundle:
     gene_list_batch: GeneListBatchResolution | None = None
     input_issues: pd.DataFrame | None = None
 
-    def validate(self, snp_identifier: str = "chr_pos_allele_aware") -> None:
-        """Validate row alignment assumptions for the bundle.
-
-        Parameters
-        ----------
-        snp_identifier : str, optional
-            Accepted for API compatibility; builder-produced bundles perform
-            SNP identity cleanup before construction.
-        """
+    def validate(self) -> None:
+        """Validate row alignment and annotation names after builder identity cleanup."""
         require_unique_annotation_names(self.baseline_columns, self.query_columns)
         if len(self.metadata) != len(self.baseline_annotations):
             raise LDSCInternalError(
@@ -869,7 +862,7 @@ class AnnotationBuilder:
             query_statuses=query_statuses,
             gene_list_batch=gene_list_batch,
         )
-        bundle.validate(self.global_config.snp_identifier)
+        bundle.validate()
         return bundle
 
     def _detect_chromosome_shards(self, files: Sequence[str], group_name: str) -> dict[str, str] | None:

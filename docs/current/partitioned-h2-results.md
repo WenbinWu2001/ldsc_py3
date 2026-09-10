@@ -1,6 +1,6 @@
 # Partitioned LDSC Result Columns
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-10
 
 TODO: add an example output file str.
 
@@ -107,8 +107,8 @@ removes a stale `diagnostics/query_annotations/` tree from an earlier query run.
 ## `partitioned_h2_full.tsv`
 
 In the cell-type regime, each query folder contains
-`partitioned_h2_full.tsv` by default. The deprecated
-`--write-per-query-results` flag is accepted as a no-op with one warning. This table uses the **same**
+`partitioned_h2_full.tsv` by default. The retired
+`--write-per-query-results` flag is rejected. This table uses the **same**
 column schema as `partitioned_h2.tsv`, with one row for every retained category
 in that query's fitted `baseline + query` model (all baseline categories plus the
 query). Its baseline rows are the joint functional enrichments conditional on the
@@ -143,3 +143,5 @@ per-query result tree. It records each original query annotation name, the
 sanitized folder name, and the relative path columns `summary_path`,
 `partitioned_h2_full_path`, and `metadata_path`. It is not a scientific result
 table.
+
+The Python `PartitionedH2OutputConfig.write_per_query_results` option remains active for directory-writer callers. `RegressionRunner.estimate_partitioned_h2_batch(include_full_partitioned_h2=True)` still returns detailed model results; the redundant `include_model_categories` keyword is removed. Returned regression estimator objects retain their text `summary()` methods for Python callers.

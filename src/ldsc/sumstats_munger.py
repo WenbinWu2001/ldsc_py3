@@ -715,7 +715,7 @@ class SumstatsMunger:
         remove_output_artifacts(stale_paths)
         return primary_sumstats_file
 
-    def build_run_summary(self, _sumstats: SumstatsTable | None = None) -> MungeRunSummary:
+    def build_run_summary(self) -> MungeRunSummary:
         """Return the summary captured from the most recent call to :meth:`run`."""
         if self._last_summary is None:
             raise LDSCUsageError(
@@ -819,13 +819,11 @@ def _source_global_config_for_munge(config: MungeConfig, base: GlobalConfig) -> 
         return GlobalConfig(
             snp_identifier=mode,
             log_level=base.log_level,
-            fail_on_missing_metadata=base.fail_on_missing_metadata,
         )
     return GlobalConfig(
         snp_identifier=mode,
         genome_build=config.source_genome_build,
         log_level=base.log_level,
-        fail_on_missing_metadata=base.fail_on_missing_metadata,
     )
 
 
@@ -1869,7 +1867,6 @@ def _effective_sumstats_config(config: GlobalConfig, coordinate_metadata: dict[s
         snp_identifier=normalize_snp_identifier_mode(coordinate_metadata.get("snp_identifier", config.snp_identifier)),
         genome_build=normalize_genome_build(genome_build),
         log_level=config.log_level,
-        fail_on_missing_metadata=config.fail_on_missing_metadata,
     )
 
 

@@ -2557,23 +2557,14 @@ class RegressionWorkflowTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats-file", "trait.sumstats.gz", "--count-kind", "m_5_50"])
 
-    def test_partitioned_h2_arguments_accept_deprecated_per_query_output_flag(self):
+    def test_partitioned_h2_arguments_reject_retired_per_query_output_flag(self):
         parser = argparse.ArgumentParser()
         regression_runner.add_partitioned_h2_arguments(parser)
-
-        args = parser.parse_args(
-            [
-                "--ldscore-dir",
-                "ldscores",
-                "--sumstats-file",
-                "trait.sumstats.gz",
-                "--output-dir",
-                "out",
-                "--write-per-query-results",
-            ]
-        )
-
-        self.assertTrue(args.write_per_query_results)
+        with self.assertRaises(SystemExit):
+            parser.parse_args([
+                "--ldscore-dir", "ldscores", "--sumstats-file", "trait.sumstats.gz",
+                "--output-dir", "out", "--write-per-query-results",
+            ])
 
     def test_partitioned_h2_arguments_accept_summary_sort_by(self):
         parser = argparse.ArgumentParser()
@@ -3062,7 +3053,6 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "intercept_h2": None,
                     "two_step_cutoff": None,
                     "chisq_max": None,
-                    "write_per_query_results": False,
                 },
             )()
 
@@ -3093,7 +3083,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(patched.call_args.args[2].query_columns, ["query"])
         self.assertEqual(summary.loc[0, "category"], "query")
 
-    def test_deprecated_per_query_flag_is_noop_for_baseline_only_run(self):
+    def test_baseline_only_run_keeps_complete_model_at_root(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
@@ -3116,7 +3106,6 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "intercept_h2": None,
                     "two_step_cutoff": None,
                     "chisq_max": None,
-                    "write_per_query_results": True,
                 },
             )()
             result = regression_runner.PartitionedH2BatchResult(
@@ -3147,8 +3136,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(writer.call_args.kwargs["per_query_category_tables"], {})
         self.assertIs(writer.call_args.kwargs["coefficient_delete_values"], result.coefficient_delete_values)
         deprecations = [item for item in captured if item.category is FutureWarning]
-        self.assertEqual(len(deprecations), 1)
-        self.assertIn("deprecated and has no effect", str(deprecations[0].message))
+        self.assertEqual(deprecations, [])
 
     def test_run_partitioned_h2_from_args_writes_with_partitioned_writer(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3174,7 +3162,6 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "intercept_h2": None,
                     "two_step_cutoff": None,
                     "chisq_max": None,
-                    "write_per_query_results": True,
                 },
             )()
 
@@ -3217,8 +3204,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(str(output_config.output_dir), str(output_dir))
         self.assertTrue(output_config.write_per_query_results)
         deprecations = [item for item in captured if item.category is FutureWarning]
-        self.assertEqual(len(deprecations), 1)
-        self.assertIn("deprecated and has no effect", str(deprecations[0].message))
+        self.assertEqual(deprecations, [])
         self.assertEqual(writer.call_args.kwargs["metadata"]["count_kind"], "common")
         self.assertEqual(writer.call_args.kwargs["metadata"]["trait_name"], "trait")
         self.assertEqual(summary["category"].tolist(), ["low", "high"])
@@ -3251,7 +3237,6 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "intercept_h2": None,
                     "two_step_cutoff": None,
                     "chisq_max": None,
-                    "write_per_query_results": False,
                     "summary_sort_by": "enrichment-p",
                 },
             )()
@@ -3314,7 +3299,6 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "intercept_h2": None,
                     "two_step_cutoff": None,
                     "chisq_max": None,
-                    "write_per_query_results": False,
                     "summary_sort_by": "enrichment",
                 },
             )()
@@ -3377,7 +3361,6 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "intercept_h2": None,
                     "two_step_cutoff": None,
                     "chisq_max": None,
-                    "write_per_query_results": True,
                     "summary_sort_by": "enrichment-p",
                 },
             )()
@@ -3448,7 +3431,6 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "intercept_h2": None,
                     "two_step_cutoff": None,
                     "chisq_max": None,
-                    "write_per_query_results": True,
                 },
             )()
 
@@ -3488,7 +3470,6 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "intercept_h2": None,
                     "two_step_cutoff": None,
                     "chisq_max": None,
-                    "write_per_query_results": False,
                 },
             )()
 
@@ -3532,7 +3513,6 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "intercept_h2": None,
                     "two_step_cutoff": None,
                     "chisq_max": None,
-                    "write_per_query_results": False,
                 },
             )()
             partitioned_summary = pd.DataFrame(
@@ -3597,7 +3577,6 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "intercept_h2": None,
                     "two_step_cutoff": None,
                     "chisq_max": None,
-                    "write_per_query_results": False,
                 },
             )()
             summary = pd.DataFrame(

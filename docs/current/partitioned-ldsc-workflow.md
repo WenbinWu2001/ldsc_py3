@@ -1,6 +1,6 @@
 # Partitioned LDSC Workflow: Technical Reference
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-10
 
 This document describes the refactored workflow for computing LD scores and
 running h2, partitioned-h2, and rg regression from one canonical LD-score result
@@ -291,7 +291,7 @@ produced by an older `ldsc ldscore` is rejected with a regenerate message.
   `diagnostics/query_annotations/` tree (`manifest.tsv` plus one sanitized
   folder per query with a one-row `partitioned_h2.tsv`, the full
   baseline-plus-query `partitioned_h2_full.tsv`, and `metadata.json`). The
-  deprecated `--write-per-query-results` flag is accepted as a no-op with one warning.
+  retired `--write-per-query-results` flag is rejected.
 
 Both regimes write **one** column schema to `partitioned_h2.tsv`, differing only
 in rows and the default sort:
@@ -376,8 +376,7 @@ ldsc partitioned-h2 \
 ```
 
 Query-annotation runs write their per-query result tree automatically. The
-deprecated `--write-per-query-results` flag remains accepted as a warning-producing
-no-op, but new commands should omit it.
+retired `--write-per-query-results` flag is rejected; omit it.
 
 Run rg:
 

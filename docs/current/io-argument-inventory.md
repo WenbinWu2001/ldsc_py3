@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Last updated on: 2026-09-08
+Last updated on: 2026-09-10
 
 This document records the current public input/output naming contract after the
 LD-score result-directory refactor. The LD-score workflow uses a canonical
@@ -493,7 +493,6 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square retained for regression fitting; defaults to `None`. Inclusive (`chi^2 <= chisq_max`; deviates from legacy LDSC's strict `chi^2 < chisq_max`). When unset, partitioned (multi-annotation) models apply the legacy default outlier cap `max(0.001 * N.max(), 80)` to keep extreme-chi-square SNPs from dominating the regression. |
 | `--samp-prev` | model | no | sample (case) prevalence | Scalar sample prevalence `P` for liability-scale conversion; defaults to `None`. A probability in `(0, 1)`, or `nan` for a quantitative trait. Requires `--pop-prev`; omit both for observed scale. Adds the `*_liab` heritability columns (e.g. `category_h2_liab`/`category_h2_liab_se` and `total_h2_liab`/`total_h2_liab_se`) and the applied prevalence columns (proportions, enrichment, and coefficients are scale-invariant). |
 | `--pop-prev` | model | no | population prevalence | Scalar population prevalence `K` for liability-scale conversion; defaults to `None`. A probability in `(0, 1)`, or `nan`. Requires `--samp-prev`. Validated before inputs load. |
-| `--write-per-query-results` | deprecated compatibility flag | no | no-op | Deprecated. Query-annotation runs always write per-query folders under `diagnostics/query_annotations`; supplying the flag emits one warning and changes nothing. Baseline-only runs keep complete-model artifacts at the result root. |
 | `--summary-sort-by` | output mode | no | aggregate row sorting | Sort key for the partitioned-h2 table; defaults to `auto`, which resolves to `coefficient-p` in the cell-type regime (query annotations present) and `category` in the functional regime. Explicit choices: `category`, `prop-snps`, `prop-h2`, `enrichment`, `enrichment-p`, `coefficient`, and `coefficient-p`. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`. Records go to `diagnostics/partitioned-h2.log`; the console (stderr) shows only errors. |
 | `--overwrite` | output mode | no | collision policy | Controls whether aggregate/per-query outputs and diagnostics may be replaced; defaults to `False`, so any owned partitioned-h2 artifact or default `plots/` root is refused. With overwrite, stale query trees and plots are removed after successful writes when not part of the new result. |

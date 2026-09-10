@@ -1864,7 +1864,7 @@ def _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config: Glob
         source_summary={"baseline": "synthetic all-ones base annotation from retained reference-panel metadata"},
         config_snapshot=global_config,
     )
-    bundle.validate(global_config.snp_identifier)
+    bundle.validate()
     return bundle
 
 

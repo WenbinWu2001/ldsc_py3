@@ -567,8 +567,7 @@ trees, or logs raise before the new table is written unless the command includes
 `diagnostics/partitioned-h2.log` are treated as one owned family;
 baseline-only overwrites remove stale `diagnostics/query_annotations/` after
 the new summary is written. Query-mode `partitioned-h2` always writes its
-per-query tree; deprecated `--write-per-query-results` is a warning-producing
-no-op. The aggregate `partitioned_h2.tsv` remains the stable summary entry
+per-query tree; retired `--write-per-query-results` is rejected. The aggregate `partitioned_h2.tsv` remains the stable summary entry
 point. Baseline-only directories run the functional-category regime and keep
 complete-model artifacts at the result root.
 For rg, `--sumstats-sources` accepts two or more files; three or more files

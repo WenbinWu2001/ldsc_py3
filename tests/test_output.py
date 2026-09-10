@@ -1221,7 +1221,7 @@ class RgDirectoryWriterTest(unittest.TestCase):
 
 
 class FixedOutputDirectoryTest(unittest.TestCase):
-    def test_missing_munge_output_dir_warns_and_is_created(self):
+    def test_missing_munge_output_dir_is_created_without_warning(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "nested" / "trait"
             munger = __import__("ldsc.sumstats_munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
@@ -1238,9 +1238,7 @@ class FixedOutputDirectoryTest(unittest.TestCase):
                 written = munger.write_output(table, str(output_dir))
 
             self.assertTrue(output_dir.exists())
-            self.assertEqual(len(caught), 1)
-            self.assertIn("output directory", str(caught[0].message).lower())
-            self.assertIn("created", str(caught[0].message).lower())
+            self.assertEqual(caught, [])
             self.assertTrue(Path(written).exists())
 
     def test_munge_write_output_round_trips_through_public_loader(self):

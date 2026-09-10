@@ -47,7 +47,6 @@ import json
 import logging
 import math
 import time
-import warnings
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -844,13 +843,11 @@ class RegressionRunner:
         annotation_bundle,
         config: RegressionConfig | None = None,
         include_full_partitioned_h2: bool = False,
-        include_model_categories: bool | None = None,
     ) -> pd.DataFrame | PartitionedH2BatchResult:
         """Estimate one baseline-plus-query model per query annotation.
 
-        Partitioned-h2 is only defined here for explicit query annotations.
-        Baseline-only LD-score directories should be analyzed with
-        :meth:`estimate_h2` or :meth:`estimate_rg`.
+        Query columns select one baseline-plus-query fit each. An empty query
+        set selects one joint functional-category fit of the baseline columns.
 
         Parameters
         ----------
@@ -867,8 +864,6 @@ class RegressionRunner:
             If ``True``, return ``PartitionedH2BatchResult`` with per-query
             full category tables for output writers. If ``False``, return the
             aggregate dataframe.
-        include_model_categories : bool, optional
-            Backward-compatible alias for ``include_full_partitioned_h2``.
 
         Returns
         -------
@@ -883,8 +878,6 @@ class RegressionRunner:
             ``ldscore_result.query_columns``. An empty query set selects the
             functional-category regime and jointly fits the baseline columns.
         """
-        if include_model_categories is not None:
-            include_full_partitioned_h2 = include_model_categories
         config = config or self.regression_config
         if ldscore_result.overlap is None:
             raise LDSCInputError(PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE)
@@ -2534,15 +2527,6 @@ def add_partitioned_h2_arguments(parser) -> None:
     parser.add_argument("--trait-name", default=None, help="Optional trait label for summaries.")
     _add_scalar_prevalence_arguments(parser)
     parser.add_argument(
-        "--write-per-query-results",
-        action="store_true",
-        default=False,
-        help=(
-            "Deprecated no-op retained for compatibility. Query-annotation runs now always write one sanitized "
-            "result folder per query annotation under output_dir/diagnostics/query_annotations."
-        ),
-    )
-    parser.add_argument(
         "--summary-sort-by",
         default="auto",
         choices=("auto", *PARTITIONED_H2_SUMMARY_SORT_COLUMNS),
@@ -2691,13 +2675,6 @@ def run_partitioned_h2_from_args(args):
     """
     output_dir, log_path = _preflight_regression_outputs(args, "partitioned-h2", PartitionedH2DirectoryWriter)
     with workflow_logging("partitioned-h2", log_path, log_level=getattr(args, "log_level", "INFO")):
-        if getattr(args, "write_per_query_results", False):
-            warnings.warn(
-                "--write-per-query-results is deprecated and has no effect; query-annotation runs now write "
-                "per-query results by default.",
-                FutureWarning,
-                stacklevel=2,
-            )
         runner, config = _runner_from_args(args)
         print_global_config_banner("run_partitioned_h2_from_args", runner.global_config)
         log_inputs(sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir, output_dir=output_dir)

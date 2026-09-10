@@ -28,7 +28,7 @@ import glob
 import os
 import re
 import shutil
-import warnings
+import logging
 from collections.abc import Iterable, Sequence
 from os import PathLike
 from pathlib import Path
@@ -574,7 +574,7 @@ def ensure_output_directory(
     *,
     label: str = "output directory",
 ) -> Path:
-    """Create ``path`` when missing and warn once for the caller."""
+    """Create the requested directory and record normal creation at INFO level."""
     output_dir = Path(normalize_path_token(path))
     if output_dir.exists():
         if not output_dir.is_dir():
@@ -584,12 +584,8 @@ def ensure_output_directory(
                 "Choose a directory path or move the existing file."
             )
         return output_dir
-    warnings.warn(
-        f"{label} does not exist and is created: {output_dir}",
-        UserWarning,
-        stacklevel=2,
-    )
     output_dir.mkdir(parents=True, exist_ok=True)
+    logging.getLogger("LDSC.path_resolution").info("Created %s: %s", label, output_dir)
     return output_dir
 
 

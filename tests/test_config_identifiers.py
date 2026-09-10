@@ -43,7 +43,6 @@ class GlobalConfigTest(unittest.TestCase):
         self.assertEqual(config.snp_identifier, "chr_pos_allele_aware")
         self.assertEqual(config.genome_build, "auto")
         self.assertEqual(config.log_level, "INFO")
-        self.assertFalse(config.fail_on_missing_metadata)
 
     def test_package_global_registry_round_trip(self):
         original = ldsc.reset_global_config()

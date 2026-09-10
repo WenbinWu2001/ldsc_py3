@@ -505,7 +505,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             build_dir = Path(tmpdir) / "panel" / "hg38"
             _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
             panel = ParquetR2RefPanel(
-                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38", fail_on_missing_metadata=True),
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
             )
 

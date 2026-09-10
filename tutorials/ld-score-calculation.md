@@ -421,8 +421,7 @@ ldsc annotate \
 
 The generated query shards are named `query.<chrom>.annot.gz`, so downstream inputs should use a token such as `annotations/query_from_beds/query.@.annot.gz`.
 
-If `--output-dir` does not exist yet, the workflow warns once and creates it
-automatically. If any root-level `query.*.annot.gz` shard already exists, the
+If `--output-dir` does not exist yet, the workflow creates it automatically and logs creation at INFO. If any root-level `query.*.annot.gz` shard already exists, the
 command fails before writing any shard, even if that shard is outside the
 current chromosome set. Add `--overwrite` only for an intentional rerun; stale
 query shards not produced by the successful run are removed.

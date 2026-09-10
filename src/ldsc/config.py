@@ -167,9 +167,6 @@ class GlobalConfig:
         ``"rsid"``.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
         Requested logging verbosity for workflow modules. Default is ``"INFO"``.
-    fail_on_missing_metadata : bool, optional
-        If ``True``, treat missing optional metadata as a hard error rather than
-        tolerating partial metadata tables. Default is ``False``.
 
     Notes
     -----
@@ -180,14 +177,12 @@ class GlobalConfig:
     snp_identifier: SNPIdentifierMode = "chr_pos_allele_aware"
     genome_build: GenomeBuildInput | None = "auto"
     log_level: LogLevel = "INFO"
-    fail_on_missing_metadata: bool = False
 
     def __init__(
         self,
         snp_identifier: SNPIdentifierMode = "chr_pos_allele_aware",
         genome_build: GenomeBuildInput | None | object = _GENOME_BUILD_UNSET,
         log_level: LogLevel = "INFO",
-        fail_on_missing_metadata: bool = False,
     ) -> None:
         """Initialize global workflow assumptions with mode-aware defaults."""
         try:
@@ -203,7 +198,6 @@ class GlobalConfig:
         object.__setattr__(self, "snp_identifier", snp_identifier)
         object.__setattr__(self, "genome_build", genome_build)
         object.__setattr__(self, "log_level", log_level)
-        object.__setattr__(self, "fail_on_missing_metadata", fail_on_missing_metadata)
         self.__post_init__()
 
     def __post_init__(self) -> None:

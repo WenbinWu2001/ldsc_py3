@@ -820,7 +820,6 @@ class RefPanelLoader:
             snp_identifier=mode,
             genome_build=resolved_build,
             log_level=self.global_config.log_level,
-            fail_on_missing_metadata=self.global_config.fail_on_missing_metadata,
         )
 
 

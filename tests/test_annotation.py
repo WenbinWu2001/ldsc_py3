@@ -76,7 +76,7 @@ class AnnotationBuilderTest(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(LDSCInputError, "globally unique.*shared"):
-            bundle.validate("rsid")
+            bundle.validate()
 
     def test_annotate_output_round_trips_through_ldscore_parser(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -303,8 +303,8 @@ partitioned-h2/
 ```
 
 The `diagnostics/query_annotations/` tree is present for every query-annotation
-run and absent for baseline-only runs. `--output-dir` is required; the deprecated
-`--write-per-query-results` flag is an accepted no-op.
+run and absent for baseline-only runs. `--output-dir` is required; the retired
+`--write-per-query-results` flag is rejected.
 
 Root and per-query `diagnostics/metadata.json` files are provenance only. The
 root file is self-describing about the analysis: `analysis_type`

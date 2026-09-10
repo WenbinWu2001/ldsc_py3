@@ -1321,6 +1321,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
             query_gene_list_sources=tuple(gene_lists),
             control_gene_list_file=getattr(args, "control_gene_list_file", None),
             gene_list_resolution_policy=getattr(args, "gene_list_resolution_policy", "strict"),
+            query_batch_size=getattr(args, "query_batch_size", 1000),
             output_dir=args.output_dir,
             overwrite=bool(getattr(args, "overwrite", False)),
         )

@@ -13,11 +13,12 @@ complete reload-validated transaction is published as an index.
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import fcntl
+import gzip
 import hashlib
 import json
 import logging
@@ -67,16 +68,17 @@ from ._logging import (
     set_workflow_log_path,
     workflow_logging,
 )
-from .annotation_builder import AnnotationBuilder
+from ._annotation_storage import AnnotationWorkspace, FrameSpool
+from ._annotation_sources import prepare_annotation_sources
+from ._annotation_preflight import resolve_annotation_inputs
 from .chromosome_inference import normalize_chromosome, normalize_chromosome_series
 from ._coordinates import positive_int_position_series
-from .config import AnnotationBuildConfig, GeneLDScoreIndexBuildConfig, GlobalConfig
+from .config import GeneLDScoreIndexBuildConfig, GlobalConfig
 from .errors import LDSCInputError, LDSCInternalError
 from .gene_list_resolver import (
     GeneCatalog,
     GeneCatalogValidationError,
     GeneSourceSelection,
-    resolve_gene_lists,
     select_index_eligible_gene_indices,
 )
 from .hm3 import packaged_hm3_curated_map_path
@@ -479,7 +481,6 @@ def _run_gene_ldscore_index_build(
         if config.snp_identifier == "rsid"
         else GlobalConfig(snp_identifier="chr_pos", genome_build=config.genome_build)
     )
-    annotation_spec = AnnotationBuildConfig(baseline_annot_sources=config.baseline_annot_sources)
     regression_path = Path(config.regr_snps_file or packaged_hm3_curated_map_path())
     regression_keys = read_snp_restriction_keys(
         regression_path,
@@ -494,182 +495,194 @@ def _run_gene_ldscore_index_build(
     )
     genetic_map = _load_builder_genetic_map(args)
 
-    def build_one(chrom: str) -> StagedIndexChromosome:
-        chrom_started = time.perf_counter()
-        LOGGER.info(f"Starting chromosome {chrom}.")
-        phase = "baseline annotation resolution"
-        try:
-            annotation_builder = AnnotationBuilder(global_config)
-            public_bundle = annotation_builder.run(annotation_spec, chrom=chrom)
-            baseline_builder_drops = coerce_identity_drop_frame(
-                getattr(annotation_builder, "_identity_drop_frame", None)
-            )
-            if not baseline_builder_drops.empty:
-                baseline_builder_drops = baseline_builder_drops.assign(
-                    stage="gene_index_baseline_identity_cleanup"
-                )
-            chrom_mask = public_bundle.metadata["CHR"].astype(str) == chrom
-            metadata = public_bundle.metadata.loc[chrom_mask].reset_index(drop=True)
-            baseline = public_bundle.baseline_annotations.loc[chrom_mask].reset_index(drop=True)
-            if metadata.empty:
-                raise LDSCInputError(f"No baseline annotation rows were found for chromosome {chrom}.")
-            kernel_args = argparse.Namespace(
-                bfile=config.plink_prefix,
-                keep=config.keep_indivs_file,
-                maf_min=config.maf_min,
-                maf=None,
-                snp_identifier=config.snp_identifier,
-                genome_build=config.genome_build,
-                ld_wind_snps=None,
-                ld_wind_kb=None,
-                ld_wind_cm=config.ld_wind_cm,
-                yes_really=False,
-                snp_batch_size=config.snp_batch_size,
-                common_maf_min=config.common_maf_min,
-                genetic_map=genetic_map,
-            )
-            prefix = kernel_ldscore.resolve_bfile_prefix(kernel_args, chrom=chrom)
-            if prefix is None:
-                raise LDSCInputError(f"Could not resolve PLINK prefix for chromosome {chrom}.")
-            bim_rows = _read_bim_identity(prefix)
-            phase = "baseline/PLINK identifier intersection"
-            intersection = intersect_baseline_plink_by_identifier(
-                metadata,
-                baseline,
-                bim_rows,
-                snp_identifier=config.snp_identifier,
-                chrom=chrom,
-            )
-            if not baseline_builder_drops.empty:
-                intersection.diagnostics["baseline_duplicate_rows_dropped"] += int(
-                    (baseline_builder_drops["reason"] == "duplicate_identity").sum()
-                )
-            all_identity_drops = coerce_identity_drop_frame(
-                pd.concat(
-                    [baseline_builder_drops, intersection.dropped_rows],
-                    ignore_index=True,
-                )
-            )
-            kernel_bundle = kernel_ldscore.AnnotationBundle(
-                metadata=intersection.metadata,
-                annotations=intersection.annotations,
-                baseline_columns=list(public_bundle.baseline_columns),
-                query_columns=[],
-            )
-            chrom_catalog = embedded_catalog.loc[embedded_catalog["chrom"].astype(str) == chrom].sort_values(
-                "chromosome_gene_row", kind="mergesort"
-            )
-            intervals = np.column_stack(
-                [
-                    chrom_catalog["start"].to_numpy(dtype=np.int64) - 1,
-                    chrom_catalog["end"].to_numpy(dtype=np.int64),
-                ]
-            )
-            included = chrom_catalog["included"].to_numpy(dtype=bool)
-            phase = "genotype QC and atomic LD-score construction"
-            record = build_plink_index_chromosome(
-                chrom,
-                kernel_bundle,
-                kernel_args,
-                regression_keys=regression_keys,
-                regression_regions=regression_regions,
-                gene_intervals=intervals,
-                included=included,
-                padding_bp=config.padding_bp,
-                atom_batch_size=config.atom_batch_size,
-            )
-        except Exception as exc:
-            LOGGER.error(
-                f"Chromosome {chrom} failed during {phase}: {type(exc).__name__}: {exc}"
-            )
-            raise
-        catalog_genes = int(included.sum())
-        genes_with_atoms = int(np.count_nonzero(np.diff(record.atom_model.gene_to_atom.indptr)))
-        rows_before_genotype_qc = int(record.reference_rows_before_genotype_qc or record.total_reference_snps_all)
-        genotype_qc_removed = int(record.genotype_qc_removed)
-        maf_removed = int(record.maf_removed)
-        evidence = {
-            "pre_qc_rows": int(len(bim_rows)),
-            **intersection.diagnostics,
-            "baseline_content_sha256": _retained_baseline_content_sha256(
-                intersection.metadata,
-                intersection.annotations,
-                config.snp_identifier,
-            ),
-            "reference_rows_before_genotype_qc": rows_before_genotype_qc,
-            "annotation_intersection_removed": int(len(bim_rows) - rows_before_genotype_qc),
-            "retained_reference_rows": int(record.total_reference_snps_all),
-            "retained_common_reference_rows": int(record.total_reference_snps_common),
-            "genotype_qc_removed": genotype_qc_removed,
-            "maf_removed": maf_removed,
-            "genotype_qc_or_maf_removed": genotype_qc_removed + maf_removed,
-            "regression_rows": int(len(record.baseline_rows)),
-            "baseline_plink_identity": f"inner_join_by_{config.snp_identifier}",
-            "catalog_genes": catalog_genes,
-            "genes_with_padded_atoms": genes_with_atoms,
-            "atom_count": int(record.atom_model.n_atoms),
-            "operator_nnz": int(record.operator.nnz),
-            "nnz_Y": int(record.operator.nnz),
-            "snp_batch_size": int(config.snp_batch_size),
-            "atom_batch_size": int(config.atom_batch_size),
-            "maf_filter_policy": "disabled" if config.maf_min is None else f">={config.maf_min}",
-            "cm_source": record.cm_source,
-        }
-        try:
-            component_metadata = _index_chromosome_metadata(
-                chrom,
-                record,
-                snp_identifier=config.snp_identifier,
-                genome_build=config.genome_build,
-            )
-            _stage_index_chromosome(staged_index, chrom, record)
-            dropped_path = (
-                staged_index / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
-            )
-            dropped_path.parent.mkdir(parents=True, exist_ok=True)
-            all_identity_drops.to_csv(
-                dropped_path, sep="\t", index=False, compression="gzip", na_rep=""
-            )
-        except Exception as exc:
-            LOGGER.error(
-                f"Chromosome {chrom} failed during durable shard staging: "
-                f"{type(exc).__name__}: {exc}"
-            )
-            raise
-        evidence["elapsed_seconds"] = time.perf_counter() - chrom_started
-        LOGGER.info(
-            f"Finished chromosome {chrom}: catalog genes={catalog_genes}, "
-            f"retained-reference={evidence['retained_reference_rows']}, "
-            f"regression-rows={evidence['regression_rows']}, atoms={evidence['atom_count']}, "
-            f"nnz(Y)={evidence['nnz_Y']}, elapsed={evidence['elapsed_seconds']:.3f}s."
+    with AnnotationWorkspace(stage_parent) as workspace:
+        paths, declared, issues = resolve_annotation_inputs(config.baseline_annot_sources)
+        sources = prepare_annotation_sources(
+            workspace, paths, [], mode=global_config.snp_identifier,
+            declared_chromosomes=declared, input_issues=issues,
         )
-        if not len(record.baseline_rows):
-            LOGGER.warning(
-                f"Chromosome {chrom} has zero persisted regression SNP rows after restriction and region exclusion."
-            )
-        return StagedIndexChromosome(
-            chromosome=chrom,
-            evidence=evidence,
-            component_metadata=component_metadata,
-        )
+        missing = set(chromosomes).difference(sources.shards)
+        if missing:
+            raise LDSCInputError(f"No baseline annotation rows were found for chromosomes {sorted(missing)}.")
+        baseline_drops = {chrom: FrameSpool(workspace.path / 'baseline-drops' / chrom) for chrom in chromosomes}
+        for frame in sources.drops.frames():
+            for chrom, records in frame.groupby(frame.CHR.astype(str), sort=False):
+                if chrom in baseline_drops:
+                    baseline_drops[chrom].append(records.assign(stage="gene_index_baseline_identity_cleanup"))
 
-    if config.threads == 1 or len(chromosomes) == 1:
-        completed = {chrom: build_one(chrom) for chrom in chromosomes}
-    else:
-        max_workers = os.cpu_count() if config.threads == -1 else config.threads
-        if max_workers is None or max_workers < 1:
-            max_workers = max(1, (os.cpu_count() or 1) + 1 + config.threads)
-        with ThreadPoolExecutor(max_workers=min(max_workers, len(chromosomes))) as pool:
-            futures = {pool.submit(build_one, chrom): chrom for chrom in chromosomes}
-            completed = {}
+        def build_one(chrom: str) -> StagedIndexChromosome:
+            chrom_started = time.perf_counter()
+            LOGGER.info(f"Starting chromosome {chrom}.")
+            phase = "baseline annotation resolution"
             try:
-                for future in as_completed(futures):
-                    result = future.result()
-                    completed[result.chromosome] = result
-            except Exception:
-                for future in futures:
-                    future.cancel()
+                shard = sources.shards[chrom]
+                metadata = shard.metadata()
+                baseline = pd.DataFrame(shard.read(columns=sources.baseline_columns), columns=sources.baseline_columns)
+                if metadata.empty:
+                    raise LDSCInputError(f"No baseline annotation rows were found for chromosome {chrom}.")
+                kernel_args = argparse.Namespace(
+                    bfile=config.plink_prefix,
+                    keep=config.keep_indivs_file,
+                    maf_min=config.maf_min,
+                    maf=None,
+                    snp_identifier=config.snp_identifier,
+                    genome_build=config.genome_build,
+                    ld_wind_snps=None,
+                    ld_wind_kb=None,
+                    ld_wind_cm=config.ld_wind_cm,
+                    yes_really=False,
+                    snp_batch_size=config.snp_batch_size,
+                    common_maf_min=config.common_maf_min,
+                    genetic_map=genetic_map,
+                )
+                prefix = kernel_ldscore.resolve_bfile_prefix(kernel_args, chrom=chrom)
+                if prefix is None:
+                    raise LDSCInputError(f"Could not resolve PLINK prefix for chromosome {chrom}.")
+                bim_rows = _read_bim_identity(prefix)
+                phase = "baseline/PLINK identifier intersection"
+                intersection = intersect_baseline_plink_by_identifier(
+                    metadata,
+                    baseline,
+                    bim_rows,
+                    snp_identifier=config.snp_identifier,
+                    chrom=chrom,
+                )
+                intersection.diagnostics["baseline_duplicate_rows_dropped"] += sum(
+                    int(frame.reason.eq("duplicate_identity").sum()) for frame in baseline_drops[chrom].frames()
+                )
+                kernel_bundle = kernel_ldscore.AnnotationBundle(
+                    metadata=intersection.metadata,
+                    annotations=intersection.annotations,
+                    baseline_columns=list(sources.baseline_columns),
+                    query_columns=[],
+                )
+                chrom_catalog = embedded_catalog.loc[embedded_catalog["chrom"].astype(str) == chrom].sort_values(
+                    "chromosome_gene_row", kind="mergesort"
+                )
+                intervals = np.column_stack(
+                    [
+                        chrom_catalog["start"].to_numpy(dtype=np.int64) - 1,
+                        chrom_catalog["end"].to_numpy(dtype=np.int64),
+                    ]
+                )
+                included = chrom_catalog["included"].to_numpy(dtype=bool)
+                phase = "genotype QC and atomic LD-score construction"
+                record = build_plink_index_chromosome(
+                    chrom,
+                    kernel_bundle,
+                    kernel_args,
+                    regression_keys=regression_keys,
+                    regression_regions=regression_regions,
+                    gene_intervals=intervals,
+                    included=included,
+                    padding_bp=config.padding_bp,
+                    atom_batch_size=config.atom_batch_size,
+                )
+            except Exception as exc:
+                LOGGER.error(
+                    f"Chromosome {chrom} failed during {phase}: {type(exc).__name__}: {exc}"
+                )
                 raise
+            catalog_genes = int(included.sum())
+            genes_with_atoms = int(np.count_nonzero(np.diff(record.atom_model.gene_to_atom.indptr)))
+            rows_before_genotype_qc = int(record.reference_rows_before_genotype_qc or record.total_reference_snps_all)
+            genotype_qc_removed = int(record.genotype_qc_removed)
+            maf_removed = int(record.maf_removed)
+            evidence = {
+                "pre_qc_rows": int(len(bim_rows)),
+                **intersection.diagnostics,
+                "baseline_content_sha256": _retained_baseline_content_sha256(
+                    intersection.metadata,
+                    intersection.annotations,
+                    config.snp_identifier,
+                ),
+                "reference_rows_before_genotype_qc": rows_before_genotype_qc,
+                "annotation_intersection_removed": int(len(bim_rows) - rows_before_genotype_qc),
+                "retained_reference_rows": int(record.total_reference_snps_all),
+                "retained_common_reference_rows": int(record.total_reference_snps_common),
+                "genotype_qc_removed": genotype_qc_removed,
+                "maf_removed": maf_removed,
+                "genotype_qc_or_maf_removed": genotype_qc_removed + maf_removed,
+                "regression_rows": int(len(record.baseline_rows)),
+                "baseline_plink_identity": f"inner_join_by_{config.snp_identifier}",
+                "catalog_genes": catalog_genes,
+                "genes_with_padded_atoms": genes_with_atoms,
+                "atom_count": int(record.atom_model.n_atoms),
+                "operator_nnz": int(record.operator.nnz),
+                "nnz_Y": int(record.operator.nnz),
+                "snp_batch_size": int(config.snp_batch_size),
+                "atom_batch_size": int(config.atom_batch_size),
+                "maf_filter_policy": "disabled" if config.maf_min is None else f">={config.maf_min}",
+                "cm_source": record.cm_source,
+            }
+            try:
+                component_metadata = _index_chromosome_metadata(
+                    chrom,
+                    record,
+                    snp_identifier=config.snp_identifier,
+                    genome_build=config.genome_build,
+                )
+                _stage_index_chromosome(staged_index, chrom, record)
+                dropped_path = (
+                    staged_index / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
+                )
+                dropped_path.parent.mkdir(parents=True, exist_ok=True)
+                with gzip.open(dropped_path, "wt") as stream:
+                    header = True
+                    for frame in baseline_drops[chrom].frames():
+                        frame.to_csv(stream, sep="\t", index=False, header=header, na_rep="")
+                        header = False
+                    intersection.dropped_rows.to_csv(stream, sep="\t", index=False, header=header, na_rep="")
+            except Exception as exc:
+                LOGGER.error(
+                    f"Chromosome {chrom} failed during durable shard staging: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                raise
+            evidence["elapsed_seconds"] = time.perf_counter() - chrom_started
+            LOGGER.info(
+                f"Finished chromosome {chrom}: catalog genes={catalog_genes}, "
+                f"retained-reference={evidence['retained_reference_rows']}, "
+                f"regression-rows={evidence['regression_rows']}, atoms={evidence['atom_count']}, "
+                f"nnz(Y)={evidence['nnz_Y']}, elapsed={evidence['elapsed_seconds']:.3f}s."
+            )
+            if not len(record.baseline_rows):
+                LOGGER.warning(
+                    f"Chromosome {chrom} has zero persisted regression SNP rows after restriction and region exclusion."
+                )
+            return StagedIndexChromosome(
+                chromosome=chrom,
+                evidence=evidence,
+                component_metadata=component_metadata,
+            )
+
+        if config.threads == 1 or len(chromosomes) == 1:
+            completed = {chrom: build_one(chrom) for chrom in chromosomes}
+        else:
+            max_workers = os.cpu_count() if config.threads == -1 else config.threads
+            if max_workers is None or max_workers < 1:
+                max_workers = max(1, (os.cpu_count() or 1) + 1 + config.threads)
+            with ThreadPoolExecutor(max_workers=min(max_workers, len(chromosomes))) as pool:
+                remaining = iter(chromosomes)
+                futures = {pool.submit(build_one, chrom) for chrom in
+                           [next(remaining) for _ in range(min(max_workers, len(chromosomes)))]}
+                completed = {}
+                try:
+                    while futures:
+                        done, futures = wait(futures, return_when=FIRST_COMPLETED)
+                        while done:
+                            future = done.pop()
+                            result = future.result()
+                            completed[result.chromosome] = result
+                            del future
+                            chrom = next(remaining, None)
+                            if chrom is not None:
+                                futures.add(pool.submit(build_one, chrom))
+                except Exception:
+                    for future in futures:
+                        future.cancel()
+                    raise
+
     staged_chromosomes = {chrom: completed[chrom] for chrom in chromosomes}
     evidence_by_chrom = {
         chrom: staged_chromosomes[chrom].evidence for chrom in chromosomes
@@ -1445,9 +1458,10 @@ class LoadedGeneLDScoreIndex:
     gene_catalog : pandas.DataFrame
         Embedded catalog with unpadded 0-based half-open gene coordinates,
         inclusion flags, and chromosome-local row ordering.
-    index_chromosomes : dict of str to IndexChromosomeData
-        Validated chromosome-local baseline rows, sparse operators, atom
-        geometry, and sufficient statistics.
+    chromosome_paths : dict of str to pathlib.Path
+        Validated component locations. No chromosome payload is cached.
+    gene_support : pandas.Series
+        Compact retained-reference support counts collected during validation.
     """
 
     index_id: str
@@ -1456,7 +1470,22 @@ class LoadedGeneLDScoreIndex:
     genome_build: str
     index_identity: dict
     gene_catalog: pd.DataFrame
-    index_chromosomes: dict[str, IndexChromosomeData]
+    chromosome_paths: dict[str, Path]
+    baseline_columns: tuple[str, ...]
+    gene_support: pd.Series
+
+    def load_chromosome(self, chrom: str) -> IndexChromosomeData:
+        """Load one owned chromosome payload; callers release it after use.
+
+        The immutable component is checked again when opened. Keep its operator
+        through every query batch on this chromosome, then discard the record.
+        """
+        path = self.chromosome_paths[str(chrom)]
+        return _load_index_chromosome(
+            path.parent.parent, str(chrom), index_id=self.index_id,
+            snp_identifier=self.snp_identifier, genome_build=self.genome_build,
+            expected_gene_rows=int(self.gene_catalog.chrom.astype(str).eq(str(chrom)).sum()),
+        )
 
 
 def publish_gene_ldscore_index(
@@ -1752,7 +1781,9 @@ def _load_gene_ldscore_index(
         raise LDSCInputError(
             "Gene LD-score index catalog exclusion reasons disagree with its inclusion policy."
         )
-    loaded: dict[str, IndexChromosomeData] = {}
+    chromosome_paths = {}
+    baseline_columns = None
+    support = pd.Series(pd.NA, index=catalog["gene_index"].astype(int), dtype="Int64")
     issues = []
     required_files = ("metadata.json", "baseline_rows.parquet", "baseline_statistics.npz",
                       "atoms.parquet", "gene_to_atom.npz", "ldscore_operator.npz", "atom_statistics.npz")
@@ -1763,6 +1794,7 @@ def _load_gene_ldscore_index(
                            "chrom": chrom, "reason": "missing_required_input", "details": "Required index component is missing.",
                            "repair": "Restore or rebuild the complete immutable index."} for name in missing)
             continue
+        record = None
         try:
             chromosome_catalog = catalog.loc[catalog["chrom"].astype(str) == str(chrom)]
             expected_chromosome_rows = np.arange(len(chromosome_catalog), dtype=np.int64)
@@ -1772,7 +1804,7 @@ def _load_gene_ldscore_index(
                 raise LDSCInputError(
                     f"Gene LD-score index catalog chromosome_gene_row ordering is invalid for chromosome {chrom}."
                 )
-            loaded[chrom] = _load_index_chromosome(
+            record = _load_index_chromosome(
                 index_path,
                 chrom,
                 index_id=index_id,
@@ -1780,10 +1812,19 @@ def _load_gene_ldscore_index(
                 genome_build=genome_build,
                 expected_gene_rows=len(chromosome_catalog),
             )
+            columns = tuple(_baseline_columns_from_rows(record.baseline_rows))
+            if baseline_columns is not None and columns != baseline_columns:
+                raise LDSCInputError("Gene LD-score index baseline columns disagree across chromosomes.")
+            baseline_columns = columns
+            counts = record.atom_model.gene_to_atom.astype(np.int64) @ record.atom_statistics.atom_count_all
+            support.loc[chromosome_catalog["gene_index"].astype(int)] = np.asarray(counts).reshape(-1)
+            chromosome_paths[chrom] = index_path / "chromosomes" / f"chr{chrom}"
         except (OSError, ValueError, EOFError, LDSCInputError) as exc:
             issues.append({"input_role": "index", "source": str(index_path / "chromosomes" / f"chr{chrom}"),
                            "chrom": chrom, "reason": "invalid_required_input", "details": str(exc),
                            "repair": "Restore or rebuild the complete immutable index."})
+        finally:
+            record = None
     if issues:
         error = LDSCInputError("Gene LD-score index chromosome preflight failed: " + "; ".join(
             f"chromosome {row['chrom']} {row['source']}: {row['details']}" for row in issues
@@ -1797,7 +1838,9 @@ def _load_gene_ldscore_index(
         genome_build=genome_build,
         index_identity=index_identity,
         gene_catalog=catalog,
-        index_chromosomes=loaded,
+        chromosome_paths=chromosome_paths,
+        baseline_columns=baseline_columns,
+        gene_support=support,
     )
 
 
@@ -1807,6 +1850,7 @@ def run_indexed_ldscore(
     query_gene_list_sources: Sequence[str | Path],
     control_gene_list_file: str | Path | None = None,
     gene_list_resolution_policy: str = "strict",
+    query_batch_size: int = 1000,
     output_dir: str | Path,
     overwrite: bool = False,
     _allow_partial_for_tests: bool = False,
@@ -1824,6 +1868,11 @@ def run_indexed_ldscore(
     control_gene_list_file : path-like or None, optional
         Optional fixed-control gene-list file. When omitted, no
         ``gene_control`` annotation is added.
+    gene_list_resolution_policy : {"strict", "resolved-only"}, optional
+        Apply the usual identifier-resolution gate; default is strict.
+    query_batch_size : int, optional
+        Positive maximum focal columns per operator multiplication, default 1000.
+        Each pathway remains a separate annotation and regression model.
     output_dir : path-like
         Destination for the canonical self-contained LD-score directory.
     overwrite : bool, optional
@@ -1845,9 +1894,30 @@ def run_indexed_ldscore(
     Notes
     -----
     Overlapping, nested, duplicated, and alias-selected genes are combined by
-    Boolean union. All requested focal columns are assembled together in
-    float64 and are narrowed only by the canonical Parquet writer.
+    Boolean union. Each chromosome operator serves all focal query batches
+    before release. The aggregate output-row accumulator remains float64 and
+    is narrowed only by the canonical Parquet writer.
     """
+    if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
+        raise ValueError("query_batch_size must be a positive integer.")
+    with AnnotationWorkspace(output_dir) as workspace:
+        return _run_indexed_ldscore_in_workspace(
+            index_dir, query_gene_list_sources=query_gene_list_sources,
+            control_gene_list_file=control_gene_list_file,
+            gene_list_resolution_policy=gene_list_resolution_policy,
+            query_batch_size=query_batch_size, output_dir=output_dir,
+            overwrite=overwrite, workspace=workspace,
+            _allow_partial_for_tests=_allow_partial_for_tests,
+        )
+
+
+def _run_indexed_ldscore_in_workspace(
+    index_dir, *, query_gene_list_sources, control_gene_list_file,
+    gene_list_resolution_policy, query_batch_size, output_dir, overwrite,
+    workspace, _allow_partial_for_tests,
+):
+    """Own staged gene selections until the canonical result has been written."""
+    from ._gene_query_storage import resolve_gene_lists_staged, persistent_gene_diagnostics
     from .config import GlobalConfig
     from .ldscore_calculator import LDScoreResult
     from .query_annotations import assess_gene_coverage, gene_query_statuses, gene_control_errors, gene_viability_errors, finalize_query_statuses
@@ -1874,9 +1944,10 @@ def run_indexed_ldscore(
     catalog = GeneCatalog.from_embedded_frame(index.gene_catalog)
     if catalog.genome_build != projection_build:
         raise LDSCInputError("Embedded gene catalog build disagrees with the index projection build.")
-    batch = resolve_gene_lists(
+    batch = resolve_gene_lists_staged(
         query_gene_list_sources,
         catalog,
+        workspace,
         control_path=control_gene_list_file,
         resolution_policy=gene_list_resolution_policy,
         gene_exclude_regions=gene_policy,
@@ -1905,14 +1976,13 @@ def run_indexed_ldscore(
                                      chromosome_scope={**scope, "validation_status": "failed", "analysis_chromosomes": []})
         LDScoreDirectoryWriter().write_query_diagnostics(diagnostic, LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite))
         raise LDSCInputError("; ".join(coverage_errors))
-    support = _indexed_gene_support(index)
-    batch = batch.with_snp_support(support)
+    batch = batch.with_snp_support(index.gene_support)
     _log_gene_list_snp_support(batch)
     statuses = gene_query_statuses(batch)
     usable = [
-        selection
-        for selection, status in zip(
-            (item for item in batch.selections if item.input_role == "focal"),
+        declaration
+        for declaration, status in zip(
+            (item for item in batch.declarations if item['input_role'] == "focal"),
             statuses,
             strict=True,
         )
@@ -1927,14 +1997,14 @@ def run_indexed_ldscore(
             LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
         )
         raise LDSCInputError("; ".join(control_errors))
-    if any(resolution.query == "gene_control" for resolution in usable):
+    if any(item["query"] == "gene_control" for item in usable):
         raise LDSCInputError("Focal query name 'gene_control' collides with the reserved fixed control column.")
 
-    supplied_baseline = _baseline_columns_from_rows(next(iter(index.index_chromosomes.values())).baseline_rows)
+    supplied_baseline = list(index.baseline_columns)
     if "gene_control" in supplied_baseline:
         raise LDSCInputError("Index supplied baseline columns contain reserved name 'gene_control'.")
     baseline_columns = [*supplied_baseline, *(("gene_control",) if control_resolution is not None else ())]
-    query_columns = [resolution.query for resolution in usable]
+    query_columns = [item["query"] for item in usable]
     baseline_tables: list[pd.DataFrame] = []
     query_tables: list[pd.DataFrame] = []
     baseline_count_all = np.zeros(len(baseline_columns), dtype=np.float64)
@@ -1948,8 +2018,7 @@ def run_indexed_ldscore(
     total_all = total_common = 0
 
     for chrom in index.chromosomes:
-        record = index.index_chromosomes[chrom]
-        selectors = [_selector_for_resolution(index.gene_catalog, record.atom_model, chrom, resolution) for resolution in usable]
+        record = index.load_chromosome(chrom)
         control_selector = (
             None
             if control_resolution is None
@@ -1960,13 +2029,7 @@ def run_indexed_ldscore(
             baseline_table["gene_control"] = assemble_indexed_ld_scores(record.operator, control_selector)
         identity_columns = [column for column in ("CHR", "SNP", "POS", "A1", "A2") if column in baseline_table.columns]
         query_table = baseline_table.loc[:, identity_columns].copy()
-        if selectors:
-            selector_matrix = np.column_stack(selectors)
-            scores = assemble_indexed_ld_scores(record.operator, selector_matrix)
-            for idx, column in enumerate(query_columns):
-                query_table[column] = scores[:, idx]
-        baseline_tables.append(baseline_table)
-        query_tables.append(query_table)
+        query_scores = np.empty((len(baseline_table), len(query_columns)), dtype=np.float64)
 
         b = len(supplied_baseline)
         baseline_count_all[:b] += record.baseline_count_all
@@ -1983,22 +2046,38 @@ def run_indexed_ldscore(
             block_common[b, :b] += control.baseline_overlap_common
             block_all[b, b] += control.count_all
             block_common[b, b] += control.count_common
-        for query_pos, selector in enumerate(selectors):
-            selected = assemble_selected_atom_statistics(
-                record.atom_statistics, selector, control_selector=control_selector,
+        for batch_start in range(0, len(usable), query_batch_size):
+            declarations = usable[batch_start:batch_start + query_batch_size]
+            selectors = [
+                _selector_for_resolution(index.gene_catalog, record.atom_model, chrom,
+                                         batch.selection(item['input_role'], item['source_ordinal']))
+                for item in declarations
+            ]
+            selector_matrix = np.column_stack(selectors)
+            query_scores[:, batch_start:batch_start + len(selectors)] = assemble_indexed_ld_scores(
+                record.operator, selector_matrix,
             )
-            column_pos = len(baseline_columns) + query_pos
-            query_count_all[query_pos] += selected.count_all
-            query_count_common[query_pos] += selected.count_common
-            query_diag_all[query_pos] += selected.count_all
-            query_diag_common[query_pos] += selected.count_common
-            block_all[:b, column_pos] += selected.baseline_overlap_all
-            block_common[:b, column_pos] += selected.baseline_overlap_common
-            if control_selector is not None:
-                block_all[b, column_pos] += selected.control_overlap_all
-                block_common[b, column_pos] += selected.control_overlap_common
+            for offset, selector in enumerate(selectors):
+                query_pos = batch_start + offset
+                selected = assemble_selected_atom_statistics(
+                    record.atom_statistics, selector, control_selector=control_selector,
+                )
+                column_pos = len(baseline_columns) + query_pos
+                query_count_all[query_pos] += selected.count_all
+                query_count_common[query_pos] += selected.count_common
+                query_diag_all[query_pos] += selected.count_all
+                query_diag_common[query_pos] += selected.count_common
+                block_all[:b, column_pos] += selected.baseline_overlap_all
+                block_common[:b, column_pos] += selected.baseline_overlap_common
+                if control_selector is not None:
+                    block_all[b, column_pos] += selected.control_overlap_all
+                    block_common[b, column_pos] += selected.control_overlap_common
+            del selector_matrix, selectors, selector
+        baseline_tables.append(baseline_table)
+        query_tables.append(pd.concat([query_table, pd.DataFrame(query_scores, columns=query_columns)], axis=1))
         total_all += record.total_reference_snps_all
         total_common += record.total_reference_snps_common
+        del record, query_scores, baseline_table, query_table, control_selector
 
     baseline_table = pd.concat(baseline_tables, ignore_index=True)
     query_table = pd.concat(query_tables, ignore_index=True)
@@ -2077,20 +2156,8 @@ def run_indexed_ldscore(
     )
     from dataclasses import replace
 
-    return replace(result, output_paths=output_paths)
-
-
-def _indexed_gene_support(index: LoadedGeneLDScoreIndex) -> pd.Series:
-    """Return retained reference-SNP support for every embedded catalog row."""
-    support = pd.Series(pd.NA, index=index.gene_catalog["gene_index"].astype(int), dtype="Int64")
-    for chrom in index.chromosomes:
-        record = index.index_chromosomes[chrom]
-        catalog_rows = index.gene_catalog.loc[
-            index.gene_catalog["chrom"].astype(str).eq(str(chrom))
-        ].sort_values("chromosome_gene_row", kind="stable")
-        counts = record.atom_model.gene_to_atom.astype(np.int64) @ record.atom_statistics.atom_count_all.astype(np.int64)
-        support.loc[catalog_rows["gene_index"].astype(int).to_numpy()] = np.asarray(counts).reshape(-1)
-    return support
+    return replace(result, output_paths=output_paths,
+                   gene_list_batch=persistent_gene_diagnostics(batch, output_paths))
 
 
 def _baseline_columns_from_rows(frame: pd.DataFrame) -> list[str]:
@@ -2158,13 +2225,16 @@ def build_plink_index_chromosome(
             region_intervals=regression_regions,
         ).astype(bool)
         n_baseline_columns = baseline.shape[1]
-        combined_annotation = np.column_stack([baseline, persisted])
+        output_rows = np.flatnonzero(persisted)
         geno._currentSNP = 0
         combined_scores = np.asarray(
             geno.ldScoreVarBlocks(
                 prepared.block_left,
                 args.snp_batch_size,
-                annot=combined_annotation,
+                annot=baseline,
+                output_rows=output_rows,
+                n_baseline=n_baseline_columns,
+                weight_mask=persisted,
             ),
             dtype=np.float64,
         )
@@ -2207,10 +2277,11 @@ def build_plink_index_chromosome(
                     prepared.block_left,
                     args.snp_batch_size,
                     annot=atom_block,
+                    output_rows=output_rows,
                 ),
                 dtype=np.float64,
             )
-            operator_blocks.append(sparse.csr_matrix(block_scores[persisted], dtype=np.float64))
+            operator_blocks.append(sparse.csr_matrix(block_scores, dtype=np.float64))
         operator = (
             sparse.hstack(operator_blocks, format="csr", dtype=np.float64)
             if operator_blocks
@@ -2221,9 +2292,9 @@ def build_plink_index_chromosome(
 
         identity_columns = ["CHR", "SNP", "POS", *[c for c in ("A1", "A2") if c in metadata.columns]]
         baseline_rows = metadata.loc[persisted, identity_columns].reset_index(drop=True)
-        baseline_rows["regression_ld_scores"] = regression_scores[persisted]
+        baseline_rows["regression_ld_scores"] = regression_scores
         for column_index, column in enumerate(baseline_bundle.baseline_columns):
-            baseline_rows[column] = baseline_scores[persisted, column_index]
+            baseline_rows[column] = baseline_scores[:, column_index]
         return IndexChromosomeData(
             baseline_rows=baseline_rows,
             baseline_count_all=np.asarray(baseline_count_all, dtype=np.float64),

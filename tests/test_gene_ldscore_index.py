@@ -221,18 +221,11 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
     )
     embedded_catalog["gene_index"] = np.arange(len(embedded_catalog))
 
-    class FakeAnnotationBuilder:
-        def __init__(self, _global_config):
-            pass
-
-        def run(self, _annotation_spec, *, chrom):
-            return SimpleNamespace(
-                metadata=identity_rows.assign(CHR=chrom, CM=[0.1, 0.2]),
-                baseline_annotations=pd.DataFrame({"base": [1.0, 1.0]}),
-                baseline_columns=["base"],
-            )
-
-    monkeypatch.setattr(gene_ldscore_index, "AnnotationBuilder", FakeAnnotationBuilder)
+    baseline_path = tmp_path / "baseline.annot.gz"
+    pd.concat([
+        identity_rows.assign(CHR=chrom, SNP=[f"rs{chrom}1", f"rs{chrom}2"], base=1.0)
+        for chrom in ("1", "2")
+    ], ignore_index=True).to_csv(baseline_path, sep="\t", index=False)
     monkeypatch.setattr(
         gene_ldscore_index.GeneCatalog,
         "load",
@@ -256,7 +249,7 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
     monkeypatch.setattr(
         gene_ldscore_index,
         "_read_bim_identity",
-        lambda prefix: identity_rows.assign(CHR=str(prefix)),
+        lambda prefix: identity_rows.assign(CHR=str(prefix), SNP=[f"rs{prefix}1", f"rs{prefix}2"]),
     )
     monkeypatch.setattr(
         gene_ldscore_index,
@@ -274,7 +267,7 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
     )
     output = tmp_path / "index"
     args = Namespace(
-        baseline_annot_sources="baseline.@.annot.gz",
+        baseline_annot_sources=str(baseline_path),
         plink_prefix="reference.@",
         output_dir=str(output),
         genome_build="hg19",
@@ -817,12 +810,15 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
     ).reshape(-1)
 
     calls = []
+    options = []
     geno_type = type(prepared.reader)
     original = geno_type.ldScoreVarBlocks
 
-    def traced_ldscore(self, block_left, batch_size, annot=None):
+    def traced_ldscore(self, block_left, batch_size, annot=None, **kwargs):
         start_cursor = self._currentSNP
-        scores = original(self, block_left, batch_size, annot=annot)
+        scores = original(self, block_left, batch_size, annot=annot, **kwargs)
+        options.append(kwargs)
+        assert len(scores) == int(persisted.sum())
         calls.append((start_cursor, self._currentSNP, np.asarray(annot).copy()))
         return scores
 
@@ -839,13 +835,16 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
         atom_batch_size=1,
     )
 
-    # One common pass contains baseline columns followed by the regression mask;
+    # One common pass projects baseline and the separate regression mask;
     # each remaining call is the intentional one-column gene-atom operator batch.
     assert len(calls) == 1 + result.atom_model.n_atoms
     assert all((start, end) == (0, len(result.reference_metadata)) for start, end, _ in calls)
     np.testing.assert_array_equal(
-        calls[0][2], np.column_stack([baseline64, persisted])
+        calls[0][2], baseline64
     )
+    np.testing.assert_array_equal(options[0]["weight_mask"], persisted)
+    for kwargs in options:
+        np.testing.assert_array_equal(kwargs["output_rows"], np.flatnonzero(persisted))
     assert calls[0][2].dtype == np.float64
     assert all(projected.shape == (len(result.reference_metadata), 1) for _, _, projected in calls[1:])
     assert all(projected.dtype == np.bool_ for _, _, projected in calls[1:])
@@ -984,11 +983,8 @@ def test_build_index_python_config_requires_identity_and_build():
 def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_path, monkeypatch):
     chromosome, catalog, index_identity = _artifact_payload()
     identity_rows = chromosome.baseline_rows[["CHR", "POS", "SNP"]].copy()
-    public_bundle = SimpleNamespace(
-        metadata=identity_rows.assign(CM=[0.1, 0.2]),
-        baseline_annotations=pd.DataFrame({"base": [1.0, 1.0]}),
-        baseline_columns=["base"],
-    )
+    baseline_path = tmp_path / "baseline.22.annot.gz"
+    identity_rows.assign(base=1.0).to_csv(baseline_path, sep="\t", index=False)
     fake_catalog = SimpleNamespace(source="catalog.tsv.gz", genome_build="hg19")
     embedded_catalog = catalog.copy()
     index_identity = {
@@ -1009,15 +1005,6 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
         "regr_snps_exclude_regions": "mhc-and-centromeres",
     }
 
-    class FakeAnnotationBuilder:
-        def __init__(self, _global_config):
-            pass
-
-        def run(self, _annotation_spec, *, chrom):
-            assert chrom == "22"
-            return public_bundle
-
-    monkeypatch.setattr(gene_ldscore_index, "AnnotationBuilder", FakeAnnotationBuilder)
     monkeypatch.setattr(
         gene_ldscore_index.GeneCatalog,
         "load",
@@ -1039,7 +1026,7 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     monkeypatch.setattr(gene_ldscore_index.kernel_ldscore, "resolve_bfile_prefix", lambda *args, **kwargs: "fixture")
 
     args = Namespace(
-        baseline_annot_sources="baseline.22.annot.gz",
+        baseline_annot_sources=str(baseline_path),
         plink_prefix="reference/1000G.EUR.QC.22",
         output_dir=str(tmp_path / "suite"),
         genome_build="hg19",
@@ -1183,22 +1170,11 @@ def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
 def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path, monkeypatch):
     chromosome, catalog, index_identity = _artifact_payload()
     identity_rows = chromosome.baseline_rows[["CHR", "POS", "SNP"]].copy()
-    public_bundle = SimpleNamespace(
-        metadata=identity_rows.assign(CM=[0.1, 0.2]),
-        baseline_annotations=pd.DataFrame({"base": [1.0, 1.0]}),
-        baseline_columns=["base"],
-    )
+    baseline_path = tmp_path / "baseline.22.annot.gz"
+    identity_rows.assign(base=1.0).to_csv(baseline_path, sep="\t", index=False)
     fake_catalog = SimpleNamespace(source="catalog.tsv.gz", genome_build="hg19")
     embedded_catalog = catalog.copy()
 
-    class FakeAnnotationBuilder:
-        def __init__(self, _global_config):
-            pass
-
-        def run(self, _annotation_spec, *, chrom):
-            return public_bundle
-
-    monkeypatch.setattr(gene_ldscore_index, "AnnotationBuilder", FakeAnnotationBuilder)
     monkeypatch.setattr(
         gene_ldscore_index.GeneCatalog,
         "load",
@@ -1219,7 +1195,7 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
 
     monkeypatch.setattr(gene_ldscore_index, "intersect_baseline_plink_by_identifier", fail_intersection)
     args = Namespace(
-        baseline_annot_sources="baseline.22.annot.gz",
+        baseline_annot_sources=str(baseline_path),
         plink_prefix="reference/1000G.EUR.QC.22",
         output_dir=str(tmp_path / "suite"),
         genome_build="hg19",
@@ -1430,7 +1406,7 @@ def test_index_artifact_round_trip_uses_approved_tree_and_payloads(tmp_path):
     assert loaded.snp_identifier == "rsid"
     assert loaded.genome_build == "hg19"
     assert loaded.chromosomes == ("22",)
-    np.testing.assert_array_equal(loaded.index_chromosomes["22"].operator.toarray(), chromosome.operator.toarray())
+    np.testing.assert_array_equal(loaded.load_chromosome("22").operator.toarray(), chromosome.operator.toarray())
     root_metadata = (index_dir / "metadata.json").read_text(encoding="utf-8")
     assert "schema_version" not in root_metadata
     assert "software_version" not in root_metadata
@@ -1467,7 +1443,7 @@ def test_chr_pos_index_round_trip_uses_coordinate_identity_and_publishes_plink_l
     loaded = load_gene_ldscore_index(index_dir)
     assert loaded.snp_identifier == "chr_pos"
     assert loaded.genome_build == "hg19"
-    assert loaded.index_chromosomes["22"].baseline_rows["SNP"].tolist() == ["rs1", "rs2"]
+    assert loaded.load_chromosome("22").baseline_rows["SNP"].tolist() == ["rs1", "rs2"]
 
     genes = tmp_path / "focal.txt"
     genes.write_text("G1\n", encoding="utf-8")
@@ -1868,6 +1844,7 @@ def test_explicit_indexed_mode_dispatches_without_live_reference(monkeypatch, tm
         "query_gene_list_sources": ("immune.txt", "brain.txt"),
         "control_gene_list_file": None,
         "gene_list_resolution_policy": "strict",
+        "query_batch_size": 1000,
         "output_dir": str(tmp_path / "out"),
         "overwrite": True,
     }

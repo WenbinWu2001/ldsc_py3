@@ -38,3 +38,7 @@ Direct/indexed LD batching, regression/quantile changes, complete resource compa
 ## Direct workflow cutover
 
 The direct command now prepares annotations once into owned chromosome artifacts, reuses that evidence for scope validation, and releases preparation state after each chromosome. Both numerical backends reuse LD blocks across query batches and retain only output SNP score rows. The process scheduler bounds submitted work by its worker count. Gene audit rows stream to canonical diagnostics; returned direct results reference those persistent diagnostics after scratch cleanup. A focused check passed 324 tests and 29 subtests, including real parallel runs, independent numerical expectations, output reloads, overwrite behavior, and a weak-reference lifetime check. End-to-end matched resource measurements remain pending; these correctness checks are not performance measurements.
+
+## Shared annotation, direct LD, and index checkpoint
+
+The index now retains paths and compact support summaries, validates and releases one chromosome at a time, and reloads each operator once for all assembly query batches. Construction uses shared prepared annotation shards inside its preserved transaction. The full pytest suite passed 1,468 tests and 132 subtests, with one skip and 195 warnings, in 85.89 seconds. This is scientific/artifact and lifetime evidence; matched index runtime, peak-memory, and temporary-disk measurements remain pending.

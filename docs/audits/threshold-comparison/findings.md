@@ -1,5 +1,9 @@
 # Threshold Comparison Findings
 
+Last updated on: 2026-09-10
+
+Historical audit, relocated from the repository root. Statements and source line numbers below describe the earlier threshold audit, not the current implementation; see [context and current boundaries](README.md).
+
 ## Initial Scope
 
 - Active target repo: `ldsc_py3_restructured` on branch `restructure`.

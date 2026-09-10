@@ -1,6 +1,6 @@
 # Heritability Estimates
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-10
 
 Goal: estimate SNP heritability for one trait with the refactored package, starting from raw summary statistics and ordinary unpartitioned LD scores built from an R2-table reference panel.
 
@@ -123,7 +123,7 @@ such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP`; use `--chr` and `--pos` or
 `column_hints` when the header is ambiguous. Leading raw `##` metadata lines are
 skipped before the real header is parsed. `--format auto` is the default and
 detects plain text, including VCF-style headers, old DANER, and new DANER. Use
-`ldsc munge-sumstats --raw-sumstats-file raw.txt --infer-only --output-genome-build hg38` to inspect
+`ldsc munge-sumstats --raw-sumstats-file raw.txt --infer-only --output-dir out/inference --output-genome-build hg38` to inspect
 format, column, INFO-list, source/output build, liftover, and missing-field decisions without writing output.
 `A1` is the allele that the signed statistic is relative to, not necessarily
 the genome reference allele; `NEFF` is not inferred as `N` unless you opt in
@@ -133,10 +133,9 @@ groups, changes only `CHR`/`POS`, and requires
 `--output-genome-build` plus either `--liftover-chain-file` or
 `--use-hm3-snps --use-hm3-quick-liftover` when the inferred source build differs. Drop counts are written to `diagnostics/sumstats.log`,
 examples appear only at `DEBUG`, and row-level drops are audited in
-`diagnostics/dropped_snps/dropped.tsv.gz`; the metadata sidecar stays limited to current
-artifact provenance.
+`diagnostics/dropped_snps/dropped.tsv.gz`; the sumstats Parquet footer stays limited to current artifact provenance.
 
-When you set `regr_snps_file` or `use_hm3_regression_snps` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression uses the embedded `regression_ld_scores` column as the historical `w_ld` component; final model-dependent weights are computed later in the regression kernel.
+When you supply `regr_snps_file` or use the default bundled HM3 regression set during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression uses the embedded `regression_ld_scores` column as the historical `w_ld` component; final model-dependent weights are computed later in the regression kernel.
 
 Because this is ordinary unpartitioned heritability, `run_ldscore(...)` does
 not need baseline annotations. With no baseline and no query inputs, it writes

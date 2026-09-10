@@ -704,7 +704,7 @@ class ParquetR2RefPanel(RefPanel):
         )
 
     def resolve_metadata_paths(self, chrom: str) -> list[str]:
-        """Resolve optional metadata sidecars for one chromosome."""
+        """Resolve the required metadata sidecar for one chromosome."""
         chrom = normalize_chromosome(chrom)
         if self.spec.r2_dir is not None:
             return _r2_dir_metadata_paths(

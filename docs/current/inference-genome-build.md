@@ -1,5 +1,7 @@
 # Genome-Build and Coordinate-Basis Inference
 
+Last updated on: 2026-09-10
+
 Automatic genome-build inference is used for coordinate-family workflows when
 the user passes `--genome-build auto` or workflow-specific source build
 `auto`, including `munge-sumstats --source-genome-build auto` and
@@ -123,8 +125,8 @@ SNP filtering. It is valid for chr_pos-family modes because rsID-family modes
 do not use positions for row identity. Chain-file liftover and HM3 quick liftover both
 update `CHR`/`POS` only; `SNP` remains a label. HM3 quick liftover requires
 `--use-hm3-snps`, so HM3 filtering and HM3 coordinate conversion are explicit
-separate steps. The metadata sidecar records the final output build in its
-`genome_build` identity field; the source/target/method/drop counts,
+separate steps. The sumstats Parquet footer records the final output build in its
+`ldsc:genome_build` identity field; the source/target/method/drop counts,
 duplicate-coordinate drops, and coordinate inference details are written to the
 run log.
 

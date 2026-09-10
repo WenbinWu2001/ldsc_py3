@@ -1,5 +1,7 @@
 # LD Window Behavior for Parquet R2 Panels
 
+Last updated on: 2026-09-10
+
 This document records how `ldsc ldscore` interprets LD-window flags when the
 reference panel backend is the canonical index-format parquet R2 pair.
 
@@ -77,14 +79,13 @@ When no baseline annotations are supplied, `ldscore` synthesizes an all-ones
 When baseline annotations are supplied, the reference-panel metadata is used to
 intersect annotation rows with the retained reference-panel universe. For
 LD-score calculation, the **sidecar is authoritative** for `CM` (and `MAF`):
-annotation-provided `CM`/`MAF` are ignored, and `merge_frequency_metadata`
-overwrites them with the sidecar values for every covered SNP. (Annotation files
+annotation-provided `CM`/`MAF` are ignored, and `ParquetR2RefPanel.prepare_chromosome` supplies the sidecar values for every retained SNP. (Annotation files
 no longer carry meaningful `CM`/`MAF` — `CM` is a NaN placeholder and `MAF` is
 not carried — so in practice the sidecar is the only source.)
 
 ## MAF and counts
 
-`MAF` is available when present in the sidecar (package builds always write it).
+The paired sidecar must supply usable `MAF`; the loader rejects missing MAF rather than substituting annotation frequencies.
 
 - `--maf-min` filtering works normally.
 - Common-SNP count vectors (and the common-universe overlap matrix) use

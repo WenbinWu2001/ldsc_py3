@@ -18,8 +18,7 @@ Three implementation details are important to know:
 - Current `ldsc munge-sumstats` embeds identity metadata in the
   `sumstats.parquet` footer (no `metadata.json` sidecar); legacy
   `sumstats.sumstats.gz` carries no embedded metadata. `load_sumstats()` recovers the original
-  downstream compatibility `GlobalConfig` from that footer, or returns ``None``
-  when the artifact has no footer metadata. In
+  downstream compatibility `GlobalConfig` from that footer, or returns `None` for supported legacy text. Footerless Parquet is rejected. In
   coordinate-family modes, that snapshot stores the final output genome build;
   in rsid-family modes, it stores `genome_build=None`. Row-level liftover drops are
   audited separately in the always-written
@@ -421,11 +420,8 @@ identity payload in their footer: `ldsc:artifact_type`, `ldsc:snp_identifier`,
 embedded metadata. Detailed coordinate provenance, liftover
 reports, HM3 provenance, output bookkeeping, and row counts are written to
 `diagnostics/sumstats.log`; row-level liftover drops are written to
-`diagnostics/dropped_snps/dropped.tsv.gz`. Neither belongs in the metadata sidecar. The
-loader reconstructs `config_snapshot` from the sidecar identity fields.
-Older package-written artifacts without the current sidecar are rejected with a
-regeneration message; sidecars missing the current identity provenance are
-treated as invalid metadata rather than a migrated older format.
+`diagnostics/dropped_snps/dropped.tsv.gz`. There is no sumstats metadata sidecar. The loader reconstructs `config_snapshot` from the Parquet footer identity fields and rejects missing or invalid footer provenance. Supported legacy text remains a separate, explicit input format.
+
 
 **LD-score directories must carry current identity provenance.**
 Canonical LD-score directories written by the current workflow include root

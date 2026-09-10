@@ -1,6 +1,6 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
-Last updated on: 2026-08-09
+Last updated on: 2026-09-10
 
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `column_inference.py`, all
@@ -129,7 +129,7 @@ convention. float32 is unsafe here: it can only represent integers exactly up to
 
 ### Allele orientation and frequency (`A1`, `A2`, `MAF`, `FRQ`)
 
-See `docs/superpowers/specs/2026-06-07-allele-orientation-canonicalization-design.md`
+See `docs/specs/2026-06-07-allele-orientation-canonicalization-design.md`
 for the full rationale.
 
 **Unifying rule:** the frequency column always means **frequency of `A1`**. The

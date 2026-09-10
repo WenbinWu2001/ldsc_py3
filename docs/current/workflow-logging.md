@@ -217,6 +217,6 @@ computational class APIs remain data-oriented:
 path but includes data artifacts such as the dropped-SNP audit sidecar.
 
 For the implementation rationale, see
-`docs/superpowers/specs/2026-05-02-logging-harmonization-design.md` and the
+`docs/specs/2026-05-02-logging-harmonization-design.md` and the
 console/file routing change in
-`docs/superpowers/plans/2026-06-04-logging-console-file-routing-plan.md`.
+`docs/plans/2026-06-04-logging-console-file-routing-plan.md`.

@@ -40,7 +40,7 @@ The public workflow and tests use `_sumstats_input.prepare_munge_input()` to res
 
 Source-build inference reads only `CHR`/`POS` in bounded chunks and stops when sufficient evidence is available. It precedes all QC, and shares its coordinate evidence reader with `--infer-only`. The main parsing pass counts raw records as it reads them; it does not reopen the full raw file to count lines after munging.
 
-For Python users, `munger.build_run_summary(table)` reports parsed `n_input_rows`, final `n_retained_rows`, and `drop_counts`. Headers, leading `##` metadata, and blank lines are excluded. Every drop belongs to the first stage that removes that row, so `sum(drop_counts.values()) == n_input_rows - n_retained_rows`.
+For Python users, `munger.build_run_summary()` reports parsed `n_input_rows`, final `n_retained_rows`, and `drop_counts`. Headers, leading `##` metadata, and blank lines are excluded. Every drop belongs to the first stage that removes that row, so `sum(drop_counts.values()) == n_input_rows - n_retained_rows`.
 
 | Count key | Exclusive removal stage |
 | --- | --- |

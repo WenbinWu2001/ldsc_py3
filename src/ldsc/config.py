@@ -446,7 +446,7 @@ class RefPanelConfig:
         glob, or explicit ``@`` suite token. Default is ``None``.
     r2_dir : str or os.PathLike[str] or None, optional
         Directory containing package-built parquet R2 files named
-        ``chr{chrom}_r2.parquet`` and optional metadata sidecars named
+        ``chr{chrom}_r2.parquet`` and mandatory metadata sidecars named
         ``chr{chrom}_meta.tsv.gz``. Default is ``None``.
     maf_min : float or None, optional
         Optional retained-reference-panel MAF threshold applied before LD-score

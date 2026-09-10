@@ -1,10 +1,12 @@
 # LD-score Computation from R² Parquets — Mathematical Specification
 
+Last updated on: 2026-09-10
+
 This document defines, in math, **how LD scores are computed from a parquet R²
 reference panel** by the streaming accumulator. It is the conceptual companion to
 `docs/current/parquet-r2-format-and-read-pipeline.md` (the artifact format and the
 read pipeline) and the design spec
-`docs/superpowers/specs/2026-06-06-ldscore-parquet-pair-streaming-design.md`.
+`docs/specs/2026-06-06-ldscore-parquet-pair-streaming-design.md`.
 
 Every symbol is defined in §1 before it is used. Read §1 first.
 

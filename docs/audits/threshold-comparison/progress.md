@@ -1,5 +1,9 @@
 # Threshold Comparison Audit Progress
 
+Last updated on: 2026-09-10
+
+Historical audit, relocated from the repository root. Statements and source line numbers below describe the earlier threshold audit, not the current implementation; see [context and current boundaries](README.md).
+
 - Initialized audit planning files for `ldsc_py3_restructured` on branch `restructure`.
 - Confirmed active branch is `restructure`.
 - Listed repo files and ran a broad threshold/comparison search across Python sources.

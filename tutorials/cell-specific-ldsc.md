@@ -1,6 +1,6 @@
 # Cell-Specific LDSC
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-10
 
 Goal: estimate cell-specific enrichment by running partitioned LDSC with one query annotation per cell type.
 
@@ -184,5 +184,4 @@ one-row query summary, the baseline-plus-query `partitioned_h2_full.tsv`,
 If the partitioned summary already exists, `ldsc partitioned-h2` fails before
 writing; the same is true for `diagnostics/partitioned-h2.log` and any stale
 `diagnostics/query_annotations/` tree. Add `--overwrite` only when replacing it is
-intentional. The deprecated `--write-per-query-results` flag remains accepted
-as a warning-producing no-op; new commands should omit it.
+intentional. The retired `--write-per-query-results` flag is rejected; omit it.

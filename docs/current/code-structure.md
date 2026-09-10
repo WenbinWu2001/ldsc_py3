@@ -2,12 +2,12 @@
 
 Last updated on: 2026-09-10
 
-This is the contributor-facing module map for `ldsc_py3_Jerry`.
+This is the authoritative contributor entry for the `ldsc` package. Start here to locate a change. [Architecture](architecture.md) explains execution boundaries, [data flow](data-flow.md) explains artifact streams, and [layer structure](layer-structure.md) supplies the detailed ownership matrix. These domain references supplement this entry rather than defining competing navigation maps.
 
 ## Repository Map
 
 ```text
-ldsc_py3_Jerry/
+ldsc_py3_restructured/
 ├── docs/
 ├── src/ldsc/
 │   ├── __init__.py
@@ -20,6 +20,7 @@ ldsc_py3_Jerry/
 │   ├── column_inference.py
 │   ├── chromosome_inference.py
 │   ├── genome_build_inference.py
+│   ├── gene_ldscore_index.py
 │   ├── gene_list_resolver.py
 │   ├── query_annotations.py
 │   ├── annotation_builder.py
@@ -29,6 +30,7 @@ ldsc_py3_Jerry/
 │   ├── ldscore_calculator.py
 │   ├── _ldscore_preflight.py
 │   ├── legacy_ldscore_converter.py
+│   ├── _sumstats_input.py
 │   ├── sumstats_munger.py
 │   ├── regression_runner.py
 │   ├── h2_scale.py
@@ -93,7 +95,7 @@ ldsc_py3_Jerry/
 | `ldsc._kernel.ref_panel` | runtime PLINK/parquet adapters; `RefPanel.prepare_chromosome` owns reference filtering, annotation alignment, window/bias policy, and reader lifetime |
 | `ldsc._kernel.r2_query` | low-level index-format parquet pair lookup used by `ldsc.r2_query` |
 | `ldsc._kernel.ldscore` | `PreparedChromosome` data contract, LD-score projection from prepared state, streaming R2 reader, annotation/window/count primitives; no LDSC2 artifact emitters |
-| `ldsc._kernel.sumstats_munger` | legacy-compatible raw summary-statistics QC, normalization, and optional coordinate liftover; returns in-memory tables and owns no output files |
+| `ldsc._kernel.sumstats_munger` | legacy-compatible raw summary-statistics QC, normalization, and optional coordinate liftover; returns `MungeResult` with tables, counts and provenance and owns no output files |
 | `ldsc._kernel.regression` | LDSC estimators for `Hsq` and `RG` |
 | `ldsc._kernel._jackknife`, `ldsc._kernel._irwls` | supporting numerical routines used by regression |
 | `ldsc._kernel.formats`, `ldsc._kernel.identifiers` | retained PLINK/list primitives and SNP identifier helpers; obsolete legacy regression-artifact readers are removed |
@@ -117,7 +119,7 @@ ldsc_py3_Jerry/
 | change runtime PLINK/parquet reference access | `src/ldsc/_kernel/ref_panel.py` |
 | change LD-score orchestration, optional-baseline behavior, or output packaging | `src/ldsc/ldscore_calculator.py`, `src/ldsc/outputs.py` |
 | change LD-score math | `src/ldsc/_kernel/ldscore.py` |
-| change raw sumstats ingestion, format inference, `CHR`/`POS` handling, sumstats SNP keep-list filtering, liftover drop audit sidecars, sidecar provenance, or curated loading | `src/ldsc/sumstats_munger.py`, then `src/ldsc/_kernel/sumstats_munger.py` |
+| change raw sumstats ingestion, format inference, `CHR`/`POS` handling, sumstats SNP keep-list filtering, liftover drop audit sidecars, footer provenance, or curated loading | `src/ldsc/sumstats_munger.py`, then `src/ldsc/_kernel/sumstats_munger.py` |
 | change regression dataset assembly or CLI summaries | `src/ldsc/regression_runner.py`, then `src/ldsc/outputs.py`, `docs/current/partitioned-h2-results.md` for partitioned-h2 output layout, `docs/current/partitioned-ldsc-workflow.md` for rg output contracts, and `docs/current/regression-configuration.md` for the tunable estimator parameters and defaults |
 | change continuous-annotation classification or fingerprints | `src/ldsc/annotation_semantics.py`, then `src/ldsc/ldscore_calculator.py` and `src/ldsc/outputs.py` |
 | change target quantiles, standardized coefficients, or post-fit alignment | `src/ldsc/quantile_h2.py`, then `src/ldsc/outputs.py` and `docs/current/continuous-annotation-quantile-h2.md` |
@@ -185,3 +187,44 @@ ldsc_py3_Jerry/
 `AnnotationBundle.validate()` validates row alignment and annotation names; identity cleanup occurs during builder construction. It no longer accepts an ignored identifier argument. Column-name inference uses `infer_chr_pos_columns`; numerical window construction uses `get_block_lefts`. Their former forwarding spellings are removed without changing accepted input column aliases or legacy formats.
 
 `ldsc._result_files` owns contained declared-result input paths and atomic JSON publication for `h2_scale` and `plotting`. Each workflow retains its metadata interpretation, table loading and scientific dispatch. `outputs` keeps its separate JSON serialization of NumPy/dataclass payloads.
+
+## Domain contracts and decision history
+
+| Change | Current contract | Main owner |
+| --- | --- | --- |
+| annotations and interval projection | [BED input](bed-input-format.md), [gene lists](gene-list-input-format.md), [query repair](gene-list-diagnostics-and-repair.md) | `annotation_builder.AnnotationBuilder`; `_kernel.annotation` projects resolved intervals |
+| panel preparation, CM/MAF and traversal | [R2 pipeline](parquet-r2-format-and-read-pipeline.md), [pair accumulation](ldscore-parquet-accumulation.md), [window behavior](ld-window-parquet-r2-sidecar-behavior.md) | `_kernel.ref_panel.RefPanel.prepare_chromosome`; `_kernel.ldscore.compute_chromosome` |
+| regression rows and region masks | [SNP universe](ldscore-snp-universe-contract.md), [region exclusions](region-exclusion-presets.md) | `ldscore_calculator._regression_region_intervals`; `_kernel.ldscore.regression_mask_from_keys`; `gene_ldscore_index` resolves indexed policy |
+| reference construction and pair queries | [pair query](ref-panel-r2-query.md), [path contract](path-specification.md) | `ref_panel_builder.ReferencePanelBuilder`; `r2_query.R2Panel`; `outputs.QueryR2DirectoryWriter` |
+| munging and liftover | [munging](munge-sumstats.md), [liftover](liftover-harmonization-decisions.md) | `sumstats_munger.SumstatsMunger`; `_sumstats_input.prepare_munge_input`; `_kernel.sumstats_munger` |
+| regression and overlap | [configuration](regression-configuration.md), [partitioned results](partitioned-h2-results.md) | `regression_runner.RegressionRunner`; `overlap_matrix`; `_kernel.regression` |
+| indexed gene queries | [index](gene-ldscore-index.md), [mathematics](gene-ldscore-index-mathematics.md) | `gene_ldscore_index`; `_kernel.gene_ldscore_index` |
+| derived results | [plotting](plotting-module.md), [quantile projection](continuous-annotation-quantile-h2.md) | `plotting`, `h2_scale`, `quantile_h2`; shared `_result_files` |
+
+`query-r2` requires `--output-dir`; `QueryR2DirectoryWriter` writes its result directory. Region presets affect regression rows and weights, not the LD-reference contributor universe. `build-ref-panel` has no region-pruning fields; use its explicit reference-SNP restriction when pruning is intended. Reference preparation supplies population-specific CM/MAF; annotation CM is an `NA` placeholder. Parquet LD scores use pair streaming, and PLINK filtering happens during adapter preparation.
+
+Historical decisions formerly indexed by root `design_map.md` remain available below. They record decisions at their dates; current contracts above govern current work. The [old map](../archive/design/2026-09-10-design-map.md) and [completed threshold audit](../audits/threshold-comparison/README.md) preserve prior evidence without competing with this entry.
+
+- [2026-05-02-logging-harmonization-implementation-plan](../plans/2026-05-02-logging-harmonization-implementation-plan.md)
+- [2026-05-09-batch-rg-implementation-plan](../plans/2026-05-09-batch-rg-implementation-plan.md)
+- [2026-05-10-liftover-harmonization](../plans/2026-05-10-liftover-harmonization.md)
+- [2026-05-11-ref-panel-stale-class2-warning](../plans/2026-05-11-ref-panel-stale-class2-warning.md)
+- [2026-06-04-logging-console-file-routing-plan](../plans/2026-06-04-logging-console-file-routing-plan.md)
+- [2026-06-05-ldscore-chromosome-parallelism-plan](../plans/2026-06-05-ldscore-chromosome-parallelism-plan.md)
+- [2026-06-06-ref-panel-r2-query-plan](../plans/2026-06-06-ref-panel-r2-query-plan.md)
+- [2026-06-06-sumstats-self-describing-artifact-plan](../plans/2026-06-06-sumstats-self-describing-artifact-plan.md)
+- [2026-06-11-cm-maf-source-of-truth-plan](../plans/2026-06-11-cm-maf-source-of-truth-plan.md)
+- [2026-06-11-overlap-aware-partitioned-h2-plan](../plans/2026-06-11-overlap-aware-partitioned-h2-plan.md)
+- [2026-05-02-logging-harmonization-design](../specs/2026-05-02-logging-harmonization-design.md)
+- [2026-05-09-batch-rg-design](../specs/2026-05-09-batch-rg-design.md)
+- [2026-05-10-liftover-harmonization](../specs/2026-05-10-liftover-harmonization.md)
+- [2026-05-11-ref-panel-stale-class2-warning](../specs/2026-05-11-ref-panel-stale-class2-warning.md)
+- [2026-06-01-build-ref-panel-memory-optimization-design](../specs/2026-06-01-build-ref-panel-memory-optimization-design.md)
+- [2026-06-02-build-ref-panel-reader-streaming-design](../specs/2026-06-02-build-ref-panel-reader-streaming-design.md)
+- [2026-06-03-pair-emission-columnar-and-doc-sync-design](../specs/2026-06-03-pair-emission-columnar-and-doc-sync-design.md)
+- [2026-06-05-ldscore-chromosome-parallelism-design](../specs/2026-06-05-ldscore-chromosome-parallelism-design.md)
+- [2026-06-06-ref-panel-r2-query-design](../specs/2026-06-06-ref-panel-r2-query-design.md)
+- [2026-06-06-region-exclusion-design](../specs/2026-06-06-region-exclusion-design.md)
+- [2026-06-06-sumstats-self-describing-artifact-design](../specs/2026-06-06-sumstats-self-describing-artifact-design.md)
+- [2026-06-11-cm-maf-source-of-truth-design](../specs/2026-06-11-cm-maf-source-of-truth-design.md)
+- [2026-06-11-overlap-aware-partitioned-h2-design](../specs/2026-06-11-overlap-aware-partitioned-h2-design.md)

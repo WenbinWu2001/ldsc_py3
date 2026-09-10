@@ -1,6 +1,6 @@
 # Reference-Panel R² Pair Query
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-10
 
 Query the adjusted (unbiased) R² stored in a `ldsc build-ref-panel` index-format
 panel for a list of SNP pairs, and convert it to a signed Pearson correlation
@@ -9,7 +9,7 @@ LD-score workflow streams every stored pair once, while this tool looks up
 specific pairs by SNP identity.
 
 See the design spec
-`docs/superpowers/specs/2026-06-06-ref-panel-r2-query-design.md` for the full
+`docs/specs/2026-06-06-ref-panel-r2-query-design.md` for the full
 semantics, and `docs/current/parquet-r2-format-and-read-pipeline.md` for the
 panel format.
 

@@ -720,7 +720,6 @@ Removed Python names: legacy separate source-path object field,
 | `run_partitioned_h2_from_args(args)` | `ldscore_dir` | input | LD-score result directory |
 | `run_partitioned_h2_from_args(args)` | `sumstats_file` | input | munged summary-statistics file |
 | `run_partitioned_h2_from_args(args)` | `output_dir` | output | required; writes `partitioned_h2.tsv` plus diagnostics |
-| `run_partitioned_h2_from_args(args)` | `write_per_query_results` | deprecated compatibility flag | no-op; query runs always write `diagnostics/query_annotations/` |
 | `run_rg_from_args(args)` | `ldscore_dir` | input | LD-score result directory |
 | `run_rg_from_args(args)` | `sumstats_sources` | input | two or more munged summary-statistics files or glob patterns |
 | `run_rg_from_args(args)` | `anchor_trait` | input selector | optional anchor trait label or path for anchor-vs-rest output |

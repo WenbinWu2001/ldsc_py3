@@ -10,7 +10,7 @@ This repository is the active refactored LDSC package.
 - `src/ldsc/_kernel/`: internal compute and file-format modules
 - `tests/`: local parity and workflow tests
 - `tutorials/`: package-level usage examples
-- `docs/current/architecture.md`, `docs/current/code-structure.md`, `docs/current/class-and-features.md`, `docs/current/workflow-logging.md`, `docs/current/plotting-module.md`, `docs/current/liftover-harmonization-decisions.md`: active design and navigation docs
+- [Contributor entry](docs/current/code-structure.md): authoritative module navigation and links to current workflow, scientific, and artifact contracts
 
 ## Install
 

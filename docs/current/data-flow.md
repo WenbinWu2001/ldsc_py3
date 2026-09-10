@@ -249,7 +249,7 @@ in the same orientation as the swapped labels. This happens at the standardized-
 SNP getter inside the builder; `nextSNPs` itself stays orientation-free, and the
 r²-based in-PLINK LD-score path is unaffected (R² is sign-invariant). A frequency
 tie at exactly 0.5 keeps PLINK order. See
-`docs/superpowers/specs/2026-06-07-allele-orientation-canonicalization-design.md`.
+`docs/specs/2026-06-07-allele-orientation-canonicalization-design.md`.
 
 ### Modules used
 
@@ -346,7 +346,7 @@ prebuilt-annotation, no-query, and indexed LD-score modes.
 | query annotation shard, optional | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | optional extra annotation columns; valid only with explicit baseline annotations |
 | query BED or gene list, optional | `chr1 1000 2000` or `ENSG00000141510` | mutually exclusive query source routes; direct gene lists additionally require a one-based build-aware coordinate catalog and explicit padding |
 | PLINK prefix or parquet R2 panel | `panel_chr@` or build directory `ref_panel/hg38` | choose one backend |
-| frequency / metadata sidecar, optional | `CHR POS SNP CM MAF A1 A2` | used for MAF and runtime metadata; `A1/A2` are required for allele-aware modes |
+| parquet reference metadata sidecar, required with R2 parquet | `CHR POS SNP CM MAF A1 A2` | authoritative SNP index space, CM and MAF; paired `chrN_meta.tsv.gz` is mandatory; `A1/A2` are required for allele-aware modes; PLINK derives its own metadata |
 | regression SNP list, optional | `rs123` or `CHR POS` table | restricts the weight-table SNP set using identity keys only; allele columns may be omitted and then match by base key; allele-bearing restrictions in allele-aware modes match by effective allele-aware key; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
 
 ### Flow

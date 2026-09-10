@@ -1,3 +1,9 @@
+# Archived contributor design map
+
+Last updated on: 2026-09-10
+
+Historical navigation retired on 2026-09-10. Use [the current contributor entry](../../current/code-structure.md). The original text below preserves former ownership and paths; it is not a current specification. Useful domain and decision links were consolidated into the current entry.
+
 # Design Map
 
 This file maps durable design documents to the implementation modules they

@@ -2,9 +2,9 @@
 
 Last updated on: 2026-09-10
 
-`ldsc_py3_Jerry` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
+`ldsc` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
-Related docs:
+Start with [the contributor entry](code-structure.md) to locate a change; this document explains the execution architecture. Related domain references:
 
 - [data-flow.md](data-flow.md): user-visible file streams and flowcharts
 - [class-and-features.md](class-and-features.md): public API surface and major types
@@ -17,7 +17,6 @@ Related docs:
 - [partitioned-h2-results.md](partitioned-h2-results.md): partitioned-h2 result columns and interpretation
 - [continuous-annotation-quantile-h2.md](continuous-annotation-quantile-h2.md): continuous-annotation post-fit contracts
 - [layer-structure.md](layer-structure.md): layer-by-function object matrix
-- [../../design_map.md](../../design_map.md): mapping from design docs to implementation modules
 
 ![Package overview](../assets/ldsc-package-overview.png)
 

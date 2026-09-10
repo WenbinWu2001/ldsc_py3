@@ -2148,7 +2148,7 @@ def build_plink_index_chromosome(
     with panel.prepare_chromosome(chrom, baseline_bundle, config,
                                   genetic_map=getattr(args, "genetic_map", None)) as prepared:
         metadata = prepared.metadata
-        baseline = np.asarray(prepared.annotation_matrix, dtype=np.float64)
+        baseline = np.asarray(prepared.annotations.read(), dtype=np.float64)
         geno = prepared.reader
 
         persisted = kernel_ldscore.regression_mask_from_keys(

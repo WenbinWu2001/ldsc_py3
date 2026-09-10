@@ -1612,7 +1612,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             result = compute_plink("1", bundle, args, restriction)
 
             self.assertEqual(result.chrom, "1")
-            self.assertGreater(len(result.metadata), 0)
+            self.assertGreater(result.reference_snp_count, 0)
+            self.assertEqual(result.metadata.SNP.tolist(), [])
             self.assertEqual(result.w_ld.shape[0], len(result.metadata))
 
     def test_plink_compute_rejects_unsorted_window_positions(self):
@@ -3737,15 +3738,17 @@ def test_regression_region_mask_leaves_reference_counts_and_ld_contributors_inta
 
     legacy = SimpleNamespace(
         chrom="6",
-        metadata=metadata,
-        ld_scores=scores[:, :2],
-        w_ld=scores[:, 2:],
+        metadata=metadata.loc[mask.astype(bool)].reset_index(drop=True),
+        ld_scores=scores[mask.astype(bool), :2],
+        w_ld=scores[mask.astype(bool), 2:],
         M=counts,
         M_5_50=common_counts,
         ldscore_columns=["base", "query"],
         baseline_columns=["base"],
         query_columns=["query"],
         overlap=None,
+        reference_snp_count=3, regression_selected_snp_count=3,
+        regression_region_removed_snp_count=1,
     )
     wrapped = ldscore_workflow.LDScoreCalculator()._wrap_legacy_chrom_result(
         legacy,

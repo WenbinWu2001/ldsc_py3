@@ -582,25 +582,21 @@ class LDScoreCalculator:
             query_columns=list(annotation_bundle.query_columns),
         )
         with ref_panel.prepare_chromosome(chrom, legacy_bundle, ldscore_config) as prepared:
-            annotation_values = pd.DataFrame(
-                prepared.annotation_matrix,
-                columns=prepared.baseline_columns + prepared.query_columns,
-            )
-            annotation_types = classify_annotation_values(annotation_values)
             legacy_result = kernel_ldscore.compute_chromosome(
                 chrom, prepared, snp_identifier=global_config.snp_identifier,
                 snp_batch_size=ldscore_config.snp_batch_size,
                 common_maf_min=ldscore_config.common_maf_min,
                 regression_keys=regression_snps, regression_regions=regression_regions,
+                query_batch_size=ldscore_config.query_batch_size,
             )
-        if export_dir is not None:
-            _write_one_ref_metadata_sidecar(legacy_result.metadata, chrom, export_dir)
+            if export_dir is not None:
+                _write_one_ref_metadata_sidecar(prepared.metadata, chrom, export_dir)
         result = self._wrap_legacy_chrom_result(
             legacy_result,
             global_config=global_config,
             regression_snps=regression_snps,
             regression_regions=regression_regions,
-            annotation_types=annotation_types,
+            annotation_types=legacy_result.annotation_types,
         )
         LOGGER.info(f"Finished chromosome {chrom} with {len(result.baseline_table)} retained SNP rows.")
         return result
@@ -616,23 +612,7 @@ class LDScoreCalculator:
         """Convert one kernel chromosome result into the typed public result."""
         reference_metadata = legacy_result.metadata.reset_index(drop=True).copy()
         ld_scores = pd.DataFrame(legacy_result.ld_scores, columns=list(legacy_result.ldscore_columns))
-        regression_selected = pd.Series(
-            kernel_ldscore.regression_mask_from_keys(
-                reference_metadata,
-                regression_snps,
-                global_config.snp_identifier,
-            ).astype(bool),
-            index=reference_metadata.index,
-        )
-        regression_keep = pd.Series(
-            kernel_ldscore.regression_mask_from_keys(
-                reference_metadata,
-                regression_snps,
-                global_config.snp_identifier,
-                region_intervals=regression_regions,
-            ).astype(bool),
-            index=reference_metadata.index,
-        )
+        regression_keep = pd.Series(True, index=reference_metadata.index)
         ld_regression_snps = frozenset(
             build_snp_id_series(
                 reference_metadata.loc[regression_keep],
@@ -677,9 +657,9 @@ class LDScoreCalculator:
             count_config={},
             config_snapshot=global_config,
             overlap=getattr(legacy_result, "overlap", None),
-            reference_snp_count=len(reference_metadata),
-            regression_selected_snp_count=int(regression_selected.sum()),
-            regression_region_removed_snp_count=int((regression_selected & ~regression_keep).sum()),
+            reference_snp_count=legacy_result.reference_snp_count,
+            regression_selected_snp_count=legacy_result.regression_selected_snp_count,
+            regression_region_removed_snp_count=legacy_result.regression_region_removed_snp_count,
             identity_drops=getattr(legacy_result, "identity_drops", empty_identity_drop_frame()),
             annotation_types=dict(annotation_types or {}),
         )

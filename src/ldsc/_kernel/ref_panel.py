@@ -4,7 +4,7 @@ This module prepares chromosome-scoped reference data for LD-score projection.
 The PLINK and parquet adapters own identity and SNP restrictions, sample/MAF
 selection, annotation alignment, reader policy, LD windows, and file lifetime.
 Numerical kernels consume the resulting aligned state without resolving paths
-or reopening a panel. Metadata inspection caches tables, never live readers.
+or reopening a panel. Metadata inspection returns caller-owned chromosome tables without caching them.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ from ..genome_build_inference import resolve_genome_build, validate_auto_genome_
 from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group, split_cli_path_tokens
 from . import formats as legacy_parse
 from . import ldscore as kernel_ldscore
+from .ldscore_projection import MappedAnnotations
 from .identifiers import (
     build_snp_id_series,
     normalize_snp_identifier_mode,
@@ -210,11 +211,10 @@ def _resolve_r2_bias_from_meta(
 class RefPanel(ABC):
     """Abstract chromosome-scoped reference-panel interface."""
     def __init__(self, global_config: GlobalConfig, spec: RefPanelConfig) -> None:
-        """Store shared config and initialize the per-chromosome metadata cache."""
+        """Store shared configuration without chromosome payload caches."""
         validate_auto_genome_build_mode(global_config.snp_identifier, global_config.genome_build)
         self.global_config = global_config
         self.spec = spec
-        self._metadata_cache: dict[str, pd.DataFrame] = {}
 
     @abstractmethod
     def available_chromosomes(self) -> list[str]:
@@ -254,7 +254,7 @@ class RefPanel(ABC):
         Returns
         -------
         ldsc._kernel.ldscore.PreparedChromosome
-            Reference metadata, float32 annotation matrix, window bounds, and
+            Reference metadata, a selected-read annotation mapping, window bounds, and
             an owned reader over the same retained SNP rows. Panel identity,
             SNP/sample/MAF restrictions, authoritative reference CM/MAF, and
             reader bias settings are resolved together. Use the result as a
@@ -263,8 +263,7 @@ class RefPanel(ABC):
         Notes
         -----
         Preparation reads inputs but writes no artifacts. Metadata inspection
-        through ``load_metadata`` may read independently; its cache stores
-        tables rather than live readers.
+        through ``load_metadata`` reads independently and retains no cache.
         """
         raise NotImplementedError
 
@@ -350,9 +349,12 @@ class PlinkRefPanel(RefPanel):
 
     def available_chromosomes(self) -> list[str]:
         """List normalized chromosomes present in the resolved PLINK inputs."""
-        df = self._read_bim_table(chrom=None)
-        chromosomes = sorted(df["CHR"].astype(str).map(normalize_chromosome).unique().tolist(), key=_chrom_sort_key)
-        return chromosomes
+        chromosomes = set()
+        for prefix in self._bim_prefixes(None):
+            with pd.read_csv(prefix + ".bim", sep=r"\s+", header=None, usecols=[0], chunksize=65536) as reader:
+                for chunk in reader:
+                    chromosomes.update(chunk.iloc[:,0].map(normalize_chromosome))
+        return sorted(chromosomes, key=_chrom_sort_key)
 
     def _load_source(self, chrom: str):
         """Resolve physical BED rows and apply panel identity/SNP restrictions once."""
@@ -414,28 +416,27 @@ class PlinkRefPanel(RefPanel):
             metadata = metadata.merge(reference[["CHR", "SNP", "POS", "A1", "A2"]],
                                       on=["CHR", "SNP", "POS"], how="left", sort=False)
             retained_keys = kernel_ldscore.identifier_keys(metadata, mode)
-            values = aligned.annotations.set_index(keys).loc[retained_keys].reset_index(drop=True)
+            indices = pd.Series(np.arange(len(keys)), index=keys).loc[retained_keys].to_numpy(dtype=np.int64)
+            values = MappedAnnotations(aligned.annotations, indices, aligned.annotations.columns)
             return geno, metadata, values, drops, len(aligned.metadata)
         except BaseException:
             geno.close()
             raise
 
     def load_metadata(self, chrom: str) -> pd.DataFrame:
-        """Load and cache genotype-derived metadata without retaining a BED reader."""
+        """Load one chromosome's metadata; the caller owns its lifetime."""
         chrom = normalize_chromosome(chrom)
-        if chrom not in self._metadata_cache:
-            source = self._load_source(chrom)
-            try:
-                geno, metadata, _, _, _ = self._load_genotypes(chrom, source)
-            except Exception:
-                if self.spec.maf_min is not None or self.spec.keep_indivs_file is not None:
-                    raise
-                # Preserve the metadata-only BIM inspection contract for unavailable BED data.
-                metadata = source[3].drop(columns="_raw_index").reset_index(drop=True)
-            else:
-                geno.close()
-            self._metadata_cache[chrom] = metadata.copy()
-        return self._metadata_cache[chrom].copy()
+        source = self._load_source(chrom)
+        try:
+            geno, metadata, _, _, _ = self._load_genotypes(chrom, source)
+        except Exception:
+            if self.spec.maf_min is not None or self.spec.keep_indivs_file is not None:
+                raise
+            # Preserve metadata-only BIM inspection when BED data is unavailable.
+            metadata = source[3].drop(columns="_raw_index").reset_index(drop=True)
+        else:
+            geno.close()
+        return metadata
 
     def build_reader(self, chrom: str, keep_snps=None, keep_indivs=None, maf_min=None):
         """Build an owned BED reader through the same preparation used for LD scores.
@@ -470,7 +471,7 @@ class PlinkRefPanel(RefPanel):
             block_left = _prepare_window(metadata, chrom, config, self.global_config.snp_identifier)
             return kernel_ldscore.PreparedChromosome(
                 backend="plink", reader=geno, metadata=metadata,
-                annotation_matrix=values.to_numpy(dtype=np.float32), block_left=block_left,
+                annotations=values, block_left=block_left,
                 baseline_columns=list(annotations.baseline_columns), query_columns=list(annotations.query_columns),
                 reference_rows_before_genotype_qc=input_rows,
                 genotype_qc_removed=geno.genotype_qc_removed, maf_removed=geno.maf_removed,
@@ -481,8 +482,8 @@ class PlinkRefPanel(RefPanel):
             geno.close()
             raise
 
-    def _read_bim_table(self, chrom: str | None) -> pd.DataFrame:
-        """Read one or many `.bim` tables into a normalized DataFrame."""
+    def _bim_prefixes(self, chrom: str | None) -> list[str]:
+        """Resolve source prefixes without retaining BIM tables."""
         if self._chromosome_prefixes is not None:
             prefixes = ([self._chromosome_prefixes[normalize_chromosome(chrom)]] if chrom is not None
                         else list(dict.fromkeys(self._chromosome_prefixes.values())))
@@ -496,17 +497,7 @@ class PlinkRefPanel(RefPanel):
                 "`RefPanelConfig(backend='plink')` was used without `plink_prefix` or "
                 "the prefix token resolved to no files. Pass a valid PLINK prefix."
             )
-        frames = [
-            pd.read_csv(
-                prefix + ".bim",
-                sep=r"\s+",
-                header=None,
-                names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
-                usecols=[0, 1, 2, 3, 4, 5],
-            )
-            for prefix in prefixes
-        ]
-        return pd.concat(frames, axis=0, ignore_index=True)
+        return prefixes
 
 
 class ParquetR2RefPanel(RefPanel):
@@ -552,10 +543,8 @@ class ParquetR2RefPanel(RefPanel):
         )
 
     def load_metadata(self, chrom: str) -> pd.DataFrame:
-        """Load, restrict, validate, and cache metadata for one chromosome."""
+        """Load, restrict, and validate metadata owned by this chromosome consumer."""
         chrom = normalize_chromosome(chrom)
-        if chrom in self._metadata_cache:
-            return self._metadata_cache[chrom].copy()
         if self.spec.keep_indivs_file is not None:
             raise LDSCUsageError(
                 "Reference-panel loading cannot apply `--keep-indivs-file` in parquet R2 mode. "
@@ -615,7 +604,6 @@ class ParquetR2RefPanel(RefPanel):
                     f"with the sidecar. Other causes & fixes: {_REF_PANEL_EMPTY_DOC}"
                 )
         metadata = self._validate_metadata(metadata, chrom)
-        self._metadata_cache[chrom] = metadata.copy()
         return metadata
 
     def build_reader(
@@ -679,11 +667,11 @@ class ParquetR2RefPanel(RefPanel):
         kernel_ldscore.validate_ldscore_window_within_r2_panel_window(
             config, parquet_paths=self.resolve_r2_paths(chrom), chrom=chrom,
         )
-        values = aligned.annotations.to_numpy(dtype=np.float32)
+        values = aligned.annotations
         reader = self.build_reader(chrom, metadata=metadata)
         return kernel_ldscore.PreparedChromosome(
             backend="parquet_r2", reader=reader, metadata=metadata,
-            annotation_matrix=values, block_left=block_left,
+            annotations=values, block_left=block_left,
             baseline_columns=list(annotations.baseline_columns), query_columns=list(annotations.query_columns),
             cm_source="parquet_sidecar",
         )
@@ -1150,8 +1138,10 @@ def _align_annotations(bundle, reference, chrom, global_config, backend):
         reference_metadata=reference, reference_keys=reference_keys,
         snp_identifier=global_config.snp_identifier,
     )
-    return kernel_ldscore.AnnotationBundle(metadata, bundle.annotations.loc[keep].reset_index(drop=True),
-                                          list(bundle.baseline_columns), list(bundle.query_columns))
+    return kernel_ldscore.AnnotationBundle(metadata,
+        MappedAnnotations(bundle.annotations, np.flatnonzero(keep.to_numpy()),
+                          tuple(bundle.baseline_columns + bundle.query_columns)),
+        list(bundle.baseline_columns), list(bundle.query_columns))
 
 
 def _annotation_reference_match_mode(

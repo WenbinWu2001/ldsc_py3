@@ -481,16 +481,16 @@ def test_prepared_plink_chromosome_is_reused_by_direct_ldscore():
     prepared = prepare_plink("1", bundle, args)
     direct = compute_plink("1", bundle, args, None)
 
-    assert prepared.annotation_matrix.shape == (len(prepared.metadata), 1)
+    assert prepared.annotations.read().shape == (len(prepared.metadata), 1)
     np.testing.assert_array_equal(
-        prepared.annotation_matrix[:, 0],
+        prepared.annotations.read()[:, 0],
         prepared.metadata["POS"].to_numpy(dtype=np.float64),
     )
     prepared.reader._currentSNP = 0
     reused_scores = prepared.reader.ldScoreVarBlocks(
         prepared.block_left,
         args.snp_batch_size,
-        annot=prepared.annotation_matrix,
+        annot=prepared.annotations.read(),
     )
     np.testing.assert_array_equal(reused_scores.astype(np.float32), direct.ld_scores)
 
@@ -533,7 +533,7 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
     )
     prepared.reader._currentSNP = 0
     expected_ld_scores = prepared.reader.ldScoreVarBlocks(
-        prepared.block_left, args.snp_batch_size, annot=prepared.annotation_matrix
+        prepared.block_left, args.snp_batch_size, annot=prepared.annotations.read()
     )
     assert prepared.reader._currentSNP == prepared.reader.m
     prepared.reader._currentSNP = 0
@@ -546,10 +546,10 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
     geno_type = type(prepared.reader)
     original = geno_type.ldScoreVarBlocks
 
-    def traced_ldscore(self, block_left, batch_size, annot=None):
+    def traced_ldscore(self, block_left, batch_size, annot=None, **options):
         start_cursor = self._currentSNP
-        scores = original(self, block_left, batch_size, annot=annot)
-        calls.append((start_cursor, self._currentSNP, np.asarray(annot).copy()))
+        scores = original(self, block_left, batch_size, annot=annot, **options)
+        calls.append((start_cursor, self._currentSNP, np.column_stack([annot.read(), options["weight_mask"]])))
         return scores
 
     monkeypatch.setattr(geno_type, "ldScoreVarBlocks", traced_ldscore)
@@ -559,11 +559,11 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
 
     assert len(calls) == 1
     start_cursor, end_cursor, projected = calls[0]
-    assert (start_cursor, end_cursor) == (0, len(result.metadata))
+    assert (start_cursor, end_cursor) == (0, result.reference_snp_count)
     assert projected.dtype == np.float32
     np.testing.assert_array_equal(
         projected,
-        np.column_stack([prepared.annotation_matrix, regression_mask]),
+        np.column_stack([prepared.annotations.read(), regression_mask]),
     )
     assert result.ldscore_columns == ["base", "baseline_aux", "query"]
     assert result.baseline_columns == ["base", "baseline_aux"]
@@ -572,19 +572,19 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
     assert result.w_ld.dtype == np.float32
     np.testing.assert_allclose(
         result.ld_scores,
-        expected_ld_scores.astype(np.float32),
+        expected_ld_scores[regression_mask.astype(bool)].astype(np.float32),
         rtol=0.0,
         atol=np.finfo(np.float32).eps,
     )
     np.testing.assert_allclose(
         result.w_ld,
-        expected_w_ld.astype(np.float32),
+        expected_w_ld[regression_mask.astype(bool)].astype(np.float32),
         rtol=0.0,
         atol=np.finfo(np.float32).eps,
     )
-    pd.testing.assert_frame_equal(result.metadata, prepared.metadata)
+    pd.testing.assert_frame_equal(result.metadata, prepared.metadata.loc[regression_mask.astype(bool)].reset_index(drop=True))
     expected_frame = pd.DataFrame(
-        prepared.annotation_matrix,
+        prepared.annotations.read(),
         columns=["base", "baseline_aux", "query"],
     )
     expected_M, expected_M_5_50 = kernel_ldscore.compute_counts(
@@ -627,7 +627,7 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
     assert public.query_table["SNP"].tolist() == public.baseline_table["SNP"].tolist()
     np.testing.assert_array_equal(
         public.baseline_table["regression_ld_scores"].to_numpy(dtype=np.float32),
-        result.w_ld[regression_mask.astype(bool), 0],
+        result.w_ld[:, 0],
     )
     assert public.reference_snp_count == len(prepared.metadata)
     assert public.regression_selected_snp_count == int(regression_mask.sum())
@@ -806,7 +806,7 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
     persisted = kernel_ldscore.regression_mask_from_keys(
         prepared.metadata, regression_keys, args.snp_identifier
     ).astype(bool)
-    baseline64 = np.asarray(prepared.annotation_matrix, dtype=np.float64)
+    baseline64 = np.asarray(prepared.annotations.read(), dtype=np.float64)
     prepared.reader._currentSNP = 0
     expected_baseline = prepared.reader.ldScoreVarBlocks(
         prepared.block_left, args.snp_batch_size, annot=baseline64

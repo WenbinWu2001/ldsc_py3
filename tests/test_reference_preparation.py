@@ -78,8 +78,8 @@ def test_prepared_annotations_share_reference_rows_alleles_cm_maf_and_counts(tmp
     panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
     bundle = ldscore.AnnotationBundle(metadata, values, ["base", "flag"], [])
     with panel.prepare_chromosome("1", bundle, LDScoreConfig(ld_wind_cm=0.3, whole_chromosome_ok=True)) as prepared:
-        assert prepared.annotation_matrix.dtype == np.float32
-        np.testing.assert_array_equal(prepared.annotation_matrix, [[1, 1], [3, 0]])
+        assert prepared.annotations.read().dtype == np.float32
+        np.testing.assert_array_equal(prepared.annotations.read(), [[1, 1], [3, 0]])
         pd.testing.assert_frame_equal(prepared.metadata[reference.columns], reference)
         result = ldscore.compute_chromosome("1", prepared, snp_identifier=mode, snp_batch_size=3)
         np.testing.assert_allclose(result.ld_scores, [[2.5, 1], [3.5, 0.5]])
@@ -170,6 +170,32 @@ def test_plink_preparation_maps_sorted_annotations_to_physical_bed_columns(tmp_p
                      ld_wind_kb=None, ld_wind_cm=None, yes_really=True)
     with prepare_plink("1", ldscore.AnnotationBundle(metadata, pd.DataFrame({"base": metadata.POS}), ["base"], []), args) as prepared:
         assert prepared.metadata["SNP"].tolist() == ["rs_7", "rs_6", "rs_5", "rs_4"]
-        np.testing.assert_array_equal(prepared.annotation_matrix[:, 0], [1, 2, 3, 4])
+        np.testing.assert_array_equal(prepared.annotations.read()[:, 0], [1, 2, 3, 4])
         golden = np.load(source.parents[1] / "golden" / "reader_golden.npz")
         np.testing.assert_allclose(prepared.reader.nextSNPs(4), golden["decoded"][:, ::-1], rtol=0, atol=0)
+
+
+def test_reference_preparation_defers_value_reads_and_kernel_returns_only_output_rows(tmp_path):
+    from ldsc._kernel.ldscore_projection import ArrayAnnotations
+
+    metadata = write_panel(tmp_path)
+    reads = []
+    class RecordingSource(ArrayAnnotations):
+        def read(self, *, rows=None, columns=None):
+            reads.append(tuple(columns))
+            return super().read(rows=rows, columns=columns)
+    source = RecordingSource(np.array([[1,2,0],[1,0,4]],dtype=np.float32), ('base','q1','q2'))
+    config = GlobalConfig(snp_identifier='rsid')
+    panel = ParquetR2RefPanel(config, RefPanelConfig(backend='parquet_r2',r2_dir=tmp_path))
+    bundle = ldscore.AnnotationBundle(metadata,source,['base'],['q1','q2'])
+    with panel.prepare_chromosome('1',bundle,LDScoreConfig(ld_wind_snps=1,whole_chromosome_ok=True)) as prepared:
+        assert not reads
+        result = ldscore.compute_chromosome('1',prepared,snp_identifier='rsid',snp_batch_size=1,
+            regression_keys={'rs1'},query_batch_size=1)
+        assert result.metadata.SNP.tolist() == ['rs1']
+        np.testing.assert_array_equal(result.ld_scores, [[1.5,2,2]])
+        np.testing.assert_array_equal(result.w_ld, [[1]])
+        np.testing.assert_array_equal(result.M, [2,2,4])
+        np.testing.assert_array_equal(result.M_5_50, [1,0,4])
+        assert result.reference_snp_count == 2
+        assert all(len(names)<=1 for names in reads)

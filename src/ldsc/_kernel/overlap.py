@@ -88,3 +88,54 @@ def sum_overlap_contributions(contributions: list[OverlapContribution]) -> Overl
     return OverlapContribution(
         block_all, block_common, query_diag_all, query_diag_common, n_all, n_common
     )
+
+
+def annotation_statistics(metadata, annotations, n_baseline, *, query_batch_size=1000,
+                          common_maf_min=0.05, read_budget_bytes=16*1024*1024):
+    """Accumulate counts, overlap blocks, and classifications in bounded tiles.
+
+    Counts retain the existing float32 reduction policy, while products use
+    float64. Only baseline-by-query overlaps and query diagonals are retained;
+    different focal queries are never crossed. All rows are reference SNPs,
+    independently of which SNPs receive output LD scores.
+    """
+    from ..annotation_semantics import classify_annotation_values
+
+    n_rows, n_columns = annotations.shape
+    n_query = n_columns-n_baseline
+    common = None if 'MAF' not in metadata or metadata.MAF.isna().all() else (metadata.MAF >= common_maf_min).to_numpy()
+    counts = np.zeros(n_columns, dtype=np.float32)
+    counts_common = None if common is None else np.zeros(n_columns, dtype=np.float32)
+    block = np.zeros((n_baseline,n_columns), dtype=np.float64)
+    block_common = None if common is None else np.zeros_like(block)
+    diagonal = np.zeros(n_query, dtype=np.float64)
+    diagonal_common = None if common is None else np.zeros_like(diagonal)
+    kinds = dict.fromkeys(annotations.columns, 'binary')
+    batches = [(0,n_baseline)] if n_baseline else []
+    batches.extend((start,min(start+query_batch_size,n_columns)) for start in range(n_baseline,n_columns,query_batch_size))
+    tile = max(1, read_budget_bytes // (8*max(1,2*n_baseline+min(n_query,query_batch_size))))
+    for first in range(0,n_rows,tile):
+        last = min(first+tile,n_rows)
+        rows = slice(first,last)
+        baseline = annotations.read(rows=rows, columns=annotations.columns[:n_baseline]).astype(np.float64)
+        selected = None if common is None else common[rows]
+        for start,stop in batches:
+            names = annotations.columns[start:stop]
+            values = baseline.astype(np.float32) if start == 0 and stop == n_baseline else annotations.read(rows=rows,columns=names)
+            counts[start:stop] += values.sum(axis=0,dtype=np.float32)
+            numeric = values.astype(np.float64)
+            block[:,start:stop] += baseline.T @ numeric
+            if start >= n_baseline:
+                diagonal[start-n_baseline:stop-n_baseline] += np.einsum('sq,sq->q',numeric,numeric)
+            if selected is not None:
+                counts_common[start:stop] += values[selected].sum(axis=0,dtype=np.float32)
+                common_values = numeric[selected]
+                block_common[:,start:stop] += baseline[selected].T @ common_values
+                if start >= n_baseline:
+                    diagonal_common[start-n_baseline:stop-n_baseline] += np.einsum('sq,sq->q',common_values,common_values)
+            for name,kind in classify_annotation_values(pd.DataFrame(values,columns=names)).items():
+                if kind == 'quantitative':
+                    kinds[name] = kind
+    overlap = OverlapContribution(block,block_common,diagonal,diagonal_common,n_rows,
+                                  None if common is None else int(common.sum()))
+    return counts.astype(np.float64), None if counts_common is None else counts_common.astype(np.float64), overlap, kinds

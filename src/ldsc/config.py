@@ -534,6 +534,7 @@ class LDScoreConfig:
     ld_wind_cm: float | None = None
     regr_snps_file: str | PathLike[str] | None = None
     snp_batch_size: int = 128
+    query_batch_size: int = 1000
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
     export_ref_metadata: bool = False
@@ -552,6 +553,8 @@ class LDScoreConfig:
             raise LDSCConfigError(_positive_number_message("LDScoreConfig", "ld_wind_cm", self.ld_wind_cm))
         if not 0 <= self.common_maf_min <= 0.5:
             raise LDSCConfigError(_range_message("LDScoreConfig", "common_maf_min", self.common_maf_min, "[0, 0.5]"))
+        if isinstance(self.query_batch_size, bool) or not isinstance(self.query_batch_size, int) or self.query_batch_size < 1:
+            raise LDSCConfigError("query_batch_size must be a positive integer.")
         if self.snp_batch_size <= 0:
             raise LDSCConfigError(_positive_number_message("LDScoreConfig", "snp_batch_size", self.snp_batch_size))
         if self.threads == 0:

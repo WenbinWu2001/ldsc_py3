@@ -73,7 +73,7 @@ from .._row_alignment import assert_same_snp_rows
 from . import formats as legacy_parse
 from .annotation import _annotation_parse_error_message, _validate_annotation_values
 from .identifiers import build_snp_id_series, read_snp_restriction_keys
-from .overlap import OverlapContribution, compute_overlap
+from .overlap import OverlapContribution, compute_overlap, annotation_statistics
 from .plink_bed import PlinkBEDFile  # Re-exported for the reference-panel adapters.
 from .ldscore_projection import ArrayAnnotations, ProjectionAccumulator
 from .snp_identity import (
@@ -123,11 +123,21 @@ MAF_ALIASES = ("MAF", "FRQ", "FREQ", "FREQUENCY")
 
 @dataclass
 class AnnotationBundle:
-    """Per-chromosome annotation payload consumed by the LD-score backends."""
+    """Chromosome metadata and a selected-read annotation source.
+
+    Explicitly supplied DataFrames are numerical inputs owned by the caller;
+    workflow preparation supplies a shard descriptor instead.
+    """
     metadata: pd.DataFrame
-    annotations: pd.DataFrame
+    annotations: object
     baseline_columns: list[str]
     query_columns: list[str]
+
+    def __post_init__(self):
+        if isinstance(self.annotations, pd.DataFrame):
+            self.annotations = ArrayAnnotations(
+                self.annotations.to_numpy(dtype=np.float32, copy=False),
+                tuple(self.baseline_columns + self.query_columns))
 
 
 @dataclass
@@ -142,6 +152,10 @@ class ChromComputationResult:
     ldscore_columns: list[str]
     baseline_columns: list[str]
     query_columns: list[str]
+    reference_snp_count: int = 0
+    regression_selected_snp_count: int = 0
+    regression_region_removed_snp_count: int = 0
+    annotation_types: dict = field(default_factory=dict)
     overlap: OverlapContribution | None = None
     identity_drops: pd.DataFrame = field(default_factory=empty_identity_drop_frame)
 
@@ -150,15 +164,15 @@ class ChromComputationResult:
 class PreparedChromosome:
     """Aligned reference state whose reader belongs to one chromosome calculation.
 
-    ``annotation_matrix`` has shape (n_retained_snps, n_annotations) in exactly
-    ``metadata`` order. ``block_left`` describes that same retained universe.
-    Use as a context manager; closing it releases the backend file handle.
+    ``annotations`` maps selected reads to source rows in ``metadata`` order.
+    ``block_left`` describes that full contributor universe. Use as a context
+    manager; closing releases the reader and chromosome working state.
     """
 
     backend: str
     reader: object
     metadata: pd.DataFrame
-    annotation_matrix: np.ndarray
+    annotations: object
     block_left: np.ndarray
     baseline_columns: list[str]
     query_columns: list[str]
@@ -172,6 +186,10 @@ class PreparedChromosome:
     def close(self):
         """Release the chromosome reader on success or failure."""
         self.reader.close()
+        self.reader = None
+        self.annotations = None
+        self.metadata = None
+        self.block_left = None
 
     def __enter__(self):
         return self
@@ -1309,7 +1327,7 @@ def regression_mask_from_keys(
 
 def compute_chromosome(
     chrom: str, prepared: PreparedChromosome, *, snp_identifier: str,
-    snp_batch_size: int, common_maf_min: float = 0.05,
+    snp_batch_size: int, common_maf_min: float = 0.05, query_batch_size: int = 1000,
     regression_keys: set[str] | RestrictionIdentityKeys | None = None,
     regression_regions: RegionIntervals | None = None,
 ) -> ChromComputationResult:
@@ -1320,32 +1338,34 @@ def compute_chromosome(
     counts and overlap; it never resolves paths or reopens a reference panel.
     """
     metadata = prepared.metadata
-    annotations = pd.DataFrame(prepared.annotation_matrix,
-                               columns=prepared.baseline_columns + prepared.query_columns)
+    regression_selected = regression_mask_from_keys(metadata, regression_keys, snp_identifier)
     regression_mask = regression_mask_from_keys(
         metadata, regression_keys, snp_identifier, region_intervals=regression_regions,
     )
-    combined_annotation = np.column_stack([prepared.annotation_matrix, regression_mask])
+    output_rows = np.flatnonzero(regression_mask)
+    options = dict(output_rows=output_rows, n_baseline=len(prepared.baseline_columns),
+                   query_batch_size=query_batch_size, weight_mask=regression_mask)
     if prepared.backend == "plink":
         prepared.reader._currentSNP = 0
         combined_scores = np.asarray(prepared.reader.ldScoreVarBlocks(
-            prepared.block_left, snp_batch_size, annot=combined_annotation,
+            prepared.block_left, snp_batch_size, annot=prepared.annotations, **options,
         ), dtype=np.float32)
     else:
         combined_scores = ld_score_streaming_from_r2_reader(
-            block_left=prepared.block_left, annot=combined_annotation, block_reader=prepared.reader,
+            block_left=prepared.block_left, annot=prepared.annotations, block_reader=prepared.reader, **options,
         )
-    n_columns = prepared.annotation_matrix.shape[1]
-    M, M_5_50 = compute_counts(metadata, annotations, common_maf_min=common_maf_min)
-    overlap = compute_overlap(metadata, annotations, n_baseline=len(prepared.baseline_columns),
-                              common_maf_min=common_maf_min)
+    n_columns = prepared.annotations.shape[1]
+    M, M_5_50, overlap, kinds = annotation_statistics(metadata, prepared.annotations,
+        len(prepared.baseline_columns), common_maf_min=common_maf_min, query_batch_size=query_batch_size)
     return ChromComputationResult(
-        chrom=chrom, metadata=metadata.reset_index(drop=True),
+        chrom=chrom, metadata=metadata.iloc[output_rows].reset_index(drop=True),
         ld_scores=combined_scores[:, :n_columns], w_ld=combined_scores[:, n_columns:],
         M=M, M_5_50=M_5_50,
         ldscore_columns=prepared.baseline_columns + prepared.query_columns,
         baseline_columns=prepared.baseline_columns, query_columns=prepared.query_columns,
-        overlap=overlap, identity_drops=prepared.identity_drops,
+        reference_snp_count=len(metadata), regression_selected_snp_count=int(regression_selected.sum()),
+        regression_region_removed_snp_count=int(regression_selected.sum()-len(output_rows)),
+        annotation_types=kinds, overlap=overlap, identity_drops=prepared.identity_drops,
     )
 
 

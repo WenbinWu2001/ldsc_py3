@@ -76,9 +76,6 @@ from .query_annotations import (
     _log_gene_list_rejections, _log_gene_list_snp_support,
     _log_query_annotation_statuses, _all_query_annotations_skipped_message,
 )
-from .annotation_semantics import (
-    require_unique_annotation_names,
-)
 
 
 LOGGER = logging.getLogger("LDSC.ldscore_calculator")
@@ -257,45 +254,28 @@ class LDScoreResult:
 
     def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""
-        require_unique_annotation_names(self.baseline_columns, self.query_columns)
-        required = {"CHR", "SNP", "POS", REGRESSION_LD_SCORE_COLUMN, *self.baseline_columns}
-        missing = required - set(self.baseline_table.columns)
-        if missing:
-            raise LDSCInternalError(
-                "LD-score result validation failed in LDScoreResult.validate(): "
-                f"baseline_table is missing required columns {sorted(missing)}. "
-                "Most likely chromosome aggregation dropped metadata or LD-score columns. "
-                "Re-run with DEBUG logging and report the traceback."
+        from .ldscore_source import validate_ldscore_schemas
+
+        validate_ldscore_schemas(
+            self.baseline_columns, self.query_columns, self.baseline_table.columns,
+            None if self.query_table is None else self.query_table.columns,
+        )
+        if require_query_alignment and self.query_table is not None:
+            assert_same_snp_rows(
+                self.baseline_table,
+                self.query_table,
+                context="query rows must match baseline rows on CHR/SNP/POS",
+                snp_identifier=getattr(self.config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
             )
-        if self.query_columns and self.query_table is None:
-            raise LDSCInternalError(
-                "LD-score result validation failed in LDScoreResult.validate(): "
-                "query columns are present but query_table is missing. Most likely chromosome "
-                "aggregation lost the query table. Re-run with DEBUG logging and report the traceback."
-            )
-        if not self.query_columns and self.query_table is not None:
-            raise LDSCInternalError(
-                "LD-score result validation failed in LDScoreResult.validate(): "
-                "query_table was provided but query_columns is empty. Most likely an internal "
-                "result assembly step preserved an unexpected query table. Re-run with DEBUG "
-                "logging and report the traceback."
-            )
-        if self.query_table is not None:
-            missing_query = {"CHR", "SNP", "POS", *self.query_columns} - set(self.query_table.columns)
-            if missing_query:
-                raise LDSCInternalError(
-                    "LD-score result validation failed in LDScoreResult.validate(): "
-                    f"query_table is missing required columns {sorted(missing_query)}. "
-                    "Most likely chromosome aggregation dropped metadata or query annotation "
-                    "columns. Re-run with DEBUG logging and report the traceback."
-                )
-            if require_query_alignment:
-                assert_same_snp_rows(
-                    self.baseline_table,
-                    self.query_table,
-                    context="query rows must match baseline rows on CHR/SNP/POS",
-                    snp_identifier=getattr(self.config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
-                )
+
+    def read_queries(self, columns):
+        """Select an explicit query batch from caller-owned aggregate output."""
+        if self.query_table is None:
+            if columns:
+                raise LDSCInputError("LD-score result has no query table.")
+            return None
+        metadata = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in self.query_table]
+        return self.query_table.loc[:, metadata + list(columns)].reset_index(drop=True)
 
     def summary(self) -> dict[str, Any]:
         """Return a compact cross-chromosome summary."""

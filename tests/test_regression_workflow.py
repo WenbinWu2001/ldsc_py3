@@ -57,6 +57,9 @@ class RegressionWorkflowTest(unittest.TestCase):
     def tearDown(self):
         reset_global_config()
 
+    def temporary_output_dir(self):
+        return Path(self.enterContext(tempfile.TemporaryDirectory()))
+
     def write_sumstats_sidecar(
         self,
         path: Path,
@@ -156,9 +159,10 @@ class RegressionWorkflowTest(unittest.TestCase):
                 encoding="utf-8",
             )
             result = load_ldscore_from_dir(str(tmpdir))
+            query = result.read_queries(["query"])
 
         self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "regression_ld_scores", "base"])
-        self.assertEqual(result.query_table.columns.tolist(), ["CHR", "SNP", "POS", "query"])
+        self.assertEqual(query.columns.tolist(), ["CHR", "SNP", "POS", "query"])
         self.assertEqual(result.count_records[0]["column"], "base")
         self.assertEqual(result.ld_regression_snps, frozenset({"rs1"}))
         self.assertEqual(result.config_snapshot, GlobalConfig(snp_identifier="rsid"))
@@ -1297,13 +1301,8 @@ class RegressionWorkflowTest(unittest.TestCase):
         )
         # The toy LD columns are collinear; exercise selection independently.
         with mock.patch.object(regression_runner, "_raise_on_model_collinearity"), _stub_h2_kernel(fake_hsq):
-            result = runner.estimate_partitioned_h2_batch(
-                self._high_chisq_sumstats(),
-                ldscore_result,
-                annotation_bundle,
-                include_full_partitioned_h2=True,
-            )
-        meta = result.per_query_metadata["query1"]
+            result = runner.estimate_partitioned_h2_batch(self._high_chisq_sumstats(), ldscore_result, query_columns=annotation_bundle.query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
+        meta = json.loads(result.per_query_artifacts["query1"].metadata.read_text())
         self.assertEqual(meta["n_snps"], 2)
         self.assertAlmostEqual(meta["effective_chisq_max"], 100.0)
 
@@ -1333,13 +1332,9 @@ class RegressionWorkflowTest(unittest.TestCase):
             enrichment=np.array([1.0]), n_blocks=200, n_annot=1,
         )
         with _stub_h2_kernel(fake_hsq):
-            result = runner.estimate_partitioned_h2_batch(
-                self._high_chisq_sumstats(),
-                ldscore_result,
-                replace(self.make_annotation_bundle(), query_columns=[]),
-            )
-        self.assertEqual(result.aggregate_metadata["n_snps"], 1)
-        self.assertAlmostEqual(result.aggregate_metadata["effective_chisq_max"], 4.0)
+            result = runner.estimate_partitioned_h2_batch(self._high_chisq_sumstats(), ldscore_result, query_columns=replace(self.make_annotation_bundle(), query_columns=[]).query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
+        self.assertEqual(json.loads(Path(result.output_paths["metadata"]).read_text())["n_snps"], 1)
+        self.assertAlmostEqual(json.loads(Path(result.output_paths["metadata"]).read_text())["effective_chisq_max"], 4.0)
 
     def test_partitioned_functional_single_annotation_warns_degenerate(self):
         # A functional fit over a single baseline annotation is degenerate; warn.
@@ -1355,11 +1350,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         with _stub_h2_kernel(fake_hsq), self.assertLogs(
             "LDSC.regression_runner", level="WARNING"
         ) as logs:
-            runner.estimate_partitioned_h2_batch(
-                self.make_sumstats_table(),
-                ldscore_result,
-                replace(self.make_annotation_bundle(), query_columns=[]),
-            )
+            runner.estimate_partitioned_h2_batch(self.make_sumstats_table(), ldscore_result, query_columns=replace(self.make_annotation_bundle(), query_columns=[]).query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
         self.assertTrue(any("degenerate" in m.lower() for m in logs.output))
 
     def test_partitioned_cell_type_regime_does_not_warn_degenerate(self):
@@ -1378,9 +1369,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             mock.patch.object(regression_runner.LOGGER, "warning") as warn,
             _stub_h2_kernel(fake_hsq),
         ):
-            runner.estimate_partitioned_h2_batch(
-                self.make_sumstats_table(), self.make_ldscore_result(), self.make_annotation_bundle()
-            )
+            runner.estimate_partitioned_h2_batch(self.make_sumstats_table(), self.make_ldscore_result(), query_columns=self.make_annotation_bundle().query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
         self.assertFalse(any("degenerate" in str(call).lower() for call in warn.call_args_list))
 
     def test_build_rg_dataset_uses_final_three_way_snp_intersection(self):
@@ -1906,9 +1895,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             n_blocks=200, n_annot=1,
         )
         with _stub_h2_kernel(fake_hsq):
-            result = runner.estimate_partitioned_h2_batch(
-                self.make_sumstats_table(), ldscore_result, replace(self.make_annotation_bundle(), query_columns=[]),
-            )
+            result = runner.estimate_partitioned_h2_batch(self.make_sumstats_table(), ldscore_result, query_columns=replace(self.make_annotation_bundle(), query_columns=[]).query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
         summary = result.summary
         self.assertEqual(summary["category"].tolist(), ["base"])
         self.assertEqual(summary.columns.tolist(), regression_runner.PARTITIONED_H2_COLUMNS)
@@ -1917,9 +1904,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         ldscore_result = replace(self.make_ldscore_result(), overlap=None)
         with self.assertRaisesRegex(LDSCInputError, "overlap matrix"):
-            runner.estimate_partitioned_h2_batch(
-                self.make_sumstats_table(), ldscore_result, self.make_annotation_bundle(),
-            )
+            runner.estimate_partitioned_h2_batch(self.make_sumstats_table(), ldscore_result, query_columns=self.make_annotation_bundle().query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
 
     def test_summary_sort_auto_is_regime_aware(self):
         from ldsc.regression_runner import _resolve_summary_sort
@@ -2007,10 +1992,11 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.assertLogs("LDSC.regression_runner", level="INFO") as captured,
             _stub_h2_kernel(fake_hsq) as patched,
         ):
-            result = runner.estimate_partitioned_h2_batch(table, ldscore_result, annotation_bundle)
+            result = runner.estimate_partitioned_h2_batch(table, ldscore_result, query_columns=annotation_bundle.query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
+        result = result.summary
         self.assertEqual(patched.call_count, 2)
         phase_lines = "\n".join(captured.output)
-        self.assertEqual(phase_lines.count("Phase timing: regression dataset assembly completed"), 2)
+        self.assertEqual(phase_lines.count("Phase timing: shared regression preparation completed"), 1)
         self.assertEqual(phase_lines.count("Phase timing: estimator execution completed"), 2)
         self.assertEqual(result.columns.tolist(), regression_runner.PARTITIONED_H2_COLUMNS)
         self.assertEqual(result["category"].tolist(), ["query1", "query2"])
@@ -2041,26 +2027,21 @@ class RegressionWorkflowTest(unittest.TestCase):
         )
         # The toy LD columns are collinear; exercise selection independently.
         with mock.patch.object(regression_runner, "_raise_on_model_collinearity"), _stub_h2_kernel(fake_hsq):
-            result = runner.estimate_partitioned_h2_batch(
-                table,
-                ldscore_result,
-                annotation_bundle,
-                include_full_partitioned_h2=True,
-            )
+            result = runner.estimate_partitioned_h2_batch(table, ldscore_result, query_columns=annotation_bundle.query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
 
         self.assertIsInstance(result, regression_runner.PartitionedH2BatchResult)
         self.assertEqual(result.summary["category"].tolist(), ["query1", "query2"])
-        self.assertIn("query1", result.per_query_category_tables)
-        self.assertEqual(result.per_query_metadata["query1"]["effective_snp_identifier"], "rsid")
-        self.assertFalse(result.per_query_metadata["query1"]["identity_downgrade_applied"])
+        self.assertIn("query1", result.per_query_artifacts)
+        self.assertEqual(json.loads(result.per_query_artifacts["query1"].metadata.read_text())["effective_snp_identifier"], "rsid")
+        self.assertFalse(json.loads(result.per_query_artifacts["query1"].metadata.read_text())["identity_downgrade_applied"])
         # Per-query full table holds all baseline+query model rows in the single schema.
-        self.assertEqual(result.per_query_category_tables["query1"]["category"].tolist(), ["base", "query1"])
+        self.assertEqual(pd.read_csv(result.per_query_artifacts["query1"].full, sep="\t")["category"].tolist(), ["base", "query1"])
         self.assertEqual(
-            result.per_query_category_tables["query1"].columns.tolist(),
+            pd.read_csv(result.per_query_artifacts["query1"].full, sep="\t").columns.tolist(),
             regression_runner.PARTITIONED_H2_COLUMNS,
         )
         # One fitted model -> one total h2, broadcast across that model's rows.
-        self.assertEqual(result.per_query_category_tables["query1"]["total_h2_obs"].tolist(), [0.3, 0.3])
+        self.assertEqual(pd.read_csv(result.per_query_artifacts["query1"].full, sep="\t")["total_h2_obs"].tolist(), [0.3, 0.3])
 
     def _base_only_partitioned_fixture(self):
         """Single-base-annotation dataset + fitted-Hsq mock for partitioned tests."""
@@ -3031,422 +3012,12 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(enrichment["category"].tolist(), ["query_c", "query_d", "query_b", "query_a"])
         self.assertEqual(coefficient["category"].tolist(), ["query_a", "query_d", "query_b", "query_c"])
 
-    def test_run_partitioned_h2_from_args_uses_query_columns_from_ldscore_dir(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            args = type(
-                "Args",
-                (),
-                {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(tmpdir / "out"),
-                    "n_blocks": 200,
-                    "no_intercept": False,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
-                },
-            )()
 
-            with mock.patch.object(
-                regression_runner.RegressionRunner,
-                "estimate_partitioned_h2_batch",
-                return_value=pd.DataFrame(
-                    [
-                        {
-                            "category": "query",
-                            "prop_snps": 1.0,
-                            "prop_h2": 0.5,
-                            "enrichment": 1.0,
-                            "enrichment_p": 0.2,
-                            "coefficient": 1.0,
-                            "coefficient_p": 0.03,
-                        }
-                    ]
-                ),
-            ) as patched, mock.patch.object(
-                regression_runner.PartitionedH2DirectoryWriter,
-                "write",
-            ):
-                summary = regression_runner.run_partitioned_h2_from_args(args)
 
-        patched.assert_called_once()
-        self.assertTrue(patched.call_args.kwargs["include_full_partitioned_h2"])
-        self.assertEqual(patched.call_args.args[2].query_columns, ["query"])
-        self.assertEqual(summary.loc[0, "category"], "query")
 
-    def test_baseline_only_run_keeps_complete_model_at_root(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=False)
-            args = type(
-                "Args",
-                (),
-                {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(tmpdir / "out"),
-                    "overwrite": False,
-                    "n_blocks": 200,
-                    "no_intercept": False,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
-                },
-            )()
-            result = regression_runner.PartitionedH2BatchResult(
-                summary=pd.DataFrame([{"category": "base"}]).reindex(
-                    columns=regression_runner.PARTITIONED_H2_COLUMNS
-                ),
-                per_query_category_tables={},
-                per_query_metadata={},
-                coefficient_delete_values=pd.DataFrame(
-                    {"delete_block": [0], "base": [0.1]}
-                ),
-            )
 
-            with mock.patch.object(
-                regression_runner.RegressionRunner,
-                "estimate_partitioned_h2_batch",
-                return_value=result,
-            ) as estimator, mock.patch.object(
-                regression_runner.PartitionedH2DirectoryWriter,
-                "write",
-            ) as writer, warnings.catch_warnings(record=True) as captured:
-                warnings.simplefilter("always")
-                regression_runner.run_partitioned_h2_from_args(args)
 
-        self.assertFalse(estimator.call_args.kwargs["include_full_partitioned_h2"])
-        output_config = writer.call_args.args[1]
-        self.assertFalse(output_config.write_per_query_results)
-        self.assertEqual(writer.call_args.kwargs["per_query_category_tables"], {})
-        self.assertIs(writer.call_args.kwargs["coefficient_delete_values"], result.coefficient_delete_values)
-        deprecations = [item for item in captured if item.category is FutureWarning]
-        self.assertEqual(deprecations, [])
 
-    def test_run_partitioned_h2_from_args_writes_with_partitioned_writer(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            output_dir = tmpdir / "out"
-            args = type(
-                "Args",
-                (),
-                {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(output_dir),
-                    "overwrite": False,
-                    "n_blocks": 200,
-                    "no_intercept": False,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
-                },
-            )()
-
-            with mock.patch.object(
-                regression_runner.RegressionRunner,
-                "estimate_partitioned_h2_batch",
-                return_value=pd.DataFrame(
-                    [
-                        {
-                            "category": "low",
-                            "prop_snps": 0.5,
-                            "prop_h2": 0.2,
-                            "enrichment": 1.0,
-                            "enrichment_p": 0.2,
-                            "coefficient": 1.0,
-                            "coefficient_p": 0.03,
-                        },
-                        {
-                            "category": "high",
-                            "prop_snps": 0.5,
-                            "prop_h2": 0.8,
-                            "enrichment": 3.0,
-                            "enrichment_p": 0.01,
-                            "coefficient": 2.0,
-                            "coefficient_p": 0.05,
-                        },
-                    ]
-                ),
-            ), mock.patch.object(
-                regression_runner.PartitionedH2DirectoryWriter,
-                "write",
-            ) as writer:
-                with warnings.catch_warnings(record=True) as captured:
-                    warnings.simplefilter("always")
-                    summary = regression_runner.run_partitioned_h2_from_args(args)
-            log_text = (output_dir / "diagnostics" / "partitioned-h2.log").read_text(encoding="utf-8")
-
-        writer.assert_called_once()
-        output_config = writer.call_args.args[1]
-        self.assertEqual(str(output_config.output_dir), str(output_dir))
-        self.assertTrue(output_config.write_per_query_results)
-        deprecations = [item for item in captured if item.category is FutureWarning]
-        self.assertEqual(deprecations, [])
-        self.assertEqual(writer.call_args.kwargs["metadata"]["count_kind"], "common")
-        self.assertEqual(writer.call_args.kwargs["metadata"]["trait_name"], "trait")
-        self.assertEqual(summary["category"].tolist(), ["low", "high"])
-        self.assertIn("Phase timing: sumstats loading completed", log_text)
-        self.assertIn("Phase timing: LD-score loading completed", log_text)
-        self.assertIn("Phase timing: legacy projection completed", log_text)
-        self.assertIn("Phase timing: output writing completed", log_text)
-
-    def test_run_partitioned_h2_from_args_sorts_summary_before_writing(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            output_dir = tmpdir / "out"
-            args = type(
-                "Args",
-                (),
-                {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(output_dir),
-                    "overwrite": False,
-                    "n_blocks": 200,
-                    "no_intercept": False,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
-                    "summary_sort_by": "enrichment-p",
-                },
-            )()
-            unsorted = pd.DataFrame(
-                [
-                    {
-                        "category": "later",
-                        "prop_snps": 0.5,
-                        "prop_h2": 0.4,
-                        "enrichment": 1.2,
-                        "enrichment_p": 0.20,
-                        "coefficient": 1.0,
-                        "coefficient_p": 0.05,
-                    },
-                    {
-                        "category": "first",
-                        "prop_snps": 0.5,
-                        "prop_h2": 0.6,
-                        "enrichment": 1.8,
-                        "enrichment_p": 0.01,
-                        "coefficient": 1.5,
-                        "coefficient_p": 0.03,
-                    },
-                ]
-            )
-
-            with mock.patch.object(
-                regression_runner.RegressionRunner,
-                "estimate_partitioned_h2_batch",
-                return_value=unsorted,
-            ), mock.patch.object(
-                regression_runner.PartitionedH2DirectoryWriter,
-                "write",
-            ) as writer:
-                summary = regression_runner.run_partitioned_h2_from_args(args)
-
-        written_summary = writer.call_args.args[0]
-        self.assertEqual(summary["category"].tolist(), ["first", "later"])
-        self.assertEqual(written_summary["category"].tolist(), ["first", "later"])
-
-    def test_run_partitioned_h2_from_args_sorts_written_summary(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            args = type(
-                "Args",
-                (),
-                {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(tmpdir / "out"),
-                    "n_blocks": 200,
-                    "no_intercept": False,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
-                    "summary_sort_by": "enrichment",
-                },
-            )()
-            unsorted = pd.DataFrame(
-                [
-                    {
-                        "category": "low",
-                        "prop_snps": 0.5,
-                        "prop_h2": 0.4,
-                        "enrichment": 1.2,
-                        "enrichment_p": 0.20,
-                        "coefficient": 1.0,
-                        "coefficient_p": 0.05,
-                    },
-                    {
-                        "category": "high",
-                        "prop_snps": 0.5,
-                        "prop_h2": 0.6,
-                        "enrichment": 1.8,
-                        "enrichment_p": 0.01,
-                        "coefficient": 1.5,
-                        "coefficient_p": 0.03,
-                    },
-                ]
-            )
-
-            with mock.patch.object(
-                regression_runner.RegressionRunner,
-                "estimate_partitioned_h2_batch",
-                return_value=unsorted,
-            ), mock.patch.object(
-                regression_runner.PartitionedH2DirectoryWriter,
-                "write",
-            ):
-                summary = regression_runner.run_partitioned_h2_from_args(args)
-
-        self.assertEqual(summary["category"].tolist(), ["high", "low"])
-
-    def test_run_partitioned_h2_from_args_sorted_summary_drives_per_query_manifest_order(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            output_dir = tmpdir / "out"
-            args = type(
-                "Args",
-                (),
-                {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(output_dir),
-                    "overwrite": False,
-                    "n_blocks": 200,
-                    "no_intercept": False,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
-                    "summary_sort_by": "enrichment-p",
-                },
-            )()
-            unsorted = pd.DataFrame(
-                [
-                    {
-                        "category": "later",
-                        "prop_snps": 0.5,
-                        "prop_h2": 0.4,
-                        "enrichment": 1.2,
-                        "enrichment_p": 0.20,
-                        "coefficient": 1.0,
-                        "coefficient_p": 0.05,
-                    },
-                    {
-                        "category": "first",
-                        "prop_snps": 0.5,
-                        "prop_h2": 0.6,
-                        "enrichment": 1.8,
-                        "enrichment_p": 0.01,
-                        "coefficient": 1.5,
-                        "coefficient_p": 0.03,
-                    },
-                ]
-            ).reindex(columns=regression_runner.PARTITIONED_H2_COLUMNS)
-            result = regression_runner.PartitionedH2BatchResult(
-                summary=unsorted,
-                per_query_category_tables={},
-                per_query_metadata={},
-                per_query_coefficient_delete_values={
-                    "later": pd.DataFrame({"delete_block": [0], "base": [0.1], "later": [0.2]}),
-                    "first": pd.DataFrame({"delete_block": [0], "base": [0.1], "first": [0.2]}),
-                },
-            )
-
-            with mock.patch.object(
-                regression_runner.RegressionRunner,
-                "estimate_partitioned_h2_batch",
-                return_value=result,
-            ):
-                summary = regression_runner.run_partitioned_h2_from_args(args)
-
-            manifest = pd.read_csv(output_dir / "diagnostics" / "query_annotations" / "manifest.tsv", sep="\t")
-
-        self.assertEqual(summary["category"].tolist(), ["first", "later"])
-        self.assertEqual(manifest["query_annotation"].tolist(), ["first", "later"])
-        self.assertEqual(manifest["folder"].tolist(), ["0001_first", "0002_later"])
-
-    def test_run_partitioned_h2_from_args_uses_metadata_trait_name_when_cli_label_is_omitted(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            self.write_footer_sumstats_parquet(tmpdir / "trait.parquet", trait_name="MDD", snp_identifier="rsid")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            output_dir = tmpdir / "out"
-            args = type(
-                "Args",
-                (),
-                {
-                    "sumstats_file": str(tmpdir / "trait.parquet"),
-                    "trait_name": None,
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(output_dir),
-                    "overwrite": False,
-                    "n_blocks": 200,
-                    "no_intercept": False,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
-                },
-            )()
-
-            with mock.patch.object(
-                regression_runner.RegressionRunner,
-                "estimate_partitioned_h2_batch",
-                return_value=pd.DataFrame([{"category": "query", "coefficient": 1.0}]).reindex(
-                    columns=regression_runner.PARTITIONED_H2_COLUMNS
-                ),
-            ), mock.patch.object(
-                regression_runner.PartitionedH2DirectoryWriter,
-                "write",
-            ) as writer:
-                regression_runner.run_partitioned_h2_from_args(args)
-
-        self.assertEqual(writer.call_args.kwargs["metadata"]["trait_name"], "MDD")
 
     def test_run_partitioned_h2_from_args_refuses_stale_per_query_tree_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3486,120 +3057,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.assertFalse((output_dir / "partitioned-h2.log").exists())
             self.assertFalse((output_dir / "diagnostics" / "partitioned-h2.log").exists())
 
-    def test_run_partitioned_h2_from_args_overwrite_removes_stale_per_query_tree(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            output_dir = tmpdir / "out"
-            stale = output_dir / "diagnostics" / "query_annotations" / "old"
-            stale.mkdir(parents=True)
-            (stale / "metadata.json").write_text("{}\n", encoding="utf-8")
-            args = type(
-                "Args",
-                (),
-                {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(output_dir),
-                    "overwrite": True,
-                    "n_blocks": 200,
-                    "no_intercept": False,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
-                },
-            )()
-            partitioned_summary = pd.DataFrame(
-                [
-                    {
-                        "category": "query",
-                        "prop_snps": 1.0,
-                        "prop_h2": 1.0,
-                        "enrichment": 1.0,
-                        "enrichment_p": 0.5,
-                        "coefficient": 1.0,
-                        "coefficient_p": 0.5,
-                    }
-                ]
-            ).reindex(columns=regression_runner.PARTITIONED_H2_COLUMNS)
 
-            partitioned_result = regression_runner.PartitionedH2BatchResult(
-                summary=partitioned_summary,
-                per_query_category_tables={"query": partitioned_summary},
-                per_query_metadata={"query": {}},
-                per_query_coefficient_delete_values={
-                    "query": pd.DataFrame({"delete_block": [0], "base": [0.1], "query": [0.2]})
-                },
-            )
-            with mock.patch.object(
-                regression_runner.RegressionRunner,
-                "estimate_partitioned_h2_batch",
-                return_value=partitioned_result,
-            ):
-                summary = regression_runner.run_partitioned_h2_from_args(args)
-
-            self.assertEqual(summary.loc[0, "category"], "query")
-            self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
-            self.assertTrue((output_dir / "diagnostics" / "partitioned-h2.log").exists())
-            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
-            self.assertFalse((output_dir / "metadata.json").exists())
-            self.assertFalse((output_dir / "query_annotations").exists())
-            self.assertFalse(stale.exists())
-            self.assertTrue((output_dir / "diagnostics" / "query_annotations" / "manifest.tsv").exists())
-
-    def test_run_partitioned_h2_from_args_records_regime_metadata(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tC\t1.0\t1000\n")
-            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
-            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
-            output_dir = tmpdir / "out"
-            args = type(
-                "Args",
-                (),
-                {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "common",
-                    "output_dir": str(output_dir),
-                    "overwrite": False,
-                    "n_blocks": 200,
-                    "no_intercept": False,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
-                },
-            )()
-            summary = pd.DataFrame(
-                [{"category": "query", "prop_snps": 1.0, "coefficient": 1.0, "coefficient_p": 0.5}]
-            ).reindex(columns=regression_runner.PARTITIONED_H2_COLUMNS)
-            partitioned_result = regression_runner.PartitionedH2BatchResult(
-                summary=summary,
-                per_query_category_tables={"query": summary},
-                per_query_metadata={"query": {}},
-                per_query_coefficient_delete_values={
-                    "query": pd.DataFrame({"delete_block": [0], "base": [0.1], "query": [0.2]})
-                },
-            )
-            with mock.patch.object(
-                regression_runner.RegressionRunner, "estimate_partitioned_h2_batch", return_value=partitioned_result
-            ):
-                regression_runner.run_partitioned_h2_from_args(args)
-            meta = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
-        self.assertEqual(meta["analysis_type"], "cell_type_specific")
-        self.assertEqual(meta["headline_metric"], "coefficient")
-        self.assertEqual(meta["coefficient_p_test"], "one_sided_greater")
-        self.assertEqual(meta["enrichment_p_test"], "two_sided_t")
-        self.assertEqual(meta["files"]["query_annotations"], "diagnostics/query_annotations")
 
     def test_regression_cli_writes_fixed_result_filename_under_output_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:

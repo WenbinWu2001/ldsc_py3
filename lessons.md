@@ -10,6 +10,7 @@ Last updated on: 2026-09-10
 ## Wrapper retirement must account for unmigrated callers
 
 - Summary/root cause/correction: Mechanical wrapper removal during a staged migration left an active caller and an empty import block; search every call site before retirement, replace still-needed forwarding calls directly, and parse edited modules before running the affected suite.
+- Recurrence: Removing the last imported symbol during schema-helper consolidation again left an empty parenthesized import; remove its entire import statement and parse every edited module immediately, including import-only edits.
 
 ## Parser defaults must not be obtained by parsing invented required paths
 - Summary/root cause/correction: Python wrappers for LD-score and reference-panel workflows parsed fake required paths (`placeholder`/`out`) to obtain argparse defaults, which let omitted user arguments become unintended filesystem targets; collect action defaults directly and validate required wrapper arguments before constructing the namespace.

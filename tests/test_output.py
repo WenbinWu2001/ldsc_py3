@@ -465,7 +465,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             loaded = load_ldscore_from_dir(str(output_dir))
             self.assertEqual(metadata["files"], {"baseline": "ldscore.baseline.parquet"})
             self.assertFalse((output_dir / "ldscore.query.parquet").exists())
-            self.assertIsNone(loaded.query_table)
+            self.assertIsNone(loaded.query_path)
             self.assertNotIn("query", loaded.output_paths)
 
     def test_overwrite_removes_stale_overlap_parquet_for_unpartitioned_result(self):
@@ -855,6 +855,14 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             self.assertEqual(metadata["artifact_type"], "partitioned_h2_result")
             self.assertEqual(metadata["files"], {"summary": "partitioned_h2.tsv"})
 
+    def make_fit_artifacts(self):
+        from ldsc.outputs import stage_partitioned_h2_fit
+
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        deletes = self.make_delete_tables()
+        return {name: stage_partitioned_h2_fit(root / str(i), table, deletes[name], {})
+                for i, (name, table) in enumerate(self.make_category_tables().items())}
+
     def test_writes_baseline_model_coefficient_delete_values(self):
         delete_values = pd.DataFrame(
             {"delete_block": [0, 1], "base": np.array([0.4, 0.6], dtype=np.float64)}
@@ -883,8 +891,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             paths = PartitionedH2DirectoryWriter().write(
                 self.make_summary(),
                 PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
-                per_query_category_tables=self.make_category_tables(),
-                per_query_coefficient_delete_values=self.make_delete_tables(),
+                per_query_artifacts=self.make_fit_artifacts(),
                 metadata={"trait_name": "trait", "count_kind": "common", "ldscore_dir": "ldscores"},
             )
 
@@ -948,7 +955,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                 PartitionedH2DirectoryWriter().write(
                     self.make_summary(),
                     PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
-                    per_query_category_tables=self.make_category_tables(),
+                    per_query_artifacts=self.make_fit_artifacts(),
                 )
 
             self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
@@ -969,8 +976,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                     overwrite=True,
                     write_per_query_results=True,
                 ),
-                per_query_category_tables=self.make_category_tables(),
-                per_query_coefficient_delete_values=self.make_delete_tables(),
+                per_query_artifacts=self.make_fit_artifacts(),
             )
 
             self.assertFalse(stale.exists())
@@ -1001,8 +1007,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             PartitionedH2DirectoryWriter().write(
                 self.make_summary(),
                 PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
-                per_query_category_tables=self.make_category_tables(),
-                per_query_coefficient_delete_values=self.make_delete_tables(),
+                per_query_artifacts=self.make_fit_artifacts(),
             )
             self.assertTrue((output_dir / "diagnostics" / "query_annotations" / "manifest.tsv").exists())
 

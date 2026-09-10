@@ -447,7 +447,7 @@ def test_partitioned_parallel_preserves_scores_counts_overlap_and_classification
             [[1.6, 0.35, 1.1], [2.1, 2.1, 1.1], [1.5, 1.0, 1.5], [1.8, 2.9, 1.5]],
             rtol=0, atol=1e-4,  # The fixture's R2 values use int16 parquet quantization.
         )
-        np.testing.assert_allclose(loaded.query_table["query"], [1.1, 1.1, 1.0, 0.8], rtol=0, atol=1e-4)
+        np.testing.assert_allclose(loaded.read_queries(["query"])["query"], [1.1, 1.1, 1.0, 0.8], rtol=0, atol=1e-4)
         assert [record["all_reference_snp_count"] for record in loaded.count_records] == [7, 8, 4]
         assert [record["common_reference_snp_count"] for record in loaded.count_records] == [5, 4.5, 3]
         np.testing.assert_array_equal(loaded.overlap.baseline_block_all, [[7, 8, 4], [8, 16.5, 4]])

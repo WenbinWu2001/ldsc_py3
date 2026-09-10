@@ -115,7 +115,7 @@ Exit checkpoint: a multi-chromosome index is validated and assembled without a d
 
 ### 5. Share batch-regression preparation and stream per-fit details
 
-Status: not started. Depends on slice 1's shared lifecycle primitives. Existing canonical LD directories can exercise this slice independently of new LD-score generation.
+Status: implemented. `LDScoreSource` validates complete schemas and allele metadata while loading query values only on explicit reads. Shared trait alignment and count lookup run once; a query batch is aligned once and each model retains its own filtering, count policy, weights, and jackknife. Each completed category table, delete-value matrix, and fit metadata is written privately and released. The existing writer publishes the complete tree after final sorting; batch results contain persistent paths. The batch Python API now requires `output_dir` and uses explicit query names, and obsolete retained-detail dictionaries are removed. Nine obsolete mocked writer-call tests were replaced with real command cases covering all summary sorts, complete metadata, functional results, overwrite, late fit/publication failures, and invalid batching. Focused regression, output, converter, failure-marker, and parallel-LD integration checks passed 242 tests and three subtests; matched resource measurements and final doc updates remain in slice 7.
 
 Likely areas: [regression_runner.py](../../src/ldsc/regression_runner.py), [outputs.py](../../src/ldsc/outputs.py), selective LD-score loading, configuration, and partitioned-h2 result interfaces.
 

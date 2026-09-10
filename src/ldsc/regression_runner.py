@@ -49,11 +49,11 @@ import math
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 from ._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from .config import (
@@ -81,6 +81,7 @@ from ._row_alignment import assert_same_snp_rows
 from .column_inference import infer_chr_pos_columns, normalize_snp_identifier_mode
 from .genome_build_inference import infer_chr_pos_build
 from .ldscore_calculator import LDScoreResult
+from .ldscore_source import LDScoreSource, validate_ldscore_schemas
 from .outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
@@ -88,6 +89,8 @@ from .outputs import (
     PARTITIONED_H2_COLUMNS,
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
+    PartitionedH2FitArtifacts,
+    stage_partitioned_h2_fit,
     REGRESSION_LD_SCORE_COLUMN,
     RG_CONCISE_COLUMNS,
     RG_FULL_COLUMNS,
@@ -95,6 +98,7 @@ from .outputs import (
     RgOutputConfig,
     _validate_ldscore_allele_columns,
 )
+from ._annotation_storage import AnnotationWorkspace
 from .sumstats_munger import SumstatsTable, load_sumstats
 from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
 
@@ -189,6 +193,22 @@ class RegressionDataset:
 
 
 @dataclass(frozen=True)
+class PreparedRegressionInputs:
+    """Shared trait alignment before model-dependent column/count filtering.
+
+    ``dataset`` carries baseline LD values and aligned traits in genomic order.
+    ``source_rows`` maps these rows back to the original LD-score table, so
+    query batches reuse exactly the same join and allele orientation.
+    """
+
+    dataset: RegressionDataset
+    source_rows: np.ndarray
+    ldscore: LDScoreResult | LDScoreSource
+    ldscore_identity_mode: str
+    counts_by_column: dict[str, dict]
+
+
+@dataclass(frozen=True)
 class RGRegressionDataset:
     """Merged genetic-correlation dataset built from two traits and LD scores.
 
@@ -247,26 +267,15 @@ class _FitOutcome:
 
 @dataclass(frozen=True)
 class PartitionedH2BatchResult:
-    """Batch partitioned-h2 summaries plus optional per-query detail tables.
+    """Compact batch summary and valid persistent artifacts for every fitted model.
 
-    ``summary`` is the compact one-row-per-query table written as
-    ``partitioned_h2.tsv``. The optional detail dictionaries are keyed by
-    original query annotation name and are populated only when callers request
-    the full baseline-plus-query tables that are written as
-    ``partitioned_h2_full.tsv``.
-
-    ``coefficient_delete_values`` stores the complete baseline-only model when
-    the functional-category regime is fitted. In the cell-type regime,
-    ``per_query_coefficient_delete_values`` stores one complete
-    baseline-plus-query coefficient matrix per query. Columns retain fitted
-    annotation order and rows are delete-one-jackknife-block replicates.
+    Category tables and coefficient delete values are written after each fit.
+    Only the summary and path descriptors remain when the batch returns.
     """
+
     summary: pd.DataFrame
-    per_query_category_tables: dict[str, pd.DataFrame]
-    per_query_metadata: dict[str, dict[str, object]]
-    aggregate_metadata: dict[str, object] | None = None
-    coefficient_delete_values: pd.DataFrame | None = None
-    per_query_coefficient_delete_values: dict[str, pd.DataFrame] = field(default_factory=dict)
+    output_paths: dict[str, str] = field(default_factory=dict)
+    per_query_artifacts: dict[str, PartitionedH2FitArtifacts] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -309,14 +318,22 @@ class RegressionRunner:
         self.global_config = global_config or get_global_config()
         self.regression_config = regression_config or RegressionConfig()
 
-    def build_dataset(
+    def build_dataset(self, sumstats_table, ldscore_result, config=None, query_columns=None) -> RegressionDataset:
+        """Align inputs and apply the selected model's count and variance rules.
+
+        Use ``prepare_inputs`` and ``dataset_from_prepared`` to share alignment
+        across separate pathway models. This convenience method forms one fit.
+        """
+        prepared = self.prepare_inputs(sumstats_table, ldscore_result, config=config)
+        return self.dataset_from_prepared(prepared, query_columns=query_columns, config=config)
+
+    def prepare_inputs(
         self,
         sumstats_table: SumstatsTable,
         ldscore_result: LDScoreResult,
         config: RegressionConfig | None = None,
-        query_columns: Sequence[str] | None = None,
-    ) -> RegressionDataset:
-        """Merge sumstats, LD scores, and weights into a regression dataset.
+    ) -> PreparedRegressionInputs:
+        """Align traits and shared baseline LD scores once for a model batch.
 
         If both inputs carry known ``GlobalConfig`` snapshots, their critical
         settings are checked before merging. Unknown-provenance inputs, such as
@@ -328,9 +345,9 @@ class RegressionRunner:
         identity. ``RegressionConfig.allow_identity_downgrade`` permits
         same-family allele-aware/base mixes to run under the base mode.
 
-        Zero-variance LD-score columns are dropped here so the estimator kernel
-        receives only informative regressors. The selected count vector is
-        carried alongside the merged table for later use by ``Hsq``.
+        This preparation preserves every baseline column. Model-dependent
+        variance and count selection occur in ``dataset_from_prepared``;
+        chi-square filtering, weights, and jackknife work occur inside each fit.
         """
         print_global_config_banner(type(self).__name__, self.global_config)
         config = config or self.regression_config
@@ -338,8 +355,7 @@ class RegressionRunner:
         if _is_legacy_sumstats(sumstats_table):
             sumstats_table, legacy_drops = _project_legacy_sumstats_to_panel(sumstats_table, ldscore_result)
         weight_column = REGRESSION_LD_SCORE_COLUMN
-        selected_query_columns = list(query_columns or [])
-        ref_ld_columns = list(ldscore_result.baseline_columns) + selected_query_columns
+        ref_ld_columns = list(ldscore_result.baseline_columns)
         identity = _resolve_h2_identity(sumstats_table, ldscore_result, self.global_config, config)
         identifier_mode = identity.effective_mode
         _regression_genome_build(
@@ -357,9 +373,10 @@ class RegressionRunner:
         ldscore_mode = _ldscore_identity_mode(ldscore_result, self.global_config, fallback_mode=identifier_mode)
         ldscore_frame = _assemble_regression_ldscore_table(
             ldscore_result,
-            selected_query_columns,
+            [],
             snp_identifier=ldscore_mode,
         )
+        ldscore_frame["_ldsc_source_row"] = np.arange(len(ldscore_frame), dtype=np.int64)
         sumstats_frame = sumstats_table.data
         dropped_identity_rows = 0
         if identity.downgrade_applied:
@@ -389,7 +406,7 @@ class RegressionRunner:
                 context=sumstats_table.source_path or "sumstats",
             )
             ldscore_keyed = _with_effective_identity_key(ldscore_frame, identifier_mode, context="LD-score table")
-            ldscore_columns = [REGRESSION_IDENTITY_KEY_COLUMN, *ref_ld_columns, weight_column]
+            ldscore_columns = [REGRESSION_IDENTITY_KEY_COLUMN, *ref_ld_columns, weight_column, "_ldsc_source_row"]
             ldscore_payload = ldscore_keyed.loc[:, ldscore_columns].copy()
             if {"A1", "A2"}.issubset(ldscore_keyed.columns):
                 ldscore_payload["A1_ld"] = ldscore_keyed["A1"]
@@ -409,7 +426,7 @@ class RegressionRunner:
                 merged = _orient_sumstats_z_to_reference_alleles(merged)
         elif identity_mode_family(identifier_mode) == "rsid":
             merged = pd.merge(
-                ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
+                ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column, "_ldsc_source_row"]].reset_index(drop=True),
                 sumstats_frame,
                 how="inner",
                 on="SNP",
@@ -419,7 +436,7 @@ class RegressionRunner:
             sumstats_keyed = _with_chr_pos_key(sumstats_frame, context=sumstats_table.source_path or "sumstats")
             ldscore_keyed = _with_chr_pos_key(ldscore_frame, context="LD-score table")
             merged = pd.merge(
-                ldscore_keyed.loc[:, [CHR_POS_KEY_COLUMN, *ref_ld_columns, weight_column]].reset_index(drop=True),
+                ldscore_keyed.loc[:, [CHR_POS_KEY_COLUMN, *ref_ld_columns, weight_column, "_ldsc_source_row"]].reset_index(drop=True),
                 sumstats_keyed,
                 how="inner",
                 on=CHR_POS_KEY_COLUMN,
@@ -435,6 +452,56 @@ class RegressionRunner:
                 f"for same-family allele-aware/base mixes. Other causes & fixes: {_REGRESSION_NO_OVERLAP_DOC}"
             )
 
+        source_rows = merged.pop("_ldsc_source_row").to_numpy(dtype=np.int64)
+        dataset = RegressionDataset(
+            merged=merged.reset_index(drop=True),
+            ref_ld_columns=ref_ld_columns,
+            weight_column=weight_column,
+            reference_snp_count_totals={},
+            count_key_used_for_regression="",
+            retained_ld_columns=ref_ld_columns,
+            dropped_zero_variance_ld_columns=[],
+            trait_names=[name for name in [sumstats_table.trait_name] if name],
+            chromosomes_aggregated=[result.chrom for result in ldscore_result.chromosome_results],
+            config_snapshot=ldscore_result.config_snapshot,
+            effective_snp_identifier=identifier_mode,
+            identity_downgrade_applied=identity.downgrade_applied,
+            ldscore_overlap=ldscore_result.overlap,
+            legacy_sumstats_drops=legacy_drops,
+        )
+        dataset.validate()
+        return PreparedRegressionInputs(dataset, source_rows, ldscore_result, ldscore_mode,
+                                        {str(record["column"]): record for record in ldscore_result.count_records})
+
+    def dataset_from_prepared(self, prepared, *, query_columns=None, config=None) -> RegressionDataset:
+        """Select one complete genome-wide model and apply its count/variance rules.
+
+        Query identities are validated when this fit selects query columns.
+        Shared preparation never decides model-dependent filters or weights.
+        """
+        selected = list(query_columns or [])
+        values = self._read_query_batch(prepared, selected) if selected else None
+        return self._dataset_from_query_values(prepared, selected, values, config=config)
+
+    def _read_query_batch(self, prepared, columns):
+        """Validate the batch's stored rows once and select the shared trait rows."""
+        frame = prepared.ldscore.read_queries(columns)
+        assert_same_snp_rows(
+            prepared.ldscore.baseline_table, frame,
+            context="query rows must match baseline rows on CHR/SNP/POS",
+            snp_identifier=prepared.ldscore_identity_mode,
+        )
+        return frame.loc[:, columns].iloc[prepared.source_rows].reset_index(drop=True)
+
+    def _dataset_from_query_values(self, prepared, selected, query_values, *, config=None):
+        """Form one model from already aligned, bounded query values."""
+        config = config or self.regression_config
+        ldscore_result = prepared.ldscore
+        ref_ld_columns = list(ldscore_result.baseline_columns) + list(selected)
+        merged = prepared.dataset.merged
+        if selected:
+            weight_position = merged.columns.get_loc(prepared.dataset.weight_column)
+            merged = pd.concat([merged.iloc[:, :weight_position], query_values.loc[:, selected], merged.iloc[:, weight_position:]], axis=1)
         retained_ld_columns = list(ref_ld_columns)
         dropped_ld_columns: list[str] = []
         if retained_ld_columns:
@@ -458,7 +525,10 @@ class RegressionRunner:
                     "or broaden the regression SNP set."
                 )
 
-        count_totals = _count_totals_for_columns(ldscore_result.count_records, ref_ld_columns)
+        count_totals = _count_totals_for_columns(
+            [prepared.counts_by_column[column] for column in ref_ld_columns if column in prepared.counts_by_column],
+            ref_ld_columns,
+        )
         count_key = _select_count_key(count_totals, config.use_common_counts, ref_ld_columns)
         if dropped_ld_columns:
             dropped_index = [ref_ld_columns.index(column) for column in dropped_ld_columns]
@@ -466,21 +536,10 @@ class RegressionRunner:
             for key, values in list(count_totals.items()):
                 count_totals[key] = np.asarray(values)[keep_index]
 
-        dataset = RegressionDataset(
-            merged=merged.reset_index(drop=True),
-            ref_ld_columns=ref_ld_columns,
-            weight_column=weight_column,
-            reference_snp_count_totals=count_totals,
-            count_key_used_for_regression=count_key,
-            retained_ld_columns=retained_ld_columns,
-            dropped_zero_variance_ld_columns=dropped_ld_columns,
-            trait_names=[name for name in [sumstats_table.trait_name] if name],
-            chromosomes_aggregated=[result.chrom for result in ldscore_result.chromosome_results],
-            config_snapshot=ldscore_result.config_snapshot,
-            effective_snp_identifier=identifier_mode,
-            identity_downgrade_applied=identity.downgrade_applied,
-            ldscore_overlap=ldscore_result.overlap,
-            legacy_sumstats_drops=legacy_drops,
+        dataset = replace(
+            prepared.dataset, merged=merged.reset_index(drop=True), ref_ld_columns=ref_ld_columns,
+            reference_snp_count_totals=count_totals, count_key_used_for_regression=count_key,
+            retained_ld_columns=retained_ld_columns, dropped_zero_variance_ld_columns=dropped_ld_columns,
         )
         dataset.validate()
         return dataset
@@ -837,130 +896,130 @@ class RegressionRunner:
         return summarize_partitioned_h2(hsq, dataset, selected_queries, samp_prev=samp_prev, pop_prev=pop_prev)
 
     def estimate_partitioned_h2_batch(
-        self,
-        sumstats_table: SumstatsTable,
-        ldscore_result: LDScoreResult,
-        annotation_bundle,
-        config: RegressionConfig | None = None,
-        include_full_partitioned_h2: bool = False,
-    ) -> pd.DataFrame | PartitionedH2BatchResult:
-        """Estimate one baseline-plus-query model per query annotation.
-
-        Query columns select one baseline-plus-query fit each. An empty query
-        set selects one joint functional-category fit of the baseline columns.
+        self, sumstats_table, ldscore_result, *, output_dir, query_columns=None,
+        config=None, query_batch_size=1000, overwrite=False, summary_sort_by="auto", metadata=None,
+    ) -> PartitionedH2BatchResult:
+        """Fit and write separate pathway models using shared SNP preparation.
 
         Parameters
         ----------
         sumstats_table : SumstatsTable
-            Munged single-trait summary statistics.
-        ldscore_result : LDScoreResult
-            Canonical LD-score result containing baseline and query columns.
-        annotation_bundle : object
-            Object exposing ordered ``query_columns``. Disk-loaded CLI runs use
-            a lightweight namespace derived from the LD-score metadata.
+            Munged trait statistics, aligned once to shared baseline LD scores.
+        ldscore_result : LDScoreSource or LDScoreResult
+            Canonical shared baseline, metadata, and explicit query reads.
+        output_dir : path-like
+            Required destination for canonical results and owned private staging.
+        query_columns : sequence of str or None, optional
+            Focal models to fit; None selects all declared queries. An empty
+            sequence fits the complete baseline as one functional model.
         config : RegressionConfig, optional
-            Regression settings. Defaults to the runner's config.
-        include_full_partitioned_h2 : bool, optional
-            If ``True``, return ``PartitionedH2BatchResult`` with per-query
-            full category tables for output writers. If ``False``, return the
-            aggregate dataframe.
+            Statistical settings. Model-dependent filtering and weights are
+            recomputed for every fit over the complete aligned genome.
+        query_batch_size : int, optional
+            Maximum query columns loaded at once, default 1000. Pathways in a
+            batch are still fitted separately against baseline categories.
+        overwrite : bool, optional
+            Replace workflow-owned outputs, default False.
+        summary_sort_by : str, optional
+            Final summary ordering; auto uses coefficient-p for focal models.
+        metadata : dict, optional
+            Additional diagnostic provenance copied into each model's metadata.
 
         Returns
         -------
-        pandas.DataFrame or PartitionedH2BatchResult
-            Aggregate summary by default, or aggregate plus per-query detail
-            tables when ``include_full_partitioned_h2`` is enabled.
-
-        Raises
-        ------
-        ValueError
-            If a requested query column is absent from
-            ``ldscore_result.query_columns``. An empty query set selects the
-            functional-category regime and jointly fits the baseline columns.
+        PartitionedH2BatchResult
+            Summary and persistent detail paths after successful publication.
+            A failed fit never publishes the preceding fits as partial results.
         """
+        if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
+            raise ValueError("query_batch_size must be a positive integer.")
         config = config or self.regression_config
         if ldscore_result.overlap is None:
             raise LDSCInputError(PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE)
+        queries = list(ldscore_result.query_columns if query_columns is None else query_columns)
+        queries = _validate_partitioned_query_columns(ldscore_result, queries)
+        sort_by = _resolve_summary_sort(summary_sort_by, has_queries=bool(queries))
+        writer = PartitionedH2DirectoryWriter()
+        writer.artifact_family(output_dir, write_per_query_results=bool(queries),
+                               coefficient_delete_values=not queries).preflight(overwrite=overwrite)
         samp_prev, pop_prev = _config_prevalence(config)
-
-        requested_queries = list(getattr(annotation_bundle, "query_columns", []) or [])
-        if not requested_queries:
-            # Functional regime: one joint fit of all baseline annotations.
-            with _log_phase_timing("regression dataset assembly"):
-                dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=[])
-            if len(dataset.retained_ld_columns) == 1:
-                LOGGER.warning(
-                    "partitioned-h2 functional regime retained a single annotation (%s); the fit is "
-                    "degenerate and collapses to single-annotation h2 behavior (two-step estimator, no "
-                    "default chi-square cap). Most likely the LD-score directory has only one baseline "
-                    "annotation. Provide multiple baseline annotations for a meaningful partitioned analysis.",
-                    dataset.retained_ld_columns[0],
-                )
-            with _log_phase_timing("estimator execution"):
+        metadata = dict(metadata or {})
+        defaults = {
+            "trait_name": sumstats_table.trait_name,
+            "count_kind": "common" if config.use_common_counts else "all",
+            "analysis_type": "cell_type_specific" if queries else "functional_category",
+            "headline_metric": "coefficient" if queries else "enrichment",
+            "enrichment_p_test": "two_sided_t", "coefficient_p_test": "one_sided_greater",
+            "annotation_types": dict(ldscore_result.annotation_types),
+        }
+        source_metadata = ldscore_result.output_paths.get("metadata")
+        if source_metadata:
+            defaults["ldscore_dir"] = str(Path(source_metadata).resolve().parent)
+        for name, value in defaults.items():
+            metadata.setdefault(name, value)
+        with AnnotationWorkspace(output_dir) as workspace:
+            with _log_phase_timing("shared regression preparation"):
+                prepared = self.prepare_inputs(sumstats_table, ldscore_result, config=config)
+            if not queries:
+                dataset = self.dataset_from_prepared(prepared, config=config)
+                if len(dataset.retained_ld_columns) == 1:
+                    LOGGER.warning(
+                        "partitioned-h2 functional regime retained a single annotation (%s); the fit is "
+                        "degenerate and collapses to single-annotation h2 behavior (two-step estimator, no "
+                        "default chi-square cap). Most likely the LD-score directory has only one baseline "
+                        "annotation. Provide multiple baseline annotations for a meaningful partitioned analysis.",
+                        dataset.retained_ld_columns[0],
+                    )
                 outcome = self._fit_h2_dataset(dataset, config=config)
-                hsq, dataset = outcome.estimator, outcome.dataset
-            summary = summarize_partitioned_h2(
-                hsq, dataset, dataset.retained_ld_columns, samp_prev=samp_prev, pop_prev=pop_prev
-            )
-            effective_chisq_max, n_snps_used = outcome.effective_chisq_max, outcome.n_snps
-            return PartitionedH2BatchResult(
-                summary=summary,
-                per_query_category_tables={},
-                per_query_metadata={},
-                aggregate_metadata={
-                    "n_snps": n_snps_used,
-                    "effective_chisq_max": effective_chisq_max,
-                    "n_blocks_used": outcome.n_blocks,
-                },
-                coefficient_delete_values=_coefficient_delete_frame(hsq, dataset.retained_ld_columns),
-            )
+                summary = summarize_partitioned_h2(outcome.estimator, outcome.dataset, outcome.dataset.retained_ld_columns,
+                                                   samp_prev=samp_prev, pop_prev=pop_prev)
+                summary = _sort_partitioned_h2_summary(summary, sort_by)
+                with _log_phase_timing("output writing"):
+                    paths = writer.write(
+                        summary, PartitionedH2OutputConfig(output_dir=output_dir, overwrite=overwrite),
+                        metadata={**metadata, "n_snps": outcome.n_snps, "effective_chisq_max": outcome.effective_chisq_max,
+                                  "n_blocks_used": outcome.n_blocks},
+                        coefficient_delete_values=_coefficient_delete_frame(outcome.estimator, outcome.dataset.retained_ld_columns),
+                    )
+                return PartitionedH2BatchResult(summary, paths)
 
-        # Cell-type regime: baseline + one query per model.
-        query_columns = _validate_partitioned_query_columns(ldscore_result, requested_queries)
-        rows = []
-        per_query_category_tables: dict[str, pd.DataFrame] = {}
-        per_query_metadata: dict[str, dict[str, object]] = {}
-        per_query_coefficient_delete_values: dict[str, pd.DataFrame] = {}
-        for query_column in query_columns:
-            with _log_phase_timing("regression dataset assembly"):
-                dataset = self.build_dataset(
-                    sumstats_table, ldscore_result, config=config, query_columns=[query_column]
-                )
-            with _log_phase_timing("estimator execution"):
-                outcome = self._fit_h2_dataset(dataset, config=config)
-                hsq, dataset = outcome.estimator, outcome.dataset
-            rows.append(
-                summarize_partitioned_h2(hsq, dataset, [query_column], samp_prev=samp_prev, pop_prev=pop_prev)
-            )
-            if include_full_partitioned_h2:
-                per_query_category_tables[query_column] = summarize_partitioned_h2(
-                    hsq, dataset, dataset.retained_ld_columns, samp_prev=samp_prev, pop_prev=pop_prev
-                )
-                effective_chisq_max, n_snps_used = outcome.effective_chisq_max, outcome.n_snps
-                per_query_metadata[query_column] = {
-                    "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
-                    "retained_ld_columns": list(dataset.retained_ld_columns),
-                    "n_snps": n_snps_used,
-                    "n_blocks_used": outcome.n_blocks,
-                    "effective_chisq_max": effective_chisq_max,
-                    "effective_snp_identifier": dataset.effective_snp_identifier,
-                    "identity_downgrade_applied": dataset.identity_downgrade_applied,
-                }
-                per_query_coefficient_delete_values[query_column] = _coefficient_delete_frame(
-                    hsq, dataset.retained_ld_columns
-                )
-        if not rows:
-            summary = pd.DataFrame(columns=PARTITIONED_H2_COLUMNS)
-        else:
-            summary = pd.concat(rows, axis=0, ignore_index=True)
-        if include_full_partitioned_h2:
-            return PartitionedH2BatchResult(
-                summary=summary,
-                per_query_category_tables=per_query_category_tables,
-                per_query_metadata=per_query_metadata,
-                per_query_coefficient_delete_values=per_query_coefficient_delete_values,
-            )
-        return summary
+            rows, private_artifacts = [], {}
+            for start in range(0, len(queries), query_batch_size):
+                batch_columns = queries[start:start + query_batch_size]
+                batch = self._read_query_batch(prepared, batch_columns)
+                for query in batch_columns:
+                    dataset = self._dataset_from_query_values(prepared, [query], batch, config=config)
+                    with _log_phase_timing("estimator execution"):
+                        outcome = self._fit_h2_dataset(dataset, config=config)
+                    hsq, dataset = outcome.estimator, outcome.dataset
+                    rows.append(summarize_partitioned_h2(hsq, dataset, [query], samp_prev=samp_prev, pop_prev=pop_prev))
+                    full = summarize_partitioned_h2(hsq, dataset, dataset.retained_ld_columns, samp_prev=samp_prev, pop_prev=pop_prev)
+                    delete_values = _coefficient_delete_frame(hsq, dataset.retained_ld_columns)
+                    private_artifacts[query] = stage_partitioned_h2_fit(
+                        workspace.path / f"fit-{len(rows)}", full, delete_values,
+                        {"dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
+                         "n_snps": outcome.n_snps, "n_blocks_used": outcome.n_blocks,
+                         "effective_chisq_max": outcome.effective_chisq_max,
+                         "effective_snp_identifier": dataset.effective_snp_identifier,
+                         "identity_downgrade_applied": dataset.identity_downgrade_applied},
+                    )
+                    del hsq, dataset, outcome, full, delete_values
+                del batch
+            del prepared
+            summary = _sort_partitioned_h2_summary(pd.concat(rows, ignore_index=True), sort_by)
+            with _log_phase_timing("output writing"):
+                paths = writer.write(summary, PartitionedH2OutputConfig(output_dir=output_dir, overwrite=overwrite,
+                                                                       write_per_query_results=True),
+                                     per_query_artifacts=private_artifacts, metadata=metadata)
+            root = Path(paths["per_query_root"])
+            artifacts = {
+                str(record["query_annotation"]): PartitionedH2FitArtifacts(
+                    root / str(record["folder"]) / "partitioned_h2_full.tsv",
+                    root / str(record["folder"]) / "coefficient_delete_values.parquet",
+                    root / str(record["folder"]) / "metadata.json",
+                ) for record in writer._query_records(summary)
+            }
+            return PartitionedH2BatchResult(summary, paths, artifacts)
 
     def estimate_rg(
         self,
@@ -1631,20 +1690,7 @@ def _assemble_regression_ldscore_table(
     baseline_table = ldscore_result.baseline_table.reset_index(drop=True)
     if not query_columns:
         return baseline_table.copy()
-    if ldscore_result.query_table is None:
-        raise LDSCInputError(
-            "partitioned-h2 requested query LD-score columns but the LD-score directory has no query table. "
-            "Most likely the query parquet is missing or the metadata is out of sync. "
-            "Regenerate the LD-score directory with the current `ldsc ldscore`."
-        )
-    missing = [column for column in query_columns if column not in ldscore_result.query_columns]
-    if missing:
-        raise LDSCInputError(
-            f"partitioned-h2 requested query LD-score columns {missing}, but they are absent from the LD-score result. "
-            "Most likely query metadata and query parquet columns are out of sync. "
-            "Regenerate the LD-score directory with matching query annotations."
-        )
-    query_table = ldscore_result.query_table.reset_index(drop=True)
+    query_table = ldscore_result.read_queries(query_columns)
     assert_same_snp_rows(
         baseline_table,
         query_table,
@@ -2522,6 +2568,8 @@ def add_h2_arguments(parser) -> None:
 
 def add_partitioned_h2_arguments(parser) -> None:
     """Register partitioned-heritability CLI arguments on ``parser``."""
+    parser.add_argument("--query-batch-size", type=int, default=1000,
+                        help="Positive maximum query LD columns loaded at once (default 1000); each query is fitted separately.")
     _add_common_regression_arguments(parser, include_h2_intercept=True)
     parser.add_argument("--sumstats-file", required=True, help="Munged .sumstats(.gz) file.")
     parser.add_argument("--trait-name", default=None, help="Optional trait label for summaries.")
@@ -2673,6 +2721,9 @@ def run_partitioned_h2_from_args(args):
     fitted-model artifacts at the result root. A successful overwrite removes
     the default plot root derived from the superseded result.
     """
+    query_batch_size = getattr(args, "query_batch_size", 1000)
+    if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
+        raise ValueError("query_batch_size must be a positive integer.")
     output_dir, log_path = _preflight_regression_outputs(args, "partitioned-h2", PartitionedH2DirectoryWriter)
     with workflow_logging("partitioned-h2", log_path, log_level=getattr(args, "log_level", "INFO")):
         runner, config = _runner_from_args(args)
@@ -2689,75 +2740,34 @@ def run_partitioned_h2_from_args(args):
         with _log_phase_timing("legacy projection"):
             if _is_legacy_sumstats(sumstats_table):
                 sumstats_table, legacy_drops = _project_legacy_sumstats_to_panel(sumstats_table, ldscore_result)
-        query_bundle = SimpleNamespace(
-            query_columns=_validate_partitioned_query_columns(ldscore_result, ldscore_result.query_columns)
-        )
         has_queries = bool(ldscore_result.query_columns)
-        write_per_query_results = has_queries
         _log_effective_regression_identity([sumstats_table], ldscore_result, runner.global_config, config)
         _log_partitioned_h2_regime(ldscore_result, has_queries)
         _log_quantitative_annotation_interpretation(ldscore_result)
         with suppress_global_config_banner():
             result = runner.estimate_partitioned_h2_batch(
-                sumstats_table,
-                ldscore_result,
-                query_bundle,
-                config=config,
-                include_full_partitioned_h2=write_per_query_results,
+                sumstats_table, ldscore_result, config=config, output_dir=output_dir,
+                query_batch_size=getattr(args, "query_batch_size", 1000),
+                overwrite=getattr(args, "overwrite", False),
+                summary_sort_by=getattr(args, "summary_sort_by", "auto"),
+                metadata={
+                    "trait_name": sumstats_table.trait_name,
+                    "count_kind": getattr(args, "count_kind", "common"),
+                    "ldscore_dir": getattr(args, "ldscore_dir", None),
+                    "analysis_type": "cell_type_specific" if has_queries else "functional_category",
+                    "headline_metric": "coefficient" if has_queries else "enrichment",
+                    "enrichment_p_test": "two_sided_t", "coefficient_p_test": "one_sided_greater",
+                    "annotation_types": dict(ldscore_result.annotation_types),
+                },
             )
-        aggregate_metadata: dict[str, object] = {}
-        if isinstance(result, PartitionedH2BatchResult):
-            summary = result.summary
-            per_query_category_tables = result.per_query_category_tables
-            per_query_metadata = result.per_query_metadata
-            aggregate_metadata = result.aggregate_metadata or {}
-            coefficient_delete_values = result.coefficient_delete_values
-            per_query_coefficient_delete_values = result.per_query_coefficient_delete_values
-        else:
-            summary = result
-            per_query_category_tables = None
-            per_query_metadata = None
-            coefficient_delete_values = None
-            per_query_coefficient_delete_values = None
-        sort_by = _resolve_summary_sort(
-            getattr(args, "summary_sort_by", "auto"), has_queries=bool(ldscore_result.query_columns)
+        summary, written = result.summary, dict(result.output_paths)
+        audit_path = _write_or_remove_legacy_sumstats_audit(
+            Path(output_dir), legacy_used=_has_legacy_sumstats_source(sumstats_table),
+            drops=legacy_drops, overwrite=getattr(args, "overwrite", False),
         )
-        summary = _sort_partitioned_h2_summary(summary, sort_by)
-        output_dir_arg = getattr(args, "output_dir", None)
-        if output_dir_arg:
-            with _log_phase_timing("output writing"):
-                written = PartitionedH2DirectoryWriter().write(
-                    summary,
-                    PartitionedH2OutputConfig(
-                        output_dir=output_dir_arg,
-                        overwrite=getattr(args, "overwrite", False),
-                        write_per_query_results=write_per_query_results,
-                    ),
-                    per_query_category_tables=per_query_category_tables,
-                    metadata={
-                        "trait_name": sumstats_table.trait_name,
-                        "count_kind": getattr(args, "count_kind", "common"),
-                        "ldscore_dir": getattr(args, "ldscore_dir", None),
-                        "analysis_type": "cell_type_specific" if has_queries else "functional_category",
-                        "headline_metric": "coefficient" if has_queries else "enrichment",
-                        "enrichment_p_test": "two_sided_t",
-                        "coefficient_p_test": "one_sided_greater",
-                        "annotation_types": dict(ldscore_result.annotation_types),
-                        **aggregate_metadata,
-                    },
-                    per_query_metadata=per_query_metadata,
-                    coefficient_delete_values=coefficient_delete_values,
-                    per_query_coefficient_delete_values=per_query_coefficient_delete_values,
-                )
-                audit_path = _write_or_remove_legacy_sumstats_audit(
-                    Path(output_dir_arg),
-                    legacy_used=_has_legacy_sumstats_source(sumstats_table),
-                    drops=legacy_drops,
-                    overwrite=getattr(args, "overwrite", False),
-                )
-                if audit_path is not None:
-                    written["legacy_sumstats_drops"] = str(audit_path)
-                log_outputs(**written)
+        if audit_path is not None:
+            written["legacy_sumstats_drops"] = str(audit_path)
+        log_outputs(**written)
         LOGGER.info(
             f"Finished partitioned-h2 regression for {len(ldscore_result.query_columns)} query annotations "
             f"and {len(summary)} summary rows."
@@ -3110,8 +3120,8 @@ def _load_sumstats_table(path: str, trait_name: str | None) -> SumstatsTable:
 def load_ldscore_from_dir(
     ldscore_dir: str,
     snp_identifier: str | None = None,
-) -> LDScoreResult:
-    """Load a canonical LD-score result directory.
+) -> LDScoreSource:
+    """Open a canonical LD-score directory with query values read on demand.
 
     Parameters
     ----------
@@ -3125,9 +3135,10 @@ def load_ldscore_from_dir(
 
     Returns
     -------
-    LDScoreResult
-        Disk-loaded LD-score result with config provenance reconstructed from
-        the metadata's minimal identity metadata.
+    LDScoreSource
+        Shared baseline values, SNP metadata, counts, and overlap statistics.
+        Call ``read_queries(columns)`` for explicit query batches. The original
+        directory must remain available and unchanged during use.
 
     Raises
     ------
@@ -3164,10 +3175,14 @@ def load_ldscore_from_dir(
         )
     baseline_table = pd.read_parquet(root / baseline_rel)
     query_rel = files.get("query")
-    query_table = pd.read_parquet(root / query_rel) if query_rel else None
+    query_schema = pq.read_schema(root / query_rel).names if query_rel else None
+    query_table = (pd.read_parquet(root / query_rel, columns=[
+        column for column in ("CHR", "SNP", "POS", "A1", "A2") if column in query_schema
+    ]) if query_rel else None)
     baseline_columns = [str(column) for column in metadata.get("baseline_columns", [])]
     query_columns = [str(column) for column in metadata.get("query_columns", [])]
     count_records = [dict(record) for record in metadata.get("counts", [])]
+    validate_ldscore_schemas(baseline_columns, query_columns, baseline_table.columns, query_schema)
     _validate_count_overlap_config(metadata, root)
     overlap = None
     overlap_rel = files.get("overlap")
@@ -3204,9 +3219,10 @@ def load_ldscore_from_dir(
             table_name="query_table",
             snp_identifier=effective_identifier,
         )
-    result = LDScoreResult(
+    result = LDScoreSource(
         baseline_table=baseline_table,
-        query_table=query_table,
+        query_metadata=query_table,
+        query_path=root / query_rel if query_rel else None,
         count_records=count_records,
         baseline_columns=baseline_columns,
         query_columns=query_columns,
@@ -3223,7 +3239,6 @@ def load_ldscore_from_dir(
         overlap=overlap,
         annotation_types={str(key): str(value) for key, value in (metadata.get("annotation_types") or {}).items()},
     )
-    result.validate(require_query_alignment=False)
     query_rows = 0 if query_table is None else len(query_table)
     LOGGER.info(
         f"Loaded LD-score directory '{root}' with {len(baseline_table)} baseline rows, "

@@ -1097,6 +1097,35 @@ class PartitionedH2OutputConfig:
         object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
 
 
+@dataclass(frozen=True)
+class PartitionedH2FitArtifacts:
+    """Paths to one complete fitted model, owned by its containing directory."""
+
+    full: Path
+    delete_values: Path
+    metadata: Path
+
+
+def stage_partitioned_h2_fit(directory, category_table, delete_values, metadata):
+    """Write one fit privately before releasing its estimator and matrices.
+
+    The caller supplies a unique directory inside its owned output workspace.
+    Returned paths remain private until the final summary determines folder
+    ordering and the directory writer publishes the complete query tree.
+    """
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=False)
+    artifacts = PartitionedH2FitArtifacts(directory / "partitioned_h2_full.tsv",
+                                         directory / "coefficient_delete_values.parquet",
+                                         directory / "metadata.json")
+    _atomic_write_dataframe(_select_columns(category_table, PARTITIONED_H2_COLUMNS, label="full partitioned-h2 summary"),
+                            artifacts.full, na_rep="NaN")
+    delete_values.to_parquet(artifacts.delete_values, index=False)
+    _atomic_write_json({**metadata, "coefficient_delete_block_count": int(len(delete_values)),
+                       "retained_ld_columns": [c for c in delete_values if c != "delete_block"]}, artifacts.metadata)
+    return artifacts
+
+
 class PartitionedH2DirectoryWriter:
     """Write aggregate and optional per-query partitioned-h2 outputs.
 
@@ -1126,11 +1155,9 @@ class PartitionedH2DirectoryWriter:
         self,
         summary: pd.DataFrame,
         output_config: PartitionedH2OutputConfig,
-        per_query_category_tables: dict[str, pd.DataFrame] | None = None,
+        per_query_artifacts: dict[str, PartitionedH2FitArtifacts] | None = None,
         metadata: dict[str, object] | None = None,
-        per_query_metadata: dict[str, dict[str, object]] | None = None,
         coefficient_delete_values: pd.DataFrame | None = None,
-        per_query_coefficient_delete_values: dict[str, pd.DataFrame] | None = None,
     ) -> dict[str, str]:
         """Write partitioned-h2 summary artifacts.
 
@@ -1141,23 +1168,16 @@ class PartitionedH2DirectoryWriter:
             ``PARTITIONED_H2_COLUMNS``.
         output_config : PartitionedH2OutputConfig
             Output directory, overwrite policy, and per-query mode.
-        per_query_category_tables : dict of str to pandas.DataFrame, optional
-            Optional full baseline-plus-query category tables keyed by
-            original query annotation name. Tables must follow
-            ``PARTITIONED_H2_COLUMNS``; missing keys write empty
-            ``partitioned_h2_full.tsv`` files.
+        per_query_artifacts : dict of str to PartitionedH2FitArtifacts, optional
+            Completed private or persistent fits keyed by original query name.
+            Files are copied into the sorted publication tree without loading
+            category tables or delete-value matrices.
         metadata : dict, optional
             Run-level metadata copied into every per-query ``metadata.json``.
-        per_query_metadata : dict of str to dict, optional
-            Query-specific metadata copied into the matching
-            ``metadata.json``.
         coefficient_delete_values : pandas.DataFrame, optional
             Baseline-only fitted model's delete-one-block coefficient vectors.
             The first column is ``delete_block`` and remaining columns retain
             fitted annotation order.
-        per_query_coefficient_delete_values : dict of str to pandas.DataFrame, optional
-            Delete-one-block coefficient vectors for complete
-            baseline-plus-query models, keyed by original query name.
 
         Returns
         -------
@@ -1217,10 +1237,8 @@ class PartitionedH2DirectoryWriter:
                 staging_dir,
                 query_records,
                 summary,
-                per_query_category_tables or {},
+                per_query_artifacts or {},
                 metadata_payload,
-                per_query_metadata or {},
-                per_query_coefficient_delete_values or {},
             )
             _atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv", na_rep="NaN")
             _atomic_write_dataframe(
@@ -1283,10 +1301,8 @@ class PartitionedH2DirectoryWriter:
         staging_dir: Path,
         query_records: list[dict[str, object]],
         summary: pd.DataFrame,
-        per_query_category_tables: dict[str, pd.DataFrame],
+        per_query_artifacts: dict[str, PartitionedH2FitArtifacts],
         metadata: dict[str, object],
-        per_query_metadata: dict[str, dict[str, object]],
-        per_query_coefficient_delete_values: dict[str, pd.DataFrame],
     ) -> list[dict[str, object]]:
         """Populate the staged per-query result tree and return manifest rows."""
         manifest_rows: list[dict[str, object]] = []
@@ -1305,28 +1321,20 @@ class PartitionedH2DirectoryWriter:
                 query_dir / "partitioned_h2.tsv",
                 na_rep="NaN",
             )
-            delete_values = per_query_coefficient_delete_values.get(query_name)
-            if delete_values is None:
+            artifacts = per_query_artifacts.get(query_name)
+            if artifacts is None:
                 raise LDSCInternalError(
                     f"partitioned-h2 output writer is missing coefficient delete values for query {query_name!r}. "
                     "Most likely the fitted result family was assembled incompletely."
                 )
-            delete_values.to_parquet(query_dir / "coefficient_delete_values.parquet", index=False)
-            category_table = per_query_category_tables.get(query_name)
-            if category_table is None:
-                category_table = pd.DataFrame()
-            _atomic_write_dataframe(
-                _select_columns(category_table, PARTITIONED_H2_COLUMNS, label="full partitioned-h2 summary"),
-                query_dir / "partitioned_h2_full.tsv",
-                na_rep="NaN",
-            )
+            shutil.copyfile(artifacts.delete_values, query_dir / "coefficient_delete_values.parquet")
+            shutil.copyfile(artifacts.full, query_dir / "partitioned_h2_full.tsv")
+            fit_metadata = json.loads(artifacts.metadata.read_text(encoding="utf-8"))
             payload = {
                 **metadata,
-                **per_query_metadata.get(query_name, {}),
+                **fit_metadata,
                 "artifact_type": "partitioned_h2_query_result",
                 "files": {"summary": summary_rel, "full": full_rel, "coefficient_delete_values": delete_rel},
-                "coefficient_delete_block_count": int(len(delete_values)),
-                "retained_ld_columns": [column for column in delete_values.columns if column != "delete_block"],
                 "ordinal": record["ordinal"],
                 "query_annotation": query_name,
                 "slug": record["slug"],

@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-10
 
 ## Parser defaults must not be obtained by parsing invented required paths
 - Summary/root cause/correction: Python wrappers for LD-score and reference-panel workflows parsed fake required paths (`placeholder`/`out`) to obtain argparse defaults, which let omitted user arguments become unintended filesystem targets; collect action defaults directly and validate required wrapper arguments before constructing the namespace.
@@ -109,3 +109,7 @@ Last updated on: 2026-09-07
 
 ## Missing metadata must be explicit in reusable whitespace-parsed tables
 - **Summary/root cause/correction:** `ldsc annotate` wrote empty `CM` fields that regex-whitespace readers collapsed, shifting every query annotation left and filling the final column with NaN; write `CM=NA`, require numeric non-missing annotation values at the shared loader seam, and cover the writer-to-LD-score-parser round trip with distinguishable columns.
+
+## Adapter correctness must reach the production numerical path
+
+- Summary/root cause/correction: Raw R² metadata was resolved by the panel adapter but bypassed by the chromosome workflow, silently omitting bias correction; reuse the metadata resolver at the production boundary and assert known ordinary and regression-weight LD scores through the public calculator.

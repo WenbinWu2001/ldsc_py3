@@ -232,6 +232,7 @@ class R2AutoLoadCLITest(unittest.TestCase):
         import pyarrow as pa
         import pyarrow.parquet as pq
         from ldsc._kernel.ref_panel import ParquetR2RefPanel
+        from ldsc._kernel.ref_panel_builder import write_runtime_metadata_sidecar
         from ldsc._kernel.snp_identity import sidecar_identity_sha256
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -240,9 +241,9 @@ class R2AutoLoadCLITest(unittest.TestCase):
             path = build_dir / "chr1_r2.parquet"
             panel = pd.DataFrame({"CHR": ["1", "1"], "POS": [100, 120], "SNP": ["rs1", "rs2"],
                                   "A1": ["A", "A"], "A2": ["C", "C"], "CM": [0.0, 0.0], "MAF": [0.3, 0.3]})
-            with gzip.open(build_dir / "chr1_meta.tsv.gz", "wt") as handle:
-                handle.write("# ldsc:schema_version=2\n")
-                panel.to_csv(handle, sep="\t", index=False)
+            write_runtime_metadata_sidecar(
+                panel, build_dir / "chr1_meta.tsv.gz", genome_build="hg19", snp_identifier="rsid"
+            )
             # A hand-built raw-bias index panel (the package writer only emits
             # unbiased; raw is reserved for future external raw-R2 index panels).
             schema = pa.schema(
@@ -274,9 +275,26 @@ class R2AutoLoadCLITest(unittest.TestCase):
                 {"CHR": ["1", "1"], "POS": [100, 120], "SNP": ["rs1", "rs2"], "CM": [0.0, 0.0], "MAF": [0.3, 0.3]}
             )
             reader = panel_loader.build_reader("1", metadata=reader_meta)
+            bundle = AnnotationBundle(
+                metadata=reader_meta,
+                baseline_annotations=pd.DataFrame({"base": [1.0, 1.0]}),
+                query_annotations=pd.DataFrame(index=reader_meta.index),
+                baseline_columns=["base"], query_columns=[], chromosomes=["1"], source_summary={},
+            )
+            result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
+                "1", bundle, panel_loader,
+                LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True),
+                GlobalConfig(snp_identifier="rsid"),
+                regression_snps={"rs1", "rs2"},
+            )
 
         self.assertEqual(reader.r2_bias_mode, "raw")
         self.assertAlmostEqual(reader.r2_sample_size, 200.0)
+        # Diagonal 1 plus the off-diagonal 0.5 - (1 - 0.5) / (200 - 2).
+        np.testing.assert_allclose(
+            result.baseline_table[["base", "regression_ld_scores"]],
+            np.full((2, 2), 1.4974747474747474), rtol=1e-7,
+        )
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
     def test_external_parquet_metadata_drops_duplicate_identity_clusters(self):
@@ -2762,7 +2780,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             r2_path.parent.mkdir(parents=True, exist_ok=True)
             meta_path.parent.mkdir(parents=True, exist_ok=True)
             keep_path.parent.mkdir(parents=True, exist_ok=True)
-            r2_path.write_text("", encoding="utf-8")
+            _write_minimal_r2_parquet(r2_path, {b"ldsc:r2_bias": b"unbiased"})
             with gzip.open(meta_path, "wt", encoding="utf-8") as handle:
                 handle.write("CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
             keep_path.write_text("iid1\n", encoding="utf-8")

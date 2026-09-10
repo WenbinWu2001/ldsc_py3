@@ -1,5 +1,7 @@
 # Parquet R2 Table: Format Specification and Read Pipeline
 
+Last updated on: 2026-09-10
+
 This document defines the canonical **index** format for parquet-backed pairwise
 R² reference panels and describes how the read pipeline validates, binds, and
 streams them into the LD-score accumulation.
@@ -242,6 +244,8 @@ column is an integer dtype (quantized panels), the reader **dequantizes**
 (`_transform_r2`); a float32 R² column (legacy) skips dequant. `SIGN` is not read
 (unused by LD-score computation). Each decoded group is a numeric
 `(i:int32, j:int32, r2:float32)` triple of retained-matrix index pairs.
+
+The public chromosome workflow (`ldscore_calculator._namespace_from_configs`) and `ParquetR2RefPanel.build_reader` both use `_resolve_r2_bias_from_meta` to resolve `ldsc:r2_bias` and `ldsc:n_samples` before constructing the reader. External raw R² values receive the existing sample-size correction in both ordinary and regression-weight LD scores; package-built unbiased panels receive no second correction.
 
 ### 3.3 Pair streaming (`iter_all_pairs`)
 

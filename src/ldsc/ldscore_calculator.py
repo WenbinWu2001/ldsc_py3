@@ -3154,12 +3154,21 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
     backend = getattr(spec, "backend", None)
     bfile = None
     r2_table = None
+    r2_bias_mode = None
+    r2_sample_size = getattr(spec, "sample_size", None)
     frqfile = None
     if backend == "plink" and getattr(spec, "plink_prefix", None) is not None:
         bfile = resolve_plink_prefix(spec.plink_prefix, chrom=chrom)
     if backend == "parquet_r2":
         if hasattr(ref_panel, "resolve_r2_paths"):
-            r2_table = ",".join(ref_panel.resolve_r2_paths(chrom, required=False)) or None
+            from ._kernel.ref_panel import _read_r2_schema_meta, _resolve_r2_bias_from_meta
+
+            r2_paths = ref_panel.resolve_r2_paths(chrom, required=False)
+            r2_table = ",".join(r2_paths) or None
+            if r2_paths:
+                r2_bias_mode, r2_sample_size = _resolve_r2_bias_from_meta(
+                    None, r2_sample_size, _read_r2_schema_meta(r2_paths[0])
+                )
     if hasattr(ref_panel, "resolve_metadata_paths"):
         frqfile = ",".join(ref_panel.resolve_metadata_paths(chrom)) or None
     genetic_map = None
@@ -3177,8 +3186,8 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         r2_table_chr=None,
         snp_identifier=global_config.snp_identifier,
         genome_build=global_config.genome_build,
-        r2_bias_mode=None,  # resolved from parquet schema metadata in the kernel
-        r2_sample_size=getattr(spec, "sample_size", None),
+        r2_bias_mode=r2_bias_mode,
+        r2_sample_size=r2_sample_size,
         frqfile=frqfile,
         frqfile_chr=None,
         keep=getattr(spec, "keep_indivs_file", None),

@@ -1,6 +1,6 @@
 # ldsc3_Jerry
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 This repository is the active refactored LDSC package.
 
@@ -326,11 +326,13 @@ that are costly or impractical for users to recreate:
   one-column unpartitioned suite or a complete baseline partitioned suite; the
   latter also requires a frequency directory. Query/cell-type suites and thin
   annotations are intentionally unsupported.
+- Reference and weight suites both use `<prefix><chrom>.l2.ldscore(.gz)` filenames, such as `weights.1.l2.ldscore.gz`, across chromosomes 1-22. The `.w.l2.ldscore(.gz)` suffix is unsupported; discovery explains this spelling when conversion fails and records affected files in its diagnostics. Private `_kernel` code no longer writes legacy sumstats, LD-score, count, or annotation-group files; optional `.sumstats.gz` export belongs to the public munging workflow.
 - Converted suites remain allele-unaware (`rsid` by default, or `chr_pos`).
   `.l2.M_5_50` is required and retains the fixed strict LDSC2 common-frequency
   rule. There is no converter threshold flag. Missing `.l2.M` is tolerated only
   under the documented count policy; requesting unavailable all-SNP counts
   later is an error.
+- Annotation inputs may omit both `A1` and `A2`, including in allele-aware workflows; annotation membership then matches by base SNP identity, and LD-score calculation uses reference-panel alleles for allele-aware identity. A file containing only one of the two allele columns is rejected. This annotation rule does not relax the allele requirement for legacy sumstats.
 - LDSC3 does not promise that its outputs can be fed back into LDSC2. The
   `BP` header written in text `.annot.gz` files is a narrow interoperability
   convenience, and LDSC3 accepts either `BP` or `POS` when reading them.
@@ -338,6 +340,8 @@ that are costly or impractical for users to recreate:
 See the complete policies for
 [legacy sumstats](docs/current/legacy-sumstats-compatibility.md) and
 [legacy LD-score conversion](docs/current/legacy-ldscore-conversion.md).
+
+For commands, standard filenames, complete suite examples, and practical naming repairs, follow the [legacy LD-score conversion user guide](tutorials/convert-legacy-ldscores.md). The [conversion utility wiki](docs/wiki/utility-functionalities/convert-ldsc2-ldscores.md) provides the concise standard naming and flag reference.
 
 ## Python API
 

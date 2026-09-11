@@ -119,10 +119,6 @@ CHROM_ALIASES = CHR_COLUMN_ALIASES
 POS_ALIASES = POS_COLUMN_ALIASES
 SNP_ALIASES = SNP_COLUMN_ALIASES
 CM_ALIASES = CM_COLUMN_ALIASES
-# Legacy .l2.ldscore parsing stays permissive: a folded MAF column may appear
-# under FRQ/FREQ/FREQUENCY in older files. The registry's MAF_COLUMN_ALIASES is
-# narrowed to ("MAF",) for the oriented-vs-folded sidecar distinction, so keep the
-# legacy breadth here explicitly.
 MAF_ALIASES = ("MAF", "FRQ", "FREQ", "FREQUENCY")
 
 
@@ -533,7 +529,8 @@ def parse_annotation_file(
         raise LDSCInputError(
             f"ldscore could not parse annotation file '{path}': it has only one allele "
             "column. Most likely the file contains A1 without A2, or A2 without A1. "
-            "Provide both allele columns, or remove both and run with a base SNP identifier mode."
+            "Provide both allele columns, or remove both to match annotations by base SNP identity. "
+            "Allele-free annotations are also supported in allele-aware modes."
         )
 
     metadata_columns = {"CHR": df[chr_col], "POS": df[pos_col]}

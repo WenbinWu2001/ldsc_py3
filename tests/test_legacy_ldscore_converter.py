@@ -206,6 +206,114 @@ def test_converter_rejects_missing_required_common_count_shard(tmp_path: Path) -
         )
 
 
+@pytest.mark.parametrize("compression", ["", ".gz"])
+def test_converter_explains_unsupported_weight_filenames(tmp_path: Path, compression: str) -> None:
+    reference = tmp_path / "reference"
+    weights = tmp_path / "weights"
+    output = tmp_path / "converted"
+    _write_unpartitioned_suite(reference, weights)
+    unsupported_paths = []
+    for chrom in range(1, 23):
+        original = weights / f"weights.{chrom}.l2.ldscore.gz"
+        with gzip.open(original, "rt", encoding="utf-8") as handle:
+            content = handle.read()
+        original.unlink()
+        unsupported = weights / f"weights.{chrom}.w.l2.ldscore{compression}"
+        _write_text(unsupported, content)
+        unsupported_paths.append(unsupported)
+
+    with pytest.raises(LDSCInputError, match=r"unsupported.*\.w\.l2\.ldscore") as caught:
+        ldsc.convert_ldsc2_ldscores(
+            legacy_reference_dir=reference,
+            legacy_weight_dir=weights,
+            output_dir=output,
+        )
+
+    assert "weights.1.l2.ldscore.gz" in str(caught.value)
+    assert "separate input directory" in str(caught.value)
+    assert "1.w.l2.ldscore.gz -> weights.1.l2.ldscore.gz" in str(caught.value)
+    log_text = (output / "diagnostics" / "convert-ldsc2-ldscores.log").read_text()
+    assert str(caught.value) in log_text
+    issues = pd.read_csv(output / "diagnostics" / "conversion_issues.tsv.gz", sep="\t")
+    filename_issues = issues.loc[issues["reason"] == "discarded_unsupported_weight_filename"]
+    assert set(filename_issues["file"]) == {str(path) for path in unsupported_paths}
+    assert set(filename_issues["source_role"]) == {"weight"}
+    assert all(path.is_file() for path in unsupported_paths)
+    assert not (output / "metadata.json").exists()
+
+
+def test_converter_audits_unused_weight_filename_without_rejecting_valid_suite(tmp_path: Path) -> None:
+    reference = tmp_path / "reference"
+    weights = tmp_path / "weights"
+    output = tmp_path / "converted"
+    _write_unpartitioned_suite(reference, weights)
+    unsupported = weights / "1.w.l2.ldscore.gz"
+    _write_text(unsupported, "unused file must not be parsed\n")
+
+    result = ldsc.convert_ldsc2_ldscores(
+        legacy_reference_dir=reference,
+        legacy_weight_dir=weights,
+        output_dir=output,
+    )
+
+    assert result.n_rows == 22
+    metadata = json.loads((output / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["legacy_ldsc2_import"]["ignored_files"] == [str(unsupported)]
+    issues = pd.read_csv(output / "diagnostics" / "conversion_issues.tsv.gz", sep="\t")
+    issue = issues.loc[issues["file"] == str(unsupported)].iloc[0]
+    assert issue["severity"] == "warning"
+    assert "weights.1.l2.ldscore.gz" in issue["details"]
+    assert "Ignoring 1 unsupported weight filename" in (output / "diagnostics" / "convert-ldsc2-ldscores.log").read_text()
+
+
+@pytest.mark.parametrize("defect, pattern, remedy", [
+    ("missing_ldscore", "<prefix><chrom>.l2.ldscore(.gz)", "one complete family"),
+    ("ambiguous_ldscore", "<prefix><chrom>.l2.ldscore(.gz)", "separate directories"),
+    ("misnamed_frequency", "<prefix><chrom>.frq(.gz)", "rename"),
+    ("misnamed_count", "<reference-prefix><chrom>.l2.M_5_50", "same prefix"),
+    ("misnamed_annotation", "<reference-prefix><chrom>.annot(.gz)", "same prefix"),
+])
+def test_converter_records_filename_remedies_in_error_log_and_issue_table(
+    tmp_path: Path, defect: str, pattern: str, remedy: str,
+) -> None:
+    reference, weights, frequencies = (tmp_path / name for name in ("reference", "weights", "frequencies"))
+    output = tmp_path / "converted"
+    _write_partitioned_suite(reference, weights, frequencies)
+    if defect == "missing_ldscore":
+        (reference / "baseline.22.l2.ldscore.gz").unlink()
+    elif defect == "ambiguous_ldscore":
+        for chrom in range(1, 23):
+            (reference / f"other.{chrom}.l2.ldscore.gz").write_bytes(
+                (reference / f"baseline.{chrom}.l2.ldscore.gz").read_bytes()
+            )
+    elif defect == "misnamed_frequency":
+        for chrom in range(1, 23):
+            (frequencies / f"1000G.EUR.QC.{chrom}.frq.gz").rename(
+                frequencies / f"1000G.EUR.QC.{chrom}.freq.gz"
+            )
+    elif defect == "misnamed_count":
+        (reference / "baseline.22.l2.M_5_50").rename(reference / "baseline.22.M_5_50")
+    else:
+        (reference / "baseline.22.annot.gz").rename(reference / "other.22.annot.gz")
+
+    with pytest.raises(LDSCInputError) as caught:
+        ldsc.convert_ldsc2_ldscores(
+            legacy_reference_dir=reference,
+            legacy_weight_dir=weights,
+            legacy_frequency_dir=frequencies,
+            output_dir=output,
+            log_level="ERROR",
+        )
+
+    message = str(caught.value)
+    assert pattern in message
+    assert remedy in message
+    assert message in (output / "diagnostics" / "convert-ldsc2-ldscores.log").read_text()
+    issues = pd.read_csv(output / "diagnostics" / "conversion_issues.tsv.gz", sep="\t")
+    assert message in issues.loc[issues["reason"] == "conversion_error", "details"].tolist()
+    assert not (output / "metadata.json").exists()
+
+
 def test_chr_pos_conversion_uses_reference_build_inference_and_normalizes_zero_based_positions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

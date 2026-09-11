@@ -1,9 +1,10 @@
 """Explicitly convert selected LDSC2 LD-score suites to LDSC3 directories.
 
-The converter is the only public boundary that reads legacy ``.l2.ldscore``,
-``.M``, ``.M_5_50``, ``.annot``, and frequency families. Regression never
-parses those fragments directly; successful conversion writes an ordinary
-canonical :class:`ldsc.ldscore_calculator.LDScoreResult` directory.
+The converter is the public import boundary for legacy LD-score suites:
+reference and weight ``.l2.ldscore(.gz)`` families, counts, and, for baseline
+partitioned suites, annotations and frequencies. Regression consumes the
+resulting canonical :class:`ldsc.ldscore_calculator.LDScoreResult` directory.
+Standalone annotation workflows retain their separate ``.annot(.gz)`` readers.
 """
 
 from __future__ import annotations
@@ -32,6 +33,23 @@ from .path_resolution import ensure_output_directory, normalize_path_token
 LOGGER = logging.getLogger("LDSC.legacy_ldscore_converter")
 _CHROMS = tuple(range(1, 23))
 _LDSCORE_RE = re.compile(r"^(?P<prefix>.*?)(?P<chrom>[1-9]|1[0-9]|2[0-2])\.l2\.ldscore(?P<gz>\.gz)?$")
+_LDSCORE_FILENAME_GUIDANCE = (
+    "Use '<prefix><chrom>.l2.ldscore(.gz)', e.g. '1.l2.ldscore.gz' or 'weights.1.l2.ldscore.gz', "
+    "with one constant prefix (possibly empty) and unpadded chromosomes 1-22. "
+    "Organize one complete family directly in the supplied directory; put different releases in separate directories. "
+    "Restore missing shards or rename misnamed copies to the standard filenames. "
+    "See docs/troubleshooting.md#convert-ldsc2-ldscores."
+)
+_WEIGHT_FILENAME_GUIDANCE = (
+    "Found unsupported '.w.l2.ldscore(.gz)' filenames. Rename copies in a separate input directory, "
+    "e.g. 1.w.l2.ldscore.gz -> weights.1.l2.ldscore.gz (likewise without .gz); "
+    "the converter does not rename source files. " + _LDSCORE_FILENAME_GUIDANCE
+)
+_COUNT_FILENAME_GUIDANCE = (
+    "Place plain-text '<reference-prefix><chrom>.l2.M_5_50' files in the reference directory "
+    "with the same prefix as the reference LD scores. Restore the matching counts from the same source release "
+    "or rename a misnamed copy to the expected filename; .l2.M is not a substitute."
+)
 _FREQUENCY_RE = re.compile(r"^(?P<prefix>.*?)(?P<chrom>[1-9]|1[0-9]|2[0-2])\.frq(?P<gz>\.gz)?$")
 _ISSUE_COLUMNS = [
     "severity",
@@ -227,7 +245,10 @@ class LegacyLDScoreConverter:
             missing = sorted(set(_CHROMS) - set(present_annotations))
             raise LDSCInputError(
                 "Legacy reference suite contains a partial annotation family; baseline conversion requires "
-                f"all chromosomes 1-22 (missing {missing}) and cannot fall back to unpartitioned conversion."
+                f"all chromosomes 1-22 (missing {missing}) and cannot fall back to unpartitioned conversion. "
+                "Place '<reference-prefix><chrom>.annot(.gz)' directly in the reference directory with the "
+                f"same prefix as the selected LD scores ('{reference_prefix}'). "
+                "Restore missing shards or rename misnamed copies from the matching source suite."
             )
 
         first_reference = _read_ldscore_table(reference_family.paths[1], "reference", 1)
@@ -239,7 +260,8 @@ class LegacyLDScoreConverter:
             if frequency_root is None:
                 raise LDSCInputError(
                     "Baseline partitioned LDSC2 conversion requires --legacy-frequency-dir so common counts and "
-                    "overlap can be reconstructed with the fixed legacy 0.05 threshold."
+                    "overlap can be reconstructed with the fixed legacy 0.05 threshold. "
+                    "Pass a directory containing '<prefix><chrom>.frq(.gz)' for chromosomes 1-22."
                 )
             return self._convert_baseline_partitioned(
                 reference_root=reference_root,
@@ -303,7 +325,8 @@ class LegacyLDScoreConverter:
             common_path = reference_root / f"{reference_prefix}{chrom}.l2.M_5_50"
             if not common_path.exists():
                 raise LDSCInputError(
-                    f"Required .l2.M_5_50 count file is missing for chromosome {chrom}: '{common_path}'."
+                    f"Required .l2.M_5_50 count file is missing for chromosome {chrom}: '{common_path}'. "
+                    + _COUNT_FILENAME_GUIDANCE
                 )
             common_total += _read_count_vector(common_path, 1, chrom, "M_5_50")[0]
             all_path = reference_root / f"{reference_prefix}{chrom}.l2.M"
@@ -506,7 +529,8 @@ class LegacyLDScoreConverter:
             common_path = reference_root / f"{reference_family.prefix}{chrom}.l2.M_5_50"
             if not common_path.exists():
                 raise LDSCInputError(
-                    f"Required .l2.M_5_50 count file is missing for chromosome {chrom}: '{common_path}'."
+                    f"Required .l2.M_5_50 count file is missing for chromosome {chrom}: '{common_path}'. "
+                    + _COUNT_FILENAME_GUIDANCE
                 )
             legacy_common = _read_count_vector(common_path, len(reference_columns), chrom, "M_5_50")
             _validate_reconstructed_counts(
@@ -726,17 +750,32 @@ def main(argv: list[str] | None = None) -> LegacyLDScoreConversionResult:
 def _existing_directory(path: str | Path, label: str) -> Path:
     root = Path(normalize_path_token(path))
     if not root.is_dir():
-        raise LDSCInputError(f"Cannot use {label} '{root}': path is not an existing directory.")
+        raise LDSCInputError(
+            f"Cannot use {label} '{root}': path is not an existing directory. "
+            "Pass the directory containing the chromosome files, not a file, filename prefix, or glob."
+        )
     return root
 
 
 def _discover_ldscore_family(root: Path, role: str, issues: list[dict[str, object]]) -> _DiscoveredFamily:
     groups: dict[str, dict[int, list[Path]]] = {}
+    unsupported_weight_paths: list[Path] = []
     for path in sorted(root.iterdir(), key=lambda item: item.name):
         match = _LDSCORE_RE.match(path.name)
         if match is None:
             if path.is_file() and ".l2.ldscore" in path.name:
-                issues.append(_issue("warning", role, file=path, reason="discarded_non_family_file"))
+                weight_match = _LDSCORE_RE.match(path.name.replace(".w.l2.ldscore", ".l2.ldscore"))
+                if weight_match is not None:
+                    unsupported_weight_paths.append(path)
+                    issues.append(_issue(
+                        "warning", role, file=path, chromosome=int(weight_match.group("chrom")),
+                        reason="discarded_unsupported_weight_filename", details=_WEIGHT_FILENAME_GUIDANCE,
+                    ))
+                else:
+                    issues.append(_issue(
+                        "warning", role, file=path, reason="discarded_non_family_file",
+                        details=_LDSCORE_FILENAME_GUIDANCE,
+                    ))
             continue
         groups.setdefault(match.group("prefix"), {}).setdefault(int(match.group("chrom")), []).append(path)
     coherent = {prefix: shards for prefix, shards in groups.items() if set(shards) == set(_CHROMS)}
@@ -744,6 +783,12 @@ def _discover_ldscore_family(root: Path, role: str, issues: list[dict[str, objec
         raise LDSCInputError(
             f"Legacy {role} directory '{root}' must contain exactly one coherent chromosome 1-22 "
             f".l2.ldscore family; found prefixes {sorted(coherent)}."
+            + " " + (_WEIGHT_FILENAME_GUIDANCE if unsupported_weight_paths else _LDSCORE_FILENAME_GUIDANCE)
+        )
+    if unsupported_weight_paths:
+        LOGGER.warning(
+            "Ignoring %d unsupported weight filename(s) in '%s'; using the complete recognized family. %s",
+            len(unsupported_weight_paths), root, _WEIGHT_FILENAME_GUIDANCE,
         )
     prefix, shards = next(iter(coherent.items()))
     for discarded_prefix, discarded_shards in groups.items():
@@ -762,13 +807,16 @@ def _discover_ldscore_family(root: Path, role: str, issues: list[dict[str, objec
         if len(representations) != 2 or {path.suffix for path in representations} != {".gz", ".ldscore"}:
             raise LDSCInputError(
                 f"Legacy {role} family has ambiguous representations for chromosome {chrom}: "
-                f"{[str(path) for path in representations]}."
+                f"{[str(path) for path in representations]}. "
+                "Keep one correctly named representation per chromosome from the intended source release."
             )
         contents = [_decompressed_bytes(path) for path in representations]
         if contents[0] != contents[1]:
             raise LDSCInputError(
                 f"Legacy {role} family has conflicting plain/gzip representations for chromosome {chrom}: "
-                f"{[str(path) for path in representations]}."
+                f"{[str(path) for path in representations]}. "
+                "Select the correct source release and organize one representation per chromosome in a separate "
+                "directory; retaining both requires identical decompressed contents."
             )
         selected[chrom] = next(path for path in representations if path.suffix == ".gz")
         for path in representations:
@@ -793,7 +841,9 @@ def _discover_associated_family(
         if len(existing) == 2:
             if _decompressed_bytes(existing[0]) != _decompressed_bytes(existing[1]):
                 raise LDSCInputError(
-                    f"Legacy suite has conflicting plain/gzip representations for chromosome {chrom}: {existing}."
+                    f"Legacy suite has conflicting plain/gzip representations for chromosome {chrom}: {existing}. "
+                    "Use one annotation copy matching the reference release and prefix; retaining both "
+                    "requires identical decompressed contents."
                 )
             found[chrom] = next(path for path in existing if path.suffix == ".gz")
             for path in existing:
@@ -825,7 +875,11 @@ def _discover_frequency_family(
     if len(coherent) != 1:
         raise LDSCInputError(
             f"Legacy frequency directory '{root}' must contain exactly one coherent chromosome 1-22 .frq family; "
-            f"found prefixes {sorted(coherent)}."
+            f"found prefixes {sorted(coherent)}. Use '<prefix><chrom>.frq(.gz)', e.g. '1000G.EUR.QC.1.frq.gz', "
+            "with one constant prefix (possibly empty) and unpadded chromosomes 1-22. "
+            "Restore missing shards or rename misnamed copies; place one complete family directly in this "
+            "directory and keep different releases in separate directories. "
+            "See docs/troubleshooting.md#convert-ldsc2-ldscores."
         )
     prefix, shards = next(iter(coherent.items()))
     for discarded_prefix, discarded_shards in groups.items():
@@ -859,7 +913,9 @@ def _discover_frequency_family(
             continue
         raise LDSCInputError(
             f"Legacy frequency family has ambiguous or conflicting representations for chromosome {chrom}: "
-            f"{[str(path) for path in representations]}."
+            f"{[str(path) for path in representations]}. "
+            "Keep one '<prefix><chrom>.frq(.gz)' copy from the matching source release per chromosome; "
+            "retaining plain and gzip copies requires identical decompressed contents."
         )
     return _DiscoveredFamily(prefix, selected)
 

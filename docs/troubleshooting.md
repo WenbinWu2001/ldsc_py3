@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 This reference explains `ldsc` errors that can **abort a run** and have more than
 one likely cause. It is organized by command. Each entry lists the likely causes
@@ -599,6 +599,28 @@ restriction build/column readers · **Exception:** `LDSCInputError`
 3. Pass a concrete build-specific R2 directory or set the matching genome build.
 
 ## convert-ldsc2-ldscores
+
+The [conversion user guide](../tutorials/convert-legacy-ldscores.md) gives full layouts, table requirements, flags, and copy-and-rename commands. After logging starts, conversion exceptions and their remedies are recorded in `diagnostics/convert-ldsc2-ldscores.log` even at `--log-level ERROR`, with available issues in `diagnostics/conversion_issues.tsv.gz`. Invalid directory arguments or output collisions may fail before a log opens.
+
+### standard filenames and directory organization
+
+Use these patterns directly inside the selected input directories. `<chrom>` means unpadded `1` through `22`; `<prefix>` is constant within each family and can be empty. Include separators in the prefix, such as `baseline.`. `(.gz)` denotes a plain or gzip alternative; counts must be plain text.
+
+| Input | Standard pattern | Example | Repair practice |
+| --- | --- | --- | --- |
+| Reference or weight scores | `<prefix><chrom>.l2.ldscore(.gz)` | `weights.1.l2.ldscore.gz` | Restore missing chromosomes or rename valid copies consistently; select the directory containing the files directly |
+| Baseline annotations | `<reference-prefix><chrom>.annot(.gz)` | `baseline.1.annot.gz` | Use the same prefix as the reference scores and restore all 22 matching shards |
+| Required common counts | `<reference-prefix><chrom>.l2.M_5_50` | `baseline.1.l2.M_5_50` | Restore the matching source count or rename a misnamed copy; `.l2.M` cannot substitute |
+| Optional all-SNP counts | `<reference-prefix><chrom>.l2.M` | `baseline.1.l2.M` | Supply matching original counts if available; see the profile-specific missing-count policy |
+| Baseline frequencies | `<prefix><chrom>.frq(.gz)` | `1000G.EUR.QC.1.frq.gz` | Rename valid `.freq` copies to `.frq` if needed, restore missing chromosomes, and select one complete family |
+
+Place different releases in separate directories when discovery finds multiple complete families. Do not point at a parent directory, filename prefix, individual file, or glob. Counts and annotations must match the selected reference prefix; weight and frequency prefixes can differ. Renaming repairs discovery only: retain the source release and valid table contents, and decompress gzip contents before changing a compressed count file to its plain-text standard name.
+
+### unsupported weight filenames
+
+**Symptom:** family discovery reports unsupported `.w.l2.ldscore(.gz)` filenames, such as `1.w.l2.ldscore.gz`.
+
+Both reference and weight suites require `<prefix><chrom>.l2.ldscore(.gz)` names across chromosomes 1–22. Rename copies in a separate input directory, for example `1.w.l2.ldscore.gz -> weights.1.l2.ldscore.gz`, and pass that directory to `--legacy-weight-dir`. Use the same correction without `.gz` for plain files. Each affected file in the inspected directory is recorded in `diagnostics/conversion_issues.tsv.gz` as `discarded_unsupported_weight_filename`. If a complete recognized family exists alongside these files, conversion uses that family and records the unused alternatives with a warning and in `legacy_ldsc2_import.ignored_files`. After a failed conversion, rerun with a new output directory or `--overwrite` to replace its diagnostics.
 
 ### conversion rejected the legacy suite
 

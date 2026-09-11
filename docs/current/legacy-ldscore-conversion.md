@@ -1,10 +1,12 @@
 # Legacy LDSC2 LD-Score Suite Conversion
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 This document defines the interoperability boundary for explicitly converting
 selected reusable LDSC2 LD-score suites into the canonical LDSC3 LD-score
 result-directory contract.
+
+For all flags, standard filename tables, working and non-working suites, and copy-and-rename examples, see the [user guide](../../tutorials/convert-legacy-ldscores.md). The [utility wiki](../wiki/utility-functionalities/convert-ldsc2-ldscores.md) provides a concise naming and command reference.
 
 ## Command
 
@@ -182,12 +184,9 @@ conversion errors; extra frequency SNPs are ignored and audited.
 
 ## Suite Discovery
 
-The converter discovers `CHR.l2.*` and `PREFIX.CHR.l2.*` chromosome families
-inside each supplied directory and requires one coherent autosomal 1--22
-family for each role. Matching annotations and counts use the selected
-reference prefix. Duplicate compressed and uncompressed representations are
-accepted only when their decompressed contents agree. Non-family alternatives
-such as `6_old.*` are ignored and recorded; ambiguous families are rejected.
+The converter discovers `<prefix><chrom>.l2.ldscore(.gz)` families directly inside each supplied reference/weight directory and requires one coherent autosomal 1–22 family for each role. `<chrom>` is an unpadded chromosome number and `<prefix>` is constant across that family, possibly empty; a separator such as the dot in `baseline.` is part of the prefix. Matching annotations use `<reference-prefix><chrom>.annot(.gz)` and counts use plain-text `<reference-prefix><chrom>.l2.M` and `<reference-prefix><chrom>.l2.M_5_50`. Frequencies use `<prefix><chrom>.frq(.gz)` in the frequency directory and can have a different prefix. Directory discovery is not recursive. Duplicate compressed and uncompressed representations are accepted only when their decompressed contents agree. Non-family alternatives such as `6_old.*` are ignored and recorded; ambiguous families are rejected.
+
+Reference and regression-weight tables both follow `<prefix><chrom>.l2.ldscore(.gz)`, for example `1.l2.ldscore.gz` or `weights.1.l2.ldscore.gz`. The `.w.l2.ldscore(.gz)` suffix, as in `1.w.l2.ldscore.gz`, is unsupported. When these names prevent family discovery, the exception gives the accepted pattern and a concrete correction: `1.w.l2.ldscore.gz -> weights.1.l2.ldscore.gz`. `diagnostics/conversion_issues.tsv.gz` identifies every affected file in that directory with reason `discarded_unsupported_weight_filename`. Rename copies in a separate input directory; the converter never renames source files. If a complete recognized family is already present, unused files with this spelling are ignored with a warning, recorded in the issue table, and listed in provenance under `ignored_files`.
 
 Reference and weight LD-score rows are inner-joined by rsID within chromosome,
 then validated for global uniqueness. Reference values and coordinates are
@@ -198,6 +197,8 @@ an empty final intersection is an error and ordinary low-SNP scientific
 warnings remain regression concerns.
 
 ## Conversion Diagnostics
+
+Filename-related failures include the relevant accepted pattern and explain how to restore missing shards, rename misnamed copies, or organize different releases into separate directories. The shared workflow failure footer records the exception and its remedy in `diagnostics/convert-ldsc2-ldscores.log`, including at `--log-level ERROR`; the issue table also records the exception as `conversion_error`. This applies after the workflow log has opened. Invalid directory arguments and output collisions detected before logging are reported to the caller and may not produce a new log. See the [troubleshooting naming table](../troubleshooting.md#convert-ldsc2-ldscores).
 
 Conversion errors state the violated invariant, source role and file,
 chromosome or annotation when applicable, affected-SNP count, and a bounded
@@ -224,6 +225,8 @@ the pure overlap calculation and canonical LD-score directory writer. No
 legacy LD-score reader is added to regression and no legacy file parsing or
 emission is added to `_kernel`; after conversion, the ordinary canonical
 `load_ldscore_from_dir()` path consumes the result.
+
+The former private LD-score, regression-weight, count, and `.annotation_groups.tsv` emitters have been removed. The munging kernel likewise owns no `.sumstats.gz` emitter; optional legacy sumstats export is written by the public munging workflow. Standalone annotation workflows continue to read `.annot(.gz)` and write `.annot.gz`, including allele-free annotations; this separate contract does not depend on LD-score conversion.
 
 ## Provenance
 

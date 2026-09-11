@@ -1,10 +1,12 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-09-08
+Last updated on: 2026-09-11
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
 ## Overview
+
+If you already have a reusable legacy LD-score suite, use the [convert-ldsc2-ldscores utility](utility-functionalities/convert-ldsc2-ldscores.md) for the standard filenames and conversion flags. It provides an alternative to computing unpartitioned LD scores for `h2`/`rg`, or imports a baseline-only model for `partitioned-h2`; query/cell-type scores still use the current LD-score workflow.
 
 The analysis pipeline involves:
 

@@ -290,6 +290,8 @@ value columns must be numeric and non-missing. This `BP` spelling is a narrow te
 choice, not a promise that LDSC3 output is supported as LDSC2 input. LDSC3
 normalizes `BP` back to canonical internal `POS` when reading annotations.
 
+Annotation `A1` and `A2` must either both be present or both be omitted. Omitting them is supported in every SNP identifier mode: annotations then match by base SNP identity, and allele-aware LD-score calculation obtains alleles from the reference panel. Supplying only one allele column is a structural error; removing both does not require switching the workflow to a base identifier mode.
+
 ### `CHR` format
 `normalize_chromosome` (in `chromosome_inference.py`) strips the `chr` prefix on
 read. All Python-written artifacts store bare labels: `"1"`, `"22"`, `"X"`,

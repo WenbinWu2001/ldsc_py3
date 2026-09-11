@@ -5,6 +5,7 @@ validation and separate chromosome metadata/value artifacts; reference input
 integrity is checked by the existing exhaustive scope gate.
 """
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -41,6 +42,16 @@ def prepare_direct_annotations(args, config, spec, workspace, output_config, *, 
             records = failure_issues.to_dict('records') if failure_issues is not None else [input_issue('alignment','annotation sources','','invalid_required_input',exc)]
             validate_direct_scope(args,config,batch,output_config,annotation_issues=records,bed_sources=bed_sources)
         raise
+    if batch is not None:
+        summary = batch.summary.copy()
+        reserved = {'gene_control', 'CHR', 'SNP', 'POS', 'BP', 'CM', 'A1', 'A2', 'MAF'}
+        invalid = summary['query'].isin(prepared.baseline_columns) | (
+            summary.input_role.eq('focal') & summary['query'].isin(reserved))
+        if invalid.any():
+            summary.loc[invalid, 'source_status'] = 'error'
+            summary.loc[invalid, 'source_reasons'] = summary.loc[invalid, 'source_reasons'].fillna('').map(
+                lambda reason: ';'.join(filter(None, (reason, 'annotation_name_collision'))))
+            batch = replace(batch, summary=summary, has_fatal_gate_a_issues=True)
     if batch is not None and batch.has_fatal_gate_a_issues:
         LDScoreDirectoryWriter().write_gene_list_preflight(batch,output_config)
         raise LDSCInputError(_gene_list_gate_a_message(batch))
@@ -63,10 +74,6 @@ def prepare_direct_annotations(args, config, spec, workspace, output_config, *, 
     if batch is not None or bed_sources:
         names = [d['query'] for d in batch.declarations] if batch is not None else [b.query for b in bed_sources]
         require_unique_annotation_names(bundle.baseline_columns,names)
-        if batch is not None:
-            reserved = {'gene_control','CHR','SNP','POS','BP','CM','A1','A2','MAF'}
-            if any(d['query'] in reserved for d in batch.declarations if d['input_role'] == 'focal'):
-                raise LDSCInputError('Gene-list query names collide with reserved metadata/control names. Rename the focal sources.')
         build_query_shards(bundle,bed_sources=bed_sources,gene_batch=batch,padding_bp=spec.padding_bp,evaluate_support=False)
     bundle.validate()
     return bundle, scope

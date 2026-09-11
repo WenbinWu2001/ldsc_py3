@@ -61,6 +61,22 @@ def build_index(tmp_path, inputs):
     return index_workflow.run_build_gene_ldscore_index_from_args(args)
 
 
+@pytest.mark.parametrize("name", ["base", "SNP"])
+def test_direct_gate_a_reports_naming_and_identifier_issues_together(tmp_path, inputs, name):
+    named, invalid = tmp_path / f"{name}.txt", tmp_path / "invalid.txt"
+    named.write_text("G1\n")
+    invalid.write_text("UNKNOWN\n")
+    args = direct_args(tmp_path, inputs, [named, invalid])
+    with pytest.raises(LDSCInputError):
+        run_ldscore_from_args(args)
+    summary = pd.read_csv(tmp_path / "direct/diagnostics/gene_list_resolution_summary.tsv", sep="\t").set_index("query")
+    assert summary.loc[name, "source_status"] == "error"
+    assert "annotation_name_collision" in summary.loc[name, "source_reasons"]
+    assert summary.loc["invalid", "rejected_rows"] == 1
+    audit = pd.read_csv(tmp_path / "direct/diagnostics/gene_list_audit.tsv.gz", sep="\t")
+    assert len(audit) == 2
+
+
 def test_multichromosome_contents_cover_a_single_chromosome_pathway(tmp_path, inputs):
     prefix, baseline, regression, catalog = inputs
     metadata = pd.read_csv(baseline, sep="\t")

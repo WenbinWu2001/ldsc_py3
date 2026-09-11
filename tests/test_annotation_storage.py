@@ -92,6 +92,24 @@ def test_disk_identity_allele_policy_excludes_invalid_before_global_clusters(tmp
     }
 
 
+def test_mixed_shards_preserve_omitted_alleles_and_global_duplicate_cleanup(tmp_path):
+    from ldsc._annotation_sources import prepare_annotation_sources
+
+    first = tmp_path / "first.annot"
+    second = tmp_path / "second.annot"
+    first.write_text("CHR SNP POS A1 A2 base\n1 unique1 10 A C 1\n1 duplicate 20 A C 2\n")
+    second.write_text("CHR SNP POS base\n2 unique2 10 3\n2 duplicate 20 4\n")
+    with AnnotationWorkspace(tmp_path / "out") as workspace:
+        prepared = prepare_annotation_sources(workspace, [first, second], [], mode="rsid_allele_aware", chunk_rows=1)
+        assert prepared.shards["1"].metadata().SNP.tolist() == ["unique1"]
+        assert prepared.shards["2"].metadata().SNP.tolist() == ["unique2"]
+        assert "A1" not in prepared.shards["2"].metadata()
+        np.testing.assert_array_equal(prepared.shards["2"].read(), [[3]])
+        drops = pd.concat(prepared.drops.frames(), ignore_index=True)
+        assert drops.reason.tolist() == ["duplicate_identity", "duplicate_identity"]
+        assert drops.SNP.tolist() == ["duplicate", "duplicate"]
+
+
 @pytest.mark.parametrize("sharded", [False, True])
 def test_source_preparation_aligns_columns_then_cleans_global_duplicates(tmp_path, sharded):
     from ldsc._annotation_sources import prepare_annotation_sources

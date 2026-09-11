@@ -44,7 +44,9 @@ class DiskIdentityIndex:
 
     Aligned column sources describe one logical row and must be combined before
     ``add``. Invalid allele rows do not participate in duplicate or multi-allelic
-    detection, matching the in-memory scientific identity policy.
+    detection, matching the in-memory scientific identity policy. A logical
+    shard omitting both allele columns uses base identities. Its unknown allele
+    set can establish a duplicate, but cannot establish an allele conflict.
     """
 
     def __init__(self, path, mode):
@@ -59,7 +61,7 @@ class DiskIdentityIndex:
 
     def _keys(self, frame):
         base = base_key_series(frame, self.mode, context="annotation")
-        if is_allele_aware_mode(self.mode):
+        if is_allele_aware_mode(self.mode) and {"A1", "A2"}.issubset(frame.columns):
             allele, reasons = allele_set_series(frame, context="annotation")
         else:
             allele = pd.Series("", index=frame.index)
@@ -72,7 +74,9 @@ class DiskIdentityIndex:
         valid = base.notna() & reasons.isna()
         self.connection.executemany(
             "INSERT INTO identities VALUES (?, ?, 1, 0) "
-            "ON CONFLICT(base) DO UPDATE SET n=n+1, multi=multi OR allele!=excluded.allele",
+            "ON CONFLICT(base) DO UPDATE SET n=n+1, "
+            "multi=multi OR (allele!='' AND excluded.allele!='' AND allele!=excluded.allele), "
+            "allele=CASE WHEN allele='' THEN excluded.allele ELSE allele END",
             zip(base.loc[valid].astype(str), allele.loc[valid].astype(str)),
         )
         self.connection.commit()
@@ -83,7 +87,8 @@ class DiskIdentityIndex:
         reasons = reasons.copy()
         work = frame.copy()
         work["_ldsc_base_key"] = base
-        work["_ldsc_allele_set"] = allele if is_allele_aware_mode(self.mode) else pd.NA
+        aware = is_allele_aware_mode(self.mode) and {"A1", "A2"}.issubset(frame.columns)
+        work["_ldsc_allele_set"] = allele if aware else pd.NA
         work["_ldsc_identity_key"] = pd.NA
         valid = reasons.isna() & base.notna()
         counts = {
@@ -94,7 +99,7 @@ class DiskIdentityIndex:
         duplicate = base.map({key: value[0] for key, value in counts.items()}).gt(1) & valid & ~multi
         reasons.loc[multi] = "multi_allelic_base_key"
         reasons.loc[duplicate] = "duplicate_identity"
-        keys = base.astype("string") + ":" + allele.astype("string") if is_allele_aware_mode(self.mode) else base
+        keys = base.astype("string") + ":" + allele.astype("string") if aware else base
         work.loc[valid & ~multi, "_ldsc_identity_key"] = keys.loc[valid & ~multi]
         records = [
             _identity_drop_rows(work.loc[reasons == reason], reason=reason, stage="annotation_identity_cleanup")

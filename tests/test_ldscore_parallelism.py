@@ -1,8 +1,8 @@
 """Tests for cross-chromosome LD-score parallelism (`threads`).
 
 The fixtures here build a minimal but faithful two-chromosome canonical
-index-format reference panel (the same `IDX_1/IDX_2/R2/SIGN` parquet + sidecar
-that `build-ref-panel` emits, written via the real builder helpers) so the
+index-format reference panel (the same `IDX_1/IDX_2/R2/SIGN_R` parquet + sidecar
+that `build-r2-panel` emits, written via the real builder helpers) so the
 parallel path is exercised end-to-end through `SortedR2BlockReader`, not a mock.
 """
 

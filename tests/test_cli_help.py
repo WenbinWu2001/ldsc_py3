@@ -7,6 +7,13 @@ import pytest
 from ldsc import cli
 
 
+def test_old_build_ref_panel_command_is_rejected(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.build_parser().parse_args(["build-ref-panel", "--help"])
+    assert exc.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+
+
 @pytest.fixture(scope="module")
 def commands():
     parser = cli.build_parser()
@@ -78,7 +85,7 @@ def test_regression_rejects_removed_no_intercept(commands, command, capsys):
 def test_path_help_distinguishes_suites_globs_and_single_files(commands):
     for command, flag in (
         ("annotate", "--baseline-annot-sources"), ("ldscore", "--plink-prefix"),
-        ("build-ref-panel", "--plink-prefix"), ("build-gene-ldscore-index", "--baseline-annot-sources"),
+        ("build-r2-panel", "--plink-prefix"), ("build-gene-ldscore-index", "--baseline-annot-sources"),
         ("quantile-h2", "--target-annot-sources"),
     ):
         help_text = commands[command]._option_string_actions[flag].help

@@ -2,7 +2,7 @@
 
 # LDSC Package Guidance
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 `ldsc_py3_Jerry` is a refactored, distributable Python 3 LDSC package, not an analysis repository. Preserve its package layout, public interfaces, CLI contracts, canonical artifact formats, and compatibility boundaries.
 
@@ -32,7 +32,7 @@ The package supports Python 3.11 through 3.13. Required dependencies are NumPy, 
 ## Package structure and public contracts
 
 - `src/ldsc/` is the supported public Python package surface. Import stable user-facing objects from `ldsc`; `src/ldsc/_kernel/` is private low-level numerical and file-format implementation code.
-- Keep one CLI surface: `ldsc` with `annotate`, `ldscore`, `build-ref-panel`, `build-gene-ldscore-index`, `convert-ldsc2-ldscores`, `munge-sumstats`, `h2`, `partitioned-h2`, `quantile-h2`, `rg`, `query-r2`, `convert-h2-scale`, and `plot`. `ldsc.cli` dispatches; it must not gain numerical or plotting logic.
+- Keep one CLI surface: `ldsc` with `annotate`, `ldscore`, `build-r2-panel`, `build-gene-ldscore-index`, `convert-ldsc2-ldscores`, `munge-sumstats`, `h2`, `partitioned-h2`, `quantile-h2`, `rg`, `query-r2`, `convert-h2-scale`, and `plot`. `ldsc.cli` dispatches; it must not gain numerical or plotting logic.
 - Public workflow modules own user-facing path resolution, header inference, global configuration, genome-build inference, and output preflight. Kernel modules receive resolved primitive inputs and perform numerical work or low-level parsing. Keep dependencies unidirectional and avoid circular imports.
 - Keep alias and identifier normalization centralized in `column_inference.py`; keep hg19/hg38 and 0-based/1-based inference centralized in `genome_build_inference.py`. Prefer existing workflow objects, config dataclasses, path-resolution helpers, and column-inference registries over one-off parsing or normalization.
 - Treat public Python exports, CLI flags, package-written schemas, and legacy file formats as compatibility contracts. Public API or file-format changes require a deliberate compatibility decision, not mechanical cleanup.

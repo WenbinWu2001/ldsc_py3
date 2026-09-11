@@ -1,6 +1,6 @@
 # SNP Identifier / Genome Build: Default Design
 
-Last updated on: 2026-08-05
+Last updated on: 2026-09-11
 
 ## Design Decisions
 
@@ -117,18 +117,18 @@ because they serve different user models.
 | `annotate` | `chr_pos_allele_aware` | `None` (CLI requires explicit for coordinate-family modes) | Raises unless `--genome-build` is supplied or inferable by that workflow. |
 | `munge-sumstats` | `chr_pos_allele_aware` | source: `auto`; output: required for coordinate-family modes | Pass `--output-genome-build hg19` or `--output-genome-build hg38`; the raw source build is inferred unless `--source-genome-build hg19/hg38` is supplied. rsid-family modes reject source/output/liftover build flags and store `genome_build=None`. Requires usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. The removed `--no-alleles` flag is not accepted. |
 | `ldscore` | `chr_pos_allele_aware` | `None`; gene-list route treats omission as `auto` | Coordinate modes require a concrete/inferred build. Gene-list projection also requires a build in rsID modes, but shared rsID artifact metadata remains `genome_build=None`. |
-| `build-ref-panel` | registry or `--snp-identifier` | **ignored** | Uses `--source-genome-build` (separate field); `GlobalConfig.genome_build` is never consulted. |
+| `build-r2-panel` | registry or `--snp-identifier` | **ignored** | Uses `--source-genome-build` (separate field); `GlobalConfig.genome_build` is never consulted. |
 | `h2`, `partitioned-h2`, `rg` | registry at construction | registry at construction | Current Parquet uses footer provenance. Legacy LDSC2 `.sumstats[.gz]` is treated as rsID lookup input and projected onto the LD-score panel's identity; footerless Parquet is rejected. |
 | `convert-ldsc2-ldscores` | `rsid` | `auto` evidence | Output identity is restricted to allele-unaware `rsid` or `chr_pos`. rsID output remains buildless; chr_pos output requires inferred or explicit reference build. |
 | Python `run_ldscore()` wrapper | registry | registry (`"auto"`) | Inherits `chr_pos_allele_aware + auto` from the registry; `auto` is resolved to `hg19`/`hg38` during inference. |
 
-### `build-ref-panel` isolation
+### `build-r2-panel` isolation
 
-`build-ref-panel` is intentionally isolated from `GlobalConfig.genome_build`.
+`build-r2-panel` is intentionally isolated from `GlobalConfig.genome_build`.
 The PLINK source build is owned by `ReferencePanelBuildConfig.source_genome_build`
 and defaults to `"auto"`, which infers from `.bim` coordinates. This keeps the panel-building
 workflow self-contained: it neither reads nor writes the global genome-build
-assumption. The `GlobalConfig` that `build-ref-panel` constructs internally holds
+assumption. The `GlobalConfig` that `build-r2-panel` constructs internally holds
 `genome_build="auto"` only to satisfy the construction invariant; that value is
 never consumed by the workflow.
 

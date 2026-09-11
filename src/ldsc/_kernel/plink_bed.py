@@ -200,7 +200,7 @@ if ba is not None:
 
             When ``streaming`` is true the retained genotype bitarray is never
             materialized; ``nextSNPs`` decodes each batch directly from disk. Only
-            ``build-ref-panel`` opts in, and only for unrestricted builds where the
+            ``build-r2-panel`` opts in, and only for unrestricted builds where the
             kept set spans the whole chromosome.
             """
             self._streaming = bool(streaming)

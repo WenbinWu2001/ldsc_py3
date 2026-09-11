@@ -452,15 +452,15 @@ and parquet row decoders · **Exception:** `LDSCInputError`
 
 | # | Likely cause | How to check |
 |---|--------------|--------------|
-| 1 | The R2 parquet was written by an older LDSC version or another tool | Inspect columns; current files contain `IDX_1`, `IDX_2`, `R2`, and `SIGN` |
+| 1 | The R2 parquet was written by an older LDSC version or another tool | Inspect columns; current files contain `IDX_1`, `IDX_2`, `R2`, and `SIGN_R`. The former `SIGN` column is no longer accepted; rebuild according to the [current format requirements](current/parquet-r2-format-and-read-pipeline.md#5-caveats-and-constraints). |
 | 2 | The matching `chrN_meta.tsv.gz` sidecar is missing or was copied from another panel | Confirm each `chrN_r2.parquet` has a same-directory `chrN_meta.tsv.gz` with matching timestamps/provenance |
 | 3 | Parquet schema metadata was stripped or edited | Inspect parquet metadata for `ldsc:sorted_by_build`, `ldsc:n_snps`, and `ldsc:sidecar_identity_sha256` |
 | 4 | The R2 directory mixes chromosomes or builds from different reference-panel runs | List files in the R2 directory and compare recorded `genome_build` metadata |
-| 5 | Duplicate or conflicting pair rows survived in the R2 artifact | Regenerate from a deduplicated reference-panel source and current `ldsc build-ref-panel` |
+| 5 | Duplicate or conflicting pair rows survived in the R2 artifact | Regenerate from a deduplicated reference-panel source and current `ldsc build-r2-panel` |
 
 **Remedies:**
 
-1. Regenerate the reference panel with the current `ldsc build-ref-panel`.
+1. Regenerate the reference panel with the current `ldsc build-r2-panel`.
 2. Keep each `chrN_r2.parquet` with its matching `chrN_meta.tsv.gz` sidecar; do
    not hand-edit or independently copy sidecars.
 3. Use one consistent R2 directory per genome build and reference-panel run.
@@ -506,18 +506,18 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
    `--genetic-map-hg38-sources <file>` or `--genetic-map-hg19-sources <file>`.
    ldscore interpolates `CM` at the `.bim` positions (PLINK backend).
 2. Provide a `.bim` whose third column carries real genetic-map positions, or a
-   parquet panel built with `ldsc build-ref-panel --genetic-map-<build>-sources`.
+   parquet panel built with `ldsc build-r2-panel --genetic-map-<build>-sources`.
 3. Use a physical-distance window instead: `--ld-wind-kb 1000` or `--ld-wind-snps`.
 4. In rsID identifier modes, pass `--genome-build hg19` / `--genome-build hg38`
    so the matching genetic map can be selected.
 
-## build-ref-panel
+## build-r2-panel
 
-### build-ref-panel: no reference-panel artifacts were produced
+### build-r2-panel: no reference-panel artifacts were produced
 
 **Raised by:** `ref_panel_builder.ReferencePanelBuilder.run()` and reference-panel
 metadata cleanup paths · **Exception:** `LDSCInputError`
-**Symptom:** `build-ref-panel produced no chromosome artifacts...` / `...retained no parquet metadata rows...`
+**Symptom:** `build-r2-panel produced no chromosome artifacts...` / `...retained no parquet metadata rows...`
 
 **Likely causes & how to check** (most probable first):
 
@@ -536,11 +536,11 @@ metadata cleanup paths · **Exception:** `LDSCInputError`
 3. Relax filters or regenerate the PLINK/reference inputs so at least one SNP remains
    per chromosome.
 
-### build-ref-panel: liftover or genetic-map configuration is incomplete
+### build-r2-panel: liftover or genetic-map configuration is incomplete
 
 **Raised by:** `ref_panel_builder.ReferencePanelBuilder._prepare_build_state()`,
 chromosome liftover setup, and genetic-map interpolation helpers · **Exception:** `LDSCUsageError` / `LDSCInputError`
-**Symptom:** `build-ref-panel cannot emit <build>...` / `...genetic map...`
+**Symptom:** `build-r2-panel cannot emit <build>...` / `...genetic map...`
 
 **Likely causes & how to check** (most probable first):
 
@@ -559,11 +559,11 @@ chromosome liftover setup, and genetic-map interpolation helpers · **Exception:
 3. Use liftover chains only in chr_pos-family modes and make the chain direction
    match the source and target builds.
 
-### build-ref-panel: SNP restriction does not match the source panel
+### build-r2-panel: SNP restriction does not match the source panel
 
 **Raised by:** `ref_panel_builder._read_ref_panel_snp_restriction()` and
 restriction build/column readers · **Exception:** `LDSCInputError`
-**Symptom:** `build-ref-panel SNP restriction does not match the source panel build...`
+**Symptom:** `build-r2-panel SNP restriction does not match the source panel build...`
 
 **Likely causes & how to check** (most probable first):
 
@@ -581,7 +581,7 @@ restriction build/column readers · **Exception:** `LDSCInputError`
 2. Prefer source-build-specific position columns such as `hg19_POS` or `hg38_POS`.
 3. Fix ragged rows or delimiter/header issues before rerunning.
 
-### build-ref-panel: reference-panel artifact is incompatible
+### build-r2-panel: reference-panel artifact is incompatible
 
 **Raised by:** `_kernel.ref_panel.ParquetR2RefPanel` and metadata sidecar readers
 · **Exception:** `LDSCInputError`
@@ -600,7 +600,7 @@ restriction build/column readers · **Exception:** `LDSCInputError`
 **Remedies:**
 
 1. Keep R2 parquet files and metadata sidecars together as one artifact family.
-2. Regenerate the reference panel with the current `ldsc build-ref-panel`.
+2. Regenerate the reference panel with the current `ldsc build-r2-panel`.
 3. Pass a concrete build-specific R2 directory or set the matching genome build.
 
 ## convert-ldsc2-ldscores

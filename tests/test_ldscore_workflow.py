@@ -242,7 +242,7 @@ class R2AutoLoadCLITest(unittest.TestCase):
             # A hand-built raw-bias index panel (the package writer only emits
             # unbiased; raw is reserved for future external raw-R2 index panels).
             schema = pa.schema(
-                [("IDX_1", pa.int32()), ("IDX_2", pa.int32()), ("R2", pa.float32()), ("SIGN", pa.bool_())]
+                [("IDX_1", pa.int32()), ("IDX_2", pa.int32()), ("R2", pa.float32()), ("SIGN_R", pa.bool_())]
             ).with_metadata({
                 b"ldsc:schema_version": b"1",
                 b"ldsc:artifact_type": b"ref_panel_r2",
@@ -256,7 +256,7 @@ class R2AutoLoadCLITest(unittest.TestCase):
             })
             tbl = pa.table(
                 {"IDX_1": pa.array([0], pa.int32()), "IDX_2": pa.array([1], pa.int32()),
-                 "R2": pa.array([0.5], pa.float32()), "SIGN": pa.array([True], pa.bool_())},
+                 "R2": pa.array([0.5], pa.float32()), "SIGN_R": pa.array([True], pa.bool_())},
                 schema=schema,
             )
             pq.write_table(tbl, str(path))
@@ -3213,7 +3213,7 @@ class RawSchemaRejectedTest(unittest.TestCase):
             path = Path(tmp) / "chr1_r2.parquet"
             _write_legacy_r2_parquet(path)  # writes old 10-col canonical schema
             meta = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["a"], "A1": ["A"], "A2": ["G"]})
-            with self.assertRaisesRegex(LDSCInputError, "index-format|build-ref-panel"):
+            with self.assertRaisesRegex(LDSCInputError, "index-format|build-r2-panel"):
                 SortedR2BlockReader(paths=[str(path)], chrom="1", metadata=meta,
                                     identifier_mode="chr_pos", r2_bias_mode="unbiased",
                                     r2_sample_size=None, genome_build="hg19")
@@ -3274,7 +3274,7 @@ class R2DequantizationTest(unittest.TestCase):
             r2 = meta.with_name("chr1_r2.parquet")
             schema = pa.schema(
                 [("IDX_1", pa.int32()), ("IDX_2", pa.int32()),
-                 ("R2", pa.float32()), ("SIGN", pa.bool_())]
+                 ("R2", pa.float32()), ("SIGN_R", pa.bool_())]
             ).with_metadata({
                 b"ldsc:schema_version": b"1", b"ldsc:artifact_type": b"ref_panel_r2",
                 b"ldsc:snp_identifier": b"chr_pos", b"ldsc:genome_build": b"hg19",
@@ -3284,7 +3284,7 @@ class R2DequantizationTest(unittest.TestCase):
                 b"ldsc:row_group_size": b"50000",
             })
             tbl = pa.table({"IDX_1": pa.array([0], pa.int32()), "IDX_2": pa.array([1], pa.int32()),
-                            "R2": pa.array([0.5], pa.float32()), "SIGN": pa.array([True], pa.bool_())},
+                            "R2": pa.array([0.5], pa.float32()), "SIGN_R": pa.array([True], pa.bool_())},
                            schema=schema)
             pq.write_table(tbl, str(r2))
             reader = kernel_ldscore.SortedR2BlockReader(

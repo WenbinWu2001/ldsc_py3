@@ -1,6 +1,6 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `column_inference.py`, all
@@ -83,7 +83,7 @@ decimal digits printed, not numpy dtype.
 | `sumstats.parquet` | none | `CHR` (str), `POS` (int64 when complete), `SNP` (str), alleles (str), `Z`/`N`/`FRQ` (numeric precision preserved) |
 | `ldscore.baseline.parquet`, `ldscore.query.parquet` | `regression_ld_scores`, all LD-score / annotation columns | `CHR` (str), `POS` (int64), `SNP` (str) |
 | `ldscore.overlap.parquet` | none (written directly, not through the chromosome-aligned writer) | `row_annotation` (str), `col_annotation` (str), `overlap_all_snps` / `overlap_common_snps` (`float64`, kept precise because overlap counts can exceed float32's exact-integer range) |
-| Pairwise R² parquet | `SIGN` (bool) | `IDX_1`, `IDX_2` (int32 sidecar-row indices); `R2` (int16 on-disk, symmetric quantization scale 32767, dequantized to float32 on read) |
+| Pairwise R² parquet | `SIGN_R` (bool) | `IDX_1`, `IDX_2` (int32 sidecar-row indices); `R2` (int16 on-disk, symmetric quantization scale 32767, dequantized to float32 on read) |
 
 Pairwise R² parquet schema metadata also stores `ldsc:sorted_by_build`,
 `ldsc:row_group_size`, `ldsc:n_samples`, `ldsc:r2_bias`, `ldsc:n_snps`,
@@ -184,10 +184,7 @@ unordered, strand-aware set; orientation is never used for identity (a sumstats
 `A1`=effect and a panel `A1`=minor still match, with any disagreement resolved as
 a sign flip at alignment).
 
-**Signed r (reference panel, `query-r2` `r` column):** defined in the canonical
-orientation as the correlation between the two SNPs' `A1` (minor) allele dosages.
-A **positive** sign means the minor alleles co-occur on haplotypes more than
-chance — positive LD between minor alleles.
+**Panel and query correlation signs:** stored `SIGN_R` is boolean and describes correlation between panel A1 (minor-allele) dosages. In allele-aware `query-r2` results, nullable `sign_r` (+1/-1) and Pearson `r` are harmonized to query A1 dosages, which need not be minor alleles. Swapping one endpoint's allele order reverses the returned sign but leaves R² unchanged. Base modes return missing `sign_r` and `r`.
 
 Aliases such as `REFERENCE_ALLELE` are interpreted in the signed-statistic sense
 only. They do not claim that `A1` is the genome reference allele. Genome
@@ -334,7 +331,7 @@ the annotation rule unconditionally. The annotation-specific columns that follow
 | LD-score output (`ldscore.query.parquet`) | `CHR, SNP, POS` | query LD-score columns |
 | LD-score overlap (`ldscore.overlap.parquet`) | `row_annotation, col_annotation` | `overlap_all_snps, overlap_common_snps` (long-form annotation overlap matrix) |
 | Munged sumstats (`sumstats.parquet` or `.sumstats.gz`) | `SNP, CHR, POS, A1, A2` | `Z, N, FRQ` |
-| Canonical pairwise R² parquet | `IDX_1, IDX_2, R2, SIGN` | index-only format; SNP identity lives in the paired `chrN_meta.tsv.gz` sidecar, not in the parquet |
+| Canonical pairwise R² parquet | `IDX_1, IDX_2, R2, SIGN_R` | index-only format; SNP identity lives in the paired `chrN_meta.tsv.gz` sidecar, not in the parquet |
 | Dropped-SNP audit sidecar (`diagnostics/dropped_snps/*.tsv.gz`) | `CHR, SNP, source_pos, target_pos, reason, base_key, identity_key, allele_set, stage` | |
 
 Dropped-SNP audit sidecars are always written by liftover-aware public

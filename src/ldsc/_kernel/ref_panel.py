@@ -56,8 +56,8 @@ from .snp_identity import (
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
 _REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORECASE)
-_REF_PANEL_ARTIFACT_DOC = "docs/troubleshooting.md#build-ref-panel-reference-panel-artifact-is-incompatible"
-_REF_PANEL_EMPTY_DOC = "docs/troubleshooting.md#build-ref-panel-no-reference-panel-artifacts-were-produced"
+_REF_PANEL_ARTIFACT_DOC = "docs/troubleshooting.md#build-r2-panel-reference-panel-artifact-is-incompatible"
+_REF_PANEL_EMPTY_DOC = "docs/troubleshooting.md#build-r2-panel-no-reference-panel-artifacts-were-produced"
 
 
 def _snp_id_series_for_matching(metadata: pd.DataFrame, snp_identifier: str, *, context: str) -> pd.Series:
@@ -133,7 +133,7 @@ def _read_identity_schema_meta(path: str, *, expected_artifact_type: str) -> dic
             "Could not read LDSC reference-panel R2 artifact metadata: required "
             "identity/provenance keys are missing from the parquet schema. Most likely "
             "the R2 file was written by an older LDSC version or by another tool. "
-            "Regenerate the reference panel with the current `ldsc build-ref-panel`. "
+            "Regenerate the reference panel with the current `ldsc build-r2-panel`. "
             f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
         )
     metadata = {
@@ -531,7 +531,7 @@ class ParquetR2RefPanel(RefPanel):
             raise LDSCInputError(
                 f"Reference-panel loading found no `chr*_r2.parquet` files in R2 "
                 f"directory '{self.spec.r2_dir}'. Most likely the directory is not an "
-                "`ldsc build-ref-panel` output directory or the wrong genome-build child "
+                "`ldsc build-r2-panel` output directory or the wrong genome-build child "
                 "directory was selected. Pass the directory containing canonical R2 parquet files. "
                 f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
             )
@@ -718,7 +718,7 @@ def _resolve_r2_build_dir(r2_dir: str | Path, genome_build: str | None) -> Path:
         raise LDSCInputError(
             f"Reference-panel R2 directory does not exist: '{root}'. Most likely the "
             "path is misspelled or relative to a different working directory. Pass the "
-            "existing `ldsc build-ref-panel` output directory."
+            "existing `ldsc build-r2-panel` output directory."
         )
     if not root.is_dir():
         raise LDSCInputError(
@@ -941,7 +941,7 @@ def _read_metadata_sidecar_identity(path: str | Path) -> dict[str, object] | Non
         raise LDSCInputError(
             f"Reference-panel metadata sidecar '{path}' is missing LDSC identity "
             "metadata. Most likely it was written by an older LDSC version or edited. "
-            "Regenerate the reference panel with the current `ldsc build-ref-panel`. "
+            "Regenerate the reference panel with the current `ldsc build-r2-panel`. "
             f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
         )
     return {
@@ -984,7 +984,7 @@ def _read_metadata_table(
             f"Reference-panel metadata sidecar '{path}' has no LDSC identity metadata, "
             "but its paired R2 parquet requires package provenance. Most likely the "
             "sidecar was written by an older LDSC version or copied from an external "
-            "source. Regenerate the reference panel with the current `ldsc build-ref-panel`. "
+            "source. Regenerate the reference panel with the current `ldsc build-r2-panel`. "
             f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
         )
     if identity_metadata is not None:

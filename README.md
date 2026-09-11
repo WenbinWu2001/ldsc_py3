@@ -168,7 +168,7 @@ Subcommands:
 
 - `ldsc annotate`
 - `ldsc build-gene-ldscore-index`
-- `ldsc build-ref-panel`
+- `ldsc build-r2-panel`
 - `ldsc convert-ldsc2-ldscores`
 - `ldsc convert-h2-scale`
 - `ldsc ldscore`
@@ -235,7 +235,9 @@ restriction, pass `--output-genome-build` with `--liftover-chain-file`, or pair
 coordinate shortcut. Liftover is invalid in `rsid`-family modes because
 positions are not the row identity there.
 
-`ldsc build-ref-panel` keeps a separate source-build contract for PLINK input:
+`ldsc build-r2-panel` computes pairwise, bias-adjusted R² and writes chromosome Parquet tables plus required SNP metadata sidecars. It replaces `build-ref-panel` without an alias. The four Parquet columns are `IDX_1`, `IDX_2`, `R2`, and `SIGN_R`; `SIGN_R` is true when Pearson r is nonnegative in the sidecar allele orientation. Panels using the former `SIGN` column are unsupported and must be rebuilt. `query-r2` returns `r2`, nullable `sign_r` (+1/-1 in query allele orientation), `r`, and `status`, with no old-name aliases. See the [R² format contract](docs/current/parquet-r2-format-and-read-pipeline.md#2-parquet-format-specification).
+
+`ldsc build-r2-panel` keeps a separate source-build contract for PLINK input:
 provide or infer `--source-genome-build`, and a matching chain file emits the
 opposite build. Deliberate reference-universe restriction uses an explicit
 `--ref-panel-snps-file`; the builder has no HM3-only restriction or quick-liftover
@@ -243,19 +245,18 @@ mode. Chain-file liftover is invalid when the active
 `snp_identifier` is in the `rsid` family; omit liftover for source-build-only rsID panels. In
 `chr_pos`-family modes,
 duplicate source or target coordinate groups are dropped by default
-(`--duplicate-position-policy drop-all`), with details in `build-ref-panel.log`
-and duplicate-only sidecars under `dropped_snps/`.
+(fixed `drop-all` policy, with no CLI switch), with details in the log and dropped-SNP sidecars under `diagnostics/`.
 
 Artifact-writing workflows write completed per-run logs under their output
 directories. During `build-gene-ldscore-index`, the open log temporarily lives
 under hidden `.<index-name>.build-state/` so it is never part of an atomic index
 replacement; after its handler closes, a successful log moves into the index's
 `diagnostics/`. `munge-sumstats` keeps the historical `sumstats.log` name; other
-commands use `annotate.log`, `ldscore.log`, `build-ref-panel.log`,
+commands use `annotate.log`, `ldscore.log`, `build-r2-panel.log`,
 `build-gene-ldscore-index.log`,
 `h2.log`, `partitioned-h2.log`, `quantile-h2.log`, `rg.log`, `plot.log`, or
 `convert-h2-scale.log`. Concrete single-chromosome
-`build-ref-panel` runs use `build-ref-panel.chr<chrom>.log` so parallel
+`build-r2-panel` runs use `build-r2-panel.chr<chrom>.log` so parallel
 per-chromosome jobs can share an output directory without sharing one log file.
 Logs are audit artifacts, so Python result objects and `output_paths` mappings
 only list scientific data outputs.

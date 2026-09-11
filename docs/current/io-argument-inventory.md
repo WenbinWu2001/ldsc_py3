@@ -79,7 +79,7 @@ Adapted public paths:
 - `ldsc munge-sumstats` writes `sumstats.parquet` by default.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` require `output_dir` and write
   result tables as TSV.
-- `ldsc build-ref-panel` writes the primary R2 pair matrix as
+- `ldsc build-r2-panel` writes the primary R2 pair matrix as
   `chr{chrom}_r2.parquet`.
 - `ldsc build-gene-ldscore-index` writes one immutable gene LD-score index
   directory for later explicit indexed LD-score assembly.
@@ -97,7 +97,7 @@ Not fully adapted or retained for compatibility:
 - `ldsc annotate` writes generated query annotations as
   `query.<chrom>.annot.gz`; these are intermediate annotation artifacts rather
   than science-facing result tables.
-- `ldsc build-ref-panel` still writes runtime metadata sidecars as
+- `ldsc build-r2-panel` still writes runtime metadata sidecars as
   `chr{chrom}_meta.tsv.gz` and liftover-stage drop audit files as
   `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz`.
 - `ldsc munge-sumstats` keeps `--output-format tsv.gz` and `both`, which write
@@ -148,7 +148,7 @@ siblings not produced by the successful run. Legacy/root diagnostic names that
 are no longer in the public layout are not blocked or cleaned as owned outputs.
 Unrelated files in `output_dir` are preserved. Sharded workflows may narrow the
 owned family to the shard selected by the current invocation. For
-`build-ref-panel`, a concrete chromosome prefix owns only that chromosome's
+`build-r2-panel`, a concrete chromosome prefix owns only that chromosome's
 artifact package, while a `@` chromosome-suite invocation owns the full panel
 package.
 
@@ -237,7 +237,7 @@ LD-score output schema:
   counts, `row_group_layout`, `baseline_row_groups`, and
   `query_row_groups`.
 
-### `ldsc build-ref-panel`
+### `ldsc build-r2-panel`
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
@@ -255,10 +255,10 @@ LD-score output schema:
 | `--ld-wind-kb` | model | conditional | LD window in kilobases | Selects an LD window measured by physical distance; defaults to `None`. Exactly one LD-window flag must be supplied. |
 | `--ld-wind-cm` | model | conditional | LD window in centiMorgans | Selects an LD window measured by genetic distance; defaults to `None`. Exactly one LD-window flag must be supplied, and cM windows require genetic-map inputs for every emitted build. |
 | `--output-dir` | output | yes | reference-panel artifact directory | Run identity is `Path(output_dir).name`; no separate label is accepted. |
-| `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts, diagnostic metadata, always-written `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz` audit files, and build-ref-panel workflow logs may be replaced; defaults to `False`, so existing owned outputs are refused. Concrete chromosome prefixes own and clean only that chromosome's package. `@` chromosome-suite runs own the full panel package and can remove stale target-build, out-of-scope chromosome, dropped-SNP, metadata, or log siblings after success. |
-| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`; these records go to the build-ref-panel workflow log and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
-| `--snp-batch-size` | performance | no | SNP computation batch size | Number of SNPs decoded per pairwise-R2 computation batch; larger values size the pairwise working set (decoded window and correlation block) and can improve throughput. It does **not** drive peak RSS: the genotype payload is read selectively (restricted builds) or streamed (unrestricted builds), so peak is governed by that bounded read plus the workflow/import floor, not by this batch size. Defaults to `128`. |
-| `--min-r2` | output mode | no | pair-emission threshold | Optional unbiased-R2 floor for emitted pairs. Defaults to `0.0`, which writes every retained pair. Positive values reduce output size by omitting low-R2 pairs; downstream query and LD-score reads treat absent pairs as zero/absent according to their workflow contract. The threshold is recorded in parquet metadata as `ldsc:min_r2`. |
+| `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts, diagnostic metadata, always-written `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz` audit files, and build-r2-panel workflow logs may be replaced; defaults to `False`, so existing owned outputs are refused. Concrete chromosome prefixes own and clean only that chromosome's package. `@` chromosome-suite runs own the full panel package and can remove stale target-build, out-of-scope chromosome, dropped-SNP, metadata, or log siblings after success. |
+| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`; these records go to the build-r2-panel workflow log and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
+| `--snp-batch-size` | performance | no | SNP computation batch size | Number of SNPs decoded per pairwise-R2 computation batch; larger values size the pairwise working set (decoded window and correlation block) and can improve throughput. Memory includes genotype batches and window-spanning carry-over columns; explicit SNP restrictions also retain the selected genotype payload in RAM. Benchmark batch size and window density for the intended sample count. Defaults to `128`. |
+| `--min-r2` | output mode | no | pair-emission threshold | Optional unbiased-R2 floor for emitted pairs. Defaults to `0.0`, which writes every retained pair. Positive values reduce output size by omitting low-R2 pairs; LD-score accumulation treats missing pairs as zero, while query-r2 reports NaN with `status=absent`. The threshold is recorded in parquet metadata as `ldsc:min_r2`. |
 
 Removed flags: `--bfile`, `--out`, `--panel-label`, `--keep-indivs`, `--maf`,
 `--genetic-map-hg19`, `--genetic-map-hg38`, old liftover-chain names without
@@ -275,8 +275,8 @@ Fixed output names:
 <output_dir>/diagnostics/metadata.json
 <output_dir>/diagnostics/metadata.chr<chrom>.json  # concrete single-chromosome PLINK prefix
 <output_dir>/diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz
-<output_dir>/diagnostics/build-ref-panel.log
-<output_dir>/diagnostics/build-ref-panel.chr<chrom>.log  # concrete single-chromosome PLINK prefix
+<output_dir>/diagnostics/build-r2-panel.log
+<output_dir>/diagnostics/build-r2-panel.chr<chrom>.log  # concrete single-chromosome PLINK prefix
 ```
 
 Each `chr{chrom}_r2.parquet` stores Arrow schema metadata for
@@ -301,7 +301,7 @@ metadata sidecar is still written with `CM=NA`. cM-window builds require the
 genetic map for every emitted build because each build's map defines that
 build's LD window.
 
-`build-ref-panel` owns only current-contract artifacts. The owned package depends
+`build-r2-panel` owns only current-contract artifacts. The owned package depends
 on the PLINK prefix scope: a concrete single-chromosome prefix owns only that
 chromosome's R2, metadata sidecar, dropped-SNP audit, chromosome-scoped
 diagnostic metadata, and chromosome-scoped log; a `@` chromosome-suite prefix
@@ -440,20 +440,20 @@ INFO flags.
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--panel-dir` | input | yes | build-ref-panel output directory | Opens a package-built reference panel directory, optionally selecting a build subdirectory with `--genome-build`. This is the only panel input mode. |
+| `--panel-dir` | input | yes | build-r2-panel output directory | Opens a package-built reference panel directory, optionally selecting a build subdirectory with `--genome-build`. This is the only panel input mode. |
 | `--pairs` | input | yes | SNP-pair table | TSV by default, CSV when the filename ends with `.csv`, or stdin via `-`. Endpoint columns use `_1` and `_2` suffixes, with `SNP`, `CHR`, `POS`, `A1`, and `A2` supplied according to the active identifier mode. |
 | `--output-dir` | output | yes | result directory | Writes the canonical result directory (`query_r2.tsv` plus `diagnostics/metadata.json` and `diagnostics/query-r2.log`). |
 | `--overwrite` | output control | no | overwrite toggle | Replaces existing query-r2 output artifacts in `--output-dir`; defaults to `False`. |
 | `--log-level` | output control | no | log verbosity | Verbosity of `diagnostics/query-r2.log`; defaults to `INFO`. |
 | `--snp-identifier` | input metadata | no | query identity mode | Overrides panel metadata; defaults to omitted/`None`. If omitted, `R2Panel.open()` reads `ldsc:snp_identifier` from parquet metadata. |
-| `--genome-build` | input selector | no | panel build selector | Concrete `hg19`/`hg38` selector for build-ref-panel directory layouts; defaults to omitted/`None`. |
+| `--genome-build` | input selector | no | panel build selector | Concrete `hg19`/`hg38` selector for build-r2-panel directory layouts; defaults to omitted/`None`. |
 
 Removed flags: `--out` (replaced by the required `--output-dir` result directory),
 `--meta`, `--parquet` (explicit single-chromosome input; use
 `--panel-dir`), `--with-r` (signed `r` is now always emitted), `--strategy`,
 `--strategy-threshold` (lookup strategy is fixed to the internal `auto` rule).
 
-Output columns always append `r2`, nullable `sign`, signed Pearson `r`, and
+Output columns always append `r2`, nullable `sign_r`, signed Pearson `r`, and
 `status` to the input pairs. `r` is computed by inverting unbiased R2 with panel
 `ldsc:n_samples`; it is all-NaN in base/allele-blind modes (no sign) and in
 panels lacking `ldsc:n_samples`. `status` is blank for found pairs and may report
@@ -666,7 +666,7 @@ LD-score `chunk_size`; `use_hm3_ref_panel_snps`, `use_hm3_regression_snps`,
 | `ReferencePanelBuildConfig` | `snp_batch_size` | performance | SNP computation batch size |
 | `ReferencePanelBuildConfig` | `min_r2` | output mode | optional unbiased-R2 emission floor; default `0.0` writes every retained pair |
 | `ReferencePanelBuildConfig` | `output_dir` | output | required constructor field selecting the artifact directory |
-| `run_build_ref_panel(**kwargs)` | same config field names except global settings | input/output | requires `plink_prefix` and `output_dir`; reads `snp_identifier` from the registered `GlobalConfig`; ignores `GlobalConfig.genome_build`; writes the build-ref-panel workflow log |
+| `run_build_ref_panel(**kwargs)` | same config field names except global settings | input/output | requires `plink_prefix` and `output_dir`; reads `snp_identifier` from the registered `GlobalConfig`; ignores `GlobalConfig.genome_build`; writes the build-r2-panel workflow log |
 
 Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 `keep_indivs`, `maf`, old genetic-map and liftover names without `_file` /
@@ -701,7 +701,7 @@ Removed Python names: legacy separate source-path object field,
 |---|---:|---:|---|
 | `R2Panel.open()` | `panel_dir` | input | package-built reference-panel directory (sole input mode) |
 | `R2Panel.open()` | `snp_identifier`, `genome_build` | input metadata | active identity mode and build selector |
-| `R2Panel.query_pairs(pairs)` | `pairs` | input | in-memory endpoint-suffixed SNP-pair table; always appends `r2`, `sign`, `r`, `status` |
+| `R2Panel.query_pairs(pairs)` | `pairs` | input | in-memory endpoint-suffixed SNP-pair table; always appends `r2`, `sign_r`, `r`, `status` |
 | `query_r2(...)` | `pairs`, `panel_dir` | input | in-memory one-shot query wrapper around `R2Panel.open()` and `query_pairs()`; unlike the CLI, it has no output argument |
 | `unbiased_r2_to_pearson_r(r2_adj, n, sign)` | `r2_adj`, `n`, `sign` | transform | converts adjusted R2 plus sign to Pearson `r` |
 

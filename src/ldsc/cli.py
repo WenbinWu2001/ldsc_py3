@@ -50,7 +50,7 @@ _USER_ERROR_TYPES = (
 _SUBCOMMAND_HELP = {
     "annotate": "Find SNPs covered by BED intervals or gene boundaries.",
     "ldscore": "Compute LD scores.",
-    "build-ref-panel": "Build standard parquet reference panels.",
+    "build-r2-panel": "Build pairwise R2 panels from PLINK genotypes.",
     "build-gene-ldscore-index": "Build a reusable gene LD-score index.",
     "convert-ldsc2-ldscores": "Convert selected LDSC2 LD-score suites to LDSC3 format.",
     "munge-sumstats": "Munge GWAS summary statistics.",
@@ -90,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
     ldscore_parser = subparsers.add_parser("ldscore", help=_SUBCOMMAND_HELP["ldscore"])
     _copy_actions(ldscore_parser, ldscore_calculator.build_parser())
 
-    ref_panel_parser = subparsers.add_parser("build-ref-panel", help=_SUBCOMMAND_HELP["build-ref-panel"])
+    ref_panel_parser = subparsers.add_parser("build-r2-panel", help=_SUBCOMMAND_HELP["build-r2-panel"])
     _copy_actions(ref_panel_parser, ref_panel_builder.build_parser())
 
     gene_index_parser = subparsers.add_parser(
@@ -178,7 +178,7 @@ def main(argv: Sequence[str] | None = None):
             return annotation_builder.main(subargv)
         if command == "ldscore":
             return ldscore_calculator.main(subargv)
-        if command == "build-ref-panel":
+        if command == "build-r2-panel":
             return ref_panel_builder.main(subargv)
         if command == "build-gene-ldscore-index":
             return gene_ldscore_index.main(subargv)
@@ -310,7 +310,7 @@ def _cli_failure_marker_scope(argv: Sequence[str]) -> tuple[Path, str] | None:
     output_dir = _raw_option_value(argv, "--output-dir")
     if output_dir is None:
         return None
-    if command == "build-ref-panel":
+    if command == "build-r2-panel":
         prefix = _raw_option_value(argv, "--plink-prefix")
         chromosome = _chromosome_from_concrete_prefix(prefix)
         if chromosome is not None:

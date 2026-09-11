@@ -1,10 +1,11 @@
 """Query adjusted R² for SNP pairs from index-format reference panels.
 
-Public surface for reading a ``ldsc build-ref-panel`` parquet panel by SNP pair:
+Public surface for reading a ``ldsc build-r2-panel`` parquet panel by SNP pair:
 the :class:`R2Panel` handle, the one-shot :func:`query_r2` wrapper, and the pure
 :func:`unbiased_r2_to_pearson_r` converter. See
-``docs/current/ref-panel-r2-query.md`` and the design spec
-``docs/superpowers/specs/2026-06-06-ref-panel-r2-query-design.md``.
+``docs/current/ref-panel-r2-query.md`` for the current input and output contract.
+Stored ``SIGN_R`` values use panel alleles; returned ``sign_r`` values use the
+query alleles after orientation harmonization.
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ import pandas as pd
 from ._cli_help import CLIHelpFormatter
 from ._logging import LOG_LEVEL_HELP
 from ._kernel.identifiers import build_snp_id_series
-from ._kernel.ldscore import _load_full_panel_sidecar, _validate_index_binding
+from ._kernel.ldscore import _load_full_panel_sidecar, _parquet_schema_layout, _validate_index_binding
 from ._kernel.r2_query import lookup_pairs_in_parquet
 from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from .outputs import QueryR2DirectoryWriter, QueryR2OutputConfig
@@ -97,9 +98,24 @@ def query_r2(
 ) -> pd.DataFrame:
     """Open a panel, query ``pairs`` once, and return the annotated DataFrame.
 
-    Thin one-shot wrapper over :meth:`R2Panel.open` + :meth:`R2Panel.query_pairs`.
-    The returned table always includes the signed Pearson ``r`` column (all-NaN
-    in base/allele-blind modes).
+    Parameters
+    ----------
+    pairs : pandas.DataFrame
+        SNP pairs with endpoint columns suffixed ``_1`` and ``_2``; see
+        :meth:`R2Panel.query_pairs` for identity and allele requirements.
+    panel_dir : str or os.PathLike
+        Required build-r2-panel output directory or its genome-build child.
+    snp_identifier : str or None, optional
+        One of the four public identity modes. None uses panel provenance.
+    genome_build : {"hg19", "hg38"} or None, optional
+        Select the coordinate build when the panel directory contains both.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Copy of the input with ``r2``, ``sign_r``, ``r``, and ``status``.
+        Signed results use query allele orientation and are missing in base
+        modes. See :meth:`R2Panel.query_pairs` for missing-pair semantics.
     """
     panel = R2Panel.open(
         panel_dir,
@@ -123,7 +139,7 @@ class _ChromState:
 
 
 class R2Panel:
-    """Handle over a build-ref-panel index-format R² panel for pair queries.
+    """Handle over a build-r2-panel index-format R² panel for pair queries.
 
     Open once with :meth:`open`, then call :meth:`query_pairs` many times. Each
     chromosome is loaded lazily on first touch (sidecar, schema metadata,
@@ -148,13 +164,22 @@ class R2Panel:
         genome_build: str | None = None,
         validate_binding: bool = True,
     ) -> "R2Panel":
-        """Open a panel from a build-ref-panel output directory."""
+        """Open a panel directory and lazily cache chromosomes on first use.
+
+        ``panel_dir`` is required and may name the output root or one build
+        child. ``genome_build`` selects hg19/hg38 when needed; an omitted
+        ``snp_identifier`` uses the mode recorded in panel metadata. Each
+        chromosome requires a SIGN_R-format Parquet and its matching SNP
+        sidecar. ``validate_binding=True`` checks the sidecar's identity hash
+        and row count when loading a chromosome; disabling it does not relax
+        the required schema. Returns a reusable :class:`R2Panel` handle.
+        """
         import pyarrow.parquet as pq
 
         if panel_dir is None:
             raise LDSCUsageError(
                 "R2Panel.open requires `panel_dir`. Most likely it was omitted. Pass a "
-                "build-ref-panel output directory containing canonical R2 parquet files."
+                "build-r2-panel output directory containing canonical R2 parquet files."
             )
 
         paths: dict[str, tuple[str, str]] = {}
@@ -173,7 +198,7 @@ class R2Panel:
         if not paths:
             raise LDSCInputError(
                 "R2Panel.open found no `chr*_r2.parquet` files. Most likely `panel_dir` is "
-                "not a build-ref-panel output directory or the wrong genome-build sub-dir "
+                "not a build-r2-panel output directory or the wrong genome-build sub-dir "
                 "was selected. Pass the directory containing canonical R2 parquet files."
             )
 
@@ -226,6 +251,12 @@ class R2Panel:
         import pyarrow as pa
         import pyarrow.parquet as pq
 
+        if _parquet_schema_layout(pq.read_schema(r2_path).names) != "index":
+            raise LDSCInputError(
+                f"R2Panel could not use R2 parquet '{r2_path}': expected columns "
+                "IDX_1/IDX_2/R2/SIGN_R. Most likely this panel uses an older schema. "
+                "Regenerate it with `ldsc build-r2-panel`."
+            )
         sidecar = _load_full_panel_sidecar(r2_path)
         pf = pq.ParquetFile(r2_path)
         schema_meta = pf.schema_arrow.metadata or {}
@@ -308,12 +339,34 @@ class R2Panel:
         return chrom, idx, qa1, qa2, pa1, pa2
 
     def query_pairs(self, pairs: pd.DataFrame) -> pd.DataFrame:
-        """Return adjusted R², sign, signed Pearson r, and status for each pair.
+        """Return adjusted R² and query-oriented signed r for each SNP pair.
 
-        ``pairs`` has per-endpoint columns suffixed ``_1``/``_2``
-        (``CHR/POS/A1/A2`` and/or ``SNP``). See the design spec for the full
-        contract. The output always appends ``r2``, ``sign``, ``r``, and
-        ``status``; ``r`` is all-NaN in base/allele-blind modes.
+        Parameters
+        ----------
+        pairs : pandas.DataFrame
+            Endpoint columns are suffixed ``_1``/``_2``: ``CHR``/``POS`` in
+            coordinate modes or ``SNP`` in rsID modes, with ``A1``/``A2`` in
+            allele-aware modes. Coordinates use the selected panel build.
+            Registered aliases are accepted; input rows are not reordered.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Copy of the input with ``r2`` (float32 adjusted R²), ``sign_r``
+            (nullable Int8, +1/-1), ``r`` (float64 Pearson correlation), and
+            ``status`` (string). Existing result-named columns are replaced.
+            ``sign_r`` and ``r`` use query A1 dosage orientation, allowing
+            allele swaps and strand complements. Both are missing in base
+            modes; missing sample size also makes ``r`` unavailable.
+            Unresolved, cross-chromosome, and unstored pairs have NaN R² and
+            status ``not_in_panel``, ``cross_chromosome``, or ``absent``.
+            Resolved diagonals have R²=1; numeric results have empty status.
+
+        Raises
+        ------
+        LDSCInputError
+            Endpoint columns or the panel schema, identity, or binding are
+            incompatible with the selected mode.
         """
         ep1 = _endpoint_frame(pairs, "1", self._mode)
         ep2 = _endpoint_frame(pairs, "2", self._mode)
@@ -362,21 +415,17 @@ class R2Panel:
         out["r2"] = r2
         sign_col = pd.array(sign, dtype="Int8")
         sign_col[sign == 0] = pd.NA
-        out["sign"] = sign_col
+        out["sign_r"] = sign_col
         out["r"] = self._signed_r(r2, sign_col)
         out["status"] = pd.array(status, dtype="string")
         return out
 
     def _signed_r(self, r2: np.ndarray, sign_col) -> np.ndarray:
-        """Compute the signed Pearson r from adjusted r2 and the sign column.
+        """Recover Pearson r using the harmonized query-orientation sign_r.
 
-        Sign is defined in the canonical reference-panel orientation: r is the
-        correlation between the two SNPs' A1 (minor) allele dosages. A positive
-        value means the minor alleles co-occur on haplotypes more than chance
-        (positive LD between minor alleles). A1 is guaranteed minor by the
-        canonical panel (design 2026-06-07 allele-orientation-canonicalization).
-
-        Base/allele-blind modes carry no sign, so ``r`` is all-NaN. Panels
+        Positive r denotes positive correlation between query A1 dosages;
+        query A1 need not be the panel's minor allele. Base modes carry no
+        sign_r, so ``r`` is all-NaN. Panels
         lacking ``ldsc:n_samples`` also yield an all-NaN ``r`` because raw R2
         cannot be recovered without the sample size.
         """
@@ -385,14 +434,15 @@ class R2Panel:
             LOGGER.warning(
                 "query-r2 cannot compute signed r: the panel metadata has no "
                 "`ldsc:n_samples`, so r is emitted as all-NaN. Most likely a legacy panel "
-                "was used; rebuild with the current build-ref-panel to record n_samples."
+                "was used; rebuild with the current build-r2-panel to record n_samples."
             )
             return np.full(len(r2), np.nan, dtype=np.float64)
         sign_float = sign_col.to_numpy(dtype="float64", na_value=np.nan)
         if not is_allele_aware_mode(self._mode):
             LOGGER.warning(
                 "query-r2 in base mode produces an all-NaN r column because base "
-                "modes carry no sign. Use an allele-aware panel/mode for signed r."
+                "modes carry no sign_r. Select an allele-aware --snp-identifier "
+                "and provide A1/A2 for both query endpoints to obtain signed r."
             )
         return unbiased_r2_to_pearson_r(r2.astype(np.float64), n_samples, sign=sign_float)
 
@@ -403,7 +453,7 @@ def _chrom_from_r2_path(r2_path: str) -> str:
     if not name.startswith("chr") or not name.endswith("_r2.parquet"):
         raise LDSCInputError(
             f"R2Panel expected a canonical `chr{{N}}_r2.parquet` filename but got '{name}'. "
-            "Most likely a non-panel parquet was passed. Pass a build-ref-panel R2 file."
+            "Most likely a non-panel parquet was passed. Pass a build-r2-panel R2 file."
         )
     return normalize_chromosome(name[len("chr") : -len("_r2.parquet")])
 
@@ -518,7 +568,7 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument(
         '--panel-dir', required=True, metavar='DIR',
         help=(
-            'Required reference-panel directory produced by build-ref-panel, or its root containing '
+            'Required reference-panel directory produced by build-r2-panel, or its root containing '
             'genome-build subdirectories. Use --genome-build to select a subdirectory when needed.'
         ),
     )
@@ -532,7 +582,8 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument(
         '--output-dir', required=True, metavar='DIR',
         help=(
-            'Required destination for pairwise R2 results and diagnostics.'
+            'Required destination for query_r2.tsv (r2, sign_r, r, status plus input columns) '
+            'and diagnostics. sign_r and r use query allele orientation.'
         ),
     )
 

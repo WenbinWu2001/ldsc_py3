@@ -1754,7 +1754,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ):
                 result = ref_panel_builder.run_build_ref_panel_from_args(args)
 
-            self.assertTrue((tmpdir / "out" / "diagnostics" / "build-ref-panel.log").exists())
+            self.assertTrue((tmpdir / "out" / "diagnostics" / "build-r2-panel.log").exists())
             self.assertNotIn("log", result.output_paths)
 
     def test_run_build_ref_panel_from_args_single_concrete_prefix_writes_chromosome_scoped_log(self):
@@ -1789,8 +1789,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ):
                 result = ref_panel_builder.run_build_ref_panel_from_args(args)
 
-            self.assertTrue((tmpdir / "out" / "diagnostics" / "build-ref-panel.chr1.log").exists())
-            self.assertFalse((tmpdir / "out" / "diagnostics" / "build-ref-panel.log").exists())
+            self.assertTrue((tmpdir / "out" / "diagnostics" / "build-r2-panel.chr1.log").exists())
+            self.assertFalse((tmpdir / "out" / "diagnostics" / "build-r2-panel.log").exists())
             self.assertNotIn("log", result.output_paths)
 
     def test_run_build_ref_panel_from_args_single_concrete_prefix_writes_chromosome_scoped_metadata(self):
@@ -1919,12 +1919,12 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             root_drop_dir = output_dir / "dropped_snps"
             root_drop_dir.mkdir(parents=True)
             (output_dir / "metadata.json").write_text('{"legacy": true}\n', encoding="utf-8")
-            (output_dir / "build-ref-panel.log").write_text("legacy log\n", encoding="utf-8")
+            (output_dir / "build-r2-panel.log").write_text("legacy log\n", encoding="utf-8")
             (root_drop_dir / "chr1_dropped.tsv.gz").write_text("legacy drops\n", encoding="utf-8")
             builder = ref_panel_builder.ReferencePanelBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
             )
-            builder._workflow_log_path = output_dir / "diagnostics" / "build-ref-panel.log"
+            builder._workflow_log_path = output_dir / "diagnostics" / "build-r2-panel.log"
 
             with mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
@@ -1939,11 +1939,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 result = builder.run(config)
 
             self.assertEqual((output_dir / "metadata.json").read_text(encoding="utf-8"), '{"legacy": true}\n')
-            self.assertEqual((output_dir / "build-ref-panel.log").read_text(encoding="utf-8"), "legacy log\n")
+            self.assertEqual((output_dir / "build-r2-panel.log").read_text(encoding="utf-8"), "legacy log\n")
             self.assertEqual((root_drop_dir / "chr1_dropped.tsv.gz").read_text(encoding="utf-8"), "legacy drops\n")
             self.assertEqual(result.chromosomes, ["1"])
             self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
-            self.assertTrue((output_dir / "diagnostics" / "build-ref-panel.log").exists())
+            self.assertTrue((output_dir / "diagnostics" / "build-r2-panel.log").exists())
 
     def test_builder_run_refuses_stale_owned_artifact_before_chromosome_build(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2256,7 +2256,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             with mock.patch.object(
                 ref_panel_builder,
                 "resolve_genome_build",
-                side_effect=AssertionError("build-ref-panel should use chunked CHR/POS evidence"),
+                side_effect=AssertionError("build-r2-panel should use chunked CHR/POS evidence"),
             ), mock.patch.object(
                 ref_panel_builder,
                 "resolve_genome_build_from_chr_pos_frames",
@@ -2267,7 +2267,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     builder.run(config)
 
         self.assertEqual(captured["source_genome_build"], "hg19")
-        self.assertEqual(captured["resolve_args"][:3], ("auto", "chr_pos", "build-ref-panel PLINK .bim"))
+        self.assertEqual(captured["resolve_args"][:3], ("auto", "chr_pos", "build-r2-panel PLINK .bim"))
         self.assertIs(captured["resolve_args"][3], ref_panel_builder.LOGGER)
         self.assertEqual(len(captured["evidence_frames"]), 1)
         self.assertEqual(captured["evidence_frames"][0]["POS"].tolist(), [100, 200])
@@ -2664,7 +2664,7 @@ class RefPanelOutputFamilyTest(unittest.TestCase):
             existing_r2 = out / "hg19" / "chr1_r2.parquet"
             existing_meta = out / "hg38" / "chr2_meta.tsv.gz"
             existing_drop = out / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz"
-            existing_log = out / "diagnostics" / "build-ref-panel.chr2.log"
+            existing_log = out / "diagnostics" / "build-r2-panel.chr2.log"
             produced = out / "hg19" / "chr6_r2.parquet"
             existing_r2.parent.mkdir(parents=True)
             existing_meta.parent.mkdir(parents=True)
@@ -2772,7 +2772,7 @@ class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):
             sidecar = pd.read_csv(meta_path, sep="\t", comment="#")
             self.assertEqual(stored["ldsc:sidecar_identity_sha256"], sidecar_identity_sha256(sidecar))
             self.assertEqual(int(stored["ldsc:n_snps"]), len(sidecar))
-            self.assertEqual(pq.ParquetFile(r2_path).schema_arrow.names, ["IDX_1", "IDX_2", "R2", "SIGN"])
+            self.assertEqual(pq.ParquetFile(r2_path).schema_arrow.names, ["IDX_1", "IDX_2", "R2", "SIGN_R"])
 
 
 @unittest.skipUnless(
@@ -3109,7 +3109,7 @@ class IndexWriterTest(unittest.TestCase):
                 n_snps=3, sidecar_identity_sha256="deadbeef" * 8,
             )
             pf = pq.ParquetFile(path)
-            self.assertEqual(pf.schema_arrow.names, ["IDX_1", "IDX_2", "R2", "SIGN"])
+            self.assertEqual(pf.schema_arrow.names, ["IDX_1", "IDX_2", "R2", "SIGN_R"])
             meta = {k.decode(): v.decode() for k, v in pf.schema_arrow.metadata.items()}
             self.assertEqual(meta["ldsc:n_snps"], "3")
             self.assertEqual(meta["ldsc:sidecar_identity_sha256"], "deadbeef" * 8)
@@ -3137,17 +3137,17 @@ class IndexArrowTableTest(unittest.TestCase):
         from ldsc._kernel import ref_panel_builder as kb
 
         schema = pa.schema([("IDX_1", pa.int32()), ("IDX_2", pa.int32()),
-                            ("R2", pa.int16()), ("SIGN", pa.bool_())])
+                            ("R2", pa.int16()), ("SIGN_R", pa.bool_())])
         rows = [
             {"i": 0, "j": 2, "R2": 0.5, "sign": "+"},
             {"i": 0, "j": 3, "R2": -0.01, "sign": "-"},
         ]
         i, j, r2, sign = pair_chunk(rows)
         table = kb._standard_r2_index_table(pa, schema, i=i, j=j, r2=r2, sign=sign)
-        self.assertEqual(table.schema.names, ["IDX_1", "IDX_2", "R2", "SIGN"])
+        self.assertEqual(table.schema.names, ["IDX_1", "IDX_2", "R2", "SIGN_R"])
         self.assertEqual(table.column("IDX_1").to_pylist(), [0, 0])
         self.assertEqual(table.column("IDX_2").to_pylist(), [2, 3])
-        self.assertEqual(table.column("SIGN").to_pylist(), [True, False])
+        self.assertEqual(table.column("SIGN_R").to_pylist(), [True, False])
         self.assertEqual(table.schema.field("R2").type, pa.int16())
         # 0.5 -> round(0.5*32767)=16384 (banker's rounding to even); -0.01 -> -328
         self.assertEqual(table.column("R2").to_pylist(), [16384, -328])
@@ -3296,7 +3296,7 @@ def test_build_plink_metadata_frame_swaps_to_minor_a1():
 
 def test_r2_is_orientation_invariant():
     # Unit-level proof that negating standardized columns leaves R2 unchanged
-    # and flips SIGN iff exactly one endpoint of a pair was flipped.
+    # and flips SIGN_R iff exactly one endpoint of a pair was flipped.
     rng = np.random.default_rng(7)
     n, m = 50, 8
     base = rng.standard_normal((n, m)).astype(np.float32)

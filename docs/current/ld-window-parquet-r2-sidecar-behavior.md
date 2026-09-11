@@ -1,6 +1,6 @@
 # LD Window Behavior for Parquet R2 Panels
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 This document records how `ldsc ldscore` interprets LD-window flags when the
 reference panel backend is the canonical index-format parquet R2 pair.
@@ -11,7 +11,7 @@ A complete package-built parquet R2 chromosome has exactly two artifacts, both
 mandatory:
 
 ```text
-chr{chrom}_r2.parquet   — 4-column index format: IDX_1, IDX_2, R2, SIGN
+chr{chrom}_r2.parquet   — 4-column index format: IDX_1, IDX_2, R2, SIGN_R
 chr{chrom}_meta.tsv.gz  — per-SNP metadata sidecar (CHR, POS, SNP, A1, A2, CM, MAF)
 ```
 
@@ -25,7 +25,7 @@ The sidecar format:
 # ldsc:artifact_type=ref_panel_metadata
 # ldsc:snp_identifier=chr_pos_allele_aware
 # ldsc:genome_build=hg38
-CHR  POS  SNP  CM  MAF  A1  A2
+CHR  POS  SNP  A1  A2  CM  MAF
 ```
 
 At LD-score runtime, pairwise R2 values come from `chr{chrom}_r2.parquet`.
@@ -36,7 +36,7 @@ the runtime metadata table loaded from `chr{chrom}_meta.tsv.gz`.
 
 The metadata sidecar is a hard requirement. If it is absent, `ParquetR2RefPanel`
 raises immediately with an actionable message — there is no synthesize-from-endpoints
-fallback. Regenerate the panel with `ldsc build-ref-panel` to produce a paired
+fallback. Regenerate the panel with `ldsc build-r2-panel` to produce a paired
 parquet + sidecar.
 
 ## LD-window flag behavior
@@ -94,40 +94,15 @@ The paired sidecar must supply usable `MAF`; the loader rejects missing MAF rath
 
 ## Memory
 
-Both build and read peak RSS are **flat in the LD window width** — the builder
-streams a bounded genotype window from disk, and the reader streams stored R2
-pairs into a window-independent accumulator. They are described separately because
-the floor each is bounded by differs (genotype read vs. `cor_sum`).
+Build and read workflows have different working sets. Streaming avoids materializing all pairs, but does not make the builder's genotype window independent of the requested LD window.
 
-### Build side (`build-ref-panel`)
+### Build side (`build-r2-panel`)
 
-The builder never loads the whole chromosome's genotypes into RAM. When an
-explicit SNP restriction is supplied (`--ref-panel-snps-file`) it reads only the
-kept SNP blocks from the `.bed`; the default unrestricted build streams a
-sliding window directly from disk. Individual filtering (`--keep-indivs-file`) is
-fused into the per-SNP read, so the raw and filtered bitarrays never coexist.
-
-As a result, **build** peak RSS is governed by that bounded genotype read plus the
-workflow/import floor — **not** by `--snp-batch-size`, `--ld-wind-*`, `--min-r2`,
-or `--maf-min`. Those control speed and output size; the window/min-r2 options
-also change the pair count and pending-pair working set, but they are not build
-peak-RSS levers. R2 pairs are emitted as columnar batches; the on-disk parquet
-format is unchanged.
+Unrestricted builds stream genotypes from disk. With `--ref-panel-snps-file`, the selected genotype payload is read into RAM. Individual filtering is applied during the read. Pair computation retains the current batch and window-spanning carry-over columns, plus pending pair batches; memory therefore depends on retained individuals, selected SNPs, window density, and `--snp-batch-size`. Wider windows also increase computation and output size. A positive `--min-r2` reduces emitted pairs at the cost of scientific completeness. See `ReferencePanelBuilder._build_chromosome` in `src/ldsc/ref_panel_builder.py` and `yield_pairwise_r2_rows` in `src/ldsc/_kernel/ref_panel_builder.py`.
 
 ### Read side (`ldscore`)
 
-Reading a parquet R2 panel streams every stored pair once (`iter_all_pairs`) and
-accumulates `cor_sum = R · annot` directly — no decoded-row-group cache and no
-sliding-window block matrices. Peak read RSS is therefore bounded by the
-accumulator `cor_sum` (`m · n_a · 8` bytes, float64), plus one decoded row group
-at a time and the workflow/import floor. Like the build side, the read side is
-**flat in `--ld-wind-*`**: the window only filters which streamed pairs contribute
-(`i ≥ block_left[j]`), it does not change resident memory; dense wide-window
-regions (the chr6 MHC) add pairs to stream but are not a memory high-water mark.
-Under cross-chromosome parallelism each worker holds its own `cor_sum`, so
-aggregate RSS scales with the worker count. See
-`docs/current/parquet-r2-format-and-read-pipeline.md` §3.6 for the read-side memory
-model.
+The LD-score reader streams every stored pair once and accumulates LD scores using bounded chunks of sparse matrix multiplication. Memory includes the float64 accumulator (`m · n_a · 8` bytes), a bounded pair/CSR chunk, one decoded row group, and workflow overhead. The read-time LD window filters contributions without allocating a dense window matrix. Cross-chromosome workers each need their own working set. See the [read-side memory model](parquet-r2-format-and-read-pipeline.md#36-read-side-memory-streaming).
 
 ## Practical contract
 

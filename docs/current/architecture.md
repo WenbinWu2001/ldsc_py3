@@ -1,6 +1,6 @@
 # Architecture 
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 `ldsc` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
@@ -24,8 +24,8 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 ## Bird's-Eye View
 
 - **Build query annotations**: project BED or resolved gene intervals onto a baseline SNP grid. Entry points: `ldsc annotate`, `ldsc ldscore`, `ldsc.AnnotationBuilder`
-- **Build parquet reference panels**: convert PLINK genotype panels into standard parquet R2 artifacts. Entry points: `ldsc build-ref-panel`, `ldsc.ReferencePanelBuilder`
-- **Query reference-panel R2**: look up adjusted R2, sign, and optional signed Pearson `r` for SNP pairs in package-built index-format panels. Entry points: `ldsc query-r2`, `ldsc.R2Panel`, `ldsc.query_r2()`
+- **Build parquet reference panels**: convert PLINK genotype panels into standard parquet R2 artifacts. Entry points: `ldsc build-r2-panel`, `ldsc.ReferencePanelBuilder`
+- **Query reference-panel R2**: look up adjusted R2, `sign_r`, and signed Pearson `r` for SNP pairs in package-built index-format panels. Entry points: `ldsc query-r2`, `ldsc.R2Panel`, `ldsc.query_r2()`
 - **Build exact gene LD-score indexes**: precompute PLINK-backed disjoint-atom operators for one complete immutable baseline/reference/gene configuration. Entry point: `ldsc build-gene-ldscore-index`
 - **Compute LD scores**: align annotations to a live reference panel or explicitly assemble gene-list columns from a validated complete index, then emit the same canonical artifacts. Entry points: `ldsc ldscore`, `ldsc.run_ldscore()`, `ldsc.LDScoreCalculator`
 - **Munge raw summary statistics**: normalize raw GWAS tables into curated Parquet-first sumstats artifacts, with optional legacy `.sumstats.gz` output. Entry points: `ldsc munge-sumstats`, `ldsc.SumstatsMunger`
@@ -160,7 +160,7 @@ This module builds standard parquet R2 reference artifacts from PLINK inputs. It
 
 ### `ldsc.r2_query`
 
-This module is the public pair-query surface for package-built index-format R2 panels. `R2Panel.open()` accepts either a build-ref-panel directory or one explicit `chrN_meta.tsv.gz` plus `chrN_r2.parquet` pair, validates sidecar binding, and lazily caches per-chromosome sidecar/index state. `R2Panel.query_pairs()` and `query_r2()` accept endpoint-suffixed pair tables and append `r2`, nullable `sign`, `status`, and optionally signed Pearson `r`; low-level parquet lookup lives in `ldsc._kernel.r2_query`. Architecture invariant: `query-r2` reads canonical package-built panels only; it does not define a second external R2 format.
+This module is the public pair-query surface for package-built index-format R2 panels. `R2Panel.open()` accepts a build-r2-panel output directory or its genome-build child, validates sidecar binding, and lazily caches per-chromosome sidecar/index state. `R2Panel.query_pairs()` and `query_r2()` accept endpoint-suffixed pair tables and append `r2`, nullable `sign_r`, signed Pearson `r`, and `status`; low-level parquet lookup lives in `ldsc._kernel.r2_query`. Architecture invariant: `query-r2` reads canonical package-built panels only; it does not define a second external R2 format.
 
 ### `ldsc.ldscore_calculator`
 
@@ -239,7 +239,7 @@ The kernel layer contains the actual numerical methods and low-level readers. It
   default an existing artifact raises `FileExistsError`; `--overwrite` or
   `overwrite=True` makes replacement explicit without deleting unrelated files
   or cleaning the directory. Sharded workflows may narrow ownership to the
-  current shard; `build-ref-panel` concrete chromosome runs own only their
+  current shard; `build-r2-panel` concrete chromosome runs own only their
   chromosome package, while `@` suite runs own the full panel package.
 - **Workflow logging**: `ldsc._logging.workflow_logging()` attaches file
   handlers to the `LDSC` logger so workflow and kernel records are captured

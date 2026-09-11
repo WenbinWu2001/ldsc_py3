@@ -1,10 +1,10 @@
 # Supported Column Alias Inference
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 Column aliases are centralized in `src/ldsc/column_inference.py`. The registry
 is used by the main workflows (`munge-sumstats`, annotation loading,
-`build-ref-panel`, `ldscore`, regression SNP restrictions, and package-written
+`build-r2-panel`, `ldscore`, regression SNP restrictions, and package-written
 artifacts) before data are renamed to canonical LDSC fields.
 
 Alias matching is case-insensitive and punctuation-insensitive. For example,
@@ -29,7 +29,7 @@ coordinate inference.
 | `MAF` | `MAF`, `FRQ`, `FREQ`, `FREQUENCY` |
 
 Restriction files in `chr_pos`-family modes also accept build-specific position
-columns. At `build-ref-panel` time the source PLINK build chooses the column;
+columns. At `build-r2-panel` time the source PLINK build chooses the column;
 runtime LD-score and munging restrictions use the workflow's resolved
 `GlobalConfig.genome_build`:
 
@@ -135,7 +135,7 @@ suggests `--signed-sumstats <col>,0`; missing `N` with `NEFF` explains that
 
 Package-built canonical parquet R2 files use the 4-column index format — columns
 `IDX_1` (int32), `IDX_2` (int32), `R2` (int16 on-disk, dequantized to float32
-on read), `SIGN` (bool) — with no SNP identity columns. These are identified at load time by the presence of `IDX_1`
+on read), `SIGN_R` (bool) — with no SNP identity columns. These are identified at load time by the presence of `IDX_1`
 and `IDX_2`; no alias resolution applies to the pair columns themselves.
 
 The companion `chrN_meta.tsv.gz` sidecar defines the SNP universe and accepts
@@ -147,7 +147,7 @@ artifact is needed. Alias-tolerant loading (accepted synonyms for `CHR`, `BP`,
 etc.) applies to the metadata sidecar, not to the parquet pair columns.
 
 External R2 parquet inputs in other formats are not supported; they must be
-regenerated with `ldsc build-ref-panel`.
+regenerated with `ldsc build-r2-panel`.
 
 ### Internal artifacts
 

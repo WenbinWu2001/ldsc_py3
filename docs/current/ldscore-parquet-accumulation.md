@@ -1,6 +1,6 @@
 # LD-score Computation from R² Parquets — Mathematical Specification
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 This document defines, in math, **how LD scores are computed from a parquet R²
 reference panel** by the streaming accumulator. It is the conceptual companion to
@@ -252,7 +252,7 @@ overwrite. (This is what an earlier `np.add.at` scatter did element by element a
 far more slowly.)
 
 ### 6.4 The stored R² is already unbiased
-`build-ref-panel` writes the **unbiased** estimate $r^2$ (`_unbiased_r2_array`,
+`build-r2-panel` writes the **unbiased** estimate $r^2$ (`_unbiased_r2_array`,
 tagged `ldsc:r2_bias=unbiased`), so the decoded $v_{ij}=q/s$ is the final value and
 no correction is applied. The raw→unbiased map
 $v_{ij}\leftarrow v_{ij}-\tfrac{1-v_{ij}}{N-2}$ is applied **only** for external

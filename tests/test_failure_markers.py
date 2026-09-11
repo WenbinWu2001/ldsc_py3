@@ -71,7 +71,7 @@ def test_cli_failure_marker_uses_nested_plot_scope(tmp_path):
         ("rg", "--output-dir", ""),
         ("annotate", "--output-dir", ""),
         ("ldscore", "--output-dir", ""),
-        ("build-ref-panel", "--output-dir", ""),
+        ("build-r2-panel", "--output-dir", ""),
         ("build-gene-ldscore-index", "--output-dir", ""),
         ("convert-ldsc2-ldscores", "--output-dir", ""),
         ("munge-sumstats", "--output-dir", ""),
@@ -175,7 +175,7 @@ def test_cli_concrete_reference_panel_failure_uses_chromosome_marker(tmp_path):
     with mock.patch.object(cli, "main", side_effect=RuntimeError("failed")):
         cli.run_cli(
             [
-                "build-ref-panel",
+                "build-r2-panel",
                 "--plink-prefix",
                 str(tmp_path / "reference.chr22"),
                 "--output-dir",

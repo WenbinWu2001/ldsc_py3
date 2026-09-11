@@ -25,7 +25,7 @@ def build_test_panel(
 
     Sidecar rows (0-based index → identity):
         0: 1:100 A/G   1: 1:200 C/T   2: 1:300 A/C   3: 1:400 G/T
-    Stored pairs (canonical i<j), R2 (adjusted) and SIGN (Pearson r >= 0):
+    Stored pairs (canonical i<j), R2 (adjusted) and SIGN_R (Pearson r >= 0):
         (0,1) R2=0.64 sign=+   (0,2) R2=0.04 sign=-   (1,2) R2=0.25 sign=+
     Pair (0,3) is intentionally absent (out-of-window placeholder).
     """
@@ -63,6 +63,39 @@ def build_test_panel(
         min_r2=0.0,
     )
     return build_dir, meta_path, r2_path
+
+
+@pytest.mark.parametrize("reader", ["ldscore", "query-r2"])
+@pytest.mark.parametrize("old_sign", [True, False], ids=["old-SIGN", "missing-sign"])
+def test_readers_require_sign_r(tmp_path, reader, old_sign):
+    import pyarrow.parquet as pq
+
+    from ldsc._kernel.ldscore import SortedR2BlockReader
+    from ldsc.errors import LDSCInputError
+    from ldsc.r2_query import R2Panel
+
+    _, meta_path, r2_path = build_test_panel(tmp_path)
+    table = pq.read_table(r2_path)
+    if old_sign:
+        table = table.rename_columns(["IDX_1", "IDX_2", "R2", "SIGN"]).replace_schema_metadata(table.schema.metadata)
+    else:
+        table = table.drop_columns(["SIGN_R"])
+    pq.write_table(table, r2_path)
+
+    with pytest.raises(LDSCInputError, match="SIGN_R.*build-r2-panel"):
+        if reader == "ldscore":
+            SortedR2BlockReader(
+                paths=[str(r2_path)], chrom="1",
+                metadata=pd.read_csv(meta_path, sep="\t", comment="#"),
+                identifier_mode="chr_pos_allele_aware", r2_bias_mode="unbiased",
+                r2_sample_size=1000, genome_build="hg38",
+            )
+        else:
+            panel = R2Panel.open(tmp_path, genome_build="hg38")
+            panel.query_pairs(pd.DataFrame({
+                "CHR_1": [1], "POS_1": [100], "A1_1": ["A"], "A2_1": ["G"],
+                "CHR_2": [1], "POS_2": [200], "A1_2": ["C"], "A2_2": ["T"],
+            }))
 
 
 class TestUnbiasedR2ToPearsonR:
@@ -214,7 +247,7 @@ class TestQueryPairs:
 
     def test_sign_harmonized_in_allele_aware_mode(self, tmp_path):
         panel = self._panel(tmp_path)
-        # Panel pair (0,1)=SNP1 A/G, SNP2 C/T, stored SIGN=+ (r>=0).
+        # Panel pair (0,1)=SNP1 A/G, SNP2 C/T, stored SIGN_R=+ (r>=0).
         pairs = pd.DataFrame(
             {
                 "CHR_1": [1, 1, 1],
@@ -228,7 +261,7 @@ class TestQueryPairs:
             }
         )
         out = panel.query_pairs(pairs)
-        assert out["sign"].tolist() == [1, -1, 1]  # 0 / 1 / 2 swaps -> +,-,+
+        assert out["sign_r"].tolist() == [1, -1, 1]  # 0 / 1 / 2 swaps -> +,-,+
 
     def test_base_mode_ignores_alleles_and_sign_is_na(self, tmp_path):
         panel = self._panel(tmp_path, mode="chr_pos")
@@ -241,7 +274,7 @@ class TestQueryPairs:
         out_a = panel.query_pairs(with_alleles)
         out_b = panel.query_pairs(without)
         assert out_a["r2"].iloc[0] == pytest.approx(out_b["r2"].iloc[0], abs=1.5e-5)
-        assert pd.isna(out_a["sign"].iloc[0]) and pd.isna(out_b["sign"].iloc[0])
+        assert pd.isna(out_a["sign_r"].iloc[0]) and pd.isna(out_b["sign_r"].iloc[0])
         # r is always emitted but all-NaN in base mode (no sign information).
         assert "r" in out_a.columns and pd.isna(out_a["r"].iloc[0])
 
@@ -286,7 +319,7 @@ class TestQueryPairs:
 
         out = panel.query_pairs(pairs)
 
-        assert out.columns.tolist() == ["rsID_1", "rsID_2", "note", "r2", "sign", "r", "status"]
+        assert out.columns.tolist() == ["rsID_1", "rsID_2", "note", "r2", "sign_r", "r", "status"]
         assert out["rsID_1"].iloc[0] == "rs1"
         assert out["rsID_2"].iloc[0] == "rs2"
         assert out["note"].iloc[0] == "keep-me"
@@ -363,7 +396,9 @@ class TestQueryR2CLI:
 
         result = pd.read_csv(out_dir / "query_r2.tsv", sep="\t")
         assert result["r2"].iloc[0] == pytest.approx(0.64, abs=1e-4)
-        assert {"status", "r"}.issubset(result.columns)
+        assert result.columns[-4:].tolist() == ["r2", "sign_r", "r", "status"]
+        assert result["sign_r"].tolist() == [1]
+        assert "sign" not in result.columns
 
         metadata_path = out_dir / "diagnostics" / "metadata.json"
         log_path = out_dir / "diagnostics" / "query-r2.log"
@@ -412,9 +447,9 @@ class TestQueryR2Writer:
         result = pd.DataFrame(
             {
                 "r2": [0.64, float("nan")],
-                "sign": ["+", "NA"],
+                "sign_r": pd.array([1, pd.NA], dtype="Int8"),
                 "r": [0.8, float("nan")],
-                "status": ["", "not_found"],
+                "status": ["", "not_in_panel"],
             }
         )
         out_dir = tmp_path / "result"

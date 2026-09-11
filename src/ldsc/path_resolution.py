@@ -729,7 +729,7 @@ def preflight_output_artifact_family(
 
     Sharded workflows must pass only the package owned by the current shard
     when shards can run concurrently in the same directory. For example, a
-    concrete ``build-ref-panel`` chromosome-1 invocation owns ``chr1`` R2,
+    concrete ``build-r2-panel`` chromosome-1 invocation owns ``chr1`` R2,
     metadata, dropped-SNP, and chromosome-scoped diagnostic paths only; it must
     not report ``chr2`` outputs as stale. A full ``@`` chromosome-suite
     invocation can pass the all-chromosome package and clean stale siblings

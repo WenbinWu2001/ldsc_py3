@@ -690,7 +690,7 @@ class ReferencePanelBuildConfig:
         globs and explicit ``@`` chromosome-suite tokens are also accepted.
     source_genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"}, optional
         Genome build of the input PLINK coordinates. If ``"auto"``, the
-        build-ref-panel workflow infers the build from PLINK ``.bim`` rows
+        build-r2-panel workflow infers the build from PLINK ``.bim`` rows
         before applying SNP restrictions.
     genetic_map_hg19_sources, genetic_map_hg38_sources : str or os.PathLike[str] or None, optional
         Genetic-map paths used to populate cM values for each emitted sidecar.

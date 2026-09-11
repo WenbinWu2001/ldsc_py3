@@ -35,7 +35,7 @@ def write_panel(root, *, bias="unbiased", n_samples=200, chrom="1", mode="rsid")
     if n_samples is not None:
         footer[b"ldsc:n_samples"] = str(n_samples).encode()
     table = pa.table({"IDX_1": pa.array([0], type=pa.int32()), "IDX_2": pa.array([1], type=pa.int32()),
-                      "R2": pa.array([0.5], type=pa.float32()), "SIGN": [True]})
+                      "R2": pa.array([0.5], type=pa.float32()), "SIGN_R": [True]})
     pq.write_table(table.replace_schema_metadata(footer), root / f"chr{chrom}_r2.parquet")
     return metadata
 

@@ -158,17 +158,17 @@ ldsc_py3_restructured/
   directories, reuse existing directories, fail on existing owned artifacts by
   default, and require `--overwrite` or `overwrite=True` for replacement.
 - Keep coherent output families consistent. For `munge-sumstats`,
-  `build-ref-panel`, `ldscore`, `partitioned-h2`, `rg`, and `annotate`,
+  `build-r2-panel`, `ldscore`, `partitioned-h2`, `rg`, and `annotate`,
   no-overwrite mode rejects any current-contract owned sibling from the workflow family.
   Overwrite mode writes the requested current outputs and then removes stale
   current-contract owned siblings that were not produced by the successful run.
   Removed legacy root diagnostic names are not workflow-owned. Unrelated files
   in the output directory must be preserved. Sharded workflows may pass a
-  narrowed owned family when shards share an output directory; `build-ref-panel`
+  narrowed owned family when shards share an output directory; `build-r2-panel`
   concrete chromosome prefixes own only that chromosome's package, while `@`
   chromosome-suite prefixes own the full panel package.
 - Preflight deterministic output paths before expensive or multi-file writes.
-  This is especially important for `build-ref-panel`, `munge-sumstats`,
+  This is especially important for `build-r2-panel`, `munge-sumstats`,
   `annotate`, and summary-table regression commands.
 - Treat workflow logs as audit artifacts. Do not include log paths in
   `output_paths` mappings or thin metadata sidecars that downstream code
@@ -212,7 +212,7 @@ ldsc_py3_restructured/
 | indexed gene queries | [index](gene-ldscore-index.md), [mathematics](gene-ldscore-index-mathematics.md) | `gene_ldscore_index`; `_kernel.gene_ldscore_index` |
 | derived results | [plotting](plotting-module.md), [quantile projection](continuous-annotation-quantile-h2.md) | `plotting`, `h2_scale`, `quantile_h2`; shared `_result_files` |
 
-`query-r2` requires `--output-dir`; `QueryR2DirectoryWriter` writes its result directory. Region presets affect regression rows and weights, not the LD-reference contributor universe. `build-ref-panel` has no region-pruning fields; use its explicit reference-SNP restriction when pruning is intended. Reference preparation supplies population-specific CM/MAF; annotation CM is an `NA` placeholder. Parquet LD scores use pair streaming, and PLINK filtering happens during adapter preparation.
+`query-r2` requires `--output-dir`; `QueryR2DirectoryWriter` writes its result directory. Region presets affect regression rows and weights, not the LD-reference contributor universe. `build-r2-panel` has no region-pruning fields; use its explicit reference-SNP restriction when pruning is intended. Reference preparation supplies population-specific CM/MAF; annotation CM is an `NA` placeholder. Parquet LD scores use pair streaming, and PLINK filtering happens during adapter preparation.
 
 Historical decisions formerly indexed by root `design_map.md` remain available below. They record decisions at their dates; current contracts above govern current work. The [old map](../archive/design/2026-09-10-design-map.md) and [completed threshold audit](../audits/threshold-comparison/README.md) preserve prior evidence without competing with this entry.
 

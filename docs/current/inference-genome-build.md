@@ -1,11 +1,11 @@
 # Genome-Build and Coordinate-Basis Inference
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 Automatic genome-build inference is used for coordinate-family workflows when
 the user passes `--genome-build auto` or workflow-specific source build
 `auto`, including `munge-sumstats --source-genome-build auto` and
-`build-ref-panel --source-genome-build auto`. It is not used in `rsid`-family modes.
+`build-r2-panel --source-genome-build auto`. It is not used in `rsid`-family modes.
 
 The package infers the build by comparing a subset of input (CHR, POS) pairs against the packaged HapMap3 coordinate map, then selecting the hypothesis that best explains those positions:
 
@@ -79,7 +79,7 @@ needs.
 | Annotation chromosome-suite inputs | Read a small head sample from the first resolvable `@` chromosome file |
 | `ldscore --r2-dir` directory | Locate candidate R2 parquet files, then infer from `ldsc:sorted_by_build` schema metadata |
 | PLINK `.bim` source panel | Stream `.bim` `CHR/BP` chunks into the HM3 evidence accumulator before SNP restriction when `source_genome_build` is `auto` |
-| build-ref-panel SNP restriction generic `POS` | Infer the restriction file's local build and require it to match the source PLINK build |
+| build-r2-panel SNP restriction generic `POS` | Infer the restriction file's local build and require it to match the source PLINK build |
 | Canonical parquet R2 reference panel | Prefer schema metadata; otherwise inspect the first row group |
 
 Adaptive evidence collection is intentionally limited to large sequential
@@ -133,7 +133,7 @@ run log.
 ## Build-Ref-Panel Source Inputs
 
 PLINK `.bim` files can also be large across chromosome suites. When
-`build-ref-panel --source-genome-build auto` is used, the workflow reads only
+`build-r2-panel --source-genome-build auto` is used, the workflow reads only
 the `.bim` chromosome and base-pair columns in chunks, feeds them to the shared
 HM3 evidence accumulator, and stops once the same inference thresholds are met.
 The final build decision still goes through `resolve_genome_build()`, so
@@ -208,13 +208,13 @@ directory, for example `--genome-build hg38 --r2-dir /panels/my_panel/hg38`.
 
 ## Parquet R2 Reference Panels
 
-Canonical parquet R2 files written by `ldsc build-ref-panel` store the build in
+Canonical parquet R2 files written by `ldsc build-r2-panel` store the build in
 Arrow schema metadata under `ldsc:sorted_by_build`. Reading that metadata costs
 only a parquet footer read and no row data.
 
 Index-format R2 files **require** `ldsc:sorted_by_build`: a file lacking it is a
 hard error in `SortedR2BlockReader._init_index_path()` (there is no row-data
-inference fallback). Regenerate such files with `ldsc build-ref-panel`.
+inference fallback). Regenerate such files with `ldsc build-r2-panel`.
 
 If the inferred or declared R2 build disagrees with the runtime
 `--genome-build`, the reader raises an error rather than mixing coordinate

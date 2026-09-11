@@ -10,7 +10,7 @@ This document summarizes the public package surface. For workflow-level file str
 | --- | --- | --- | --- | --- |
 | Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_annotate()`, `run_annotate_from_args()`, `annotation_builder.main()` | baseline `.annot(.gz)`, exactly one BED/gene-list route, explicit gene padding/catalog, and global duplicate cleanup before projection | root `query.<chrom>.annot.gz`; diagnostics under `diagnostics/` include `metadata.json`, `dropped_snps/dropped.tsv.gz`, and `annotate.log` |
 | Build a gene LD-score index | `ldsc build-gene-ldscore-index` | `GeneLDScoreIndexBuildConfig`, `build_gene_ldscore_index()`, `load_gene_ldscore_index()` | required canonical one-based gene catalog, explicit `hg19`, and base `rsid` or `chr_pos`; baseline annotations inner-joined to PLINK by the effective key; mutable duplicate groups drop-all with diagnostics; optional identity-only regression restriction | workers durably stage distinct chromosome payloads and release their records; the coordinator publishes one complete strictly validated mode/build-bearing index with `index_id`, PLINK-authored `CHR/POS/SNP/A1/A2`, embedded catalog, canonical chromosome order, successful-build JSON, completed log, and duplicate-drop sidecars; private stages are never resumable, and live/failed logs plus locking use hidden sibling build state |
-| Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, source build defaults to `auto` and is inferred from `.bim`, optional chain-file liftover in `chr_pos`-family modes, conditional genetic maps, optional keep/restrict files including an explicit `--ref-panel-snps-file`, optional `min_r2`; restriction identifier read from `GlobalConfig` and coordinates interpreted in the source build; restriction files are identity-only filters with duplicate keys collapsed; duplicate coordinate groups drop-all in `chr_pos`-family modes | root per-build `chr*_r2.parquet` and `chr*_meta.tsv.gz` artifacts; diagnostics under `diagnostics/` include full-suite `metadata.json` or per-chromosome `metadata.chr<chrom>.json`, `dropped_snps/chr*_dropped.tsv.gz`, and build logs |
+| Build parquet reference panels | `ldsc build-r2-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, source build defaults to `auto` and is inferred from `.bim`, optional chain-file liftover in `chr_pos`-family modes, conditional genetic maps, optional keep/restrict files including an explicit `--ref-panel-snps-file`, optional `min_r2`; restriction identifier read from `GlobalConfig` and coordinates interpreted in the source build; restriction files are identity-only filters with duplicate keys collapsed; duplicate coordinate groups drop-all in `chr_pos`-family modes | root per-build `chr*_r2.parquet` and `chr*_meta.tsv.gz` artifacts; diagnostics under `diagnostics/` include full-suite `metadata.json` or per-chromosome `metadata.chr<chrom>.json`, `dropped_snps/chr*_dropped.tsv.gz`, and build logs |
 | Query reference-panel R2 | `ldsc query-r2` | `R2Panel`, `query_r2()`, `unbiased_r2_to_pearson_r()` | package-built panel directory, endpoint-suffixed pair table | required `--output-dir` result directory with `query_r2.tsv` plus diagnostics; pure `query_r2()` remains in-memory |
 | Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | optional baseline shards; mutually exclusive prebuilt, BED, direct gene-list, or indexed gene-list modes; PLINK or parquet panel; restrictions/exclusions | canonical root artifacts for usable queries; gene runs write row audit/source summary and evaluated focal status diagnostics; wrappers write `diagnostics/ldscore.log` |
 | Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_genome_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, resolved `GlobalConfig`, and optionally a normalized 1-based table |
@@ -142,7 +142,7 @@ metadata, `--infer-only`, HM3, and liftover guide, see
   `files.overlap` and the total SNP-universe sizes plus common-MAF threshold in
   `overlap_config`.
 - Missing output directories are created and existing directories are reused.
-  For `munge-sumstats`, `build-ref-panel`, `ldscore`, `partitioned-h2`, `rg`,
+  For `munge-sumstats`, `build-r2-panel`, `ldscore`, `partitioned-h2`, `rg`,
   and `annotate`, existing current-contract owned siblings from the workflow
   artifact family fail before writing starts unless the caller passes `--overwrite` or
   `overwrite=True`.
@@ -151,12 +151,12 @@ metadata, `--infer-only`, HM3, and liftover guide, see
   diagnostic names are ignored, and unrelated files in the output directory are
   preserved.
 - Sharded workflows may scope owned siblings to the shard selected by the
-  current invocation. `build-ref-panel` uses chromosome-specific ownership for
+  current invocation. `build-r2-panel` uses chromosome-specific ownership for
   concrete PLINK prefixes and full-panel ownership for `@` chromosome-suite
   prefixes.
 - Raw user-authored inputs use permissive alias resolution through `column_inference.py`.
 - Raw sumstats may begin with `##` metadata/comment lines; these are skipped before header inference, so `#CHROM` remains available as the chromosome header.
-- `chr_pos` workflows that interpret external coordinates require an explicit genome build or an `auto` source-build contract; workflows such as `munge-sumstats` and `build-ref-panel` may ignore `GlobalConfig.genome_build` when they own separate source/output build fields. `rsid` workflows do not use genome-build metadata.
+- `chr_pos` workflows that interpret external coordinates require an explicit genome build or an `auto` source-build contract; workflows such as `munge-sumstats` and `build-r2-panel` may ignore `GlobalConfig.genome_build` when they own separate source/output build fields. `rsid` workflows do not use genome-build metadata.
 - Public SNP identifier modes are exactly `rsid`, `rsid_allele_aware`,
   `chr_pos`, and `chr_pos_allele_aware`; the default is
   `chr_pos_allele_aware`. Mode names are exact. Column aliases apply to input
@@ -175,18 +175,18 @@ metadata, `--infer-only`, HM3, and liftover guide, see
   annotations include alleles, they participate in allele-aware
   matching.
 - Package-built R2 parquets use the 4-column index format (`IDX_1`, `IDX_2`,
-  `R2`, `SIGN`) and serve all four identifier modes from one file. External R2
+  `R2`, `SIGN_R`) and serve all four identifier modes from one file. External R2
   parquet formats are not supported; panels must be built with
-  `ldsc build-ref-panel`.
+  `ldsc build-r2-panel`.
 - `ldsc query-r2` and `R2Panel` read the same package-built index-format panels.
   They accept either a panel directory or one explicit sidecar/parquet pair and
-  return `r2`, nullable `sign`, `status`, and optionally signed Pearson `r`.
+  return `r2`, nullable `sign_r`, signed Pearson `r`, and `status`.
 - `--allow-identity-downgrade` is regression-only. It allows same-family
   allele-aware/base mixes to run under the base mode; rsID-family and
   coordinate-family modes never mix.
 - Package-written sumstats artifacts include canonical `CHR` and `POS` columns. They are populated from inferred or explicitly flagged raw columns and filled as missing when the raw file lacks coordinates.
 - In `chr_pos`-family modes, `SNP` is a label and row identity is based on `CHR/POS`; munger liftover updates only `CHR/POS` and is rejected in `rsid`-family modes.
-- `build-ref-panel` chain liftover is also coordinate behavior: matching chains are rejected in `rsid`-family modes, and source-only rsID-family builds skip coordinate duplicate filtering.
+- `build-r2-panel` chain liftover is also coordinate behavior: matching chains are rejected in `rsid`-family modes, and source-only rsID-family builds skip coordinate duplicate filtering.
 - Package-written artifacts use stricter internal headers so downstream workflows reload them deterministically.
 
 ## Public Import Boundary

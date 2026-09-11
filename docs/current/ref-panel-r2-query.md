@@ -1,17 +1,14 @@
 # Reference-Panel R² Pair Query
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
-Query the adjusted (unbiased) R² stored in a `ldsc build-ref-panel` index-format
+Query the adjusted (unbiased) R² stored in a `ldsc build-r2-panel` index-format
 panel for a list of SNP pairs, and convert it to a signed Pearson correlation
 `r`. This is the random-access counterpart to the LD-score read path: the
 LD-score workflow streams every stored pair once, while this tool looks up
 specific pairs by SNP identity.
 
-See the design spec
-`docs/specs/2026-06-06-ref-panel-r2-query-design.md` for the full
-semantics, and `docs/current/parquet-r2-format-and-read-pipeline.md` for the
-panel format.
+See the [panel format](parquet-r2-format-and-read-pipeline.md) and the [query wiki guide](../wiki/utility-functionalities/query-r2.md) for a worked command example.
 
 ## Python API
 
@@ -33,7 +30,7 @@ pairs = pd.DataFrame({
     "CHR_2": [1, 1], "POS_2": [777122, 798959], "A1_2": ["A", "T"], "A2_2": ["C", "G"],
 })
 result = query_r2(pairs, panel_dir="ref_panel", genome_build="hg38")
-print(result[["r2", "sign", "r", "status"]])
+print(result[["r2", "sign_r", "r", "status"]])
 ```
 
 The signed Pearson `r` column is always included (it is all-NaN in base modes).
@@ -49,7 +46,7 @@ out2 = panel.query_pairs(pairs_b)
 print(panel.chromosomes, panel.snp_identifier, panel.n_samples)
 ```
 
-A build-ref-panel output directory is the only panel input mode; omitting
+A build-r2-panel output directory is the only panel input mode; omitting
 `panel_dir` is a usage error.
 
 ## Pair input format
@@ -73,14 +70,14 @@ supplied. Allele columns are read only in allele-aware modes.
 
 ## Output schema
 
-The result echoes the input columns (in input row order) plus:
+The result preserves input rows and columns and writes `r2`, `sign_r`, `r`, and `status` in that order for fresh input. Existing columns with those names are replaced. No `sign` compatibility column is emitted. The persisted `query_r2.tsv` uses the same names and writes missing values as `NaN`.
 
 | Column | Meaning |
 | --- | --- |
 | `r2` | adjusted (unbiased) R² as stored, dequantized to float; `NaN` when not available |
-| `sign` | harmonized sign `+1`/`-1` (allele-aware modes); `NA` in base modes or where `r2` is `NaN` |
+| `sign_r` | harmonized sign `+1`/`-1` (allele-aware modes); `NA` in base modes or where `r2` is `NaN` |
 | `status` | empty (`""`) for a valid `r2`; otherwise the cause of the `NaN` |
-| `r` | signed Pearson `r` (always emitted); `NaN` where `r2` is `NaN`, `sign` is `NA`, or the panel lacks `ldsc:n_samples` |
+| `r` | signed Pearson `r` (always emitted); `NaN` where `r2` is `NaN`, `sign_r` is `NA`, or the panel lacks `ldsc:n_samples` |
 
 `status` is always present and carries one of a closed vocabulary, only for
 `NaN`-`r2` rows:
@@ -96,11 +93,11 @@ A pair whose two endpoints resolve to the same panel SNP (the diagonal) returns
 
 ## Sign convention
 
-The stored sign is in the panel's A1/A2 orientation. In **allele-aware** modes
-the returned `sign` is harmonized to *your* allele coding: for each endpoint the
+The stored `SIGN_R` is boolean (`True` means Pearson r ≥ 0) in the panel's A1/A2 orientation. The output `sign_r` is nullable Int8 (+1/-1), not that stored boolean. In **allele-aware** modes
+the returned `sign_r` is harmonized to *your* allele coding: for each endpoint the
 query alleles are classified as aligned or swapped against the panel (allowing
 strand complement), and the pair sign is flipped when an odd number of endpoints
-are swapped. In **base** modes no allele information is consulted, so `sign` is
+are swapped. In **base** modes no allele information is consulted, so `sign_r` is
 always `NA`. Because base modes carry no sign, the always-emitted `r` column is
 all-`NaN` there (with a warning); use an allele-aware panel/mode for signed `r`.
 
@@ -110,7 +107,7 @@ all-`NaN` there (with a warning); use an allele-aware panel/mode for signed `r`.
 `r2_adj = r2_raw - (1 - r2_raw)/(n - 2)` to recover the biased squared
 correlation, then takes the root and applies the sign. It is vectorized and pure;
 `sign=None` returns the magnitude `|r|`. The query path supplies the panel's
-`ldsc:n_samples` and the harmonized `sign` automatically.
+`ldsc:n_samples` and the harmonized `sign_r` automatically.
 
 ## Lookup strategy
 
@@ -132,13 +129,12 @@ ldsc query-r2 --panel-dir DIR
 ```
 
 `--pairs` is a TSV/CSV with the `_1`/`_2` endpoint columns (`-` reads stdin). The
-result echoes the input columns plus `r2`, `sign`, `r`, and `status`.
+result echoes the input columns plus `r2`, `sign_r`, `r`, and `status`.
 
 `query-r2` requires `--output-dir` and follows the canonical result-directory
 layout shared by the other commands: `query_r2.tsv` at the root, plus
 `diagnostics/metadata.json` (provenance and per-run status counts) and
-`diagnostics/query-r2.log` (workflow audit log). `--overwrite` replaces an
-existing result directory; `--log-level` sets the diagnostics-log verbosity.
+`diagnostics/query-r2.log` (workflow audit log). `--overwrite` replaces the command-owned result files and log; `--log-level` sets the diagnostics-log verbosity.
 
 ```bash
 # Canonical result directory

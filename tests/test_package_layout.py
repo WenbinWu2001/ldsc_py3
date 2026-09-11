@@ -131,7 +131,7 @@ print(ldsc.__file__)
         self.assertEqual(
             set(subparsers_action.choices),
             {
-                "annotate", "ldscore", "build-ref-panel", "build-gene-ldscore-index",
+                "annotate", "ldscore", "build-r2-panel", "build-gene-ldscore-index",
                 "convert-ldsc2-ldscores",
                 "munge-sumstats", "h2", "partitioned-h2", "quantile-h2", "rg", "query-r2",
                 "convert-h2-scale", "plot",
@@ -312,7 +312,7 @@ print(ldsc.__file__)
                 "--overwrite",
             ],
             [
-                "build-ref-panel",
+                "build-r2-panel",
                 "--plink-prefix",
                 "panel.@",
                 "--source-genome-build",
@@ -635,7 +635,7 @@ print(ldsc.__file__)
         with self.assertRaises(SystemExit) as exc:
             parser.parse_args(
                 [
-                    "build-ref-panel",
+                    "build-r2-panel",
                     "--bfile-chr",
                     "data/reference/panel_chr@",
                     "--panel-label",
@@ -663,7 +663,7 @@ print(ldsc.__file__)
         parser = cli.build_parser()
         args = parser.parse_args(
             [
-                "build-ref-panel",
+                "build-r2-panel",
                 "--plink-prefix",
                 "data/reference/panel_chr@",
                 "--source-genome-build",
@@ -685,7 +685,7 @@ print(ldsc.__file__)
             ]
         )
 
-        self.assertEqual(args.command, "build-ref-panel")
+        self.assertEqual(args.command, "build-r2-panel")
         self.assertEqual(args.plink_prefix, "data/reference/panel_chr@")
         self.assertEqual(args.output_dir, "out/panel")
         self.assertEqual(args.keep_indivs_file, "samples.keep")
@@ -714,7 +714,7 @@ print(ldsc.__file__)
         with self.assertRaises(SystemExit):
             parser.parse_args(
                 [
-                    "build-ref-panel",
+                    "build-r2-panel",
                     "--plink-prefix",
                     "data/reference/panel_chr@",
                     "--source-genome-build",
@@ -734,7 +734,7 @@ print(ldsc.__file__)
         with mock.patch.object(cli, "_load_regression_runner", side_effect=AssertionError("regression import should not occur")), \
              mock.patch.object(cli, "_load_sumstats_munger", side_effect=AssertionError("munging import should not occur")):
             with self.assertRaises(SystemExit) as exc:
-                cli.main(["build-ref-panel", "--help"])
+                cli.main(["build-r2-panel", "--help"])
 
         self.assertEqual(exc.exception.code, 0)
 

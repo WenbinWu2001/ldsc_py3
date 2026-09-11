@@ -93,7 +93,7 @@ def lookup_pairs_in_parquet(
         row_groups = range(parquet_file.metadata.num_row_groups)
 
     for rg in row_groups:
-        table = parquet_file.read_row_group(int(rg), columns=["IDX_1", "IDX_2", "R2", "SIGN"])
+        table = parquet_file.read_row_group(int(rg), columns=["IDX_1", "IDX_2", "R2", "SIGN_R"])
         gi = _arrow_to_numpy(table.column("IDX_1")).astype(np.int64, copy=False)
         gj = _arrow_to_numpy(table.column("IDX_2")).astype(np.int64, copy=False)
         gkey = gi * n_snps + gj
@@ -107,7 +107,7 @@ def lookup_pairs_in_parquet(
         r2_vals = _arrow_to_numpy(table.column("R2")).astype(np.float32, copy=False)[matched]
         if r2_scale is not None:
             r2_vals = r2_vals / np.float32(r2_scale)
-        sign_vals = _arrow_to_numpy(table.column("SIGN")).astype(bool, copy=False)[matched]
+        sign_vals = _arrow_to_numpy(table.column("SIGN_R")).astype(bool, copy=False)[matched]
         uniq_r2[mpos] = r2_vals
         uniq_sign[mpos] = np.where(sign_vals, np.int8(1), np.int8(-1))
 

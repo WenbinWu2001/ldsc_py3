@@ -504,7 +504,12 @@ class QueryR2OutputConfig:
 
 
 class QueryR2DirectoryWriter:
-    """Write the query-r2 pair table and its diagnostic metadata sidecar."""
+    """Write query-r2 results and diagnostic provenance.
+
+    The workflow supplies input columns plus ``r2``, nullable ``sign_r``,
+    ``r``, and ``status``. The TSV preserves those columns and writes missing
+    values as ``NaN``; it does not add compatibility aliases.
+    """
 
     @staticmethod
     def artifact_family(output_dir) -> ArtifactFamily:

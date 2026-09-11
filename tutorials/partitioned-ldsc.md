@@ -1,6 +1,6 @@
 # Partitioned LDSC
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 Goal: run partitioned LDSC in the refactored package by building query annotations, computing baseline-plus-query LD scores, and fitting one partitioned model per query annotation.
 
@@ -13,7 +13,7 @@ baseline-plus-query model per query and also write the per-query diagnostics
 tree described below.
 
 The examples below assume chromosome-pattern inputs such as `annotations/baseline.1.annot.gz`, `r2/reference.1.parquet`, and `r2/reference_metadata.1.tsv.gz`.
-Package-built parquet R2 files use canonical `IDX_1`, `IDX_2`, `R2`, and `SIGN` columns bound to the paired metadata sidecar, with row-group statistics. The paired metadata sidecar is required; it defines the raw
+Package-built parquet R2 files use canonical `IDX_1`, `IDX_2`, `R2`, and `SIGN_R` columns bound to the paired metadata sidecar, with row-group statistics. The paired metadata sidecar is required; it defines the raw
 reference-panel SNP universe, while the parquet pair rows are queried only for
 LD values. External R2 formats are not supported by this workflow.
 Package-built panels carry `ldsc:r2_bias` and `ldsc:n_samples` in parquet

@@ -22,7 +22,7 @@ Parquet projection accumulates in float64. Common-SNP counts and overlap use
 ``MAF >= common_maf_min`` (0.05 by default), independently of panel filtering.
 
 Canonical parquet R2 inputs contain sidecar-row indices ``IDX_1``/``IDX_2``,
-``R2``, and ``SIGN``. The required sidecar is bound by its identity digest and
+``R2``, and ``SIGN_R``. The required sidecar is bound by its identity digest and
 row count. Each chromosome builds one identity remap; pairs stream through
 ``iter_all_pairs`` without a dense chromosome matrix or row-group cache. Int16
 R2 values use scale 32767; floating-point inputs are also accepted. Each
@@ -381,7 +381,7 @@ def _panel_sidecar_path_for_r2(r2_path: str) -> Path:
         raise LDSCInputError(
             f"ldscore could not locate the sidecar for R2 parquet '{r2_path}'. Most likely "
             "the parquet file does not use the canonical `chrN_r2.parquet` filename written "
-            "by `ldsc build-ref-panel`. Regenerate the reference panel or pass the canonical "
+            "by `ldsc build-r2-panel`. Regenerate the reference panel or pass the canonical "
             "R2 directory. "
             f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
         )
@@ -396,7 +396,7 @@ def _load_full_panel_sidecar(r2_path: str) -> pd.DataFrame:
             f"ldscore could not load index-format R2 parquet '{r2_path}' because the "
             f"required sidecar '{sidecar_path}' is missing. Most likely the parquet file "
             "was copied without its matching `chrN_meta.tsv.gz` sidecar. Keep the R2 "
-            "parquet and sidecar together or regenerate with `ldsc build-ref-panel`. "
+            "parquet and sidecar together or regenerate with `ldsc build-r2-panel`. "
             f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
         )
     df = pd.read_csv(sidecar_path, sep="\t", comment="#")
@@ -437,7 +437,7 @@ def _validate_index_binding(full_sidecar: pd.DataFrame, *, n_snps: int, identity
 
 def _parquet_schema_layout(schema_names: Sequence[str]) -> str:
     """Classify a runtime parquet schema as index format or unsupported."""
-    if {"IDX_1", "IDX_2", "R2"}.issubset(set(schema_names)):
+    if {"IDX_1", "IDX_2", "R2", "SIGN_R"}.issubset(set(schema_names)):
         return "index"
     return "unsupported"
 
@@ -836,7 +836,7 @@ def _read_r2_panel_ld_window_spec(path: str) -> _LDWindowSpec | None:
             "the parquet has incomplete ldsc:ld_window_* schema metadata. Most "
             "likely the artifact was edited or written by an incompatible "
             "development version. Regenerate the reference panel with "
-            "`ldsc build-ref-panel`."
+            "`ldsc build-r2-panel`."
         )
     mode = mode_raw.decode("utf-8")
     if mode not in {"snps", "kb", "cm"}:
@@ -844,7 +844,7 @@ def _read_r2_panel_ld_window_spec(path: str) -> _LDWindowSpec | None:
             f"ldscore could not validate the LD window for R2 parquet '{path}': "
             f"unsupported parquet ldsc:ld_window_mode={mode!r}. Most likely the "
             "artifact was edited or written by an incompatible development "
-            "version. Regenerate the reference panel with `ldsc build-ref-panel`."
+            "version. Regenerate the reference panel with `ldsc build-r2-panel`."
         )
     try:
         value = float(value_raw.decode("utf-8"))
@@ -853,14 +853,14 @@ def _read_r2_panel_ld_window_spec(path: str) -> _LDWindowSpec | None:
             f"ldscore could not validate the LD window for R2 parquet '{path}': "
             f"parquet ldsc:ld_window_value={value_raw.decode('utf-8', errors='replace')!r} "
             "is not numeric. Most likely the artifact schema metadata was edited "
-            "or corrupted. Regenerate the reference panel with `ldsc build-ref-panel`."
+            "or corrupted. Regenerate the reference panel with `ldsc build-r2-panel`."
         ) from exc
     if value <= 0:
         raise LDSCInputError(
             f"ldscore could not validate the LD window for R2 parquet '{path}': "
             f"parquet ldsc:ld_window_value={value} is not positive. Most likely "
             "the artifact schema metadata was edited or corrupted. Regenerate the "
-            "reference panel with `ldsc build-ref-panel`."
+            "reference panel with `ldsc build-r2-panel`."
         )
     return _LDWindowSpec(mode, value)
 
@@ -965,7 +965,7 @@ class SortedR2BlockReader:
 
     Index-format parquet files use logical fields ``IDX_1``, ``IDX_2``, ``R2``
     (int16 on-disk, dequantized to float32 by dividing by ``ldsc:r2_scale``),
-    and ``SIGN``. Each row group is decoded once and remapped to retained SNP
+    and ``SIGN_R``. Each row group is decoded once and remapped to retained SNP
     indices. Float32 ``R2`` columns (absent ``ldsc:r2_encoding`` metadata)
     are read unscaled for backward compatibility.
     """
@@ -1024,9 +1024,9 @@ class SortedR2BlockReader:
         if layout != "index":
             raise LDSCInputError(
                 f"ldscore could not use R2 parquet '{paths[0]}': it is not an index-format "
-                "R2 parquet with columns IDX_1/IDX_2/R2/SIGN. Most likely this file was "
+                "R2 parquet with columns IDX_1/IDX_2/R2/SIGN_R. Most likely this file was "
                 "written by an old LDSC version or is not an LDSC R2 artifact. Regenerate "
-                "the reference panel with `ldsc build-ref-panel`. "
+                "the reference panel with `ldsc build-r2-panel`. "
                 f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
             )
 
@@ -1072,7 +1072,7 @@ class SortedR2BlockReader:
                 f"ldscore could not use index-format R2 parquet '{path}': it has no "
                 "ldsc:sorted_by_build metadata. Most likely the artifact was written by "
                 "an old LDSC version or had schema metadata stripped. Regenerate with "
-                "`ldsc build-ref-panel`. "
+                "`ldsc build-r2-panel`. "
                 f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
             )
         parquet_build = normalize_genome_build(build_raw.decode("utf-8"))
@@ -1094,7 +1094,7 @@ class SortedR2BlockReader:
                 f"ldscore could not use R2 parquet '{path}': it is missing ldsc:n_snps "
                 "or ldsc:sidecar_identity_sha256 binding metadata. Most likely the file "
                 "was written by an old LDSC version or metadata was stripped. Regenerate "
-                "with `ldsc build-ref-panel`. "
+                "with `ldsc build-r2-panel`. "
                 f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
             )
         n_snps = int(n_snps_raw.decode("utf-8"))
@@ -1147,7 +1147,7 @@ class SortedR2BlockReader:
                 raise LDSCUsageError(
                     "ldscore cannot apply raw R2 bias correction without a sample size. "
                     "Most likely the parquet panel declares `ldsc:r2_bias=raw` but omits "
-                    "`ldsc:n_samples`. Rebuild the panel with the current build-ref-panel, "
+                    "`ldsc:n_samples`. Rebuild the panel with the current build-r2-panel, "
                     "or record `ldsc:n_samples` (and `ldsc:r2_bias`) in the parquet metadata."
                 )
             denom = self.r2_sample_size - 2
@@ -1185,7 +1185,7 @@ class SortedR2BlockReader:
         """Yield each pair once in bounded batches, including oversized row groups.
 
         Panel indices are remapped to the retained reference universe before
-        yielding. SIGN is unused. No decoded row group is cached.
+        yielding. SIGN_R is unused. No decoded row group is cached.
         """
         if self._pf is None:
             raise LDSCInternalError(

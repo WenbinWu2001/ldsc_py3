@@ -1,6 +1,6 @@
 """Bit-for-bit guardrails for the PLINK genotype reader refactor.
 
-These tests pin the current reader and ``build-ref-panel`` R2 output so the
+These tests pin the current reader and ``build-r2-panel`` R2 output so the
 selective-read (O1), fused individual filter (O3), and streaming (O2) changes
 cannot alter any observable value. If a golden assertion fails, the change is
 wrong -- fix the change, not the golden.
@@ -150,9 +150,11 @@ def test_build_ref_panel_parquet_golden(tmp_path):
     assert BUILD_GOLDEN.is_file(), f"Missing immutable golden: {BUILD_GOLDEN}. Restore it from version control."
     out = _read_r2(_run_build_ref_panel(tmp_path))
     g = np.load(BUILD_GOLDEN)
-    assert set(out) == set(g.files)
+    # Preserve the immutable numerical reference across the public column rename.
+    expected = {"SIGN_R" if name == "SIGN" else name: g[name] for name in g.files}
+    assert set(out) == set(expected)
     for name in out:
-        np.testing.assert_array_equal(out[name], g[name], err_msg=f"column {name} drifted")
+        np.testing.assert_array_equal(out[name], expected[name], err_msg=f"column {name} drifted")
 
 
 def test_missing_build_golden_fails_without_writes(tmp_path, monkeypatch):

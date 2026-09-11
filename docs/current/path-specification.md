@@ -56,10 +56,10 @@ The first suite-capable flag in each command explains this syntax. Later flags r
 | Raw or curated scalar sumstats files; munging SNP-list and liftover-chain files | Exact file or quoted `*` pattern resolving to exactly one file; `@` is not expanded. |
 | `rg --sumstats-sources` | Exact files or quoted `*` patterns selecting multiple files; at least two inputs are required. `@` is not expanded. |
 | `ldscore --regr-snps-file` | Exact file or quoted `*` pattern resolving to one file; `@` is not expanded. |
-| `build-ref-panel` SNP/individual restriction files | Exact file or quoted `*` pattern resolving to one file; `@` is not expanded. |
-| `build-ref-panel` genetic-map sources | Exact files, quoted `*` patterns, or `@` suites. |
+| `build-r2-panel` SNP/individual restriction files | Exact file or quoted `*` pattern resolving to one file; `@` is not expanded. |
+| `build-r2-panel` genetic-map sources | Exact files, quoted `*` patterns, or `@` suites. |
 | `ldscore` and `build-gene-ldscore-index` genetic-map sources | Comma-separated exact paths. Their current readers do not expand `*` or `@`. |
-| Gene catalogs, fixed control gene lists, `ldscore` reference-SNP/individual lists, gene-index regression-SNP/individual lists, and `build-ref-panel` liftover-chain files | Exact file paths. Pattern expansion is not implemented by these readers. |
+| Gene catalogs, fixed control gene lists, `ldscore` reference-SNP/individual lists, gene-index regression-SNP/individual lists, and `build-r2-panel` liftover-chain files | Exact file paths. Pattern expansion is not implemented by these readers. |
 | Input/output directories and `query-r2 --pairs` | Literal paths; no pattern expansion. `--pairs -` retains its standard-input meaning. |
 
 Sources: [`path_resolution.resolve_scalar_path`, `resolve_file_group`, and PLINK resolvers](../../src/ldsc/path_resolution.py); [`_annotation_preflight.resolve_annotation_inputs`](../../src/ldsc/_annotation_preflight.py); [`_direct_annotation.prepare_direct_annotations`](../../src/ldsc/_direct_annotation.py); [`_quantile_inputs.prepare_quantile_statistics`](../../src/ldsc/_quantile_inputs.py); [`gene_list_resolver._expand_focal_gene_list_sources`](../../src/ldsc/gene_list_resolver.py); [`ref_panel_builder.ReferencePanelBuilder._prepare_build_state`](../../src/ldsc/ref_panel_builder.py); [`_kernel.ref_panel._resolve_genetic_map`](../../src/ldsc/_kernel/ref_panel.py); [`gene_ldscore_index._load_builder_genetic_map`](../../src/ldsc/gene_ldscore_index.py).
@@ -100,11 +100,11 @@ independent optional files:
   `diagnostics/convert-ldsc2-ldscores.log`. This command deliberately accepts
   directory inputs and performs its own strict chromosomes 1-22 family
   discovery; that exception does not enable directory discovery elsewhere.
-- `build-ref-panel`: `{hg19,hg38}/chr*_r2.parquet`,
+- `build-r2-panel`: `{hg19,hg38}/chr*_r2.parquet`,
   `{hg19,hg38}/chr*_meta.tsv.gz`,
   `diagnostics/metadata.json`, `diagnostics/metadata.chr*.json`,
   `diagnostics/dropped_snps/chr*_dropped.tsv.gz`,
-  and `diagnostics/build-ref-panel*.log` for CLI/workflow runs
+  and `diagnostics/build-r2-panel*.log` for CLI/workflow runs
 - `partitioned-h2`: `partitioned_h2.tsv`,
   `diagnostics/metadata.json`, optional `diagnostics/query_annotations/`, and
   `diagnostics/partitioned-h2.log` for CLI/workflow runs
@@ -131,7 +131,7 @@ and then removes stale current-contract owned siblings not produced by the
 successful run. Removed legacy root diagnostic names are ignored by preflight
 and cleanup, and unrelated files in the directory are preserved. Workflows that
 can run independent shards into one directory may narrow the owned family to the
-current shard. For `build-ref-panel`, a concrete chromosome prefix owns only
+current shard. For `build-r2-panel`, a concrete chromosome prefix owns only
 that chromosome's package, while an `@` chromosome-suite invocation owns the
 full all-chromosome package. Directory artifacts such as
 `diagnostics/query_annotations/` and `diagnostics/pairs/` are owned as whole
@@ -425,7 +425,7 @@ Output:
 Relevant APIs:
 
 - `run_build_ref_panel(...)`
-- `ldsc build-ref-panel`
+- `ldsc build-r2-panel`
 
 Accepted path forms:
 
@@ -454,7 +454,7 @@ How they are handled:
 - `snp_identifier` for SNP restrictions comes from `GlobalConfig`; the CLI flag
   constructs a one-invocation identifier config, and the Python wrapper reads
   the registered config
-- `build-ref-panel` ignores `GlobalConfig.genome_build`; in `chr_pos`-family modes, the
+- `build-r2-panel` ignores `GlobalConfig.genome_build`; in `chr_pos`-family modes, the
   restriction file must provide source-build coordinates, either through a
   source-specific column such as `hg19_POS` or through generic `POS` that
   infers to the source PLINK build
@@ -462,7 +462,7 @@ How they are handled:
 Example:
 
 ```bash
-ldsc build-ref-panel \
+ldsc build-r2-panel \
   --plink-prefix data/reference/genomes_30x_chr \
   --source-genome-build hg38 \
   --genetic-map-hg19-sources maps/hg19.txt \
@@ -481,7 +481,7 @@ Output:
 - For a concrete single-chromosome PLINK prefix such as `panel.1`, the owned
   package is restricted to chromosome 1: `chr1` R2 parquet, `chr1` metadata
   sidecars, `diagnostics/dropped_snps/chr1_dropped.tsv.gz`,
-  `diagnostics/metadata.chr1.json`, and `diagnostics/build-ref-panel.chr1.log`.
+  `diagnostics/metadata.chr1.json`, and `diagnostics/build-r2-panel.chr1.log`.
   Sibling chromosomes are not collisions and are not stale cleanup targets.
 - For a `@` chromosome-suite prefix such as `panel.@`, the owned package spans
   every discovered chromosome in the output directory, so full-panel overwrites
@@ -599,7 +599,7 @@ The package does not infer:
 - missing file suffixes
 - directory contents from an input directory argument
 - a hidden per-chromosome mode from a bare prefix
-- target-build SNP restrictions for `ldsc build-ref-panel`; that workflow
+- target-build SNP restrictions for `ldsc build-r2-panel`; that workflow
   applies restrictions before liftover and requires restriction coordinates to
   align to the inferred or explicit source PLINK build
 

@@ -1,6 +1,6 @@
 # Parquet R2 Table: Format Specification and Read Pipeline
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 This document defines the canonical **index** format for parquet-backed pairwise
 R² reference panels and describes how the read pipeline validates, binds, and
@@ -28,7 +28,7 @@ Removing that expansion/collapse round-trip:
 - makes the per-pair read hot path a pure integer gather (mode-independent), and
 - lets a **single** parquet serve all four SNP identifier modes.
 
-A `SIGN` bit (sign of the Pearson correlation r) is preserved for downstream
+A `SIGN_R` bit (sign of the Pearson correlation r) is preserved for downstream
 consumers, though LD-score regression — which uses unsigned R² — ignores it.
 
 ---
@@ -42,10 +42,10 @@ consumers, though LD-score regression — which uses unsigned R² — ignores it
 | `IDX_1` | `int32` | left endpoint: 0-based row index into the panel sidecar |
 | `IDX_2` | `int32` | right endpoint: 0-based row index into the panel sidecar |
 | `R2` | `int16` (quantized) | unbiased squared correlation, symmetric int16 quantization (scale 32767); reader dequantizes to `float32`. See §2.3. |
-| `SIGN` | `bool` (bit-packed) | `True` ⇔ Pearson r ≥ 0 in the sidecar's A1/A2 orientation |
+| `SIGN_R` | `bool` (bit-packed) | `True` ⇔ Pearson r ≥ 0 in the sidecar's A1/A2 orientation |
 
 There are no `CHR`, `POS_*`, `SNP_*`, or allele columns. The chromosome and all
-per-SNP identity come from the paired sidecar (§2.7). `SIGN` is stored as Arrow
+per-SNP identity come from the paired sidecar (§2.7). `SIGN_R` is stored as Arrow
 `bool` (1 bit/value, RLE-friendly); it is the sign of the correlation r, not of
 the (possibly negative) unbiased R² value, and is meaningful only together with
 the sidecar's A1/A2 alleles.
@@ -91,7 +91,7 @@ structure:
 | `IDX_1` | `RLE_DICTIONARY` (PyArrow default) | Long constant runs (each left SNP appears ~3k times at 1cM/1KG density); dictionary + RLE reduces to ≈0.05 bits/pair. |
 | `IDX_2` | **`DELTA_BINARY_PACKED`** | Within each `IDX_1` run, right-neighbor indices are sorted with a median forward-gap of 1. DELTA stores successive differences, collapsing ~650 MB to ~6 MB vs the default dictionary path. `use_dictionary` is restricted to `IDX_1` only so PyArrow cannot override this encoding. |
 | `R2` | **`int16` quantization + `BYTE_STREAM_SPLIT`** | R² is stored as symmetric int16 (`round(R²·32767)`, clipped `[-32767, 32767]`) instead of float32. `BYTE_STREAM_SPLIT` separates the two int16 byte planes so zstd compresses the low-entropy high byte (R² clusters near 0) apart from the noisy low byte. Genome-wide this cuts the R² column ~63% vs float32 PLAIN. Lossy but effectively lossless for LD scores: per-pair `|error| ≤ 1.5e-5` (½ step, ~20× below the `1/N` unbiased-correction floor), per-SNP LD-score delta `≤ ~2e-3`. |
-| `SIGN` | `RLE` + bit-packing (PyArrow bool default) | Arrow `bool` is natively bit-packed at 1 bit/value; RLE handles the encoding automatically. |
+| `SIGN_R` | `RLE` + bit-packing (PyArrow bool default) | Arrow `bool` is natively bit-packed at 1 bit/value; RLE handles the encoding automatically. |
 
 **R² quantization (lossy) — endpoint-exact.** The scale `32767` is the int16
 maximum, so the maximum R² round-trips exactly: the writer upper-clips the
@@ -102,8 +102,7 @@ clip and `|negatives| ~ 1/N` it never fires on real data.
 
 All encodings are recorded in the parquet footer and PyArrow auto-decodes them.
 The int16→float32 **dequantization is a reader-side step** (divide by
-`ldsc:r2_scale`), not a Parquet codec; see §3.2. A `float32` R² column (legacy
-panels) is detected by dtype and read unscaled, so old panels keep working.
+`ldsc:r2_scale`), not a Parquet codec; see §3.2. A `float32` R² column is read unscaled; the required index and `SIGN_R` columns still apply.
 
 ### 2.4 SNP Identity Modes — handled entirely off the parquet
 
@@ -156,7 +155,7 @@ ldsc:r2_scale                = "32767"
 (`round(R²·32767)`); the decoded float32 value the reader yields is shown in
 parentheses.
 
-| IDX_1 | IDX_2 | R2 (int16 → decoded) | SIGN |
+| IDX_1 | IDX_2 | R2 (int16 → decoded) | SIGN_R |
 |---|---|---|---|
 | 0 | 1 | 26915 → 0.8214 | True |
 | 0 | 2 | 4397 → 0.1342 | False |
@@ -192,8 +191,8 @@ The reader receives the **retained** metadata (the analysis matrix universe, in
 matrix order) exactly as the rest of the pipeline produces it — the index format
 does not change any filtering/restriction/intersection step. It then:
 
-1. Confirms the schema is the index layout (`IDX_1/IDX_2/R2` present); any other
-   schema raises an actionable "regenerate with `ldsc build-ref-panel`" error.
+1. Confirms the schema is the index layout (`IDX_1/IDX_2/R2/SIGN_R` present); any other
+   schema raises an actionable "regenerate with `ldsc build-r2-panel`" error.
 2. Reads `ldsc:sorted_by_build` (required) and checks it against the analysis
    build.
 3. Loads the **full** panel sidecar (`chrN_meta.tsv.gz`) — all `n_snps` rows in
@@ -241,7 +240,7 @@ Endpoints not in the analysis universe map to `-1` and are dropped. When the R²
 column is an integer dtype (quantized panels), the reader **dequantizes**
 (`r2 = int16_values / ldsc:r2_scale`, scale resolved once at open in
 `_resolve_r2_scale`) to `float32` before the optional raw→unbiased R² correction
-(`_transform_r2`); a float32 R² column (legacy) skips dequant. `SIGN` is not read
+(`_transform_r2`); a float32 R² column (legacy) skips dequant. `SIGN_R` is not read
 (unused by LD-score computation). Each decoded group is a numeric
 `(i:int32, j:int32, r2:float32)` triple of retained-matrix index pairs.
 
@@ -315,11 +314,7 @@ or wide the chromosome is. Two consequences vs. the prior block reader:
 - **Dense wide-window regions (the chr6 MHC) no longer set a memory high-water
   mark** — they add pairs to stream, not memory to hold.
 
-This matches the *builder*, whose RSS is also flat in window size (it streams a
-bounded genotype window from disk — see
-`docs/current/ld-window-parquet-r2-sidecar-behavior.md`). Under cross-chromosome
-parallelism each worker holds its own `cor_sum`, so aggregate RSS ≈
-workers × (largest concurrent chromosome's `cor_sum` + fixed floor).
+The builder has a different working set: its genotype batches include window-spanning carry-over columns, and explicitly restricted builds keep selected genotypes in RAM. Its memory is not guaranteed to be flat in window size; see [build-side memory](ld-window-parquet-r2-sidecar-behavior.md#build-side-build-r2-panel). Under read-side chromosome parallelism each worker holds its own accumulator and pair chunk, so aggregate memory grows with worker count.
 
 ---
 
@@ -341,6 +336,8 @@ covers exactly that:
 ---
 
 ## 5. Caveats and Constraints
+
+**Current names (2026-09-11).** Use `ldsc build-r2-panel` and the required `SIGN_R` Parquet column. The former command and `SIGN` schema are unsupported; rebuild older panels. `query-r2` returns nullable `sign_r` (+1/-1 in query allele orientation), alongside `r2`, `r`, and `status`. There are no compatibility aliases. Workflow logs use `build-r2-panel[.chrN].log`; Python builder API names and chromosome artifact filenames are unchanged.
 
 **Sidecar mandatory.** The parquet is opaque without its exact sidecar; ship them
 together. There is no metadata-synthesis fallback.
@@ -365,7 +362,7 @@ canonical index format offline. Existing 10-column panels must be regenerated.
 
 | Module | Role |
 |---|---|
-| `_kernel/ref_panel_builder.py` | `write_r2_parquet`: 4-column index schema, sort assertion on `IDX_1`, binding metadata; `sidecar_identity_sha256` (re-exported from `snp_identity`). Pairs flow as columnar `PairColumns` `(i, j, r2, sign)` batches from `yield_pairwise_r2_rows` straight into the writer — no per-pair dict — and int16 quantization/encodings are applied at table build; the on-disk format is unchanged. |
+| `_kernel/ref_panel_builder.py` | `write_r2_parquet`: 4-column index schema, sort assertion on `IDX_1`, binding metadata; `sidecar_identity_sha256` (re-exported from `snp_identity`). Pairs flow as columnar `PairColumns` `(i, j, r2, sign)` batches from `yield_pairwise_r2_rows` straight into the writer — no per-pair dict — and int16 quantization/encodings are applied at table build; the writer emits the current `SIGN_R` schema. |
 | `_kernel/snp_identity.py` | `sidecar_identity_sha256` binding hash |
 | `_kernel/plink_bed.py` | `PlinkBEDFile` genotype source for the build: selective per-SNP read (restricted) or disk streaming (unrestricted), feeding standardized columns to pairwise-R2 emission without loading the whole chromosome |
 | `ref_panel_builder.py` | build loop: sidecar built first, hash + `n_snps` passed to the writer |

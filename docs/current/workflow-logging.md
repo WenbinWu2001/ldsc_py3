@@ -63,10 +63,10 @@ log as one owned family. Without `--overwrite`, any existing owned artifact
 rejects the run before the log is opened. With `--overwrite`, stale owned
 siblings that the successful run did not produce are removed after the current
 outputs are written. Legacy root log names such as `sumstats.log`,
-`annotate.log`, `ldscore.log`, `build-ref-panel*.log`, or regression logs at the
-output root are not part of the current owned family. For `build-ref-panel`,
+`annotate.log`, `ldscore.log`, `build-r2-panel*.log`, or regression logs at the
+output root are not part of the current owned family. For `build-r2-panel`,
 concrete chromosome PLINK prefixes own only the matching chromosome-scoped log,
-while `@` chromosome-suite prefixes own the full build-ref-panel log family.
+while `@` chromosome-suite prefixes own the full build-r2-panel log family.
 
 This keeps an output directory from mixing artifacts from different
 configurations, while preserving unrelated user files. Direct Python writer
@@ -95,7 +95,7 @@ escapes:
 - `plot`: `<result-dir>/plots/RUN_FAILED.txt`
 - `convert-h2-scale`:
   `<h2-result-dir>/postprocessing/liability-scale/RUN_FAILED.txt`
-- concrete chromosome `build-ref-panel`:
+- concrete chromosome `build-r2-panel`:
   `<output-dir>/RUN_FAILED.chr<chrom>.txt`
 
 The marker records the failed command/API boundary, UTC timestamp, exception,
@@ -154,7 +154,7 @@ header is written and final work before the footer is written.
 | `munge-sumstats` | `<output_dir>/diagnostics/sumstats.log` |
 | `annotate` | `<output_dir>/diagnostics/annotate.log` |
 | `ldscore` | `<output_dir>/diagnostics/ldscore.log` |
-| `build-ref-panel` | `<output_dir>/diagnostics/build-ref-panel.log`, or `<output_dir>/diagnostics/build-ref-panel.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
+| `build-r2-panel` | `<output_dir>/diagnostics/build-r2-panel.log`, or `<output_dir>/diagnostics/build-r2-panel.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
 | `build-gene-ldscore-index` | completed success: `<index_dir>/diagnostics/build-gene-ldscore-index.log`; running/failed: `<parent>/.<index-name>.build-state/build-gene-ldscore-index.log`; prior failed attempts move to hidden `history/` |
 | `convert-ldsc2-ldscores` | `<output_dir>/diagnostics/convert-ldsc2-ldscores.log` |
 | `h2` | `<output_dir>/diagnostics/h2.log` |
@@ -208,7 +208,7 @@ computational class APIs remain data-oriented:
 
 - `AnnotationBuilder.run(..., output_dir=...)` requires an output parent for private preparation but does not install a workflow log. `run_annotate(...)` owns standalone output preflight, writing, and `diagnostics/annotate.log`.
 - `LDScoreCalculator.run(...)` does not create `diagnostics/ldscore.log`.
-- `ReferencePanelBuilder.run(...)` does not create a build-ref-panel workflow log.
+- `ReferencePanelBuilder.run(...)` does not create a build-r2-panel workflow log.
 - `RegressionRunner.estimate_*` methods do not create regression logs.
 
 `SumstatsMunger.run(...)` remains a workflow-level API and keeps writing

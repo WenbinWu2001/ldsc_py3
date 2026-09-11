@@ -118,8 +118,7 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
     print_global_config_banner('run_annotate', config)
     spec = AnnotationBuildConfig(baseline_annot_sources=baseline, query_annot_bed_sources=bed, query_annot_gene_list_sources=genes,
                                  gene_coordinate_file=gene_coordinate_file, padding_bp=0 if padding_bp is None else padding_bp,
-                                 gene_list_resolution_policy=gene_list_resolution_policy or 'strict', gene_exclude_regions=gene_exclude_regions or 'none',
-                                 output_dir=output_dir, overwrite=overwrite)
+                                 gene_list_resolution_policy=gene_list_resolution_policy or 'strict', gene_exclude_regions=gene_exclude_regions or 'none')
     output = ensure_output_directory(output_dir, label='output directory')
     writer = AnnotationDirectoryWriter()
     writer.artifact_family(output, gene_lists=bool(genes)).preflight(overwrite=overwrite)
@@ -191,7 +190,8 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
             writer.write(bundle, output, overwrite=overwrite, provenance=provenance, scope=scope,
                          catalog_issues=None if catalog is None else catalog.issues, preflighted=True)
             log_outputs(**bundle.output_paths)
-            return bundle
+            from ._annotation_outputs import persistent_annotation_bundle
+            return persistent_annotation_bundle(bundle, paths, output)
     except BaseException as exc:
         try:
             writer.write_diagnostics(output, batch=None, drops=getattr(exc, 'annotation_drops', None), input_issues=getattr(exc, 'input_issues', None))

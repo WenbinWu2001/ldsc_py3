@@ -45,7 +45,6 @@ GenomeBuildInput = Literal["auto", "hg19", "hg37", "hg38", "GRCh37", "GRCh38"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 LOG_LEVEL_CHOICES: tuple[LogLevel, ...] = ("DEBUG", "INFO", "WARNING", "ERROR")
 RefPanelBackend = Literal["auto", "plink", "parquet_r2"]
-CompressionMode = Literal["auto", "gzip", "bz2", "none"]
 
 
 class ConfigMismatchError(LDSCConfigError, ValueError):
@@ -308,7 +307,7 @@ def print_global_config_banner(entrypoint: str, global_config: GlobalConfig) -> 
 
 @dataclass(frozen=True)
 class AnnotationBuildConfig:
-    """Configuration for SNP-level annotation assembly and BED projection.
+    """Source and projection configuration for chromosome-backed annotations.
 
     Parameters
     ----------
@@ -332,16 +331,16 @@ class AnnotationBuildConfig:
         Number of base pairs to add to both sides of each BED or gene interval
         before SNP overlap projection. Starts are clipped at zero. Default is
         ``0``.
-    output_dir : str or os.PathLike[str] or None, optional
-        Output directory used by file-writing helpers. Default is ``None``.
-    compression : {"auto", "gzip", "bz2", "none"}, optional
-        Output compression preference for generated annotation files. Default is
-        ``"gzip"``.
-    overwrite : bool, optional
-        If ``True``, replace generated annotation outputs and remove stale
-        owned root-level ``query.*.annot.gz`` siblings after a successful
-        projection. If ``False``, output collisions raise before writing
-        starts. Default is ``False``.
+    gene_coordinate_file : path-like, optional
+        Required coordinate catalog for gene-list queries.
+    gene_list_resolution_policy : {"strict", "resolved-only"}, optional
+        Identifier-resolution policy; default is ``"strict"``.
+
+    Notes
+    -----
+    Preparation requires an explicit ``output_dir`` on ``AnnotationBuilder.run``.
+    Standalone ``run_annotate`` owns its output directory and overwrite policy;
+    canonical generated query files always use gzip.
     """
     baseline_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
@@ -352,13 +351,9 @@ class AnnotationBuildConfig:
     gene_list_resolution_policy: str = "strict"
     gene_exclude_regions: str = "none"
     padding_bp: int = 0
-    output_dir: str | PathLike[str] | None = None
-    compression: CompressionMode = "gzip"
-    allow_missing_query: bool = True
-    overwrite: bool = False
 
     def __post_init__(self) -> None:
-        """Normalize annotation path tokens and validate compression mode."""
+        """Normalize annotation paths and validate query/projection settings."""
         object.__setattr__(self, "baseline_annot_sources", _normalize_path_tuple(self.baseline_annot_sources))
         object.__setattr__(self, "query_annot_sources", _normalize_path_tuple(self.query_annot_sources))
         object.__setattr__(self, "query_annot_bed_sources", _normalize_path_tuple(self.query_annot_bed_sources))
@@ -399,7 +394,6 @@ class AnnotationBuildConfig:
                 "Could not construct AnnotationBuildConfig: coordinate, control-list, exclusion, and resolution "
                 "policy fields are valid only for gene-list query annotations."
             )
-        object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
         if isinstance(self.padding_bp, bool):
             raise LDSCConfigError(
                 f"Could not construct AnnotationBuildConfig: padding_bp={self.padding_bp!r} must be an integer. "
@@ -425,10 +419,6 @@ class AnnotationBuildConfig:
             raise LDSCConfigError(
                 f"Could not construct AnnotationBuildConfig: padding_bp={self.padding_bp!r} must be non-negative. "
                 "Most likely a negative padding value was supplied. Set padding_bp to 0 or a positive integer."
-            )
-        if self.compression not in {"auto", "gzip", "bz2", "none"}:
-            raise LDSCConfigError(
-                _invalid_choice_message("AnnotationBuildConfig", "compression", self.compression, "'auto', 'gzip', 'bz2', or 'none'")
             )
 
 
@@ -510,6 +500,10 @@ class LDScoreConfig:
     snp_batch_size : int, optional
         Number of SNPs processed per LD-score sliding batch. Default is
         ``128``.
+    query_batch_size : int, optional
+        Positive maximum number of focal query columns projected together,
+        default ``1000``. Shared baseline/weight projection and final aggregate
+        output dimensions are independent of this setting.
     common_maf_min : float, optional
         Inclusive MAF threshold used only for common-SNP count vectors
         (``MAF >= common_maf_min``; deviates from legacy LDSC's strict

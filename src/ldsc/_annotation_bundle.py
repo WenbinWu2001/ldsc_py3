@@ -41,6 +41,7 @@ class AnnotationBundle:
     identity_drops: FrameSpool | None = None
     chromosome_identity_drops: dict | None = None
     output_paths: dict = field(default_factory=dict)
+    _source_loader: object | None = field(default=None, repr=False)
 
     @property
     def chromosomes(self):
@@ -53,7 +54,17 @@ class AnnotationBundle:
     def shard(self, chrom):
         """Return one descriptor while verifying its owner's lifetime."""
         self.workspace.require_open()
+        self._prepare_sources()
         return self.shards[normalize_chromosome(chrom)]
+
+    def _prepare_sources(self):
+        if self._source_loader is not None:
+            try:
+                self.shards = self._source_loader.prepare(self.workspace, self.config_snapshot.snp_identifier)
+            except BaseException:
+                self.workspace.close()
+                raise
+            self._source_loader = None
 
     def metadata_for_chromosome(self, chrom):
         """Load row metadata for exactly one chromosome; do not cache it."""
@@ -76,6 +87,7 @@ class AnnotationBundle:
     def validate(self):
         """Validate descriptor/column contracts without loading annotation data."""
         self.workspace.require_open()
+        self._prepare_sources()
         require_unique_annotation_names(self.baseline_columns, self.query_columns)
         columns = set(self.baseline_columns + self.query_columns)
         for chrom, shard in self.shards.items():

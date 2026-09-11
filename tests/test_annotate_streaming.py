@@ -62,6 +62,26 @@ def test_gene_input_requires_explicit_padding(tmp_path):
                      genome_build='hg19', global_config=GlobalConfig(snp_identifier='rsid'), output_dir=tmp_path/'out')
 
 
+def test_returned_annotation_uses_persistent_outputs_after_build_scratch_is_released(tmp_path):
+    from ldsc import run_annotate
+
+    baseline, genes, _, catalog = inputs(tmp_path)
+    output = tmp_path / 'out'
+    bundle = run_annotate(baseline_annot_sources=baseline, query_annot_gene_list_sources=[genes],
+                          gene_coordinate_file=catalog, padding_bp=0, genome_build='hg19',
+                          global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
+    assert not list(output.glob('.ldsc-annotation-*'))
+    assert bundle.n_rows == 5
+    assert bundle.gene_list_batch.audit_path.is_file()
+    genes.unlink()
+    catalog.unlink()
+    with bundle:
+        assert bundle.read('1', columns=['base', 'pathway']).tolist() == [[1, 0], [1, 1], [1, 1], [1, 0]]
+        assert bundle.read('2', columns=['pathway']).tolist() == [[0]]
+    assert not list(output.glob('.ldsc-annotation-*'))
+    assert (output / 'query.1.annot.gz').is_file()
+
+
 @pytest.mark.parametrize('policy', ['strict', 'resolved-only'])
 def test_empty_and_unsupported_sources_are_skipped_but_supported_query_survives(tmp_path, policy):
     from ldsc.annotation_builder import run_annotate

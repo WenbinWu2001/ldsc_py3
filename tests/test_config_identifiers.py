@@ -180,14 +180,10 @@ class WorkflowConfigTest(unittest.TestCase):
         config = AnnotationBuildConfig(
             baseline_annot_sources=[Path("base.annot.gz")],
             query_annot_bed_sources=[Path("query.bed")],
-            output_dir=Path("outputs") / "annot",
-            overwrite=True,
         )
         self.assertEqual(config.baseline_annot_sources, ("base.annot.gz",))
         self.assertEqual(config.query_annot_bed_sources, ("query.bed",))
-        self.assertEqual(config.output_dir, "outputs/annot")
         self.assertFalse(hasattr(config, "batch_mode"))
-        self.assertTrue(config.overwrite)
 
     def test_annotation_config_accepts_single_string_tokens_for_plural_fields(self):
         prebuilt = AnnotationBuildConfig(

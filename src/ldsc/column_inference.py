@@ -1,3 +1,9 @@
+# The clean_header helper and munging aliases derive from LDSC munge_sumstats.py.
+# (C) 2014-2019 Brendan Bulik-Sullivan and Hilary Finucane
+# GPLv3 (LICENSE). Python 3 adaptation by Anthony Abrantes, 2024. Modified 2026:
+# centralized aliases and added typed identifier and column normalization.
+# See NOTICE for attribution and dated modifications.
+
 """Central naming and alias inference registry for the refactored package.
 
 This module is the single source of truth for:

@@ -1,3 +1,9 @@
+Last updated on: 2026-09-10
+
+See ATTRIBUTION.txt for independently reviewed data provenance and reuse
+terms, including unresolved source records. The software GPLv3 declaration
+does not establish the licensing of third-party datasets.
+
 `hm3_curated_map.tsv.gz` is the packaged curated HapMap3 SNP map used by
 `ldsc.load_hm3_curated_map()` and HM3 convenience flags. It is a gzip-compressed
 TSV with full packaged columns. Public loading normalizes `CHR`, `hg19_POS`,

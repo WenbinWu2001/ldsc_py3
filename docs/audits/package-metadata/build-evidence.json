@@ -1,0 +1,81 @@
+{
+  "branch": "restructure",
+  "commit": "69081b2e0b2235e2ed81a781ba7e32ca3d7ad61b",
+  "tracked_files": 363,
+  "source_python_files": 70,
+  "setuptools": "82.0.1",
+  "wheel": "0.47.0",
+  "method": "Full tracked working-tree snapshot; separate setuptools.build_meta.build_sdist and build_wheel invocations, offline, in scratch directory.",
+  "artifacts": {
+    "ldsc-2.0b0-py3-none-any.whl": {
+      "metadata": {
+        "Metadata-Version": [
+          "2.4"
+        ],
+        "Name": [
+          "ldsc"
+        ],
+        "Version": [
+          "2.0b0"
+        ],
+        "Home-page": [
+          "http://github.com/abrantesas/ldsc_py3"
+        ],
+        "Author": [
+          "Anthony Abrantes, Brendan Bulik-Sullivan and Hilary Finucane"
+        ],
+        "Author-email": [
+          "antshaabr@gmail.com"
+        ],
+        "Maintainer": null,
+        "Maintainer-email": null,
+        "License": [
+          "GPLv3"
+        ],
+        "License-Expression": null,
+        "License-File": null,
+        "Project-URL": null,
+        "Description-Content-Type": null
+      },
+      "description": "",
+      "license_or_credit_files": [],
+      "data_readme_included": false,
+      "bundled_data_count": 8
+    },
+    "ldsc-2.0b0.tar.gz": {
+      "metadata": {
+        "Metadata-Version": [
+          "2.4"
+        ],
+        "Name": [
+          "ldsc"
+        ],
+        "Version": [
+          "2.0b0"
+        ],
+        "Home-page": [
+          "http://github.com/abrantesas/ldsc_py3"
+        ],
+        "Author": [
+          "Anthony Abrantes, Brendan Bulik-Sullivan and Hilary Finucane"
+        ],
+        "Author-email": [
+          "antshaabr@gmail.com"
+        ],
+        "Maintainer": null,
+        "Maintainer-email": null,
+        "License": [
+          "GPLv3"
+        ],
+        "License-Expression": null,
+        "License-File": null,
+        "Project-URL": null,
+        "Description-Content-Type": null
+      },
+      "description": "",
+      "license_or_credit_files": [],
+      "data_readme_included": false,
+      "bundled_data_count": 8
+    }
+  }
+}

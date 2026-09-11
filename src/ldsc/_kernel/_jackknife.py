@@ -1,3 +1,7 @@
+# Derived from upstream LDSC ldscore/jackknife.py; GPLv3 (LICENSE).
+# Modified 2024 for Python 3; 2026 for package imports and validation errors.
+# See NOTICE for attribution and dated modifications.
+
 '''
 (c) 2014 Brendan Bulik-Sullivan and Hilary Finucane
 

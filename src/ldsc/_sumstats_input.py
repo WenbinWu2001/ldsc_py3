@@ -1,3 +1,9 @@
+# (C) 2014-2019 Brendan Bulik-Sullivan and Hilary Finucane
+# Header parsing and aliases derive from LDSC munge_sumstats.py; GPLv3 (LICENSE).
+# Python 3 adaptation by Anthony Abrantes, 2024. Modified 2026-09-10:
+# extracted input resolution from the munging kernel.
+# See NOTICE for attribution and dated modifications.
+
 """Resolve raw summary-statistics inputs for the munging workflow.
 
 Header aliases, DANER profiles, sample-size selection and bounded source-build

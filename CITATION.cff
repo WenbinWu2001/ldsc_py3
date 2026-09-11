@@ -1,0 +1,25 @@
+# Last updated on: 2026-09-10
+# GPLv3 is documented in LICENSE and NOTICE; the upstream SPDX variant is unresolved.
+cff-version: 1.2.0
+type: software
+message: >-
+  Please cite this software and the applicable method papers listed in the README.
+  Record the exact software version or commit used in your analysis.
+title: ldsc3_Jerry
+version: 2.0b0
+url: https://github.com/WenbinWu2001/ldsc_py3
+repository-code: https://github.com/WenbinWu2001/ldsc_py3
+authors:
+  - family-names: Wu
+    given-names: Wenbin
+    email: drkwu999@gmail.com
+  - family-names: Abrantes
+    given-names: Anthony
+  - family-names: Bulik-Sullivan
+    given-names: Brendan
+  - family-names: Finucane
+    given-names: Hilary
+contact:
+  - family-names: Wu
+    given-names: Wenbin
+    email: drkwu999@gmail.com

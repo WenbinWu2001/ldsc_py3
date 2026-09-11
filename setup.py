@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from setuptools import find_packages, setup
 
 
@@ -33,14 +35,25 @@ setup(
     name="ldsc",
     version="2.0b",
     description="LD Score Regression (LDSC)",
-    url="http://github.com/abrantesas/ldsc_py3",
-    author="Anthony Abrantes, Brendan Bulik-Sullivan and Hilary Finucane",
-    author_email="antshaabr@gmail.com",
+    long_description=Path(__file__).with_name("README.md").read_text(encoding="utf-8"),
+    long_description_content_type="text/markdown",
+    url="https://github.com/WenbinWu2001/ldsc_py3",
+    author="Wenbin Wu, Anthony Abrantes, Brendan Bulik-Sullivan, and Hilary Finucane",
+    author_email="Wenbin Wu <drkwu999@gmail.com>",
+    maintainer="Wenbin Wu",
+    maintainer_email="drkwu999@gmail.com",
+    project_urls={
+        "Source": "https://github.com/WenbinWu2001/ldsc_py3",
+        "Issues": "https://github.com/WenbinWu2001/ldsc_py3/issues",
+        "License": "https://github.com/WenbinWu2001/ldsc_py3/blob/restructure/LICENSE",
+    },
+    # Upstream declares GPLv3 without an explicit only/or-later grant; see NOTICE.
     license="GPLv3",
+    license_files=("LICENSE", "NOTICE"),
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     include_package_data=True,
-    package_data={"ldsc": ["data/*.tsv.gz", "data/regions/*.bed"]},
+    package_data={"ldsc": ["data/*.tsv.gz", "data/*.txt", "data/regions/*.bed"]},
     entry_points={
         "console_scripts": [
             "ldsc=ldsc.cli:run_cli",

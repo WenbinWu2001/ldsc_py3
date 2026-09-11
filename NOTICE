@@ -1,0 +1,41 @@
+LDSC attribution and modification notices
+Last updated on: 2026-09-10
+
+This distribution derives from LDSC by Brendan Bulik-Sullivan and Hilary
+Finucane, through the Python 3 port by Anthony Abrantes. Wenbin Wu maintains
+this refactored distribution. Other contributors retain their applicable
+rights and attribution; this notice does not reassign copyright.
+
+Upstream notices retained from the source and command banner:
+  (c) 2014 Brendan Bulik-Sullivan and Hilary Finucane
+  (c) 2015 Brendan Bulik-Sullivan and Hilary Finucane
+  (C) 2014-2019 Brendan Bulik-Sullivan and Hilary Finucane
+  Performance enhancement and python3 adaption by Anthony Abrantes 2024
+
+Modifications in this distribution:
+  2024: Python 3 adaptation and performance work by Anthony Abrantes.
+  2025-2026: fixes and package development by Wenbin Wu.
+  2026-04-14 onward: public src/ldsc package and unified CLI restructuring.
+  2026-09-10: restored omitted attribution, added modification notices,
+              corrected author/contact metadata, and restored LICENSE.
+Individual derived modules identify their source paths and relevant changes.
+
+License verification (2026-09-10):
+The upstream README states GNU GPL v3, setup.py declares GPLv3, and ldsc.py
+prints GNU General Public License v3. The complete upstream LICENSE is
+reproduced without changes in this distribution's LICENSE file.
+  https://github.com/bulik/ldsc/blob/master/README.md
+  https://github.com/bulik/ldsc/blob/master/setup.py
+  https://github.com/bulik/ldsc/blob/master/ldsc.py
+  https://github.com/bulik/ldsc/blob/master/LICENSE
+
+These project declarations do not explicitly distinguish GPL-3.0-only from
+GPL-3.0-or-later. The license document's generic application example is not
+itself a project-specific grant. We retain the upstream GPLv3 declaration
+and do not select either SPDX identifier without further upstream evidence.
+This notice adds no license restriction or additional permission.
+
+Academic citation instructions are separate in README.md and CITATION.cff.
+Bundled datasets have independent provenance and reuse terms: consult
+ldsc/data/ATTRIBUTION.txt in the installed package (src/ldsc/data/ in source).
+The package's software license does not establish third-party data rights.

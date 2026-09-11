@@ -1,0 +1,81 @@
+Bundled reference data: attribution and reuse review
+Last updated on: 2026-09-10
+
+Scope: the eight data files shipped in ldsc/data. Software licensing and
+dataset reuse terms are assessed separately. This record grants no new
+rights in third-party datasets. No data values were changed in this review.
+
+1. hm3_curated_map.tsv.gz
+
+This project's curated HapMap3 map contains dual-build positions, alleles,
+genetic-map positions, and frequency information. Git records its addition
+at a190b50 (2026-05-10) and an allele-aware update at 5861b2a (2026-05-15).
+The repository does not establish the original source release and reuse
+terms for every column. Attribution and redistribution verification remain
+incomplete; the maintainer needs the original curation inputs and records.
+Do not label the complete table GPL, CC0, or public domain based solely on
+its inclusion in this software package or on the name HapMap3.
+
+docs/current/bundled-hm3-map-coordinate-validation.md records checks against
+UCSC dbSNP 151 common tracks, Ensembl, and NCBI. Those checks establish
+coordinate evidence, not the complete table's source lineage or license.
+If original inputs are from IGSR/1000 Genomes, verify their dataset-specific
+reuse policy and requested attribution against the exact release:
+https://www.internationalgenome.org/faq/do-i-need-permission-to-use-igsr-data-in-my-own-scientific-research/
+This source is a policy reference, not confirmation that every bundled
+column originated in that collection.
+
+2. hm3_chr_pos_reference.tsv.gz
+
+Derived here from hm3_curated_map.tsv.gz by
+tools/hm3/build_hm3_chr_pos_reference.py. The selection procedure is recorded
+in readme.txt. This subset inherits the unresolved source-attribution and
+reuse questions above; subsetting does not establish new upstream terms.
+
+3. regions/centromeres_core.hg19.bed and centromeres_core.hg38.bed
+
+Derived by tools/regions/build_region_beds.py from UCSC Genome Browser data:
+  hg19 gap track, rows with type=centromere:
+  https://api.genome.ucsc.edu/getData/track?genome=hg19;track=gap
+  hg38 centromeres track, merged to one span per chromosome:
+  https://api.genome.ucsc.edu/getData/track?genome=hg38;track=centromeres
+  https://genome.ucsc.edu/cgi-bin/hgTrackUi?db=hg38&g=centromeres
+
+Credit UCSC and the source assembly/track producers; consult the track
+description for its source publications. Region bundling began 2026-06-06
+(a4f217e); the pericentromeric presets were revised 2026-06-12 (2081c40).
+The inspected UCSC data policy permits public and commercial use from
+UCSC's perspective, while noting that original data producers can impose
+additional terms. This is distinct from UCSC software licensing:
+https://genome.ucsc.edu/license/
+An exact source snapshot date was not retained in the BED headers. General
+UCSC policy was verified; a complete release-specific rights chain was not.
+
+4. regions/centromeres.hg19.bed and centromeres.hg38.bed
+
+Derived from the core intervals above, padded by +/-3 cM using the
+Alkes-group maps genetic_map_hg19_withX.txt and genetic_map_hg38_withX.txt.
+Credit the UCSC track producers and the genetic-map producers. The method
+follows the pericentromeric exclusion described in Bulik-Sullivan et al.
+(2015), DOI 10.1038/ng.3211. Source descriptions and derivation are in
+tools/regions/build_region_beds.py and
+docs/current/region-exclusion-presets.md, "Source of the coordinates".
+
+The genetic maps themselves are not bundled. Their exact release, original
+download URL, and data-specific redistribution terms are not recorded in
+this repository. The Alkes-group label alone is insufficient to establish
+them. Verification of terms for these derived intervals remains open; a
+license for map-processing software would not settle data reuse terms.
+
+5. regions/mhc.hg19.bed and mhc.hg38.bed
+
+Project-maintained constants: chromosome 6, BED interval [25000000,35000000)
+for each build. These files are generated from MHC constants in
+tools/regions/build_region_beds.py, rather than a bundled external interval
+table. The broad build-consistent presets were recorded in 15d6eea
+(2026-06-12). Their BED headers and the region-presets document preserve
+the scientific convention and coordinate basis.
+
+Completion requires original HM3 curation records and exact genetic-map
+sources/releases/terms. Ask the maintainer, Wenbin Wu (drkwu999@gmail.com),
+to record those sources before treating resource licensing as fully verified.

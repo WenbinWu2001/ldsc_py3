@@ -1,3 +1,9 @@
+# (c) 2014 Brendan Bulik-Sullivan and Hilary Finucane
+# Derived from upstream LDSC ldscore/parse.py; GPLv3 (LICENSE).
+# Modified 2024 for Python 3; 2026-04 for package extraction and docstrings,
+# and 2026-08 for the reduced parser surface. Notice restored 2026-09-10.
+# See NOTICE for attribution and dated modifications.
+
 """
 formats.py
 

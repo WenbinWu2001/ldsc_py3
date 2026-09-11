@@ -1,0 +1,98 @@
+{
+  "base_commit": "69081b2e0b2235e2ed81a781ba7e32ca3d7ad61b",
+  "method": "Build sdist from tracked working-tree snapshot plus new distribution files; build wheel from extracted sdist, offline, in scratch.",
+  "setuptools": "82.0.1",
+  "wheel": "0.47.0",
+  "artifacts": {
+    "ldsc-2.0b0-py3-none-any.whl": {
+      "metadata": {
+        "Name": [
+          "ldsc"
+        ],
+        "Version": [
+          "2.0b0"
+        ],
+        "Author": [
+          "Wenbin Wu, Anthony Abrantes, Brendan Bulik-Sullivan, and Hilary Finucane"
+        ],
+        "Author-email": [
+          "Wenbin Wu <drkwu999@gmail.com>"
+        ],
+        "Maintainer": [
+          "Wenbin Wu"
+        ],
+        "Maintainer-email": [
+          "drkwu999@gmail.com"
+        ],
+        "Home-page": [
+          "https://github.com/WenbinWu2001/ldsc_py3"
+        ],
+        "License": [
+          "GPLv3"
+        ],
+        "License-Expression": null,
+        "License-File": [
+          "LICENSE",
+          "NOTICE"
+        ],
+        "Project-URL": [
+          "Source, https://github.com/WenbinWu2001/ldsc_py3",
+          "Issues, https://github.com/WenbinWu2001/ldsc_py3/issues",
+          "License, https://github.com/WenbinWu2001/ldsc_py3/blob/restructure/LICENSE"
+        ],
+        "Description-Content-Type": [
+          "text/markdown"
+        ]
+      },
+      "license_and_notice_bytes_match": true,
+      "resource_docs_included": true,
+      "all_eight_data_files_unchanged": true,
+      "citation_included": false
+    },
+    "ldsc-2.0b0.tar.gz": {
+      "metadata": {
+        "Name": [
+          "ldsc"
+        ],
+        "Version": [
+          "2.0b0"
+        ],
+        "Author": [
+          "Wenbin Wu, Anthony Abrantes, Brendan Bulik-Sullivan, and Hilary Finucane"
+        ],
+        "Author-email": [
+          "Wenbin Wu <drkwu999@gmail.com>"
+        ],
+        "Maintainer": [
+          "Wenbin Wu"
+        ],
+        "Maintainer-email": [
+          "drkwu999@gmail.com"
+        ],
+        "Home-page": [
+          "https://github.com/WenbinWu2001/ldsc_py3"
+        ],
+        "License": [
+          "GPLv3"
+        ],
+        "License-Expression": null,
+        "License-File": [
+          "LICENSE",
+          "NOTICE"
+        ],
+        "Project-URL": [
+          "Source, https://github.com/WenbinWu2001/ldsc_py3",
+          "Issues, https://github.com/WenbinWu2001/ldsc_py3/issues",
+          "License, https://github.com/WenbinWu2001/ldsc_py3/blob/restructure/LICENSE"
+        ],
+        "Description-Content-Type": [
+          "text/markdown"
+        ]
+      },
+      "license_and_notice_bytes_match": true,
+      "resource_docs_included": true,
+      "all_eight_data_files_unchanged": true,
+      "citation_included": true
+    }
+  }
+}

@@ -1,3 +1,8 @@
+# Genotype readers derive from upstream LDSC ldscore/ldscore.py; GPLv3 (LICENSE).
+# Upstream authors and Python 3 port credit are in NOTICE. Modified 2026-06:
+# extracted readers and added selective streaming; 2026-09: reader lifetime.
+# See NOTICE for attribution and dated modifications.
+
 """PLINK genotype reader and in-memory LD-score block sums.
 
 Selective reads apply sample and SNP filters before genotype normalization.

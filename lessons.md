@@ -3,6 +3,10 @@
 
 Last updated on: 2026-09-10
 
+## Refactoring must preserve attribution outside removable banners
+
+- Summary/root cause/correction: Parser docstring replacement and munging-banner removal dropped upstream notices during refactoring; preserve them as source notices, carry credit through extracted helpers, and check that LICENSE and NOTICE ship in both distribution formats.
+
 ## Streamed summary assembly must preserve its schema
 
 - Summary/root cause/correction: Reconstructing a batch summary from per-source pandas Series preserved repeated row labels and inferred plain integer types; reset the shared row index and explicitly retain nullable count and diagnostic dtypes before publishing or comparing summaries.

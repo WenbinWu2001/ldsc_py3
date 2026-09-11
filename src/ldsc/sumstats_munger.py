@@ -12,8 +12,12 @@ Python dataclasses and a small service object. The public workflow boundary
 accepts path-like inputs and resolves the schema, sample-size choices, source
 build and keep-list through ``_sumstats_input.prepare_munge_input``. It passes
 a ``ResolvedMungeInput`` to the kernel and consumes an explicit ``MungeResult``.
+Packaged HM3 restriction is the default; a custom list replaces it, and
+``no_snp_restriction`` disables keep-list filtering. For different coordinate
+builds, packaged HM3 uses quick liftover unless an explicit chain overrides it;
+custom-list and unrestricted runs require a chain.
 The workflow layer owns CLI orchestration, output
-preflight, the self-describing ``sumstats.parquet`` footer, diagnostics, and
+preflight, the self-describing Parquet footer, diagnostics, and
 result objects; the kernel keeps the legacy-compatible parsing and filtering
 primitives. Coordinate-family runs separate raw source-build interpretation
 from final output-build compatibility: ``source_genome_build="auto"`` infers
@@ -21,9 +25,13 @@ the raw ``CHR``/``POS`` build, while ``output_genome_build`` is the required
 build recorded in the parquet footer after any liftover. rsID-family runs reject
 build and liftover fields and record ``genome_build=None``. Run summaries
 expose curated data artifacts only; ``diagnostics/sumstats.log`` is an audit
-file and is not included in ``output_paths``. The ``sumstats.parquet`` footer
+file and is not included in ``output_paths``. The Parquet footer
 carries only the thin downstream-identity payload; source-build and liftover
-provenance is written as readable workflow-log text.
+provenance is written as readable workflow-log text. Successful CLI runs print
+the resolved method and mapping/drop counts to stdout and record the same
+summary in the log at every log level. Python API calls record it only in the
+log. Trait labels determine sanitized data filenames; without a label, use
+``sumstats.parquet`` and optional ``sumstats.gz``.
 """
 
 from __future__ import annotations
@@ -33,9 +41,9 @@ from dataclasses import dataclass, field, replace
 import logging
 from os import PathLike
 from pathlib import Path
+import re
 import shlex
 from typing import Any
-import warnings
 
 import pandas as pd
 
@@ -69,7 +77,7 @@ from .path_resolution import (
     remove_output_artifacts,
     resolve_scalar_path,
 )
-from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
+from ._logging import log_inputs, log_outputs, log_summary, materializing_overwrite_guard, workflow_logging
 from ._kernel.snp_identity import (
     IDENTITY_DROP_COLUMNS,
     clean_identity_artifact_table,
@@ -295,7 +303,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
         Path token for the curated summary-statistics artifact. This may be a
         literal path or an exact-one glob pattern. Resolution happens at the
         workflow layer before suffix inference. ``.parquet`` files are read
-        with :func:`pandas.read_parquet`; ``.sumstats.gz`` and ``.sumstats``
+        with :func:`pandas.read_parquet`; ``.sumstats.gz``, ``sumstats.gz``, and ``.sumstats``
         files are read as whitespace-delimited text. Other suffixes raise a
         clear ``ValueError``.
     trait_name : str or None, optional
@@ -309,7 +317,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     SumstatsTable
         Validated in-memory table with canonical LDSC columns such as ``SNP``,
         ``CHR``, ``POS``, ``N``, and ``Z`` when present in the artifact. When the
-        ``sumstats.parquet`` footer carries identity metadata, the returned table
+        Parquet footer carries identity metadata, the returned table
         also recovers its munge-time ``GlobalConfig`` snapshot. Legacy text
         inputs have ``config_snapshot=None`` and are marked for panel projection.
 
@@ -322,7 +330,8 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     Notes
     -----
     Format inference is suffix-based after exact-one path resolution:
-    ``.parquet`` uses :func:`pandas.read_parquet`, ``.sumstats.gz`` uses a
+    ``.parquet`` uses :func:`pandas.read_parquet`, ``.sumstats.gz`` (or the
+    no-label filename ``sumstats.gz``) uses a
     gzip-compressed whitespace reader, and ``.sumstats`` uses a plain
     whitespace reader. Other suffixes are refused so callers do not
     accidentally parse CSV or raw GWAS input as curated sumstats.
@@ -460,16 +469,19 @@ class SumstatsMunger:
             QC settings. Common plain-text inputs, including VCF-style headers,
             old DANER, and new DANER are handled before the kernel runs;
             explicit column hints still take priority.
-        munge_config : MungeConfig
+        munge_config : MungeConfig or None, optional
             Munging thresholds, output directory, and curated output format. The
-            workflow writes fixed root data files named ``sumstats.parquet``
-            (self-describing via its footer) and/or ``sumstats.sumstats.gz``, and
-            diagnostics under ``diagnostics/``. Any
-            existing owned ``sumstats.*`` artifact is refused before the kernel
+            workflow writes ``<trait>.parquet`` (self-describing via its footer)
+            and/or ``<trait>.sumstats.gz``, using the filesystem-safe trait label
+            from ``raw_sumstats_config``. Without a label, filenames are
+            ``sumstats.parquet`` and ``sumstats.gz``. Diagnostics live under
+            ``diagnostics/``. Any existing owned artifact is refused before the kernel
             runs unless ``munge_config.overwrite`` is true; successful
             overwrites remove stale sibling formats that the current run did
-            not produce. If ``munge_config.sumstats_snps_file`` is supplied, it
-            is treated as a headered keep-list, loaded once before raw chunk
+            not produce. Packaged HM3 is the default keep-list; a custom
+            ``sumstats_snps_file`` replaces it, while ``no_snp_restriction=True``
+            disables keep-list filtering. These overrides are mutually exclusive.
+            The effective headered keep-list is loaded once before raw chunk
             parsing, and applied to each parsed chunk after munging QC and
             coordinate normalization. Allele-free keep-lists match by base key,
             and allele-bearing keep-lists in allele-aware modes match by the
@@ -477,7 +489,12 @@ class SumstatsMunger:
             retained key, and non-identity columns such as ``CM`` or ``MAF`` are
             ignored; keep-lists do not reorder output rows.
             In coordinate-family modes, keep-list filtering uses source-build
-            coordinates before any optional output liftover.
+            coordinates before output liftover. The output build must be chosen
+            explicitly. Different builds use automatic quick liftover from
+            bundled HM3 metadata only under packaged restriction; an explicit
+            chain replaces that method and is required for custom/unrestricted
+            cross-build runs. Matching builds ignore any chain; unresolved
+            source builds stop and request an explicit source build.
             ``sumstats_format="auto"`` is the default; use
             ``sumstats_format="plain"``, ``"daner-old"``, or ``"daner-new"``
             only when overriding auto-detection.
@@ -492,14 +509,15 @@ class SumstatsMunger:
             Validated, in-memory table suitable for the regression workflow.
             The table includes canonical ``CHR`` and ``POS`` columns, preserves
             the active or inferred ``GlobalConfig`` snapshot, and writes the
-            same provenance into the ``sumstats.parquet`` footer so downstream
+            same identity settings into the Parquet footer so downstream
             regression can detect incompatible LD-score results after reload.
-            Optional ``sumstats_snps_file`` filtering is reflected in both the
+            The selected SNP restriction and ordinary QC are reflected in both the
             returned table and the written curated artifact(s).
             Output paths for the corresponding disk artifacts are available
             through :meth:`build_run_summary`; the workflow log is written to
             ``diagnostics/sumstats.log`` but is not included in that result
-            mapping.
+            mapping. Method selection and mapping/drop counts are always recorded
+            in the log; this Python method does not print a console summary.
         """
         if munge_config is None:
             munge_config = raw_sumstats_config
@@ -519,7 +537,7 @@ class SumstatsMunger:
 
         config_snapshot = _source_global_config_for_munge(munge_config, global_config or get_global_config())
         _validate_munge_build_contract(munge_config, config_snapshot)
-        liftover_request = _liftover_request_from_config(munge_config)
+        liftover_request = _liftover_request_from_config(munge_config, config_snapshot.genome_build)
         _validate_liftover_request_before_io(config_snapshot, liftover_request)
         source_path = resolve_scalar_path(raw_sumstats_config.raw_sumstats_file, label="raw sumstats")
         raw_sumstats_config, munge_config, inference = _apply_raw_sumstats_inference(
@@ -527,15 +545,14 @@ class SumstatsMunger:
         )
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
         diagnostics_dir = output_dir / "diagnostics"
-        fixed_output_stem = str(output_dir / "sumstats")
-        output_files = _sumstats_output_files(fixed_output_stem, munge_config.output_format)
+        output_files = _sumstats_output_files(output_dir, munge_config.output_format, raw_sumstats_config.trait_name)
         log_path = str(diagnostics_dir / "sumstats.log")
         dropped_snps_path = diagnostics_dir / "dropped_snps" / "dropped.tsv.gz"
         sumstats_snps_path = _sumstats_snps_file_from_config(munge_config)
         sumstats_snps_label = "none" if sumstats_snps_path is None else str(sumstats_snps_path)
         produced_paths = [*output_files.values(), log_path, dropped_snps_path]
         owned_paths = [
-            *_sumstats_output_files(fixed_output_stem, "both").values(),
+            *_sumstats_output_files(output_dir, "both", raw_sumstats_config.trait_name).values(),
             log_path,
             dropped_snps_path,
         ]
@@ -556,24 +573,40 @@ class SumstatsMunger:
                 output_dir=str(output_dir),
                 output_format=munge_config.output_format,
                 sumstats_snps_file=sumstats_snps_label,
-                use_hm3_snps=munge_config.use_hm3_snps,
-                hm3_map_file=packaged_hm3_curated_map_path() if munge_config.use_hm3_snps else "none",
+                snp_restriction=("hm3" if _uses_packaged_hm3(munge_config) else "none" if munge_config.no_snp_restriction else "custom"),
+                hm3_map_file=packaged_hm3_curated_map_path() if _uses_packaged_hm3(munge_config) else "none",
                 output_genome_build=liftover_request.target_build or "none",
-                liftover_method=liftover_request.method or "none",
+                liftover_method=("pending source inference" if config_snapshot.genome_build == "auto" else liftover_request.method or "none"),
             )
             LOGGER.info(
                 f"Munging summary statistics from '{source_path}' into '{output_dir}' "
                 f"with snp_identifier='{config_snapshot.snp_identifier}', "
                 f"genome_build='{config_snapshot.genome_build}', "
                 f"sumstats_snps_file='{sumstats_snps_label}', "
-                f"use_hm3_snps='{munge_config.use_hm3_snps}', "
-                f"output_genome_build='{liftover_request.target_build}', "
-                f"liftover_method='{liftover_request.method}'."
+                f"packaged_hm3='{_uses_packaged_hm3(munge_config)}', "
+                f"output_genome_build='{liftover_request.target_build}'."
             )
             request = munge_input.prepare_munge_input(
                 source_path, raw_sumstats_config, munge_config, config_snapshot,
                 liftover_request, restriction_path,
             )
+            resolved_liftover = _liftover_request_from_config(munge_config, request.genome_build)
+            if resolved_liftover.liftover_chain_file is not None:
+                resolved_liftover = replace(
+                    resolved_liftover,
+                    liftover_chain_file=resolve_scalar_path(resolved_liftover.liftover_chain_file, label="liftover chain file"),
+                )
+            _validate_liftover_request_before_io(
+                replace(config_snapshot, genome_build=request.genome_build), resolved_liftover,
+            )
+            request = replace(request, liftover_request=resolved_liftover)
+            method_label = {
+                "hm3_curated": "automatic HM3 quick liftover (package-bundled reference HM3 metadata)",
+                "chain_file": "explicit chain file (HM3 quick liftover disabled)",
+                None: "none; no coordinate conversion required",
+            }[resolved_liftover.method]
+            LOGGER.info("Selected liftover method: %s; source=%s; output=%s",
+                        method_label, request.genome_build, resolved_liftover.target_build)
             result = kernel_munge.munge_sumstats(request)
             data = result.data
             coordinate_metadata = result.coordinate_metadata
@@ -640,6 +673,7 @@ class SumstatsMunger:
                 used_n_rule=result.used_n_rule,
                 output_paths=run_output_paths,
             )
+            log_summary(_render_munge_summary(self._last_summary, coordinate_metadata, munge_config))
             log_outputs(**run_output_paths)
             LOGGER.info(
                 f"Munged {self._last_summary.n_input_rows} input rows to {self._last_summary.n_retained_rows} retained rows; "
@@ -655,7 +689,7 @@ class SumstatsMunger:
         output_format: str = "parquet",
         overwrite: bool = False,
     ) -> str:
-        """Write an in-memory sumstats table to fixed curated artifact names.
+        """Write an in-memory sumstats table using its trait label for filenames.
 
         Parameters
         ----------
@@ -665,16 +699,16 @@ class SumstatsMunger:
             present; missing ``CHR`` or ``POS`` columns are materialized as
             missing values.
         output_dir : str or os.PathLike[str]
-            Destination directory for fixed ``sumstats`` artifacts.
+            Destination directory for curated sumstats artifacts.
         output_format : {"parquet", "tsv.gz", "both"}, optional
             Disk format to write. ``"parquet"`` is the default and returns
-            ``sumstats.parquet``. ``"tsv.gz"`` writes legacy
-            ``sumstats.sumstats.gz``. ``"both"`` writes both and returns the
-            Parquet path.
+            ``<trait>.parquet``. ``"tsv.gz"`` writes ``<trait>.sumstats.gz``.
+            Without a trait label, names are ``sumstats.parquet`` and
+            ``sumstats.gz``. ``"both"`` writes both and returns the Parquet path.
         overwrite : bool, optional
-            If ``True``, replace current fixed output artifacts and remove
+            If ``True``, replace artifacts for the resolved filename stem and remove
             stale sibling formats after a successful write. If ``False``, any
-            existing owned ``sumstats.*`` artifact is refused before writing
+            existing artifact in that filename family is refused before writing
             starts. Default is ``False``.
 
         Returns
@@ -686,8 +720,14 @@ class SumstatsMunger:
         Notes
         -----
         This helper follows the public workflow naming policy but does not
-        create ``diagnostics/sumstats.log`` because no raw munging kernel is run. A config
-        snapshot is required so the ``sumstats.parquet`` footer can record
+        change the trait label stored in metadata. Filename sanitization preserves
+        letter case, Unicode word characters, dots, and hyphens; replaces other
+        character runs with underscores; strips edge dots, underscores, and
+        hyphens; and uses ``trait`` if an explicit label leaves an empty stem.
+        Different labels can resolve to the same filename and then follow the
+        ordinary overwrite policy. Artifacts for other stems are preserved.
+        This helper does not create ``diagnostics/sumstats.log`` because no raw
+        munging kernel is run. A config snapshot is required so the Parquet footer can record
         identity provenance for downstream recovery.
         """
         if sumstats.config_snapshot is None:
@@ -699,12 +739,11 @@ class SumstatsMunger:
             )
         output_format = _normalize_output_format(output_format)
         output_root = ensure_output_directory(output_dir, label="output directory")
-        fixed_output_stem = str(output_root / "sumstats")
-        output_files = _sumstats_output_files(fixed_output_stem, output_format)
+        output_files = _sumstats_output_files(output_root, output_format, sumstats.trait_name)
         produced_paths = list(output_files.values())
         stale_paths = preflight_output_artifact_family(
             produced_paths,
-            list(_sumstats_output_files(fixed_output_stem, "both").values()),
+            list(_sumstats_output_files(output_root, "both", sumstats.trait_name).values()),
             overwrite=overwrite,
             label="munged output artifact",
         )
@@ -734,7 +773,9 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
     The CLI path normalizes argparse values into the same ``MungeConfig``
     objects used by the Python API, then delegates to :class:`SumstatsMunger`
     so path resolution, output preflight, metadata, and result construction
-    stay in one workflow path.
+    stay in one workflow path. Successful materializing runs print the resolved
+    liftover method and mapping/drop summary to stdout at every log level;
+    direct Python calls to ``SumstatsMunger.run`` remain console-quiet.
 
     Parameters
     ----------
@@ -755,7 +796,7 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
         If required config fields are missing or incompatible with the chosen
         SNP identifier mode.
     FileExistsError
-        If fixed output artifacts already exist and ``args.overwrite`` is
+        If artifacts for the resolved names already exist and ``args.overwrite`` is
         false.
     """
     raw_config, munge_config = _munge_configs_from_args(args)
@@ -766,7 +807,49 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
         inference = _apply_build_inference_report(source_path, raw_config, munge_config, global_config, inference)
         print(_render_inference_report(inference, source_path, args.output_dir))
         return inference
-    return SumstatsMunger().run(raw_config, munge_config, _resolve_main_global_config(args))
+    munger = SumstatsMunger()
+    table = munger.run(raw_config, munge_config, _resolve_main_global_config(args))
+    print(_render_munge_summary(munger.build_run_summary(), table.provenance["coordinate_provenance"], munge_config))
+    return table
+
+
+def _render_munge_summary(summary: MungeRunSummary, metadata: dict[str, Any], config: MungeConfig) -> str:
+    """Render resolved liftover outcomes and exclusive whole-run drop counts."""
+    restriction = "packaged HM3 (default)" if _uses_packaged_hm3(config) else "none" if config.no_snp_restriction else "custom list"
+    liftover = metadata["liftover"]
+    lines = ["Munge-sumstats summary:", f"  SNP restriction: {restriction}"]
+    if liftover["applied"]:
+        method = (
+            "HM3 quick liftover (automatic; package-bundled HM3 metadata)"
+            if liftover["method"] == "hm3_curated"
+            else "chain file (explicit; HM3 quick liftover disabled)"
+        )
+        lines.extend([
+            f"  Liftover: {method}; {liftover['source_build']} -> {liftover['target_build']}",
+            f"  Mapping: {liftover['n_input']} input; {liftover['n_lifted']} mapped and retained; {liftover['n_dropped']} dropped",
+            "  Liftover drop reasons: " + "; ".join(
+                f"{label}={liftover[key]}" for label, key in (
+                    ("missing coordinates", "n_missing_chr_pos_dropped"),
+                    ("duplicate source", "n_duplicate_source_dropped"),
+                    ("unmapped", "n_unmapped"),
+                    ("cross-chromosome", "n_cross_chrom"),
+                    ("duplicate target", "n_duplicate_target_dropped"),
+                )
+            ),
+        ])
+    else:
+        if identity_mode_family(metadata["snp_identifier"]) == "rsid":
+            reason = "rsID identity; coordinate conversion not applicable"
+        else:
+            reason = "source and output builds match"
+            if config.liftover_chain_file is not None:
+                reason += "; supplied chain ignored"
+        lines.extend([f"  Liftover: none ({reason})", "  Mapping: not performed; 0 liftover drops"])
+    lines.extend([
+        f"  Rows: {summary.n_input_rows} input; {summary.n_retained_rows} retained; {summary.n_input_rows - summary.n_retained_rows} dropped",
+        "  Drop counts by stage: " + "; ".join(f"{stage}={count}" for stage, count in summary.drop_counts.items()),
+    ])
+    return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> SumstatsTable | RawSumstatsInference:
@@ -791,7 +874,7 @@ def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
                 "Most likely a coordinate-liftover option was copied from a chr_pos command into an rsID-based run. "
                 "Drop the output build flag or switch to a chr_pos identifier."
             )
-        if getattr(args, "liftover_chain_file", None) is not None or getattr(args, "use_hm3_quick_liftover", False):
+        if getattr(args, "liftover_chain_file", None) is not None:
             raise LDSCUsageError(
                 "munge-sumstats cannot run summary-statistics liftover with an rsID-family SNP identifier. "
                 "Most likely a liftover option was supplied while SNP identity is based on rsIDs rather than coordinates. "
@@ -844,7 +927,7 @@ def _validate_munge_build_contract(config: MungeConfig, source_config: GlobalCon
                 "Most likely coordinate-liftover configuration was reused for an rsID-based run. "
                 "Set output_genome_build=None or switch to a chr_pos identifier."
             )
-        if config.liftover_chain_file is not None or config.use_hm3_quick_liftover:
+        if config.liftover_chain_file is not None:
             raise LDSCUsageError(
                 "MungeConfig cannot request summary-statistics liftover in rsID-family snp_identifier modes. "
                 "Most likely coordinate-liftover configuration was reused while SNP identity is based on rsIDs. "
@@ -858,9 +941,14 @@ def _validate_munge_build_contract(config: MungeConfig, source_config: GlobalCon
         )
 
 
+def _uses_packaged_hm3(config: MungeConfig) -> bool:
+    """Return whether the default packaged restriction is active."""
+    return not config.no_snp_restriction and config.sumstats_snps_file is None
+
+
 def _sumstats_snps_file_from_config(config: MungeConfig) -> str | None:
     """Return the explicit or packaged SNP keep-list path for one munger run."""
-    if config.use_hm3_snps:
+    if _uses_packaged_hm3(config):
         return packaged_hm3_curated_map_path()
     return config.sumstats_snps_file
 
@@ -870,18 +958,21 @@ def _resolve_sumstats_snps_path(config: MungeConfig) -> str | None:
     path = _sumstats_snps_file_from_config(config)
     if path is None:
         return None
-    label = "packaged HM3 SNP map" if config.use_hm3_snps else "sumstats SNPs file"
+    label = "packaged HM3 SNP map" if _uses_packaged_hm3(config) else "sumstats SNPs file"
     return resolve_scalar_path(path, label=label)
 
 
-def _liftover_request_from_config(config: MungeConfig) -> SumstatsLiftoverRequest:
-    """Build the kernel liftover request from public munger config."""
-    hm3_map_file = packaged_hm3_curated_map_path() if config.use_hm3_quick_liftover else None
+def _liftover_request_from_config(config: MungeConfig, source_build: str | None) -> SumstatsLiftoverRequest:
+    """Resolve the mapping method only when concrete coordinate builds differ."""
+    target = config.output_genome_build
+    if source_build not in {"hg19", "hg38"} or target is None or source_build == target:
+        return SumstatsLiftoverRequest(target_build=target)
+    quick = _uses_packaged_hm3(config) and config.liftover_chain_file is None
     return SumstatsLiftoverRequest(
-        target_build=config.output_genome_build,
+        target_build=target,
         liftover_chain_file=config.liftover_chain_file,
-        use_hm3_quick_liftover=config.use_hm3_quick_liftover,
-        hm3_map_file=hm3_map_file,
+        use_hm3_quick_liftover=quick,
+        hm3_map_file=packaged_hm3_curated_map_path() if quick else None,
     )
 
 
@@ -896,18 +987,11 @@ def _validate_liftover_request_before_io(config: GlobalConfig, request: Sumstats
     source_build = normalize_genome_build(config.genome_build)
     if source_build not in {"hg19", "hg38"} or request.target_build is None:
         return
-    if request.target_build == source_build and request.method is not None:
-        message = (
-            "A summary-statistics liftover method was specified, but output_genome_build "
-            "equals source_genome_build; the liftover method will be ignored."
-        )
-        warnings.warn(message, UserWarning, stacklevel=2)
-        LOGGER.warning(message)
     if request.target_build != source_build and request.method is None:
         raise LDSCUsageError(
             "munge-sumstats cannot convert source_genome_build to output_genome_build because no liftover "
             "method was specified. Most likely the requested builds differ. Add --liftover-chain-file "
-            "<chain.over.chain.gz> or --use-hm3-quick-liftover."
+            "<chain.over.chain.gz> for custom-list or unrestricted SNPs; packaged HM3 uses automatic quick liftover."
         )
 
 
@@ -930,11 +1014,10 @@ def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, Mun
         chunk_size=args.chunksize,
         output_format=args.output_format,
         sumstats_snps_file=getattr(args, "sumstats_snps_file", None),
-        use_hm3_snps=getattr(args, "use_hm3_snps", False),
+        no_snp_restriction=getattr(args, "no_snp_restriction", False),
         source_genome_build=getattr(args, "source_genome_build", "auto"),
         output_genome_build=getattr(args, "output_genome_build", None),
         liftover_chain_file=getattr(args, "liftover_chain_file", None),
-        use_hm3_quick_liftover=getattr(args, "use_hm3_quick_liftover", False),
         signed_sumstats_spec=getattr(args, "signed_sumstats", None),
         ignore_columns=_ignore_columns_from_args(args),
         info_list_columns=_info_list_columns_from_args(args),
@@ -980,12 +1063,11 @@ def build_parser() -> argparse.ArgumentParser:
     public = argparse.ArgumentParser(allow_abbrev=False)
     public.prog = 'ldsc munge-sumstats'
     public.formatter_class = CLIHelpFormatter
-    public.description = 'Prepare GWAS summary statistics for LDSC, preserving input frequency as FRQ when available.'
+    public.description = 'Prepare GWAS summary statistics for LDSC, restricting to packaged HapMap3 SNPs by default and preserving input frequency as FRQ when available.'
     inputs = public.add_argument_group('Inputs and output')
     identity = public.add_argument_group('SNP identity and genome build')
     sample = public.add_argument_group('Sample size', description='Input sample-size columns take precedence over constant fallbacks.')
     filters = public.add_argument_group('SNP selection and quality filters')
-    liftover = public.add_argument_group('Coordinate conversion')
     columns = public.add_argument_group('Column overrides', description='Columns are detected automatically. Supply overrides for unrecognized or ambiguous headers.')
     formats = public.add_argument_group('Input format and allele direction')
     runtime = public.add_argument_group('Performance and logging')
@@ -1008,15 +1090,18 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument(
         '--trait-name', default=None,
         help=(
-            'Biological trait label stored in Parquet metadata. Default: no explicit label; downstream '
-            'commands derive a label from the file path when metadata supplies none.'
+            (
+            'Trait label stored in Parquet metadata and used for data filenames after replacing unsafe '
+            'characters with underscores. Default: no explicit label; use sumstats.parquet or sumstats.gz.'
+        )
         ),
     )
     inputs.add_argument(
         '--output-format', choices=sorted(_SUMSTATS_OUTPUT_FORMATS), default='parquet',
         help=(
-            'Write sumstats.parquet, legacy sumstats.sumstats.gz, or both. Default: parquet; '
-            'output choice does not change SNP filtering or frequency preservation.'
+            'Write <trait>.parquet, <trait>.sumstats.gz, or both; without --trait-name, use '
+            'sumstats.parquet or sumstats.gz. Default: parquet; output choice does not '
+            'change SNP filtering or frequency preservation.'
         ),
     )
     inputs.add_argument(
@@ -1032,8 +1117,9 @@ def build_parser() -> argparse.ArgumentParser:
         '--output-genome-build', default=None, choices=('hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
         help=(
             'Required output build for chr_pos and chr_pos_allele_aware identity. If different from the '
-            'source, supply --liftover-chain-file or --use-hm3-quick-liftover. Cannot be used with rsid or '
-            'rsid_allele_aware identity; no default.'
+            'source, packaged HM3 uses automatic quick liftover; custom or unrestricted SNPs require '
+            '--liftover-chain-file, which overrides quick liftover when supplied. Matching builds need no '
+            'liftover. Cannot be used with rsid or rsid_allele_aware identity; no default.'
         ),
     )
     identity.add_argument(
@@ -1048,7 +1134,20 @@ def build_parser() -> argparse.ArgumentParser:
         '--source-genome-build', default='auto', choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
         help=(
             'Genome build of input chromosome/position coordinates. Default: auto, infer hg19 or hg38 from '
-            'input SNPs. Concrete builds cannot be used with rsid or rsid_allele_aware identity.'
+            'input SNPs; stop and request an explicit build if inference fails. Concrete builds cannot '
+            'be used with rsid or rsid_allele_aware identity.'
+        ),
+    )
+    identity.add_argument(
+        '--liftover-chain-file', default=None, metavar='FILE',
+        help=(
+            'Chain file in the source-to-output direction for converting coordinates to --output-genome-build. '
+            'Requires chr_pos or chr_pos_allele_aware --snp-identifier and an explicit --output-genome-build. '
+            'If omitted, the default packaged HM3 restriction automatically uses quick liftover with '
+            'package-bundled reference HM3 metadata when builds differ; supply this flag to disable quick '
+            'liftover and use the chain instead. Required when builds differ with --sumstats-snps-file or '
+            '--no-snp-restriction; ignored when builds match. '
+            "Same exact-one '*' pattern rules as --raw-sumstats-file; '@' is not expanded."
         ),
     )
 
@@ -1075,19 +1174,22 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    filters.add_argument(
+    restriction = filters.add_mutually_exclusive_group()
+    restriction.add_argument(
         '--sumstats-snps-file', default=None, metavar='FILE',
         help=(
-            'Keep SNPs listed in this headered identity table, matched in the source genome build. Cannot be '
-            'combined with --use-hm3-snps. If neither is supplied, apply no keep-list restriction. Same exact-one '
-            "'*' pattern rules as --raw-sumstats-file; '@' is not expanded."
+            'Replace the default packaged HapMap3 restriction with this headered identity table, matched '
+            'in the source genome build. Mutually exclusive with --no-snp-restriction. '
+            'Requires --liftover-chain-file when source and output builds differ, even for a custom HM3 list. '
+            "Same exact-one '*' pattern rules as --raw-sumstats-file; '@' is not expanded."
         ),
     )
-    filters.add_argument(
-        '--use-hm3-snps', action='store_true', default=False,
+    restriction.add_argument(
+        '--no-snp-restriction', action='store_true', default=False,
         help=(
-            'Keep only SNPs in the bundled HapMap3 list. Cannot be combined with --sumstats-snps-file. '
-            'Default: off; no HapMap3 restriction.'
+            'Disable the default packaged HapMap3 keep-list restriction. Ordinary QC still applies. '
+            'Mutually exclusive with --sumstats-snps-file; requires --liftover-chain-file when source and '
+            'output builds differ. Default: off; restrict to HapMap3.'
         ),
     )
     filters.add_argument(
@@ -1116,26 +1218,6 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             'Keep SNPs whose minor-allele frequency min(FRQ, 1-FRQ) is at or above this value. Default: '
             '0.01; skip this filter if frequency is absent. Output FRQ preserves the original frequency.'
-        ),
-    )
-
-    liftover.add_argument(
-        '--liftover-chain-file', default=None, metavar='FILE',
-        help=(
-            'Chain file for converting input coordinates to --output-genome-build. Requires coordinate-based '
-            '--snp-identifier and --output-genome-build; cannot be combined with --use-hm3-quick-liftover. No '
-            "default; a method is required when builds differ and ignored when they match. Same exact-one '*' "
-            "pattern rules as --raw-sumstats-file; '@' is not expanded."
-        ),
-    )
-    liftover.add_argument(
-        '--use-hm3-quick-liftover', action='store_true', default=False,
-        help=(
-            (
-            'Convert coordinates using the bundled dual-build HapMap3 map, retaining mapped SNPs only. '
-            'Requires coordinate-based --snp-identifier and --output-genome-build; cannot be combined with '
-            '--liftover-chain-file. Default: off; ignored when source and output builds match.'
-        )
         ),
     )
 
@@ -1289,7 +1371,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     runtime.add_argument(
         '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
-        help=LOG_LEVEL_HELP,
+        help=(LOG_LEVEL_HELP + ' The selected liftover method and mapping/drop summary are always recorded '
+              'in diagnostics/sumstats.log and printed to stdout after a successful run.'),
     )
     return public
 
@@ -1476,19 +1559,25 @@ def _apply_build_inference_report(
     inference: RawSumstatsInference,
 ) -> RawSumstatsInference:
     """Augment ``--infer-only`` output with source/output build validation."""
-    if identity_mode_family(global_config.snp_identifier) == "rsid":
-        return inference
-    source_hint = normalize_genome_build(munge_config.source_genome_build)
-    output_build = normalize_genome_build(munge_config.output_genome_build)
     missing = list(inference.missing_fields)
     suggested = list(inference.suggested_args)
     notes = list(inference.notes)
-    resolved_source = source_hint
     _append_suggested_option(suggested, "--snp-identifier", global_config.snp_identifier)
+    if munge_config.no_snp_restriction:
+        _append_suggested_flag(suggested, "--no-snp-restriction")
+        notes.append("SNP restriction: none; ordinary QC still applies.")
+    elif munge_config.sumstats_snps_file is not None:
+        _append_suggested_option(suggested, "--sumstats-snps-file", munge_config.sumstats_snps_file)
+        notes.append(f"SNP restriction: custom list ({munge_config.sumstats_snps_file}); replaces packaged HM3.")
+    else:
+        notes.append("SNP restriction: packaged HM3 (default).")
+    if identity_mode_family(global_config.snp_identifier) == "rsid":
+        return replace(inference, suggested_args=tuple(suggested), notes=tuple(notes))
+    source_hint = normalize_genome_build(munge_config.source_genome_build)
+    output_build = normalize_genome_build(munge_config.output_genome_build)
+    resolved_source = source_hint
     if output_build in {"hg19", "hg38"}:
         _append_suggested_option(suggested, "--output-genome-build", output_build)
-    if munge_config.use_hm3_snps:
-        _append_suggested_flag(suggested, "--use-hm3-snps")
     if source_hint == "auto":
         try:
             sample = _read_infer_only_coordinate_frame(source_path, raw_config, munge_config, inference)
@@ -1510,48 +1599,34 @@ def _apply_build_inference_report(
             notes.append("Source hg38 command: add --source-genome-build hg38.")
     if resolved_source in {"hg19", "hg38"}:
         _append_suggested_option(suggested, "--source-genome-build", resolved_source)
-    liftover_required = (
-        resolved_source in {"hg19", "hg38"}
-        and output_build in {"hg19", "hg38"}
-        and resolved_source != output_build
-    )
-    liftover_method = "none" if liftover_required is not None else None
-    liftover_method_supplied = munge_config.liftover_chain_file is not None or munge_config.use_hm3_quick_liftover
-    if (
-        resolved_source in {"hg19", "hg38"}
-        and output_build in {"hg19", "hg38"}
-        and resolved_source == output_build
-        and liftover_method_supplied
-    ):
+    builds_resolved = resolved_source in {"hg19", "hg38"} and output_build in {"hg19", "hg38"}
+    liftover_required = resolved_source != output_build if builds_resolved else None
+    request = _liftover_request_from_config(munge_config, resolved_source)
+    liftover_method = "none"
+    if builds_resolved and not liftover_required and munge_config.liftover_chain_file is not None:
         notes.append("Source and output genome builds match; the supplied liftover method will be ignored.")
-    if liftover_required and munge_config.liftover_chain_file is None and not munge_config.use_hm3_quick_liftover:
-        missing.append("liftover_method")
-        liftover_method = "missing; suggested: hm3 quick"
-        _append_suggested_flag(suggested, "--use-hm3-snps")
-        _append_suggested_flag(suggested, "--use-hm3-quick-liftover")
-        notes.append(
-            "Source and output genome builds differ; choose exactly one liftover method before running."
-        )
-        notes.append("HM3 quick command: add --use-hm3-snps --use-hm3-quick-liftover.")
-        notes.append(f"Chain file command: add --liftover-chain-file <{_expected_chain_label(resolved_source, output_build)}>.")
-    elif liftover_required and munge_config.use_hm3_quick_liftover:
-        liftover_method = "hm3 quick"
-        _append_suggested_flag(suggested, "--use-hm3-snps")
-        _append_suggested_flag(suggested, "--use-hm3-quick-liftover")
-    if liftover_required and munge_config.liftover_chain_file is not None:
-        liftover_method = "chain file"
+    if munge_config.liftover_chain_file is not None:
         _append_suggested_option(suggested, "--liftover-chain-file", munge_config.liftover_chain_file)
+    if liftover_required and request.method is None:
+        missing.append("liftover_method")
+        liftover_method = "missing; chain file required"
+        notes.append("Source and output genome builds differ; custom-list or unrestricted SNPs require a chain file.")
+        notes.append(f"Add --liftover-chain-file <{_expected_chain_label(resolved_source, output_build)}>.")
+    elif liftover_required and request.use_hm3_quick_liftover:
+        liftover_method = "hm3 quick"
+        notes.append("Using automatic HM3 quick liftover from package-bundled reference HM3 metadata; an explicit chain file overrides it.")
+    elif liftover_required and request.liftover_chain_file is not None:
+        liftover_method = "chain file"
+        notes.append("Using the explicit chain file; automatic HM3 quick liftover is disabled.")
         try:
-            resolve_scalar_path(munge_config.liftover_chain_file, label="liftover chain file")
+            resolve_scalar_path(request.liftover_chain_file, label="liftover chain file")
         except LDSCInputError as exc:
             missing.append("liftover_chain_file")
             notes.append(
                 f"{exc} For this infer-only report, pass one existing chain file for the expected direction "
-                f"({_expected_chain_label(resolved_source, output_build)}), or use "
-                "--use-hm3-snps --use-hm3-quick-liftover."
+                f"({_expected_chain_label(resolved_source, output_build)})."
             )
-        if resolved_source in {"hg19", "hg38"} and output_build in {"hg19", "hg38"}:
-            notes.append(f"Expected chain direction: {resolved_source} -> {output_build}.")
+        notes.append(f"Expected chain direction: {resolved_source} -> {output_build}.")
     missing_fields = tuple(dict.fromkeys(missing))
     return replace(
         inference,
@@ -1667,14 +1742,18 @@ def _normalize_output_format(output_format: str) -> str:
     return output_format
 
 
-def _sumstats_output_files(fixed_output_stem: str, output_format: str) -> dict[str, str]:
-    """Return selected sumstats artifact paths keyed by format token."""
+def _sumstats_output_files(
+    output_dir: Path, output_format: str, trait_name: str | None = None
+) -> dict[str, str]:
+    """Resolve trait-named artifacts without allowing labels to create paths."""
     output_format = _normalize_output_format(output_format)
+    stem = "sumstats" if trait_name is None else re.sub(r"[^\w.-]+", "_", trait_name).strip("._-") or "trait"
     paths: dict[str, str] = {}
     if output_format in {"parquet", "both"}:
-        paths["parquet"] = fixed_output_stem + ".parquet"
+        paths["parquet"] = str(output_dir / f"{stem}.parquet")
     if output_format in {"tsv.gz", "both"}:
-        paths["tsv.gz"] = fixed_output_stem + ".sumstats.gz"
+        name = "sumstats.gz" if trait_name is None else f"{stem}.sumstats.gz"
+        paths["tsv.gz"] = str(output_dir / name)
     return paths
 
 
@@ -1914,14 +1993,15 @@ def _read_curated_sumstats_artifact(path: str) -> pd.DataFrame:
     token = str(path)
     if token.endswith(".parquet"):
         return pd.read_parquet(path)
-    if token.endswith(".sumstats.gz"):
+    if token.endswith(".sumstats.gz") or Path(token).name == "sumstats.gz":
         return pd.read_csv(path, sep=r"\s+", compression="gzip")
     if token.endswith(".sumstats"):
         return pd.read_csv(path, sep=r"\s+", compression="infer")
     raise LDSCInputError(
         f"Cannot load curated sumstats at '{path}': unsupported file suffix. "
         "Most likely this is a raw GWAS file or CSV, not a curated sumstats artifact. "
-        "Use a path ending in '.parquet', '.sumstats.gz', or '.sumstats', or run munge-sumstats first."
+        "Use a path ending in '.parquet', '.sumstats.gz', or '.sumstats', the default 'sumstats.gz', "
+        "or run munge-sumstats first."
     )
 
 

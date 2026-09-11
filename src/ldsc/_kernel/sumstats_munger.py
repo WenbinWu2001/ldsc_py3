@@ -471,13 +471,13 @@ def _restriction_base_key_universe(identity_keys: RestrictionIdentityKeys) -> se
 def _log_sumstats_restriction_summary(restriction):
     build_label = restriction.genome_build if identity_mode_family(restriction.mode) == 'chr_pos' else 'not used'
     LOGGER.info(
-        f"Applying --sumstats-snps-file keep-list from {restriction.path} "
+        f"Applying SNP keep-list restriction from {restriction.path} "
         f"using snp_identifier={restriction.mode}, genome_build={build_label}; "
         f"read {len(restriction.identifiers)} keep-list identifiers and found "
         f"{restriction.n_usable_row_identifiers}/{restriction.n_rows_before_filter} usable row identifiers."
     )
     LOGGER.info(
-        f"Removed {restriction.n_rows_removed} SNPs not in --sumstats-snps-file "
+        f"Removed {restriction.n_rows_removed} SNPs not in the keep-list "
         f"({restriction.n_rows_kept} SNPs remain; source={restriction.path})."
     )
 
@@ -491,9 +491,9 @@ def _raise_sumstats_restriction_empty(restriction, *, input_rows=None, usable_ro
         counts = restriction.identity_keys.dropped["reason"].value_counts(sort=False).to_dict()
         drop_details = f" Restriction rows dropped before matching: {counts}."
     raise LDSCInputError(
-        "munge-sumstats no SNPs remain after applying --sumstats-snps-file. "
-        "Most likely the keep-list uses a different SNP identifier mode or genome build than the input. "
-        "Regenerate the keep-list in the same snp_identifier mode and build as the sumstats. "
+        "munge-sumstats no SNPs remain after SNP keep-list restriction. "
+        "Most likely the input and keep-list have no matching identifiers or use different genome builds. "
+        "Check the list and source build. To process all SNPs subject to QC, use --no-snp-restriction. "
         f"Keep-list file: {restriction.path}. snp_identifier={restriction.mode}; genome_build={build_label}; "
         f"input rows before filtering={input_rows}; usable row identifiers={usable_rows}; "
         f"keep-list identifiers={len(restriction.identifiers)}.{drop_details} "

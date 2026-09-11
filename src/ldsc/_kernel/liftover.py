@@ -538,7 +538,8 @@ def apply_sumstats_liftover(
         raise LDSCUsageError(
             f"Cannot apply summary-statistics liftover from {source} to {request.target_build}: no liftover method was specified. "
             "Most likely the target build differs from the source build but neither a chain file nor HM3 quick liftover was selected. "
-            "Provide --liftover-chain-file or enable HM3 quick liftover."
+            "Provide --liftover-chain-file for custom-list or unrestricted SNPs. "
+            "The public munge-sumstats workflow selects quick liftover automatically under packaged HM3 restriction."
         )
 
     _require_supported_pair(source, request.target_build)

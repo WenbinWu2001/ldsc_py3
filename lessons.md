@@ -164,3 +164,7 @@ Last updated on: 2026-09-11
 ## Worker-initialization tests must restore package logging
 
 - Summary/root cause/correction: Calling the pool initializer in the pytest process left the LDSC logger at WARNING and suppressed later INFO capture; scope its logging changes with `caplog.at_level(..., logger="LDSC")` and verify the formerly failing test order.
+
+## Packaged HM3 restriction includes allele identity
+
+- Summary/root cause/correction: Documentation described the packaged HM3 keep-list as allele-free after inspecting the coordinate-only inference view; the full curated map contains A1/A2. Inspect the actual restriction resource and reader, document allele-aware matching, and validate synthetic munging fixtures with compatible reference alleles or explicit base identity.

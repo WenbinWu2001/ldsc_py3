@@ -2,13 +2,15 @@
 
 Last updated on: 2026-09-11
 
+Munging uses the supplied trait label for data filenames (for example, `trait.parquet` and optional `trait.sumstats.gz`). Without a label, filenames are `sumstats.parquet` and `sumstats.gz`. Parquet remains the default; see [output naming](../docs/current/munge-sumstats.md#output-artifacts).
+
 Goal: estimate genetic correlation for two or more traits from munged summary statistics and one matched LD-score reference.
 
 After writing the rg result, use the [plotting results manual](plotting-results.md) to create and interpret either the all-pairs heatmap or anchor-trait forest plot.
 
 The regression step expects:
 
-- two or more curated `sumstats.parquet` files, or explicit legacy `.sumstats.gz`
+- two or more curated `<trait>.parquet` files, or explicit legacy `.sumstats.gz`
   compatibility files, with at least `SNP`, `Z`, and `N`; current
   package-written artifacts also include `CHR` and `POS`, and `A1`/`A2` are
   recommended so each tested pair can be allele-aligned
@@ -23,8 +25,8 @@ Output directories are literal destinations. Missing directories are created,
 existing directories are reused, and existing current-contract workflow
 artifacts are refused before writing unless you pass `--overwrite` or
 `overwrite=True`.
-For each trait's sumstats directory, that family includes `sumstats.parquet`,
-`sumstats.sumstats.gz`, `diagnostics/sumstats.log`, and
+For each trait's sumstats directory, that family includes `<trait>.parquet`,
+`<trait>.sumstats.gz`, `diagnostics/sumstats.log`, and
 `diagnostics/dropped_snps/dropped.tsv.gz`, even when the current run would not write every
 format. Successful overwrites remove
 stale owned siblings not produced by the current configuration and preserve
@@ -61,10 +63,10 @@ trait_1 = trait_1_munger.run(
         trait_name="trait_1",
         # Common SNP, allele, p-value, N, and signed-statistic headers are
         # inferred automatically. Use column_hints only for ambiguous files.
-        # use_hm3_snps=True,  # packaged HM3 row restriction
+        # no_snp_restriction=True,  # opt out of default packaged HM3 restriction
         source_genome_build="auto",
         output_genome_build="hg38",
-        # use_hm3_quick_liftover=True,  # requires use_hm3_snps=True and source != output
+        # liftover_chain_file="sourceToOutput.over.chain",  # override automatic HM3 mapping
         output_dir="tutorial_outputs/trait_1",
         # overwrite=True,  # also removes stale unselected sumstats sibling formats
     ),
@@ -81,21 +83,21 @@ trait_2 = SumstatsMunger().run(
         trait_name="trait_2",
         # Common SNP, allele, p-value, N, and signed-statistic headers are
         # inferred automatically. Use column_hints only for ambiguous files.
-        # use_hm3_snps=True,  # packaged HM3 row restriction
+        # no_snp_restriction=True,  # opt out of default packaged HM3 restriction
         source_genome_build="auto",
         output_genome_build="hg38",
-        # use_hm3_quick_liftover=True,  # requires use_hm3_snps=True and source != output
+        # liftover_chain_file="sourceToOutput.over.chain",  # override automatic HM3 mapping
         output_dir="tutorial_outputs/trait_2",
         # overwrite=True,  # also removes stale unselected sumstats sibling formats
     ),
     global_config=GLOBAL_CONFIG,
 )
 
-# Option B: load existing curated artifacts instead. Current artifacts recover
-# config_snapshot from root metadata.json. Old package-written artifacts
-# without current provenance must be regenerated with the current LDSC package.
-# trait_1 = load_sumstats("tutorial_outputs/trait_1/sumstats.parquet", trait_name="trait_1")
-# trait_2 = load_sumstats("tutorial_outputs/trait_2/sumstats.parquet", trait_name="trait_2")
+# Option B: load existing curated artifacts instead. Current Parquet recovers
+# identity and trait metadata from its footer. Legacy .sumstats.gz uses the
+# rsID compatibility pathway; footerless Parquet must be regenerated.
+# trait_1 = load_sumstats("tutorial_outputs/trait_1/trait_1.parquet", trait_name="trait_1")
+# trait_2 = load_sumstats("tutorial_outputs/trait_2/trait_2.parquet", trait_name="trait_2")
 
 ldscore_result = load_ldscore_from_dir(
     "tutorial_outputs/baseline_ldscores",
@@ -119,10 +121,10 @@ that needs the raw kernel object. For user-facing analyses, prefer
 
 When both traits are produced by `SumstatsMunger.run()` in the same workflow,
 their known `GlobalConfig` snapshots are checked against the LD-score snapshot
-before regression. Current `sumstats.parquet` artifacts recover that snapshot from
-their footer; a legacy `.sumstats.gz` or footer-less parquet carries no embedded
-metadata and loads with its identifier mode inferred from the LD-score panel
-rather than being rejected. In `chr_pos_allele_aware` mode, both trait tables and the
+before regression. Current `<trait>.parquet` artifacts recover that snapshot from
+their footer. Legacy `.sumstats.gz` has no embedded identity metadata and enters the rsID compatibility pathway; the LD-score panel defines the canonical identity. Footerless Parquet is rejected and must be regenerated. See [legacy compatibility](../docs/current/legacy-sumstats-compatibility.md).
+
+In `chr_pos_allele_aware` mode, both trait tables and the
 LD-score table merge by normalized `CHR:POS:<allele_set>` identity, and
 `SNP` is treated as a label. To run coordinate identity without allele-aware
 matching, set `snp_identifier="chr_pos"` or pass `--snp-identifier chr_pos`;
@@ -132,11 +134,13 @@ The munger defaults to `--input-format auto`, and `--infer-only` can report
 missing fields or exact repair flags without writing outputs. `A1` is the
 allele that the signed statistic is relative to; `A2` is its counterpart.
 `NEFF` is not inferred as total `N` automatically. Optional munger liftover is valid for chr_pos-family modes; use
-`output_genome_build` with either a chain file or `use_hm3_snps=True` plus HM3 quick liftover when a
+`output_genome_build`; packaged HM3 maps automatically, while custom or unrestricted runs require a chain file when a
 trait's inferred source build differs from the LD-score build. Liftover drops duplicate
 source/target coordinate groups, writes count summaries to `diagnostics/sumstats.log`, and
 audits row-level drops in `diagnostics/dropped_snps/dropped.tsv.gz`; examples appear only at
 `DEBUG`, not in the compatibility sidecar.
+
+Successful munging CLI runs display the selected SNP restriction, liftover method, mapping/drop counts and reasons, and whole-run row totals in stdout and `diagnostics/sumstats.log` at every log level. Python calls record the same summary only in the log; inspect `trait_1_munger.build_run_summary()` for exclusive stage counts and `trait_1.provenance["coordinate_provenance"]["liftover"]` for mapping counts. Mapping input excludes earlier QC and keep-list removals. See the [liftover behavior table and count interpretation](../docs/current/munge-sumstats.md#liftover-rules).
 
 ## CLI
 
@@ -146,19 +150,17 @@ Intercepts are estimated by default. To request the standard fixed intercepts, a
 ldsc munge-sumstats \
   --raw-sumstats-file data/trait_1.tsv.gz \
   --trait-name trait_1 \
-  --use-hm3-snps \
   --output-genome-build hg38 \
   --output-dir tutorial_outputs/trait_1
 
 ldsc munge-sumstats \
   --raw-sumstats-file data/trait_2.tsv.gz \
   --trait-name trait_2 \
-  --use-hm3-snps \
   --output-genome-build hg38 \
   --output-dir tutorial_outputs/trait_2
 
 ldsc rg \
-  --sumstats-sources tutorial_outputs/trait_1/sumstats.parquet tutorial_outputs/trait_2/sumstats.parquet \
+  --sumstats-sources tutorial_outputs/trait_1/trait_1.parquet tutorial_outputs/trait_2/trait_2.parquet \
   --ldscore-dir tutorial_outputs/baseline_ldscores \
   --count-kind common \
   --output-dir tutorial_outputs/trait_1_trait_2

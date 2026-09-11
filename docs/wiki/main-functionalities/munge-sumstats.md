@@ -1,6 +1,6 @@
 # Munge summary statistics
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 `ldsc munge-sumstats` converts a raw GWAS table into LDSC3-ready summary statistics. See the current [munge-sumstats guide](../../current/munge-sumstats.md) for the full workflow and output contract.
 
@@ -16,12 +16,12 @@ ldsc munge-sumstats \
   --source-genome-build auto \
   --output-genome-build hg19 \
   --raw-sumstats-file "${RAW_SUMSTATS_FILE}" \
-  --use-hm3-snps \
   --trait-name mdd2025 \
+  --output-dir "${OUTPUT_DIR}" \
   --infer-only
 ```
 
-`--infer-only` performs a dry run and writes no output artifacts. It reports the detected file format, inferred column mappings, inferred source genome build, missing required fields, whether liftover is needed, and a suggested command for the full run.
+`--infer-only` inspects headers and sample rows and writes no output artifacts, logs, or directories; `--output-dir` is still required. It reports the detected file format, inferred column mappings, inferred source genome build, missing required fields, SNP restriction, selected liftover method, and a suggested command for the full run. It does not perform full filtering or mapping and therefore cannot report whole-run drop counts.
 
 LDSC3 recognizes common aliases for required columns. If a column cannot be inferred correctly, specify it explicitly as described in [Override column-name inference](#override-column-name-inference).
 
@@ -33,8 +33,6 @@ ldsc munge-sumstats \
   --source-genome-build auto \
   --output-genome-build hg19 \
   --raw-sumstats-file "${RAW_SUMSTATS_FILE}" \
-  --use-hm3-snps \
-  --use-hm3-quick-liftover \
   --trait-name mdd2025 \
   --output-dir "${OUTPUT_DIR}" \
   --overwrite
@@ -46,9 +44,7 @@ ldsc munge-sumstats \
 - `--source-genome-build auto` asks LDSC3 to infer whether the input coordinates use hg19 or hg38.
 - `--output-genome-build hg19` writes SNP coordinates using hg19.
 - `--raw-sumstats-file` specifies the raw GWAS summary-statistics file.
-- `--use-hm3-snps` restricts the output to HapMap3 SNPs.
-- `--use-hm3-quick-liftover` uses the packaged dual-build HapMap3 mapping to convert coordinates when the inferred source build differs from the output build. This option requires `--use-hm3-snps`; it is unnecessary when the input already uses hg19.
-- `--trait-name mdd2025` assigns the trait name recorded in the output metadata. Replace `mdd2025` with a descriptive name for your trait.
+- `--trait-name mdd2025` stores the trait label in Parquet metadata and names the data file `mdd2025.parquet`. Unsafe filename characters are sanitized without changing the metadata label. Replace `mdd2025` with a descriptive name for your trait.
 - `--output-dir` specifies the directory for the munged summary statistics and diagnostic artifacts.
 - `--overwrite` permits existing artifacts in `--output-dir` to be replaced. Use it with caution; without this flag, the command returns an error rather than overwriting existing files.
 
@@ -58,6 +54,30 @@ The following options use their default values and are therefore omitted. Specif
 
 - `--input-format auto` automatically detects the input file format.
 - `--output-format parquet` writes the munged summary statistics in Parquet format.
+
+Packaged HapMap3 restriction is also the default, and ordinary QC still applies. Use `--sumstats-snps-file FILE` to replace HM3 with a custom headered keep-list or `--no-snp-restriction` to disable keep-list filtering. These two overrides are mutually exclusive. No HM3 enable flag is needed.
+
+The packaged HM3 reference includes `A1/A2`; allele-aware modes match its allele-aware keys as well as the base identifier. The example above explicitly chooses base `chr_pos`, which matches coordinates without alleles. See [HM3 filtering details](../../current/munge-sumstats.md#hm3-filter-and-quick-liftover).
+
+## Genome-build conversion
+
+Always choose `--output-genome-build` explicitly for coordinate-based identity. The package may infer the source build, but it never chooses the output build for you.
+
+| Situation | Behavior |
+| --- | --- |
+| Source and requested output builds match | No liftover; a supplied chain is ignored |
+| Builds differ, explicit `--liftover-chain-file FILE` supplied | Use that chain; disable quick liftover while retaining the selected SNP restriction |
+| Builds differ, packaged HM3 restriction (default), no chain supplied | Automatically use quick liftover from package-bundled reference HM3 metadata |
+| Builds differ, custom list or unrestricted SNPs, no chain supplied | Stop and require a chain file, even if the custom list contains only HM3 SNPs |
+| Source build cannot be resolved | Stop and request `--source-genome-build hg19` or `hg38` |
+
+To opt out of automatic quick liftover, add `--liftover-chain-file /path/to/sourceToOutput.over.chain` in the source-to-output direction. This changes the mapping method; use `--no-snp-restriction` separately if you also want to disable the HM3 keep-list. rsID-based identity rejects build and liftover options. See the [current liftover contract](../../current/munge-sumstats.md#liftover-rules).
+
+## Outputs and run summary
+
+The example writes `mdd2025.parquet`, `diagnostics/sumstats.log`, and `diagnostics/dropped_snps/dropped.tsv.gz`. Use `--output-format both` to additionally write `mdd2025.sumstats.gz`. Without `--trait-name`, the data filenames are `sumstats.parquet` and `sumstats.gz`; Parquet remains the default.
+
+After success, stdout and the log show a `Munge-sumstats summary:` block at every log level. It names the restriction and selected mapping method and reports mapping input, mapped/retained, dropped rows, and drop reasons. Whole-run row totals and exclusive per-stage drops are separate: `sumstats_snps` counts keep-list removals, `liftover` counts mapping removals, and `identity` counts final identity cleanup. Mapping input excludes rows already removed by earlier QC or the keep-list. The dropped-SNP sidecar covers liftover and identity removals, not every QC stage. See [count interpretation](../../current/munge-sumstats.md#liftover-rules).
 
 ## Override column-name inference
 

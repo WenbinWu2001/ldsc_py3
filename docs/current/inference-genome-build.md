@@ -115,7 +115,7 @@ If those thresholds are not met, inference raises an actionable error that asks
 the user to pass `--source-genome-build hg19` or `--source-genome-build hg38` explicitly. The
 same resolved source-build metadata is used by munge-time SNP filtering in
 `chr_pos`-family modes. A keep-list, including the packaged map selected by
-`--use-hm3-snps`, with both `hg19_POS` and `hg38_POS` selects the position
+the default HM3 restriction, with both `hg19_POS` and `hg38_POS` selects the position
 column matching the effective raw sumstats build. Filtering happens inside each
 chunk after canonical coordinate normalization and before the retained chunks are
 concatenated.
@@ -123,9 +123,7 @@ concatenated.
 Optional munger liftover runs after this source-build resolution and after
 SNP filtering. It is valid for chr_pos-family modes because rsID-family modes
 do not use positions for row identity. Chain-file liftover and HM3 quick liftover both
-update `CHR`/`POS` only; `SNP` remains a label. HM3 quick liftover requires
-`--use-hm3-snps`, so HM3 filtering and HM3 coordinate conversion are explicit
-separate steps. The sumstats Parquet footer records the final output build in its
+update `CHR`/`POS` only; `SNP` remains a label. Packaged HM3 is the default restriction and automatically uses quick liftover when source/output builds differ. An explicit chain overrides it. Custom-list or unrestricted SNPs require a chain for different builds. The output build must always be explicitly chosen. The sumstats Parquet footer records the final output build in its
 `ldsc:genome_build` identity field; the source/target/method/drop counts,
 duplicate-coordinate drops, and coordinate inference details are written to the
 run log.

@@ -44,7 +44,7 @@ OUTPUT_ROOT="${INPUT_ROOT}/tutorial_output"
 
 ### Remarks
 
-1. By default, `ldsc ldscore` writes regression rows from the bundled HapMap3 set, after applying its default MHC-and-centromere exclusion. `h2`, `rg`, and `partitioned-h2` consume those rows and have no HapMap3 flag. The separate `munge-sumstats --use-hm3-snps` flag optionally restricts summary statistics to the bundled HapMap3 map.
+1. By default, `ldsc ldscore` writes regression rows from the bundled HapMap3 set, after applying its default MHC-and-centromere exclusion. `h2`, `rg`, and `partitioned-h2` consume those rows and have no HapMap3 flag. `munge-sumstats` also restricts to packaged HapMap3 by default; use `--sumstats-snps-file FILE` to replace its keep-list or `--no-snp-restriction` to disable it while retaining ordinary QC.
 2. For flags ending in `-sources`, you can use the glob pattern `*` to match multiple files and `@` as the placeholder for the chromosome number.
 3. Output directories are created automatically. Use `--overwrite` to allow overwriting existing output files.
 4. `ldsc ldscore` excludes the extended MHC and centromere regions by default.
@@ -70,7 +70,7 @@ This section illustrates the `ldsc munge-sumstats` command.
 **Minimal command:**
 
 ```bash
-TRAIT_NAME="mdd2025"  # used as the output dir name and as a trait label in downstream regression outputs
+TRAIT_NAME="mdd2025"  # used for the output directory, data filename, and trait metadata
 RAW_SUMSTATS_FILE="/path/to/mdd2025_raw_sumstats.tsv"
 SUMSTATS_OUT_DIR="${OUTPUT_ROOT}/sumstats_processed/${TRAIT_NAME}"
 
@@ -79,7 +79,6 @@ ldsc munge-sumstats \
   --source-genome-build "auto" \
   --output-genome-build "hg19" \
   --raw-sumstats-file "${RAW_SUMSTATS_FILE}" \
-  --use-hm3-snps \
   --trait-name "${TRAIT_NAME}" \
   --output-dir "${SUMSTATS_OUT_DIR}" \
   --overwrite
@@ -93,7 +92,8 @@ ldsc munge-sumstats \
    --infer-only
    ```
 3. The legacy `.sumstats.gz` format is supported. Specify the file via `--raw-sumstats-file` and pass a `--trait-name` so that downstream outputs use stable trait labels.
-4. If the source and output builds differ, add either `--use-hm3-quick-liftover` together with `--use-hm3-snps`, or provide `--liftover-chain-file`.
+4. Always choose the output genome build explicitly. If it differs from the resolved source build, packaged HM3 uses quick liftover automatically from package-bundled reference HM3 metadata. Supply `--liftover-chain-file FILE` to disable quick liftover and use the chain instead. Custom-list or unrestricted cross-build runs require a chain; matching builds need no mapping, and unresolved source builds stop with a request for an explicit source build. See the [method-selection table](main-functionalities/munge-sumstats.md#genome-build-conversion).
+5. A successful run prints the selected restriction, mapping method, and mapping/drop counts to stdout and `diagnostics/sumstats.log`, including at `--log-level ERROR`. Mapping counts apply after earlier QC and keep-list filtering; separate whole-run stage counts reconcile all parsed input rows with the final retained rows.
 
 **Outputs:**
 
@@ -102,7 +102,7 @@ Upon a successful run, you should expect the following files in your output dire
 ```
 sumstats_processed/
     mdd2025/
-        sumstats.parquet
+        mdd2025.parquet
         diagnostics/
             sumstats.log
             dropped_snps/
@@ -169,7 +169,7 @@ unpartitioned_ldscore/
 
 ```bash
 # Step 2: Regress sumstats on unpartitioned LD scores.
-SUMSTATS_FILE="${SUMSTATS_OUT_DIR}/sumstats.parquet"
+SUMSTATS_FILE="${SUMSTATS_OUT_DIR}/${TRAIT_NAME}.parquet"
 LDSCORE_DIR="${LDSCORE_OUTPUT_DIR}"  # the dir storing unpartitioned ldscore.baseline.parquet and metadata.json
 
 H2_OUTPUT_DIR="${OUTPUT_ROOT}/h2/${TRAIT_NAME}"
@@ -224,7 +224,6 @@ for i in "${!TRAIT_NAMES[@]}"; do
     --source-genome-build "auto" \
     --output-genome-build "hg19" \
     --raw-sumstats-file "${RAW_SUMSTATS_FILE}" \
-    --use-hm3-snps \
     --trait-name "${TRAIT_NAME}" \
     --output-dir "${SUMSTATS_OUT_DIR}" \
     --overwrite
@@ -243,7 +242,7 @@ This command computes the cross-trait genetic correlation for *all* pairs of the
 ```bash
 # Step 2: Regress all trait pairs on unpartitioned LD scores.
 LDSCORE_DIR="${OUTPUT_ROOT}/unpartitioned_ldscore"
-SUMSTATS_SOURCES="${OUTPUT_ROOT}/sumstats_processed/*/sumstats.parquet"  # use glob pattern to match all sumstats
+SUMSTATS_SOURCES="${OUTPUT_ROOT}/sumstats_processed/*/*.parquet"  # match the trait-named sumstats files
 
 RG_OUTPUT_DIR="${OUTPUT_ROOT}/rg/mdd2025_scz2022_adhd2019"
 
@@ -364,7 +363,7 @@ partitioned_ldscore/
 
 ```bash
 # Step 2: Regress sumstats on partitioned LD scores.
-SUMSTATS_FILE="${SUMSTATS_OUT_DIR}/sumstats.parquet"
+SUMSTATS_FILE="${SUMSTATS_OUT_DIR}/${TRAIT_NAME}.parquet"
 PARTITIONED_LDSCORE_DIR="${PARTITIONED_LDSCORE_OUTPUT_DIR}"
 
 PARTITIONED_H2_OUTPUT_DIR="${OUTPUT_ROOT}/partitioned-h2/${TRAIT_NAME}"

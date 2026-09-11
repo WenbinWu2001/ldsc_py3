@@ -20,10 +20,10 @@ def test_frequency_is_preserved_automatically_after_maf_filtering(tmp_path, freq
     output = tmp_path / "out"
     table = main([
         "--raw-sumstats-file", str(raw), "--output-dir", str(output),
-        "--snp-identifier", "rsid", "--output-format", "both",
+        "--snp-identifier", "rsid", "--no-snp-restriction", "--output-format", "both",
     ])
     for actual in (table, load_sumstats(output / "sumstats.parquet"),
-                   load_sumstats(output / "sumstats.sumstats.gz")):
+                   load_sumstats(output / "sumstats.gz")):
         if frequency_column:
             assert actual.data.SNP.tolist() == ["rs1", "rs3"]
             assert actual.data.FRQ.tolist() == pytest.approx([.8123456789, .01], abs=1e-12, rel=0)
@@ -48,7 +48,7 @@ def test_daner_auto_and_explicit_share_aliases_and_optional_frequency(tmp_path, 
     for profile in ("auto", "daner-new"):
         table = main([
             "--raw-sumstats-file", str(raw), "--output-dir", str(tmp_path / profile),
-            "--snp-identifier", "rsid", "--input-format", profile,
+            "--snp-identifier", "rsid", "--no-snp-restriction", "--input-format", profile,
         ])
         assert table.data.N.tolist() == [80, 120]
         if frequency_column:
@@ -66,7 +66,7 @@ def test_daner_auto_and_explicit_share_missing_sample_size_validation(tmp_path):
         with pytest.raises(LDSCInputError, match="could not determine sample size"):
             main([
                 "--raw-sumstats-file", str(raw), "--output-dir", str(tmp_path / profile),
-                "--snp-identifier", "rsid", "--input-format", profile,
+                "--snp-identifier", "rsid", "--no-snp-restriction", "--input-format", profile,
             ])
 
 
@@ -83,7 +83,7 @@ def test_legacy_n_threshold_and_constant_precedence_are_preserved(tmp_path, opti
     raw.write_text("SNP P BETA N\nrs1 .05 -.05 550\nrs2 .05 .05 1000\n")
     table = main([
         "--raw-sumstats-file", str(raw), "--output-dir", str(tmp_path / "out"),
-        "--snp-identifier", "rsid", "--N", "9999", *options,
+        "--snp-identifier", "rsid", "--no-snp-restriction", "--N", "9999", *options,
     ])
     # N90=955: dividing by 1.5 removes rs1; dividing by 2 would retain it.
     assert table.data.SNP.tolist() == ["rs2"]
@@ -96,6 +96,6 @@ def test_constant_n_bypasses_n_min_as_in_legacy(tmp_path, sample_size):
     raw.write_text("SNP P BETA\nrs1 .05 0\n")
     table = main([
         "--raw-sumstats-file", str(raw), "--output-dir", str(tmp_path / "out"),
-        "--snp-identifier", "rsid", "--n-min", "2000", "--chunksize", "1", *sample_size,
+        "--snp-identifier", "rsid", "--no-snp-restriction", "--n-min", "2000", "--chunksize", "1", *sample_size,
     ])
     assert table.data.N.tolist() == [1000]

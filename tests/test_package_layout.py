@@ -454,7 +454,7 @@ print(ldsc.__file__)
         self.assertEqual(args.command, "munge-sumstats")
         self.assertEqual(args.sumstats_snps_file, "filters/hm3.tsv.gz")
 
-    def test_munge_sumstats_subcommand_accepts_use_hm3_snps(self):
+    def test_munge_sumstats_subcommand_accepts_no_snp_restriction(self):
         from ldsc import cli
 
         parser = cli.build_parser()
@@ -465,12 +465,12 @@ print(ldsc.__file__)
                 "raw.tsv",
                 "--output-dir",
                 "out/trait",
-                "--use-hm3-snps",
+                "--no-snp-restriction",
             ]
         )
 
         self.assertEqual(args.command, "munge-sumstats")
-        self.assertTrue(args.use_hm3_snps)
+        self.assertTrue(args.no_snp_restriction)
 
     def test_munge_sumstats_subcommand_rejects_removed_merge_alleles_file(self):
         from ldsc import cli

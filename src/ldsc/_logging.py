@@ -16,7 +16,7 @@ Design Notes
 - Scientific output paths and log paths should be preflighted by callers before
   entering :func:`workflow_logging`.
 - Lifecycle audit lines are file-only. They include a ``Call:`` block, optional
-  ``Inputs:`` and ``Outputs:`` blocks, and an elapsed-time footer formatted as
+  ``Inputs:`` and ``Outputs:`` blocks, optional workflow summaries, and an elapsed-time footer formatted as
   ``Elapsed time: <minutes>.0min:<seconds>s``.
 - User-facing error reporting remains the responsibility of the CLI boundary.
 """
@@ -305,6 +305,20 @@ def log_outputs(**items: Any) -> None:
     context = _active_context()
     if context is not None:
         context.log_outputs(**items)
+
+
+def log_summary(text: str) -> None:
+    """Record a rendered workflow summary in the active file log at every level.
+
+    The caller supplies the heading and lines. Like lifecycle audit sections,
+    this does not emit console output or create a log outside a workflow.
+    """
+    context = _active_context()
+    if context is not None:
+        context._write_line("")
+        for line in text.splitlines():
+            context._write_line(line)
+        context._write_line("")
 
 
 def _active_context() -> "_WorkflowLoggingContext | None":

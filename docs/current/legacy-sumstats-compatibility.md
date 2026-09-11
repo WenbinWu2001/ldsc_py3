@@ -1,12 +1,12 @@
 # Legacy Munged Sumstats Compatibility
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-11
 
 This document defines the public compatibility boundary for munged summary statistics written by the legacy LDSC Python 2 implementation and consumed by LDSC3 regression workflows.
 
 ## Scope
 
-The compatibility input is a legacy whitespace-delimited `.sumstats` or `.sumstats.gz` artifact with no LDSC3 identity metadata. Footerless Parquet is not part of the LDSC2 compatibility contract.
+The compatibility input is a legacy whitespace-delimited `.sumstats` or `.sumstats.gz` artifact with no LDSC3 identity metadata. The no-label munging output `sumstats.gz` uses this same compatibility pathway. Footerless Parquet is not part of the LDSC2 compatibility contract.
 
 Legacy munged sumstats are treated as rsID-based source inputs. Their `SNP` values are compatibility lookup keys, not assertions of the canonical LDSC3 regression identity. The canonical LDSC3 LD-score panel remains authoritative for its recorded SNP identifier mode and for panel-owned identity metadata.
 

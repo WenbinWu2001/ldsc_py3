@@ -2,6 +2,8 @@
 
 Last updated on: 2026-09-11
 
+Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
+
 ## Implementation Status
 
 This design is now implemented in the package. The shipped behavior matches the
@@ -17,7 +19,7 @@ Implementation details:
   regenerated with the current LDSC package.
 - Current `ldsc munge-sumstats` embeds identity metadata in the
   `sumstats.parquet` footer (no `metadata.json` sidecar); legacy
-  `sumstats.sumstats.gz` carries no embedded metadata. `load_sumstats()` recovers the original
+  `sumstats.gz` carries no embedded metadata. `load_sumstats()` recovers the original
   downstream compatibility `GlobalConfig` from that footer, or returns `None` for supported legacy text. Footerless Parquet is rejected. In
   coordinate-family modes, that snapshot stores the final output genome build;
   in rsid-family modes, it stores `genome_build=None`. Row-level liftover drops are

@@ -369,6 +369,13 @@ def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentPars
             destination = target.add_argument_group(group.title, group.description)
         for action in group._group_actions:
             groups[id(action)] = destination
+    for group in source._mutually_exclusive_groups:
+        if not group._group_actions:
+            continue
+        parent = groups[id(group._group_actions[0])]
+        destination = parent.add_mutually_exclusive_group(required=group.required)
+        for action in group._group_actions:
+            groups[id(action)] = destination
     for action in source._actions:
         if action.dest == "help":
             continue

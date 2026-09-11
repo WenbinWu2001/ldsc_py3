@@ -2,6 +2,8 @@
 
 Last updated on: 2026-09-11
 
+Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
+
 Use the [CLI help guidelines](cli-help-guidelines.md) when writing flag descriptions or organizing their help groups.
 
 This document records the current public input/output naming contract after the
@@ -101,7 +103,7 @@ Not fully adapted or retained for compatibility:
   `chr{chrom}_meta.tsv.gz` and liftover-stage drop audit files as
   `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz`.
 - `ldsc munge-sumstats` keeps `--output-format tsv.gz` and `both`, which write
-  `sumstats.sumstats.gz` compatibility artifacts even though parquet is the
+  `sumstats.gz` compatibility artifacts even though parquet is the
   default.
 
 Private `_kernel` modules do not own LDSC2 artifact emission or regression
@@ -368,10 +370,10 @@ annotations and frequencies. See
 | `--raw-sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
 | `--input-format` | input metadata | no | raw summary-statistics format profile | One of `auto`, `plain`, `daner-old`, or `daner-new`; defaults to `auto`, which detects common plain text, including VCF-style headers, old DANER, and new DANER. This is the sole DANER selector (the legacy `--daner-old`/`--daner-new` booleans are removed). |
 | `--infer-only` | diagnostic | no | raw summary-statistics inference report | Reads the raw header and first data row, prints detected format, inferred hints, missing fields, source/output genome-build status, liftover status, notes, and suggested commands. Defaults to `False`; missing `A1/A2` is reported only in allele-aware modes. It writes no artifacts, although the uniform CLI contract still requires `--output-dir`. |
-| `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Restricts munged summary-statistics rows using identity keys only; duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. The keep-list is loaded before parsing and applied while chunks are streaming; defaults to omitted/`None`, so no keep-list restriction is applied. |
-| `--use-hm3-snps` | input mode | no | packaged HM3 SNP restriction | Restricts munged summary-statistics rows to the packaged curated HM3 map while chunks are streaming; defaults to `False`. Mutually exclusive with `--sumstats-snps-file`. |
-| `--trait-name` | input metadata | no | biological trait label | Optional label stored in the `sumstats.parquet` footer when parquet output is written; defaults to omitted/`None`. Downstream regression uses it unless a regression CLI `--trait-name` override is supplied. No root `metadata.json` sidecar is written. |
-| `--output-dir` | output | yes | munged output directory | Required for every CLI run, including `--infer-only`. Normal runs write fixed `sumstats.*` artifacts under this directory and pass `<output_dir>/sumstats` as the kernel output stem; inference-only runs do not create it. |
+| `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Restricts munged summary-statistics rows using identity keys only; duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. The keep-list is loaded before parsing and applied while chunks are streaming; defaults to omitted/`None`, which selects packaged HM3 unless `--no-snp-restriction` is supplied. A custom list replaces HM3 and conflicts with `--no-snp-restriction`. |
+| `--no-snp-restriction` | input mode | no | keep-list opt-out | Disables the default packaged HM3 restriction while retaining ordinary QC. Defaults to `False`; mutually exclusive with `--sumstats-snps-file`. |
+| `--trait-name` | input metadata | no | biological trait label | Optional label used for filesystem-safe data filenames and stored in the Parquet footer when parquet output is written; defaults to omitted/`None`. Downstream regression uses it unless a regression CLI `--trait-name` override is supplied. No root `metadata.json` sidecar is written. |
+| `--output-dir` | output | yes | munged output directory | Required for every CLI run, including `--infer-only`. Normal runs write trait-named data artifacts and shared diagnostics under this directory; inference-only runs do not create it. |
 | `--output-format` | output mode | no | curated sumstats format | One of `parquet`, `tsv.gz`, or `both`; defaults to `parquet`. |
 | `--N`, `--N-cas`, `--N-con` | model/QC | no | sample-size fallbacks | Per-variant N or case/control columns take precedence; otherwise use `--N`, then `--N-cas + --N-con`. Each defaults to `None`. |
 | `--info-min` | QC | no | INFO threshold | Minimum INFO value retained by the munging kernel; defaults to `0.9`. |
@@ -393,27 +395,26 @@ annotations and frequencies. See
 | `--ignore` | input metadata | no | ignored raw columns | Column names to ignore during munger detection and parsing; defaults to `None`. |
 | `--a1-inc` | input mode | no | allele ordering compatibility | Legacy allele-ordering switch forwarded to the munging kernel; defaults to `False`. |
 | `--source-genome-build` | input metadata | no | raw coordinate source build | Defaults to `auto`, which infers hg19/hg38 from raw `CHR`/`POS` data in coordinate-family modes. May be set explicitly to `hg19` or `hg38`; rejected in rsid-family modes. |
-| `--output-genome-build` | output metadata | yes in coordinate-family modes | final munged coordinate build | Defaults to omitted/`None`; required for `chr_pos`-family normal runs and `--infer-only`, and rejected in rsid-family modes. If it differs from the resolved source build, exactly one liftover method is required. |
-| `--liftover-chain-file` | input | no | optional munger liftover chain | Uses a source-to-target chain file for coordinate-only sumstats liftover; defaults to omitted/`None`. Mutually exclusive with `--use-hm3-quick-liftover`. |
-| `--use-hm3-quick-liftover` | input mode | no | packaged HM3 coordinate map | Uses the curated dual-build HM3 map for HM3-only quick liftover; defaults to `False`. Requires `--use-hm3-snps` and is mutually exclusive with `--liftover-chain-file`. |
+| `--output-genome-build` | output metadata | yes in coordinate-family modes | final munged coordinate build | Defaults to omitted/`None`; required for `chr_pos`-family normal runs and `--infer-only`, and rejected in rsid-family modes. When builds differ, packaged HM3 uses automatic quick liftover; custom or unrestricted runs require a chain file. |
+| `--liftover-chain-file` | input | no | optional munger liftover chain | Uses a source-to-target chain file for coordinate-only sumstats liftover. If omitted, different builds under default HM3 restriction use automatic quick liftover from package-bundled reference HM3 metadata. An explicit chain disables quick liftover without changing SNP restriction; required for custom/unrestricted cross-build runs and ignored when builds match. |
 | `--snp-identifier` | config | no | provenance | Defaults to `chr_pos_allele_aware`. Coordinate-family munger runs use `--source-genome-build` and `--output-genome-build`; rsid-family munger runs reject genome-build and liftover build flags and store `genome_build=None`. Allele-aware modes require usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. |
-| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`; these records go to `diagnostics/sumstats.log` and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
-| `--overwrite` | output mode | no | collision policy | Controls whether fixed sumstats outputs may be replaced; defaults to `False`, so any owned `sumstats.*` artifact is refused. With overwrite, stale sibling formats not produced by the current `--output-format` are removed after a successful run. |
+| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`; these records go to `diagnostics/sumstats.log` and stderr shows only errors. Lifecycle audit lines always appear in the file. After a successful CLI run, the selected method and mapping/drop summary appear in stdout and the log at every level; Python API runs write this summary only to the log. |
+| `--overwrite` | output mode | no | collision policy | Controls whether outputs for the selected filename family and shared diagnostics may be replaced; defaults to `False`, so existing owned artifacts are refused. With overwrite, stale sibling formats not produced by the current `--output-format` are removed after a successful run. |
 
-Removed flags: `--sumstats`, `--sumstats-file` for raw munge input,
+Removed flags: `--use-hm3-snps`, `--use-hm3-quick-liftover`, `--sumstats`, `--sumstats-file` for raw munge input,
 `--merge-alleles`, `--merge-alleles-file`, `--no-alleles`, `--out`,
 `--daner-old`, `--daner-new`, `--format` (use `--input-format daner-old` / `--input-format daner-new`), and `--keep-maf`. Recognized input frequency is always retained as `FRQ` with its original values and omitted when absent; `--maf-min` filtering is unchanged. See [the legacy flag map](legacy-cli-flag-map.md).
 
-Fixed output names:
+Output names when no trait label is supplied:
 
 ```text
-<output_dir>/sumstats.sumstats.gz
+<output_dir>/sumstats.gz
 <output_dir>/sumstats.parquet
 <output_dir>/diagnostics/sumstats.log
 <output_dir>/diagnostics/dropped_snps/dropped.tsv.gz
 ```
 
-`sumstats.parquet` is the default curated artifact. `sumstats.sumstats.gz` is
+`sumstats.parquet` is the default curated artifact. `sumstats.gz` is
 written only for `--output-format tsv.gz` or `both`. `diagnostics/sumstats.log` is
 preflighted and opened by the public workflow layer, but it is excluded from
 `MungeRunSummary.output_paths`. Detailed provenance and output bookkeeping are
@@ -681,15 +682,14 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 | `MungeConfig` | `column_hints` | input metadata | optional source-column hints |
 | `MungeConfig` | `sumstats_format` | input metadata | `"auto"`/`"plain"`/`"daner-old"`/`"daner-new"`; sole DANER selector (the `daner_old`/`daner_new` boolean fields are removed) |
 | `MungeConfig` | `sumstats_snps_file` | input | summary-statistics SNP keep-list |
-| `MungeConfig` | `use_hm3_snps` | input mode | packaged HM3 summary-statistics SNP restriction |
+| `MungeConfig` | `no_snp_restriction` | input mode | opt out of default HM3 restriction; mutually exclusive with `sumstats_snps_file` |
 | `MungeConfig` | `source_genome_build` | input metadata | raw source build for `chr_pos`-family coordinates; defaults to `"auto"` |
 | `MungeConfig` | `output_genome_build` | output metadata | required final build for `chr_pos`-family output coordinates |
 | `MungeConfig` | `liftover_chain_file` | input | optional source-to-target chain file for munger liftover |
-| `MungeConfig` | `use_hm3_quick_liftover` | input mode | use packaged curated HM3 dual-build map for coordinate-only liftover |
 | `MungeConfig` | `output_dir` | output | optional at dataclass construction for inference helpers, but required by `SumstatsMunger.run()`; materialized runs write `diagnostics/sumstats.log` |
 | `MungeConfig` | `output_format` | output mode | `parquet`, `tsv.gz`, or `both`; defaults to `parquet` |
-| `SumstatsMunger.run(munge_config, ...)` | `munge_config` | input/output | normalized munging workflow; owns fixed output preflight, the self-describing `sumstats.parquet` footer, diagnostics, always-written `diagnostics/dropped_snps/dropped.tsv.gz`, and result construction; summary `output_paths` excludes logs |
-| `SumstatsMunger.write_output(sumstats, output_dir, output_format='parquet')` | `output_dir` | output | writes fixed `sumstats.parquet` and/or `sumstats.sumstats.gz` |
+| `SumstatsMunger.run(munge_config, ...)` | `munge_config` | input/output | normalized munging workflow; owns trait-aware output preflight, the self-describing `sumstats.parquet` footer, diagnostics, always-written `diagnostics/dropped_snps/dropped.tsv.gz`, and result construction; summary `output_paths` excludes logs |
+| `SumstatsMunger.write_output(sumstats, output_dir, output_format='parquet')` | `output_dir` | output | writes `<trait>.parquet` and/or `<trait>.sumstats.gz`, falling back to `sumstats.parquet` and `sumstats.gz` without a label |
 
 Removed Python names: legacy separate source-path object field,
 `MungeConfig.sumstats_file`, `MungeConfig.out_prefix`,

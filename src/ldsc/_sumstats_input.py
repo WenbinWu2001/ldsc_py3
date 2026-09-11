@@ -439,7 +439,7 @@ def _resolve_source_coordinates(source_path, cname_translation, global_config, c
             context=source_path,
             logger=None,
         )
-    except ValueError as exc:
+    except (ValueError, LDSCInputError) as exc:
         raise LDSCInputError(
             f"munge-sumstats could not infer genome_build from raw CHR/POS coordinates in "
             f"'{source_path}'. Most likely too few coordinates match a known build. "

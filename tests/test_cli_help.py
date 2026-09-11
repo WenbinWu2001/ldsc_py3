@@ -107,3 +107,16 @@ def test_ldscore_padding_help_warns_against_double_padding(commands):
     help_text = commands["ldscore"]._option_string_actions["--padding-bp"].help
     assert "Set to 0 if your BED intervals are already padded" in help_text
     assert "double padding" in help_text
+
+
+def test_munge_help_and_restriction_exclusion_match_workflow_parser(commands):
+    from ldsc import sumstats_munger
+
+    unified = commands["munge-sumstats"]
+    assert unified.format_help() == sumstats_munger.build_parser().format_help()
+    with pytest.raises(SystemExit) as error:
+        unified.parse_args([
+            "--raw-sumstats-file", "raw", "--output-dir", "out",
+            "--sumstats-snps-file", "keep", "--no-snp-restriction",
+        ])
+    assert error.value.code == 2

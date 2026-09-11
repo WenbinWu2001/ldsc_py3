@@ -163,15 +163,17 @@ incomplete `--N-cas-col`/`--N-con-col` pair, or a conflict with `--N-col`.
 
 **Raised by:** `_kernel/sumstats_munger` (post-filter and keep-list paths)
 · **Exception:** `LDSCInputError`
-**Symptom:** `munge-sumstats removed every SNP...` / `...no SNPs remain after applying --sumstats-snps-file`
+**Symptom:** `munge-sumstats removed every SNP...` / `...no SNPs remain after SNP keep-list restriction`
+
+Munging now restricts to packaged HM3 by default. To process all input SNPs subject to ordinary QC, use `--no-snp-restriction`; to replace HM3 with a custom list, use `--sumstats-snps-file FILE`. For cross-build output, both override modes require `--liftover-chain-file`; default HM3 uses automatic quick liftover unless a chain is supplied. Source-build inference failure requires an explicit `--source-genome-build`; output builds always require an explicit choice.
 
 **Likely causes & how to check** (most probable first):
 
 | # | Likely cause | How to check |
 |---|--------------|--------------|
-| 1 | `--sumstats-snps-file` keep-list uses a different SNP-id space (rsID vs chr:pos) | Compare the first IDs of each file; confirm both use `snp_identifier=<mode>` |
+| 1 | The input has no overlap with the default HM3 set, or a custom keep-list uses a different SNP-id space (rsID vs chr:pos) | Compare the first IDs of each file; confirm both use `snp_identifier=<mode>` |
 | 2 | Keep-list and sumstats are on different genome builds | Compare the `genome_build` in the error line against the keep-list build |
-| 3 | INFO / MAF / N thresholds removed every row | Re-run with relaxed `--info-min` / `--maf-min`; inspect the dropped-SNP sidecar |
+| 3 | INFO / MAF / N thresholds removed every row | Inspect filter counts in the error/log and verify the column meanings and intended thresholds; earlier QC removals are not in the dropped-SNP sidecar |
 | 4 | Input is effectively empty after a delimiter/format mis-parse | `zcat <file> \| wc -l` |
 
 **Remedies:**
@@ -217,17 +219,18 @@ bad provenance / missing A1-A2 / duplicate identity rows)
 | # | Likely cause | How to check |
 |---|--------------|--------------|
 | 1 | The declared source build does not match the input CHR/POS coordinates | Compare several input positions against the declared `--source-genome-build` |
-| 2 | CHR/POS columns are missing, malformed, or parsed from the wrong fields | Inspect the dropped-SNP sidecar and the first rows of the raw file |
-| 3 | The HM3 quick-liftover map cannot cover this non-HM3 SNP set | Check whether the input SNPs are HapMap3-like; use chain-file liftover for broader coverage |
-| 4 | Source or target coordinates collide after liftover | Inspect the drop sidecar for `source_duplicate` or `target_collision` reasons |
+| 2 | CHR/POS columns are missing, malformed, or parsed from the wrong fields | Inspect the count-bearing error and the first rows of the raw file |
+| 3 | The selected mapping cannot resolve the retained source coordinates | Check the selected method and source/output build pair; verify the chain direction if overriding packaged HM3 mapping |
+| 4 | Source or target coordinates collide after liftover | Inspect duplicate-source and duplicate-target counts in the error/log |
 | 5 | The chain file is for the wrong direction or assembly pair | Confirm the chain filename/source-target pair matches the command flags |
 
 **Remedies:**
 
 1. Fix the source CHR/POS coordinates or pass the correct `--source-genome-build`.
-2. Use an explicit chain file for non-HM3 SNP sets instead of HM3 quick liftover.
-3. Review the dropped-SNP sidecar to identify whether missing coordinates,
-   unmapped variants, or duplicate coordinates removed the rows.
+2. For broader SNP coverage, set `--no-snp-restriction` or a custom `--sumstats-snps-file`, and supply a source-to-output chain for cross-build conversion. Supplying a chain alone changes the mapping method while retaining the default HM3 restriction.
+3. Review the error/log counts to identify whether missing coordinates, unmapped variants, or duplicate coordinates removed the rows. After a successful run with partial removals, use the dropped-SNP sidecar to inspect the affected rows.
+
+Successful runs report the method and counts in stdout and `diagnostics/sumstats.log`, including at `--log-level ERROR`; failed runs retain the error and available counts in the log and do not print a success summary. An all-dropped liftover fails before writing the dropped-SNP sidecar, so inspect its count-bearing error first. Mapping input is measured after earlier QC and keep-list filtering. See the [liftover behavior table](current/munge-sumstats.md#liftover-rules).
 
 ## annotate
 

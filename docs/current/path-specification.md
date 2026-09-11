@@ -2,6 +2,8 @@
 
 Last updated on: 2026-09-11
 
+Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
+
 This note explains how to specify filesystem inputs in the refactored package.
 The goal is practical: help you choose the right path form for each workflow and
 avoid ambiguous inputs.
@@ -88,7 +90,7 @@ through `output_dir`. These families are treated as one coherent set, not as
 independent optional files:
 
 - `munge-sumstats`: `sumstats.parquet` (self-describing footer),
-  `sumstats.sumstats.gz`, `diagnostics/dropped_snps/dropped.tsv.gz`, and
+  `sumstats.gz`, `diagnostics/dropped_snps/dropped.tsv.gz`, and
   `diagnostics/sumstats.log`
   for CLI/workflow runs
 - `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional
@@ -539,20 +541,17 @@ Output:
   (identity in its footer; no `metadata.json`), plus
   `diagnostics/sumstats.log`, and
   `diagnostics/dropped_snps/dropped.tsv.gz` under `output_dir`;
-  `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and
+  `--output-format tsv.gz` writes legacy `sumstats.gz`, and
   `--output-format both` writes both curated artifacts. Existing owned
-  `sumstats.*` artifacts are refused unless `--overwrite` or
+  artifacts for the selected filename family and shared diagnostics are refused unless `--overwrite` or
   `MungeConfig(overwrite=True)` is supplied. With overwrite enabled, a
-  successful run removes stale sibling formats not produced by the current
-  `--output-format`.
+  successful run removes stale sibling formats for that same stem not produced by the current
+  `--output-format`; other stems are preserved.
   `diagnostics/sumstats.log` is not recorded in
   `MungeRunSummary.output_paths`; detailed provenance and output bookkeeping
   are written to the log, row-level liftover drops are written to
-  `diagnostics/dropped_snps/dropped.tsv.gz`, and root `metadata.json` stays
-  thin.
-- `--use-hm3-snps` uses the packaged curated HM3 map as the sumstats SNP
-  restriction and conflicts with `--sumstats-snps-file`. HM3 quick liftover
-  requires `--use-hm3-snps`.
+  `diagnostics/dropped_snps/dropped.tsv.gz`. The Parquet footer carries the thin identity metadata; no root `metadata.json` is written.
+- Packaged HM3 is the default SNP restriction. `--sumstats-snps-file FILE` replaces it; `--no-snp-restriction` disables it. These overrides are mutually exclusive. For different source/output builds, packaged HM3 uses automatic quick liftover, while custom-list or unrestricted runs require a chain file. An explicit chain overrides automatic mapping; matching builds need no liftover.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` require `output_dir` and write
   fixed result families. For h2, the written family is `h2.tsv`,
   `diagnostics/ld_score_regression_bins.tsv`, `diagnostics/metadata.json`, and

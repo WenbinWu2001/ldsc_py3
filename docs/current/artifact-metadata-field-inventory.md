@@ -2,6 +2,8 @@
 
 Last updated on: 2026-09-11
 
+Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
+
 Downstream identity metadata lives in the `sumstats.parquet` footer (for munged
 sumstats) and in `ldscore/metadata.json` (for LD scores). Any metadata emitted by
 annotate, ref-panel, h2, partitioned-h2, rg, query-level, or pair-level outputs is
@@ -61,13 +63,13 @@ handler closes, the successful log moves into the published index diagnostics.
 ```text
 sumstats/
   sumstats.parquet
-  sumstats.sumstats.gz
+  sumstats.gz
   diagnostics/
     sumstats.log
     dropped_snps/dropped.tsv.gz
 ```
 
-`sumstats.sumstats.gz` is present only when the selected output format writes
+`sumstats.gz` is present only when the selected output format writes
 the legacy TSV artifact.
 
 The downstream-required identity metadata is embedded in the `sumstats.parquet`

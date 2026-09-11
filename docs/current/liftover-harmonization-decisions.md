@@ -1,6 +1,6 @@
 # Liftover Harmonization Decisions
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 Date: 2026-05-10
 Branch: `codex/liftover-sumstats-munger`
@@ -44,10 +44,8 @@ The workflow resolves the source build and raw coordinate basis before chunk QC.
 - Liftover is meaningful only in chr_pos-family modes.
 - `SNP` is always a label field in chr_pos-family modes. Sumstats liftover updates
   only `CHR` and `POS`; it never rewrites `SNP`.
-- Sumstats liftover requires explicit source/output/method validation:
-  `--output-genome-build` plus exactly one of `--liftover-chain-file` or
-  `--use-hm3-quick-liftover` when source and output differ. HM3 quick liftover
-  additionally requires `--use-hm3-snps`, so HM3 filtering is explicit.
+- Sumstats liftover requires a resolved source build and an explicitly chosen output build. Matching builds need no liftover. For different builds, packaged HM3 restriction uses automatic quick liftover; an explicit `--liftover-chain-file` overrides it. Custom-list and unrestricted runs require a chain file. HM3 restriction is the default; `--sumstats-snps-file` and `--no-snp-restriction` are mutually exclusive overrides. See [the current behavior table](munge-sumstats.md#liftover-rules).
+
 - Missing `CHR`/`POS` rows are dropped before mapping and logged.
 - Source duplicate `CHR/POS` groups are dropped before liftover mapping.
 - Target duplicate `CHR/POS` groups are dropped after target-build positions are

@@ -835,9 +835,10 @@ class MungeConfig:
     Parameters
     ----------
     output_dir : str or os.PathLike[str]
-        Directory that receives workflow-owned ``sumstats.parquet`` and/or
-        ``sumstats.sumstats.gz`` artifacts. Identity provenance is embedded in
-        the self-describing ``sumstats.parquet`` footer rather than a separate
+        Directory that receives workflow-owned ``<trait>.parquet`` and/or
+        ``<trait>.sumstats.gz`` artifacts (``sumstats.parquet`` and ``sumstats.gz``
+        when no trait label is supplied). Identity provenance is embedded in
+        the self-describing Parquet footer rather than a separate
         ``metadata.json`` sidecar; the only ``diagnostics/`` artifacts are
         ``diagnostics/sumstats.log`` and ``diagnostics/dropped_snps/``.
     raw_sumstats_file : str or os.PathLike[str] or None, optional
@@ -866,6 +867,11 @@ class MungeConfig:
     output_format : {"parquet", "tsv.gz", "both"}, optional
         Curated sumstats disk format written by the public workflow. Default is
         ``"parquet"``.
+    trait_name : str or None, optional
+        Optional trait label, stored in Parquet metadata and used for filenames
+        after filesystem sanitization. Defaults to ``None``. Surrounding whitespace
+        is trimmed; blank labels are rejected. See ``SumstatsMunger.write_output``
+        for filename sanitization and collision behavior.
     sumstats_snps_file : str or os.PathLike[str] or None, optional
         Optional headered summary-statistics SNP keep-list path. In ``rsid``
         mode, central ``SNP`` aliases identify the keep-list column. In
@@ -874,33 +880,35 @@ class MungeConfig:
         define retained coordinates. Restriction files may omit alleles even in
         allele-aware modes; allele-free restrictions match by base key before
         later artifact cleanup. This option restricts rows only; it does not
-        rewrite alleles or reorder output. Default is ``None``.
-    use_hm3_snps : bool, optional
-        If ``True``, restrict summary-statistics rows to the packaged curated
-        HM3 SNP map. Mutually exclusive with ``sumstats_snps_file``. Default is
-        ``False``.
+        rewrite alleles or reorder output. A custom file replaces the default HM3
+        restriction. Mutually exclusive with ``no_snp_restriction``. Default is
+        ``None``: use packaged HM3 unless keep-list filtering is disabled.
+        Custom lists require ``liftover_chain_file`` for different source/output
+        builds, even when their rows happen to be HM3 SNPs.
+    no_snp_restriction : bool, optional
+        Disable SNP keep-list restriction while retaining ordinary QC. Mutually
+        exclusive with ``sumstats_snps_file``. Default is ``False``: use the
+        packaged HM3 list when no custom file is supplied.
     source_genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"}, optional
         Genome build of raw ``CHR``/``POS`` coordinates. ``"auto"`` asks the
         munger to infer the source build from the raw file. Default is
-        ``"auto"``.
+        ``"auto"``. If the source build cannot be resolved, supply an explicit
+        build; the requested output build is never used to guess the source.
     output_genome_build : {"hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
-        Desired output coordinate build for ``chr_pos``-family munging. When
-        it differs from the resolved source build, exactly one liftover method
-        is required. The workflow requires this field in coordinate-family
-        modes and rejects it in rsID-family modes. Default is ``None``.
+        Desired output coordinate build. Required explicitly in coordinate-family
+        modes and rejected in rsID-family modes. Default is ``None``. Matching
+        source/output builds require no liftover. Different builds use automatic
+        HM3 quick liftover under packaged restriction; custom-list or unrestricted
+        runs require a chain file. Unresolved source builds abort before QC.
     liftover_chain_file : str or os.PathLike[str] or None, optional
-        Chain file used to convert ``CHR``/``POS`` from the resolved source
-        build to ``output_genome_build``. Mutually exclusive with
-        ``use_hm3_quick_liftover``. Sumstats liftover is valid only in
-        ``chr_pos``-family modes; it updates coordinates and does not rewrite
-        ``SNP``. Default is ``None``.
-    use_hm3_quick_liftover : bool, optional
-        If ``True``, use the packaged curated dual-build HM3 map for a
-        coordinate-only quick liftover after HM3 SNP restriction. Requires
-        ``use_hm3_snps`` and is mutually exclusive with ``liftover_chain_file``.
-        If the resolved source build already equals ``output_genome_build``,
-        the workflow warns and ignores this flag.
-        Default is ``False``.
+        Chain file for coordinate-only source-to-output conversion. When omitted,
+        different builds under the default packaged restriction use automatic
+        quick liftover from package-bundled reference HM3 metadata. Supplying a
+        chain disables quick liftover without changing the SNP restriction.
+        A chain is required for custom-list or unrestricted cross-build runs and
+        ignored when builds match. Liftover never rewrites ``SNP`` labels and is
+        valid only in coordinate-family modes with an explicit output build.
+        Default is ``None``.
     signed_sumstats_spec : str or None, optional
         Signed statistic specification passed through to the legacy kernel.
         Default is ``None``.
@@ -920,8 +928,8 @@ class MungeConfig:
         positive Z from P without using a signed statistic. Default is
         ``False``. DANER parsing is selected via ``sumstats_format``.
     overwrite : bool, optional
-        If ``True``, replace current fixed sumstats outputs and remove stale
-        owned ``sumstats.*`` siblings after a successful run. If ``False``, any
+        If ``True``, replace current outputs and remove stale sibling formats
+        for the same resolved trait filename after a successful run. If ``False``, any
         owned sumstats artifact collision raises before the munging kernel
         runs. Default is ``False``.
     """
@@ -940,11 +948,10 @@ class MungeConfig:
     nstudy_min: float | None = None
     chunk_size: int = 1_000_000
     sumstats_snps_file: str | PathLike[str] | None = None
-    use_hm3_snps: bool = False
+    no_snp_restriction: bool = False
     source_genome_build: GenomeBuildInput = "auto"
     output_genome_build: GenomeBuildInput | None = None
     liftover_chain_file: str | PathLike[str] | None = None
-    use_hm3_quick_liftover: bool = False
     signed_sumstats_spec: str | None = None
     ignore_columns: tuple[str, ...] = field(default_factory=tuple)
     info_list_columns: tuple[str, ...] = field(default_factory=tuple)
@@ -1005,19 +1012,10 @@ class MungeConfig:
         object.__setattr__(self, "ignore_columns", tuple(self.ignore_columns))
         object.__setattr__(self, "info_list_columns", tuple(self.info_list_columns))
         object.__setattr__(self, "column_hints", dict(self.column_hints))
-        if self.sumstats_snps_file is not None and self.use_hm3_snps:
-            raise LDSCConfigError(_mutually_exclusive_message("MungeConfig", "sumstats_snps_file", "use_hm3_snps"))
-        if self.use_hm3_quick_liftover and not self.use_hm3_snps:
+        if self.sumstats_snps_file is not None and self.no_snp_restriction:
             raise LDSCConfigError(
-                "Could not construct MungeConfig: use_hm3_quick_liftover=True requires use_hm3_snps=True. "
-                "Most likely quick liftover was enabled without selecting the packaged HM3 SNP set. "
-                "Enable use_hm3_snps or use a chain-file liftover option instead."
-            )
-        if self.liftover_chain_file is not None and self.use_hm3_quick_liftover:
-            raise LDSCConfigError(
-                "Could not construct MungeConfig: liftover_chain_file and use_hm3_quick_liftover are mutually exclusive. "
-                "Most likely two liftover methods were selected for the same munge-sumstats run. "
-                "Choose either a chain file or HM3 quick liftover, not both."
+                "Could not construct MungeConfig: sumstats_snps_file and no_snp_restriction are mutually exclusive. "
+                "A custom keep-list cannot be combined with disabling SNP restriction. Set only one."
             )
 
 

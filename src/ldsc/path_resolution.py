@@ -712,10 +712,10 @@ def preflight_output_artifact_family(
       Always-written audit sidecars belong in both lists on every invocation,
       including clean runs that write only a header row.
 
-    Concrete example. Run A writes ``output_format='both'`` so both
-    ``sumstats.parquet`` and ``sumstats.sumstats.gz`` exist. Run B reuses
+    Concrete example. Run A writes ``output_format='both'`` for label ``trait`` so both
+    ``trait.parquet`` and ``trait.sumstats.gz`` exist. Run B reuses the label and
     the directory with ``output_format='parquet' --overwrite`` and produces
-    only ``sumstats.parquet``. The leftover ``sumstats.sumstats.gz`` is in
+    only ``trait.parquet``. The leftover ``trait.sumstats.gz`` is in
     ``owned_paths`` (workflow controls it) but not in ``produced_paths``
     (this run is not writing it), so it is returned here and unlinked by
     :func:`remove_output_artifacts`.

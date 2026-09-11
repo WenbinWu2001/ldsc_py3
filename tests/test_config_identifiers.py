@@ -413,20 +413,13 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.trait_name, "trait")
         self.assertTrue(config.overwrite)
 
-    def test_munge_config_accepts_hm3_flags_and_rejects_conflicts(self):
-        config = MungeConfig(
-            output_dir="out",
-            output_genome_build="hg38",
-            use_hm3_snps=True,
-            use_hm3_quick_liftover=True,
-        )
-
-        self.assertTrue(config.use_hm3_snps)
-        self.assertTrue(config.use_hm3_quick_liftover)
-        with self.assertRaisesRegex(ldsc.LDSCConfigError, "sumstats_snps_file.*use_hm3_snps"):
-            MungeConfig(output_dir="out", sumstats_snps_file="custom.tsv", use_hm3_snps=True)
-        with self.assertRaisesRegex(ldsc.LDSCConfigError, "use_hm3_snps"):
-            MungeConfig(output_dir="out", output_genome_build="hg38", use_hm3_quick_liftover=True)
+    def test_munge_config_defaults_to_hm3_and_rejects_restriction_conflicts(self):
+        config = MungeConfig(output_dir="out", output_genome_build="hg38")
+        self.assertFalse(config.no_snp_restriction)
+        self.assertIsNone(config.sumstats_snps_file)
+        self.assertIsNone(config.liftover_chain_file)
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "sumstats_snps_file.*no_snp_restriction"):
+            MungeConfig(sumstats_snps_file="custom.tsv", no_snp_restriction=True)
 
     def test_munge_config_normalizes_trait_name(self):
         config = MungeConfig(raw_sumstats_file="sumstats/trait.tsv.gz", trait_name=" MDD ")

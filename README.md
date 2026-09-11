@@ -195,8 +195,8 @@ the writer serializes it as the explicit `NA` token; annotation-value columns
 must contain numeric, non-missing values.
 
 `ldsc munge-sumstats` writes `sumstats.parquet` by default, with optional
-legacy `sumstats.sumstats.gz` output through `--output-format tsv.gz` or
-`--output-format both`. Package-written artifacts use canonical `SNP`, `CHR`,
+legacy `sumstats.gz` output through `--output-format tsv.gz` or
+`--output-format both`. Supplying `--trait-name BMI` instead names these files `BMI.parquet` and `BMI.sumstats.gz`; unsafe filename characters are sanitized while the metadata label is preserved. Parquet remains the default format. See [output naming](docs/current/munge-sumstats.md#output-artifacts). Package-written artifacts use canonical `SNP`, `CHR`,
 `POS`, `Z`, and `N` columns when possible and always include `CHR`/`POS`. Raw
 files may provide chromosome and position columns through common aliases such as
 `#CHROM`, `CHROM`, `CHR`, `POS`, or `BP`, or explicitly through `--chr` and
@@ -205,20 +205,18 @@ metadata/comment lines are skipped before the real header is parsed. The
 `sumstats.parquet` is self-describing: its `snp_identifier`, `genome_build`, and
 optional `--trait-name` provenance ride in the Parquet footer, so later
 regression commands need only that one file -- no `metadata.json` sidecar is
-written. The legacy `sumstats.sumstats.gz` carries no embedded metadata and is
+written. The legacy `sumstats.gz` carries no embedded metadata and is
 treated as an rsID lookup artifact at regression time. Footerless Parquet is
 rejected rather than guessed.
-Python run summaries from `munger.build_run_summary(table)` report parsed input rows, retained rows, exclusive per-stage `drop_counts`, and the sample-size rule actually used. Counts are collected while parsing, excluding headers and blank lines; their totals reconcile with the retained output. See [munging preparation and accounting](docs/current/munge-sumstats.md#preparation-and-run-accounting).
+Python run summaries from `munger.build_run_summary()` report parsed input rows, retained rows, exclusive per-stage `drop_counts`, and the sample-size rule actually used. Counts are collected while parsing, excluding headers and blank lines; their totals reconcile with the retained output. Successful CLI runs print the selected restriction, liftover method, and mapping/drop counts to stdout and record the same summary in `diagnostics/sumstats.log` at every log level. See [munging preparation and accounting](docs/current/munge-sumstats.md#preparation-and-run-accounting) and the [liftover behavior table](docs/current/munge-sumstats.md#liftover-rules).
 
 Detailed coordinate and liftover bookkeeping is written to `sumstats.log`. The default
 `snp_identifier` is `chr_pos_allele_aware`, which requires usable `A1/A2`; rerun
 with `--snp-identifier chr_pos` to use coordinate identity without
 allele-aware matching. The legacy `--no-alleles` escape hatch is no longer
-accepted; choose the base `rsid` or `chr_pos` identity mode instead. Use `--sumstats-snps-file`
-when the munged artifact should be restricted to a headered SNP keep-list, or
-`--use-hm3-snps` to use the packaged curated HM3 map. Restriction files may omit
-alleles; allele-free restrictions, including packaged HM3 restrictions, match by
-base key. Allele-bearing restrictions in allele-aware modes match by the
+accepted; choose the base `rsid` or `chr_pos` identity mode instead. Munging restricts to the packaged HM3 map by default. `--sumstats-snps-file FILE` replaces HM3 with a custom headered keep-list; `--no-snp-restriction` disables keep-list filtering while retaining ordinary QC. These override flags are mutually exclusive. Restriction files may omit
+alleles; allele-free restrictions match by
+base key. Allele-bearing restrictions, including packaged HM3, in allele-aware modes match by the
 effective allele-aware key. Restriction files are identity-only filters:
 duplicate restriction keys collapse to one retained key, and non-identity
 columns such as `CM` or `MAF` are ignored. These filters are loaded once before
@@ -230,9 +228,7 @@ source-build `CHR` and `POS`, plus the allele set in
 keys. Rows with missing or invalid coordinates are dropped and counted at
 coordinate match/map stages. The base `chr_pos` mode uses coordinate identity
 without allele-aware matching. To convert coordinates after QC and after SNP
-restriction, pass `--output-genome-build` with `--liftover-chain-file`, or pair
-`--output-genome-build --use-hm3-snps --use-hm3-quick-liftover` for the HM3
-coordinate shortcut. Liftover is invalid in `rsid`-family modes because
+restriction, explicitly choose `--output-genome-build`. Matching builds need no liftover. For different builds, packaged HM3 uses automatic quick liftover; an explicit `--liftover-chain-file` overrides it. Custom-list or unrestricted cross-build runs require a chain file. An unresolved source build stops the run. The former HM3 restriction and quick-liftover switches are removed. Liftover is invalid in `rsid`-family modes because
 positions are not the row identity there.
 
 `ldsc build-r2-panel` computes pairwise, bias-adjusted R² and writes chromosome Parquet tables plus required SNP metadata sidecars. It replaces `build-ref-panel` without an alias. The four Parquet columns are `IDX_1`, `IDX_2`, `R2`, and `SIGN_R`; `SIGN_R` is true when Pearson r is nonnegative in the sidecar allele orientation. Panels using the former `SIGN` column are unsupported and must be rebuilt. `query-r2` returns `r2`, nullable `sign_r` (+1/-1 in query allele orientation), `r`, and `status`, with no old-name aliases. See the [R² format contract](docs/current/parquet-r2-format-and-read-pipeline.md#2-parquet-format-specification).

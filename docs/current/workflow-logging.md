@@ -30,7 +30,7 @@ All command help pages reuse `LOG_LEVEL_HELP` from [`ldsc._logging`](../../src/l
 
 The per-run `.log` file is the authoritative sink. Console output (stderr) is a
 CLI-only concern, installed by `ldsc.cli.run_cli`; `stdout` is reserved for
-explicit report output such as `munge-sumstats --infer-only`, so log records
+explicit report output such as `munge-sumstats --infer-only` and the successful munging summary, so log records
 never go to `stdout`. The Python API never writes to the console.
 
 | Context | Output dir | Module records (INFO/DEBUG) | Errors |
@@ -55,6 +55,8 @@ the ordinary logger threshold so a successful SLURM job cannot hide a
 science-relevant subset/skip in a log that users may never open. They name the
 diagnostic paths and cap affected outcomes at 10. Python entry points do not
 emit these console notices; callers inspect the returned statuses and paths.
+
+After a successful `munge-sumstats` CLI run, stdout displays a `Munge-sumstats summary:` block with the selected restriction, liftover method, mapping/drop counts and reasons, and whole-run row accounting. The workflow writes the identical block to `diagnostics/sumstats.log` through `log_summary`, which bypasses the module-record threshold like lifecycle audit lines. This summary remains visible at every `--log-level`; Python API runs write it only to the log. See [liftover rules and count interpretation](munge-sumstats.md#liftover-rules).
 
 ## Output-Family Preflight
 

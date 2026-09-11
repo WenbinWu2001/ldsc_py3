@@ -2,6 +2,8 @@
 
 Last updated on: 2026-09-11
 
+Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
+
 This document summarizes the user-visible file streams for each public workflow. The diagrams use Mermaid `flowchart LR` because it maps cleanly onto the package's left-to-right data movement and layered module boundaries.
 
 ## Layer Legend
@@ -197,7 +199,7 @@ sidecar.
 | `.fam` row | `fam1 iid1 0 0 0 -9` | sample metadata |
 | genetic map, conditional | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | required for every emitted build when cM windows are used; optional for SNP/kb windows |
 | liftover method, optional | `hg38ToHg19.over.chain.gz` | matching source-to-target chain enables cross-build R2 and metadata in chr_pos-family modes (`chr_pos`, `chr_pos_allele_aware`); omitted liftover produces source-build-only output; liftover is rejected in rsID-family modes (`rsid`, `rsid_allele_aware`) |
-| keep or restrict file, optional | one IID per row or a headered SNP table through `--ref-panel-snps-file` | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos`-family restrictions must match the source PLINK build; allele-free restrictions match by base key; allele-bearing restrictions match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
+| keep or restrict file, optional | one IID per row or a headered SNP table through `--ref-panel-snps-file` | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos`-family restrictions must match the source PLINK build; allele-free restrictions match by base key; allele-bearing restrictions, including packaged HM3, match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
 
 ### Flow
 
@@ -462,7 +464,7 @@ For the user-facing contract, command patterns, and output schema, see
 [munge-sumstats.md](munge-sumstats.md).
 
 The munging workflow preflights `sumstats.parquet`,
-`sumstats.sumstats.gz`, `diagnostics/sumstats.log`, and
+`sumstats.gz`, `diagnostics/sumstats.log`, and
 `diagnostics/dropped_snps/dropped.tsv.gz` as one owned family before delegating to
 `SumstatsMunger.run()` and then the
 legacy-compatible munging kernel. The workflow owns the log file, parquet
@@ -476,17 +478,13 @@ output directory, and prints missing fields plus exact repair suggestions.
 `_sumstats_input.prepare_munge_input()` resolves the raw schema, sample-size settings, source build/basis and keep-list into `ResolvedMungeInput`. The kernel returns a `MungeResult` with parsed row counts, exclusive per-stage drop counts, coordinate provenance and separate identity/liftover drop records. Row counting occurs during chunk parsing; there is no post-run full-file count pass. Source-build inference uses the shared bounded coordinate evidence reader before chunk QC, including when those informative rows will later be filtered out.
 
 Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
-also supports the legacy `sumstats.sumstats.gz` artifact. With overwrite
+also supports the legacy `sumstats.gz` artifact. With overwrite
 enabled, stale sibling formats not produced by the current run are removed
 after successful writes. Optional sumstats liftover is a `chr_pos`-family step:
 the source build comes from `--source-genome-build` (`auto` by default) or
 munger build inference, SNP restrictions are interpreted in that source build
 before liftover, and `--output-genome-build` is required for coordinate-family
-outputs. When output differs from the resolved source build, exactly one
-liftover method is required. Chain-file liftover uses
-`--liftover-chain-file`; HM3 quick liftover requires `--use-hm3-snps`, uses the
-packaged curated `hm3_curated_map.tsv.gz`, and is coordinate-only, so it never
-rewrites `SNP`.
+outputs. Matching builds require no mapping. When builds differ, default packaged HM3 restriction selects quick liftover using `hm3_curated_map.tsv.gz`; an explicit `--liftover-chain-file` overrides that choice. Custom-list and unrestricted runs require a chain. All mappings update coordinates and preserve `SNP` labels.
 Missing coordinates, unmapped hits, cross-chromosome hits, and duplicate
 source/target coordinate groups are dropped. Counts are readable audit records
 in `diagnostics/sumstats.log`; row-level drops are written to
@@ -498,8 +496,8 @@ in `diagnostics/sumstats.log`; row-level drops are written to
 | --- | --- | --- |
 | raw sumstats | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer; `NEFF` is not inferred as `N` unless the user explicitly passes `--N-col NEFF` |
 | DANER schema modes and VCF-style plain raw sumstats | old DANER: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers<br/>new DANER: case-insensitive `Nca`/`Nco` or `NCAS`/`NCON` column aliases<br/>plain VCF-style: leading `##` metadata and `#CHROM` header | `--input-format auto` detects these profiles; explicit `--input-format daner-old` or `--input-format daner-new` overrides DANER auto-detection; VCF-style inputs are `plain`. `--input-format` is the sole DANER selector (the legacy `--daner-old`/`--daner-new` booleans are removed). |
-| sumstats SNP keep-list, optional | headered `SNP` or `CHR`/`POS` restriction file, or `--use-hm3-snps` | optional row filter loaded once before parsing and applied inside each retained chunk; allele-free restrictions match by base key before later identity cleanup; allele-bearing restrictions, including packaged HM3, match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
-| sumstats liftover method, optional | `--output-genome-build hg38 --liftover-chain-file hg19ToHg38.over.chain` or `--output-genome-build hg38 --use-hm3-snps --use-hm3-quick-liftover` | valid only in `chr_pos`-family modes; required when source and output builds differ; updates `CHR`/`POS` after SNP restriction and preserves `SNP` labels |
+| sumstats SNP keep-list, optional | packaged HM3 by default; `--sumstats-snps-file FILE` replaces it; `--no-snp-restriction` disables it | row filter loaded once before parsing and applied inside each retained chunk; allele-free restrictions match by base key before later identity cleanup; allele-bearing restrictions, including packaged HM3, match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
+| sumstats liftover method, optional | `--output-genome-build hg38`, optionally with `--liftover-chain-file hg19ToHg38.over.chain` | valid only in `chr_pos`-family modes; packaged HM3 maps automatically when builds differ, while custom or unrestricted runs require a chain; updates `CHR`/`POS` after SNP restriction and preserves `SNP` labels |
 | column hints, optional | `--snp ID --chr '#CHROM' --pos POS --a1 EA --a2 NEA` | useful when headers are ambiguous; common aliases infer automatically, and `--infer-only` reports the hints it would apply |
 | INFO lists, optional | `IMPINFO=0.852,0.113,0.842,0.88,NA` | numeric/NA comma-separated per-study values are filtered on their mean; mixed nonnumeric lists such as `0.95,LOW,0.88` are rejected with `--ignore` / `--info-list` suggestions |
 
@@ -528,14 +526,14 @@ flowchart LR
 
   I1 --> D1 --> D2 --> D3 --> D5 --> D6 --> D7 --> D4
   I2 --> D2
-  D4 --> O4[self-describing sumstats.parquet by default<br/>optional sumstats.sumstats.gz + diagnostics/]
+  D4 --> O4[self-describing sumstats.parquet by default<br/>optional sumstats.gz + diagnostics/]
 ```
 
 ### Outputs
 
 | File | Example | Notes |
 | --- | --- | --- |
-| curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
+| curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
 | log file | plain-text lifecycle, QC log, coordinate provenance, readable liftover reports, HM3 provenance, output bookkeeping, and count-level drop summaries | workflow-owned `diagnostics/sumstats.log` under `output_dir`, populated from package logger messages emitted during workflow orchestration and kernel QC; excluded from `MungeRunSummary.output_paths` |
 | embedded identity metadata | discrete footer keys `ldsc:artifact_type`, `ldsc:snp_identifier`, `ldsc:genome_build`, and optional `ldsc:trait_name` | written into the `sumstats.parquet` footer (no `metadata.json` sidecar); used by `load_sumstats()` to reconstruct config provenance and trait labels. Footerless Parquet is rejected; legacy text is marked explicitly. |
 | dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `diagnostics/dropped_snps/dropped.tsv.gz`; header-only when no rows were dropped; reasons may include identity drops (`missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, `duplicate_identity`) and liftover drops (`missing_coordinate`, `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`) |

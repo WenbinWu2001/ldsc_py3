@@ -75,7 +75,7 @@ run_ldscore(
     output_dir=ldscore_dir,
 )
 source = load_ldscore_from_dir(ldscore_dir)
-sumstats = load_sumstats("tutorial_outputs/trait/sumstats.parquet", trait_name="trait")
+sumstats = load_sumstats("tutorial_outputs/trait/trait.parquet", trait_name="trait")
 runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
 result = runner.estimate_partitioned_h2_batch(
     sumstats, source,
@@ -141,7 +141,6 @@ instead of `ldsc partitioned-h2`.
 ldsc munge-sumstats \
   --raw-sumstats-file data/trait.tsv.gz \
   --trait-name trait \
-  --use-hm3-snps \
   --snp-identifier chr_pos \
   --source-genome-build hg19 \
   --output-genome-build hg19 \
@@ -153,9 +152,10 @@ ldsc munge-sumstats \
 # Optional if downstream LD scores/reference panels are hg38:
 #   --output-genome-build hg38 \
 #   --liftover-chain-file resources/liftover/hg19ToHg38.over.chain
+# Packaged HM3 mapping is automatic when builds differ; the chain overrides it.
 
 ldsc partitioned-h2 \
-  --sumstats-file tutorial_outputs/trait/sumstats.parquet \
+  --sumstats-file tutorial_outputs/trait/trait.parquet \
   --ldscore-dir tutorial_outputs/partitioned_ldscores \
   --count-kind common \
   --output-dir tutorial_outputs/partitioned_h2

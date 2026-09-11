@@ -57,7 +57,7 @@ def test_resolved_request_can_run_twice_without_accumulating_state(tmp_path):
     keep = tmp_path / "keep.tsv"
     keep.write_text("SNP\nkeep\n")
     request = munge_input.prepare_munge_input(
-        str(raw), MungeConfig(), MungeConfig(), GlobalConfig(snp_identifier="rsid"),
+        str(raw), MungeConfig(no_snp_restriction=True), MungeConfig(no_snp_restriction=True), GlobalConfig(snp_identifier="rsid"),
         SumstatsLiftoverRequest(), str(keep),
     )
     first = kernel_munge.munge_sumstats(request)
@@ -109,7 +109,7 @@ def test_summary_reports_the_sample_size_rule_actually_used(tmp_path, columns, r
     raw.write_text(f"SNP P BETA {columns}\nrs1 .05 -.05 {rows[0]}\nrs2 .05 .05 {rows[1]}\n")
     munger = SumstatsMunger()
     table = munger.run(
-        MungeConfig(raw_sumstats_file=raw, output_dir=tmp_path / "out", **options),
+        MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw, output_dir=tmp_path / "out", **options),
         global_config=GlobalConfig(snp_identifier="rsid"),
     )
     summary = munger.build_run_summary()
@@ -140,7 +140,7 @@ def test_production_build_inference_uses_bounded_raw_evidence_before_qc(tmp_path
     monkeypatch.setattr(munge_input, "resolve_chr_pos_table", observe_evidence)
     munger = SumstatsMunger()
     table = munger.run(
-        MungeConfig(raw_sumstats_file=raw, output_dir=tmp_path / "out", source_genome_build="auto",
+        MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw, output_dir=tmp_path / "out", source_genome_build="auto",
                     output_genome_build="hg19", chunk_size=1000),
         global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="auto"),
     )
@@ -184,10 +184,12 @@ def test_coordinate_liftover_and_identity_counts_are_exclusive(tmp_path, monkeyp
             )
 
     monkeypatch.setattr(liftover, "LiftOverTranslator", Translator)
+    chain = tmp_path / "test.chain"
+    chain.write_text("translation supplied by the test double\n")
     munger = SumstatsMunger()
     table = munger.run(
-        MungeConfig(raw_sumstats_file=raw, output_dir=tmp_path / "out", source_genome_build="hg19",
-                    output_genome_build="hg38", liftover_chain_file="test.chain", chunk_size=2),
+        MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw, output_dir=tmp_path / "out", source_genome_build="hg19",
+                    output_genome_build="hg38", liftover_chain_file=chain, chunk_size=2),
         global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"),
     )
     summary = munger.build_run_summary()

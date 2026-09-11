@@ -1281,7 +1281,7 @@ class FixedOutputDirectoryTest(unittest.TestCase):
     def test_munge_write_output_refuses_existing_file_by_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
-            existing = output_dir / "sumstats.parquet"
+            existing = output_dir / "trait.parquet"
             existing.write_text("existing", encoding="utf-8")
             munger = __import__("ldsc.sumstats_munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
             table = __import__("ldsc.sumstats_munger", fromlist=["SumstatsTable"]).SumstatsTable(
@@ -1300,7 +1300,7 @@ class FixedOutputDirectoryTest(unittest.TestCase):
     def test_munge_write_output_allows_existing_file_with_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
-            existing = output_dir / "sumstats.parquet"
+            existing = output_dir / "trait.parquet"
             existing.write_text("existing", encoding="utf-8")
             munger = __import__("ldsc.sumstats_munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
             table = __import__("ldsc.sumstats_munger", fromlist=["SumstatsTable"]).SumstatsTable(

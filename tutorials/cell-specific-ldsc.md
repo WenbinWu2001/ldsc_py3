@@ -57,7 +57,7 @@ run_ldscore(
     output_dir=ldscore_dir,
 )
 source = load_ldscore_from_dir(ldscore_dir)
-sumstats = load_sumstats("tutorial_outputs/trait/sumstats.parquet", trait_name="trait")
+sumstats = load_sumstats("tutorial_outputs/trait/trait.parquet", trait_name="trait")
 runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
 result = runner.estimate_partitioned_h2_batch(
     sumstats, source,
@@ -102,7 +102,7 @@ Then run partitioned h2 over the cell-type query columns:
 
 ```bash
 ldsc partitioned-h2 \
-  --sumstats-file tutorial_outputs/trait/sumstats.parquet \
+  --sumstats-file tutorial_outputs/trait/trait.parquet \
   --trait-name trait \
   --ldscore-dir tutorial_outputs/cell_specific_ldscores \
   --count-kind common \

@@ -200,3 +200,16 @@ def test_reference_preparation_defers_value_reads_and_kernel_returns_only_output
         np.testing.assert_array_equal(result.M_5_50, [1,0,4])
         assert result.reference_snp_count == 2
         assert all(len(names)<=1 for names in reads)
+def test_prepared_chromosome_close_releases_state_once():
+    from types import SimpleNamespace
+    from ldsc._kernel.ldscore import PreparedChromosome
+
+    calls = []
+    reader = SimpleNamespace(close=lambda: calls.append(1))
+    prepared = PreparedChromosome("plink", reader, pd.DataFrame({"POS": [1]}),
+                                 np.ones((1, 1)), np.array([0]), ["base"], [],
+                                 identity_drops=pd.DataFrame({"SNP": ["duplicate"]}))
+    prepared.close()
+    prepared.close()
+    assert calls == [1]
+    assert all(getattr(prepared, name) is None for name in ("reader", "metadata", "annotations", "block_left", "identity_drops"))

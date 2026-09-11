@@ -47,6 +47,34 @@ class AnnotationWorkspace:
 
 
 @dataclass(frozen=True)
+class TsvDiagnostics:
+    """Complete compressed diagnostics with an explicit private or public owner.
+
+    A private artifact borrows its annotation workspace and is readable until
+    that owner closes. Publication replaces it with the persistent destination
+    and no workspace dependency. Reads never cache complete diagnostic tables.
+    """
+
+    path: Path
+    workspace: AnnotationWorkspace | None = None
+
+    def frames(self, *, chunk_rows=65536):
+        """Replay bounded rows while checking the private owner's lifetime."""
+        if self.workspace is not None:
+            self.workspace.require_open()
+        yield from pd.read_csv(self.path, sep="\t", chunksize=chunk_rows)
+
+    def write_to(self, path):
+        """Copy the complete artifact without loading or reserializing rows."""
+        if self.workspace is not None:
+            self.workspace.require_open()
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.resolve() != self.path.resolve():
+            shutil.copyfile(self.path, path)
+
+
+@dataclass(frozen=True)
 class ColumnStore:
     """Descriptor for a seekable SNP-by-column matrix with no resident values.
 

@@ -37,7 +37,8 @@ import numpy as np
 import pandas as pd
 
 from ._chr_sampler import sample_frame_from_chr_pattern
-from ._kernel.snp_identity import empty_identity_drop_frame, identity_mode_family, is_allele_aware_mode
+from ._annotation_storage import TsvDiagnostics
+from ._kernel.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, identity_mode_family, is_allele_aware_mode
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from .config import (
     GlobalConfig,
@@ -142,7 +143,7 @@ class ChromLDScoreResult:
     reference_snp_count: int = 0
     regression_selected_snp_count: int = 0
     regression_region_removed_snp_count: int = 0
-    identity_drops: pd.DataFrame = field(default_factory=empty_identity_drop_frame, repr=False)
+    identity_drops: TsvDiagnostics | None = field(default=None, repr=False)
     annotation_types: dict[str, str] = field(default_factory=dict)
 
     def validate(self) -> None:
@@ -220,8 +221,14 @@ class LDScoreResult:
         Shared configuration active when the result was computed.
     query_statuses : tuple of QueryAnnotationStatus, optional
         Ordered per-source outcomes for BED and gene-list query annotations.
-    gene_list_batch : GeneListBatchResolution or None, optional
-        Complete gene-list audit, source summary, policy, and selected genes.
+    gene_list_batch : object or None, optional
+        Compact gene-list summaries and a streamed audit. Completed command
+        results reference persistent diagnostics.
+    identity_drops_by_chrom : dict, optional
+        Chromosome diagnostic artifacts with explicit ``path`` and ``frames()``
+        access. Published results reference persistent files. A calculator run
+        without output configuration borrows private diagnostics from the
+        caller's annotation bundle; consume or write them before closing it.
     chromosome_scope : dict, optional
         Validated input chromosome coverage and effective analysis scope.
         Empty for workflows that do not perform query coverage preflight.
@@ -248,7 +255,7 @@ class LDScoreResult:
     snp_universe_policy: dict[str, Any] | None = None
     index_provenance: dict[str, str] | None = None
     legacy_ldsc2_import: dict[str, Any] | None = None
-    identity_drops_by_chrom: dict[str, pd.DataFrame] = field(default_factory=dict, repr=False)
+    identity_drops_by_chrom: dict[str, TsvDiagnostics] = field(default_factory=dict, repr=False)
     annotation_types: dict[str, str] = field(default_factory=dict)
     chromosome_scope: dict[str, Any] = field(default_factory=dict)
 
@@ -354,7 +361,9 @@ class LDScoreCalculator:
         -------
         LDScoreResult
             Aggregated cross-chromosome result with aligned metadata and output
-            paths if writing was requested.
+            paths if writing was requested. Without output writing, diagnostic
+            artifacts borrow the input bundle's workspace and must be consumed
+            before its owner closes. Final HM3 score tables remain materialized.
         """
         if ldscore_config.export_ref_metadata and output_config is None:
             raise LDSCUsageError(
@@ -379,6 +388,8 @@ class LDScoreCalculator:
         export_dir = None
         if output_config is not None and ldscore_config.export_ref_metadata and cm_source != "parquet_sidecar":
             export_dir = str(output_config.output_dir)
+        source_drops = _partition_annotation_drops(annotation_bundle)
+        annotation_bundle = dataclass_replace(annotation_bundle, chromosome_identity_drops=source_drops)
         outcomes = self._run_chromosomes(
             chromosomes=chromosomes,
             annotation_bundle=annotation_bundle,
@@ -421,6 +432,7 @@ class LDScoreCalculator:
         )
         result = dataclass_replace(
             result,
+            identity_drops_by_chrom={**source_drops, **result.identity_drops_by_chrom},
             gene_list_batch=getattr(annotation_bundle, "gene_list_batch", None),
             chromosome_scope=dict(annotation_bundle.source_summary.get("chromosome_scope", {})),
             snp_universe_policy=_snp_universe_policy(
@@ -566,12 +578,14 @@ class LDScoreCalculator:
             )
             if export_dir is not None:
                 _write_one_ref_metadata_sidecar(prepared.metadata, chrom, export_dir)
+        drops = _stage_chromosome_drops(annotation_bundle, chrom, legacy_result.identity_drops)
         result = self._wrap_legacy_chrom_result(
             legacy_result,
             global_config=global_config,
             regression_snps=regression_snps,
             regression_regions=regression_regions,
             annotation_types=legacy_result.annotation_types,
+            identity_drops=drops,
         )
         LOGGER.info(f"Finished chromosome {chrom} with {len(result.baseline_table)} retained SNP rows.")
         return result
@@ -583,6 +597,7 @@ class LDScoreCalculator:
         regression_snps: set[str] | RestrictionIdentityKeys | None = None,
         regression_regions: kernel_regions.RegionIntervals | None = None,
         annotation_types: dict[str, str] | None = None,
+        identity_drops: TsvDiagnostics | None = None,
     ) -> ChromLDScoreResult:
         """Convert one kernel chromosome result into the typed public result."""
         reference_metadata = legacy_result.metadata.reset_index(drop=True).copy()
@@ -635,7 +650,7 @@ class LDScoreCalculator:
             reference_snp_count=legacy_result.reference_snp_count,
             regression_selected_snp_count=legacy_result.regression_selected_snp_count,
             regression_region_removed_snp_count=legacy_result.regression_region_removed_snp_count,
-            identity_drops=getattr(legacy_result, "identity_drops", empty_identity_drop_frame()),
+            identity_drops=identity_drops,
             annotation_types=dict(annotation_types or {}),
         )
         result.validate()
@@ -740,8 +755,8 @@ class LDScoreCalculator:
             config_snapshot=snapshots[0] if snapshots else None,
             overlap=aggregated_overlap,
             identity_drops_by_chrom={
-                result.chrom: result.identity_drops.copy()
-                for result in chromosome_results
+                result.chrom: result.identity_drops
+                for result in chromosome_results if result.identity_drops is not None
             },
             annotation_types=annotation_types,
         )
@@ -2167,7 +2182,11 @@ def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, 
     Uses ``dataclasses.replace`` so every other field (including ``overlap``) is
     carried over; a manual reconstruction silently drops fields added later.
     """
-    return dataclass_replace(result, output_paths=dict(output_paths))
+    drops = {chrom: TsvDiagnostics(Path(output_paths[f"dropped_snps_chr{chrom}"]))
+             for chrom in result.identity_drops_by_chrom}
+    chromosomes = [dataclass_replace(chrom, identity_drops=drops.get(chrom.chrom)) for chrom in result.chromosome_results]
+    return dataclass_replace(result, output_paths=dict(output_paths), identity_drops_by_chrom=drops,
+                             chromosome_results=chromosomes)
 
 
 def _available_cpu_count() -> int:
@@ -2212,7 +2231,46 @@ def _chromosomes_from_bundle(annotation_bundle) -> list[str]:
 
 def _slice_annotation_bundle(annotation_bundle, chrom: str):
     """Borrow one chromosome descriptor without copying annotation payloads."""
-    return dataclass_replace(annotation_bundle, shards={str(chrom): annotation_bundle.shard(chrom)}, gene_list_batch=None)
+    drops = (annotation_bundle.identity_drops if annotation_bundle.chromosome_identity_drops is None
+             else annotation_bundle.chromosome_identity_drops.get(str(chrom)))
+    return dataclass_replace(annotation_bundle, shards={str(chrom): annotation_bundle.shard(chrom)},
+                             gene_list_batch=None, identity_drops=drops, chromosome_identity_drops=None)
+
+
+def _partition_annotation_drops(bundle):
+    """Partition source diagnostics once, including fully removed chromosomes."""
+    from uuid import uuid4
+
+    artifacts = {}
+    if bundle.identity_drops is None:
+        return artifacts
+    prefix = uuid4().hex
+    for frame in bundle.identity_drops.frames():
+        for chrom, rows in frame.groupby("CHR", sort=False):
+            chrom = str(chrom)
+            first = chrom not in artifacts
+            if first:
+                artifacts[chrom] = TsvDiagnostics(bundle.workspace.path / f"source-drops-{prefix}-{chrom}.tsv.gz", bundle.workspace)
+            rows.to_csv(artifacts[chrom].path, sep="\t", index=False, header=first, mode="a", compression="gzip", na_rep="")
+    return artifacts
+
+
+def _stage_chromosome_drops(bundle, chrom, reference_drops):
+    """Stream source cleanup followed by reference-stage drops into one artifact."""
+    import gzip
+    from uuid import uuid4
+
+    path = bundle.workspace.path / f"ldscore-drops-{chrom}-{uuid4().hex}.tsv.gz"
+    with gzip.open(path, "wt") as stream:
+        pd.DataFrame(columns=IDENTITY_DROP_COLUMNS).to_csv(stream, sep="\t", index=False)
+        if bundle.identity_drops is not None:
+            for frame in bundle.identity_drops.frames():
+                frame = frame.loc[frame.CHR.astype(str).eq(str(chrom))]
+                if not frame.empty:
+                    frame.to_csv(stream, sep="\t", index=False, header=False, na_rep="", chunksize=65536)
+        coerce_identity_drop_frame(reference_drops).to_csv(stream, sep="\t", index=False, header=False,
+                                                         na_rep="", chunksize=65536)
+    return TsvDiagnostics(path, bundle.workspace)
 
 
 def _kernel_annotation_bundle(bundle, chrom):

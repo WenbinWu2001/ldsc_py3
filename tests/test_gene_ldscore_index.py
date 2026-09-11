@@ -632,38 +632,26 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
     ]
 
 
-def test_direct_plink_output_writes_header_only_duplicate_audit_when_no_rows_drop(tmp_path):
-    prefix = Path(__file__).resolve().parent / "fixtures" / "plink" / "plink"
-    bim = pd.read_csv(
-        prefix.with_suffix(".bim"), sep=r"\s+", header=None,
-        names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
-    )
-    bundle = kernel_ldscore.AnnotationBundle(
-        bim[["CHR", "SNP", "CM", "POS"]],
-        pd.DataFrame({"base": np.ones(len(bim))}),
-        ["base"],
-        [],
-    )
-    args = Namespace(
-        bfile=str(prefix), keep=None, maf_min=None, maf=None,
-        ld_wind_snps=10, ld_wind_kb=None, ld_wind_cm=None,
-        yes_really=True, snp_batch_size=3, common_maf_min=0.05,
-        snp_identifier="rsid", genetic_map=None,
-    )
-    legacy_result = compute_plink("1", bundle, args, None)
-    calculator = LDScoreCalculator()
-    chrom_result = calculator._wrap_legacy_chrom_result(
-        legacy_result, GlobalConfig(snp_identifier="rsid")
-    )
-    result = calculator._aggregate_chromosome_results(
-        [chrom_result], GlobalConfig(snp_identifier="rsid")
-    )
+def test_direct_plink_output_writes_header_only_duplicate_audit_when_no_rows_drop(tmp_path, monkeypatch):
+    from ldsc import config, run_ldscore
 
-    paths = LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmp_path / "out"))
-    sidecar = tmp_path / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
+    monkeypatch.setattr(config, "_GLOBAL_CONFIG", GlobalConfig(snp_identifier="rsid"))
+    prefix = Path(__file__).resolve().parent / "fixtures" / "plink" / "plink"
+    bim = pd.read_csv(prefix.with_suffix(".bim"), sep=r"\s+", header=None,
+                      names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    baseline = tmp_path / "baseline.annot"
+    bim.assign(base=1).to_csv(baseline, sep="\t", index=False)
+    regression = tmp_path / "regression.tsv"
+    bim[["SNP"]].to_csv(regression, sep="\t", index=False)
+    result = run_ldscore(output_dir=tmp_path / "out", baseline_annot_sources=str(baseline),
+                        plink_prefix=str(prefix), regr_snps_file=str(regression),
+                        regr_snps_exclude_regions="none", ld_wind_snps=10,
+                        yes_really=True, snp_batch_size=3)
+    sidecar = tmp_path / "out/diagnostics/dropped_snps/chr1_dropped.tsv.gz"
     assert sidecar.exists()
     assert pd.read_csv(sidecar, sep="\t").empty
-    assert paths["dropped_snps_chr1"] == str(sidecar)
+    assert result.output_paths["dropped_snps_chr1"] == str(sidecar)
+    assert not list((tmp_path / "out").glob(".ldsc-annotation-*"))
 
 
 def test_direct_plink_duplicate_group_is_dropped_and_recorded(tmp_path):

@@ -39,6 +39,7 @@ class AnnotationBundle:
     gene_list_batch: object | None = None
     input_issues: object | None = None
     identity_drops: FrameSpool | None = None
+    chromosome_identity_drops: dict | None = None
     output_paths: dict = field(default_factory=dict)
 
     @property

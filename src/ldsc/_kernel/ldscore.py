@@ -184,12 +184,15 @@ class PreparedChromosome:
     identity_drops: pd.DataFrame = field(default_factory=empty_identity_drop_frame)
 
     def close(self):
-        """Release the chromosome reader on success or failure."""
-        self.reader.close()
+        """Release chromosome state once, including when reader closure fails."""
+        reader = self.reader
         self.reader = None
         self.annotations = None
         self.metadata = None
         self.block_left = None
+        self.identity_drops = None
+        if reader is not None:
+            reader.close()
 
     def __enter__(self):
         return self

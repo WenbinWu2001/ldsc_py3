@@ -40,6 +40,31 @@ def test_direct_file_queries_use_shards_and_leave_only_persistent_outputs(tmp_pa
     pd.testing.assert_frame_equal(pd.read_parquet(output/'ldscore.query.parquet'),result.query_table)
 
 
+def test_direct_results_keep_complete_persistent_drop_records(tmp_path, monkeypatch):
+    from ldsc import config
+    monkeypatch.setattr(config, "_GLOBAL_CONFIG", config.GlobalConfig(snp_identifier="rsid"))
+    args = write_r2_inputs(tmp_path)
+    path = Path(args.baseline_annot_sources)
+    frame = pd.read_csv(path, sep="\t")
+    removed_chromosome = frame.iloc[[0, 0]].assign(CHR=2, SNP="removed", POS=[10, 20])
+    pd.concat([frame, frame.iloc[[0]], removed_chromosome], ignore_index=True).to_csv(path, sep="\t", index=False)
+    regression = tmp_path / "regression.txt"
+    regression.write_text("SNP\nrs1\nrs3\n")
+    output = tmp_path / "out"
+    result = run_ldscore(output_dir=output, baseline_annot_sources=str(path), r2_dir=args.r2_dir,
+                        regr_snps_file=regression, regr_snps_exclude_regions="none",
+                        ld_wind_snps=2, yes_really=True)
+    assert not list(output.glob(".ldsc-annotation-*"))
+    artifact = result.identity_drops_by_chrom["22"]
+    assert not isinstance(artifact, pd.DataFrame)
+    assert artifact.path.is_file()
+    drops = pd.concat(artifact.frames(), ignore_index=True)
+    cleaned = drops.loc[drops.stage.eq("annotation_identity_cleanup")]
+    assert cleaned.SNP.tolist() == ["rs1", "rs1"]
+    assert cleaned.reason.tolist() == ["duplicate_identity", "duplicate_identity"]
+    assert pd.concat(result.identity_drops_by_chrom["2"].frames()).SNP.tolist() == ["removed", "removed"]
+
+
 def test_sequential_run_releases_prepared_chromosome_before_loading_next(tmp_path,monkeypatch):
     import weakref
     from ldsc import config

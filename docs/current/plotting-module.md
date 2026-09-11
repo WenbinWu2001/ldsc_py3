@@ -1,6 +1,6 @@
 # Plotting and Heritability-Scale Post-processing
 
-Last updated on: 2026-09-08
+Last updated on: 2026-09-11
 
 This document is the developer-facing contract for the plotting layer and the post-fit observed-to-liability-scale conversion workflow. For scientist-facing commands and interpretation, see [the plotting results manual](../../tutorials/plotting-results.md).
 
@@ -85,6 +85,17 @@ A core overwrite can remove only the package-owned default nested roots; it cann
 The cell-type input is the aggregate `partitioned-h2` root. A per-query `diagnostics/query_annotations/<query>/` directory is rejected because it represents one baseline-plus-query fit rather than the suite-level comparison.
 
 Each builder validates its required table columns and value domains. Missing or failed rg/query values remain explicit in the figure. The dispatcher rejects raw LDSC2 outputs, loose tables, unsupported analysis regimes, absolute or escaping metadata paths, duplicate rg pairs, and incomplete artifacts.
+
+### Heritability annotations in rg plots
+
+For both rg modes, `plot_result` also follows `files.h2_per_trait` when declared. It reads `trait_name`, `total_h2_obs`, and `total_h2_obs_se`, matching by name to metadata trait order. These are the separately fitted single-trait results, not the heritabilities fitted on each pair's shared SNP set. Liability columns are ignored; plotting never refits or converts scales.
+
+- All-pairs heatmaps have light-gray diagonal cells with dark centered text: observed h2 on the first line and its block-jackknife SE in parentheses on the second. The caption distinguishes diagonal h2 from lower-triangle rg.
+- Anchor plots retain the correlation points, SE bars, and labels. A separate `Observed h² (SE)` text column sits between partner names and the correlation axis; the subtitle gives the anchor's observed h2 and SE.
+- All heritability values use two decimals. Finite estimates outside [0, 1] are preserved, and zero SE is valid. A missing, nonnumeric, or nonfinite estimate/SE, or a negative SE, makes the entire annotation `failed`.
+- Absent declarations/files yield `failed` for every h2 annotation. Missing trait rows yield `failed` for those traits. Extra trait rows are ignored for display; duplicate names anywhere in the table and empty trait identifiers are errors. Unreadable/malformed tables, missing required columns, and unsafe declarations fail before saving. Declared paths are checked for containment even when their targets are missing.
+
+The primary plot `source_table` remains `rg.tsv` (or its declared path). An rg-only `heritability_annotations` metadata object records the additional source-relative `source_table` (null if undeclared), `source_available`, `scale=observed`, `estimate_column=total_h2_obs`, `se_column=total_h2_obs_se`, `uncertainty=block_jackknife_standard_error`, and `missing_label=failed`. A declared missing file retains its path with `source_available=false`; a readable header-only table is available but yields failed annotations. The plot log also records the h2 source, availability, and scale.
 
 ## Exact h2 regression-bin diagnostic
 

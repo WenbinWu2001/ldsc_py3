@@ -139,15 +139,21 @@ def generate_examples(output_dir: Path) -> list[Path]:
     quantile_plot = plot_result(quantile_root)
     saved.append(quantile_plot.path)
 
-    traits = ["Trait A", "Trait B", "Trait C", "Trait D"]
+    traits = ["Major depressive disorder", "Educational attainment (years)",
+              "Coronary artery disease", "Body mass index"]
+    h2_per_trait = pd.DataFrame({
+        "trait_name": [traits[2], traits[0], traits[3], traits[1]],
+        "total_h2_obs": [0.18, 0.25, np.nan, 0.12],
+        "total_h2_obs_se": [0.03, 0.04, np.nan, 0.02],
+    })
     rg_root = output_dir / "rg_all_pairs"
     _write_result(
         rg_root,
         "rg.tsv",
         pd.DataFrame(
             {
-                "trait_1": ["Trait A", "Trait A", "Trait A", "Trait B", "Trait B", "Trait C"],
-                "trait_2": ["Trait B", "Trait C", "Trait D", "Trait C", "Trait D", "Trait D"],
+                "trait_1": [traits[i] for i in [0, 0, 0, 1, 1, 2]],
+                "trait_2": [traits[i] for i in [1, 2, 3, 2, 3, 3]],
                 "rg": [0.62, -0.31, 0.18, -0.12, np.nan, 0.47],
                 "rg_se": [0.09, 0.08, 0.07, 0.10, np.nan, 0.11],
             }
@@ -156,9 +162,10 @@ def generate_examples(output_dir: Path) -> list[Path]:
             "artifact_type": "rg_result",
             "pair_kind": "all_pairs",
             "trait_names": traits,
-            "files": {"rg": "rg.tsv"},
+            "files": {"rg": "rg.tsv", "h2_per_trait": "h2_per_trait.tsv"},
         },
     )
+    h2_per_trait.to_csv(rg_root / "h2_per_trait.tsv", sep="\t", index=False, na_rep="NaN")
     heatmap = plot_result(rg_root)
     saved.append(heatmap.path)
 
@@ -168,19 +175,20 @@ def generate_examples(output_dir: Path) -> list[Path]:
         "rg.tsv",
         pd.DataFrame(
             {
-                "trait_1": ["Trait A", "Trait A", "Trait A"],
-                "trait_2": ["Trait B", "Trait C", "Trait D"],
-                "rg": [0.62, -0.31, 0.18],
-                "rg_se": [0.09, 0.08, 0.07],
+                "trait_1": [traits[0]] * 3,
+                "trait_2": traits[1:],
+                "rg": [0.62, -0.31, np.nan],
+                "rg_se": [0.09, 0.08, np.nan],
             }
         ),
         {
             "artifact_type": "rg_result",
             "pair_kind": "anchor",
             "trait_names": traits,
-            "files": {"rg": "rg.tsv"},
+            "files": {"rg": "rg.tsv", "h2_per_trait": "h2_per_trait.tsv"},
         },
     )
+    h2_per_trait.to_csv(anchor_root / "h2_per_trait.tsv", sep="\t", index=False, na_rep="NaN")
     anchor_plot = plot_result(anchor_root)
     saved.append(anchor_plot.path)
     return saved

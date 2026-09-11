@@ -562,6 +562,8 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 
 The CLI intentionally has no `--output-dir` or plot-type flag.
 
+For rg inputs, both plot modes always annotate observed-scale single-trait h2 (jackknife SE) from `files.h2_per_trait` when available; no additional option is needed. Missing declarations/files or unusable h2 values display `failed`. The correlation source remains `files.rg`. See [the plotting input and annotation contract](plotting-module.md#heritability-annotations-in-rg-plots).
+
 ### `ldsc convert-h2-scale`
 
 | Flag | Direction | Required | Object | Notes |

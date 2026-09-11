@@ -131,6 +131,238 @@ def test_rg_dispatch_selects_pair_kind_and_never_adds_heatmap_colorbar(
     artifact.figure.clf()
 
 
+def _write_rg_with_h2(tmp_path, *, pair_kind="all_pairs"):
+    result_dir = _write_result(
+        tmp_path,
+        name="rg-with-h2",
+        filename="rg.tsv",
+        metadata={
+            "artifact_type": "rg_result",
+            "pair_kind": pair_kind,
+            "trait_names": ["Anchor", "Trait B", "Trait C"],
+            "files": {"rg": "rg.tsv", "h2_per_trait": "heritabilities.tsv"},
+        },
+        rows=[
+            {"trait_1": "Anchor", "trait_2": "Trait B", "rg": 0.42, "rg_se": 0.08},
+            {"trait_1": "Anchor", "trait_2": "Trait C", "rg": -0.31, "rg_se": 0.11},
+        ],
+    )
+    pd.DataFrame({
+        "trait_name": ["Trait C", "Anchor", "Unused", "Trait B"],
+        "total_h2_obs": [1.23, 0.25, 0.99, -0.12],
+        "total_h2_obs_se": [0.04, 0.03, 0.01, 0.0],
+        "total_h2_liab": [2.46, 0.50, 1.98, -0.24],
+        "total_h2_liab_se": [0.08, 0.06, 0.02, 0.0],
+    }).to_csv(result_dir / "heritabilities.tsv", sep="\t", index=False)
+    return result_dir
+
+
+def test_rg_diagonal_uses_observed_single_trait_h2_in_metadata_order(tmp_path):
+    from matplotlib import pyplot as plt
+    from matplotlib.colors import to_rgba
+    from ldsc.plotting import plot_result
+
+    result_dir = _write_rg_with_h2(tmp_path)
+    artifact = plot_result(result_dir)
+    try:
+        labels = {text.get_position(): text.get_text() for text in artifact.axes.texts}
+        assert labels[(0.5, 0.5)] == "0.25\n(0.03)"
+        assert labels[(1.5, 1.5)] == "−0.12\n(0.00)"
+        assert labels[(2.5, 2.5)] == "1.23\n(0.04)"
+        assert labels[(0.5, 1.5)] == "0.42\n(0.08)"
+        assert labels[(0.5, 2.5)] == "−0.31\n(0.11)"
+        assert labels[(1.5, 2.5)] == "failed"
+        assert all(x <= y for x, y in labels)
+        assert len(artifact.figure.axes) == 1
+        diagonal = [patch for patch in artifact.axes.patches if patch.get_x() == patch.get_y()]
+        assert len(diagonal) == 3
+        assert all(patch.get_facecolor() == to_rgba("#E0E0E0") for patch in diagonal)
+        assert "observed" in artifact.axes.get_title().lower()
+        metadata = json.loads((result_dir / "plots/diagnostics/metadata.json").read_text())
+        assert metadata["source_table"] == "rg.tsv"
+        assert metadata["heritability_annotations"] == {
+            "source_table": "heritabilities.tsv",
+            "source_available": True,
+            "scale": "observed",
+            "estimate_column": "total_h2_obs",
+            "se_column": "total_h2_obs_se",
+            "uncertainty": "block_jackknife_standard_error",
+            "missing_label": "failed",
+        }
+    finally:
+        plt.close(artifact.figure)
+
+
+def test_anchor_h2_column_and_subtitle_preserve_correlations(tmp_path):
+    from matplotlib import pyplot as plt
+    from ldsc.plotting import plot_result
+
+    result_dir = _write_rg_with_h2(tmp_path, pair_kind="anchor")
+    artifact = plot_result(result_dir)
+    try:
+        assert artifact.path.name == "rg_anchor_forest.png"
+        assert [tick.get_text() for tick in artifact.axes.get_yticklabels()] == ["Trait B", "Trait C"]
+        texts = {text.get_text(): text for text in artifact.axes.texts}
+        assert "0.25 (0.03)" in artifact.axes.get_title()
+        assert "Observed" in artifact.axes.get_title()
+        assert texts["−0.12 (0.00)"].get_position()[1] == 0
+        assert texts["1.23 (0.04)"].get_position()[1] == 1
+        assert "0.42 (0.08)" in texts
+        assert "−0.31 (0.11)" in texts
+        intervals = [container for container in artifact.axes.containers if hasattr(container, "has_xerr")]
+        np.testing.assert_allclose(intervals[0].lines[2][0].get_segments(), [[[0.34, 0], [0.50, 0]]])
+        np.testing.assert_allclose(intervals[1].lines[2][0].get_segments(), [[[-0.42, 1], [-0.20, 1]]])
+        artifact.figure.canvas.draw()
+        renderer = artifact.figure.canvas.get_renderer()
+        for tick, label in zip(artifact.axes.get_yticklabels(), ["−0.12 (0.00)", "1.23 (0.04)"]):
+            h2_box = texts[label].get_window_extent(renderer)
+            assert tick.get_window_extent(renderer).x1 < h2_box.x0
+            assert h2_box.x1 < artifact.axes.get_window_extent(renderer).x0
+    finally:
+        plt.close(artifact.figure)
+
+
+@pytest.mark.parametrize("pair_kind", ["all_pairs", "anchor"])
+@pytest.mark.parametrize("missing", ["declaration", "file", "rows"])
+def test_rg_missing_heritabilities_are_failed(tmp_path, pair_kind, missing):
+    from matplotlib import pyplot as plt
+    from ldsc.plotting import plot_result
+
+    result_dir = _write_rg_with_h2(tmp_path, pair_kind=pair_kind)
+    h2_path = result_dir / "heritabilities.tsv"
+    if missing == "declaration":
+        path = result_dir / "diagnostics/metadata.json"
+        metadata = json.loads(path.read_text())
+        del metadata["files"]["h2_per_trait"]
+        path.write_text(json.dumps(metadata))
+    elif missing == "file":
+        h2_path.unlink()
+    else:
+        pd.read_csv(h2_path, sep="\t").iloc[:0].to_csv(h2_path, sep="\t", index=False)
+    artifact = plot_result(result_dir)
+    try:
+        failed = [text for text in artifact.axes.texts if text.get_text() == "failed"]
+        if pair_kind == "all_pairs":
+            assert {text.get_position() for text in failed} >= {(0.5, 0.5), (1.5, 1.5), (2.5, 2.5)}
+        else:
+            assert "failed" in artifact.axes.get_title()
+            assert len(failed) == 2
+        metadata = json.loads((result_dir / "plots/diagnostics/metadata.json").read_text())
+        annotation = metadata["heritability_annotations"]
+        assert annotation["source_table"] == (None if missing == "declaration" else "heritabilities.tsv")
+        assert annotation["source_available"] == (missing == "rows")
+    finally:
+        plt.close(artifact.figure)
+
+
+def test_anchor_failed_last_row_stays_above_axis_spine(tmp_path):
+    from matplotlib import pyplot as plt
+    from ldsc.plotting import plot_result
+
+    result_dir = _write_rg_with_h2(tmp_path, pair_kind="anchor")
+    path = result_dir / "rg.tsv"
+    table = pd.read_csv(path, sep="\t")
+    table.loc[1, ["rg", "rg_se"]] = np.nan
+    table.to_csv(path, sep="\t", index=False)
+    artifact = plot_result(result_dir)
+    try:
+        bottom, top = artifact.axes.get_ylim()
+        assert bottom > 1.2
+        assert top < -0.2
+        assert "failed" in {text.get_text() for text in artifact.axes.texts}
+    finally:
+        plt.close(artifact.figure)
+
+
+@pytest.mark.parametrize("pair_kind", ["all_pairs", "anchor"])
+def test_rg_unusable_h2_pairs_are_failed_without_losing_valid_traits(tmp_path, pair_kind):
+    from matplotlib import pyplot as plt
+    from ldsc.plotting import plot_result
+
+    result_dir = _write_rg_with_h2(tmp_path, pair_kind=pair_kind)
+    invalid = [(None, 0.1), (float("inf"), 0.1), ("bad", 0.1), (0.2, None),
+               (0.2, float("inf")), (0.2, "bad"), (0.2, -0.1)]
+    names = ["Anchor", "Trait B", "Trait C"] + [f"Invalid {i}" for i in range(len(invalid))]
+    path = result_dir / "diagnostics/metadata.json"
+    metadata = json.loads(path.read_text())
+    metadata["trait_names"] = names
+    path.write_text(json.dumps(metadata))
+    rows = [{"trait_name": "Anchor", "total_h2_obs": 0.25, "total_h2_obs_se": 0.03}]
+    rows.extend({"trait_name": name, "total_h2_obs": estimate, "total_h2_obs_se": se}
+                for name, (estimate, se) in zip(names[3:], invalid))
+    pd.DataFrame(rows).to_csv(result_dir / "heritabilities.tsv", sep="\t", index=False)
+    artifact = plot_result(result_dir)
+    try:
+        if pair_kind == "all_pairs":
+            labels = {text.get_position(): text.get_text() for text in artifact.axes.texts}
+            assert labels[(0.5, 0.5)] == "0.25\n(0.03)"
+            assert all(labels[(i + 0.5, i + 0.5)] == "failed" for i in range(1, len(names)))
+        else:
+            assert "0.25 (0.03)" in artifact.axes.get_title()
+            # Column entries lie to the left of the scientific plotting area.
+            artifact.figure.canvas.draw()
+            renderer = artifact.figure.canvas.get_renderer()
+            column = [text for text in artifact.axes.texts
+                      if text.get_text() == "failed" and text.get_window_extent(renderer).x1
+                      < artifact.axes.get_window_extent(renderer).x0]
+            assert len(column) == len(names) - 1
+    finally:
+        plt.close(artifact.figure)
+
+
+@pytest.mark.parametrize("pair_kind", ["all_pairs", "anchor"])
+@pytest.mark.parametrize("problem", ["columns", "duplicate", "empty", "parser", "extra_field", "encoding", "directory"])
+def test_rg_rejects_malformed_heritability_sources_before_saving(tmp_path, pair_kind, problem):
+    from ldsc.errors import LDSCInputError
+    from ldsc.plotting import plot_result
+
+    result_dir = _write_rg_with_h2(tmp_path, pair_kind=pair_kind)
+    path = result_dir / "heritabilities.tsv"
+    header = "trait_name\ttotal_h2_obs\ttotal_h2_obs_se\n"
+    if problem == "columns":
+        path.write_text("trait_name\ttotal_h2_obs\nAnchor\t0.25\n")
+    elif problem == "duplicate":
+        path.write_text(header + "Anchor\t0.25\t0.03\nAnchor\t0.30\t0.04\n")
+    elif problem == "empty":
+        path.write_text("")
+    elif problem == "parser":
+        path.write_text(header + '"Anchor\t0.25\t0.03\n')
+    elif problem == "extra_field":
+        path.write_text(header + "Anchor\t0.25\t0.03\textra\n")
+    elif problem == "encoding":
+        path.write_bytes(b"\xff\xfe\xff")
+    else:
+        path.unlink()
+        path.mkdir()
+    with pytest.raises(LDSCInputError, match="heritabilit|h2_per_trait"):
+        plot_result(result_dir)
+    assert not (result_dir / "plots").exists()
+
+
+@pytest.mark.parametrize("path_kind", ["absolute", "traversal", "symlink", "invalid"])
+def test_rg_rejects_unsafe_h2_declarations_even_if_target_is_missing(tmp_path, path_kind):
+    from ldsc.errors import LDSCInputError
+    from ldsc.plotting import plot_result
+
+    result_dir = _write_rg_with_h2(tmp_path)
+    if path_kind == "absolute":
+        declared = str(tmp_path / "missing.tsv")
+    elif path_kind == "traversal":
+        declared = "../missing.tsv"
+    elif path_kind == "symlink":
+        (result_dir / "linked.tsv").symlink_to(tmp_path / "missing.tsv")
+        declared = "linked.tsv"
+    else:
+        declared = 42
+    path = result_dir / "diagnostics/metadata.json"
+    metadata = json.loads(path.read_text())
+    metadata["files"]["h2_per_trait"] = declared
+    path.write_text(json.dumps(metadata))
+    with pytest.raises(LDSCInputError, match="files.h2_per_trait"):
+        plot_result(result_dir)
+    assert not (result_dir / "plots").exists()
+
+
 def test_functional_and_quantile_enrichment_use_horizontal_bars_with_null_behind(tmp_path):
     from ldsc.plotting import plot_result
 

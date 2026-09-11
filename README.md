@@ -189,6 +189,8 @@ h2 result at one population prevalence or over a sensitivity range. See the
 [scientist-facing plotting manual](tutorials/plotting-results.md) and the
 [developer module contract](docs/current/plotting-module.md).
 
+Both rg plots annotate saved single-trait observed-scale heritability with jackknife SEs: on the all-pairs heatmap diagonal, or in a partner column and anchor subtitle. Missing or unusable heritability values display `failed`.
+
 Reusable `.annot.gz` shards written by `ldsc annotate` keep the legacy
 `CHR/BP/SNP/CM` leading layout. Because annotation `CM` is semantically missing,
 the writer serializes it as the explicit `NA` token; annotation-value columns

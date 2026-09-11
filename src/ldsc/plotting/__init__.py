@@ -10,6 +10,10 @@ Overview
 source artifact and dispatches by metadata rather than by filenames or table
 shape. Matplotlib is imported only when this module is asked to build a plot;
 numerical workflows do not import the plotting runtime.
+
+Both rg views also read the declared single-trait heritability table, when
+available, to annotate observed-scale h2 and jackknife SE. Missing values stay
+explicit in the figure; no estimate is refitted or converted by plotting.
 """
 
 from __future__ import annotations
@@ -47,7 +51,9 @@ class PlotArtifact:
         Live figure for Python-level customization.
     axes : matplotlib.axes.Axes
         Primary scientific axes. Auxiliary axes, such as a weight scale, remain
-        available through ``figure.axes``.
+        available through ``figure.axes``. In rg plots, the heritability text
+        belongs to these primary axes, including the anchor plot's external
+        text column; that column has no separate numerical axis.
     """
 
     kind: str
@@ -112,6 +118,22 @@ def plot_result(
         active environment.
     FileExistsError
         If a fixed plot artifact exists and ``overwrite`` is ``False``.
+
+    Notes
+    -----
+    Both rg plots annotate saved single-trait observed-scale heritability and
+    block-jackknife SE from the table declared by ``files.h2_per_trait`` in
+    source metadata. Rows are matched by ``trait_name`` using ``total_h2_obs``
+    and ``total_h2_obs_se``; pair-fit and liability-scale columns are not used. The
+    heatmap places these values on the diagonal; the anchor plot uses a text
+    column for partners and a subtitle for the anchor. Values use two decimal
+    places and finite heritabilities are not clipped to [0, 1]. Missing sources
+    or trait rows display ``failed``, as do nonnumeric/nonfinite estimates or
+    SEs and negative SEs. Zero SE is valid. Extra traits are omitted from the
+    figure; malformed tables, missing required columns, duplicate or empty
+    trait names, and unsafe source paths raise ``LDSCInputError``. Plotting
+    never refits. Derived metadata records these annotations separately under
+    ``heritability_annotations`` while retaining the correlation source table.
     """
     source_dir = _require_result_directory(result_dir)
     metadata = _read_source_metadata(source_dir)
@@ -121,6 +143,23 @@ def plot_result(
         table = pd.read_csv(source_path, sep="\t")
     except (OSError, pd.errors.ParserError) as exc:
         raise LDSCInputError(f"Could not read plotting source table '{source_path}': {exc}.") from exc
+    h2_per_trait = None
+    h2_path = None
+    if metadata["artifact_type"] == "rg_result" and "h2_per_trait" in metadata["files"]:
+        h2_path = declared_result_file(
+            source_dir, metadata, "h2_per_trait", context="Canonical rg plotting metadata", allow_missing=True
+        )
+        try:
+            h2_per_trait = pd.read_csv(h2_path, sep="\t", dtype={"trait_name": str})
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError) as exc:
+            raise LDSCInputError(f"Could not read rg heritability table '{h2_path}': {exc}.") from exc
+        if h2_per_trait is not None and not h2_per_trait.empty and not isinstance(h2_per_trait.index, pd.RangeIndex):
+            raise LDSCInputError(
+                f"Malformed rg heritability table '{h2_path}': rows contain more fields than the header. "
+                "Supply a tab-separated table with one field per declared column."
+            )
     builders = _load_builders()
     destination = Path(output_dir).expanduser() if output_dir is not None else source_dir / "plots"
     paths = {
@@ -134,7 +173,7 @@ def plot_result(
         overwrite=overwrite,
         label=f"{contract.kind} plot artifact",
     )
-    figure, axes = builders.build_plot(contract.kind, table, metadata)
+    figure, axes = builders.build_plot(contract.kind, table, metadata, h2_per_trait=h2_per_trait)
     plot_metadata = {
         "artifact_type": "plot_result",
         "plot_kind": contract.kind,
@@ -145,11 +184,23 @@ def plot_result(
         "uncertainty": contract.uncertainty,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    if metadata["artifact_type"] == "rg_result":
+        plot_metadata["heritability_annotations"] = {
+            "source_table": str(h2_path.relative_to(source_dir)) if h2_path is not None else None,
+            "source_available": h2_per_trait is not None,
+            "scale": "observed",
+            "estimate_column": "total_h2_obs",
+            "se_column": "total_h2_obs_se",
+            "uncertainty": "block_jackknife_standard_error",
+            "missing_label": "failed",
+        }
     try:
         ensure_output_directory(destination, label="plot output directory")
         ensure_output_directory(destination / "diagnostics", label="plot diagnostics directory")
         with workflow_logging("plot", paths["log"], log_level=log_level):
             log_inputs(result_dir=source_dir, source_table=source_path, plot_kind=contract.kind)
+            if metadata["artifact_type"] == "rg_result":
+                log_inputs(h2_per_trait=h2_path, h2_source_available=h2_per_trait is not None, h2_scale="observed")
             figure.savefig(paths["plot"], dpi=300, bbox_inches="tight", facecolor="white")
             atomic_write_json(plot_metadata, paths["metadata"])
             log_outputs(plot=paths["plot"], metadata=paths["metadata"])

@@ -6,7 +6,7 @@ Munging uses the supplied trait label for data filenames (for example, `trait.pa
 
 Goal: estimate genetic correlation for two or more traits from munged summary statistics and one matched LD-score reference.
 
-After writing the rg result, use the [plotting results manual](plotting-results.md) to create and interpret either the all-pairs heatmap or anchor-trait forest plot.
+After writing the rg result, plot it as an all-pairs heatmap or anchor-trait forest plot. Both include single-trait observed-scale heritability and jackknife SE: on the heatmap diagonal or in the anchor plot's partner column and subtitle. See [plot saved results](#plot-saved-results) below and the [plotting results manual](plotting-results.md).
 
 The regression step expects:
 
@@ -43,9 +43,12 @@ from ldsc import (
     MungeConfig,
     RegressionConfig,
     RegressionRunner,
+    RgDirectoryWriter,
+    RgOutputConfig,
     SumstatsMunger,
     load_ldscore_from_dir,
     load_sumstats,
+    plot_result,
     set_global_config,
 )
 
@@ -109,15 +112,20 @@ runner = RegressionRunner(
 )
 result = runner.estimate_rg_pairs([trait_1, trait_2], ldscore_result)
 
-result.rg.to_csv("tutorial_outputs/trait_1_trait_2_rg.tsv", sep="\t", index=False)
-result.rg_full.to_csv("tutorial_outputs/trait_1_trait_2_rg_full.tsv", sep="\t", index=False)
-result.h2_per_trait.to_csv("tutorial_outputs/trait_1_trait_2_h2_per_trait.tsv", sep="\t", index=False)
+RgDirectoryWriter().write(
+    result,
+    RgOutputConfig(output_dir="tutorial_outputs/trait_1_trait_2"),
+)
+plot = plot_result("tutorial_outputs/trait_1_trait_2")
+print(plot.path)
 print(result.rg)
 ```
 
 `RegressionRunner.estimate_rg()` remains available for low-level pairwise code
 that needs the raw kernel object. For user-facing analyses, prefer
 `estimate_rg_pairs()` because it returns the same output family as the CLI.
+
+`estimate_rg_pairs()` returns an in-memory result. `RgDirectoryWriter` saves the canonical directory and metadata that `plot_result()` requires; exporting loose TSVs with `to_csv()` alone does not create a plotting input. Use `RgOutputConfig(..., overwrite=True)` and `plot_result(..., overwrite=True)` only when intentionally replacing existing outputs. To fit anchor-vs-rest pairs in Python, pass `anchor_index=0` (or the desired input index) to `estimate_rg_pairs()`; plotting dispatch then selects the anchor forest automatically.
 
 When both traits are produced by `SumstatsMunger.run()` in the same workflow,
 their known `GlobalConfig` snapshots are checked against the LD-score snapshot
@@ -198,3 +206,21 @@ When `--write-per-pair-detail` is enabled, pair diagnostics are written under
 `diagnostics/pairs/` as a whole staged tree. A later overwrite run that omits
 per-pair detail removes the stale tree after the new aggregate rg files are
 written.
+
+## Plot saved results
+
+After the CLI runs above, create the corresponding figures:
+
+```bash
+ldsc plot --result-dir tutorial_outputs/panel_rg
+ldsc plot --result-dir tutorial_outputs/trait_1_anchor_rg
+```
+
+These write `plots/rg_heatmap.png` and `plots/rg_anchor_forest.png` below their respective result roots, with `plots/diagnostics/metadata.json` and `plot.log`. Add `--overwrite` to regenerate existing figures. Plotting never reruns regression or modifies the numerical source tables.
+
+- **All pairs:** lower-triangle cells show \(r_g\) with jackknife SE underneath in parentheses. Light-gray diagonal cells show observed \(h^2\) with its jackknife SE in the same two-line format. The upper triangle remains empty.
+- **Anchor mode:** correlation points and horizontal bars show \(r_g\) ± one SE. The `Observed h² (SE)` text column gives partner heritabilities; the subtitle gives the anchor's heritability and SE.
+
+Both use the separately fitted estimates in `h2_per_trait.tsv`, matched by `trait_name`, rather than the trait estimates within individual pair fits. The plotted fields are `total_h2_obs` and `total_h2_obs_se`, even when saved liability-scale fields exist. Correlation is unchanged by observed-to-liability conversion, while heritability annotations explicitly use the observed scale.
+
+Values use two decimals; finite h2 estimates outside 0–1 remain visible, and zero SE is valid. A missing source/row or an unusable estimate–SE pair displays `failed`. Malformed tables, missing required columns, duplicate trait rows, and unsafe metadata paths instead cause an error. See [plotting interpretation](plotting-results.md#genetic-correlation-heatmap) and [troubleshooting](../docs/troubleshooting.md#plot-rg-heritability-source-is-invalid).

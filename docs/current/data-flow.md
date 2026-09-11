@@ -679,6 +679,7 @@ flowchart LR
   quantile-h2, or rg result]
   M[diagnostics/metadata.json]
   T[Declared numerical TSV]
+  A[rg only: declared single-trait h2 TSV]
   D[ldsc.plotting contract dispatch]
   F[plots/fixed-name.png + diagnostics]
   H[Canonical h2 result]
@@ -689,16 +690,14 @@ flowchart LR
   table + optional sensitivity PNG]
   R --> M --> D
   R --> T --> D --> F
+  R -. optional .-> A --> D
   H --> S --> C
   C --> K --> O
 ```
 
-`ldsc plot` checks only the small plotting-relevant metadata contract and
-follows the declared source file. `ldsc convert-h2-scale` always starts from
-the observed h2 estimate and SE. Required Matplotlib is loaded only by
-figure-producing paths; exact conversion does not import it. See
-[plotting-module.md](plotting-module.md) for dispatch, ownership, and failure
-boundaries.
+`ldsc plot` checks only the plotting-relevant metadata contract and follows declared source files. Both rg views read correlations from `files.rg` and, when available, single-trait observed h2 and SE from `files.h2_per_trait`. The dispatcher loads the tables; builders match heritabilities by trait name and display them on the heatmap diagonal or in the anchor column/subtitle. Missing or unusable h2 values become `failed`, while malformed tables and unsafe source paths abort plotting. Plot metadata records the additional annotation source and observed scale.
+
+`ldsc convert-h2-scale` always starts from the observed h2 estimate and SE. Required Matplotlib is loaded only by figure-producing paths; exact conversion does not import it. See [plotting-module.md](plotting-module.md) for dispatch, ownership, and failure boundaries.
 
 ## Bounded annotation and model flow
 

@@ -399,10 +399,11 @@ metadata records the prevalences applied to each trait (`samp_prev_1`, `pop_prev
 | `source_table` | Source-relative numerical table plotted. | Provenance. |
 | `files.plot` | Fixed PNG filename relative to the plot root. | Locates the figure. |
 | `uncertainty` | Uncertainty convention used by the selected plot. | Interpretation. |
+| `heritability_annotations` | rg plots only: source-relative `source_table` (null if undeclared), `source_available`, `scale=observed`, `estimate_column=total_h2_obs`, `se_column=total_h2_obs_se`, `uncertainty=block_jackknife_standard_error`, and `missing_label=failed`. A declared missing file retains its path and has `source_available=false`. | Provenance and interpretation of the heatmap diagonal or anchor annotations; see [the plotting contract](plotting-module.md#heritability-annotations-in-rg-plots). |
 | `created_at` | UTC creation timestamp. | Audit only. |
 
 Plot dispatch into the source result checks only its plotting-relevant metadata
-fields and declared file. It does not check `schema_version`.
+fields and declared files. It does not check `schema_version`. The rg heritability source is optional for plotting; absent sources or unusable estimate–SE pairs display `failed` without refitting.
 
 ### h2 scale conversion result
 

@@ -757,3 +757,16 @@ The plot command does not infer from loose TSV files or reconstruct missing
 diagnostics. Matplotlib is a required package dependency. If an existing
 environment reports that it is unavailable, repair that environment with
 `python -m pip install "matplotlib>=3.9,<4"` and rerun the command.
+
+### plot: rg heritability source is invalid
+
+**Raised by:** `plotting.plot_result()` and `plotting._builders._trait_h2_labels()` · **Exception:** `LDSCInputError`
+
+| Likely cause | How to check and fix |
+|---|---|
+| The declared heritability table is unreadable or malformed | Check `files.h2_per_trait` in `diagnostics/metadata.json`. Restore the original readable TSV from the same rg run, with consistent field counts and valid text encoding. |
+| Required columns or trait identifiers are missing | The table must contain `trait_name`, `total_h2_obs`, and `total_h2_obs_se`, and each row must have a nonempty trait name. Restore the canonical table. |
+| A trait has multiple rows | Check repeated `trait_name` values and restore one single-trait fit per trait; do not substitute pair-specific fits. |
+| The metadata path is absolute, escapes the result root, or points to a directory | Use a relative path to a regular file inside the same result directory. Symlinks must also resolve inside that root. |
+
+Missing declarations/files or absent trait rows are allowed and display `failed`. Missing, nonfinite, or nonnumeric h2/SE values and negative SEs also display `failed`; these do not abort plotting. Restore valid saved inputs and rerun `ldsc plot --result-dir RESULT_DIR --overwrite` to refresh existing figures. See [heritability annotation behavior](current/plotting-module.md#heritability-annotations-in-rg-plots).

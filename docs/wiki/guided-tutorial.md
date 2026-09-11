@@ -17,6 +17,7 @@ The analysis pipeline involves:
 - **Analysis 2:** estimate cross-trait genetic correlation between multiple traits.
   - Step 1: compute (unpartitioned) LD scores with `ldsc ldscore` (same as in Analysis 1).
   - Step 2: estimate cross-trait genetic correlation with `ldsc rg`.
+  - Step 3: plot correlations and single-trait observed heritabilities with `ldsc plot`.
 - **Analysis 3:** partition heritability with functional annotations (known as cell-type-specific regression).
   - Step 1: compute partitioned LD scores with `ldsc ldscore`, supplying query annotations.
   - Step 2: estimate the heritability contribution of each query annotation with `ldsc partitioned-h2`.
@@ -266,6 +267,18 @@ rg/mdd2025_scz2022_adhd2019/
         metadata.json
         rg.log
 ```
+
+### Step 3: plot genetic correlations and trait heritabilities
+
+```bash
+ldsc plot --result-dir "${RG_OUTPUT_DIR}"
+```
+
+This writes `plots/rg_heatmap.png` below the rg result directory, with plot metadata and a log under `plots/diagnostics/`. Lower-triangle cells show genetic correlation with jackknife SE in parentheses. Light-gray diagonal cells show each trait's observed-scale heritability with its jackknife SE underneath, using two decimal places. Add `--overwrite` when regenerating an existing figure.
+
+The diagonal uses the saved single-trait estimates in `h2_per_trait.tsv`, matched by trait name. It retains finite estimates outside 0–1; missing or unusable estimate–SE pairs display `failed`. Liability columns do not change the displayed h2 scale. Plotting reads the saved results without rerunning regression.
+
+For a result produced with `ldsc rg --anchor-trait ...`, the same plot command instead writes `plots/rg_anchor_forest.png`: correlations have points and one-SE bars, partner h2 estimates appear in a separate text column, and the anchor's h2 appears in the subtitle. See [the rg wiki page](main-functionalities/rg.md) and [the plotting manual](../../tutorials/plotting-results.md) for interpretation and malformed-input behavior.
 
 ## Analysis 3: partition heritability with functional annotations (known as cell-type-specific regression)
 

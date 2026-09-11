@@ -146,6 +146,8 @@ only prevalence-range mode imports Matplotlib. Both default to package-owned
 nested result roots and allow an advanced Python-only destination override.
 Their complete seams are documented in [plotting-module.md](plotting-module.md).
 
+For rg, the dispatcher loads the correlation table and optional metadata-declared single-trait h2 table. Private builders align observed h2 and SE by trait name for the heatmap diagonal or anchor annotations. Missing h2 values display `failed`; the plotting layer neither reruns regression nor chooses among pair-specific heritability fits. See [the annotation contract](plotting-module.md#heritability-annotations-in-rg-plots).
+
 ### `ldsc.annotation_builder`
 
 This is the public annotation API and CLI dispatch seam: `AnnotationBuilder`, `AnnotationBundle`, `run_annotate()`, `parse_annotate_args()`, `run_annotate_from_args()`, and `main()`. `AnnotationBuilder.run(..., output_dir=...)` prepares a chromosome-backed dataset with explicit ownership. `annotate_workflow` owns standalone BED/gene validation and incremental canonical output. Shared `_annotation_*` modules own bounded discovery, identity cleanup, separate metadata/value artifacts, projection, and storage lifetime; `_direct_annotation` integrates them with direct LD-score scope and support gates. The complete module and ownership map is in [annotation-memory-design.md](annotation-memory-design.md).

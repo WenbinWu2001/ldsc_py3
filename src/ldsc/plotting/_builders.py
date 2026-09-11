@@ -1,4 +1,10 @@
-"""Private Matplotlib builders for the LDSC plot dispatcher."""
+"""Private Matplotlib builders for canonical, already loaded LDSC results.
+
+The dispatcher owns source-path resolution and output publication. These
+builders validate plotted values and return live figures without refitting.
+For rg, the additional single-trait table supplies observed-scale h2 labels;
+it never changes correlation values, error bars, or the correlation color scale.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +16,7 @@ import matplotlib
 matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.transforms import ScaledTranslation
 import numpy as np
 import pandas as pd
 from scipy.special import log_ndtr
@@ -29,14 +36,20 @@ _RG_CMAP = LinearSegmentedColormap.from_list(
 )
 
 
-def build_plot(kind: str, table: pd.DataFrame, metadata: dict[str, Any]):
-    """Build one selected plot from its already loaded source table."""
+def build_plot(
+    kind: str, table: pd.DataFrame, metadata: dict[str, Any], *, h2_per_trait: pd.DataFrame | None = None
+):
+    """Build one selected plot from loaded tables, including optional rg trait h2."""
     if kind == "ld_score_regression":
         return _plot_h2_bins(table, trait_name=str(metadata.get("trait_name") or "Trait"))
     if kind == "rg_heatmap":
-        return _plot_rg_heatmap(table, _trait_order(metadata, table))
+        trait_names = _trait_order(metadata, table)
+        return _plot_rg_heatmap(
+            table, trait_names, _trait_h2_labels(h2_per_trait, trait_names, multiline=True)
+        )
     if kind == "rg_anchor_forest":
-        return _plot_rg_anchor_forest(table, _trait_order(metadata, table))
+        trait_names = _trait_order(metadata, table)
+        return _plot_rg_anchor_forest(table, trait_names, _trait_h2_labels(h2_per_trait, trait_names))
     if kind == "functional_h2_enrichment":
         _require_columns(table, {"category", "enrichment", "enrichment_se"}, label="partitioned_h2.tsv")
         return _plot_horizontal_enrichment_bars(
@@ -125,7 +138,37 @@ def _trait_order(metadata: dict[str, Any], table: pd.DataFrame) -> list[str]:
     return names
 
 
-def _plot_rg_heatmap(table: pd.DataFrame, trait_names: list[str]):
+def _trait_h2_labels(
+    table: pd.DataFrame | None, trait_names: list[str], *, multiline: bool = False
+) -> dict[str, str]:
+    """Match observed h2 and jackknife SE to requested trait names.
+
+    Preserve finite h2 values and nonnegative finite SEs, formatting both to
+    two decimals. Missing rows or unusable estimate–SE pairs become ``failed``.
+    Validate table structure and unique, nonempty names before selecting rows;
+    traits outside the requested order contribute no labels.
+    """
+    labels = dict.fromkeys(trait_names, "failed")
+    if table is None:
+        return labels
+    _require_columns(table, {"trait_name", "total_h2_obs", "total_h2_obs_se"}, label="h2_per_trait.tsv")
+    names = table["trait_name"].astype(str)
+    if table["trait_name"].isna().any() or names.str.strip().eq("").any():
+        raise LDSCInputError("h2_per_trait.tsv requires a nonempty trait_name for every row.")
+    duplicates = names[names.duplicated()].unique().tolist()
+    if duplicates:
+        raise LDSCInputError("h2_per_trait.tsv contains duplicate trait rows: " + ", ".join(duplicates) + ".")
+    for name, estimate, standard_error in zip(names, table["total_h2_obs"], table["total_h2_obs_se"]):
+        if name not in labels:
+            continue
+        estimate, standard_error = _optional_float(estimate), _optional_float(standard_error)
+        if math.isfinite(estimate) and math.isfinite(standard_error) and standard_error >= 0:
+            labels[name] = _format_estimate_se(estimate, standard_error, multiline=multiline)
+    return labels
+
+
+def _plot_rg_heatmap(table: pd.DataFrame, trait_names: list[str], h2_labels: dict[str, str]):
+    """Draw lower-triangle rg with preformatted observed-h2 diagonal labels."""
     n_traits = len(trait_names)
     index = {name: position for position, name in enumerate(trait_names)}
     estimates = np.full((n_traits, n_traits), np.nan)
@@ -164,6 +207,14 @@ def _plot_rg_heatmap(table: pd.DataFrame, trait_names: list[str]):
     axes.set_xlim(0, n_traits)
     axes.set_ylim(n_traits, 0)
     axes.set_aspect("equal")
+    for position, trait in enumerate(trait_names):
+        axes.add_patch(plt.Rectangle(
+            (position, position), 1, 1, facecolor="#E0E0E0", edgecolor="white", linewidth=0.8
+        ))
+        axes.text(
+            position + 0.5, position + 0.5, h2_labels[trait], ha="center", va="center",
+            fontsize=max(6.5, 10.5 - 0.15 * n_traits), color="#202020",
+        )
     for row_index in range(1, n_traits):
         for column_index in range(row_index):
             estimate = estimates[row_index, column_index]
@@ -198,12 +249,17 @@ def _plot_rg_heatmap(table: pd.DataFrame, trait_names: list[str]):
     axes.xaxis.tick_top()
     axes.tick_params(axis="x", labelrotation=45, length=0)
     axes.tick_params(axis="y", length=0)
-    axes.set_title(r"Genetic correlation ($r_g$)" "\nCells show estimate (jackknife SE)", pad=14)
+    axes.set_title(
+        r"Genetic correlation ($r_g$)" "\n"
+        r"Diagonal: observed $h^2$; lower triangle: $r_g$" "\n"
+        "Estimates with jackknife SE in parentheses", pad=14,
+    )
     axes.spines[:].set_visible(False)
     return figure, axes
 
 
-def _plot_rg_anchor_forest(table: pd.DataFrame, trait_names: list[str]):
+def _plot_rg_anchor_forest(table: pd.DataFrame, trait_names: list[str], h2_labels: dict[str, str]):
+    """Draw anchor rg ± one SE with a separate h2 text column and subtitle."""
     anchors = table["trait_1"].astype(str).unique().tolist()
     if len(anchors) != 1:
         raise LDSCInputError("An anchor rg result must contain one common trait_1 across every pair.")
@@ -216,7 +272,7 @@ def _plot_rg_anchor_forest(table: pd.DataFrame, trait_names: list[str]):
     if unexpected:
         raise LDSCInputError("Anchor rg table contains unexpected partners: " + ", ".join(unexpected) + ".")
     figure, axes = plt.subplots(
-        figsize=(7.4, max(3.2, 0.48 * len(partners) + 1.7)), constrained_layout=True
+        figsize=(9.4, max(3.6, 0.48 * len(partners) + 2.1)), constrained_layout=True
     )
     finite_intervals: list[tuple[float, float]] = []
     labels: list[tuple[int, float, str, bool]] = []
@@ -256,9 +312,25 @@ def _plot_rg_anchor_forest(table: pd.DataFrame, trait_names: list[str]):
         axes.text(x, position, label, va="center", fontsize=9, color="#202020" if available else "#666666")
     axes.axvline(0, color="#777777", linewidth=1, linestyle="--", zorder=0)
     axes.set_yticks(np.arange(len(partners)), labels=partners)
-    axes.invert_yaxis()
+    axes.set_ylim(len(partners) - 0.5, -0.5)
     axes.set_xlabel(r"Genetic correlation ($r_g$; estimate ± 1 SE)")
-    axes.set_title(f"Genetic correlation with {anchor}")
+    axes.set_title(
+        f"Genetic correlation with {anchor}\n" + r"Observed $h^2$ = " + h2_labels[anchor], pad=30
+    )
+    # Keep the h2 column outside the correlation axis with spacing in physical points.
+    offset = ScaledTranslation(-12 / 72, 0, figure.dpi_scale_trans)
+    h2_texts = [axes.text(
+        0, 1.03, r"Observed $h^2$ (SE)", transform=axes.transAxes + offset,
+        ha="right", va="bottom", fontsize=9, color="#202020",
+    )]
+    for position, partner in enumerate(partners):
+        h2_texts.append(axes.text(
+            0, position, h2_labels[partner], transform=axes.get_yaxis_transform() + offset,
+            ha="right", va="center", fontsize=9, color="#202020",
+        ))
+    renderer = figure.canvas.get_renderer()
+    column_width = max(text.get_window_extent(renderer).width for text in h2_texts)
+    axes.tick_params(axis="y", pad=column_width * 72 / figure.dpi + 24)
     _finish_horizontal_axes(axes)
     return figure, axes
 

@@ -168,3 +168,7 @@ Last updated on: 2026-09-11
 ## Packaged HM3 restriction includes allele identity
 
 - Summary/root cause/correction: Documentation described the packaged HM3 keep-list as allele-free after inspecting the coordinate-only inference view; the full curated map contains A1/A2. Inspect the actual restriction resource and reader, document allele-aware matching, and validate synthetic munging fixtures with compatible reference alleles or explicit base identity.
+
+## Tutorial correlation plots need finite jackknife uncertainty
+
+- Summary/root cause/correction: The 20-SNP rg tutorial produced finite rg with NaN SE because one delete-block heritability product was negative; increase the synthetic Z magnitudes to keep these toy fits positive, assert finite rg/SE before plotting, and execute every tutorial code cell without weakening the plotting validation.

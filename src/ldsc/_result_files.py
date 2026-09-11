@@ -11,8 +11,15 @@ import tempfile
 from .errors import LDSCInputError
 
 
-def declared_result_file(result_dir: Path, metadata: dict, key: str, *, context: str) -> Path:
-    """Resolve one declared input, requiring containment in its result root."""
+def declared_result_file(
+    result_dir: Path, metadata: dict, key: str, *, context: str, allow_missing: bool = False
+) -> Path:
+    """Resolve a declared input inside the canonical result root.
+
+    ``allow_missing`` permits an absent target, for example an optional rg
+    heritability table. It does not relax metadata or containment checks:
+    absolute paths, escaping symlinks, and existing non-files are rejected.
+    """
     files = metadata.get("files")
     if not isinstance(files, dict) or not isinstance(files.get(key), str) or not files[key].strip():
         raise LDSCInputError(f"{context} must declare files.{key}.")
@@ -24,6 +31,8 @@ def declared_result_file(result_dir: Path, metadata: dict, key: str, *, context:
         path.relative_to(result_dir)
     except ValueError as exc:
         raise LDSCInputError(f"{context} files.{key} escapes the result directory.") from exc
+    if allow_missing and not path.exists():
+        return path
     if not path.is_file():
         raise LDSCInputError(f"{context} declares files.{key}='{files[key]}', but it is missing.")
     return path

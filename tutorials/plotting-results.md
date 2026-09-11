@@ -1,6 +1,6 @@
 # Plotting LDSC Results
 
-Last updated on: 2026-09-08
+Last updated on: 2026-09-11
 
 The plotting command turns a completed LDSC result directory into one concise exploratory figure. It chooses the plot from the result metadata, so you provide the result root rather than a table or plot type.
 
@@ -81,11 +81,17 @@ Look for increasing, decreasing, or non-monotonic patterns across the ordered qu
 
 Each lower-triangle cell shows genetic correlation \(r_g\), with its block-jackknife SE in parentheses. Blue indicates negative correlation and red indicates positive correlation. The upper triangle is intentionally empty because it would repeat the same trait pairs, and no color bar is shown because every available value is printed in its cell. A grey cell labeled `failed` represents a pair without an available estimate.
 
+Light-gray diagonal cells show each trait's observed-scale heritability, with its jackknife SE in parentheses underneath. These values come from the saved single-trait fits in the metadata-declared `h2_per_trait.tsv`, matched by trait name. They use two decimal places and retain finite estimates outside 0–1. The correlations themselves are unchanged by observed-to-liability conversion; the diagonal heritabilities specifically use the observed scale.
+
+A diagonal labeled `failed` means no usable heritability–SE pair is available: the source or trait row may be missing, or an estimate/SE may be nonnumeric or nonfinite, or the SE negative. An SE of zero is valid. A missing heritability file does not prevent plotting the correlations. Malformed tables, missing required columns, duplicate trait rows, and unsafe declared paths instead stop plotting with an error; see [plot troubleshooting](../docs/troubleshooting.md#plot-rg-heritability-source-is-invalid).
+
 The figure displays estimates and uncertainty only; it does not add p-values, symbols, or multiplicity correction.
 
 ### Anchor-trait genetic-correlation plot
 
 Each point is \(r_g\) between the anchor trait and one partner trait, and each horizontal error bar spans one block-jackknife SE. The dashed grey line marks zero genetic correlation. This view is more readable than a sparse matrix when every comparison shares one anchor.
+
+An aligned `Observed h² (SE)` text column between the partner names and correlation axis shows each partner's saved single-trait heritability. The subtitle shows the anchor's observed h2 and jackknife SE. Both use the same source, two-decimal formatting, and `failed` convention as the heatmap diagonal. The h2 column contains annotations, so its values do not share the correlation axis.
 
 ## Explore liability-scale h2 over population prevalence
 

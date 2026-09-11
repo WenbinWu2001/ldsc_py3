@@ -1,6 +1,6 @@
 # Calculate LD scores from gene lists
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-10
 
 Use gene-list mode to turn pathway, expression, proteomic, GO, or other gene
 sets into focal annotations for partitioned S-LDSC. LDSC resolves each list
@@ -132,3 +132,7 @@ Each focal result is conditional on the supplied baseline block and optional
 `gene_control`. A missing focal output is a workflow status, not evidence for a
 biological null; inspect diagnostics before regression.
 Query runs write the per-query result tree automatically. To summarize nominal conditional-coefficient evidence across all query gene lists, pass the aggregate partitioned-h2 result root to `ldsc plot`; do not pass an individual query folder.
+
+## Large pathway batches
+
+For 1,000 pathways, LD scoring shares baseline work and regression still tests each pathway separately against the baseline categories. `--query-batch-size` defaults to `1000` in direct/indexed `ldscore` and `partitioned-h2`; lower it to reduce active query workspace. Indexed assembly loads one chromosome operator and uses it through every query batch, then releases it. Final HM3 LD files stay aggregate. See the [batch regression guide](partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways) for result writing and memory controls.

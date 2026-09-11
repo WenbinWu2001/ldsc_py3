@@ -27,16 +27,19 @@ only when ``--allow-identity-downgrade`` or
 ``RegressionConfig.allow_identity_downgrade`` is set, and only within the same
 rsID or coordinate family.
 Partitioned-h2 fits the complete baseline model for baseline-only inputs and
-one baseline-plus-query model per query annotation otherwise. Query runs retain
-and write the full category table for every fitted model through the output-layer
-``PartitionedH2DirectoryWriter``. Genetic correlation accepts a list of two or
-more munged summary-statistic sources and returns the full rg output family:
+one baseline-plus-query model per query annotation otherwise. Query runs share
+trait/baseline preparation, load query columns in bounded batches, and stage
+completed category/delete-value/metadata files immediately. The output-layer
+``PartitionedH2DirectoryWriter`` publishes them after final summary sorting.
+Genetic correlation accepts two or more munged summary-statistic sources and
+returns the full rg output family:
 the concise headline table, a diagnostic full table, per-trait h2 summaries,
 and optional per-pair metadata for filesystem detail outputs.
 
 Regression commands require an ``output_dir`` and create per-run logs under
-``diagnostics/``. Numerical methods on :class:`RegressionRunner` remain
-in-memory APIs.
+``diagnostics/``. Individual estimator methods remain in-memory APIs; batch
+partitioned fitting requires an output directory and returns persistent detail
+paths. Final HM3 LD tables remain aggregate files.
 """
 
 from __future__ import annotations
@@ -330,7 +333,7 @@ class RegressionRunner:
     def prepare_inputs(
         self,
         sumstats_table: SumstatsTable,
-        ldscore_result: LDScoreResult,
+        ldscore_result: LDScoreSource | LDScoreResult,
         config: RegressionConfig | None = None,
     ) -> PreparedRegressionInputs:
         """Align traits and shared baseline LD scores once for a model batch.
@@ -548,7 +551,7 @@ class RegressionRunner:
         self,
         sumstats_table_1: SumstatsTable,
         sumstats_table_2: SumstatsTable,
-        ldscore_result: LDScoreResult,
+        ldscore_result: LDScoreSource | LDScoreResult,
         config: RegressionConfig | None = None,
     ) -> RGRegressionDataset:
         """Build the complete genetic-correlation preprocessing dataset.
@@ -858,7 +861,7 @@ class RegressionRunner:
     def estimate_partitioned_h2(
         self,
         sumstats_table: SumstatsTable,
-        ldscore_result: LDScoreResult,
+        ldscore_result: LDScoreSource | LDScoreResult,
         *,
         query_column: str,
         config: RegressionConfig | None = None,
@@ -869,7 +872,7 @@ class RegressionRunner:
         ----------
         sumstats_table : SumstatsTable
             Munged single-trait summary statistics.
-        ldscore_result : LDScoreResult
+        ldscore_result : LDScoreSource or LDScoreResult
             Canonical LD-score result containing baseline LD-score columns and
             at least one query LD-score column.
         query_column : str
@@ -1025,7 +1028,7 @@ class RegressionRunner:
         self,
         sumstats_table_1: SumstatsTable,
         sumstats_table_2: SumstatsTable,
-        ldscore_result: LDScoreResult,
+        ldscore_result: LDScoreSource | LDScoreResult,
         config: RegressionConfig | None = None,
     ):
         """Estimate genetic correlation between two munged summary-stat tables.
@@ -1089,7 +1092,7 @@ class RegressionRunner:
     def estimate_rg_pairs(
         self,
         sumstats_tables: Sequence[SumstatsTable],
-        ldscore_result: LDScoreResult,
+        ldscore_result: LDScoreSource | LDScoreResult,
         *,
         anchor_index: int | None = None,
         config: RegressionConfig | None = None,
@@ -1108,7 +1111,7 @@ class RegressionRunner:
             Munged summary-statistic tables for two or more traits. Trait names
             should already be unique; the CLI wrapper performs filename-based
             disambiguation before calling this method.
-        ldscore_result : LDScoreResult
+        ldscore_result : LDScoreSource or LDScoreResult
             Canonical LD-score result. Only baseline LD scores are used for rg.
         anchor_index : int or None, optional
             If provided, index of the anchor trait. The method computes
@@ -1210,7 +1213,7 @@ def _validate_regression_config_compatibility(
 
 def _regression_genome_build(
     sumstats_table: SumstatsTable,
-    ldscore_result: LDScoreResult,
+    ldscore_result: LDScoreSource | LDScoreResult,
     identifier_mode: str,
     *,
     context: str,
@@ -1276,7 +1279,7 @@ def _has_legacy_sumstats_source(table: SumstatsTable) -> bool:
 
 def _project_legacy_sumstats_to_panel(
     table: SumstatsTable,
-    ldscore_result: LDScoreResult,
+    ldscore_result: LDScoreSource | LDScoreResult,
 ) -> tuple[SumstatsTable, pd.DataFrame]:
     """Project one LDSC2 munged-sumstats table onto canonical panel identity.
 
@@ -1289,7 +1292,7 @@ def _project_legacy_sumstats_to_panel(
     ----------
     table : SumstatsTable
         Legacy text table marked with ``provenance['legacy_ldsc2']``.
-    ldscore_result : LDScoreResult
+    ldscore_result : LDScoreSource or LDScoreResult
         Canonical LDSC3 LD-score panel used by the pending regression.
 
     Returns
@@ -1516,7 +1519,7 @@ def _sumstats_identity_mode(
 
 
 def _ldscore_identity_mode(
-    ldscore_result: LDScoreResult,
+    ldscore_result: LDScoreSource | LDScoreResult,
     runner_config: GlobalConfig,
     *,
     fallback_mode: str | None = None,
@@ -1530,7 +1533,7 @@ def _ldscore_identity_mode(
 
 def _resolve_h2_identity(
     sumstats_table: SumstatsTable,
-    ldscore_result: LDScoreResult,
+    ldscore_result: LDScoreSource | LDScoreResult,
     runner_config: GlobalConfig,
     regression_config: RegressionConfig,
 ):
@@ -1547,7 +1550,7 @@ def _resolve_h2_identity(
 def _resolve_rg_identity(
     sumstats_table_1: SumstatsTable,
     sumstats_table_2: SumstatsTable,
-    ldscore_result: LDScoreResult,
+    ldscore_result: LDScoreSource | LDScoreResult,
     runner_config: GlobalConfig,
     regression_config: RegressionConfig,
 ):
@@ -1661,7 +1664,7 @@ def _select_count_key(
     )
 
 
-def _validate_partitioned_query_columns(ldscore_result: LDScoreResult, query_columns: Sequence[str]) -> list[str]:
+def _validate_partitioned_query_columns(ldscore_result: LDScoreSource | LDScoreResult, query_columns: Sequence[str]) -> list[str]:
     """Validate that requested cell-type query columns exist in the LD-score result.
 
     The functional regime (no query columns) is decided by the caller; this
@@ -1681,7 +1684,7 @@ def _validate_partitioned_query_columns(ldscore_result: LDScoreResult, query_col
 
 
 def _assemble_regression_ldscore_table(
-    ldscore_result: LDScoreResult,
+    ldscore_result: LDScoreSource | LDScoreResult,
     query_columns: Sequence[str],
     *,
     snp_identifier: str | None = None,
@@ -2340,7 +2343,7 @@ def _resolve_summary_sort(sort_by: str, *, has_queries: bool) -> str:
     return "coefficient-p" if has_queries else "category"
 
 
-def _log_partitioned_h2_regime(ldscore_result: LDScoreResult, has_queries: bool) -> None:
+def _log_partitioned_h2_regime(ldscore_result: LDScoreSource | LDScoreResult, has_queries: bool) -> None:
     """Log a one-block banner naming the regime and the column to focus on."""
     if has_queries:
         LOGGER.info(
@@ -2384,7 +2387,7 @@ def _log_quantitative_annotation_interpretation(ldscore_result: LDScoreResult) -
 
 def _log_effective_regression_identity(
     sumstats_tables: Sequence[SumstatsTable],
-    ldscore_result: LDScoreResult,
+    ldscore_result: LDScoreSource | LDScoreResult,
     runner_config: GlobalConfig,
     regression_config: RegressionConfig,
 ) -> None:

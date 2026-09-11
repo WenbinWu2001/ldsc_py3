@@ -1,6 +1,6 @@
 # BED Input Format
 
-Last updated on: 2026-08-03
+Last updated on: 2026-09-10
 
 Gene-list queries use the same interval projection and padding semantics after
 resolution; see [gene-list-input-format.md](gene-list-input-format.md).
@@ -10,8 +10,8 @@ applies to user-supplied query annotation BEDs:
 
 - `--query-annot-bed-sources`
 - `AnnotationBuildConfig(query_annot_bed_sources=...)`
-- `AnnotationBuilder.project_bed_annotations(...)`
-- `run_bed_to_annot(...)`
+- `AnnotationBuilder.run(..., output_dir=...)` with BED sources configured
+- `run_annotate(...)`
 
 This contract does not apply to PLINK binary `.bed` genotype files. PLINK
 inputs are accepted through `plink_prefix` / `--plink-prefix` and must be part

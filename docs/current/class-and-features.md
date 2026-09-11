@@ -8,7 +8,7 @@ This document summarizes the public package surface. For workflow-level file str
 
 | Feature | CLI | Python entry points | Main inputs | Main outputs |
 | --- | --- | --- | --- | --- |
-| Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_bed_to_annot()`, `run_annotate_from_args()`, `annotation_builder.main()` | baseline `.annot(.gz)`, BED inputs with optional `padding_bp` / `--padding-bp`; duplicate effective-key rows are dropped before BED projection | root `query.<chrom>.annot.gz`; diagnostics under `diagnostics/` include `metadata.json`, `dropped_snps/dropped.tsv.gz`, and `annotate.log` |
+| Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_annotate()`, `run_annotate_from_args()`, `annotation_builder.main()` | baseline `.annot(.gz)`, exactly one BED/gene-list route, explicit gene padding/catalog, and global duplicate cleanup before projection | root `query.<chrom>.annot.gz`; diagnostics under `diagnostics/` include `metadata.json`, `dropped_snps/dropped.tsv.gz`, and `annotate.log` |
 | Build a gene LD-score index | `ldsc build-gene-ldscore-index` | `GeneLDScoreIndexBuildConfig`, `build_gene_ldscore_index()`, `load_gene_ldscore_index()` | required canonical one-based gene catalog, explicit `hg19`, and base `rsid` or `chr_pos`; baseline annotations inner-joined to PLINK by the effective key; mutable duplicate groups drop-all with diagnostics; optional identity-only regression restriction | workers durably stage distinct chromosome payloads and release their records; the coordinator publishes one complete strictly validated mode/build-bearing index with `index_id`, PLINK-authored `CHR/POS/SNP/A1/A2`, embedded catalog, canonical chromosome order, successful-build JSON, completed log, and duplicate-drop sidecars; private stages are never resumable, and live/failed logs plus locking use hidden sibling build state |
 | Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, source build defaults to `auto` and is inferred from `.bim`, optional chain-file liftover in `chr_pos`-family modes, conditional genetic maps, optional keep/restrict files including an explicit `--ref-panel-snps-file`, optional `min_r2`; restriction identifier read from `GlobalConfig` and coordinates interpreted in the source build; restriction files are identity-only filters with duplicate keys collapsed; duplicate coordinate groups drop-all in `chr_pos`-family modes | root per-build `chr*_r2.parquet` and `chr*_meta.tsv.gz` artifacts; diagnostics under `diagnostics/` include full-suite `metadata.json` or per-chromosome `metadata.chr<chrom>.json`, `dropped_snps/chr*_dropped.tsv.gz`, and build logs |
 | Query reference-panel R2 | `ldsc query-r2` | `R2Panel`, `query_r2()`, `unbiased_r2_to_pearson_r()` | package-built panel directory, endpoint-suffixed pair table | required `--output-dir` result directory with `query_r2.tsv` plus diagnostics; pure `query_r2()` remains in-memory |
@@ -88,7 +88,10 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 
 | Type | Role |
 | --- | --- |
-| `AnnotationBundle` | aligned SNP metadata, baseline/query matrices, and ordered BED/gene resolution statuses |
+| `AnnotationBundle` | complete dataset metadata, on-demand chromosome/row/column descriptors, explicit `close()`, and ordered BED/gene statuses; no whole-genome matrices |
+| `LDScoreSource` | canonical-directory baseline and identity metadata with selective `read_queries(columns)` access |
+| `PreparedRegressionInputs` | shared trait/baseline alignment and row mappings for separate pathway models |
+| `PartitionedH2BatchResult` | aggregate summary plus persistent `output_paths` and per-query fit artifact paths |
 | `ReferencePanelBuildResult` | summary of parquet panel artifacts written by one build |
 | `ChromLDScoreResult` | one chromosome’s LD-score and weight tables, plus `config_snapshot` provenance |
 | `LDScoreResult` | aggregated cross-chromosome artifacts plus config, final query statuses, and optional gene-list batch audit/summary state |
@@ -97,7 +100,7 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 | `MungeRunSummary` | compact record of a munging run |
 | `RegressionDataset` | merged sumstats plus LD-score matrix used by the estimator, plus propagated provenance when available |
 | `RgResultFamily` | complete multi-trait genetic-correlation result family: concise rg table, full diagnostic table, per-trait h2 table, and per-pair metadata; rg p-values are nominal and uncorrected |
-| `QuantileH2Result` | quantile summaries, standardized coefficients, alignment issues, metadata, and output paths for one fitted model/target pair |
+| `QuantileH2Result` | quantile summaries, standardized coefficients, a persistent alignment-issues path, metadata, and output paths for one fitted model/target pair |
 | `PlotArtifact` | immutable plot kind, saved PNG path, and live Matplotlib figure/axes |
 | `H2ScaleConversionArtifact` | immutable paths to the conversion table, metadata, log, and optional sensitivity figure |
 | `ChrPosBuildInference` | genome-build and coordinate-basis decision returned by `infer_chr_pos_build()` and `resolve_chr_pos_table()` |
@@ -188,7 +191,7 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 
 ## Public Import Boundary
 
-Stable user-facing imports are re-exported from `ldsc.__init__`. That includes the workflow services, config dataclasses, reference-panel abstractions, and convenience helpers such as `run_bed_to_annot()`, `run_ldscore()`, `query_r2()`, and `load_sumstats()`. Annotation parser helpers live in `ldsc.annotation_builder`; `annotation_builder.main()` is the supported parser entry point for BED-to-annotation projection. Internal modules under `ldsc._kernel` are implementation details and may change without the same compatibility promise.
+Stable user-facing imports are re-exported from `ldsc.__init__`. That includes the workflow services, config dataclasses, reference-panel abstractions, and convenience helpers such as `run_annotate()`, `run_ldscore()`, `query_r2()`, and `load_sumstats()`. Annotation parser helpers live in `ldsc.annotation_builder`; `annotation_builder.main()` is the supported parser entry point for standalone BED/gene annotation. Internal modules under `ldsc._kernel` are implementation details and may change without the same compatibility promise.
 
 `plot_result`, `PlotArtifact`, `convert_h2_scale`, and
 `H2ScaleConversionArtifact` are lazy top-level exports. Importing `ldsc` does

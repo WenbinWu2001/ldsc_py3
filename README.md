@@ -12,6 +12,12 @@ This repository is the active refactored LDSC package.
 - `tutorials/`: package-level usage examples
 - [Contributor entry](docs/current/code-structure.md): authoritative module navigation and links to current workflow, scientific, and artifact contracts
 
+## Large pathway batches
+
+The annotation and regression workflows are designed for large pathway batches, such as **1,000 pathways in one run, each tested separately against shared baseline categories**. Whole-genome annotation inputs are prepared in bounded chunks; chromosome working data are released between sequential runs, and parallel work is bounded by `--threads`. `--query-batch-size` defaults to `1000` for direct/indexed `ldscore` and batch `partitioned-h2`; use a smaller positive value to reduce active query workspace. Final HM3 LD-score tables remain aggregate Parquet files, never public chromosome LD shards.
+
+Standalone `annotate` accepts BED files or gene lists and writes reusable chromosome annotation shards incrementally. Source-backed Python preparation requires an output directory and explicit bundle ownership; new scratch stays under that destination, with the existing gene-index construction transaction as the exception. See the [developer memory design](docs/current/annotation-memory-design.md) and [pathway batch guide](docs/wiki/main-functionalities/partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways).
+
 ## Install
 
 Choose the stable branch for routine use, or the `restructure` branch for the
@@ -188,8 +194,8 @@ source-build `CHR` and `POS`, plus the allele set in
 keys. Rows with missing or invalid coordinates are dropped and counted at
 coordinate match/map stages. The base `chr_pos` mode uses coordinate identity
 without allele-aware matching. To convert coordinates after QC and after SNP
-restriction, pass `--target-genome-build` with `--liftover-chain-file`, or pair
-`--target-genome-build --use-hm3-snps --use-hm3-quick-liftover` for the HM3
+restriction, pass `--output-genome-build` with `--liftover-chain-file`, or pair
+`--output-genome-build --use-hm3-snps --use-hm3-quick-liftover` for the HM3
 coordinate shortcut. Liftover is invalid in `rsid`-family modes because
 positions are not the row identity there.
 

@@ -701,3 +701,7 @@ the observed h2 estimate and SE. Required Matplotlib is loaded only by
 figure-producing paths; exact conversion does not import it. See
 [plotting-module.md](plotting-module.md) for dispatch, ownership, and failure
 boundaries.
+
+## Bounded annotation and model flow
+
+Annotation sources are scanned in bounded chunks into separate chromosome metadata/value artifacts. BED and gene queries are constructed on demand; direct LD scoring holds at most the configured chromosome workers and active query batches. Final HM3 LD tables remain aggregate. Batch regression shares trait/baseline alignment, reads selected query columns, and stages each completed fit. Exact quantile reconstruction uses global float64 boundaries and two bounded annotation passes. See [the implemented memory design](annotation-memory-design.md) for the owner and release point at each boundary.

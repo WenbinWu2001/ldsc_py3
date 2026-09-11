@@ -10,9 +10,7 @@ In this package, cell-specific LDSC is the `partitioned-h2` workflow applied to 
 
 Cell-type query annotations require explicit baseline annotations. The
 synthetic all-ones `base` annotation is reserved for ordinary unpartitioned
-LD-score generation when no query inputs are present. `partitioned-h2` rejects
-baseline-only LD-score directories rather than treating `base` as a cell-type
-query.
+LD-score generation when no query inputs are present. `partitioned-h2` treats baseline-only directories as one joint functional-category fit; they have no cell-type query tests.
 
 The examples below assume chromosome-pattern inputs such as
 `baseline.@.annot.gz`, `cell_type_beds/*.bed`, and a package-built
@@ -37,99 +35,45 @@ as `--genome-build auto` rather than a separate command.
 
 ## Python API
 
+The source-backed workflow stages annotations under the selected output directory and releases chromosome working data as it advances. Regression reads the aggregate LD-score files selectively.
+
 ```python
 from ldsc import (
-    AnnotationBuildConfig,
-    AnnotationBuilder,
-    GlobalConfig,
-    LDScoreCalculator,
-    LDScoreConfig,
-    LDScoreOutputConfig,
-    RefPanelLoader,
-    RefPanelConfig,
-    RegressionConfig,
-    RegressionRunner,
-    load_sumstats,
-    set_global_config,
+    GlobalConfig, RegressionConfig, RegressionRunner,
+    load_ldscore_from_dir, load_sumstats, run_ldscore, set_global_config,
 )
 
-GLOBAL_CONFIG = GlobalConfig(
-    snp_identifier="chr_pos_allele_aware",
-    genome_build="hg19",
-)
+GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19")
 set_global_config(GLOBAL_CONFIG)
+ldscore_dir = "tutorial_outputs/cell_specific_ldscores"
 
-annotation_bundle = AnnotationBuilder(GLOBAL_CONFIG, AnnotationBuildConfig()).run(
-    AnnotationBuildConfig(
-        baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
-        query_annot_bed_sources="annotations/cell_type_beds/*.bed",
-    )
+run_ldscore(
+    baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
+    query_annot_bed_sources="annotations/cell_type_beds/*.bed",
+    r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg19",
+    ld_wind_cm=1.0,
+    query_batch_size=1000,
+    threads=1,
+    output_dir=ldscore_dir,
 )
-
-ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
-    RefPanelConfig(
-        backend="parquet_r2",
-        r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg19",
-        chromosomes=tuple(annotation_bundle.chromosomes),
-        use_hm3_ref_panel_snps=True,
-    )
-)
-
-ldscore_result = LDScoreCalculator().run(
-    annotation_bundle=annotation_bundle,
-    ref_panel=ref_panel,
-    ldscore_config=LDScoreConfig(
-        ld_wind_cm=1.0,
-        use_hm3_regression_snps=True,
-    ),
-    global_config=GLOBAL_CONFIG,
-    output_config=LDScoreOutputConfig(
-        output_dir="tutorial_outputs/cell_specific_ldscores",
-        # overwrite=True,  # also removes stale LD-score siblings not produced by this run
-    ),
-)
-
-# Current disk-loaded sumstats recover config_snapshot from root
-# metadata.json. Old package-written artifacts without current
-# provenance must be regenerated with the current LDSC package.
+source = load_ldscore_from_dir(ldscore_dir)
 sumstats = load_sumstats("tutorial_outputs/trait/sumstats.parquet", trait_name="trait")
-
-runner = RegressionRunner(
-    global_config=GLOBAL_CONFIG,
-    regression_config=RegressionConfig(),
+runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
+result = runner.estimate_partitioned_h2_batch(
+    sumstats, source,
+    query_batch_size=1000,
+    output_dir="tutorial_outputs/cell_specific_h2",
+    metadata={"ldscore_dir": ldscore_dir, "trait_name": "trait"},
 )
-cell_specific = runner.estimate_partitioned_h2_batch(
-    sumstats,
-    ldscore_result,
-    annotation_bundle,
-)
-
-cell_specific.to_csv("tutorial_outputs/cell_specific_ldsc.tsv", sep="\t", index=False)
-print(annotation_bundle.query_columns)
-print(cell_specific)
+print(result.summary)
+print(result.per_query_artifacts)  # Persistent category/delete-value/metadata paths.
 ```
 
-`annotation_bundle.query_columns` are derived from the query annotation files. For BED inputs, the column names come from the BED basenames after normalization.
+Run `munge-sumstats` first if the trait is still in a raw format; see [heritability estimates](heritability-estimates.md). Current curated Parquet inputs carry identity/build provenance in their footer. The effective SNP key controls alignment; reference contributors and regression/output SNPs remain separate universes.
 
-The LD-score result and annotation bundle retain known `GlobalConfig`
-snapshots. Current disk-loaded `sumstats.parquet` recover the same provenance from
-their footer. A legacy `.sumstats.gz` or footer-less parquet carries no embedded
-metadata and loads with its identifier mode inferred from the LD-score panel. With
-`snp_identifier="chr_pos_allele_aware"`, the merge uses normalized
-`CHR:POS:<allele_set>` identity rather than rsIDs, and the `SNP` column remains
-a label. To run coordinate identity without allele-aware matching, set
-`snp_identifier="chr_pos"` or pass `--snp-identifier chr_pos`; use the base
-`rsid` mode for rsID-only identity. The removed `--no-alleles` flag is not
-accepted. If raw sumstats coordinates need a build
-conversion before this regression step, run `munge-sumstats` with
-`--output-genome-build` plus either `--liftover-chain-file` or
-`--use-hm3-snps --use-hm3-quick-liftover` when the inferred source build differs from the output build. Liftover drops duplicate source/target coordinate
-groups, writes count summaries to `diagnostics/sumstats.log`, and audits row-level drops in
-`diagnostics/dropped_snps/dropped.tsv.gz`; examples appear only at `DEBUG`. The metadata
-sidecar remains a thin compatibility artifact. `munge-sumstats` defaults to
-`--format auto` and `--source-genome-build auto`; run it with `--infer-only --output-genome-build <hg19|hg38>` to inspect the detected raw format,
-inferred columns, INFO-list handling, source/output build, liftover status, and missing fields before writing
-outputs.
+This memory design supports 1,000 pathways in one run, each tested separately against shared baseline categories. The default `query_batch_size=1000` permits all 1,000 queries in one active batch; reducing it limits query workspace without changing the models. With `threads=1`, chromosome arrays are released before the next chromosome; allocators may retain freed pages, so RSS need not immediately fall. Final HM3 LD tables remain aggregate and may stay materialized.
+
+For reusable annotations, use `with run_annotate(..., output_dir=...) as bundle:`. For explicit low-level preparation, use `with AnnotationBuilder(config).run(source_config, output_dir=...) as bundle:` and finish all borrowers before closure. Returned standalone bundles reference saved query outputs and may depend on original baseline inputs. See the [developer memory design](../docs/current/annotation-memory-design.md).
 
 ## CLI
 
@@ -141,8 +85,7 @@ ldsc ldscore \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-bed-sources "annotations/cell_type_beds/*.bed" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg19" \
-  --use-hm3-ref-panel-snps \
-  --use-hm3-regression-snps \
+  --ref-panel-snps-file filters/reference_universe.tsv.gz \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg19 \
   --common-maf-min 0.05 \
@@ -150,7 +93,7 @@ ldsc ldscore \
 ```
 
 When reusable query `.annot.gz` shards are useful, use `ldsc annotate` or
-`run_bed_to_annot(...)`; both are public `ldsc.annotation_builder` workflow
+`run_annotate(...)`; both are public `ldsc.annotation_builder` workflow
 entry points and return the same `AnnotationBundle` shape used above.
 
 Then run partitioned h2 over the cell-type query columns:

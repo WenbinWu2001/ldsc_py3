@@ -160,9 +160,9 @@ are written.
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--query-annot-bed-sources` | input | yes | BED interval files | Accepts exact files, globs, comma-separated tokens, and source-token lists. Each resolved BED file stem (`Path.stem`) becomes a query annotation name; duplicate stems are rejected. |
+| `--query-annot-bed-sources` | input | one route | BED interval files | Accepts exact files, globs, comma-separated tokens, and source-token lists. Each resolved BED file stem (`Path.stem`) becomes a query annotation name; duplicate stems are rejected. |
 | `--baseline-annot-sources` | input | yes | baseline `.annot[.gz]` templates | Accepts exact files, globs, and `@` chromosome-suite tokens. |
-| `--output-dir` | output | yes | generated query annotation directory | Writes combined root `query.<chrom>.annot.gz` files, with all BED inputs represented as query columns, plus diagnostic `metadata.json`, `dropped_snps/dropped.tsv.gz`, and `annotate.log` under `diagnostics/`. |
+| `--output-dir` | output | yes | generated query annotation directory | Writes combined root `query.<chrom>.annot.gz` files for retained BED/gene queries, plus diagnostic `metadata.json`, `dropped_snps/dropped.tsv.gz`, and `annotate.log` under `diagnostics/`; gene mode adds resolution/support audits. |
 | `--padding-bp` | input transform | no | BED interval expansion | Adds this many base pairs to both sides of each BED interval before SNP projection; starts are clipped at zero. Defaults to `0`, so BED intervals are used as provided. |
 | `--overwrite` | output mode | no | collision policy | Controls whether generated annotation files and diagnostics may be replaced; defaults to `False`, so any existing root-level `query.*.annot.gz` shard or owned diagnostic artifact is refused. With overwrite, stale query shards outside the current chromosome set are removed after a successful run. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`; these records go to `diagnostics/annotate.log` and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
@@ -171,10 +171,13 @@ are written.
 
 Removed flags: `--bed-files`, `--baseline-annot`, `--bed-padding-bp`.
 
+Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requires `--gene-coordinate-file` and explicit nonnegative `--padding-bp`, and supports `--gene-list-resolution-policy {strict,resolved-only}` and `--gene-exclude-regions {none,mhc}`. It has no control list. `--output-dir` remains required; the complete contract is in [annotate gene-list decisions](annotate-gene-list-decisions.md).
+
 ### `ldsc ldscore`
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
+| `--query-batch-size` | config | no | active focal query columns | Positive integer, default `1000`; independent of chromosome workers and separate model fitting. |
 | `--output-dir` | output | yes | canonical LD-score result directory | Writes root scientific artifacts and `diagnostics/ldscore.log`; evaluated BED/gene runs add `query_annotation_status.tsv`, and gene runs add `gene_list_audit.tsv.gz` plus `gene_list_resolution_summary.tsv`. Parquet row groups are chromosome-aligned. |
 | `--gene-ldscore-index-dir` | input | no | exact gene LD-score index | Selects indexed gene-list assembly instead of live baseline/reference-panel computation; defaults to omitted/`None`. Requires `--query-annot-gene-list-sources`; scientific settings are inherited from the immutable index, so live inputs and non-default overrides are rejected, and explicit padding is always rejected. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed LD-score files and `diagnostics/ldscore.log` may be replaced; defaults to `False`, so any existing owned LD-score artifact in `output_dir` is refused. With overwrite, stale `ldscore.query.parquet` is removed after successful baseline-only runs. |
@@ -483,6 +486,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Requires an overlap artifact. With query columns, runs the cell-type regime (baseline plus one query per model); with no query columns, runs one functional-category model jointly over all baseline columns. This includes explicitly converted baseline-only LDSC2 suites. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. Accepts current Parquet or legacy LDSC2 text under the same projection rule as `h2`. |
 | `--trait-name` | input metadata | no | output trait label | Optional label override; defaults to omitted/`None`. If omitted, regression uses the sumstats parquet footer `ldsc:trait_name` when present, then the filename fallback. |
+| `--query-batch-size` | config | no | active focal query columns | Positive integer, default `1000`; independent of chromosome workers and separate model fitting. |
 | `--output-dir` | output | yes | result output directory | Required destination for `partitioned_h2.tsv` and diagnostics. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--n-blocks` | model | no | block jackknife partitions | Number of jackknife blocks used by the regression estimator; defaults to `200`. |
@@ -571,13 +575,7 @@ The CLI intentionally has no `--output-dir`.
 
 ## Public Python API Inventory
 
-The Python boundary intentionally differs from the CLI only where an API is a
-genuine in-memory computation primitive. CLI-style workflow wrappers require an
-output directory. `AnnotationBuilder.run()` and `LDScoreCalculator.run()` may
-remain in memory when their output config is omitted, while honoring it when it
-is present; reference-metadata export is the one conditional case that makes
-`LDScoreCalculator.run()` output mandatory. Numerical `RegressionRunner`
-methods retain their existing in-memory return types.
+CLI-style workflow wrappers require an output directory. `AnnotationBuilder.run(..., output_dir=...)` also requires a writable parent for private source preparation. `LDScoreCalculator.run()` can return materialized HM3 results without writing when it borrows an already prepared bundle; reference-metadata export requires its output config. Individual regression estimators remain in-memory APIs. Batch `estimate_partitioned_h2_batch(..., output_dir=...)` writes completed fit details and returns persistent paths plus the aggregate summary.
 
 ### Annotation
 
@@ -588,19 +586,16 @@ methods retain their existing in-memory return types.
 | `AnnotationBuildConfig` | `query_annot_bed_sources` | input | query BED group |
 | `AnnotationBuildConfig` | `query_annot_gene_list_sources` | input | one-column query gene-list group |
 | `AnnotationBuildConfig` | `padding_bp` | input transform | BED or resolved-gene interval padding in base pairs; default `0` |
-| `AnnotationBuildConfig` | `output_dir` | output | optional; omission keeps the bundle in memory, while a value selects the generated query-annotation directory |
-| `AnnotationBuilder.run(config=None, chrom=None)` | `config` | input/output | honors `config.output_dir` by writing query shards, metadata, drop audit, and `diagnostics/annotate.log`; defaults to the builder config |
-| `AnnotationBuilder.project_bed_annotations(...)` | `query_annot_bed_sources` | input | query BED group |
-| `AnnotationBuilder.project_bed_annotations(...)` | `padding_bp` | input transform | BED interval padding in base pairs before projection; default `0` |
-| `AnnotationBuilder.project_bed_annotations(...)` | `output_dir` | output | optional; omission keeps the projection in memory |
-| `add_annotate_arguments(parser)` | `parser` | CLI surface | shared annotate argument registration for standalone and top-level parsers |
-| `run_annotate_from_args(args)` / `main(argv)` | `query_annot_bed_sources` | input | query BED group |
-| `run_annotate_from_args(args)` / `main(argv)` | `baseline_annot_sources` | input | baseline annotation templates |
-| `run_annotate_from_args(args)` / `main(argv)` | `output_dir` | output | required CLI-style workflow destination |
-| `run_bed_to_annot(...)` | `query_annot_bed_sources` | input | query BED group |
-| `run_bed_to_annot(...)` | `baseline_annot_sources` | input | baseline annotation templates |
-| `run_bed_to_annot(...)` | `padding_bp` | input transform | BED interval padding in base pairs before projection; default `0` |
-| `run_bed_to_annot(...)` | `output_dir` | output | optional; omission stays in memory, while materialization includes `diagnostics/annotate.log` |
+| `AnnotationBuilder.run(source_spec=None, *, output_dir)` | `source_spec` | input | baseline and optional prebuilt/BED/gene configuration; defaults to the builder configuration |
+| `AnnotationBuilder.run(...)` | `output_dir` | output | required private-staging parent; returns a resource-owning chromosome handle |
+| `add_annotate_arguments(parser)` / `parse_annotate_args(argv)` | parser/argv | CLI surface | shared BED/gene argument registration and parsing |
+| `run_annotate_from_args(args)` / `main(argv)` | namespace/argv | workflow | general standalone annotate dispatch |
+| `run_annotate(...)` | `query_annot_bed_sources` / `query_annot_gene_list_sources` | input | exactly one focal route |
+| `run_annotate(...)` | `baseline_annot_sources` | input | required annotation grid |
+| `run_annotate(...)` | `padding_bp` | transform | omitted BED padding is zero; genes require an explicit nonnegative value |
+| `run_annotate(...)` | `output_dir`, `overwrite` | output | required canonical destination and explicit collision policy; returns persistent output/source references |
+
+The obsolete annotation-config output/compression/missing-query fields and `project_bed_annotations()` are removed. Output ownership belongs to the workflow, and bundles expose selected chromosome reads plus `close()`.
 
 Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 `baseline_annot`, `bed_padding_bp`, `out_prefix`, `main_bed_to_annot`.
@@ -712,7 +707,9 @@ Removed Python names: legacy separate source-path object field,
 
 | Object/function | Argument | Direction | Object |
 |---|---:|---:|---|
-| `RegressionRunner.estimate_partitioned_h2_batch(...)` | `include_full_partitioned_h2` | return mode | defaults to `False`, preserving the aggregate `pandas.DataFrame` return; CLI query workflows opt into the richer batch payload internally so they can write per-query artifacts |
+| `RegressionRunner.estimate_partitioned_h2_batch(...)` | `output_dir`, `overwrite` | output | required persistent destination and explicit collision policy; returns `PartitionedH2BatchResult` with summary and detail paths |
+| `RegressionRunner.estimate_partitioned_h2_batch(...)` | `query_columns`, `query_batch_size` | model selection / memory | explicit focal names or all declared queries; positive maximum active query count, default 1000; each query fits separately |
+| `load_ldscore_from_dir(...)` | `ldscore_dir` | input | returns `LDScoreSource` with shared baseline/schema metadata and selected query-column reads |
 | `PartitionedH2OutputConfig` | `write_per_query_results` | low-level output mode | remains an explicit Python writer control; CLI query workflows set it automatically |
 | `run_h2_from_args(args)` | `ldscore_dir` | input | LD-score result directory |
 | `run_h2_from_args(args)` | `sumstats_file` | input | munged summary-statistics file |

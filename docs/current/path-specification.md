@@ -244,12 +244,13 @@ Relevant APIs:
 
 - `annotation_builder.main(argv)`
 - `run_annotate_from_args(args)`
-- `run_bed_to_annot(...)`
-- `AnnotationBuilder.project_bed_annotations(...)`
+- `run_annotate(...)`
+- `parse_annotate_args(argv)`
+- `AnnotationBuilder.run(source_spec, output_dir=...)`
 
 Accepted path forms:
 
-- `query_annot_bed_sources`: exact path or glob
+- `query_annot_bed_sources` or `query_annot_gene_list_sources`: exact paths or globs; standalone annotate accepts exactly one route
 - `baseline_annot_sources`: exact path, glob, or explicit `@`
 
 How files are handled:
@@ -275,7 +276,7 @@ Requirements:
 Example:
 
 ```python
-run_bed_to_annot(
+run_annotate(
     query_annot_bed_sources="beds/*.bed",
     baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     output_dir="annotations/query_from_beds",

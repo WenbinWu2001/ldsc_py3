@@ -1,74 +1,44 @@
-## Functionality
+# Create reusable query annotations
 
-YOU DO NOT NEED TO ANNOTATE BEFORE RUNNING `ldscore`! Just input the gene lists / bed files directly.
+Last updated on: 2026-09-10
 
-curate binary query annotation files from bed files, given a set of baseline annotation files.
+`ldsc annotate` projects BED intervals or gene lists onto the SNP rows in baseline annotations and writes reusable binary query files. Direct `ldsc ldscore` accepts BED files and gene lists too, so standalone annotation is optional.
 
-## Input
+## Inputs
 
-### baseline annotations
+Supply `--baseline-annot-sources`, `--output-dir`, and exactly one query route:
 
-`1000G_EUR_Phase3_baseline/baseline.@.annot.gz`
+- `--query-annot-bed-sources`: user-created or externally obtained BED files. The first three fields are chromosome, 0-based start, and exclusive end. See [BED format](../../current/bed-input-format.md). Omitted padding is zero; explicit nonnegative `--padding-bp` expands both ends and clips starts at zero.
+- `--query-annot-gene-list-sources`: one-column lists resolved exactly against `--gene-coordinate-file`. Explicit nonnegative `--padding-bp` is required; `0` selects gene bodies. Use `--gene-list-resolution-policy strict` or `resolved-only`, and `--gene-exclude-regions none` or `mhc`. Standalone annotate has no control-gene-list option.
 
-Each row is a SNP, and a value of 1 for an annotation means this SNP is included in the annotation (e.g. pathway / differentially-experssed gene region).
-
-The columns in this file are:
-
-- `CHR`, `BP`, `SNP`, `CM`: metadata for SNPs.
-- 53 baseline annotations, including a base annotation `base` of all ones and 52 other baseline annotations.
-
-### query bed files
-
-Four cell-type-specific (query) bed files: 
-
-`Cerebellum_PC16.bed`,  `Cerebellum_PP1.bed`, `Cerebellum_PP3.bed`, `Hippocampus_PP1.bed`
-
-**required format:**
-
-TODO
-
-## Output
-
-per-chromosome binary annotations for all *query* annotations (i.e., the file does not contain baseline annotations), with rows aligned to the baseline annotations. You'd recycle the input baseline annotations in downstream regression by the flag `--baseline-annot-sources`.
-
-Under output directory, you have `query.1.annot.gz`, `query.2.annot.gz`, ...,  `query.22.annot.gz`.
-
-This is the canonical chromosome-sharded input format for downstream
-`ldsc ldscore`: **one query annotation file per chromosome, containing multiple
-annotation columns; each column is one query annotation**. Pass the generated
-suite directly with:
+Baseline rows supply the annotation grid. Exact paths and globs select the actual input contents; an `@` suite explicitly requires autosomes 1–22. Resolved genes outside this scope fail under either resolution policy after explicit exclusions. Catalog and baseline projection builds must agree; rsID identity records projection-build provenance separately.
 
 ```bash
---query-annot-sources '<annotate-output-dir>/query.@.annot.gz'
+ldsc annotate \
+  --baseline-annot-sources 'baseline/baseline.@.annot.gz' \
+  --query-annot-gene-list-sources 'pathways/*.txt' \
+  --gene-coordinate-file genes.hg19.tsv.gz \
+  --padding-bp 100000 \
+  --gene-exclude-regions none \
+  --snp-identifier rsid \
+  --genome-build hg19 \
+  --output-dir annotations/pathways
 ```
 
-Do not split the output into one chromosome-sharded suite per query. In
-sharded mode, `ldscore` expects exactly one query file for each chromosome and
-reads the individual queries from that file's annotation columns.
+For BED input, replace the gene-list/catalog/exclusion options with `--query-annot-bed-sources 'beds/*.bed'`; padding remains available.
 
-Each annotation file has the following columns:
+## Outputs and validation
 
-- `CHR`, `BP`, `SNP`, `CM`: metadata for SNPs, copied from baseline annotations. `CM` is set as empty to indicate no-use in downstream.
-- one binary annotation column for each query BED file, such as `Cerebellum_PC16`, `Cerebellum_PP1`, `Cerebellum_PP3`, or `Hippocampus_PP1`. Generated columns are Boolean in memory and are written as integer `0`/`1`, never `False`/`True` or `0.0`/`1.0`. Externally supplied annotation columns remain continuous-capable `float32` values on read.
+The output contains `query.<chrom>.annot.gz`, one file per surviving chromosome with all usable query columns. Rows retain the baseline identities and order after global identity cleanup. The canonical header is `CHR BP SNP CM`, optional allele columns, then query columns; `CM` is explicitly `NA`, and generated values are integer `0`/`1`. Ordinary prebuilt quantitative annotations remain supported by `ldscore` and are normalized to float32.
 
+The query files contain no baseline value columns. Reuse the original baseline sources for LD scoring and pass the generated query suite, for example `--query-annot-sources 'annotations/pathways/query.@.annot.gz'`. Use a glob instead of `@` for an intentionally smaller chromosome scope. Do not split each query column into its own chromosome suite.
 
+Gene Gate A reports safely discoverable source, naming, catalog, and identifier issues. Gate B evaluates support only on baseline rows surviving identity cleanup. Empty and globally unsupported focal queries are skipped while usable siblings continue; an all-skipped batch fails. All-one queries remain valid. A query supported on another chromosome retains its zero-valued shards. Standalone annotate performs no reference-panel or regression-design tests.
 
-## Config
+`diagnostics/` contains metadata, the command log, statuses, applicable input/scope/catalog diagnostics, a complete drop audit, and gene audits/summaries in gene mode. Gene support is labeled `annotation_snp_count`; reference-panel counts are unevaluated. See the [complete condition–outcome table](../../current/annotate-gene-list-decisions.md#validation-gates-and-conditionoutcome-table).
 
-For four annotations, 
+## Memory and Python ownership
 
-- **peak memory usage:** 6GB, 
-- **running time:** <15 mins on longleaf 
-- single-cpu, no parallel supported.
+Preparation scans whole-genome files in bounded chunks. Projection and writing proceed chromosome by chromosome; the returned bundle references persistent outputs and may depend on original baselines. No whole-genome annotation matrix is returned. New private files stay under the selected output directory. Use `with run_annotate(...) as bundle:` or close a Python bundle after reading it.
 
-
-
-## TODO
-
-1. why it needs such large memory?
-2. benchmark time and memory usage with increasing number of annotation -- this gives practical suggestions on the users' choice of memory and running time config for slurm jobs
-3. In the input and output sections, use header lines `head -n 2` as a table besides description of the columns.
-
-
-
-​	
+This architecture supports large pathway batches, including 1,000 pathways subsequently tested separately against shared baseline categories. Standalone annotate is sequential; direct LD scoring additionally supports bounded chromosome workers and query batching. Released arrays become reusable memory, but process RSS may not immediately decrease. See the [developer memory design](../../current/annotation-memory-design.md) and [LD-score guide](../main-functionalities/ldscore.md). Existing artifacts require `--overwrite`; failure markers and stale-output cleanup retain their command contracts.

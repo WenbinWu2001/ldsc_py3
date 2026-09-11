@@ -17,22 +17,7 @@ Quote CLI glob patterns so the package receives them intact. Users own glob sele
 
 ## Reference inputs and conventions
 
-The examples below assume chromosome-pattern annotation inputs such as
-`annotations/baseline.1.annot.gz` and a package-built R2 directory such as
-`r2_ref_panel_1kg30x_1cM_hm3/hg38`.
-For the parquet backend, package-built R2 files use canonical pair columns
-(`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`) plus endpoint allele columns
-(`A1_1`, `A2_1`, `A1_2`, `A2_2`) in allele-aware modes, written with PyArrow
-row groups. The matching `chr*_meta.tsv.gz` sidecars define the full
-reference-panel SNP universe and supply `MAF`/`CM`; they are required in
-allele-aware modes because reference metadata must carry usable `A1/A2`.
-Package-built R2 parquet files also store `ldsc:r2_bias` and `ldsc:n_samples`
-in Arrow schema metadata. R2 bias mode and sample size are read solely from this
-metadata — there are no bias-related flags — so external raw R2 parquet files
-must declare `ldsc:r2_bias=raw` and `ldsc:n_samples` to be corrected. External raw R2 parquet inputs
-are supported only in `rsid` and `chr_pos`; allele-aware modes require
-package-built canonical R2 parquet with endpoint allele columns
-`A1_1/A2_1/A1_2/A2_2`.
+The examples below assume chromosome-pattern annotation inputs such as `annotations/baseline.1.annot.gz` and a package-built R2 directory such as `r2_ref_panel_1kg30x_1cM_hm3/hg38`. Canonical Parquet files have exactly four columns: `IDX_1`, `IDX_2`, `R2`, and `SIGN`. The endpoint indices reference rows in the required `chr*_meta.tsv.gz` sidecar, which supplies SNP identities, alleles, `MAF`, and `CM`. Schema metadata binds the pair table to that sidecar. External raw R2 and the older identity-expanded format are unsupported; use `build-ref-panel` to construct a canonical panel. See the [format and read pipeline](../docs/current/parquet-r2-format-and-read-pipeline.md).
 
 Input-token rules used below:
 
@@ -388,26 +373,25 @@ the closed log moves to
 remain in hidden state and are archived on retry. This keeps the destination
 absent or empty until a complete index is published.
 
-## Optional: Materialize BED Projections for Reuse
+## Optional: Materialize BED or Gene Projections for Reuse
 
-If you want reusable query `.annot.gz` shards on disk, call `run_bed_to_annot(...)` or `ldsc annotate` explicitly.
+If you want reusable query `.annot.gz` shards on disk, call `run_annotate(...)` or `ldsc annotate` explicitly.
 
 ### Python API
 
 ```python
-from ldsc import GlobalConfig, run_bed_to_annot, set_global_config
+from ldsc import GlobalConfig, run_annotate, set_global_config
 
 set_global_config(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
 
-bundle = run_bed_to_annot(
+with run_annotate(
     query_annot_bed_sources="beds/*.bed",
     baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     output_dir="annotations/query_from_beds",
     # overwrite=True,  # also removes stale query shards outside the current chromosome set
-)
-
-print(bundle.query_columns)
-print(bundle.chromosomes)
+) as bundle:
+    print(bundle.query_columns)
+    print(bundle.chromosomes)
 ```
 
 ### CLI
@@ -420,6 +404,24 @@ ldsc annotate \
 ```
 
 The generated query shards are named `query.<chrom>.annot.gz`, so downstream inputs should use a token such as `annotations/query_from_beds/query.@.annot.gz`.
+
+To construct the same persistent annotation format from gene lists, select the gene route instead of BED sources and choose the padding explicitly:
+
+```bash
+ldsc annotate \
+  --query-annot-gene-list-sources "gene_lists/*.txt" \
+  --gene-coordinate-file references/genes_hg19.tsv.gz \
+  --gene-list-resolution-policy strict \
+  --gene-exclude-regions none \
+  --padding-bp 0 \
+  --genome-build hg19 \
+  --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
+  --output-dir annotations/query_from_genes
+```
+
+Standalone gene annotation measures support on the cleaned baseline SNP grid and reports `annotation_snp_count`; it does not evaluate reference-panel or regression support. Empty and globally unsupported focal lists are skipped, usable siblings continue, and an all-skipped batch fails. All-one queries are retained. No control-gene route is accepted. See the [standalone guide](../docs/wiki/utility-functionalities/annotate.md) for coverage, diagnostics, and build rules.
+
+The returned bundle references persistent query shards and the original baseline sources. Construction scratch is released before return; an explicit chromosome read can prepare private data again under the output directory. Close the bundle after use. Closure preserves the saved queries and original baselines.
 
 If `--output-dir` does not exist yet, the workflow creates it automatically and logs creation at INFO. If any root-level `query.*.annot.gz` shard already exists, the
 command fails before writing any shard, even if that shard is outside the
@@ -492,6 +494,6 @@ Both explicit restriction files are interpreted only through their active SNP
 identity keys. Repeated keys collapse to one retained key, while metadata-like
 columns in the restriction table are ignored.
 
-`run_bed_to_annot()` no longer applies a reference-panel SNP restriction. It projects BED intervals onto the baseline annotation rows and returns an `AnnotationBundle`; any reference-panel restriction is applied later, during LD-score calculation, when the workflow aligns each chromosome bundle to the prepared reference-panel metadata.
+`run_annotate()` projects BED or resolved gene intervals onto the cleaned baseline rows and returns a bundle referencing saved query shards. Any reference-panel restriction is applied later, during LD-score calculation, when the workflow aligns each chromosome shard to the prepared reference-panel metadata.
 
 In-process LD-score results carry a frozen `config_snapshot`. If you later change the registered `GlobalConfig`, existing results keep their original snapshot, and downstream merge points raise `ConfigMismatchError` if you try to combine artifacts produced under incompatible identifier or genome-build assumptions. Package-written LD-score directories whose root metadata is missing current identity provenance are rejected and must be regenerated with the current LDSC package.

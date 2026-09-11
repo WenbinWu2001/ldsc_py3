@@ -1,6 +1,6 @@
 # Build an exact gene LD-score index
 
-Last updated on: 2026-08-16
+Last updated on: 2026-09-10
 
 For the mathematical construction of the disjoint atoms, stored operator, and
 sufficient statistics—and the full downstream indexed-assembly derivation—see
@@ -269,3 +269,7 @@ print(index.chromosomes)
 
 Pass the same directory to `ldsc ldscore --gene-ldscore-index-dir`; see
 [Calculate LD scores](../main-functionalities/ldscore-from-gene-list.md).
+
+## Memory during index reuse
+
+Opening an index validates and releases chromosome payloads one at a time. The returned object holds shared metadata, support summaries, and component paths. Indexed `ldscore` then loads each chromosome operator once for all its query batches; `--query-batch-size` defaults to `1000`. Validation and computation are separate passes and can add I/O, especially for small inputs. Gene-index construction retains its existing sibling staging/lock/publication mechanism; other new annotation scratch stays under the user output directory. See [the implemented memory design](../../current/annotation-memory-design.md).

@@ -100,8 +100,10 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
     Returns
     -------
     AnnotationBundle
-        Persistent output paths and on-demand private shards. Call ``close()``
-        or use a context manager after consumption. Closure preserves outputs.
+        Persistent query outputs plus original baseline dependencies. Construction
+        scratch is released before returning; explicit reads prepare private
+        shards on demand under the output directory. Use a context manager or
+        call ``close()`` after consumption. Closure preserves public outputs.
     """
     bed = split_cli_path_tokens(query_annot_bed_sources)
     genes = split_cli_path_tokens(query_annot_gene_list_sources)

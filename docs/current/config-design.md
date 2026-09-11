@@ -9,7 +9,7 @@ core design: `GlobalConfig` remains immutable, workflow result objects carry
 `config_snapshot`, and critical compatibility checks are enforced at combination
 points.
 
-Three implementation details are important to know:
+Implementation details:
 
 - Compatibility checks run against the current provenance recorded on
   package-written artifacts. Old package-written sumstats and LD-score artifacts
@@ -33,6 +33,8 @@ Three implementation details are important to know:
   carry query statuses through `AnnotationBundle` and `LDScoreResult`; the
   catalog projection build stays separate from `GlobalConfig.genome_build` in
   rsID modes.
+
+Memory controls are separate from statistical settings. `LDScoreConfig.query_batch_size` and the batch regression API/CLI setting default to 1000 and require a positive integer. `LDScoreConfig.threads` controls bounded chromosome worker processes; it does not change the number of pathways in a regression model. `AnnotationBuildConfig` describes source/projection settings, while the workflow's required output directory determines private storage ownership. The obsolete annotation-config output/compression/missing-query fields are removed. See the [memory design](annotation-memory-design.md) for lifetimes and output contracts.
 
 ## The Problem This Design Solves
 
@@ -229,7 +231,7 @@ Annotation bundle rows B                      (AnnotationBuilder)
 **`RefPanelConfig.ref_panel_snps_file`** — the *reference-panel SNP universe*
 
 - `AnnotationBuilder.run()` still builds the full annotation universe `B`.
-- `run_bed_to_annot()` and `ldsc annotate` do **not** apply this restriction.
+- `run_annotate()` and `ldsc annotate` do **not** apply this restriction.
 - `RefPanel` applies the explicit restriction to the raw panel `A`, producing `A'`, alongside configured sample/MAF filters. Both metadata inspection and chromosome preparation honor it. Bundled HM3 is never a convenience way to shrink the LD-reference universe.
 - SNP restriction files are identity-only. Duplicate restriction keys collapse
   to one retained key, and non-identity columns such as `CM`, `MAF`, or other

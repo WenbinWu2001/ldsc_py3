@@ -2,13 +2,13 @@
 
 Last updated on: 2026-09-10
 
-Status: standalone BED/gene-list CLI and `run_annotate()` are implemented using staged chromosome access. Direct/indexed workflow migration continues under the [memory implementation plan](../plans/2026-09-10-annotation-workflow-memory.md). The decision table remains the behavior contract; implementation evidence is recorded in the [memory audit](../audits/annotation-memory/progress.md).
+Status: standalone BED/gene-list CLI and `run_annotate()` are implemented using staged chromosome access. Direct/indexed workflow migration is implemented under the [memory implementation plan](../plans/2026-09-10-annotation-workflow-memory.md). The decision table remains the behavior contract; implementation evidence is recorded in the [memory audit](../audits/annotation-memory/progress.md).
 
 ## Problem and scope
 
 Standalone `ldsc annotate` accepts BED or focal gene-list queries over the explicitly supplied baseline annotation SNP grid. The implementation is local to `ldsc_py3_restructured`; no HPC execution is part of this refactor.
 
-The inspected implementation is commit `a505c45` (`refactor: remove annotation fingerprints`). Relevant seams are [annotation_builder.py](../../src/ldsc/annotation_builder.py), `add_annotate_arguments()`, `run_annotate_from_args()`, `AnnotationBuilder.run()`, and `_project_intervals_to_metadata()`; [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py), `build_parser()` and `_normalize_run_args()`; and [gene_list_resolver.py](../../src/ldsc/gene_list_resolver.py), `GeneCatalog.load()` and `resolve_gene_lists()`.
+The pre-refactor design inspection used commit `a505c45` (`refactor: remove annotation fingerprints`). Relevant seams are [annotation_builder.py](../../src/ldsc/annotation_builder.py), `add_annotate_arguments()`, `run_annotate_from_args()`, `AnnotationBuilder.run()`; [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py), `build_parser()` and `_normalize_run_args()`; and [gene_list_resolver.py](../../src/ldsc/gene_list_resolver.py), `GeneCatalog.load()` and `resolve_gene_lists()`.
 
 ## CLI and Python contract
 
@@ -74,7 +74,7 @@ Preserve the shared precedence in [query_annotations.py](../../src/ldsc/query_an
 
 ## Outputs, diagnostics, and failure behavior
 
-Keep root `query.<chrom>.annot.gz` files with identical ordered query columns across chromosomes. Omit globally skipped queries from every shard. Preserve the canonical `CHR/BP/SNP/CM` layout, explicit `CM=NA`, existing allele-column behavior, absence of annotation MAF, and generated integer `0/1` values. Preserve reloadability through the shared annotation readers and downstream prebuilt-query ldscore route. See [annotation_builder.py](../../src/ldsc/annotation_builder.py), `_write_bundle_query_as_annot_files()`, and [lessons.md](../../lessons.md#missing-metadata-must-be-explicit-in-reusable-whitespace-parsed-tables).
+Keep root `query.<chrom>.annot.gz` files with identical ordered query columns across chromosomes. Omit globally skipped queries from every shard. Preserve the canonical `CHR/BP/SNP/CM` layout, explicit `CM=NA`, existing allele-column behavior, absence of annotation MAF, and generated integer `0/1` values. Preserve reloadability through the shared annotation readers and downstream prebuilt-query ldscore route. See [outputs.py](../../src/ldsc/outputs.py), `AnnotationDirectoryWriter.write()`, and [lessons.md](../../lessons.md#missing-metadata-must-be-explicit-in-reusable-whitespace-parsed-tables).
 
 Persist the row-complete `diagnostics/gene_list_audit.tsv.gz`, per-source `diagnostics/gene_list_resolution_summary.tsv`, and post-Gate-A `diagnostics/query_annotation_status.tsv`, plus applicable chromosome-scope and input/catalog-issue diagnostics. Retain the existing `diagnostics/metadata.json`, `diagnostics/annotate.log`, and dropped-SNP audit. Structural catalog failure may produce catalog issues without a list audit; Gate A rejection writes the available audit/summary without fabricating later-stage statuses. Reuse existing diagnostic schemas and writers where applicable.
 
@@ -90,11 +90,11 @@ The [annotation memory decisions](annotation-memory-decisions.md#confirmed-datas
 
 Resolve gene lists once and reuse the batch across chromosomes. Accumulate coverage/support/status summaries without whole-genome annotation matrices. Globally determine which query columns are retained before publishing a complete scientific family; the refactor determines the necessary bounded passes or private staging. Standalone annotate writes shards incrementally and returns an object referencing persistent outputs. Do not build a second storage framework, eagerly retain all chromosome DataFrames, reread a whole-genome source once per chromosome, or rematerialize whole-genome annotations on return.
 
-The memory-refactor discussion subsequently approved dataset-wide annotation identity cleanup, resource-owning bundle handles with explicit closure and borrowing, and dependence on original baseline sources. It also requires new annotation/analysis staging inside the supplied output directory; remaining lifecycle details are tracked in [annotation memory decisions](annotation-memory-decisions.md). Those decisions govern this feature's integration, including the deliberate correction of layout-dependent duplicate handling. No portable copies of all baseline annotations are required. Standalone query-mode scope is settled and should not be reopened as an unresolved memory-refactor question.
+The memory-refactor discussion subsequently approved dataset-wide annotation identity cleanup, resource-owning bundle handles with explicit closure and borrowing, and dependence on original baseline sources. It also requires new annotation/analysis staging inside the supplied output directory; the implemented lifecycle is described in [annotation memory design](annotation-memory-design.md). Those decisions govern this feature's integration, including the deliberate correction of layout-dependent duplicate handling. No portable copies of all baseline annotations are required. Standalone query-mode scope is settled and should not be reopened as an unresolved memory-refactor question.
 
 ## Implementation acceptance checks
 
-The standalone implementation uses `annotate_workflow.run_annotate()`, shared chunk normalization, output-contained shard storage, staged gene resolution, and `AnnotationDirectoryWriter`. Affected parser/export tests now use `run_annotate()` and `parse_annotate_args()`. The complete documentation/tutorial migration and full-suite milestone remain part of the continuing memory-refactor plan.
+The standalone implementation uses `annotate_workflow.run_annotate()`, shared chunk normalization, output-contained shard storage, staged gene resolution, and `AnnotationDirectoryWriter`. Affected parser/export tests now use `run_annotate()` and `parse_annotate_args()`. Documentation/tutorial migration, full checks, and matched resource measurements are complete; see the [verification record](../audits/annotation-memory/progress.md) and [resource results](../audits/annotation-memory/results.md).
 
 Validate independently expected SNP membership, interval boundaries, overlap unions, padding, clipping, exact aliases and duplicates, and explicit exclusions. For example, an unpadded catalog interval `[101, 110]` must mark one-based SNP positions 101 and 110 but not 100 or 111, matching BED `[100, 110)`. Repeat with matching BED intervals and padding using independently derived expected values.
 

@@ -13,13 +13,9 @@ baseline-plus-query model per query and also write the per-query diagnostics
 tree described below.
 
 The examples below assume chromosome-pattern inputs such as `annotations/baseline.1.annot.gz`, `r2/reference.1.parquet`, and `r2/reference_metadata.1.tsv.gz`.
-Package-built parquet R2 files use canonical pair columns (`CHR`, `POS_1`,
-`POS_2`, `SNP_1`, `SNP_2`, `R2`) plus endpoint allele columns
-(`A1_1`, `A2_1`, `A1_2`, `A2_2`) in allele-aware modes, with row-group
-statistics. The paired metadata sidecar is required; it defines the raw
+Package-built parquet R2 files use canonical `IDX_1`, `IDX_2`, `R2`, and `SIGN` columns bound to the paired metadata sidecar, with row-group statistics. The paired metadata sidecar is required; it defines the raw
 reference-panel SNP universe, while the parquet pair rows are queried only for
-LD values. Six-column external/raw R2 inputs are supported only in base `rsid`
-and `chr_pos` modes.
+LD values. External R2 formats are not supported by this workflow.
 Package-built panels carry `ldsc:r2_bias` and `ldsc:n_samples` in parquet
 schema metadata, so the examples omit R2 bias and sample-size arguments.
 The bundled `baseline_v1.2` annotations are hg19-based, so the parquet example uses `genome_build="hg19"` to align parquet coordinates to the annotation bundle.
@@ -47,8 +43,7 @@ Resolution behavior:
 
 - there is no separate `*_chr` public argument anymore; one argument now handles both shared inputs and chromosome-sharded inputs
 - group inputs may expand to many files through a glob or an `@` suite token
-- if those files encode chromosome labels in their filenames, the workflow selects the subset for the active chromosome before loading them
-- otherwise the workflow loads the matched files and keeps only rows whose `CHR` value matches the active chromosome
+- chromosome scope comes from validated contents; whole-genome sources are scanned once in bounded chunks and normalized into private chromosome artifacts
 - if multiple files contribute annotation columns for the same chromosome, their SNP rows must align exactly and their annotation column names must be unique
 
 Query annotations require explicit baseline annotations. The LD-score workflow
@@ -58,146 +53,45 @@ synthetic path for partitioned/query LDSC.
 
 ## Python API
 
-The Python API is the cleanest end-to-end path because it keeps the merged `AnnotationBundle` and `LDScoreResult` in memory across the whole workflow.
+The source-backed workflow stages annotations under the selected output directory and releases chromosome working data as it advances. Regression reads the aggregate LD-score files selectively.
 
 ```python
 from ldsc import (
-    AnnotationBuildConfig,
-    AnnotationBuilder,
-    GlobalConfig,
-    LDScoreCalculator,
-    LDScoreConfig,
-    LDScoreOutputConfig,
-    MungeConfig,
-    PartitionedH2DirectoryWriter,
-    PartitionedH2OutputConfig,
-    RefPanelLoader,
-    RefPanelConfig,
-    RegressionConfig,
-    RegressionRunner,
-    SumstatsMunger,
-    load_sumstats,
-    run_bed_to_annot,
-    set_global_config,
+    GlobalConfig, RegressionConfig, RegressionRunner,
+    load_ldscore_from_dir, load_sumstats, run_ldscore, set_global_config,
 )
 
-GLOBAL_CONFIG = GlobalConfig(
-    snp_identifier="chr_pos",
-    genome_build="hg19",
-)
+GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
 set_global_config(GLOBAL_CONFIG)
+ldscore_dir = "tutorial_outputs/partitioned_ldscores"
 
-annotation_bundle = AnnotationBuilder(GLOBAL_CONFIG, AnnotationBuildConfig()).run(
-    AnnotationBuildConfig(
-        baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
-        query_annot_bed_sources="beds/*.bed",
-    )
+run_ldscore(
+    baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
+    query_annot_bed_sources="beds/*.bed",
+    r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg19",
+    ld_wind_cm=1.0,
+    query_batch_size=1000,
+    threads=1,
+    output_dir=ldscore_dir,
 )
-
-# If you want reusable query .annot.gz shards on disk, materialize them explicitly.
-# reusable_bundle = run_bed_to_annot(
-#     query_annot_bed_sources="beds/*.bed",
-#     baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
-#     output_dir="annotations/query_from_beds",
-#     overwrite=True,  # also removes stale query shards outside the current chromosome set
-# )
-
-sumstats = SumstatsMunger().run(
-    MungeConfig(
-        raw_sumstats_file="data/trait.tsv.gz",
-        trait_name="trait",
-        # Most common columns are inferred automatically. If this file has
-        # NEFF and you want to use it as the munger's N, pass this explicitly:
-        # column_hints={"N_col": "NEFF"},
-        # use_hm3_snps=True,  # packaged HM3 row restriction
-        source_genome_build="hg19",
-        output_genome_build="hg19",
-        # liftover_chain_file="resources/liftover/hg19ToHg38.over.chain",
-        output_dir="tutorial_outputs/trait",
-        # overwrite=True,  # also removes stale unselected sumstats sibling formats
-    ),
-    global_config=GLOBAL_CONFIG,
-)
-
-# If you already have a curated sumstats artifact on disk, load it directly.
-# Current parquet and .sumstats.gz artifacts recover config_snapshot from
-# root metadata.json. Old package-written files without current provenance
-# must be regenerated with the current LDSC package.
-# sumstats = load_sumstats("tutorial_outputs/trait/sumstats.parquet", trait_name="trait")
-
-ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
-    RefPanelConfig(
-        backend="parquet_r2",
-        r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg19",
-        chromosomes=tuple(annotation_bundle.chromosomes),
-        use_hm3_ref_panel_snps=True,
-    )
-)
-
-ldscore_result = LDScoreCalculator().run(
-    annotation_bundle=annotation_bundle,
-    ref_panel=ref_panel,
-    ldscore_config=LDScoreConfig(
-        ld_wind_cm=1.0,
-        use_hm3_regression_snps=True,
-    ),
-    global_config=GLOBAL_CONFIG,
-    output_config=LDScoreOutputConfig(
-        output_dir="tutorial_outputs/partitioned_ldscores",
-        # overwrite=True,  # also removes stale LD-score siblings not produced by this run
-    ),
-)
-
+source = load_ldscore_from_dir(ldscore_dir)
+sumstats = load_sumstats("tutorial_outputs/trait/sumstats.parquet", trait_name="trait")
 runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
-partitioned_result = runner.estimate_partitioned_h2_batch(
-    sumstats,
-    ldscore_result,
-    annotation_bundle,
-    include_full_partitioned_h2=True,
+result = runner.estimate_partitioned_h2_batch(
+    sumstats, source,
+    query_batch_size=1000,
+    output_dir="tutorial_outputs/partitioned_h2",
+    metadata={"ldscore_dir": ldscore_dir, "trait_name": "trait"},
 )
-partitioned = partitioned_result.summary
-
-PartitionedH2DirectoryWriter().write(
-    partitioned,
-    PartitionedH2OutputConfig(
-        output_dir="tutorial_outputs/partitioned_h2",
-        # overwrite=True,
-        write_per_query_results=True,
-    ),
-    per_query_category_tables=partitioned_result.per_query_category_tables,
-    metadata={"trait_name": "trait", "count_kind": "common", "ldscore_dir": "tutorial_outputs/partitioned_ldscores"},
-    per_query_metadata=partitioned_result.per_query_metadata,
-)
-print(annotation_bundle.query_columns)
-print(ldscore_result.baseline_table.head())
-print(partitioned)
+print(result.summary)
+print(result.per_query_artifacts)  # Persistent category/delete-value/metadata paths.
 ```
 
-The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. In-process results such as `AnnotationBundle`, `SumstatsTable` from `SumstatsMunger.run()`, and `LDScoreResult` carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions. A `SumstatsTable` loaded from a current `sumstats.parquet` recovers this provenance from its footer; a legacy `.sumstats.gz` or footer-less parquet has no embedded provenance and loads with its identifier mode inferred from the LD-score panel. `SumstatsMunger.run()` is also the implementation path behind `ldsc munge-sumstats` after CLI parsing, and it owns the self-describing `sumstats.parquet` footer, fixed `sumstats.parquet` output by default, optional `sumstats.sumstats.gz` compatibility output, and diagnostics under `diagnostics/`. Workflow logs are preflighted audit files; returned `output_paths` mappings include data artifacts and the dropped-SNP audit sidecar, but not logs. Output directories represent coherent current-contract artifact families: no-overwrite runs reject any owned sibling, and successful overwrites delete stale owned siblings not produced by the current configuration. Removed legacy root diagnostic names are ignored rather than blocked or cleaned.
+Run `munge-sumstats` first if the trait is still in a raw format; see [heritability estimates](heritability-estimates.md). Current curated Parquet inputs carry identity/build provenance in their footer. The effective SNP key controls alignment; reference contributors and regression/output SNPs remain separate universes.
 
-Munged sumstats written by this workflow include canonical `CHR` and `POS`
-columns. The raw munger accepts common coordinate headers such as `#CHROM`,
-`CHROM`, `CHR`, `POS`, and `BP`, or explicit `--chr`/`--pos` flags. Leading
-raw `##` metadata lines are skipped before the real header is parsed. In
-`chr_pos`-family modes, downstream regression merges by the active effective
-coordinate key (`CHR:POS` or `CHR:POS:<allele_set>`) rather than by the literal
-rsID in `SNP`; `SNP` is treated as a label. Optional munger liftover is also
-`chr_pos`-family behavior, runs after the source-build keep-list filter, changes
-`CHR`/`POS` without rewriting `SNP` or allele sets, drops duplicate
-source/target coordinate groups, and requires `--output-genome-build` plus one
-method flag when the resolved source build differs from the output build.
-Drop counts are written to `diagnostics/sumstats.log`, examples appear only at `DEBUG`, and
-row-level drops are audited in `diagnostics/dropped_snps/dropped.tsv.gz`; the metadata
-sidecar is only the compatibility snapshot.
+This memory design supports 1,000 pathways in one run, each tested separately against shared baseline categories. The default `query_batch_size=1000` permits all 1,000 queries in one active batch; reducing it limits query workspace without changing the models. With `threads=1`, chromosome arrays are released before the next chromosome; allocators may retain freed pages, so RSS need not immediately fall. Final HM3 LD tables remain aggregate and may stay materialized.
 
-Within this design:
-
-- `ref_panel_snps_file` or `use_hm3_ref_panel_snps` belongs to `RefPanelConfig` and restricts the retained reference-panel rows
-- `LDScoreCalculator.compute_chromosome()` intersects each chromosome-local annotation bundle with `ref_panel.load_metadata(chrom)`, so the LD-score compute universe is `B ∩ A'`; parquet pair rows are not scanned to define SNP presence
-- `regr_snps_file` or `use_hm3_regression_snps` belongs to `LDScoreConfig` and further restricts the normalized `baseline_table` rows to `B ∩ A' ∩ C`
-- explicit reference-panel and regression SNP restriction files are identity-only filters: duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored
-- regression-universe LD scores are embedded as `regression_ld_scores`; there is no separate `.w.l2.ldscore.gz` artifact in the new default format
-- query `.annot` and BED inputs are accepted only when baseline annotations are supplied explicitly
+For reusable annotations, use `with run_annotate(..., output_dir=...) as bundle:`. For explicit low-level preparation, use `with AnnotationBuilder(config).run(source_config, output_dir=...) as bundle:` and finish all borrowers before closure. Returned standalone bundles reference saved query outputs and may depend on original baseline inputs. See the [developer memory design](../docs/current/annotation-memory-design.md).
 
 ## CLI
 
@@ -209,8 +103,7 @@ ldsc ldscore \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-bed-sources "beds/*.bed" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg19" \
-  --use-hm3-ref-panel-snps \
-  --use-hm3-regression-snps \
+  --ref-panel-snps-file filters/reference_universe.tsv.gz \
   --snp-identifier chr_pos \
   --genome-build hg19 \
   --common-maf-min 0.05 \

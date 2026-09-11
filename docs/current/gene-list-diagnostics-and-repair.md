@@ -239,7 +239,7 @@ Public indexes require a canonical catalog and complete autosomal coverage. Cons
 
 Repeated rows that resolve to the same canonical gene are deduplicated within each source under all four combinations. Genes removed by an explicitly selected gene-region exclusion are recorded as `excluded`, not `rejected`. Neither condition alone triggers strict rejection; subsequent query/control viability checks still apply.
 
-Implementation references: [`gene_list_resolver.py`](../../src/ldsc/gene_list_resolver.py), `RESOLVED_ONLY_REASONS`, `resolve_gene_lists()`, `_resolve_rows()`, and `GeneCatalog.from_embedded_frame()`; [`gene_ldscore_index.py`](../../src/ldsc/gene_ldscore_index.py), `_load_gene_ldscore_index()`.
+Implementation references: [`gene_list_resolver.py`](../../src/ldsc/gene_list_resolver.py), `RESOLVED_ONLY_REASONS`, `_resolve_rows()`, and `GeneCatalog.from_embedded_frame()`; [`gene_ldscore_index.py`](../../src/ldsc/gene_ldscore_index.py), `_load_gene_ldscore_index()`; [`_gene_query_storage.py`](../../src/ldsc/_gene_query_storage.py), `resolve_gene_lists_staged()` and `StagedGeneListBatch.audit_frames()`.
 
 ### Viability checks after resolution
 

@@ -81,7 +81,6 @@ sumstats = SumstatsMunger().run(
 ldscore_result = run_ldscore(
     output_dir="tutorial_outputs/trait_ldscores",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-    use_hm3_regression_snps=True,
     common_maf_min=0.05,
     ld_wind_cm=1.0,
     # overwrite=True,  # also removes stale ldscore.query.parquet if this run is baseline-only
@@ -171,7 +170,6 @@ ldsc munge-sumstats \
 ldsc ldscore \
   --output-dir tutorial_outputs/trait_ldscores \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --use-hm3-regression-snps \
   --snp-identifier chr_pos \
   --genome-build auto \
   --common-maf-min 0.05 \

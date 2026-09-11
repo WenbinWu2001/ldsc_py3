@@ -71,8 +71,16 @@ ldsc_py3_restructured/
 | `ldsc._kernel.liftover` | shared hg19/hg38 liftover helpers, chain-file translation, curated HM3 dual-build coordinate conversion, drop-all coordinate collision helpers, and readable drop reports |
 | `ldsc._kernel.regions` | packaged and user BED interval loading plus region-exclusion masks |
 | `ldsc._kernel.plink_bed` | PLINK genotype reader (`PlinkBEDFile` and its `__GenotypeArrayInMemory__` base, incl. the in-class LD-score block sums): lazy header read, per-SNP selective decode with fused individual filter, and opt-in disk streaming for unrestricted builds; never materializes the whole-chromosome bitarray |
-| `ldsc.annotation_builder` | public annotation workflow: path resolution, bundle loading, BED/gene interval projection, query-local source isolation, and query `.annot.gz` writing for `annotate` |
+| `ldsc.annotation_builder` | public annotation builder and general standalone parser/API dispatch seam |
 | `ldsc.annotation_semantics` | global annotation-name uniqueness and advisory binary/quantitative classification |
+| `ldsc._annotation_bundle`, `ldsc._annotation_storage` | explicit dataset ownership, chromosome descriptors, detached selected reads, and output-contained scratch |
+| `ldsc._annotation_outputs` | saved query descriptors with original baseline dependencies; deferred preparation on explicit reads and construction-owner detachment |
+| `ldsc._annotation_sources`, `ldsc._annotation_identity`, `ldsc._annotation_loading` | bounded input scans, aligned source preparation, global identity cleanup, and shared source-backed construction |
+| `ldsc.annotate_workflow`, `ldsc._annotation_queries`, `ldsc._direct_annotation` | standalone BED/gene gates, incremental projection, and direct LD-score integration |
+| `ldsc._gene_query_storage` | staged per-source gene selections and complete audit replay with shared catalog state |
+| `ldsc.ldscore_source` | selective query reads from canonical aggregate LD-score Parquet files |
+| `ldsc._quantile_inputs`, `ldsc._quantile_storage` | bounded common-universe reconstruction, exact global boundaries, sufficient statistics, and streamed alignment diagnostics |
+| `ldsc._kernel.ldscore_projection` | float64 output-row accumulators and query batches sharing each LD block |
 | `ldsc.ref_panel_builder` | parquet reference-panel build workflow, including source-build inference, optional coordinate liftover, explicit SNP/sample restrictions, and optional `min_r2` pair-emission threshold |
 | `ldsc.r2_query` | public `query-r2` CLI/API, `R2Panel`, one-shot `query_r2()`, sidecar-binding validation, endpoint key resolution, sign harmonization, and optional adjusted-R2-to-Pearson-r conversion |
 | `ldsc.ldscore_calculator` | LD-score orchestration, catalog-build selection, direct prepared-SNP support measurement, optional synthetic `base`, aggregation, and output routing through shared query finalization |

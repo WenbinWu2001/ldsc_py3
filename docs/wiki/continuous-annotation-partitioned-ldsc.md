@@ -85,3 +85,7 @@ Rows in `quantile_h2.tsv` run from the lowest to the highest target values.
 `standardized_coefficients.tsv` has one row per fitted annotation. `tau_star` uses the complete common reference-SNP universe, including SNPs excluded only because the target value was missing. If total fitted-model heritability on that universe is nonpositive, raw `tau` remains available and `tau_star` is reported as `NaN`.
 
 The diagnostics directory contains the run log, full provenance, and a compressed table of excluded or problematic SNP identities. If you need coefficients for separate binary quantile categories rather than a post-fit projection, construct binary bins, recompute their LD scores, and fit those bins as annotations.
+
+## Memory during exact quantile analysis
+
+`quantile-h2` keeps the original exact global boundaries and tie/missing-target rules. It first validates the common SNP universe and computes boundaries from eligible float64 targets, then accumulates annotation statistics chromosome by chromosome using those same boundaries. It retains neither whole-genome fitted annotation matrices nor dense SNP-by-quantile indicators. Full-common standardization still includes target-excluded SNPs; complete alignment diagnostics are streamed. See [the quantile memory design](../current/annotation-memory-design.md#exact-global-quantiles).

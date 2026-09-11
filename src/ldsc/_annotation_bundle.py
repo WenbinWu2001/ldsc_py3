@@ -1,7 +1,7 @@
 """Resource-owning annotation dataset with explicit chromosome/column access."""
 
 from dataclasses import dataclass, field
-from ._annotation_storage import AnnotationShard, AnnotationWorkspace, FrameSpool
+from ._annotation_storage import AnnotationShard, AnnotationWorkspace, FrameSpool, TsvDiagnostics
 from .annotation_semantics import require_unique_annotation_names
 from .chromosome_inference import normalize_chromosome
 from .config import GlobalConfig
@@ -38,7 +38,7 @@ class AnnotationBundle:
     query_statuses: tuple = ()
     gene_list_batch: object | None = None
     input_issues: object | None = None
-    identity_drops: FrameSpool | None = None
+    identity_drops: FrameSpool | TsvDiagnostics | None = None
     chromosome_identity_drops: dict | None = None
     output_paths: dict = field(default_factory=dict)
     _source_loader: object | None = field(default=None, repr=False)
@@ -85,7 +85,7 @@ class AnnotationBundle:
         return self.shard(chrom).read(rows=rows, columns=columns)
 
     def validate(self):
-        """Validate descriptor/column contracts without loading annotation data."""
+        """Prepare deferred sources if needed, then validate descriptor contracts."""
         self.workspace.require_open()
         self._prepare_sources()
         require_unique_annotation_names(self.baseline_columns, self.query_columns)

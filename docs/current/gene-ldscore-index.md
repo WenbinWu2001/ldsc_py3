@@ -290,3 +290,7 @@ See also the task-oriented [build guide](../wiki/utility-functionalities/build-g
 and [indexed LD-score guide](../wiki/main-functionalities/ldscore-from-gene-list.md).
 
 The build lifecycle retains preceding/current lock coordination in `_gene_index_build_lock` and recognized old-log archival in `_migrate_legacy_gene_index_build_state`. This protects destinations that may still have an earlier writer and preserves operational history. Active build-state locking, validated publication, and interrupted-publication recovery remain required; these are not unused runtime helpers.
+
+## Bounded validation and query assembly
+
+`LoadedGeneLDScoreIndex` holds shared catalog/settings, chromosome component paths, and compact support counts. Validation loads/releases one chromosome at a time. Assembly reloads that chromosome once and keeps its operator through all query batches. `run_indexed_ldscore(..., query_batch_size=1000)` and `ldscore --query-batch-size 1000` bound focal multiplications; the setting is a positive integer and does not combine separate pathway models. Construction retains its existing sibling staging/lock/publication transaction and float64 payloads. The final HM3 LD tables remain aggregate. See [the memory design](annotation-memory-design.md#immutable-gene-index-access) for ownership and runtime trade-offs.

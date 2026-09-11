@@ -204,10 +204,7 @@ console output: records go to the workflow log file when one is created, and
 otherwise nowhere, while exceptions propagate to the caller unchanged. Direct
 computational class APIs remain data-oriented:
 
-- `AnnotationBuilder.run(...)` and
-  `AnnotationBuilder.project_bed_annotations(...)` create
-  `diagnostics/annotate.log` when their optional output destination is set;
-  output-free calls remain in memory.
+- `AnnotationBuilder.run(..., output_dir=...)` requires an output parent for private preparation but does not install a workflow log. `run_annotate(...)` owns standalone output preflight, writing, and `diagnostics/annotate.log`.
 - `LDScoreCalculator.run(...)` does not create `diagnostics/ldscore.log`.
 - `ReferencePanelBuilder.run(...)` does not create a build-ref-panel workflow log.
 - `RegressionRunner.estimate_*` methods do not create regression logs.
@@ -220,3 +217,7 @@ For the implementation rationale, see
 `docs/specs/2026-05-02-logging-harmonization-design.md` and the
 console/file routing change in
 `docs/plans/2026-06-04-logging-console-file-routing-plan.md`.
+
+## Streaming memory-workflow diagnostics
+
+Annotation, gene-resolution, direct chromosome-drop, and quantile alignment audits are replayed in bounded chunks into their complete output files. Results keep counts/statuses or persistent paths; they do not retain every chromosome's audit frame. Standalone annotate publishes query shards incrementally and detaches its returned bundle from construction scratch. Batch partitioned-h2 stages complete per-fit details privately and publishes them after final summary sorting, preserving overwrite and failure-marker contracts. See [the memory design](annotation-memory-design.md).

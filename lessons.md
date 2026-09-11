@@ -143,3 +143,8 @@ Last updated on: 2026-09-10
 ## Import rewrites need compilation, not only AST parsing
 
 - Summary/root cause/correction: Mechanical import edits left empty import groups and later moved future imports below ordinary imports; AST parsing did not catch the latter, so compile every edited module before running behavioral tests and preserve future-import placement.
+
+
+## A saved workflow result must detach from its construction owner
+
+- Summary/root cause/correction: Standalone annotation finished writing but retained private preparation shards through the returned bundle, so successful CLI runs left scratch behind; return persistent query descriptors with original baseline dependencies, defer any later read preparation, close the construction owner before return, and verify both immediate scratch cleanup and saved-query reads after original gene inputs are removed.

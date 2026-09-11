@@ -17,6 +17,7 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 - [partitioned-h2-results.md](partitioned-h2-results.md): partitioned-h2 result columns and interpretation
 - [continuous-annotation-quantile-h2.md](continuous-annotation-quantile-h2.md): continuous-annotation post-fit contracts
 - [layer-structure.md](layer-structure.md): layer-by-function object matrix
+- [annotation-memory-design.md](annotation-memory-design.md): implemented storage, ownership, chromosome workers, query batching, regression writing, and exact quantile accumulation
 
 ![Package overview](../assets/ldsc-package-overview.png)
 
@@ -147,19 +148,15 @@ Their complete seams are documented in [plotting-module.md](plotting-module.md).
 
 ### `ldsc.annotation_builder`
 
-This is the public interface and workflow implementation for annotation loading and interval projection. It owns `AnnotationBuilder`, `AnnotationBundle`, `run_bed_to_annot()`, `run_annotate_from_args()`, `main()`, parser construction, path-token resolution, genome-build inference for `--genome-build auto`, optional interval expansion through `padding_bp` / `--padding-bp`, annotation identity cleanup, output preflight, root `query.<chrom>.annot.gz` writing, and annotation diagnostics under `diagnostics/`. During `ldscore`, it also projects already-resolved gene intervals and isolates failures per concrete BED/gene-list source. It delegates low-level text-table and BED intersection primitives to `ldsc._kernel.annotation` and catalog resolution to `ldsc.gene_list_resolver`.
+This is the public annotation API and CLI dispatch seam: `AnnotationBuilder`, `AnnotationBundle`, `run_annotate()`, `parse_annotate_args()`, `run_annotate_from_args()`, and `main()`. `AnnotationBuilder.run(..., output_dir=...)` prepares a chromosome-backed dataset with explicit ownership. `annotate_workflow` owns standalone BED/gene validation and incremental canonical output. Shared `_annotation_*` modules own bounded discovery, identity cleanup, separate metadata/value artifacts, projection, and storage lifetime; `_direct_annotation` integrates them with direct LD-score scope and support gates. The complete module and ownership map is in [annotation-memory-design.md](annotation-memory-design.md).
 
 ### `ldsc.gene_list_resolver`, `ldsc.query_annotations`
 
-These internal workflow helpers validate and index the required user-supplied
-or index-embedded coordinate catalog, resolve exact IDs and gene-name aliases, and
-carry ordered query status records. They do not write files or enter the
-numerical kernel. Catalog-build selection, logging, scientific-query pruning,
-and diagnostic ownership remain with LD-score orchestration.
+These internal helpers validate the user-supplied or index-embedded catalog, resolve exact identifiers, and apply ordered query-status rules. `_gene_query_storage` shares catalog lookups, stages per-source selections and complete audits, and returns compact summaries. Catalog-build selection, scientific-query pruning, and final diagnostic publication remain with the consuming workflow.
 
 ### `ldsc.ref_panel_builder`
 
-This module builds standard parquet R2 reference artifacts from PLINK inputs. It handles optional genetic-map loading, optional chain-file or HM3 quick liftover selection, explicit or packaged HM3 restriction filtering, liftover-stage drop audit sidecars, output-path construction, and build logs under `diagnostics/`, then delegates pairwise-R2 emission to the kernel. PLINK source build is explicit or inferred locally; a matching chain or HM3 quick liftover emits the opposite build only in `chr_pos`-family modes, while `rsid`-family builds are source-build-only. Coordinate duplicate handling is `chr_pos`-family behavior and always uses drop-all for source/target collision groups; processed chromosomes always write `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz`, header-only when no liftover-stage rows dropped. Named MHC and centromere exclusion is not part of reference-panel construction; `ldscore` and `build-gene-ldscore-index` apply it only to regression/output SNPs. Architecture invariant: emitted parquet schemas are part of the public file contract for parquet-backed LDSC workflows.
+This module builds standard parquet R2 reference artifacts from PLINK inputs. It handles optional genetic-map loading, optional chain-file liftover selection, explicit SNP restriction filtering, liftover-stage drop audit sidecars, output-path construction, and build logs under `diagnostics/`, then delegates pairwise-R2 emission to the kernel. PLINK source build is explicit or inferred locally; a matching chain emits the opposite build only in `chr_pos`-family modes, while `rsid`-family builds are source-build-only. Coordinate duplicate handling is `chr_pos`-family behavior and always uses drop-all for source/target collision groups; processed chromosomes always write `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz`, header-only when no liftover-stage rows dropped. Named MHC and centromere exclusion is not part of reference-panel construction; `ldscore` and `build-gene-ldscore-index` apply it only to regression/output SNPs. Architecture invariant: emitted parquet schemas are part of the public file contract for parquet-backed LDSC workflows.
 
 ### `ldsc.r2_query`
 

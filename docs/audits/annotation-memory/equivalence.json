@@ -1,0 +1,149 @@
+[
+  {
+    "case": "annotate-bed",
+    "baseline": "baseline-annotate-bed",
+    "current": "current-annotate-bed-b1000-w1",
+    "tables": 3,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "annotate-bed",
+    "baseline": "baseline-annotate-bed",
+    "current": "current-annotate-bed-final",
+    "tables": 3,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "annotate-gene",
+    "baseline": "baseline-annotate-bed",
+    "current": "current-annotate-gene-b1000-w1",
+    "tables": 3,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "annotate-gene",
+    "baseline": "baseline-annotate-bed",
+    "current": "current-annotate-gene-final",
+    "tables": 3,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "direct-plink",
+    "baseline": "baseline-direct-plink",
+    "current": "current-direct-plink-b1000-w1",
+    "tables": 3,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "direct-plink",
+    "baseline": "baseline-direct-plink",
+    "current": "current-direct-plink-b32-w1",
+    "tables": 3,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "direct-plink",
+    "baseline": "baseline-direct-plink",
+    "current": "current-direct-plink-b32-w2",
+    "tables": 3,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "direct-plink-one",
+    "baseline": "baseline-direct-plink-one",
+    "current": "current-direct-plink-one-b32-w1",
+    "tables": 3,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "direct-r2",
+    "baseline": "baseline-direct-r2",
+    "current": "current-direct-r2-b1000-w1",
+    "tables": 3,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "direct-r2",
+    "baseline": "baseline-direct-r2",
+    "current": "current-direct-r2-b32-w1",
+    "tables": 3,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "direct-r2",
+    "baseline": "baseline-direct-r2",
+    "current": "current-direct-r2-b32-w2",
+    "tables": 3,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "direct-r2-one",
+    "baseline": "baseline-direct-r2-one",
+    "current": "current-direct-r2-one-b32-w1",
+    "tables": 3,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "direct-r2-q100",
+    "baseline": "baseline-direct-r2-q100",
+    "current": "current-direct-r2-q100",
+    "tables": 3,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "indexed",
+    "baseline": "baseline-indexed",
+    "current": "current-indexed-b1000-w1",
+    "tables": 6,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "indexed",
+    "baseline": "baseline-indexed",
+    "current": "current-indexed-b32-w1",
+    "tables": 6,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "indexed",
+    "baseline": "baseline-indexed",
+    "current": "current-indexed-final-b1000",
+    "tables": 6,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "indexed",
+    "baseline": "baseline-indexed",
+    "current": "current-indexed-final-b32",
+    "tables": 6,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "indexed",
+    "baseline": "baseline-indexed",
+    "current": "current-indexed-timed",
+    "tables": 6,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "quantile",
+    "baseline": "baseline-quantile",
+    "current": "current-quantile-b1000-w1",
+    "tables": 2,
+    "max_absolute_difference": 1.5210055437364645e-13
+  },
+  {
+    "case": "regression",
+    "baseline": "baseline-regression",
+    "current": "current-regression-b1000-w1",
+    "tables": 3002,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "case": "regression",
+    "baseline": "baseline-regression",
+    "current": "current-regression-b32-w1",
+    "tables": 3002,
+    "max_absolute_difference": 0.0
+  }
+]

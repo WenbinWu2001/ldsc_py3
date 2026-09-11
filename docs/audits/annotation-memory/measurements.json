@@ -1,0 +1,1258 @@
+[
+  {
+    "case": "annotate-bed",
+    "batch": null,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline",
+    "revision": "a505c45d61d35b39a3fc086c2b623dd7d6936d96",
+    "elapsed_seconds": 14.035496499855071,
+    "peak_process_tree_rss_bytes": 157827072,
+    "peak_private_bytes": 955875,
+    "persistent_output_bytes": 162964,
+    "remaining_private_bytes": 0,
+    "samples": 189,
+    "max_processes": 2,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/baseline-annotate-bed",
+    "run_name": "baseline-annotate-bed",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "direct-plink-one",
+    "batch": null,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline",
+    "revision": "a505c45d61d35b39a3fc086c2b623dd7d6936d96",
+    "elapsed_seconds": 2.733673084061593,
+    "peak_process_tree_rss_bytes": 807944192,
+    "peak_private_bytes": 0,
+    "persistent_output_bytes": 7305847,
+    "remaining_private_bytes": 0,
+    "samples": 37,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/baseline-direct-plink-one",
+    "run_name": "baseline-direct-plink-one",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "direct-plink",
+    "batch": null,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline",
+    "revision": "a505c45d61d35b39a3fc086c2b623dd7d6936d96",
+    "elapsed_seconds": 4.748207000084221,
+    "peak_process_tree_rss_bytes": 980074496,
+    "peak_private_bytes": 0,
+    "persistent_output_bytes": 20687870,
+    "remaining_private_bytes": 0,
+    "samples": 64,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/baseline-direct-plink",
+    "run_name": "baseline-direct-plink",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "direct-r2-one",
+    "batch": null,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline",
+    "revision": "a505c45d61d35b39a3fc086c2b623dd7d6936d96",
+    "elapsed_seconds": 3.069684083107859,
+    "peak_process_tree_rss_bytes": 729399296,
+    "peak_private_bytes": 0,
+    "persistent_output_bytes": 2576329,
+    "remaining_private_bytes": 0,
+    "samples": 41,
+    "max_processes": 2,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/baseline-direct-r2-one",
+    "run_name": "baseline-direct-r2-one",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "direct-r2-q100",
+    "batch": null,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline",
+    "inputs": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/inputs-100",
+    "revision": "a505c45d61d35b39a3fc086c2b623dd7d6936d96",
+    "elapsed_seconds": 1.8224717921111733,
+    "peak_process_tree_rss_bytes": 341917696,
+    "peak_private_bytes": 0,
+    "persistent_output_bytes": 746243,
+    "remaining_private_bytes": 0,
+    "samples": 25,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/baseline-direct-r2-q100",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "run_name": "baseline-direct-r2-q100",
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 100,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100,
+      "subset_scope": "direct three-chromosome LD scoring only"
+    }
+  },
+  {
+    "case": "direct-r2",
+    "batch": null,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline",
+    "revision": "a505c45d61d35b39a3fc086c2b623dd7d6936d96",
+    "elapsed_seconds": 4.859745916211978,
+    "peak_process_tree_rss_bytes": 918716416,
+    "peak_private_bytes": 0,
+    "persistent_output_bytes": 6501233,
+    "remaining_private_bytes": 0,
+    "samples": 66,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/baseline-direct-r2",
+    "run_name": "baseline-direct-r2",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]"
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "indexed",
+    "batch": null,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline",
+    "revision": "a505c45d61d35b39a3fc086c2b623dd7d6936d96",
+    "elapsed_seconds": 7.578213708009571,
+    "peak_process_tree_rss_bytes": 408403968,
+    "peak_private_bytes": 0,
+    "persistent_output_bytes": 2607575,
+    "remaining_private_bytes": 0,
+    "samples": 101,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/baseline-indexed-timed",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      },
+      "timings": {
+        "validation_seconds": 0.150392625015229,
+        "operator_multiplication_seconds": 0.038854415994137526,
+        "workflow_seconds": 6.709601250011474,
+        "outside_validation_and_multiplication_seconds": 6.520354209002107
+      }
+    },
+    "run_name": "baseline-indexed-timed",
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "indexed",
+    "batch": null,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline",
+    "revision": "a505c45d61d35b39a3fc086c2b623dd7d6936d96",
+    "elapsed_seconds": 7.50898312497884,
+    "peak_process_tree_rss_bytes": 424296448,
+    "peak_private_bytes": 0,
+    "persistent_output_bytes": 2607575,
+    "remaining_private_bytes": 0,
+    "samples": 104,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/baseline-indexed",
+    "run_name": "baseline-indexed",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "quantile",
+    "batch": null,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline",
+    "revision": "a505c45d61d35b39a3fc086c2b623dd7d6936d96",
+    "elapsed_seconds": 3.026072499807924,
+    "peak_process_tree_rss_bytes": 766115840,
+    "peak_private_bytes": 0,
+    "persistent_output_bytes": 17332,
+    "remaining_private_bytes": 0,
+    "samples": 40,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/baseline-quantile",
+    "run_name": "baseline-quantile",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "regression",
+    "batch": null,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline",
+    "revision": "a505c45d61d35b39a3fc086c2b623dd7d6936d96",
+    "elapsed_seconds": 19.254643665859476,
+    "peak_process_tree_rss_bytes": 351453184,
+    "peak_private_bytes": 34642332,
+    "persistent_output_bytes": 36170396,
+    "remaining_private_bytes": 0,
+    "samples": 246,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/baseline-regression",
+    "run_name": "baseline-regression",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "annotate-bed",
+    "batch": 1000,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "85a0466d2bbd9f012ab525658562365ac2d719d6",
+    "elapsed_seconds": 1.2985094580799341,
+    "peak_process_tree_rss_bytes": 160514048,
+    "peak_private_bytes": 7801005,
+    "persistent_output_bytes": 168168,
+    "remaining_private_bytes": 7801005,
+    "samples": 16,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-annotate-bed-b1000-w1",
+    "run_name": "current-annotate-bed-b1000-w1",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "superseded: see final runs",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "annotate-bed",
+    "batch": null,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "91ad7bfdf649c41951aadb910ba1d4413dd2a5d3",
+    "elapsed_seconds": 1.4532884161453694,
+    "peak_process_tree_rss_bytes": 157384704,
+    "peak_private_bytes": 7801005,
+    "persistent_output_bytes": 168138,
+    "remaining_private_bytes": 0,
+    "samples": 18,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-annotate-bed-final",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "run_name": "current-annotate-bed-final",
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "annotate-gene",
+    "batch": 1000,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "85a0466d2bbd9f012ab525658562365ac2d719d6",
+    "elapsed_seconds": 4.42313487501815,
+    "peak_process_tree_rss_bytes": 151535616,
+    "peak_private_bytes": 7735389,
+    "persistent_output_bytes": 186785,
+    "remaining_private_bytes": 7735389,
+    "samples": 57,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-annotate-gene-b1000-w1",
+    "run_name": "current-annotate-gene-b1000-w1",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "superseded: see final runs",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "annotate-gene",
+    "batch": null,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "91ad7bfdf649c41951aadb910ba1d4413dd2a5d3",
+    "elapsed_seconds": 3.383432999951765,
+    "peak_process_tree_rss_bytes": 156598272,
+    "peak_private_bytes": 7735389,
+    "persistent_output_bytes": 186746,
+    "remaining_private_bytes": 0,
+    "samples": 43,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-annotate-gene-final",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "run_name": "current-annotate-gene-final",
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "direct-plink",
+    "batch": 1000,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "85a0466d2bbd9f012ab525658562365ac2d719d6",
+    "elapsed_seconds": 10.937235707882792,
+    "peak_process_tree_rss_bytes": 559349760,
+    "peak_private_bytes": 132576017,
+    "persistent_output_bytes": 20688062,
+    "remaining_private_bytes": 0,
+    "samples": 149,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-direct-plink-b1000-w1",
+    "run_name": "current-direct-plink-b1000-w1",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "direct-plink",
+    "batch": 32,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "85a0466d2bbd9f012ab525658562365ac2d719d6",
+    "elapsed_seconds": 12.292311834171414,
+    "peak_process_tree_rss_bytes": 593461248,
+    "peak_private_bytes": 140944142,
+    "persistent_output_bytes": 20688040,
+    "remaining_private_bytes": 0,
+    "samples": 166,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-direct-plink-b32-w1",
+    "run_name": "current-direct-plink-b32-w1",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "direct-plink",
+    "batch": 32,
+    "workers": 2,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "85a0466d2bbd9f012ab525658562365ac2d719d6",
+    "elapsed_seconds": 9.92824154207483,
+    "peak_process_tree_rss_bytes": 951549952,
+    "peak_private_bytes": 140944142,
+    "persistent_output_bytes": 20688039,
+    "remaining_private_bytes": 0,
+    "samples": 136,
+    "max_processes": 4,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-direct-plink-b32-w2",
+    "run_name": "current-direct-plink-b32-w2",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "direct-plink-one",
+    "batch": 32,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "85a0466d2bbd9f012ab525658562365ac2d719d6",
+    "elapsed_seconds": 4.757511415984482,
+    "peak_process_tree_rss_bytes": 518045696,
+    "peak_private_bytes": 41399796,
+    "persistent_output_bytes": 7305932,
+    "remaining_private_bytes": 0,
+    "samples": 66,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-direct-plink-one-b32-w1",
+    "run_name": "current-direct-plink-one-b32-w1",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "direct-r2",
+    "batch": 1000,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "85a0466d2bbd9f012ab525658562365ac2d719d6",
+    "elapsed_seconds": 5.649576458148658,
+    "peak_process_tree_rss_bytes": 587268096,
+    "peak_private_bytes": 146981180,
+    "persistent_output_bytes": 6501427,
+    "remaining_private_bytes": 0,
+    "samples": 78,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-direct-r2-b1000-w1",
+    "run_name": "current-direct-r2-b1000-w1",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "direct-r2",
+    "batch": 32,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "85a0466d2bbd9f012ab525658562365ac2d719d6",
+    "elapsed_seconds": 4.6002668750006706,
+    "peak_process_tree_rss_bytes": 578224128,
+    "peak_private_bytes": 140944142,
+    "persistent_output_bytes": 6501405,
+    "remaining_private_bytes": 0,
+    "samples": 65,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-direct-r2-b32-w1",
+    "run_name": "current-direct-r2-b32-w1",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "direct-r2",
+    "batch": 32,
+    "workers": 2,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "85a0466d2bbd9f012ab525658562365ac2d719d6",
+    "elapsed_seconds": 4.856803041882813,
+    "peak_process_tree_rss_bytes": 859963392,
+    "peak_private_bytes": 140944142,
+    "persistent_output_bytes": 6501405,
+    "remaining_private_bytes": 0,
+    "samples": 67,
+    "max_processes": 4,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-direct-r2-b32-w2",
+    "run_name": "current-direct-r2-b32-w2",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "direct-r2-one",
+    "batch": 32,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "85a0466d2bbd9f012ab525658562365ac2d719d6",
+    "elapsed_seconds": 2.2523496670182794,
+    "peak_process_tree_rss_bytes": 501727232,
+    "peak_private_bytes": 48489055,
+    "persistent_output_bytes": 2576417,
+    "remaining_private_bytes": 0,
+    "samples": 30,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-direct-r2-one-b32-w1",
+    "run_name": "current-direct-r2-one-b32-w1",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "direct-r2-q100",
+    "batch": 1000,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "inputs": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/inputs-100",
+    "revision": "91ad7bfdf649c41951aadb910ba1d4413dd2a5d3",
+    "elapsed_seconds": 1.7772761250380427,
+    "peak_process_tree_rss_bytes": 351289344,
+    "peak_private_bytes": 14465205,
+    "persistent_output_bytes": 746347,
+    "remaining_private_bytes": 0,
+    "samples": 24,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-direct-r2-q100",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "run_name": "current-direct-r2-q100",
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 100,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100,
+      "subset_scope": "direct three-chromosome LD scoring only"
+    }
+  },
+  {
+    "case": "indexed",
+    "batch": 1000,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "85a0466d2bbd9f012ab525658562365ac2d719d6",
+    "elapsed_seconds": 42.38796045794152,
+    "peak_process_tree_rss_bytes": 377077760,
+    "peak_private_bytes": 1668086,
+    "persistent_output_bytes": 2607575,
+    "remaining_private_bytes": 0,
+    "samples": 399,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-indexed-b1000-w1",
+    "run_name": "current-indexed-b1000-w1",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "superseded: see final runs",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "indexed",
+    "batch": 32,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "85a0466d2bbd9f012ab525658562365ac2d719d6",
+    "elapsed_seconds": 42.994690167019144,
+    "peak_process_tree_rss_bytes": 360103936,
+    "peak_private_bytes": 1668086,
+    "persistent_output_bytes": 2607575,
+    "remaining_private_bytes": 0,
+    "samples": 406,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-indexed-b32-w1",
+    "run_name": "current-indexed-b32-w1",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "superseded: see final runs",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "indexed",
+    "batch": 1000,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "91ad7bfdf649c41951aadb910ba1d4413dd2a5d3",
+    "elapsed_seconds": 30.82028575008735,
+    "peak_process_tree_rss_bytes": 365559808,
+    "peak_private_bytes": 1668086,
+    "persistent_output_bytes": 2607575,
+    "remaining_private_bytes": 0,
+    "samples": 291,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-indexed-final-b1000",
+    "run_name": "current-indexed-final-b1000",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "indexed",
+    "batch": 32,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "inputs": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/inputs",
+    "revision": "91ad7bfdf649c41951aadb910ba1d4413dd2a5d3",
+    "elapsed_seconds": 30.396728750085458,
+    "peak_process_tree_rss_bytes": 362496000,
+    "peak_private_bytes": 1668086,
+    "persistent_output_bytes": 2607575,
+    "remaining_private_bytes": 0,
+    "samples": 287,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-indexed-final-b32",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      },
+      "timings": {
+        "validation_seconds": 0.11372137512080371,
+        "operator_multiplication_seconds": 0.04754287679679692,
+        "workflow_seconds": 29.82217220799066,
+        "outside_validation_and_multiplication_seconds": 29.66090795607306
+      }
+    },
+    "run_name": "current-indexed-final-b32",
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "indexed",
+    "batch": 1000,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "91ad7bfdf649c41951aadb910ba1d4413dd2a5d3",
+    "elapsed_seconds": 27.859390291152522,
+    "peak_process_tree_rss_bytes": 363773952,
+    "peak_private_bytes": 1668086,
+    "persistent_output_bytes": 2607575,
+    "remaining_private_bytes": 0,
+    "samples": 265,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-indexed-timed",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      },
+      "timings": {
+        "validation_seconds": 0.09655770799145103,
+        "operator_multiplication_seconds": 0.03974395804107189,
+        "workflow_seconds": 27.236474917037413,
+        "outside_validation_and_multiplication_seconds": 27.10017325100489
+      }
+    },
+    "run_name": "current-indexed-timed",
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "quantile",
+    "batch": 1000,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "85a0466d2bbd9f012ab525658562365ac2d719d6",
+    "elapsed_seconds": 4.889466125052422,
+    "peak_process_tree_rss_bytes": 483278848,
+    "peak_private_bytes": 60834336,
+    "persistent_output_bytes": 17502,
+    "remaining_private_bytes": 0,
+    "samples": 65,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-quantile-b1000-w1",
+    "run_name": "current-quantile-b1000-w1",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "regression",
+    "batch": 1000,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "85a0466d2bbd9f012ab525658562365ac2d719d6",
+    "elapsed_seconds": 14.249158416874707,
+    "peak_process_tree_rss_bytes": 271073280,
+    "peak_private_bytes": 37331441,
+    "persistent_output_bytes": 36170447,
+    "remaining_private_bytes": 0,
+    "samples": 127,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-regression-b1000-w1",
+    "run_name": "current-regression-b1000-w1",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  },
+  {
+    "case": "regression",
+    "batch": 32,
+    "workers": 1,
+    "checkout": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured",
+    "revision": "85a0466d2bbd9f012ab525658562365ac2d719d6",
+    "elapsed_seconds": 14.212201833026484,
+    "peak_process_tree_rss_bytes": 197853184,
+    "peak_private_bytes": 37544533,
+    "persistent_output_bytes": 36170433,
+    "remaining_private_bytes": 0,
+    "samples": 126,
+    "max_processes": 1,
+    "exit_code": 0,
+    "output": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-benchmark/runs/current-regression-b32-w1",
+    "run_name": "current-regression-b32-w1",
+    "worker": {
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "scipy": "1.17.1",
+        "pyarrow": "23.0.1"
+      }
+    },
+    "measurement_status": "reported",
+    "input_dimensions": {
+      "seed": 20260910,
+      "chromosomes": 3,
+      "snps_per_chromosome": 6000,
+      "query_count": 1000,
+      "plink_samples": 128,
+      "regression_rows": 2000,
+      "quantile_rows": 120000,
+      "quantile_annotations": 60,
+      "standalone_queries": 100
+    }
+  }
+]

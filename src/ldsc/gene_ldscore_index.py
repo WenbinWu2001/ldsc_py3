@@ -1988,7 +1988,7 @@ def _run_indexed_ldscore_in_workspace(
         )
         if status.status in {"ok", "warning"}
     ]
-    control_resolution = next((item for item in batch.selections if item.input_role == "control"), None)
+    control_resolution = batch.selection("control", 0) if control_gene_list_file is not None else None
     control_errors = gene_viability_errors(batch, statuses)
     if control_errors:
         diagnostic_result = SimpleNamespace(query_statuses=statuses, gene_list_batch=batch, chromosome_scope=scope)

@@ -67,11 +67,13 @@ class StagedGeneListBatch:
     def selection(self, input_role, source_ordinal):
         declaration = next(item for item in self.declarations if item['input_role'] == input_role and item['source_ordinal'] == source_ordinal)
         indices = np.load(self.path / f"{input_role}-{source_ordinal}.npy")
-        rows = self.catalog.frame.loc[indices]
+        frame = self.catalog.frame
+        positions = frame.index.get_indexer(indices)
         return GeneSourceSelection(
             input_role, declaration['argument'], declaration['query'], declaration['source'], source_ordinal,
-            tuple(rows.gene_id.astype(str)), tuple(indices.tolist()),
-            tuple(zip(rows.chrom.astype(str), rows.start0.astype(int), rows.end.astype(int))),
+            tuple(map(str, frame.gene_id.to_numpy()[positions])), tuple(indices.tolist()),
+            tuple(zip(map(str, frame.chrom.to_numpy()[positions]), map(int, frame.start0.to_numpy()[positions]),
+                      map(int, frame.end.to_numpy()[positions]))),
         )
 
     @property
@@ -182,15 +184,18 @@ def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, control_path=N
                              'source': Path(source).name, 'source_path': source, 'source_ordinal': 0})
     name_counts = pd.Series([d['query'] for d in declarations if d['input_role'] == 'focal']).value_counts()
     catalog_indices = catalog.frame.reset_index().drop_duplicates('gene_id').set_index('gene_id')['index']
+    seed = pd.DataFrame([{**declaration, 'source_status': 'ok', 'source_reasons': ''} for declaration in declarations],
+                        columns=SUMMARY_COLUMNS[:7])
+    empty_summaries = _summarize_sources(pd.DataFrame(columns=AUDIT_COLUMNS), seed, resolution_policy, support_evaluated=False)
     summaries, spools, fatal = [], [], False
-    for declaration in declarations:
+    for source_index, declaration in enumerate(declarations):
         label = f"{declaration['input_role']}-{declaration['source_ordinal']}"
         spool = FrameSpool(path / label)
-        seen, selected, counts, rejected_reasons = {}, [], None, set()
+        seen, selected, rejected_reasons = {}, [], set()
+        counts = empty_summaries.iloc[source_index].copy()
         source_errors = []
         if declaration['input_role'] == 'focal' and name_counts[declaration['query']] > 1:
             source_errors.append('duplicate_query_name')
-        seed = pd.DataFrame([{**declaration, 'source_status': 'ok', 'source_reasons': ''}])
         try:
             for rows in _source_chunks(declaration, chunk_rows):
                 # Resolve each distinct submitted token once per chunk. This
@@ -210,13 +215,12 @@ def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, control_path=N
                         if audit.at[index, 'disposition'] == 'retained':
                             selected.append(int(catalog_indices[gene]))
                 rejected_reasons.update(audit.loc[audit.disposition.eq('rejected'), 'reason'].astype(str))
-                current = _summarize_sources(audit, seed, resolution_policy, support_evaluated=False).iloc[0]
-                numeric = ['nonblank_input_rows', 'uniquely_resolved_rows', 'rejected_rows', 'duplicate_rows', 'excluded_genes']
-                if counts is None:
-                    counts = current.copy()
-                else:
-                    for name in numeric:
-                        counts[name] += current[name]
+                # Each chunk belongs to one source: direct totals avoid a
+                # groupby/merge and schema reconstruction for every pathway.
+                counts['nonblank_input_rows'] += len(audit)
+                counts['uniquely_resolved_rows'] += int((audit.canonical_gene_id.notna() & ~audit.disposition.eq('rejected')).sum())
+                for column, disposition in (('rejected_rows', 'rejected'), ('duplicate_rows', 'duplicate'), ('excluded_genes', 'excluded')):
+                    counts[column] += int(audit.disposition.eq(disposition).sum())
                 spool.append(audit)
         except UnicodeDecodeError:
             source_errors.append('invalid_utf8')
@@ -229,8 +233,8 @@ def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, control_path=N
             if spool.path.exists():
                 shutil.rmtree(spool.path)
             spool, selected = FrameSpool(path / label), []
-        if counts is None or unreadable:
-            counts = _summarize_sources(pd.DataFrame(columns=AUDIT_COLUMNS), seed, resolution_policy, support_evaluated=False).iloc[0]
+        if unreadable:
+            counts = empty_summaries.iloc[source_index].copy()
         counts['unique_resolved_genes'] = len(seen) if not unreadable else pd.NA
         counts['source_reasons'] = ';'.join(source_errors)
         counts['source_status'] = 'error' if source_errors else 'ok'

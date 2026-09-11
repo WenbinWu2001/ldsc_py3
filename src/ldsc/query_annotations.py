@@ -101,7 +101,7 @@ def gene_query_statuses(batch):
 
 def gene_control_errors(batch, result=None):
     """Return required-control viability failures without dropping the control."""
-    if batch is None:
+    if batch is None or not batch.summary.input_role.eq("control").any():
         return []
     errors = []
     for selection in batch.selections:

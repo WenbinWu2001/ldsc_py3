@@ -156,6 +156,9 @@ def test_unpartitioned_conversion_writes_reloadable_canonical_suite_with_nullabl
         "weight": "weights.",
     }
     assert metadata["legacy_ldsc2_import"]["ignored_files"] == [str(reference / "1.l2.ldscore")]
+    assert "source_sha256" not in metadata["legacy_ldsc2_import"]
+    assert str(reference / "1.l2.ldscore.gz") in metadata["legacy_ldsc2_import"]["selected_files"]
+    assert metadata["legacy_ldsc2_import"]["intersection_counts"]["1"]["retained_rows"] == 1
     assert (output / "diagnostics" / "conversion_issues.tsv.gz").exists()
     assert (output / "diagnostics" / "convert-ldsc2-ldscores.log").exists()
 

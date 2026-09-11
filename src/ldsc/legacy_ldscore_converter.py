@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import gzip
-import hashlib
 import logging
 from pathlib import Path
 import re
@@ -1264,7 +1263,6 @@ def _build_provenance(
         },
         "selected_files": [str(path) for path in unique_files],
         "ignored_files": ignored_files,
-        "source_sha256": {str(path): _sha256(path) for path in unique_files},
         "intersection_counts": intersections,
         "count_origins": count_origins,
         "common_frequency_rule": dict(_COUNT_CONFIG),
@@ -1318,14 +1316,6 @@ def _decompressed_bytes(path: Path) -> bytes:
         with gzip.open(path, "rb") as handle:
             return handle.read()
     return path.read_bytes()
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 __all__ = ["LegacyLDScoreConverter", "LegacyLDScoreConversionResult", "convert_ldsc2_ldscores"]

@@ -2491,8 +2491,8 @@ def _cast_index_baseline_rows(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.astype({column: np.float32 for column in float64_columns}) if float64_columns else frame
 
 
-def _index_row_digests(frame: pd.DataFrame, snp_identifier: str) -> tuple[str, str]:
-    """Hash ordered effective identities and ordered published row metadata."""
+def _published_row_metadata_sha256(frame: pd.DataFrame) -> str:
+    """Bind ordered CHR/SNP/POS/A1/A2 metadata, including either effective SNP key."""
     required = ["CHR", "SNP", "POS", "A1", "A2"]
     missing = [column for column in required if column not in frame.columns]
     if missing:
@@ -2500,11 +2500,7 @@ def _index_row_digests(frame: pd.DataFrame, snp_identifier: str) -> tuple[str, s
             "New gene LD-score indexes require PLINK-authored A1/A2 and canonical row "
             f"metadata; missing columns: {missing}."
         )
-    effective_columns = ["SNP"] if snp_identifier == "rsid" else ["CHR", "POS"]
-    return (
-        _canonical_frame_sha256(frame.loc[:, effective_columns]),
-        _canonical_frame_sha256(frame.loc[:, required]),
-    )
+    return _canonical_frame_sha256(frame.loc[:, required])
 
 
 def _index_chromosome_metadata(
@@ -2520,15 +2516,14 @@ def _index_chromosome_metadata(
         for column in record.baseline_rows.columns
         if column not in {"CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores"}
     ]
-    effective_digest, published_digest = _index_row_digests(
-        _cast_index_baseline_rows(record.baseline_rows), snp_identifier
+    published_digest = _published_row_metadata_sha256(
+        _cast_index_baseline_rows(record.baseline_rows)
     )
     return {
         "artifact_type": "gene_ldscore_index",
         "chromosome": str(chrom),
         "snp_identifier": snp_identifier,
         "genome_build": genome_build,
-        "effective_identity_sha256": effective_digest,
         "published_row_metadata_sha256": published_digest,
         "n_rows": len(record.baseline_rows),
         "n_baseline": len(baseline_columns),
@@ -2754,9 +2749,7 @@ def _load_index_chromosome(
     canonical_rows = baseline_rows.sort_values(["POS", "SNP"], kind="mergesort").reset_index(drop=True)
     if not baseline_rows.reset_index(drop=True).equals(canonical_rows):
         raise LDSCInputError("Gene LD-score index baseline rows are not in canonical genomic order.")
-    effective_digest, published_digest = _index_row_digests(baseline_rows, snp_identifier)
-    if component_meta.get("effective_identity_sha256") != effective_digest:
-        raise LDSCInputError("Gene LD-score index effective identity digest is invalid.")
+    published_digest = _published_row_metadata_sha256(baseline_rows)
     if component_meta.get("published_row_metadata_sha256") != published_digest:
         raise LDSCInputError("Gene LD-score index published row metadata digest is invalid.")
     stats = _load_npz_members(

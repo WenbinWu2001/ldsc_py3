@@ -193,13 +193,9 @@ window and MAF rules, padding, and gene-region policy. Batching, threads,
 logging, output path, and overwrite are resource or publication controls and do
 not change the identity.
 
-Root and chromosome metadata repeat the immutable identity mode and hg19 build.
-Each chromosome also records ordered effective-identity and published-row
-metadata digests. New PLINK-backed indexes require both allele columns and
-persist canonical `CHR SNP POS A1 A2` metadata for regression rows only. The
-strict loader rejects mode/build disagreement, duplicate effective identities,
-row tampering, and older gene-index metadata contracts before indexed output is
-published; rebuild older gene indexes with the current builder.
+Root and chromosome metadata repeat the immutable identity mode and hg19 build. Each chromosome records `published_row_metadata_sha256` over ordered `CHR SNP POS A1 A2` metadata for regression rows only. Both allele columns are required. This one digest covers the effective SNP key in either identity mode; the redundant `effective_identity_sha256` field is no longer written or required. The strict loader retains its mode/build, duplicate-effective-identity, canonical-order, schema, and row-metadata checks. These fingerprints identify declared inputs/settings and verify row metadata; they do not checksum numerical LD-score or sparse-matrix payloads.
+
+New gene indexes require readers that no longer require `effective_identity_sha256`. The current reader accepts otherwise-valid existing indexes with that extra field without rewriting them. Older contracts lacking the retained identity/build, allele, or published-row metadata requirements still require rebuilding. The semantic `index_id` and all six input fingerprints are unchanged. See the [confirmed SHA256 decisions](sha256-usage-decisions.md).
 
 Gene indexes do not support incremental updates, chromosome append, profile
 addition, or common-layer reuse. Any input or configuration change requires a

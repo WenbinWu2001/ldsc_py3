@@ -373,6 +373,8 @@ the closed log moves to
 remain in hidden state and are archived on retry. This keeps the destination
 absent or empty until a complete index is published.
 
+Use an updated reader for newly built gene indexes: chromosome metadata now carries only the published-row fingerprint, which also covers the effective SNP key. Otherwise-valid existing indexes remain readable; the semantic `index_id` and six input fingerprints are unchanged. See the [artifact and identity contract](../docs/current/gene-ldscore-index.md#artifact-and-identity-contract).
+
 ## Optional: Materialize BED or Gene Projections for Reuse
 
 If you want reusable query `.annot.gz` shards on disk, call `run_annotate(...)` or `ldsc annotate` explicitly.

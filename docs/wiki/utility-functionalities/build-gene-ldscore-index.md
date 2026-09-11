@@ -212,6 +212,8 @@ One canonical `index_id` binds all scientific content and settings. Paths,
 output names, compression, harmless restriction-file ordering, threads, and
 batch sizes do not define identity. There are no suite or profile IDs.
 
+Each chromosome also records one ordered `CHR SNP POS A1 A2` fingerprint, `published_row_metadata_sha256`. It covers both identity modes without a separate effective-row digest. New indexes require an updated reader; otherwise-valid existing indexes remain readable. The semantic ID and six input fingerprints retain their existing design. These checks do not establish complete integrity of numerical payloads. See the [artifact and identity contract](../../current/gene-ldscore-index.md#artifact-and-identity-contract).
+
 ## Rerun and failure behavior
 
 - missing output: leave it absent until a complete index is published;

@@ -1378,8 +1378,16 @@ def test_canonical_table_identity_ignores_row_order_when_key_sort_is_declared():
     )
 
 
-def test_index_artifact_round_trip_uses_approved_tree_and_payloads(tmp_path):
+@pytest.mark.parametrize(
+    "snp_identifier, expected_index_id",
+    [
+        ("rsid", "a28affd50e01418c9e13d8d42f9a153aa6049801a04425ece87639e0679a6948"),
+        ("chr_pos", "c441a6234996ab2ca042b1c689be946050f3459d14f4da18e744f5fdfae39f6a"),
+    ],
+)
+def test_index_artifact_round_trip_uses_approved_tree_and_payloads(tmp_path, snp_identifier, expected_index_id):
     chromosome, catalog, index_identity = _artifact_payload()
+    index_identity = {**index_identity, "snp_identifier": snp_identifier}
     index_dir = publish_gene_ldscore_index(
         tmp_path / "index",
         index_identity=index_identity,
@@ -1391,19 +1399,33 @@ def test_index_artifact_round_trip_uses_approved_tree_and_payloads(tmp_path):
 
     assert index_dir == tmp_path / "index"
     assert loaded.index_id == calculate_index_id(index_identity)
-    assert loaded.snp_identifier == "rsid"
+    assert loaded.index_id == expected_index_id
+    assert loaded.snp_identifier == snp_identifier
     assert loaded.genome_build == "hg19"
     assert loaded.chromosomes == ("22",)
     np.testing.assert_array_equal(loaded.load_chromosome("22").operator.toarray(), chromosome.operator.toarray())
     root_metadata = (index_dir / "metadata.json").read_text(encoding="utf-8")
     assert "schema_version" not in root_metadata
     assert "software_version" not in root_metadata
+    component_metadata = json.loads(
+        (index_dir / "chromosomes" / "chr22" / "metadata.json").read_text(encoding="utf-8")
+    )
+    assert "effective_identity_sha256" not in component_metadata
+    # Persisted digest from the fixture at the pre-removal revision 9d3fe47.
+    assert component_metadata["published_row_metadata_sha256"] == (
+        "5d56bf6d59eb23a9df273321249f8e341b1deaac155f59c9ad477903fff62463"
+    )
     assert (index_dir / "chromosomes" / "chr22" / "baseline_statistics.npz").exists()
     assert (index_dir / "chromosomes" / "chr22" / "atom_statistics.npz").exists()
     stored_rows = pd.read_parquet(index_dir / "chromosomes" / "chr22" / "baseline_rows.parquet")
     assert stored_rows["regression_ld_scores"].dtype == np.float32
     assert stored_rows["base"].dtype == np.float32
     assert list(stored_rows.columns[:5]) == ["CHR", "SNP", "POS", "A1", "A2"]
+    component_metadata["effective_identity_sha256"] = "unused_retired_field"
+    (index_dir / "chromosomes" / "chr22" / "metadata.json").write_text(
+        json.dumps(component_metadata), encoding="utf-8"
+    )
+    assert load_gene_ldscore_index(index_dir).index_id == expected_index_id
 
 
 def test_public_loader_rejects_partial_index_before_gene_resolution(tmp_path):
@@ -1447,24 +1469,31 @@ def test_chr_pos_index_round_trip_uses_coordinate_identity_and_publishes_plink_l
     assert metadata["index_genome_build"] == "hg19"
 
 
-def test_index_loader_rejects_component_identity_metadata_and_published_row_tampering(tmp_path):
+@pytest.mark.parametrize("snp_identifier", ["rsid", "chr_pos"])
+@pytest.mark.parametrize("column, changed_value", [("SNP", "rs_changed"), ("POS", 2), ("A1", "T"), ("A2", "C")])
+def test_index_loader_rejects_component_identity_metadata_and_published_row_tampering(
+    tmp_path, snp_identifier, column, changed_value
+):
     chromosome, catalog, index_identity = _artifact_payload()
+    index_identity = {**index_identity, "snp_identifier": snp_identifier}
     index_dir = publish_gene_ldscore_index(
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
         chromosomes={"22": chromosome}, overwrite=False,
     )
     component_metadata_path = index_dir / "chromosomes" / "chr22" / "metadata.json"
     component_metadata = json.loads(component_metadata_path.read_text(encoding="utf-8"))
-    component_metadata["snp_identifier"] = "chr_pos"
+    component_metadata["snp_identifier"] = "chr_pos" if snp_identifier == "rsid" else "rsid"
     component_metadata_path.write_text(json.dumps(component_metadata), encoding="utf-8")
     with pytest.raises(LDSCInputError, match="component identity"):
         load_gene_ldscore_index(index_dir)
 
-    component_metadata["snp_identifier"] = "rsid"
+    component_metadata["snp_identifier"] = snp_identifier
+    component_metadata.pop("effective_identity_sha256", None)
     component_metadata_path.write_text(json.dumps(component_metadata), encoding="utf-8")
+    assert load_gene_ldscore_index(index_dir).index_id == calculate_index_id(index_identity)
     rows_path = index_dir / "chromosomes" / "chr22" / "baseline_rows.parquet"
     rows = pd.read_parquet(rows_path)
-    rows.loc[0, "A1"] = "T"
+    rows.loc[0, column] = changed_value
     rows.to_parquet(rows_path, index=False)
     with pytest.raises(LDSCInputError, match="published row metadata digest"):
         load_gene_ldscore_index(index_dir)

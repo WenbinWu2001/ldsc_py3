@@ -174,7 +174,7 @@ This module orchestrates chromosome-wise LD-score computation. It resolves annot
 
 ### `ldsc.legacy_ldscore_converter`
 
-This workflow module is the sole public reader of selected LDSC2 LD-score fragments. It discovers one coherent autosomal reference family and one weight family, joins them by rsID, accepts either an unpartitioned single-score suite or a complete full baseline suite, validates the fixed legacy common-count semantics, and writes an ordinary canonical LDSC3 LD-score directory through `LDScoreDirectoryWriter`. Baseline conversion reconstructs and validates marginal counts plus the full overlap matrix; it never accepts query or thin annotations. Inputs remain read-only and provenance includes selected prefixes, source hashes, intersections, coordinate evidence, and count origins. Architecture invariant: regression and `_kernel` never parse LDSC2 LD-score fragments.
+This workflow module is the sole public reader of selected LDSC2 LD-score fragments. It discovers one coherent autosomal reference family and one weight family, joins them by rsID, accepts either an unpartitioned single-score suite or a complete full baseline suite, validates the fixed legacy common-count semantics, and writes an ordinary canonical LDSC3 LD-score directory through `LDScoreDirectoryWriter`. Baseline conversion reconstructs and validates marginal counts plus the full overlap matrix; it never accepts query or thin annotations. Inputs remain read-only and provenance includes selected prefixes/files, intersections, coordinate evidence, and count origins. Routine source hashes are not computed. Architecture invariant: regression and `_kernel` never parse LDSC2 LD-score fragments.
 
 ### `ldsc.gene_ldscore_index`, `ldsc._kernel.gene_ldscore_index`
 

@@ -233,7 +233,7 @@ annotation columns; a single-annotation (e.g. base-only) run omits it.
 | `gene_list_resolution_counts` | Aggregate submitted, rejected, and unique-resolved counts. | Reproducibility/diagnostics; ignored by regression. |
 | `query_diagnostics` | Relative paths to available query status, scope, structural input issues, and, for gene runs, the audit and source summary. | Troubleshooting/navigation; ignored by regression. |
 | `chromosome_scope` | Validated input scope and selection semantics, separately from chromosomes with retained output rows. Empty for workflows without query coverage preflight. | Scientific provenance; ignored by regression. |
-| `legacy_ldsc2_import` | Present only for explicit LDSC2 conversion: profile, selected source directories/prefixes/files, streaming SHA-256 hashes, rsID intersection counts, count origins, strict common-frequency rule, coordinate evidence, and diagnostic paths. | Provenance and compatibility auditing; regression still consumes the ordinary canonical fields. |
+| `legacy_ldsc2_import` | Present only for explicit LDSC2 conversion: profile, selected source directories/prefixes/files, rsID intersection counts, count origins, strict common-frequency rule, coordinate evidence, and diagnostic paths. Source-file hashes are not computed or written. | Provenance and compatibility auditing; regression still consumes the ordinary canonical fields. |
 
 Native LDSC3 computation records an inclusive common operator (`>=`). Explicit
 LDSC2 conversion records the actual strict legacy operator (`>`) at threshold

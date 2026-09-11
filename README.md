@@ -273,6 +273,8 @@ Build complete indexes offline with `ldsc build-gene-ldscore-index`. Constructio
 Task-oriented walkthroughs cover [building the index](docs/wiki/utility-functionalities/build-gene-ldscore-index.md)
 and [using it for gene-list LD scores](docs/wiki/main-functionalities/ldscore-from-gene-list.md).
 
+Gene-index metadata retains the semantic `index_id` and one ordered published-row fingerprint. New indexes omit the redundant effective-row fingerprint and require an updated reader; otherwise-valid existing indexes remain readable. See the [fingerprint and reader contract](docs/current/gene-ldscore-index.md#artifact-and-identity-contract).
+
 Direct gene-list, BED, and prebuilt-query runs require matching validated baseline/reference chromosome sets. `@` requires autosomes 1–22; globs select actual matches, and file contents determine scope. Every selected focal/control gene must lie within scope under both resolution policies: incomplete coverage fails the whole batch without truncation or automatic pathway skipping. Chromosome-only runs are supported when inputs align. The effective scope is logged and written to `diagnostics/chromosome_scope.json`; input failures, pathway counts, and affected genes appear in diagnostics. See [coverage and repair rules](docs/current/gene-list-diagnostics-and-repair.md#chromosome-scope-and-pathway-coverage), including the trade-off that globs can hide a consistently missing chromosome.
 
 ## LDSC2 compatibility boundary

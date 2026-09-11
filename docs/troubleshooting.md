@@ -330,9 +330,7 @@ and reported rather than deleted.
 
 ### ldscore: an explicit gene index is missing, corrupt, or incompatible
 
-**Symptom:** indexed mode rejects metadata IDs, mode/build agreement, ordered
-row digests, chromosome coverage, duplicate effective identities, Parquet rows,
-NPZ members, CSR structure/dtypes, or dimensions.
+**Symptom:** indexed mode rejects metadata IDs, mode/build agreement, the ordered published-row metadata digest, chromosome coverage, duplicate effective identities, Parquet rows, NPZ members, CSR structure/dtypes, or dimensions.
 
 Pass the one complete index directory containing root `metadata.json` and
 `chromosomes/`. Do not add
@@ -344,6 +342,8 @@ or rebuild the index, or remove `--gene-ldscore-index-dir` and supply the
 full direct-mode inputs explicitly. Older gene-index metadata contracts are not
 loaded by the current strict reader and must be rebuilt; ordinary canonical
 LD-score directories already produced from them are unaffected.
+
+The retired `effective_identity_sha256` field alone does not require rebuilding: otherwise-valid existing indexes still load. New indexes omit this redundant field and require an updated reader; upgrade the reader if an older installation reports a missing effective-identity digest. The retained `published_row_metadata_sha256`, semantic `index_id`, and input fingerprints remain required under their existing contracts.
 
 ### build-gene-ldscore-index: required identity or build option is missing
 

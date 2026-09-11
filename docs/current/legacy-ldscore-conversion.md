@@ -1,6 +1,6 @@
 # Legacy LDSC2 LD-Score Suite Conversion
 
-Last updated on: 2026-08-04
+Last updated on: 2026-09-10
 
 This document defines the interoperability boundary for explicitly converting
 selected reusable LDSC2 LD-score suites into the canonical LDSC3 LD-score
@@ -227,14 +227,9 @@ emission is added to `_kernel`; after conversion, the ordinary canonical
 
 ## Provenance
 
-The converted directory must identify itself as an imported LDSC2 suite and
-record enough source and discovery provenance to make the conversion
-auditable. It remains a normal current `artifact_type="ldscore"` directory and
-adds a `legacy_ldsc2_import` metadata block containing the profile, converter
-version, source directories and selected prefixes, selected/ignored/missing
-files and hashes, intersection counts, source/effective build inference, count
-origins, fixed legacy common-frequency rule, coordinate disagreement summaries,
-and diagnostic paths. Original legacy files remain untouched.
+The converted directory must identify itself as an imported LDSC2 suite and record enough source and discovery provenance to make the conversion auditable. It remains a normal current `artifact_type="ldscore"` directory and adds a `legacy_ldsc2_import` metadata block containing the profile, converter version, source directories and selected prefixes, selected/ignored/missing files, intersection counts, source/effective build inference, count origins, fixed legacy common-frequency rule, coordinate disagreement summaries, and diagnostic paths. Original legacy files remain untouched.
+
+Routine source-file checksums are not computed or written. The converter records explicit source/discovery metadata and validates scientific inputs and counts; it does not verify source-byte integrity against expected hashes. See the [confirmed SHA256 decisions](sha256-usage-decisions.md).
 
 For unpartitioned conversion, the `base` count record stores
 `all_reference_snp_count: null` when any chromosome lacks `.l2.M`, plus the

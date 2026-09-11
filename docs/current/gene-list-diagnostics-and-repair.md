@@ -1,6 +1,6 @@
 # Gene-list diagnostics and repair
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 This guide is the detailed reference for diagnosing direct and indexed
 gene-list `ldscore` runs. The design assumes that users do not inspect a file
@@ -327,3 +327,7 @@ No inexpensive validator can detect catalog rows that secretly mix coordinate
 builds while all declarations and intervals remain plausible. Producing a
 single-build catalog from one authoritative source remains the user's
 responsibility; LDSC performs no implicit liftover.
+
+## File patterns and chromosome coverage
+
+For direct query LD scores, `@` declares all chromosomes 1-22. If a subset is intentional, use quoted `*` patterns or exact paths selecting matching baseline and PLINK chromosome sets. Check the actual matched files and their chromosome contents. Restore missing files when a complete suite was intended. Every selected focal/control gene must still be covered; changing `@` to `*` does not filter genes or permit pathway truncation. Supply the missing chromosome inputs or explicitly revise the lists. `--r2-dir` takes a literal directory with matching chromosome coverage. The scope failure and workflow log include these repair options; see [chromosome coverage troubleshooting](../troubleshooting.md#ldscore-chromosome-coverage-preflight) and [`_ldscore_preflight.validate_direct_scope`](../../src/ldsc/_ldscore_preflight.py).

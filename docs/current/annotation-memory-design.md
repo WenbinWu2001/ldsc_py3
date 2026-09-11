@@ -1,6 +1,6 @@
 # Annotation and workflow memory design
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 This document describes the implemented memory architecture for contributors. The intended workload is testing many pathways at once: for example, 1,000 pathways in one run, with each pathway tested separately against the same baseline categories. The core design removes avoidable whole-genome annotation retention and repeated model preparation. Completion remains open: the [completion review](../audits/annotation-memory/completion-review.md) identifies quantitative count precision, duplicate completed LD-table retention, and two diagnostic-retention paths that still require repair. The scientific universes, validation tolerances, and canonical output contracts remain the requirements for that repair. See the [specification](../specs/2026-09-10-annotation-workflow-memory-design.md) for the approved contract and the [implementation plan](../plans/2026-09-10-annotation-workflow-memory.md) for verification progress.
 
@@ -40,7 +40,7 @@ For PLINK, each correlation block is generated once. Shared baseline columns and
 
 ## Chromosome parallelism
 
-[`LDScoreCalculator`](../../src/ldsc/ldscore_calculator.py) uses `--threads` to choose chromosome worker **processes**: `1` is sequential, positive values request that many workers, and negative values follow the documented joblib convention. Positive requests are capped by the number of available chromosomes; negative requests derive their count from available CPUs and are then capped by chromosome count. Despite the flag name, these are processes, not Python threads. Worker BLAS thread limits avoid multiplying chromosome workers by a second pool of numerical threads.
+[`LDScoreCalculator`](../../src/ldsc/ldscore_calculator.py) uses `--threads` to choose chromosome worker **processes**: `1` is sequential, positive values request that many workers, and negative values follow the documented joblib convention. Positive requests are capped by the number of available chromosomes; negative requests derive their count from available CPUs and are then capped by chromosome count. Worker BLAS thread limits avoid multiplying chromosome workers by a second pool of numerical threads. `build-gene-ldscore-index --threads` uses a chromosome thread pool; both commands keep the same flag name and default to sequential execution.
 
 The sequential lifecycle is `load chromosome → prepare → compute/write diagnostics → close → next chromosome`. Reference and annotation working arrays from the completed chromosome become available for reuse before the next preparation. Python/NumPy allocators may keep freed pages, so RSS need not fall immediately. A flat RSS trace alone is not evidence of retained chromosome objects; lifetime tests assert release directly.
 

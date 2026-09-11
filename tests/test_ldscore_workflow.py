@@ -375,11 +375,11 @@ class R2AutoLoadCLITest(unittest.TestCase):
 @unittest.skipIf(ldscore_workflow is None, "ldscore_workflow module is not available")
 class LDScoreWorkflowTest(unittest.TestCase):
     def test_build_parser_genome_build_help_documents_chr_pos_requirement(self):
-        help_text = ldscore_workflow.build_parser().format_help()
+        help_text = " ".join(ldscore_workflow.build_parser().format_help().split())
 
-        self.assertIn("Required when", help_text)
-        self.assertIn("rsid-family gene-list runs", help_text)
-        self.assertIn("named regression-region presets", help_text)
+        self.assertIn("Required for chr_pos modes", help_text)
+        self.assertIn("direct gene-list runs default to auto", help_text)
+        self.assertIn("Gene-list runs also use this build for --regr-snps-exclude-regions", help_text)
 
     def test_build_parser_accepts_r2_dir(self):
         args = ldscore_workflow.build_parser().parse_args(
@@ -3296,7 +3296,7 @@ class R2DequantizationTest(unittest.TestCase):
             self.assertAlmostEqual(float(r2_values[0]), 0.5, delta=1e-7)
 
 
-def test_ldscore_parser_regr_snp_region_flag_default_and_legacy_alias():
+def test_ldscore_parser_regr_snp_region_flag_default_and_removed_alias():
     parser = build_parser()
     # Default excludes MHC + centromeres.
     default_args = parser.parse_args(["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1"])
@@ -3307,11 +3307,11 @@ def test_ldscore_parser_regr_snp_region_flag_default_and_legacy_alias():
          "--regr-snps-exclude-regions", "centromeres", "--genome-build", "hg19"]
     )
     assert args.regr_snps_exclude_regions == "centromeres"
-    legacy_args = parser.parse_args(
-        ["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
-         "--exclude-regions", "mhc", "--genome-build", "hg19"]
-    )
-    assert legacy_args.regr_snps_exclude_regions == "mhc"
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            ["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
+             "--exclude-regions", "mhc", "--genome-build", "hg19"]
+        )
     assert "--exclude-regions" not in parser.format_help()
     with pytest.raises(SystemExit):
         parser.parse_args(["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",

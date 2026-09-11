@@ -163,6 +163,12 @@ def test_incomplete_pathways_and_control_fail_together_with_unknown_support(tmp_
     with pytest.raises(LDSCInputError, match="coverage preflight failed") as caught:
         run_ldscore_from_args(direct_args(tmp_path, inputs, [partial, absent, full], policy=policy, control=control))
     assert all(name in str(caught.value) for name in ("partial", "absent", "control"))
+    log = (tmp_path / "direct/diagnostics/ldscore.log").read_text()
+    for message in (str(caught.value), log):
+        assert "'@' requires all chromosomes 1-22" in message
+        assert "use quoted '*' patterns" in message
+        assert "matching baseline and PLINK chromosome sets" in message
+        assert "does not filter genes" in message
     summary = pd.read_csv(tmp_path / "direct/diagnostics/gene_list_resolution_summary.tsv", sep="\t")
     assert summary.coverage_status.tolist() == ["partial", "none", "full", "partial"]
     assert summary.zero_support_genes.isna().all()

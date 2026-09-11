@@ -8,7 +8,9 @@ import pandas as pd
 import pytest
 
 from ldsc import GlobalConfig, RegressionConfig
+from ldsc import cli
 from ldsc import regression_runner as workflow
+from ldsc.errors import LDSCConfigError, LDSCUsageError
 from ldsc.outputs import H2DirectoryWriter, H2OutputConfig
 from ldsc.sumstats_munger import SumstatsTable
 
@@ -26,6 +28,80 @@ def h2_dataset():
         count_key_used_for_regression='common_reference_snp_counts', trait_names=['trait'], chromosomes_aggregated=['1'],
         config_snapshot=GlobalConfig(snp_identifier='rsid'), effective_snp_identifier='rsid',
     )
+
+
+def _intercept_cli_config(command, flags):
+    inputs = (["--sumstats-sources", "one.parquet", "two.parquet"] if command == "rg"
+              else ["--sumstats-file", "one.parquet"])
+    args = cli.build_parser().parse_args([
+        command, *inputs, "--ldscore-dir", "ldscores", "--output-dir", "results",
+        "--n-blocks", "6", *flags,
+    ])
+    return workflow._runner_from_args(args)[1]
+
+
+def _intercept_fit(command, config):
+    from dataclasses import replace
+
+    dataset = h2_dataset()
+    runner = workflow.RegressionRunner(GlobalConfig(snp_identifier="rsid"), config)
+    if command == "partitioned-h2":
+        merged = dataset.merged.assign(query=2 + np.sin(dataset.merged.base))
+        dataset = replace(
+            dataset, merged=merged, ref_ld_columns=["base", "query"], retained_ld_columns=["base", "query"],
+            reference_snp_count_totals={"common_reference_snp_counts": np.array([1000., 100.])},
+        )
+    if command != "rg":
+        return runner.estimate_h2(dataset)
+    merged = dataset.merged.rename(columns={"Z": "Z1", "N": "N1"}).copy()
+    merged["Z1"] = np.sqrt(1.2 + .01 * merged.base + .02 * np.sin(merged.base))
+    merged["Z2"] = np.sqrt(1.1 + .015 * merged.base + .03 * np.cos(merged.base))
+    merged["N2"] = 1500 + 5 * merged.base
+    fields = {name: getattr(dataset, name) for name in (
+        "ref_ld_columns", "retained_ld_columns", "dropped_zero_variance_ld_columns", "weight_column",
+        "reference_snp_count_totals", "count_key_used_for_regression", "chromosomes_aggregated", "config_snapshot",
+    )}
+    rg_dataset = workflow.RGRegressionDataset(merged=merged, trait_names=["one", "two"], **fields)
+    return runner._fit_rg_dataset(rg_dataset).estimator
+
+
+@pytest.mark.parametrize("command", ["h2", "partitioned-h2", "rg"])
+def test_explicit_cli_intercepts_preserve_standard_fixed_fit(command):
+    flags = ["--intercept-h2", "1"] + (["--intercept-gencov", "0"] if command == "rg" else [])
+    actual = _intercept_fit(command, _intercept_cli_config(command, flags))
+    # The retained public Python shortcut supplies the established numerical reference.
+    expected = _intercept_fit(command, RegressionConfig(n_blocks=6, use_intercept=False))
+    pairs = ([(actual.hsq1, expected.hsq1, 1), (actual.hsq2, expected.hsq2, 1),
+              (actual.gencov, expected.gencov, 0)] if command == "rg" else [(actual, expected, 1)])
+    for fitted, reference, intercept in pairs:
+        assert fitted.intercept == intercept
+        assert fitted.constrain_intercept
+        assert fitted.twostep_filtered is None
+        for field in ("coef", "coef_cov", "tot", "tot_se", "tot_delete_values"):
+            np.testing.assert_array_equal(getattr(fitted, field), getattr(reference, field))
+    if command == "rg":
+        for field in ("rg_ratio", "rg_jknife", "rg_se", "p", "z"):
+            np.testing.assert_array_equal(getattr(actual, field), getattr(expected, field))
+
+
+@pytest.mark.parametrize("command", ["h2", "partitioned-h2", "rg"])
+def test_omitted_cli_intercepts_preserve_free_fit_and_two_step_defaults(command):
+    result = _intercept_fit(command, _intercept_cli_config(command, []))
+    fits = [result.hsq1, result.hsq2, result.gencov] if command == "rg" else [result]
+    for fitted in fits:
+        assert not fitted.constrain_intercept
+        assert (fitted.twostep_filtered is None) == (command == "partitioned-h2")
+
+
+@pytest.mark.parametrize("command, flags, error, message", [
+    ("rg", ["--intercept-gencov", "0"], LDSCConfigError, "two-step estimation with a fixed intercept"),
+    ("h2", ["--intercept-h2", "1", "--two-step-cutoff", "30"],
+     LDSCConfigError, "two-step estimation with a fixed intercept"),
+    ("partitioned-h2", ["--two-step-cutoff", "30"], LDSCUsageError, "two-step estimation for partitioned"),
+])
+def test_cli_intercept_consolidation_preserves_two_step_rejections(command, flags, error, message):
+    with pytest.raises(error, match=message):
+        _intercept_fit(command, _intercept_cli_config(command, flags))
 
 
 @pytest.mark.parametrize('intercept', [None, 1.0])

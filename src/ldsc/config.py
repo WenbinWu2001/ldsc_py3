@@ -554,7 +554,7 @@ class LDScoreConfig:
         if self.threads == 0:
             raise LDSCConfigError(
                 "LDScoreConfig received threads=0, which is ambiguous. Most likely the "
-                "thread count was left unset to a sentinel. Use 1 for sequential, a "
+                "worker count was left unset to a sentinel. Use 1 for sequential, a "
                 "positive count for that many workers, -1 for all cores, or -2 for all "
                 "but one."
             )
@@ -614,7 +614,7 @@ class GeneLDScoreIndexBuildConfig:
     atom_batch_size : int, optional
         Positive offline internal atom-column batch size. Default is 64.
     threads : int, optional
-        Chromosome worker count. Default is one; additional workers can
+        Chromosome thread-pool size. Default is one; additional threads can
         multiply chromosome-local memory.
 
     Raises
@@ -845,15 +845,22 @@ class MungeConfig:
         resolved by the workflow before entering the legacy kernel. Default is
         ``None``.
     N, N_cas, N_con : float or None, optional
-        Sample-size overrides forwarded to the munging kernel. Defaults are
-        ``None``.
+        Constant sample-size fallbacks. Per-variant N or paired case/control
+        columns take precedence. Otherwise ``N`` is used when supplied, or
+        ``N_cas + N_con`` when both counts are supplied. Defaults are ``None``.
     info_min : float, optional
         Minimum INFO score. Default is ``0.9``.
     maf_min : float, optional
-        Minimum allele frequency. Default is ``0.01``.
+        Minimum folded minor-allele frequency. Default is ``0.01``. The input
+        frequency is preserved as ``FRQ`` without folding whenever present;
+        ``FRQ`` is omitted when no frequency column is selected.
     n_min, nstudy_min : float or None, optional
-        Optional row filters for sample size and study count. Defaults are
-        ``None``.
+        Optional row filters for sample size and study count. For per-variant
+        N, an omitted or zero ``n_min`` uses its 90th percentile divided by
+        1.5. Constant N is assigned after filtering and is not filtered by
+        ``n_min``. Study-count filtering applies only without per-variant N;
+        an omitted or zero ``nstudy_min`` uses the maximum study count.
+        Defaults are ``None``, preserving LDSC2 behavior.
     chunk_size : int, optional
         Number of input rows processed per chunk. Default is ``1_000_000``.
     output_format : {"parquet", "tsv.gz", "both"}, optional
@@ -908,10 +915,10 @@ class MungeConfig:
         non-missing tokens, for example ``IMPINFO=0.852,0.113,NA``. Mixed
         nonnumeric tokens are rejected with a repair suggestion. Default is
         ``()``.
-    a1_inc, keep_maf : bool, optional
-        Legacy munging switches preserved for behavior compatibility. Defaults
-        are ``False``. (DANER parsing is selected via ``sumstats_format``, e.g.
-        ``"daner-old"`` / ``"daner-new"``.)
+    a1_inc : bool, optional
+        Assert that A1 is the increasing allele for every row and derive
+        positive Z from P without using a signed statistic. Default is
+        ``False``. DANER parsing is selected via ``sumstats_format``.
     overwrite : bool, optional
         If ``True``, replace current fixed sumstats outputs and remove stale
         owned ``sumstats.*`` siblings after a successful run. If ``False``, any
@@ -943,7 +950,6 @@ class MungeConfig:
     info_list_columns: tuple[str, ...] = field(default_factory=tuple)
     sumstats_format: str = "auto"
     a1_inc: bool = False
-    keep_maf: bool = False
     overwrite: bool = False
 
     def __post_init__(self) -> None:

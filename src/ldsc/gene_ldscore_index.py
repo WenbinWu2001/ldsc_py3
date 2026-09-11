@@ -37,6 +37,8 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
+from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
+from ._logging import LOG_LEVEL_HELP
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel.gene_ldscore_index import (
     AtomStatistics,
@@ -121,62 +123,161 @@ def build_parser() -> argparse.ArgumentParser:
         description="Build an exact PLINK-backed disjoint-atom gene LD-score index.",
         allow_abbrev=False,
     )
-    parser.add_argument("--baseline-annot-sources", required=True)
-    parser.add_argument("--plink-prefix", required=True)
-    parser.add_argument("--output-dir", required=True)
-    parser.add_argument(
-        "--gene-coordinate-file",
-        required=True,
-        help="Canonical one-build gene-coordinate TSV/TSV.GZ validated before atom construction.",
-    )
-    parser.add_argument(
-        "--genome-build",
-        choices=("hg19",),
-        required=True,
-        help="Required explicit build assertion for all coordinate-bearing inputs; no inference or liftover.",
-    )
-    parser.add_argument(
-        "--snp-identifier",
-        choices=("rsid", "chr_pos"),
-        required=True,
-        help="Required effective identity mode; no default, auto mode, or column-based inference.",
-    )
-    parser.add_argument("--padding-bp", type=int, default=0)
-    parser.add_argument("--gene-exclude-regions", choices=("none", "mhc"), default="mhc")
-    parser.add_argument("--ld-wind-cm", type=float, default=1.0)
-    parser.add_argument("--maf-min", type=float, default=None)
-    parser.add_argument("--common-maf-min", type=float, default=0.05)
-    parser.add_argument("--keep-indivs-file", default=None)
-    parser.add_argument(
-        "--regr-snps-file",
-        default=None,
+    parser.prog = 'ldsc build-gene-ldscore-index'
+    parser.formatter_class = CLIHelpFormatter
+    parser.description = 'Build a reusable gene LD-score index from hg19 PLINK genotypes and baseline annotations.'
+    inputs = parser.add_argument_group('Inputs and output')
+    identity = parser.add_argument_group('SNP identity and genome build')
+    genes = parser.add_argument_group('Gene intervals and LD window')
+    filters = parser.add_argument_group('SNP and individual selection')
+    maps = parser.add_argument_group('Genetic map')
+    runtime = parser.add_argument_group('Performance and logging')
+
+    inputs.add_argument(
+        '--baseline-annot-sources', required=True, metavar='SOURCES',
         help=(
-            "Optional identity-only SNP list defining the persisted regression/output rows. "
-            "Duplicate restriction keys collapse and non-identity columns are ignored."
+            'Required baseline annotation tables covering chromosomes 1-22. Accepts exact paths; this command '
+            'requires full autosomal coverage even when using a glob. '
+            + CHROMOSOME_PATH_HELP
         ),
     )
-    parser.add_argument(
-        "--regr-snps-exclude-regions",
-        choices=kernel_regions.REGR_SNPS_EXCLUDE_REGIONS_CHOICES,
-        default="mhc-and-centromeres",
+    inputs.add_argument(
+        '--plink-prefix', required=True, metavar='PREFIX',
         help=(
-            "Curated regions subtracted after selecting bundled HapMap3 or "
-            "--regr-snps-file SNPs."
+            'Required PLINK .bed/.bim/.fam filename prefix or chromosome suite covering 1-22. Accepts suite '
+            "stems, '*' and '@' patterns; see --baseline-annot-sources for pattern rules."
         ),
     )
-    parser.add_argument(
-        "--exclude-regions",
-        dest="regr_snps_exclude_regions",
-        choices=kernel_regions.REGR_SNPS_EXCLUDE_REGIONS_CHOICES,
-        default=argparse.SUPPRESS,
-        help=argparse.SUPPRESS,
+    inputs.add_argument(
+        '--gene-coordinate-file', required=True, metavar='FILE',
+        help=(
+            'Required headered TSV/TSV.GZ catalog of hg19 gene coordinates, with one-based inclusive intervals. '
+            'Defines the full gene set stored in the index. Supply an exact file path; patterns are not expanded.'
+        ),
     )
-    parser.add_argument("--genetic-map-hg19-sources", default=None)
-    parser.add_argument("--snp-batch-size", type=int, default=128)
-    parser.add_argument("--atom-batch-size", type=int, default=64)
-    parser.add_argument("--threads", type=int, default=1)
-    parser.add_argument("--overwrite", action="store_true", default=False)
-    parser.add_argument("--log-level", choices=("DEBUG", "INFO", "WARNING", "ERROR"), default="INFO")
+    inputs.add_argument(
+        '--output-dir', required=True, metavar='DIR',
+        help=(
+            'Required destination for the complete reusable gene LD-score index and diagnostics.'
+        ),
+    )
+
+    identity.add_argument(
+        '--snp-identifier', choices=('rsid', 'chr_pos'), required=True,
+        help=(
+            'Required SNP matching rule: rsid uses SNP identifiers; chr_pos uses chromosome and position. '
+            'Both ignore alleles for matching; no default.'
+        ),
+    )
+    identity.add_argument(
+        '--genome-build', choices=('hg19',), required=True,
+        help=(
+            'Required assertion that coordinate-bearing inputs use hg19. Only hg19 is supported; no '
+            'inference or coordinate conversion.'
+        ),
+    )
+
+    genes.add_argument(
+        '--padding-bp', type=int, default=0, metavar='BP',
+        help=(
+            'Extend each gene boundary by this many base pairs at both ends before finding covered SNPs. '
+            'Default: 0, use gene bodies. Must be nonnegative and is fixed in the index.'
+        ),
+    )
+    genes.add_argument(
+        '--gene-exclude-regions', choices=('none', 'mhc'), default='mhc',
+        help=(
+            'Exclude MHC-overlapping genes before padding, or none to exclude no genes. Default: mhc. The '
+            'choice is fixed in the index.'
+        ),
+    )
+    genes.add_argument(
+        '--ld-wind-cm', type=float, default=1.0, metavar='CM',
+        help=(
+            'Maximum LD-window distance on either side of each SNP, in centiMorgans. Default: 1.0; requires '
+            'informative PLINK CM values or --genetic-map-hg19-sources.'
+        ),
+    )
+
+    filters.add_argument(
+        '--regr-snps-file', default=None, metavar='FILE',
+        help=(
+            'Headered SNP identity table selecting stored regression/output rows and weight contributors. If '
+            'omitted, use bundled HapMap3 SNPs. --regr-snps-exclude-regions then applies. Supply an exact file '
+            'path; patterns are not expanded.'
+        ),
+    )
+    filters.add_argument(
+        '--keep-indivs-file', default=None, metavar='FILE',
+        help=(
+            'File listing one individual ID (IID) per row to retain from PLINK genotypes. If omitted, retain all '
+            'individuals. Supply an exact file path; patterns are not expanded.'
+        ),
+    )
+    filters.add_argument(
+        '--maf-min', type=float, default=None, metavar='VALUE',
+        help=(
+            'Keep reference SNPs with MAF at or above this value, in [0, 0.5]. If omitted, apply no '
+            'additional MAF threshold.'
+        ),
+    )
+    filters.add_argument(
+        '--regr-snps-exclude-regions', choices=kernel_regions.REGR_SNPS_EXCLUDE_REGIONS_CHOICES, default='mhc-and-centromeres',
+        help=(
+            'Exclude MHC, centromeres, both, or neither from --regr-snps-file or HapMap3 output SNPs. '
+            'Default: mhc-and-centromeres. Reference contributors and annotation counts are unchanged.'
+        ),
+    )
+    filters.add_argument(
+        '--common-maf-min', type=float, default=0.05, metavar='VALUE',
+        help=(
+            'Minimum MAF for common-SNP annotation counts, including the boundary. Default: 0.05; does not '
+            'filter LD-score contributors.'
+        ),
+    )
+
+    maps.add_argument(
+        '--genetic-map-hg19-sources', default=None, metavar='SOURCES',
+        help=(
+            'hg19 genetic-map files for deriving SNP centiMorgan coordinates. Accepts comma-separated exact file '
+            "paths; '*' and '@' are not expanded. If omitted, use informative PLINK CM values; one usable "
+            'coordinate source is required.'
+        ),
+    )
+
+    runtime.add_argument(
+        '--threads', type=int, default=1, metavar='N',
+        help=(
+            'Number of chromosomes built concurrently using a thread pool. Default: 1, sequential. Positive '
+            'N requests N threads; -1 uses all cores and -2 leaves one free; zero is invalid. More threads '
+            'use more memory. ldscore uses processes for the same flag.'
+        ),
+    )
+    runtime.add_argument(
+        '--snp-batch-size', type=int, default=128, metavar='N',
+        help=(
+            'Number of reference SNPs processed per PLINK genotype batch. Default: 128; larger batches use '
+            'more memory.'
+        ),
+    )
+    runtime.add_argument(
+        '--atom-batch-size', type=int, default=64, metavar='N',
+        help=(
+            'Number of disjoint gene-overlap regions processed together during index construction. Default: '
+            '64; a smaller positive value reduces memory use.'
+        ),
+    )
+    runtime.add_argument(
+        '--overwrite', action='store_true', default=False,
+        help=(
+            'Replace an existing complete index after the new build succeeds. Default: off; stop if the '
+            'destination already exists.'
+        ),
+    )
+    runtime.add_argument(
+        '--log-level', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'), default='INFO',
+        help=LOG_LEVEL_HELP,
+    )
     return parser
 
 

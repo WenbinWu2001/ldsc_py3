@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 This document summarizes the user-visible file streams for each public workflow. The diagrams use Mermaid `flowchart LR` because it maps cleanly onto the package's left-to-right data movement and layered module boundaries.
 
@@ -469,7 +469,7 @@ legacy-compatible munging kernel. The workflow owns the log file, parquet
 footer identity metadata, dropped-SNP sidecar, and curated output writing; the
 kernel keeps the low-level parsing and QC. Before calling the kernel, the
 workflow runs format and column inference:
-`--format auto` is the default and detects plain whitespace text, including
+`--input-format auto` is the default and detects plain whitespace text, including
 VCF-style headers, old DANER, and new DANER. `--infer-only` runs that inference
 pass, still requires `--output-dir` for the uniform CLI contract, creates no
 output directory, and prints missing fields plus exact repair suggestions.
@@ -497,7 +497,7 @@ in `diagnostics/sumstats.log`; row-level drops are written to
 | File | Example | Notes |
 | --- | --- | --- |
 | raw sumstats | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer; `NEFF` is not inferred as `N` unless the user explicitly passes `--N-col NEFF` |
-| DANER schema modes and VCF-style plain raw sumstats | old DANER: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers<br/>new DANER: exact `Nca` and `Nco` columns<br/>plain VCF-style: leading `##` metadata and `#CHROM` header | `--format auto` detects these profiles; explicit `--format daner-old` or `--format daner-new` overrides DANER auto-detection; VCF-style inputs are `plain`. `--format` is the sole DANER selector (the legacy `--daner-old`/`--daner-new` booleans are removed). |
+| DANER schema modes and VCF-style plain raw sumstats | old DANER: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers<br/>new DANER: case-insensitive `Nca`/`Nco` or `NCAS`/`NCON` column aliases<br/>plain VCF-style: leading `##` metadata and `#CHROM` header | `--input-format auto` detects these profiles; explicit `--input-format daner-old` or `--input-format daner-new` overrides DANER auto-detection; VCF-style inputs are `plain`. `--input-format` is the sole DANER selector (the legacy `--daner-old`/`--daner-new` booleans are removed). |
 | sumstats SNP keep-list, optional | headered `SNP` or `CHR`/`POS` restriction file, or `--use-hm3-snps` | optional row filter loaded once before parsing and applied inside each retained chunk; allele-free restrictions match by base key before later identity cleanup; allele-bearing restrictions, including packaged HM3, match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
 | sumstats liftover method, optional | `--output-genome-build hg38 --liftover-chain-file hg19ToHg38.over.chain` or `--output-genome-build hg38 --use-hm3-snps --use-hm3-quick-liftover` | valid only in `chr_pos`-family modes; required when source and output builds differ; updates `CHR`/`POS` after SNP restriction and preserves `SNP` labels |
 | column hints, optional | `--snp ID --chr '#CHROM' --pos POS --a1 EA --a2 NEA` | useful when headers are ambiguous; common aliases infer automatically, and `--infer-only` reports the hints it would apply |

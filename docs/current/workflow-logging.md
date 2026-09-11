@@ -1,6 +1,6 @@
 # Workflow Logging
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 Public workflow entry points share one logging policy:
 
@@ -25,6 +25,8 @@ Public workflow entry points share one logging policy:
   record of record.
 
 ## Console vs File Routing
+
+All command help pages reuse `LOG_LEVEL_HELP` from [`ldsc._logging`](../../src/ldsc/_logging.py). The default is `INFO`: progress and summaries. `DEBUG` adds troubleshooting details; `WARNING` records warnings and errors; `ERROR` records errors only. Each level includes more severe records. Run headers and completion status remain in the file at every level. This help wording describes the workflow log; it does not promise terminal progress at `INFO` or `DEBUG`.
 
 The per-run `.log` file is the authoritative sink. Console output (stderr) is a
 CLI-only concern, installed by `ldsc.cli.run_cli`; `stdout` is reserved for

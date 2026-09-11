@@ -249,24 +249,26 @@ def test_compute_one_chromosome_returns_success_outcome(two_chrom_panel):
 # --- Task 4: pool initializer -----------------------------------------------
 
 
-def test_init_worker_sets_state_and_blas_env(monkeypatch):
+def test_init_worker_sets_state_and_blas_env(monkeypatch, caplog):
     from ldsc.ldscore_calculator import _WORKER_STATE, _init_worker
 
     monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
     monkeypatch.delenv("OPENBLAS_NUM_THREADS", raising=False)
     monkeypatch.delenv("MKL_NUM_THREADS", raising=False)
-    _init_worker(regression_snps={"rs1", "rs2"}, log_level="WARNING")
+    with caplog.at_level("WARNING", logger="LDSC"):
+        _init_worker(regression_snps={"rs1", "rs2"}, log_level="WARNING")
     assert _WORKER_STATE["regression_snps"] == {"rs1", "rs2"}
     assert os.environ["OMP_NUM_THREADS"] == "1"
     assert os.environ["OPENBLAS_NUM_THREADS"] == "1"
     assert os.environ["MKL_NUM_THREADS"] == "1"
 
 
-def test_init_worker_respects_user_blas_env(monkeypatch):
+def test_init_worker_respects_user_blas_env(monkeypatch, caplog):
     from ldsc.ldscore_calculator import _init_worker
 
     monkeypatch.setenv("OMP_NUM_THREADS", "4")
-    _init_worker(regression_snps=None, log_level="WARNING")
+    with caplog.at_level("WARNING", logger="LDSC"):
+        _init_worker(regression_snps=None, log_level="WARNING")
     assert os.environ["OMP_NUM_THREADS"] == "4"
 
 
@@ -569,3 +571,14 @@ def test_cli_threads_defaults_to_one():
     parser = build_parser()
     args = parser.parse_args(["--output-dir", "x", "--ld-wind-cm", "1"])
     assert _ldscore_config_from_args(args).threads == 1
+
+
+def test_unsupported_workers_setting_is_rejected_by_cli_and_python():
+    from ldsc.errors import LDSCUsageError
+    from ldsc.ldscore_calculator import build_parser, run_ldscore
+
+    with pytest.raises(SystemExit) as caught:
+        build_parser().parse_args(["--output-dir", "unused", "--workers", "2"])
+    assert caught.value.code == 2
+    with pytest.raises(LDSCUsageError, match="workers"):
+        run_ldscore(workers=2)

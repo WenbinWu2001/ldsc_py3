@@ -46,6 +46,13 @@ _LDSC_LOGGER_NAME = "LDSC"
 _CURRENT: threading.local = threading.local()
 _BORDER = "=" * 51
 _FLOAT_FORMAT = ".4g"
+
+LOG_LEVEL_HELP = (
+    "Set detail in the workflow log. DEBUG includes troubleshooting details. "
+    "INFO includes progress and summaries. WARNING includes warnings and errors. "
+    "ERROR includes errors only. Each level includes more severe messages. "
+    "Default: INFO. Run headers and completion status are always recorded."
+)
 _CLI_CONSOLE_HANDLER: logging.Handler | None = None
 
 

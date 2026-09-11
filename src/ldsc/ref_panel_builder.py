@@ -44,6 +44,8 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
+from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
+from ._logging import LOG_LEVEL_HELP
 from .column_inference import (
     RESTRICTION_CHRPOS_SPEC_MAP,
     RESTRICTION_HG19_POS_SPEC,
@@ -1624,106 +1626,157 @@ def _write_dropped_sidecar(dropped_df: pd.DataFrame, path: Path, chrom: str) -> 
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the feature parser for reference-panel generation."""
-
     parser = argparse.ArgumentParser(
         description="Build standard parquet reference-panel artifacts from a PLINK reference input.",
         allow_abbrev=False,
     )
-    parser.add_argument(
-        "--plink-prefix",
-        required=True,
+    parser.prog = 'ldsc build-ref-panel'
+    parser.formatter_class = CLIHelpFormatter
+    parser.description = 'Build a reference panel of pairwise R2 values and SNP metadata from PLINK genotypes.'
+    inputs = parser.add_argument_group('Inputs and output')
+    identity = parser.add_argument_group('SNP identity and source genome build')
+    window = parser.add_argument_group('LD window')
+    filters = parser.add_argument_group('SNP and individual selection')
+    maps = parser.add_argument_group('Genetic maps and coordinate conversion')
+    runtime = parser.add_argument_group('Storage, performance, and logging')
+
+    inputs.add_argument(
+        '--plink-prefix', required=True, metavar='PREFIX',
         help=(
-            "PLINK prefix shared by a complete .bed/.bim/.fam trio, or a plain stem that discovers "
-            "chromosome-coded complete trios. Globs and @ chromosome patterns are also supported."
+            'Required PLINK .bed/.bim/.fam filename prefix; chromosome suite stems are also accepted. '
+            + CHROMOSOME_PATH_HELP
         ),
     )
-    parser.add_argument(
-        "--source-genome-build",
-        default="auto",
-        choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
-        help="Genome build of the PLINK coordinates. Default is auto, inferred from .bim CHR/BP rows before SNP restriction.",
-    )
-    parser.add_argument(
-        "--genetic-map-hg19-sources",
-        default=None,
-        help="Optional genetic map aligned to hg19; required for cM windows when hg19 output is emitted.",
-    )
-    parser.add_argument(
-        "--genetic-map-hg38-sources",
-        default=None,
-        help="Optional genetic map aligned to hg38; required for cM windows when hg38 output is emitted.",
-    )
-    parser.add_argument(
-        "--liftover-chain-hg19-to-hg38-file",
-        default=None,
+    inputs.add_argument(
+        '--output-dir', required=True, metavar='DIR',
         help=(
-            "Optional chain file for hg19->hg38 liftover. Enables hg38 outputs "
-            "for hg19 source builds in chr_pos-family modes; invalid in rsID-family modes."
+            'Required destination for reference-panel R2 files, chromosome SNP metadata, and diagnostics.'
         ),
     )
-    parser.add_argument(
-        "--liftover-chain-hg38-to-hg19-file",
-        default=None,
+
+    identity.add_argument(
+        '--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
         help=(
-            "Optional chain file for hg38->hg19 liftover. Enables hg19 outputs "
-            "for hg38 source builds in chr_pos-family modes; invalid in rsID-family modes."
+            'Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use '
+            'A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Controls duplicate removal, '
+            'SNP-list matching, and the written panel identity.'
         ),
     )
-    parser.add_argument("--output-dir", required=True, help="Output root directory for emitted parquet artifacts.")
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        default=False,
+    identity.add_argument(
+        '--source-genome-build', default='auto', choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
         help=(
-            "Replace current panel output files and remove stale workflow-owned siblings after success. "
-            "Concrete chromosome prefixes clean only that chromosome's package; @ suites clean the full panel package."
+            'Genome build of input PLINK coordinates. Default: auto, infer hg19/hg38 from BIM '
+            'chromosome/position rows before SNP restriction.'
         ),
     )
-    parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
-    parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
-    parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
-    parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained SNPs.")
-    parser.add_argument(
-        "--ref-panel-snps-file",
-        default=None,
+
+    window.add_argument(
+        '--ld-wind-cm', default=None, type=float, metavar='CM',
         help=(
-            "Optional identity-only SNP restriction file defining the retained reference-panel universe. "
-            "Duplicate restriction keys collapse to one retained key; non-identity columns such as CM or MAF are ignored. "
-            "In chr_pos-family modes, coordinates must match the PLINK source genome build."
+            'Maximum pair distance on either side of each SNP, in centiMorgans. Requires '
+            '--genetic-map-hg19-sources or --genetic-map-hg38-sources for each emitted build. No default; '
+            'specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm.'
         ),
     )
-    parser.add_argument(
-        "--snp-identifier",
-        default="chr_pos_allele_aware",
-        choices=("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"),
+    window.add_argument(
+        '--ld-wind-kb', default=None, type=float, metavar='KB',
         help=(
-            "SNP identity mode for reference-panel cleanup, duplicate policy, "
-            "--ref-panel-snps-file matching, and emitted artifact provenance. "
-            "Allele-aware modes require usable A1/A2; base modes are allele-blind."
+            'Maximum pair distance on either side of each SNP, in kilobases. No default; specify exactly '
+            'one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm.'
         ),
     )
-    parser.add_argument("--keep-indivs-file", default=None, help="Optional individual-keep file.")
-    parser.add_argument(
-        "--snp-batch-size",
-        dest="snp_batch_size",
-        default=128,
-        type=int,
-        help="Number of SNPs loaded per pairwise-R2 computation batch. Larger values may improve throughput but use more memory.",
-    )
-    parser.add_argument(
-        "--min-r2",
-        dest="min_r2",
-        default=0.0,
-        type=float,
+    window.add_argument(
+        '--ld-wind-snps', default=None, type=int, metavar='N',
         help=(
-            "Opt-in unbiased-R2 floor for emitted pairs. The default 0.0 (or any "
-            "non-positive value) writes every retained pair, preserving exact "
-            "pairwise completeness. A positive value drops sub-threshold pairs to "
-            "reduce output size and memory, at the cost of completeness "
-            "(absent pairs are read as R2=0). Recorded as ldsc:min_r2 metadata."
+            'Maximum pair distance on either side of each SNP, counted in retained reference-panel SNP '
+            'positions. No default; specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm.'
         ),
     )
-    parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
+
+    filters.add_argument(
+        '--ref-panel-snps-file', default=None, metavar='FILE',
+        help=(
+            'Headered SNP identity table restricting reference SNPs. Coordinate identities must use the PLINK '
+            'source build; duplicate keys collapse and extra columns are ignored. If omitted, use all otherwise '
+            'eligible SNPs. '
+            + SCALAR_PATH_HELP
+        ),
+    )
+    filters.add_argument(
+        '--keep-indivs-file', default=None, metavar='FILE',
+        help=(
+            'File listing one individual ID (IID) per row to retain from PLINK genotypes. If omitted, retain all '
+            'individuals. '
+            + SCALAR_PATH_HELP
+        ),
+    )
+    filters.add_argument(
+        '--maf-min', default=None, type=float, metavar='VALUE',
+        help=(
+            'Keep reference SNPs with MAF at or above this value, in [0, 0.5]. If omitted, apply no '
+            'additional MAF threshold.'
+        ),
+    )
+
+    maps.add_argument(
+        '--genetic-map-hg19-sources', default=None, metavar='SOURCES',
+        help=(
+            "hg19 genetic-map files for deriving SNP centiMorgan coordinates. Accepts exact paths, '*' and '@' "
+            'patterns; see --plink-prefix for pattern rules. Required with --ld-wind-cm when hg19 output is '
+            'written; otherwise optional with no map supplied by default.'
+        ),
+    )
+    maps.add_argument(
+        '--genetic-map-hg38-sources', default=None, metavar='SOURCES',
+        help=(
+            "hg38 genetic-map files for deriving SNP centiMorgan coordinates. Accepts exact paths, '*' and '@' "
+            'patterns; see --plink-prefix for pattern rules. Required with --ld-wind-cm when hg38 output is '
+            'written; otherwise optional with no map supplied by default.'
+        ),
+    )
+    maps.add_argument(
+        '--liftover-chain-hg19-to-hg38-file', default=None, metavar='FILE',
+        help=(
+            'Chain file enabling additional hg38 output from hg19 coordinates. Requires coordinate-based '
+            '--snp-identifier; invalid for rsid modes. If omitted, do not convert hg19 input to hg38. Supply an '
+            'exact file path; patterns are not expanded.'
+        ),
+    )
+    maps.add_argument(
+        '--liftover-chain-hg38-to-hg19-file', default=None, metavar='FILE',
+        help=(
+            'Chain file enabling additional hg19 output from hg38 coordinates. Requires coordinate-based '
+            '--snp-identifier; invalid for rsid modes. If omitted, do not convert hg38 input to hg19. Supply an '
+            'exact file path; patterns are not expanded.'
+        ),
+    )
+
+    runtime.add_argument(
+        '--min-r2', dest='min_r2', default=0.0, type=float, metavar='VALUE',
+        help=(
+            'Minimum adjusted R2 to store. Default: 0; zero or negative values keep every pair within the '
+            'window. A positive value discards smaller R2 values; later reads treat missing pairs as R2=0.'
+        ),
+    )
+    runtime.add_argument(
+        '--snp-batch-size', dest='snp_batch_size', default=128, type=int, metavar='N',
+        help=(
+            'Number of reference SNPs processed per genotype batch. Default: 128; larger batches may '
+            'improve speed but use more memory.'
+        ),
+    )
+    runtime.add_argument(
+        '--overwrite', action='store_true', default=False,
+        help=(
+            "Replace this command's existing panel files and remove obsolete outputs after success. A "
+            'concrete chromosome prefix replaces only that chromosome; a suite replaces the full panel. '
+            'Default: off; stop if output files exist.'
+        ),
+    )
+    runtime.add_argument(
+        '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
+        help=LOG_LEVEL_HELP,
+    )
     return parser
 
 

@@ -922,7 +922,7 @@ def test_build_index_command_accepts_custom_regression_snps_and_region_policy():
     assert args.regr_snps_exclude_regions == "centromeres"
 
 
-def test_build_index_command_accepts_legacy_region_alias_but_rejects_old_regr_file_name():
+def test_build_index_command_rejects_legacy_region_alias_and_old_regr_file_name():
     parser = cli.build_parser()
     base = [
         "build-gene-ldscore-index",
@@ -931,8 +931,8 @@ def test_build_index_command_accepts_legacy_region_alias_but_rejects_old_regr_fi
         "--gene-coordinate-file", "genes.tsv", "--genome-build", "hg19",
         "--snp-identifier", "chr_pos",
     ]
-    args = parser.parse_args([*base, "--exclude-regions", "mhc"])
-    assert args.regr_snps_exclude_regions == "mhc"
+    with pytest.raises(SystemExit):
+        parser.parse_args([*base, "--exclude-regions", "mhc"])
     with pytest.raises(SystemExit):
         parser.parse_args([*base, "--regression-snps-file", "custom.snplist"])
 

@@ -366,9 +366,9 @@ class AnnotationBuilderTest(unittest.TestCase):
             with contextlib.redirect_stdout(stdout):
                 annotation_builder.parse_annotate_args(["--help"])
 
-        help_text = stdout.getvalue()
-        self.assertIn("Required when", help_text)
-        self.assertIn("separate catalog build", " ".join(help_text.split()))
+        help_text = " ".join(stdout.getvalue().split())
+        self.assertIn("Required with chr_pos or chr_pos_allele_aware", help_text)
+        self.assertIn("gene intervals use their catalog build", help_text)
 
     def test_bed_to_annot_parser_rejects_removed_no_batch_flag(self):
         stderr = io.StringIO()

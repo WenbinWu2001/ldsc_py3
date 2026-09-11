@@ -18,6 +18,8 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
+from ._cli_help import CLIHelpFormatter
+from ._logging import LOG_LEVEL_HELP
 from ._kernel.identifiers import build_snp_id_series
 from ._kernel.ldscore import _load_full_panel_sidecar, _validate_index_binding
 from ._kernel.r2_query import lookup_pairs_in_parquet
@@ -507,13 +509,61 @@ def build_parser() -> argparse.ArgumentParser:
         description="Query adjusted R2 (and signed r) for SNP pairs from a reference panel.",
         allow_abbrev=False,
     )
-    parser.add_argument("--panel-dir", required=True, help="build-ref-panel output directory.")
-    parser.add_argument("--pairs", required=True, help="TSV/CSV of pairs with _1/_2 endpoint columns ('-' = stdin).")
-    parser.add_argument("--output-dir", required=True, help="Output directory for the result table and diagnostics.")
-    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing query-r2 output artifacts.")
-    parser.add_argument("--snp-identifier", default=None, help="Override panel SNP identifier mode.")
-    parser.add_argument("--genome-build", choices=["hg19", "hg38"], default=None, help="Genome build for sub-dir resolution.")
-    parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Verbosity of the directory-mode diagnostics log.")
+    parser.prog = 'ldsc query-r2'
+    parser.formatter_class = CLIHelpFormatter
+    inputs = parser.add_argument_group('Inputs and output')
+    identity = parser.add_argument_group('Panel and SNP matching')
+    runtime = parser.add_argument_group('Output and logging')
+
+    inputs.add_argument(
+        '--panel-dir', required=True, metavar='DIR',
+        help=(
+            'Required reference-panel directory produced by build-ref-panel, or its root containing '
+            'genome-build subdirectories. Use --genome-build to select a subdirectory when needed.'
+        ),
+    )
+    inputs.add_argument(
+        '--pairs', required=True, metavar='FILE',
+        help=(
+            'Required TSV/CSV of SNP pairs; use - to read standard input. Endpoint columns use _1/_2 '
+            'suffixes and must match --snp-identifier, including allele columns for allele-aware matching.'
+        ),
+    )
+    inputs.add_argument(
+        '--output-dir', required=True, metavar='DIR',
+        help=(
+            'Required destination for pairwise R2 results and diagnostics.'
+        ),
+    )
+
+    identity.add_argument(
+        '--genome-build', choices=['hg19', 'hg38'], default=None,
+        help=(
+            'Select the hg19 or hg38 subdirectory under --panel-dir. If omitted, use the supplied '
+            'build-specific directory or its sole available build; ambiguous build roots require a '
+            'selection.'
+        ),
+    )
+    identity.add_argument(
+        '--snp-identifier', default=None,
+        help=(
+            'SNP matching rule for pair endpoints: rsid, rsid_allele_aware, chr_pos, or '
+            'chr_pos_allele_aware. If omitted, read the mode from panel metadata; pair columns must support '
+            'the selected mode.'
+        ),
+    )
+
+    runtime.add_argument(
+        '--overwrite', action='store_true', default=False,
+        help=(
+            "Replace this command's existing output files and remove obsolete outputs from an earlier run. "
+            'Default: off; stop if output files already exist.'
+        ),
+    )
+    runtime.add_argument(
+        '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
+        help=LOG_LEVEL_HELP,
+    )
     return parser
 
 

@@ -122,9 +122,9 @@ artifact reload guards · **Exception:** `LDSCInputError`
 | # | Likely cause | How to check |
 |---|--------------|--------------|
 | 1 | The header uses a name the auto-mapper doesn't recognize | `zcat <file> \| head -1` (or `head -1`); compare against the recognized aliases in `column_inference.py` |
-| 2 | The column exists under a synonym you must declare | Re-run with an explicit hint, e.g. `--snp-col MarkerName --a1-col Allele1` |
+| 2 | The column exists under a synonym you must declare | Re-run with an explicit hint, e.g. `--snp MarkerName --a1 Allele1` |
 | 3 | Wrong delimiter, so the whole header parsed as one column | `head -1 <file> \| cat -A` — look for one field with embedded tabs/commas |
-| 4 | Wrong `--format`, so expected columns differ | Confirm the format flag matches the file (e.g. drop `--daner-new` for a non-PGC file) |
+| 4 | Wrong `--input-format`, so expected columns differ | Confirm `--input-format` matches the file; `auto` and an explicit profile share aliases, optional-field rules, and validation |
 
 **Remedies:**
 
@@ -384,11 +384,16 @@ repair steps, see [Gene-list diagnostics and repair](current/gene-list-diagnosti
 Read `diagnostics/input_issues.tsv` and `diagnostics/chromosome_scope.json`. For gene lists, inspect `coverage_status`, `selected_genes`, `covered_genes`, `missing_chromosomes`, and `uncovered_gene_ids` in `gene_list_resolution_summary.tsv`; audit rows with `coverage_status == 'uncovered'` identify affected input lines. Fix every reported issue before rerunning with `--overwrite`.
 
 - Missing, unreadable, malformed, or mismatched PLINK trio / R²-sidecar / baseline inputs: restore valid matched artifacts. `@` requires every autosome 1–22. All safely discoverable independent issues are reported at the current gate.
+- If a chromosome subset was intended, use quoted `*` patterns or exact paths selecting matching baseline and PLINK chromosome sets, for example `"baseline.*.annot.gz"` and `"panel.*"`. Use `*` to select available files without declaring a complete 1-22 suite. Check the matched files and their contents; a broad wildcard can select unintended chromosomes. For a full-suite run, restore missing files instead of narrowing the declaration. `--r2-dir` takes a literal directory containing the matching chromosome set, not a glob.
 - Baseline/reference chromosome-set disagreement: supply exactly matching validated sets. Glob matches are authoritative; filenames do not establish content. A missing file may be undetectable when the remaining groups consistently cover the same subset.
 - Incomplete focal/control coverage: supply matching inputs covering every selected gene, or deliberately revise the lists. Neither `resolved-only` nor chromosome-subset inputs authorize dropping cross-chromosome genes or pathways.
 - Invalid immutable index: restore or rebuild the complete public index. Resolution policy never repairs an index or changes its scientific configuration.
 
 Coverage follows unique identifier resolution and explicit gene exclusions, before SNP filtering. Unevaluated support remains blank. Fully covered genes with no retained computational reference SNPs have valid zero-support measurements; focal queries can be skipped for zero support/variance, whereas unusable controls and all-focal-skipped batches fail. See [the complete diagnostic vocabulary](current/gene-list-diagnostics-and-repair.md).
+
+Replacing `@` with `*` changes file selection only; it does not remove genes outside the selected chromosome set. The raised error, `diagnostics/ldscore.log`, and input-issue repair text describe these alternatives. Source: [`_ldscore_preflight.validate_direct_scope` / `inspect_direct_inputs`](../src/ldsc/_ldscore_preflight.py).
+
+For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set it to 0 when your BED files already contain the intended padded regions, to avoid double padding.
 
 ### ldscore: annotation values are malformed
 

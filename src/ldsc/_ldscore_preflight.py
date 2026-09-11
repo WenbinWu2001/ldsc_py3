@@ -26,6 +26,14 @@ from ._kernel.ref_panel import RefPanelLoader, _read_metadata_table, _resolve_r2
 AUTOSOMES = list(map(str, range(1, 23)))
 ISSUE_COLUMNS = ["input_role", "source", "chrom", "reason", "details", "repair"]
 GLOB_CAVEAT = "Globs select their actual matches. A missing file may be undetectable when the remaining required artifacts consistently cover the same subset."
+SCOPE_REPAIR = (
+    "'@' requires all chromosomes 1-22. For an intentional subset, use quoted '*' patterns or exact paths "
+    "to select matching baseline and PLINK chromosome sets, for example 'baseline.*.annot.gz' and 'panel.*'. "
+    "For a full-suite run, restore the missing files instead. Every selected focal/control gene must be "
+    "covered: supply the missing chromosomes or explicitly revise the gene lists. Changing '@' to '*' "
+    "does not filter genes. With --r2-dir, select a directory whose chromosome set matches the baseline; "
+    "directory paths do not expand patterns."
+)
 
 
 @dataclass(frozen=True)
@@ -54,7 +62,7 @@ def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_s
     def issue(role, source, chrom, reason, details):
         issues.append(dict(input_role=role, source=str(source), chrom=chrom,
                            reason=reason, details=str(details),
-                           repair="Supply valid, matching baseline/reference artifacts for the declared scope; inspect glob matches and @ declarations."))
+                           repair="Supply valid, matching baseline/reference artifacts for the declared scope. " + SCOPE_REPAIR))
 
     def files(tokens, role, *, plink=False):
         selected = []
@@ -230,7 +238,7 @@ def validate_direct_scope(args, global_config, batch, output_config, **prepared_
         LDScoreDirectoryWriter().write_query_diagnostics(diagnostic, output_config)
         raise LDSCInputError("LD-score input/coverage preflight failed: " + "; ".join(errors[:10]) +
                              ". Complete diagnostics: diagnostics/input_issues.tsv, diagnostics/chromosome_scope.json, and gene-list audit/summary when applicable. "
-                             "Repair all required inputs or explicitly revise the submitted pathways; no pathways were truncated. "
+                             + SCOPE_REPAIR + " No pathways were truncated. "
                              "Other causes & fixes: docs/troubleshooting.md#ldscore-chromosome-coverage-preflight")
     scope = {**evidence.scope, "analysis_chromosomes": evidence.chromosomes}
     logger.info("Chromosomes entering the analysis: %s.", ", ".join(evidence.chromosomes))

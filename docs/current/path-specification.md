@@ -1,6 +1,6 @@
 # Input Path Specification
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 This note explains how to specify filesystem inputs in the refactored package.
 The goal is practical: help you choose the right path form for each workflow and
@@ -43,6 +43,27 @@ Output paths are different:
   successful overwrite also removes stale owned siblings that the current run
   did not produce
 
+### Pattern support in command help
+
+Quote patterns so the package receives them intact. `*` matches filename text; `@`, where supported, substitutes chromosome numbers 1-22 by default. Use `*` to select available files for a chromosome subset where the workflow permits one. For example, `"baseline.*.annot.gz"` selects matching files without declaring that all 22 chromosome members must exist. The pattern must still match the intended files, and their validated contents determine the chromosome set.
+
+The first suite-capable flag in each command explains this syntax. Later flags refer back to it only for compatible rules. Match cardinality and unsupported placeholders stay local to each description.
+
+| Input family | Supported patterns and restrictions |
+| --- | --- |
+| Baseline/prebuilt-query annotations, PLINK prefixes, quantile target/reference metadata | Exact inputs, quoted `*` patterns, and `@` chromosome tokens. Direct query LD-score preflight and gene-index construction enforce their full-suite declarations. Generic group expansion tries chromosomes 1-22 and may retain only existing members; completeness depends on the consuming workflow. |
+| Query BED files and focal gene-list sources | Exact files or quoted `*` patterns; `@` is not expanded. |
+| Raw or curated scalar sumstats files; munging SNP-list and liftover-chain files | Exact file or quoted `*` pattern resolving to exactly one file; `@` is not expanded. |
+| `rg --sumstats-sources` | Exact files or quoted `*` patterns selecting multiple files; at least two inputs are required. `@` is not expanded. |
+| `ldscore --regr-snps-file` | Exact file or quoted `*` pattern resolving to one file; `@` is not expanded. |
+| `build-ref-panel` SNP/individual restriction files | Exact file or quoted `*` pattern resolving to one file; `@` is not expanded. |
+| `build-ref-panel` genetic-map sources | Exact files, quoted `*` patterns, or `@` suites. |
+| `ldscore` and `build-gene-ldscore-index` genetic-map sources | Comma-separated exact paths. Their current readers do not expand `*` or `@`. |
+| Gene catalogs, fixed control gene lists, `ldscore` reference-SNP/individual lists, gene-index regression-SNP/individual lists, and `build-ref-panel` liftover-chain files | Exact file paths. Pattern expansion is not implemented by these readers. |
+| Input/output directories and `query-r2 --pairs` | Literal paths; no pattern expansion. `--pairs -` retains its standard-input meaning. |
+
+Sources: [`path_resolution.resolve_scalar_path`, `resolve_file_group`, and PLINK resolvers](../../src/ldsc/path_resolution.py); [`_annotation_preflight.resolve_annotation_inputs`](../../src/ldsc/_annotation_preflight.py); [`_direct_annotation.prepare_direct_annotations`](../../src/ldsc/_direct_annotation.py); [`_quantile_inputs.prepare_quantile_statistics`](../../src/ldsc/_quantile_inputs.py); [`gene_list_resolver._expand_focal_gene_list_sources`](../../src/ldsc/gene_list_resolver.py); [`ref_panel_builder.ReferencePanelBuilder._prepare_build_state`](../../src/ldsc/ref_panel_builder.py); [`_kernel.ref_panel._resolve_genetic_map`](../../src/ldsc/_kernel/ref_panel.py); [`gene_ldscore_index._load_builder_genetic_map`](../../src/ldsc/gene_ldscore_index.py).
+
 ### Direct LD-score query scope
 
 Direct gene-list, BED, and prebuilt-query `ldscore` runs use these rules for both PLINK and parquet-R² reference backends:
@@ -53,6 +74,10 @@ Direct gene-list, BED, and prebuilt-query `ldscore` runs use these rules for bot
 4. Every selected focal/control gene must lie within that shared scope. Selection means unique successfully resolved genes after explicit gene-region exclusions, before SNP-support filtering. A pathway need not contain genes on every covered chromosome. Any nonempty incompletely covered pathway or control fails the entire batch under both `strict` and `resolved-only`; it is never automatically truncated or skipped. Query BED regions and prebuilt-query SNPs must also be within scope.
 
 Quote glob tokens on the command line so the package receives the pattern intact. Users own glob selection: a missing file may be undetectable if it disappears from the matches and the remaining baseline/reference artifacts consistently cover the same subset. Use `@` when complete-autosomal coverage is required.
+
+For an intentional subset, use quoted `*` patterns or exact paths selecting matching baseline and PLINK chromosome sets. If a full suite was intended, restore missing files instead. With `--r2-dir`, use a literal directory containing the matching chromosome set. Every selected focal/control gene must still be covered; supply missing chromosome inputs or explicitly revise the gene lists. Replacing `@` with `*` does not filter genes or truncate pathways. Coverage errors and their workflow-log tracebacks include this repair guidance.
+
+BED padding extends the coordinates already present in the input file. Use `--padding-bp 0` if the BED intervals already include the intended gene-region padding, so the regions are not padded twice.
 
 Scope is logged and persisted in `diagnostics/chromosome_scope.json`; input failures use `diagnostics/input_issues.tsv`. See the [gene-list scope examples](gene-list-input-format.md#direct-query-chromosome-scope). Public indexes remain complete-autosomal. `_ldscore_preflight.inspect_direct_inputs()` enforces the direct-query contract before projection; other commands retain their own path contracts.
 
@@ -405,7 +430,7 @@ Relevant APIs:
 Accepted path forms:
 
 - `plink_prefix`: exact PLINK prefix, plain chromosome-suite stem, PLINK-prefix glob, or explicit `@` suite token. A plain stem such as `panel_chr` discovers chromosome-coded complete trios such as `panel_chr1.{bed,bim,fam}`
-- map and chain inputs, when provided: exact path or exact-one glob
+- genetic-map inputs, when provided: exact files, globs, or `@` chromosome suites; liftover-chain inputs require exact paths
 - `ref_panel_snps_file`, when provided: scalar file-like token interpreted
   using `GlobalConfig.snp_identifier`; restriction files may omit alleles and
   then match by base key, while allele-bearing restrictions in allele-aware
@@ -503,7 +528,7 @@ How they are handled:
   deduplicated in first-seen order and then used for pair selection
 - `ldscore_dir` is not glob-resolved; it is opened as a directory containing
   `metadata.json` plus parquet payload files
-- `ldsc munge-sumstats` uses `--format auto` by default after the raw path is
+- `ldsc munge-sumstats` uses `--input-format auto` by default after the raw path is
   resolved. The inference layer can detect plain text, including VCF-style
   headers, old DANER, and new DANER before applying the usual column aliases and
   repair suggestions.

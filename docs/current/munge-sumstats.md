@@ -1,6 +1,6 @@
 # Munge-Sumstats
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`
@@ -56,16 +56,18 @@ All keys are present, including stages with zero drops. Detailed coordinate reas
 
 ## Raw Format Profiles
 
-`--format` controls only raw-input schema inference before the shared munging
+`--input-format` controls only raw-input schema inference before the shared munging
 kernel runs. It does not change the curated output schema. Supported values are
 `auto`, `plain`, `daner-old`, and `daner-new`.
 
-| `--format` value | Use when | `auto` inference criterion | Special handling |
+| `--input-format` value | Use when | `auto` inference criterion | Special handling |
 | --- | --- | --- | --- |
 | `auto` | Let the workflow inspect the header and choose a profile. | Not applicable; this is the default dispatcher. | Checks old DANER first, then new DANER, then falls back to `plain`. |
 | `plain` | The file is an ordinary whitespace-delimited summary-statistics table. This includes VCF-style summary-statistics tables with leading `##` metadata and a `#CHROM` header. | Fallback when DANER-specific case/control headers are not detected. | Leading `##` metadata lines are skipped before reading the header. Common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, `BP`, `ID`, and `PVAL` are accepted. If `REF` and `ALT` are present and no clearer `A1/A2` or `EA/NEA` columns exist, inference sets `a1=REF` and `a2=ALT`. |
-| `daner-old` | The file uses old DANER case/control counts encoded in frequency headers. | Header contains at least one `FRQ_A_*` column and at least one `FRQ_U_*` column. | Reads case/control sample sizes from the `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` header names. Select with `--format daner-old`. |
-| `daner-new` | The file carries per-SNP case/control count columns. | Header contains `Nca`/`Nco` aliases after header normalization: either `NCA` and `NCO`, or `NCAS` and `NCON`. | Computes per-row sample size from case/control counts. If an old-style `FRQ_U_*` column is also present, inference can use it as the frequency column. Select with `--format daner-new`. |
+| `daner-old` | The file uses old DANER case/control counts encoded in frequency headers. | Header contains at least one `FRQ_A_*` column and at least one `FRQ_U_*` column. | Reads case/control sample sizes from the `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` header names. Select with `--input-format daner-old`. |
+| `daner-new` | The file carries per-SNP case/control count columns. | Header contains `Nca`/`Nco` aliases after header normalization: either `NCA` and `NCO`, or `NCAS` and `NCON`. | Computes per-row sample size from case/control counts. If an old-style `FRQ_U_*` column is also present, inference can use it as the frequency column. Select with `--input-format daner-new`. |
+
+Automatic and explicit profile selection share column aliases, optional-field handling, validation, and the raw reader. In particular, `daner-new` does not require a `FRQ_U_*` column or exact-case `Nca/Nco` headers. The old generic `--format` flag is removed; use `--input-format`. See the [legacy CLI flag map](legacy-cli-flag-map.md).
 
 ## Sample-Size Column Selection
 
@@ -107,6 +109,8 @@ file with `N`, `NCAS`, and `NCON` must choose either `--N-col N` or
 `--N-cas-col NCAS --N-con-col NCON`. Files containing only `N`, only a complete
 case/control pair, or only a nonstandard direct column selected with `--N-col`
 retain their existing behavior.
+
+Constant `--N`, `--N-cas`, and `--N-con` remain fallbacks: per-variant N or case/control columns take precedence. Otherwise use `--N`, or the sum of both case/control constants. For per-variant N, the default `--n-min` is the 90th percentile divided by 1.5; zero also selects this default. Constant N is assigned after filtering and bypasses `--n-min`. These rules preserve LDSC2 `process_n` behavior; see the [legacy source comparison](legacy-cli-flag-map.md#legacy-behavior-explicitly-retained). The existing `--chunksize` spelling and current 1,000,000-row default are retained.
 
 ## Genome-Build Contract
 
@@ -150,6 +154,12 @@ Without `--overwrite`, any existing owned artifact blocks the run before output
 files are opened. With `--overwrite`, the workflow replaces current-run outputs
 and removes stale owned siblings not produced by the successful run. Unrelated
 files in the output directory are preserved.
+
+## Frequency Preservation
+
+The munger automatically preserves the selected input frequency column as `FRQ` whenever present and omits `FRQ` when absent. Values are not converted to MAF, so an input frequency above 0.5 remains above 0.5. `--maf-min` still applies the unchanged filter to folded `min(FRQ, 1-FRQ)`. `--keep-maf` and `MungeConfig.keep_maf` are removed; no replacement toggle is needed. An explicitly ignored frequency column is not selected.
+
+This rule applies to the returned table, Parquet, and gzip TSV. TSV frequency values are written without three-decimal rounding; other floating columns keep the existing export rounding. Missing fields are serialized as `NA` to preserve column alignment in whitespace readers. See `parse_dat` and `filter_frq` in [`_kernel/sumstats_munger.py`](../../src/ldsc/_kernel/sumstats_munger.py), and `_write_sumstats_tsv_gz` in [`sumstats_munger.py`](../../src/ldsc/sumstats_munger.py).
 
 ## Embedded Identity Metadata
 
@@ -227,7 +237,7 @@ The report includes:
 
 The suggested command is printed even when the report is runnable. In that case,
 it is the resolved command to run next: `auto` inputs are replaced by explicit
-values such as `--format plain` and `--source-genome-build hg19`, and the output
+values such as `--input-format plain` and `--source-genome-build hg19`, and the output
 directory is copied from the required `--output-dir` argument. This keeps `auto`
 as the user-friendly input default while making diagnostic output explicit and
 reproducible.
@@ -250,7 +260,7 @@ Next step:
     ldsc munge-sumstats \
       --raw-sumstats-file data/trait.tsv.gz \
       --output-dir results/trait \
-      --format plain \
+      --input-format plain \
       --snp-identifier chr_pos_allele_aware \
       --output-genome-build hg38 \
       --source-genome-build hg19 \

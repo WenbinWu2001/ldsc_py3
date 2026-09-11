@@ -19,6 +19,8 @@ import re
 import numpy as np
 import pandas as pd
 
+from ._cli_help import CLIHelpFormatter
+from ._logging import LOG_LEVEL_HELP
 from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from .config import GlobalConfig
@@ -710,14 +712,73 @@ def build_parser() -> argparse.ArgumentParser:
         Parser containing the closed converter argument surface.
     """
     parser = argparse.ArgumentParser(prog="ldsc convert-ldsc2-ldscores")
-    parser.add_argument("--legacy-reference-dir", required=True)
-    parser.add_argument("--legacy-weight-dir", required=True)
-    parser.add_argument("--legacy-frequency-dir")
-    parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--snp-identifier", choices=("rsid", "chr_pos"), default="rsid")
-    parser.add_argument("--genome-build", choices=("auto", "hg19", "hg38"), default="auto")
-    parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--log-level", choices=("DEBUG", "INFO", "WARNING", "ERROR"), default="INFO")
+    parser.prog = 'ldsc convert-ldsc2-ldscores'
+    parser.formatter_class = CLIHelpFormatter
+    parser.description = 'Convert complete LDSC2 reference and regression-weight suites into one LDSC3 LD-score directory.'
+    inputs = parser.add_argument_group('Inputs and output')
+    partitioned = parser.add_argument_group('Baseline partitioned suites')
+    identity = parser.add_argument_group('Output SNP identity')
+    runtime = parser.add_argument_group('Output and logging')
+
+    inputs.add_argument(
+        '--legacy-reference-dir', required=True, metavar='DIR',
+        help=(
+            'Required directory containing a complete chromosome 1-22 LDSC2 reference LD-score suite and '
+            '.l2.M_5_50 counts. Baseline partitioned suites also require full annotations and '
+            '--legacy-frequency-dir.'
+        ),
+    )
+    inputs.add_argument(
+        '--legacy-weight-dir', required=True, metavar='DIR',
+        help=(
+            'Required directory containing chromosome 1-22 single-column regression-weight LD scores. May '
+            'equal --legacy-reference-dir for an unpartitioned suite.'
+        ),
+    )
+    inputs.add_argument(
+        '--output-dir', required=True, metavar='DIR',
+        help=(
+            'Required destination for the converted LD-score tables, counts, and diagnostics. Source files '
+            'are not changed.'
+        ),
+    )
+
+    partitioned.add_argument(
+        '--legacy-frequency-dir', metavar='DIR',
+        help=(
+            'Directory containing chromosome frequency files used to reconstruct common-SNP counts and '
+            'overlap. Required for baseline partitioned --legacy-reference-dir input; optional for '
+            'unpartitioned input, with no frequency suite read when omitted.'
+        ),
+    )
+
+    identity.add_argument(
+        '--snp-identifier', choices=('rsid', 'chr_pos'), default='rsid',
+        help=(
+            'Output SNP matching rule: rsid uses SNP identifiers; chr_pos uses chromosome and position. '
+            'Default: rsid. Both ignore alleles; chr_pos requires a resolved genome build.'
+        ),
+    )
+    identity.add_argument(
+        '--genome-build', choices=('auto', 'hg19', 'hg38'), default='auto',
+        help=(
+            'Genome build of legacy reference coordinates; no coordinate conversion is performed. Default: '
+            'auto, infer hg19/hg38. A resolved build is required for chr_pos identity; unresolved inference '
+            'in rsid mode is recorded as a warning.'
+        ),
+    )
+
+    runtime.add_argument(
+        '--overwrite', action='store_true',
+        help=(
+            "Replace this command's existing output files and remove obsolete outputs from an earlier run. "
+            'Default: off; stop if output files already exist.'
+        ),
+    )
+    runtime.add_argument(
+        '--log-level', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'), default='INFO',
+        help=LOG_LEVEL_HELP,
+    )
     return parser
 
 

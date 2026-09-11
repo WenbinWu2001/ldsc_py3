@@ -1,0 +1,400 @@
+[
+  {
+    "case": "constant_n_with_n_column",
+    "outcome": "success",
+    "detail": {
+      "SNP": [
+        "rs1",
+        "rs2"
+      ],
+      "Z": [
+        -1.9599639845400543,
+        1.9599639845400543
+      ],
+      "N": [
+        1000,
+        1000
+      ],
+      "CHR": [
+        null,
+        null
+      ],
+      "POS": [
+        null,
+        null
+      ]
+    }
+  },
+  {
+    "case": "constant_case_control",
+    "outcome": "success",
+    "detail": {
+      "SNP": [
+        "rs1",
+        "rs2"
+      ],
+      "Z": [
+        -1.9599639845400543,
+        1.9599639845400543
+      ],
+      "CHR": [
+        null,
+        null
+      ],
+      "POS": [
+        null,
+        null
+      ],
+      "N": [
+        1000.0,
+        1000.0
+      ]
+    }
+  },
+  {
+    "case": "n_min_default",
+    "outcome": "success",
+    "detail": {
+      "SNP": [
+        "rs2"
+      ],
+      "Z": [
+        1.9599639845400543
+      ],
+      "N": [
+        1000
+      ],
+      "CHR": [
+        null
+      ],
+      "POS": [
+        null
+      ]
+    }
+  },
+  {
+    "case": "n_min_zero",
+    "outcome": "success",
+    "detail": {
+      "SNP": [
+        "rs2"
+      ],
+      "Z": [
+        1.9599639845400543
+      ],
+      "N": [
+        1000
+      ],
+      "CHR": [
+        null
+      ],
+      "POS": [
+        null
+      ]
+    }
+  },
+  {
+    "case": "n_min_constant",
+    "outcome": "success",
+    "detail": {
+      "SNP": [
+        "rs1",
+        "rs2"
+      ],
+      "Z": [
+        -1.9599639845400543,
+        1.9599639845400543
+      ],
+      "CHR": [
+        null,
+        null
+      ],
+      "POS": [
+        null,
+        null
+      ],
+      "N": [
+        1000.0,
+        1000.0
+      ]
+    }
+  },
+  {
+    "case": "nstudy_with_n",
+    "outcome": "success",
+    "detail": {
+      "SNP": [
+        "rs1",
+        "rs2"
+      ],
+      "Z": [
+        -1.9599639845400543,
+        1.9599639845400543
+      ],
+      "N": [
+        1000,
+        1000
+      ],
+      "CHR": [
+        null,
+        null
+      ],
+      "POS": [
+        null,
+        null
+      ]
+    }
+  },
+  {
+    "case": "nstudy_zero",
+    "outcome": "success",
+    "detail": {
+      "SNP": [
+        "rs2"
+      ],
+      "Z": [
+        1.9599639845400543
+      ],
+      "CHR": [
+        null
+      ],
+      "POS": [
+        null
+      ],
+      "N": [
+        1000.0
+      ]
+    }
+  },
+  {
+    "case": "keep_maf",
+    "outcome": "success",
+    "detail": {
+      "SNP": [
+        "rs1",
+        "rs2"
+      ],
+      "Z": [
+        -1.9599639845400543,
+        1.9599639845400543
+      ],
+      "N": [
+        1000,
+        1000
+      ],
+      "FRQ": [
+        0.8,
+        0.7
+      ],
+      "CHR": [
+        null,
+        null
+      ],
+      "POS": [
+        null,
+        null
+      ]
+    }
+  },
+  {
+    "case": "a1_inc",
+    "outcome": "success",
+    "detail": {
+      "SNP": [
+        "rs1",
+        "rs2"
+      ],
+      "Z": [
+        1.9599639845400543,
+        1.9599639845400543
+      ],
+      "N": [
+        1000,
+        1000
+      ],
+      "CHR": [
+        null,
+        null
+      ],
+      "POS": [
+        null,
+        null
+      ]
+    }
+  },
+  {
+    "case": "multi_info_list",
+    "outcome": "LDSCInputError",
+    "detail": "munge-sumstats mapped 2 different input columns to canonical field 'INFO' in '/var/folders/4k/1rsqzk154zn14zrc0x9t3yh80000gn/T/ldsc-flag-audit-cv4mp3bw/multi_info_list.tsv'. Most likely an explicit column hint conflicts with an auto-detected alias. Use --ignore for the extra column or remove the conflicting hint."
+  },
+  {
+    "case": "single_info_list",
+    "outcome": "success",
+    "detail": {
+      "SNP": [
+        "rs1",
+        "rs2"
+      ],
+      "Z": [
+        -1.9599639845400543,
+        1.9599639845400543
+      ],
+      "N": [
+        1000,
+        1000
+      ],
+      "CHR": [
+        null,
+        null
+      ],
+      "POS": [
+        null,
+        null
+      ]
+    }
+  },
+  {
+    "case": "daner_auto_without_frequency",
+    "outcome": "success",
+    "detail": {
+      "SNP": [
+        "rs1",
+        "rs2"
+      ],
+      "Z": [
+        -1.9599639845400543,
+        1.9599639845400543
+      ],
+      "CHR": [
+        null,
+        null
+      ],
+      "POS": [
+        null,
+        null
+      ],
+      "N": [
+        100.0,
+        100.0
+      ]
+    }
+  },
+  {
+    "case": "daner_explicit_without_frequency",
+    "outcome": "IndexError",
+    "detail": "list index out of range"
+  },
+  {
+    "case": "daner_explicit_aliases",
+    "outcome": "LDSCInputError",
+    "detail": "munge-sumstats could not find the Nca column required by --daner-new in '/var/folders/4k/1rsqzk154zn14zrc0x9t3yh80000gn/T/ldsc-flag-audit-cv4mp3bw/daner_explicit_aliases.tsv'. Most likely the file is not in new-DANER format or uses a different case-count header. Drop --daner-new or pass the correct case-count column with --N-cas-col."
+  },
+  {
+    "case": "infer_drops_explicit_options",
+    "outcome": "success",
+    "detail": {
+      "runnable": true,
+      "suggested_args": [
+        "--format",
+        "plain"
+      ],
+      "missing_fields": []
+    }
+  },
+  {
+    "case": "infer_missing_p",
+    "outcome": "success",
+    "detail": {
+      "runnable": true,
+      "suggested_args": [
+        "--format",
+        "plain"
+      ],
+      "missing_fields": []
+    }
+  },
+  {
+    "case": "infer_ambiguous_n",
+    "outcome": "success",
+    "detail": {
+      "runnable": true,
+      "suggested_args": [
+        "--format",
+        "daner-new"
+      ],
+      "missing_fields": []
+    }
+  },
+  {
+    "case": "info_threshold_without_info",
+    "outcome": "success",
+    "detail": {
+      "SNP": [
+        "rs1",
+        "rs2"
+      ],
+      "Z": [
+        -1.9599639845400543,
+        1.9599639845400543
+      ],
+      "N": [
+        1000,
+        1000
+      ],
+      "CHR": [
+        null,
+        null
+      ],
+      "POS": [
+        null,
+        null
+      ]
+    }
+  },
+  {
+    "case": "maf_threshold_without_frequency",
+    "outcome": "success",
+    "detail": {
+      "SNP": [
+        "rs1",
+        "rs2"
+      ],
+      "Z": [
+        -1.9599639845400543,
+        1.9599639845400543
+      ],
+      "N": [
+        1000,
+        1000
+      ],
+      "CHR": [
+        null,
+        null
+      ],
+      "POS": [
+        null,
+        null
+      ]
+    }
+  },
+  {
+    "case": "ldscore_hidden_alias",
+    "outcome": "success",
+    "detail": "none"
+  },
+  {
+    "case": "build-gene-ldscore-index_hidden_alias",
+    "outcome": "success",
+    "detail": "none"
+  },
+  {
+    "case": "num_points_exact_prevalence",
+    "outcome": "success",
+    "detail": {
+      "values": [
+        0.1
+      ],
+      "mode": "exact"
+    }
+  }
+]

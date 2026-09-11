@@ -1,6 +1,6 @@
 # Heritability Estimates
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 Goal: estimate SNP heritability for one trait with the refactored package, starting from raw summary statistics and ordinary unpartitioned LD scores built from an R2-table reference panel.
 
@@ -120,7 +120,7 @@ or `--snp-identifier rsid`. The removed `--no-alleles` flag is not accepted.
 The raw munger accepts common coordinate headers
 such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP`; use `--chr` and `--pos` or
 `column_hints` when the header is ambiguous. Leading raw `##` metadata lines are
-skipped before the real header is parsed. `--format auto` is the default and
+skipped before the real header is parsed. `--input-format auto` is the default and
 detects plain text, including VCF-style headers, old DANER, and new DANER. Use
 `ldsc munge-sumstats --raw-sumstats-file raw.txt --infer-only --output-dir out/inference --output-genome-build hg38` to inspect
 format, column, INFO-list, source/output build, liftover, and missing-field decisions without writing output.
@@ -145,6 +145,8 @@ chromosome-aligned and listed in root `metadata.json` for chromosome-scoped
 inspection.
 
 ## CLI
+
+Intercepts are estimated by default. To request the standard fixed intercepts, add `--intercept-h2 1`. This fixes the h2 intercept to 1. The removed `--no-intercept` shortcut is rejected; see the [legacy flag map](../docs/current/legacy-cli-flag-map.md#regression-intercept-consolidation).
 
 The regression CLI reads the canonical LD-score result directory written by
 `ldsc ldscore`.

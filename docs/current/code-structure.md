@@ -13,6 +13,7 @@ ldsc_py3_restructured/
 │   ├── __init__.py
 │   ├── __main__.py
 │   ├── cli.py
+│   ├── _cli_help.py
 │   ├── config.py
 │   ├── _result_files.py
 │   ├── path_resolution.py
@@ -58,6 +59,7 @@ ldsc_py3_restructured/
 | Module | Responsibility |
 | --- | --- |
 | `ldsc.cli` | unified `ldsc` command and subcommand dispatch |
+| `ldsc._cli_help` | shared `CLIHelpFormatter` keeps flag names and paths intact when help descriptions wrap; `CHROMOSOME_PATH_HELP` and `SCALAR_PATH_HELP` supply verified path syntax; workflow parsers own their descriptions and argument groups |
 | `ldsc.config` | frozen public config dataclasses and basic validation |
 | `ldsc.path_resolution` | normalize path tokens, resolve concrete input files, create output directories, preflight fixed output paths, and enforce coherent output artifact families |
 | `ldsc._logging` | shared workflow logging context, LDSC logger level handling, lifecycle audit lines, CLI console-handler routing (file-authoritative, console error-only) with run-aborting traceback capture, durable authorized-overwrite failure markers without rollback, and log-only formatting helpers |
@@ -86,7 +88,7 @@ ldsc_py3_restructured/
 | `ldsc.ldscore_calculator` | LD-score orchestration, catalog-build selection, direct prepared-SNP support measurement, optional synthetic `base`, aggregation, and output routing through shared query finalization |
 | `ldsc._ldscore_preflight` | validates direct annotation/reference contents and chromosome equality; enforces complete `@` declarations, authoritative glob matches, and consolidated required-input diagnostics |
 | `ldsc.legacy_ldscore_converter` | sole LDSC2 LD-score-suite import boundary: deterministic family discovery, rsID joins, count/overlap validation or reconstruction, source/discovery provenance without source-file hashes, diagnostics, and canonical LDSC3 directory writing |
-| `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, `--format auto` / `--infer-only` header inference, Parquet/TSV curated output writing, self-describing `sumstats.parquet` footer identity metadata, diagnostics under `diagnostics/`, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
+| `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, `--input-format auto` / `--infer-only` header inference, Parquet/TSV curated output writing, self-describing `sumstats.parquet` footer identity metadata, diagnostics under `diagnostics/`, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
 | `ldsc._sumstats_input` | private workflow helper resolving raw schema, DANER/sample-size settings, bounded source-build evidence and keep-lists into `ResolvedMungeInput` |
 | `ldsc._kernel.sumstats_munger` | chunk QC and restriction, whole-table N and sign conversion, resolved liftover and global identity cleanup; returns `MungeResult` with counts and provenance |
 | `ldsc.regression_runner` | file-driven regression dataset assembly, automatic legacy LDSC2 sumstats rsID-to-panel projection and allele harmonization, active effective identity-key merging (`SNP`, `SNP:<allele_set>`, `CHR:POS`, or `CHR:POS:<allele_set>`), h2/partitioned-h2/rg estimator dispatch (including the two overlap-aware partitioned-h2 regimes), observed/liability-scale summary columns, exact final-fit h2 regression-bin diagnostics, and rg result-family writing |
@@ -112,7 +114,8 @@ ldsc_py3_restructured/
 
 | Goal | Start here |
 | --- | --- |
-| change CLI flags or subcommand wiring | `src/ldsc/cli.py` |
+| change CLI flags or subcommand wiring | workflow `build_parser` / `add_*_arguments` functions, then `src/ldsc/cli.py` for dispatch and copied help groups; follow [CLI help guidelines](cli-help-guidelines.md) |
+| change help wrapping or shared log-level wording | `src/ldsc/_cli_help.py:CLIHelpFormatter`, `src/ldsc/_logging.py:LOG_LEVEL_HELP`; verify `tests/test_cli_help.py` |
 | change path-token behavior | `src/ldsc/path_resolution.py` |
 | change output collision policy | `src/ldsc/path_resolution.py`, then the workflow writer that owns the artifact |
 | change workflow log files, lifecycle lines, or log-level handling | `src/ldsc/_logging.py`, then the workflow orchestration function that owns the output directory |

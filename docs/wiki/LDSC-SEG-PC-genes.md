@@ -1,6 +1,6 @@
 # LDSC-SEG for Protein-Coding Gene Lists
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-11
 
 This tutorial tests whether one or more protein-coding gene lists are enriched for trait heritability. For each query gene list, LDSC3 fits the model
 
@@ -165,7 +165,7 @@ Relevant flags omitted because their default values are used:
 
 - `--count-kind common` uses annotation counts calculated from common reference SNPs.
 - `--n-blocks 200` uses 200 blocks for block-jackknife standard-error estimation.
-- The heritability intercept is estimated because neither `--intercept-h2` nor `--no-intercept` is specified.
+- The heritability intercept is estimated because `--intercept-h2` is not specified.
 - `--samp-prev` and `--pop-prev` are omitted, so results are reported on the observed scale without liability-scale conversion.
 - `--summary-sort-by auto` sorts query gene lists by ascending `coefficient_p`. Other choices are `category`, `prop-snps`, `prop-h2`, `enrichment`, `enrichment-p`, `coefficient`, and `coefficient-p`. P-value sorts are ascending, other numeric sorts are descending, and missing values are placed last.
 

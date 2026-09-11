@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -156,3 +156,11 @@ Last updated on: 2026-09-10
 ## Float32 reduction order can invalidate aggregate metadata
 
 - Summary/root cause/required correction: A completion audit found batch-dependent quantitative annotation counts after column-major inputs became detached row-major reads and row tiles were reduced separately in float32; verify counts against independent normalized-value sums and the downstream aggregate gate across batch widths and layouts, then repair the reduction without loosening tolerances. LD-score equivalence on binary fixtures does not establish quantitative count equivalence. See the [completion review](docs/audits/annotation-memory/completion-review.md).
+
+## Optional coordinates must not shift frequency columns in TSV
+
+- Summary/root cause/correction: Frequency round-trip testing exposed blank CHR/POS fields collapsing under the whitespace sumstats reader and shifting Z/N/FRQ; serialize missing fields as `NA` and verify emitted Parquet and gzip TSV preserve selected frequency, including values above 0.5 and sub-three-decimal precision.
+
+## Worker-initialization tests must restore package logging
+
+- Summary/root cause/correction: Calling the pool initializer in the pytest process left the LDSC logger at WARNING and suppressed later INFO capture; scope its logging changes with `caplog.at_level(..., logger="LDSC")` and verify the formerly failing test order.

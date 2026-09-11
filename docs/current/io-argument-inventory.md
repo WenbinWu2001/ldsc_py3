@@ -1,6 +1,8 @@
 # IO Argument Inventory
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
+
+Use the [CLI help guidelines](cli-help-guidelines.md) when writing flag descriptions or organizing their help groups.
 
 This document records the current public input/output naming contract after the
 LD-score result-directory refactor. The LD-score workflow uses a canonical
@@ -22,6 +24,8 @@ result directory as the baseline design:
 Regression workflows consume this directory with `--ldscore-dir`; fragmented
 inputs such as LD-score files, count vectors, regression-weight files, and
 annotation manifests are no longer public inputs.
+
+Pattern support is command-specific; see [the input-family table](path-specification.md#pattern-support-in-command-help) for `*`, `@`, and exact-one restrictions.
 
 ## Shared SNP Identity Contract
 
@@ -188,7 +192,7 @@ Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requi
 | `--query-annot-gene-list-sources` | input | no | one-column gene lists | Supplies focal gene-list sources. Mutually exclusive with other query routes. Direct mode requires `--baseline-annot-sources`, `--gene-coordinate-file`, and explicit padding; indexed mode requires `--gene-ldscore-index-dir` and uses its embedded catalog. |
 | `--gene-coordinate-file` | input | conditional | one-based build-aware gene catalog | Required for direct gene-list mode and index construction. It is the sole focal/control resolution universe and is forbidden in indexed online mode. |
 | `--gene-list-resolution-policy` | policy | no | strict or deliberate subset resolution | `strict` by default; `resolved-only` permits approved rejected rows to be omitted with audit/metadata/console notice. Valid only in gene-list modes. |
-| `--padding-bp` | input transform | conditional | live BED or gene interval expansion | Live gene lists must supply it explicitly (`0` means gene bodies); live BED omission means `0`. Explicit padding is rejected for prebuilt/no-query/indexed modes. |
+| `--padding-bp` | input transform | conditional | live BED or gene interval expansion | Live gene lists must supply it explicitly (`0` means gene bodies); live BED omission means `0`. Padding extends both ends of the supplied BED intervals; use `0` when they already include the intended padding to avoid double padding. Explicit padding is rejected for prebuilt/no-query/indexed modes. |
 | `--gene-exclude-regions` | input transform | no | live gene exclusion policy | Excludes `none` or `mhc` from live gene-list projection before padding; defaults to `none`. It is independent of SNP `--regr-snps-exclude-regions`; the non-default `mhc` choice is rejected outside live gene-list mode. |
 | `--control-gene-list-file` | input | no | fixed gene control | Supplies one existing one-column control gene-list file for live or indexed gene-list runs. When omitted (the default), no `gene_control` column is added. Supplying it requires a gene-list run. |
 | `--plink-prefix` | input | conditional | PLINK reference panel prefix | Selects PLINK reference-panel input; defaults to omitted/`None` and is required when `--r2-dir` is omitted. Supports an exact complete `.bed/.bim/.fam` prefix, a plain chromosome-suite stem, a PLINK-prefix glob, or an `@` suite. |
@@ -199,12 +203,12 @@ Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requi
 | `--regr-snps-file` | input | no | regression row-set override | Replaces the bundled HM3 regression SNP set using identity keys only; defaults to omitted/`None`, so the bundled HM3 set is used. The input must be a headered text table whose required identity columns depend on `--snp-identifier`; see [Regression SNP file format](config-design.md#regression-snp-file-format). Duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals before LD calculation; defaults to omitted/`None`, so no individual keep filter is applied. PLINK mode only. |
 | `--maf-min` | input metadata | no | retained reference-panel MAF filter | Filters retained reference-panel SNPs by inclusive `MAF >= maf_min`; defaults to omitted/`None`. Applied identically in **both** backends (parquet via the sidecar MAF; PLINK via genotype-derived MAF). |
-| `--regr-snps-exclude-regions` | input transform | no | named regression-region presets | After bundled HM3 or the custom regression list is selected, subtracts `none`, `mhc`, `centromeres`, or `mhc-and-centromeres` (`mhc-and-centromeres` default) from regression/output rows and `w_ld` contributors. It does not change LD-score contributors or reference count vectors. `--genome-build` selects named interval coordinates. The hidden legacy alias `--exclude-regions` maps to this setting. |
+| `--regr-snps-exclude-regions` | input transform | no | named regression-region presets | After bundled HM3 or the custom regression list is selected, subtracts `none`, `mhc`, `centromeres`, or `mhc-and-centromeres` (`mhc-and-centromeres` default) from regression/output rows and `w_ld` contributors. It does not change LD-score contributors or reference count vectors. `--genome-build` selects named interval coordinates. The obsolete `--exclude-regions` alias is rejected. |
 | `--ld-wind-snps` | model | conditional | LD window in SNPs | Selects an LD window measured by SNP count; defaults to `None`. Exactly one of `--ld-wind-snps`, `--ld-wind-kb`, or `--ld-wind-cm` must be supplied. |
 | `--ld-wind-kb` | model | conditional | LD window in kilobases | Selects an LD window measured by physical distance; defaults to `None`. Exactly one LD-window flag must be supplied. |
 | `--ld-wind-cm` | model | conditional | LD window in centiMorgans | Selects an LD window measured by genetic distance; defaults to `None`. Exactly one LD-window flag must be supplied. Requires usable reference-panel `CM` (≥2 distinct finite values per chromosome); an all-zero/constant/missing `CM` raises a dedicated error that `--yes-really` does **not** bypass. PLINK panels with uninformative `.bim` `CM` can supply a genetic map (see below). |
-| `--genetic-map-hg19-sources` | input | no | hg19 genetic map for PLINK cM windows | Genetic map (hg19) used to derive `CM` at `.bim` positions when the PLINK `.bim` `CM` column is uninformative; defaults to omitted/`None`. An explicit map always wins (used for all chromosomes). Ignored with a warning for the parquet backend (sidecar `CM` is authoritative). |
-| `--genetic-map-hg38-sources` | input | no | hg38 genetic map for PLINK cM windows | Genetic map (hg38) used to derive `CM` at `.bim` positions when the PLINK `.bim` `CM` column is uninformative; defaults to omitted/`None`. The map build is selected from `--genome-build` or inferred (chr_pos modes); rsID modes require an explicit `--genome-build`. |
+| `--genetic-map-hg19-sources` | input | no | hg19 genetic map for PLINK cM windows | Genetic map (hg19) used to derive `CM` at `.bim` positions when the PLINK `.bim` `CM` column is uninformative; defaults to omitted/`None`. Accepts comma-separated exact paths; `*` and `@` are not expanded. An explicit map always wins (used for all chromosomes). Ignored with a warning for the parquet backend (sidecar `CM` is authoritative). |
+| `--genetic-map-hg38-sources` | input | no | hg38 genetic map for PLINK cM windows | Genetic map (hg38) used to derive `CM` at `.bim` positions when the PLINK `.bim` `CM` column is uninformative; defaults to omitted/`None`. Accepts comma-separated exact paths; `*` and `@` are not expanded. The map build is selected from `--genome-build` or inferred (chr_pos modes); rsID modes require an explicit `--genome-build`. |
 | `--export-ref-metadata` | output | no | opt-in reference-metadata sidecar | When set (PLINK backend), writes `ref_metadata/chrN_meta.tsv.gz` (`CHR POS SNP A1 A2 CM MAF`, matching the parquet panel sidecar) next to the LD-score output. Default `False`. Parquet panels already ship this sidecar. |
 | `--common-maf-min` | input metadata | no | common-SNP count threshold | Sets the MAF threshold for common-SNP count vectors and the common-universe overlap matrix; defaults to `0.05` and uses inclusive `MAF >= common_maf_min` (deviates from legacy LDSC's strict `0.05 < FRQ < 0.95`). |
 | `--snp-batch-size` | performance | no | LD-score SNP batch size | Genotype batch size for the PLINK reference-panel backend; defaults to `128`. The parquet-R2 backend streams stored pairs and ignores this value. |
@@ -325,10 +329,10 @@ It is not a legacy compatibility command and performs no inference or liftover.
 | `--maf-min`, `--common-maf-min` | QC/counts | no | reference MAF thresholds | Retained-reference and common-count thresholds stored in index identity; `--maf-min` defaults to `None`, and `--common-maf-min` defaults to `0.05`. |
 | `--keep-indivs-file` | input | no | PLINK sample restriction | Restricts individuals used during index construction; defaults to omitted/`None`. |
 | `--regr-snps-file` | input | no | regression SNP override | Headered identity-only table; `rsid` requires `SNP`, while `chr_pos` requires `CHR` and `POS`. Defaults to omitted/`None`, so the bundled hg19 HM3 set is used. Repeated effective keys collapse. |
-| `--regr-snps-exclude-regions` | input transform | no | regression-region subtraction | `none`, `mhc`, `centromeres`, or `mhc-and-centromeres`; defaults to `mhc-and-centromeres`. The hidden legacy alias `--exclude-regions` is accepted. |
-| `--genetic-map-hg19-sources` | input | no | genetic map | Optional explicit hg19 map; defaults to omitted/`None`; hg38 maps are not a builder CLI input. |
+| `--regr-snps-exclude-regions` | input transform | no | regression-region subtraction | `none`, `mhc`, `centromeres`, or `mhc-and-centromeres`; defaults to `mhc-and-centromeres`. The obsolete `--exclude-regions` alias is rejected. |
+| `--genetic-map-hg19-sources` | input | no | genetic map | Optional explicit hg19 map; accepts comma-separated exact paths, without `*` or `@` expansion. Defaults to omitted/`None`; hg38 maps are not a builder CLI input. |
 | `--snp-batch-size`, `--atom-batch-size` | performance | no | computation batches | Bounds SNP and disjoint-atom matrix work; `--snp-batch-size` defaults to `128`, and `--atom-batch-size` defaults to `64`. |
-| `--threads` | performance | no | chromosome workers | Cross-chromosome process count; defaults to `1`. |
+| `--threads` | performance | no | chromosome workers | Gene-index thread-pool size; defaults to `1`. Direct `ldscore` uses `--threads` for processes. |
 | `--overwrite` | output mode | no | publication policy | Replaces only a complete valid owned index through staged publication; defaults to `False`. |
 | `--log-level` | logging | no | workflow log verbosity | Controls the persistent index build-state log; defaults to `INFO`. |
 
@@ -362,17 +366,17 @@ annotations and frequencies. See
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--raw-sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
-| `--format` | input metadata | no | raw summary-statistics format profile | One of `auto`, `plain`, `daner-old`, or `daner-new`; defaults to `auto`, which detects common plain text, including VCF-style headers and old DANER. This is the sole DANER selector (the legacy `--daner-old`/`--daner-new` booleans are removed). |
+| `--input-format` | input metadata | no | raw summary-statistics format profile | One of `auto`, `plain`, `daner-old`, or `daner-new`; defaults to `auto`, which detects common plain text, including VCF-style headers, old DANER, and new DANER. This is the sole DANER selector (the legacy `--daner-old`/`--daner-new` booleans are removed). |
 | `--infer-only` | diagnostic | no | raw summary-statistics inference report | Reads the raw header and first data row, prints detected format, inferred hints, missing fields, source/output genome-build status, liftover status, notes, and suggested commands. Defaults to `False`; missing `A1/A2` is reported only in allele-aware modes. It writes no artifacts, although the uniform CLI contract still requires `--output-dir`. |
 | `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Restricts munged summary-statistics rows using identity keys only; duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. The keep-list is loaded before parsing and applied while chunks are streaming; defaults to omitted/`None`, so no keep-list restriction is applied. |
 | `--use-hm3-snps` | input mode | no | packaged HM3 SNP restriction | Restricts munged summary-statistics rows to the packaged curated HM3 map while chunks are streaming; defaults to `False`. Mutually exclusive with `--sumstats-snps-file`. |
 | `--trait-name` | input metadata | no | biological trait label | Optional label stored in the `sumstats.parquet` footer when parquet output is written; defaults to omitted/`None`. Downstream regression uses it unless a regression CLI `--trait-name` override is supplied. No root `metadata.json` sidecar is written. |
 | `--output-dir` | output | yes | munged output directory | Required for every CLI run, including `--infer-only`. Normal runs write fixed `sumstats.*` artifacts under this directory and pass `<output_dir>/sumstats` as the kernel output stem; inference-only runs do not create it. |
 | `--output-format` | output mode | no | curated sumstats format | One of `parquet`, `tsv.gz`, or `both`; defaults to `parquet`. |
-| `--N`, `--N-cas`, `--N-con` | model/QC | no | sample-size overrides | Scalar total, case, and control sample-size overrides forwarded to the munging kernel; each defaults to `None`. |
+| `--N`, `--N-cas`, `--N-con` | model/QC | no | sample-size fallbacks | Per-variant N or case/control columns take precedence; otherwise use `--N`, then `--N-cas + --N-con`. Each defaults to `None`. |
 | `--info-min` | QC | no | INFO threshold | Minimum INFO value retained by the munging kernel; defaults to `0.9`. |
-| `--maf-min` | QC | no | MAF threshold | Minimum allele-frequency value retained by the munging kernel; defaults to `0.01`. |
-| `--n-min` | QC | no | minimum sample size | Optional minimum sample-size row filter; defaults to `None`. |
+| `--maf-min` | QC | no | MAF threshold | Minimum folded MAF retained by the munging kernel; defaults to `0.01`. Stored FRQ is not folded. |
+| `--n-min` | QC | no | minimum sample size | Minimum per-variant N; omitted or zero uses its 90th percentile divided by 1.5. Constant N bypasses this filter, preserving LDSC2 behavior. |
 | `--chunksize` | performance | no | raw chunk size | Number of raw rows streamed per munging chunk; defaults to `1000000`. |
 | `--snp` | input metadata | no | raw SNP column hint | Identifies the raw SNP/variant identifier column; defaults to omitted/`None`, so common aliases are inferred. |
 | `--chr` | input metadata | no | raw chromosome column hint | Identifies the raw chromosome column; defaults to omitted/`None`, so common aliases such as `#CHROM`, `CHROM`, and `CHR` are inferred. |
@@ -380,15 +384,14 @@ annotations and frequencies. See
 | `--N-col`, `--N-cas-col`, `--N-con-col` | input metadata | no | sample-size column hints | `--N-col` selects direct N and suppresses inferred case/control columns. `--N-cas-col` and `--N-con-col` must be supplied together, select case/control N, and suppress inferred direct N. The two strategies are mutually exclusive; fully automatic discovery of both is an actionable ambiguity error. |
 | `--a1`, `--a2` | input metadata | no | allele column hints | Identify raw effect and other allele columns; each defaults to `None`. Allele-aware modes require usable alleles after parsing. |
 | `--p` | input metadata | no | p-value column hint | Identifies the raw p-value column; defaults to `None`. |
-| `--frq` | input metadata | no | allele-frequency column hint | Identifies the raw allele-frequency column used by munger QC and optional output preservation; defaults to `None`. |
+| `--frq` | input metadata | no | allele-frequency column hint | Identifies the raw allele-frequency column used by munger QC and automatic output preservation; defaults to `None`. |
 | `--signed-sumstats` | input metadata | no | signed statistic specification | Identifies the signed statistic column and null value used to compute or validate `Z`; defaults to `None`. |
 | `--info` | input metadata | no | INFO column hint | Identifies one raw INFO column for INFO filtering; defaults to `None`. |
 | `--info-list` | input metadata | no | INFO column list hint | Identifies comma-separated INFO columns/tokens for INFO filtering; defaults to `None`. |
 | `--nstudy` | input metadata | no | study-count column hint | Identifies the raw study-count column; defaults to `None`. |
-| `--nstudy-min` | QC | no | minimum study count | Optional minimum study-count row filter; defaults to `None`. |
+| `--nstudy-min` | QC | no | minimum study count | Study-count filter used only without per-variant N; omitted or zero uses the maximum study count. |
 | `--ignore` | input metadata | no | ignored raw columns | Column names to ignore during munger detection and parsing; defaults to `None`. |
 | `--a1-inc` | input mode | no | allele ordering compatibility | Legacy allele-ordering switch forwarded to the munging kernel; defaults to `False`. |
-| `--keep-maf` | output mode | no | preserve allele frequency | Retains parsed allele frequency in compatibility outputs when available; defaults to `False`. |
 | `--source-genome-build` | input metadata | no | raw coordinate source build | Defaults to `auto`, which infers hg19/hg38 from raw `CHR`/`POS` data in coordinate-family modes. May be set explicitly to `hg19` or `hg38`; rejected in rsid-family modes. |
 | `--output-genome-build` | output metadata | yes in coordinate-family modes | final munged coordinate build | Defaults to omitted/`None`; required for `chr_pos`-family normal runs and `--infer-only`, and rejected in rsid-family modes. If it differs from the resolved source build, exactly one liftover method is required. |
 | `--liftover-chain-file` | input | no | optional munger liftover chain | Uses a source-to-target chain file for coordinate-only sumstats liftover; defaults to omitted/`None`. Mutually exclusive with `--use-hm3-quick-liftover`. |
@@ -399,7 +402,7 @@ annotations and frequencies. See
 
 Removed flags: `--sumstats`, `--sumstats-file` for raw munge input,
 `--merge-alleles`, `--merge-alleles-file`, `--no-alleles`, `--out`,
-`--daner-old`, `--daner-new` (use `--format daner-old` / `--format daner-new`).
+`--daner-old`, `--daner-new`, `--format` (use `--input-format daner-old` / `--input-format daner-new`), and `--keep-maf`. Recognized input frequency is always retained as `FRQ` with its original values and omitted when absent; `--maf-min` filtering is unchanged. See [the legacy flag map](legacy-cli-flag-map.md).
 
 Fixed output names:
 
@@ -456,6 +459,8 @@ Output columns always append `r2`, nullable `sign`, signed Pearson `r`, and
 panels lacking `ldsc:n_samples`. `status` is blank for found pairs and may report
 `not_in_panel`, `cross_chromosome`, or `absent`.
 
+The regression commands reject the removed `--no-intercept` flag. Use `--intercept-h2 1` for `h2` or `partitioned-h2`, and `--intercept-h2 1 --intercept-gencov 0` for `rg`. Omitting these flags estimates the intercepts using the existing defaults. See the [legacy flag map](legacy-cli-flag-map.md#regression-intercept-consolidation).
+
 ### `ldsc h2`
 
 | Flag | Direction | Required | Object | Notes |
@@ -466,9 +471,8 @@ panels lacking `ldsc:n_samples`. `status` is blank for found pairs and may repor
 | `--output-dir` | output | yes | result output directory | Required destination for `h2.tsv`, `diagnostics/ld_score_regression_bins.tsv`, and other diagnostics. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--n-blocks` | model | no | block jackknife partitions | Number of jackknife blocks used by the regression estimator; defaults to `200`. |
-| `--no-intercept` | model | no | intercept policy | Fixes the LDSC intercept instead of estimating it; defaults to `False`. |
 | `--allow-identity-downgrade` | model | no | identity compatibility override | Allows same-family allele-aware/base artifact mixes under the base identity mode; defaults to `False`. |
-| `--intercept-h2` | model | no | fixed h2 intercept | Optional fixed h2 intercept supplied to the regression estimator; defaults to `None`. |
+| `--intercept-h2` | model | no | fixed h2 intercept | Fixed h2 intercept; use `1` for the standard fixed value. Omit to estimate it (`None`). Cannot be combined with `--two-step-cutoff`. |
 | `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting; defaults to `None`. Inclusive (`chi^2 <= cutoff` retained for step 1; deviates from legacy LDSC's strict `chi^2 < cutoff`). When unset, a single-annotation fit with a free intercept defaults to the legacy cutoff `30`. |
 | `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square retained for regression fitting; defaults to `None`. Inclusive (`chi^2 <= chisq_max`; deviates from legacy LDSC's strict `chi^2 < chisq_max`). When unset, a single-annotation fit stays uncapped (outliers handled by the two-step estimator); a multi-annotation fit applies the legacy default cap `max(0.001 * N.max(), 80)`. |
 | `--samp-prev` | model | no | sample (case) prevalence | Scalar sample prevalence `P` for liability-scale conversion of binary-trait h2; defaults to `None`. A probability in `(0, 1)`, or `nan` for a quantitative trait. Requires `--pop-prev`; omit both for observed scale. Output adds `total_h2_liab`/`total_h2_liab_se` and the applied prevalence columns. |
@@ -490,10 +494,9 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--output-dir` | output | yes | result output directory | Required destination for `partitioned_h2.tsv` and diagnostics. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--n-blocks` | model | no | block jackknife partitions | Number of jackknife blocks used by the regression estimator; defaults to `200`. |
-| `--no-intercept` | model | no | intercept policy | Fixes the LDSC intercept instead of estimating it; defaults to `False`. |
 | `--allow-identity-downgrade` | model | no | identity compatibility override | Allows same-family allele-aware/base artifact mixes under the base identity mode; defaults to `False`. |
-| `--intercept-h2` | model | no | fixed h2 intercept | Optional fixed h2 intercept supplied to the regression estimator; defaults to `None`. |
-| `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting; defaults to `None`. Inclusive (`chi^2 <= cutoff` retained for step 1). Not applied to partitioned (multi-annotation) models, which use the chi-square cap below instead. |
+| `--intercept-h2` | model | no | fixed h2 intercept | Fixed h2 intercept; use `1` for the standard fixed value. Omit to estimate it (`None`). Cannot be combined with `--two-step-cutoff`. |
+| `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting; defaults to `None`. Inclusive (`chi^2 <= cutoff` retained for step 1). Rejected for multi-annotation models and fixed intercepts. When omitted, a single-annotation fit with a free intercept uses cutoff `30`; multi-annotation models instead use the chi-square cap below. |
 | `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square retained for regression fitting; defaults to `None`. Inclusive (`chi^2 <= chisq_max`; deviates from legacy LDSC's strict `chi^2 < chisq_max`). When unset, partitioned (multi-annotation) models apply the legacy default outlier cap `max(0.001 * N.max(), 80)` to keep extreme-chi-square SNPs from dominating the regression. |
 | `--samp-prev` | model | no | sample (case) prevalence | Scalar sample prevalence `P` for liability-scale conversion; defaults to `None`. A probability in `(0, 1)`, or `nan` for a quantitative trait. Requires `--pop-prev`; omit both for observed scale. Adds the `*_liab` heritability columns (e.g. `category_h2_liab`/`category_h2_liab_se` and `total_h2_liab`/`total_h2_liab_se`) and the applied prevalence columns (proportions, enrichment, and coefficients are scale-invariant). |
 | `--pop-prev` | model | no | population prevalence | Scalar population prevalence `K` for liability-scale conversion; defaults to `None`. A probability in `(0, 1)`, or `nan`. Requires `--samp-prev`. Validated before inputs load. |
@@ -533,12 +536,11 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--write-per-pair-detail` | output mode | no | optional pair result tree | Requires `--output-dir`; defaults to `False`; writes `diagnostics/pairs/manifest.tsv` plus one `rg_full.tsv` and `metadata.json` per attempted pair when enabled. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--n-blocks` | model | no | block jackknife partitions | Number of jackknife blocks used by each regression estimator; defaults to `200`. |
-| `--no-intercept` | model | no | intercept policy | Fixes LDSC intercepts instead of estimating them; defaults to `False`. |
 | `--allow-identity-downgrade` | model | no | identity compatibility override | Allows same-family allele-aware/base artifact mixes under the base identity mode; defaults to `False`. |
 | `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting; defaults to `None`. Inclusive (`chi^2 <= cutoff` retained for step 1; deviates from legacy LDSC's strict `chi^2 < cutoff`). When unset, a single-annotation rg fit with a free h2 intercept defaults to the legacy cutoff `30`. |
 | `--chisq-max` | QC/model | no | chi-square filter | Optional opt-in rg filter on the product of statistics; defaults to `None`, so no default cap is applied. Inclusive (`Z1^2 * Z2^2 <= chisq_max^2`; deviates from legacy LDSC's strict `Z1^2 * Z2^2 < chisq_max^2`). |
-| `--intercept-h2` | model | no | fixed h2 intercepts | Optional fixed h2 intercept value(s) supplied to per-trait h2 estimators; defaults to `None`. |
-| `--intercept-gencov` | model | no | fixed genetic-covariance intercepts | Optional fixed intercept value(s) supplied to genetic-covariance estimators; defaults to `None`. |
+| `--intercept-h2` | model | no | fixed h2 intercepts | One fixed scalar shared by both traits in every pair; use `1` for standard fixed h2 intercepts. Omit to estimate them (`None`). Cannot be combined with `--two-step-cutoff`. |
+| `--intercept-gencov` | model | no | fixed genetic-covariance intercepts | One fixed covariance intercept shared by every pair; use `0` for the standard fixed value. Omit to estimate it (`None`). Cannot be combined with `--two-step-cutoff`; single-annotation fits also require `--intercept-h2` because automatic two-step estimation otherwise conflicts. |
 | `--samp-prev` | model | no | per-trait sample prevalences | Comma-separated sample prevalences aligned to the resolved `--sumstats-sources` order, one per trait; defaults to `None`. Each a probability in `(0, 1)` or `nan` for a quantitative trait. Requires `--pop-prev`. Mutually exclusive with `--prevalence-manifest`. Adds `*_liab` and per-trait prevalence columns to `rg_full.tsv`/`h2_per_trait.tsv`; the `rg` ratio is unchanged. |
 | `--pop-prev` | model | no | per-trait population prevalences | Comma-separated population prevalences aligned to the resolved order, one per trait; defaults to `None`. Each in `(0, 1)` or `nan`. Requires `--samp-prev`. Mutually exclusive with `--prevalence-manifest`. |
 | `--prevalence-manifest` | model | no | prevalence lookup table | Whitespace/tab-delimited TSV with columns `trait_name`, `samp_prev`, `pop_prev` (`#` comment lines ignored); defaults to omitted/`None`. Looked up by exact munged trait name; may contain extra traits (every resolved trait must be present). Mutually exclusive with `--samp-prev`/`--pop-prev`. Duplicate resolved munged names abort the run. |

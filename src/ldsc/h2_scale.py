@@ -16,6 +16,8 @@ sensitivity figure is requested.
 
 from __future__ import annotations
 
+from ._cli_help import CLIHelpFormatter
+from ._logging import LOG_LEVEL_HELP
 from ._result_files import atomic_write_json, declared_result_file
 
 import argparse
@@ -254,24 +256,63 @@ def convert_h2_scale(
 
 def add_convert_h2_scale_arguments(parser: argparse.ArgumentParser) -> None:
     """Add the public ``convert-h2-scale`` arguments to ``parser``."""
-    parser.add_argument("--h2-result-dir", required=True, help="Canonical unpartitioned h2 result directory.")
-    parser.add_argument("--samp-prev", required=True, type=float, help="Sample case fraction P in (0, 1).")
-    prevalence = parser.add_mutually_exclusive_group(required=True)
-    prevalence.add_argument("--pop-prev", type=float, help="One population prevalence K in (0, 1).")
-    prevalence.add_argument(
-        "--pop-prev-range",
-        nargs=2,
-        type=float,
-        metavar=("MIN", "MAX"),
-        help="Inclusive population-prevalence range for a sensitivity curve.",
+    parser.prog = 'ldsc convert-h2-scale'
+    parser.formatter_class = CLIHelpFormatter
+    inputs = parser.add_argument_group('Input result')
+    scale = parser.add_argument_group('Case prevalences')
+    runtime = parser.add_argument_group('Output and logging')
+
+    inputs.add_argument(
+        '--h2-result-dir', required=True, metavar='DIR',
+        help=(
+            'Required saved unpartitioned h2 result directory. Conversion outputs are written below '
+            'postprocessing/liability-scale/ in this directory.'
+        ),
     )
-    parser.add_argument("--num-points", type=int, default=201, help="Number of range grid points (default: 201).")
-    parser.add_argument("--overwrite", action="store_true", help="Replace this conversion's fixed artifacts.")
-    parser.add_argument(
-        "--log-level",
-        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
-        default="INFO",
-        help="Workflow log threshold (default: INFO).",
+
+    scale.add_argument(
+        '--samp-prev', required=True, type=float, metavar='VALUE',
+        help=(
+            'Required sample case fraction, strictly between 0 and 1. Also supply exactly one of --pop-prev '
+            'or --pop-prev-range.'
+        ),
+    )
+    prevalence = scale.add_mutually_exclusive_group(required=True)
+    prevalence.add_argument(
+        '--pop-prev', type=float, metavar='VALUE',
+        help=(
+            'Population case fraction, strictly between 0 and 1, for one conversion. Requires --samp-prev; '
+            'choose exactly one of --pop-prev or --pop-prev-range. No default.'
+        ),
+    )
+    prevalence.add_argument(
+        '--pop-prev-range', nargs=2, type=float, metavar=('MIN', 'MAX'),
+        help=(
+            'Minimum and maximum population case fractions for a sensitivity curve; both strictly between 0 '
+            'and 1, with MIN < MAX. Requires --samp-prev; choose exactly one of this flag or --pop-prev. No '
+            'default.'
+        ),
+    )
+    scale.add_argument(
+        '--num-points', type=int, default=201, metavar='N',
+        help=(
+            (
+            'Number of equally spaced prevalence values, including both range endpoints; must be at least '
+            '2. Used with --pop-prev-range; ignored for a single --pop-prev. Default: 201.'
+        )
+        ),
+    )
+
+    runtime.add_argument(
+        '--overwrite', action='store_true',
+        help=(
+            'Replace existing liability-scale conversion files below the input result directory. Default: '
+            'off; stop if these output files exist.'
+        ),
+    )
+    runtime.add_argument(
+        '--log-level', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'), default='INFO',
+        help=LOG_LEVEL_HELP,
     )
 
 

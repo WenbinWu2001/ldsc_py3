@@ -1,6 +1,6 @@
 # Munge summary statistics
 
-Last updated on: 2026-08-10
+Last updated on: 2026-09-10
 
 `ldsc munge-sumstats` converts a raw GWAS table into LDSC3-ready summary statistics. See the current [munge-sumstats guide](../../current/munge-sumstats.md) for the full workflow and output contract.
 
@@ -56,7 +56,7 @@ ldsc munge-sumstats \
 
 The following options use their default values and are therefore omitted. Specify them only when you need to change the defaults:
 
-- `--format auto` automatically detects the input file format.
+- `--input-format auto` automatically detects the input file format.
 - `--output-format parquet` writes the munged summary statistics in Parquet format.
 
 ## Override column-name inference

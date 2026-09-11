@@ -1,6 +1,6 @@
 # Supported Column Alias Inference
 
-Last updated on: 2026-09-07
+Last updated on: 2026-09-10
 
 Column aliases are centralized in `src/ldsc/column_inference.py`. The registry
 is used by the main workflows (`munge-sumstats`, annotation loading,
@@ -43,7 +43,7 @@ runtime LD-score and munging restrictions use the workflow's resolved
 Used by `src/ldsc/_kernel/sumstats_munger.py` through the same central
 registry. The public `ldsc.sumstats_munger` workflow now runs a lightweight
 header inference pass before delegating to the kernel. The default raw format
-profile is `--format auto`, which detects plain whitespace text, including
+profile is `--input-format auto`, which detects plain whitespace text, including
 VCF-style headers, old DANER, and new DANER. Users can inspect the decision without
 writing outputs:
 

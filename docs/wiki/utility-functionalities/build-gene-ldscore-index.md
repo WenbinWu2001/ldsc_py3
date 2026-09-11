@@ -1,12 +1,14 @@
 # Build an exact gene LD-score index
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 For the mathematical construction of the disjoint atoms, stored operator, and
 sufficient statistics—and the full downstream indexed-assembly derivation—see
 [Exact gene LD-score index: mathematical algorithm](../../current/gene-ldscore-index-mathematics.md).
 
 ## Goal
+
+`--threads` controls a chromosome thread pool for index construction and defaults to `1` (sequential). Direct `ldscore` keeps the same flag name for chromosome worker processes.
 
 Build one complete reusable index that contains the fixed baseline LD scores,
 an embedded caller-supplied gene catalog, exact disjoint-gene atoms, and the sparse
@@ -90,8 +92,7 @@ rs456
 The intersected baseline/PLINK SNPs are the LD-reference contributor, count,
 and overlap universe. Regression candidates and `--regr-snps-exclude-regions` select
 only persisted output rows and `regression_ld_scores` contributors.
-The former `--exclude-regions` spelling remains a hidden CLI alias for this
-region policy. Use the new spelling in commands and documentation.
+The former `--exclude-regions` alias is removed. Use `--regr-snps-exclude-regions` for this region policy.
 
 > **Caveat: gene-catalog regions do not restrict baseline LD scores.** For
 > each supplied baseline column, the builder recomputes LD scores over the full

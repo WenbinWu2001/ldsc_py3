@@ -82,7 +82,6 @@ class MungeQC:
     N: float | None = None
     N_cas: float | None = None
     N_con: float | None = None
-    keep_maf: bool = False
 
 
 @dataclass(frozen=True)
@@ -286,12 +285,7 @@ def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
             old = new
 
         old = ii.sum()
-        if qc.keep_maf:
-            dat.drop(
-                [x for x in ['INFO'] if x in dat.columns], inplace=True, axis=1)
-        else:
-            dat.drop(
-                [x for x in ['INFO', 'FRQ'] if x in dat.columns], inplace=True, axis=1)
+        dat.drop(columns=['INFO'], errors='ignore', inplace=True)
         ii &= filter_pvals(dat.P)
         new = ii.sum()
         drops['P'] += old - new

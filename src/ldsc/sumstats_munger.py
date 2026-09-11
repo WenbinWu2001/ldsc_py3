@@ -39,6 +39,8 @@ import warnings
 
 import pandas as pd
 
+from ._cli_help import CLIHelpFormatter, SCALAR_PATH_HELP
+from ._logging import LOG_LEVEL_HELP
 from .chromosome_inference import chrom_sort_key, normalize_chromosome_series
 from ._coordinates import (
     coordinate_missing_mask,
@@ -179,7 +181,7 @@ class SumstatsTable:
                 f"munge-sumstats could not map required column(s) {sorted(missing)} "
                 f"from the input header for '{self.source_path or self.trait_name or 'sumstats'}'. "
                 "Most likely the file uses unrecognized column names. Pass explicit hints "
-                f"(e.g. --snp-col, --a1-col) or rename the columns. Other causes & fixes: "
+                f"(e.g. --snp, --a1) or rename the columns. Other causes & fixes: "
                 f"{_REQUIRED_COLUMN_TROUBLESHOOTING}"
             )
         if self.has_alleles and not {"A1", "A2"}.issubset(self.data.columns):
@@ -938,7 +940,6 @@ def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, Mun
         info_list_columns=_info_list_columns_from_args(args),
         sumstats_format=getattr(args, "sumstats_format", "auto"),
         a1_inc=args.a1_inc,
-        keep_maf=args.keep_maf,
         overwrite=getattr(args, "overwrite", False),
     )
     return raw_config, munge_config
@@ -977,134 +978,319 @@ def build_parser() -> argparse.ArgumentParser:
     explicit output build for downstream-compatible artifacts.
     """
     public = argparse.ArgumentParser(allow_abbrev=False)
-    public.add_argument("--raw-sumstats-file", required=True, help="Raw summary-statistics file path.")
-    public.add_argument("--output-dir", required=True, help="Output directory for munged sumstats and logs.")
-    public.add_argument(
-        "--format",
-        dest="sumstats_format",
-        choices=sorted(_RAW_SUMSTATS_FORMATS),
-        default="auto",
-        help="Raw summary-statistics format profile. Default is auto.",
-    )
-    public.add_argument(
-        "--infer-only",
-        action="store_true",
-        default=False,
-        help="Inspect the raw file, print inferred columns and a suggested command, and write no outputs.",
-    )
-    public.add_argument(
-        "--overwrite",
-        action="store_true",
-        default=False,
-        help="Replace sumstats output artifacts and remove stale owned siblings.",
-    )
-    public.add_argument(
-        "--sumstats-snps-file",
-        default=None,
+    public.prog = 'ldsc munge-sumstats'
+    public.formatter_class = CLIHelpFormatter
+    public.description = 'Prepare GWAS summary statistics for LDSC, preserving input frequency as FRQ when available.'
+    inputs = public.add_argument_group('Inputs and output')
+    identity = public.add_argument_group('SNP identity and genome build')
+    sample = public.add_argument_group('Sample size', description='Input sample-size columns take precedence over constant fallbacks.')
+    filters = public.add_argument_group('SNP selection and quality filters')
+    liftover = public.add_argument_group('Coordinate conversion')
+    columns = public.add_argument_group('Column overrides', description='Columns are detected automatically. Supply overrides for unrecognized or ambiguous headers.')
+    formats = public.add_argument_group('Input format and allele direction')
+    runtime = public.add_argument_group('Performance and logging')
+
+    inputs.add_argument(
+        '--raw-sumstats-file', required=True, metavar='FILE',
         help=(
-            "Optional identity-only SNP keep-list for munged summary statistics. "
-            "Duplicate restriction keys collapse to one retained key; non-identity columns such as CM or MAF are ignored."
+            'Required raw GWAS summary-statistics text file. Columns are detected from their headers unless '
+            'overridden. '
+            + SCALAR_PATH_HELP
         ),
     )
-    public.add_argument(
-        "--use-hm3-snps",
-        action="store_true",
-        default=False,
-        help="Restrict munged summary statistics to the packaged curated HM3 SNP map.",
+    inputs.add_argument(
+        '--output-dir', required=True, metavar='DIR',
+        help=(
+            'Required destination for cleaned summary statistics and diagnostics. Still required with '
+            '--infer-only, which creates no files or directories.'
+        ),
     )
-    public.add_argument(
-        "--source-genome-build",
-        default="auto",
-        choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
-        help="Genome build of raw chr_pos-family coordinates. Default is auto.",
+    inputs.add_argument(
+        '--trait-name', default=None,
+        help=(
+            'Biological trait label stored in Parquet metadata. Default: no explicit label; downstream '
+            'commands derive a label from the file path when metadata supplies none.'
+        ),
     )
-    public.add_argument(
-        "--output-genome-build",
-        default=None,
-        choices=("hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
-        help="Required output genome build for chr_pos-family munged coordinates.",
+    inputs.add_argument(
+        '--output-format', choices=sorted(_SUMSTATS_OUTPUT_FORMATS), default='parquet',
+        help=(
+            'Write sumstats.parquet, legacy sumstats.sumstats.gz, or both. Default: parquet; '
+            'output choice does not change SNP filtering or frequency preservation.'
+        ),
     )
-    public.add_argument(
-        "--liftover-chain-file",
-        default=None,
-        help="Optional chain file used to liftover chr_pos-family sumstats coordinates to --output-genome-build.",
+    inputs.add_argument(
+        '--infer-only', action='store_true', default=False,
+        help=(
+            'Inspect headers and sample rows, then print detected columns and a suggested command without '
+            'writing files. Requires --raw-sumstats-file and --output-dir. Default: off; perform the full '
+            'conversion.'
+        ),
     )
-    public.add_argument(
-        "--use-hm3-quick-liftover",
-        action="store_true",
-        default=False,
-        help="Use the packaged curated dual-build HM3 map for coordinate-only quick liftover.",
+
+    identity.add_argument(
+        '--output-genome-build', default=None, choices=('hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
+        help=(
+            'Required output build for chr_pos and chr_pos_allele_aware identity. If different from the '
+            'source, supply --liftover-chain-file or --use-hm3-quick-liftover. Cannot be used with rsid or '
+            'rsid_allele_aware identity; no default.'
+        ),
     )
-    public.add_argument("--trait-name", default=None, help="Optional biological trait label stored in sumstats metadata.")
-    public.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
-    public.add_argument(
-        "--output-format",
-        choices=sorted(_SUMSTATS_OUTPUT_FORMATS),
-        default="parquet",
-        help="Curated sumstats output format. Default is parquet.",
+    identity.add_argument(
+        '--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
+        help=(
+            'Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use '
+            'A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Coordinate-based modes also '
+            'require --output-genome-build.'
+        ),
     )
-    public.add_argument('--N', default=None, type=float,
-                        help="Sample size If this option is not set, will try to infer the sample "
-                        "size from the input file. If the input file contains a sample size "
-                        "column, and this flag is set, the argument to this flag has priority.")
-    public.add_argument('--N-cas', default=None, type=float,
-                        help="Number of cases. If this option is not set, will try to infer the number "
-                        "of cases from the input file. If the input file contains a number of cases "
-                        "column, and this flag is set, the argument to this flag has priority.")
-    public.add_argument('--N-con', default=None, type=float,
-                        help="Number of controls. If this option is not set, will try to infer the number "
-                        "of controls from the input file. If the input file contains a number of controls "
-                        "column, and this flag is set, the argument to this flag has priority.")
-    public.add_argument('--info-min', default=0.9, type=float,
-                        help="Minimum INFO score.")
-    public.add_argument('--maf-min', default=0.01, type=float,
-                        help="Minimum MAF.")
-    public.add_argument('--n-min', default=None, type=float,
-                        help='Minimum N (sample size). Default is (90th percentile N) / 2.')
-    public.add_argument('--chunksize', default=1_000_000, type=int,
-                        help='Chunksize.')
-    public.add_argument('--snp', default=None, type=str,
-                        help='Name of SNP column (if not a name that ldsc understands). NB: case insensitive.')
-    public.add_argument('--chr', default=None, type=str,
-                        help='Name of chromosome column (if not a name that ldsc understands). NB: case insensitive.')
-    public.add_argument('--pos', default=None, type=str,
-                        help='Name of base-pair position column (if not a name that ldsc understands). NB: case insensitive.')
-    public.add_argument('--N-col', default=None, type=str,
-                        help='Name of the direct per-variant N column. Suppresses inferred case/control columns; '
-                        'mutually exclusive with --N-cas-col/--N-con-col. NB: case insensitive.')
-    public.add_argument('--N-cas-col', default=None, type=str,
-                        help='Name of the per-variant case-count column. Must be paired with --N-con-col; the pair '
-                        'suppresses inferred direct N. NB: case insensitive.')
-    public.add_argument('--N-con-col', default=None, type=str,
-                        help='Name of the per-variant control-count column. Must be paired with --N-cas-col; the pair '
-                        'suppresses inferred direct N. NB: case insensitive.')
-    public.add_argument('--a1', default=None, type=str,
-                        help='Name of A1 column: the allele that the signed statistic is relative to. NB: case insensitive.')
-    public.add_argument('--a2', default=None, type=str,
-                        help='Name of A2 column: the counterpart allele to A1. NB: case insensitive.')
-    public.add_argument('--p', default=None, type=str,
-                        help='Name of p-value column (if not a name that ldsc understands). NB: case insensitive.')
-    public.add_argument('--frq', default=None, type=str,
-                        help='Name of FRQ or MAF column (if not a name that ldsc understands). NB: case insensitive.')
-    public.add_argument('--signed-sumstats', default=None, type=str,
-                        help='Name of signed sumstat column, comma null value (e.g., Z,0 or OR,1), oriented relative to A1. NB: case insensitive.')
-    public.add_argument('--info', default=None, type=str,
-                        help='Name of INFO column (if not a name that ldsc understands). NB: case insensitive.')
-    public.add_argument('--info-list', default=None, type=str,
-                        help='Comma-separated list of numeric/NA per-study INFO columns. Filters on the mean, e.g. IMPINFO=0.852,0.113,NA. NB: case insensitive.')
-    public.add_argument('--nstudy', default=None, type=str,
-                        help='Name of NSTUDY column (if not a name that ldsc understands). NB: case insensitive.')
-    public.add_argument('--nstudy-min', default=None, type=float,
-                        help='Minimum # of studies. Default is to remove everything below the max, unless there is an N column,'
-                        ' in which case do nothing.')
-    public.add_argument('--ignore', default=None, type=str,
-                        help='Comma-separated list of column names to ignore.')
-    public.add_argument('--a1-inc', default=False, action='store_true',
-                        help='A1 is the increasing allele.')
-    public.add_argument('--keep-maf', default=False, action='store_true',
-                        help='Keep the MAF column (if one exists).')
-    public.add_argument('--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
-                        help="SNP identity mode for filtering, duplicate policy, and emitted artifact provenance. Allele-aware modes require usable A1/A2; base modes are allele-blind.")
+    identity.add_argument(
+        '--source-genome-build', default='auto', choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
+        help=(
+            'Genome build of input chromosome/position coordinates. Default: auto, infer hg19 or hg38 from '
+            'input SNPs. Concrete builds cannot be used with rsid or rsid_allele_aware identity.'
+        ),
+    )
+
+    sample.add_argument(
+        '--N', default=None, type=float, metavar='VALUE',
+        help=(
+            'Constant sample-size fallback when per-SNP N or paired case/control columns are absent. Input '
+            'columns take precedence; --N takes precedence over --N-cas/--N-con. If omitted, use input '
+            'columns or both case/control constants.'
+        ),
+    )
+    sample.add_argument(
+        '--N-cas', default=None, type=float, metavar='VALUE',
+        help=(
+            'Constant case-count fallback. Requires --N-con when used; the constants are added only when '
+            'input sample-size columns and --N are absent. Default: no case-count constant.'
+        ),
+    )
+    sample.add_argument(
+        '--N-con', default=None, type=float, metavar='VALUE',
+        help=(
+            'Constant control-count fallback. Requires --N-cas when used; the constants are added only when '
+            'input sample-size columns and --N are absent. Default: no control-count constant.'
+        ),
+    )
+
+    filters.add_argument(
+        '--sumstats-snps-file', default=None, metavar='FILE',
+        help=(
+            'Keep SNPs listed in this headered identity table, matched in the source genome build. Cannot be '
+            'combined with --use-hm3-snps. If neither is supplied, apply no keep-list restriction. Same exact-one '
+            "'*' pattern rules as --raw-sumstats-file; '@' is not expanded."
+        ),
+    )
+    filters.add_argument(
+        '--use-hm3-snps', action='store_true', default=False,
+        help=(
+            'Keep only SNPs in the bundled HapMap3 list. Cannot be combined with --sumstats-snps-file. '
+            'Default: off; no HapMap3 restriction.'
+        ),
+    )
+    filters.add_argument(
+        '--n-min', default=None, type=float, metavar='VALUE',
+        help=(
+            'Minimum per-SNP sample size to retain. If omitted or zero, use the 90th percentile of N '
+            'divided by 1.5. Constant sample sizes are assigned after this filter and are not filtered.'
+        ),
+    )
+    filters.add_argument(
+        '--nstudy-min', default=None, type=float, metavar='VALUE',
+        help=(
+            'Minimum number of contributing studies to retain. If omitted or zero, keep the maximum '
+            'observed count. Applies only when NSTUDY is present and per-SNP sample sizes are absent.'
+        ),
+    )
+    filters.add_argument(
+        '--info-min', default=0.9, type=float, metavar='VALUE',
+        help=(
+            'Keep SNPs with INFO at or above this value. Default: 0.9; skip this filter if no INFO column '
+            'is available. Use --info or --info-list to select a nonstandard column.'
+        ),
+    )
+    filters.add_argument(
+        '--maf-min', default=0.01, type=float, metavar='VALUE',
+        help=(
+            'Keep SNPs whose minor-allele frequency min(FRQ, 1-FRQ) is at or above this value. Default: '
+            '0.01; skip this filter if frequency is absent. Output FRQ preserves the original frequency.'
+        ),
+    )
+
+    liftover.add_argument(
+        '--liftover-chain-file', default=None, metavar='FILE',
+        help=(
+            'Chain file for converting input coordinates to --output-genome-build. Requires coordinate-based '
+            '--snp-identifier and --output-genome-build; cannot be combined with --use-hm3-quick-liftover. No '
+            "default; a method is required when builds differ and ignored when they match. Same exact-one '*' "
+            "pattern rules as --raw-sumstats-file; '@' is not expanded."
+        ),
+    )
+    liftover.add_argument(
+        '--use-hm3-quick-liftover', action='store_true', default=False,
+        help=(
+            (
+            'Convert coordinates using the bundled dual-build HapMap3 map, retaining mapped SNPs only. '
+            'Requires coordinate-based --snp-identifier and --output-genome-build; cannot be combined with '
+            '--liftover-chain-file. Default: off; ignored when source and output builds match.'
+        )
+        ),
+    )
+
+    columns.add_argument(
+        '--snp', default=None, type=str, metavar='COLUMN',
+        help=(
+            'Input column containing SNP identifiers; matched case-insensitively. If omitted, detect from '
+            'headers. SNP identifiers are required for rsid and rsid_allele_aware identity.'
+        ),
+    )
+    columns.add_argument(
+        '--chr', default=None, type=str, metavar='COLUMN',
+        help=(
+            'Input chromosome column; matched case-insensitively. If omitted, detect from headers. Required '
+            'in the input for coordinate-based identity; pair with a position column.'
+        ),
+    )
+    columns.add_argument(
+        '--pos', default=None, type=str, metavar='COLUMN',
+        help=(
+            'Input base-pair position column; matched case-insensitively. If omitted, detect from headers. '
+            'Required in the input for coordinate-based identity; pair with a chromosome column.'
+        ),
+    )
+    columns.add_argument(
+        '--a1', default=None, type=str, metavar='COLUMN',
+        help=(
+            'Input effect-allele column, relative to which the signed statistic is defined; matched '
+            'case-insensitively. If omitted, detect from headers. Allele-aware identity requires both A1 '
+            'and A2 in the input.'
+        ),
+    )
+    columns.add_argument(
+        '--a2', default=None, type=str, metavar='COLUMN',
+        help=(
+            'Input other-allele column; matched case-insensitively. If omitted, detect from headers. '
+            'Allele-aware identity requires both A1 and A2 in the input.'
+        ),
+    )
+    columns.add_argument(
+        '--p', default=None, type=str, metavar='COLUMN',
+        help=(
+            'Input p-value column used to calculate Z; matched case-insensitively. If omitted, detect from '
+            'headers. Input p-values must be in (0, 1].'
+        ),
+    )
+    columns.add_argument(
+        '--signed-sumstats', default=None, type=str, metavar='COLUMN,NULL',
+        help=(
+            'Signed-statistic column and null value, separated by a comma; for example Z,0 or OR,1. Column '
+            'names are case-insensitive and effects are relative to A1. If omitted, detect from headers; '
+            '--a1-inc bypasses signed-statistic use.'
+        ),
+    )
+    columns.add_argument(
+        '--N-col', default=None, type=str, metavar='COLUMN',
+        help=(
+            'Input per-SNP sample-size column; matched case-insensitively. Overrides inferred case/control '
+            'columns; cannot be combined with --N-cas-col or --N-con-col. If omitted, detect sample-size '
+            'columns from headers.'
+        ),
+    )
+    columns.add_argument(
+        '--N-cas-col', default=None, type=str, metavar='COLUMN',
+        help=(
+            'Input per-SNP case-count column; matched case-insensitively. Requires --N-con-col and cannot '
+            'be combined with --N-col. The pair overrides inferred N; if omitted, detect sample-size '
+            'columns from headers.'
+        ),
+    )
+    columns.add_argument(
+        '--N-con-col', default=None, type=str, metavar='COLUMN',
+        help=(
+            'Input per-SNP control-count column; matched case-insensitively. Requires --N-cas-col and '
+            'cannot be combined with --N-col. The pair overrides inferred N; if omitted, detect sample-size '
+            'columns from headers.'
+        ),
+    )
+    columns.add_argument(
+        '--frq', default=None, type=str, metavar='COLUMN',
+        help=(
+            'Input allele-frequency or MAF column; matched case-insensitively. If omitted, detect from '
+            'headers; if absent, omit FRQ and its filter. Selected values are preserved as FRQ without '
+            'conversion to MAF.'
+        ),
+    )
+    columns.add_argument(
+        '--info', default=None, type=str, metavar='COLUMN',
+        help=(
+            'Input scalar INFO column; matched case-insensitively. If omitted, detect from headers; if '
+            'absent, skip INFO filtering. Select one INFO source, using --info-list for comma-separated '
+            'values within a cell.'
+        ),
+    )
+    columns.add_argument(
+        '--info-list', default=None, type=str, metavar='COLUMNS',
+        help=(
+            (
+            'Comma-separated names of input columns whose cells contain comma-separated INFO values, such '
+            'as 0.852,0.113,NA. Average nonmissing values for --info-min filtering; names are '
+            'case-insensitive. If omitted, detect supported INFO-list columns; competing INFO sources are '
+            'rejected.'
+        )
+        ),
+    )
+    columns.add_argument(
+        '--nstudy', default=None, type=str, metavar='COLUMN',
+        help=(
+            'Input column counting studies contributing to each SNP; matched case-insensitively. If '
+            'omitted, detect from headers. --nstudy-min filtering applies only when per-SNP sample sizes '
+            'are absent.'
+        ),
+    )
+    columns.add_argument(
+        '--ignore', default=None, type=str, metavar='COLUMNS',
+        help=(
+            'Comma-separated input column names to exclude from detection and reading; matched '
+            'case-insensitively. Default: ignore no columns. Do not also select an ignored column with an '
+            'explicit column flag.'
+        ),
+    )
+
+    formats.add_argument(
+        '--input-format', dest='sumstats_format', choices=sorted(_RAW_SUMSTATS_FORMATS), default='auto',
+        help=(
+            'Input layout: plain reads ordinary tables, daner-old reads counts from frequency headers, and '
+            'daner-new reads case/control count columns. Default: auto, detect the layout from headers.'
+        ),
+    )
+    formats.add_argument(
+        '--a1-inc', default=False, action='store_true',
+        help=(
+            'Assert that A1 increases the trait for every SNP and derive positive Z from p-values, '
+            'bypassing signed statistics. Default: off; use the detected or --signed-sumstats column to '
+            'determine direction.'
+        ),
+    )
+
+    runtime.add_argument(
+        '--chunksize', default=1000000, type=int, metavar='N',
+        help=(
+            'Read this many input rows per chunk. Larger chunks use more memory. Default: 1,000,000.'
+        ),
+    )
+    runtime.add_argument(
+        '--overwrite', action='store_true', default=False,
+        help=(
+            "Replace this command's existing output files and remove obsolete outputs from an earlier run. "
+            'Default: off; stop if output files already exist. Has no effect with --infer-only.'
+        ),
+    )
+    runtime.add_argument(
+        '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
+        help=LOG_LEVEL_HELP,
+    )
     return public
 
 
@@ -1142,7 +1328,7 @@ def infer_raw_sumstats(
     suggested_args: list[str] = []
     notes: list[str] = []
 
-    _append_suggested_option(suggested_args, "--format", detected_format)
+    _append_suggested_option(suggested_args, "--input-format", detected_format)
     if detected_format == "plain":
         if "REF" in clean_set and "ALT" in clean_set and not {"A1", "A2", "EA", "NEA"} & clean_set:
             column_hints.setdefault("a1", _original_column(file_cnames, "REF"))
@@ -1272,16 +1458,10 @@ def _apply_raw_sumstats_inference(
     """Return configs updated with auto-inferred raw-format hints."""
     inference = infer_raw_sumstats(source_path, raw_config, munge_config)
     column_hints = {**inference.column_hints, **raw_config.column_hints}
-    # Resolve `auto` to a concrete format so downstream DANER selection is
-    # driven solely by sumstats_format. Only old DANER is auto-detected;
-    # new DANER must be requested explicitly via --format daner-new.
-    resolved_format = munge_config.sumstats_format
-    if resolved_format == "auto" and inference.detected_format == "daner-old":
-        resolved_format = "daner-old"
     raw_config = replace(raw_config, column_hints=column_hints)
     munge_config = replace(
         munge_config,
-        sumstats_format=resolved_format,
+        sumstats_format=inference.detected_format,
         info_list_columns=tuple(dict.fromkeys([*munge_config.info_list_columns, *inference.info_list_columns])),
         ignore_columns=tuple(dict.fromkeys([*munge_config.ignore_columns, *inference.ignore_columns])),
     )
@@ -1562,9 +1742,11 @@ def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
 
 
 def _write_sumstats_tsv_gz(data: pd.DataFrame, path: str) -> None:
-    """Write the legacy-compatible gzip TSV artifact with rounded floats."""
+    """Write gzip TSV with explicit missing fields and unrounded frequency."""
     frame = _prepare_curated_sumstats_frame(data)
-    frame.to_csv(path, sep="\t", index=False, float_format="%.3f", compression="gzip")
+    if "FRQ" in frame:
+        frame["FRQ"] = frame["FRQ"].astype("string")
+    frame.to_csv(path, sep="\t", index=False, float_format="%.3f", compression="gzip", na_rep="NA")
 
 
 def _sumstats_footer_metadata(config_snapshot: GlobalConfig, trait_name: str | None) -> dict[bytes, bytes]:

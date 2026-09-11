@@ -24,6 +24,7 @@ import shlex
 import sys
 from typing import Sequence
 
+from ._cli_help import CLIHelpFormatter
 from . import annotation_builder, gene_ldscore_index, ldscore_calculator, r2_query, ref_panel_builder
 from ._logging import (
     install_cli_console_handler,
@@ -47,19 +48,19 @@ _USER_ERROR_TYPES = (
 # Single source of truth for the subcommand list shown in `ldsc --help`. Used by
 # both the full parser and the lightweight help parser so the two cannot drift.
 _SUBCOMMAND_HELP = {
-    "annotate": "Project BED or gene lists to SNP-level query annotations.",
+    "annotate": "Find SNPs covered by BED intervals or gene boundaries.",
     "ldscore": "Compute LD scores.",
     "build-ref-panel": "Build standard parquet reference panels.",
-    "build-gene-ldscore-index": "Build an exact disjoint-atom gene LD-score index.",
+    "build-gene-ldscore-index": "Build a reusable gene LD-score index.",
     "convert-ldsc2-ldscores": "Convert selected LDSC2 LD-score suites to LDSC3 format.",
     "munge-sumstats": "Munge GWAS summary statistics.",
     "h2": "Estimate heritability from munged sumstats and LD scores.",
     "partitioned-h2": "Estimate partitioned heritability by looping over query annotations.",
-    "quantile-h2": "Project a fitted partitioned-LDSC model onto annotation quantiles.",
+    "quantile-h2": "Summarize fitted heritability across annotation quantiles.",
     "rg": "Estimate genetic correlation.",
     "query-r2": "Query R2 for SNP pairs from a reference panel.",
     "convert-h2-scale": "Convert a saved observed-scale h2 estimate to liability scale.",
-    "plot": "Create the approved plot for a canonical LDSC result directory.",
+    "plot": "Plot a saved LDSC result.",
 }
 
 
@@ -68,6 +69,7 @@ class _NoAbbrevArgumentParser(argparse.ArgumentParser):
 
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("allow_abbrev", False)
+        kwargs.setdefault("formatter_class", CLIHelpFormatter)
         super().__init__(*args, **kwargs)
 
 
@@ -353,15 +355,25 @@ def _run_annotate(args: argparse.Namespace):
 
 
 def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentParser) -> None:
-    """Clone option actions from ``source`` onto ``target``.
+    """Clone options and their help groups without changing parsing rules.
 
     This keeps the unified CLI aligned with the feature parsers defined in the
     workflow modules without duplicating every flag definition in two places.
     """
+    target.description = source.description
+    groups = {}
+    for group in source._action_groups:
+        if group in (source._positionals, source._optionals):
+            destination = target
+        else:
+            destination = target.add_argument_group(group.title, group.description)
+        for action in group._group_actions:
+            groups[id(action)] = destination
     for action in source._actions:
         if action.dest == "help":
             continue
         option_strings = list(action.option_strings)
+        destination = groups.get(id(action), target)
         kwargs = {
             "dest": action.dest,
             "default": action.default,
@@ -374,14 +386,16 @@ def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentPars
             kwargs["type"] = action.type
         if getattr(action, "nargs", None) is not None:
             kwargs["nargs"] = action.nargs
+        if action.metavar is not None:
+            kwargs["metavar"] = action.metavar
         if action.const is not None:
             kwargs["const"] = action.const
         if action.__class__.__name__ == "_StoreTrueAction":
-            target.add_argument(*option_strings, action="store_true", default=action.default, help=action.help)
+            destination.add_argument(*option_strings, action="store_true", default=action.default, help=action.help)
         elif action.__class__.__name__ == "_StoreFalseAction":
-            target.add_argument(*option_strings, action="store_false", default=action.default, help=action.help)
+            destination.add_argument(*option_strings, action="store_false", default=action.default, help=action.help)
         else:
-            target.add_argument(*option_strings, **kwargs)
+            destination.add_argument(*option_strings, **kwargs)
 
 
 def _load_regression_runner():

@@ -165,11 +165,11 @@ class SumstatsMungerTest(unittest.TestCase):
     def test_build_parser_rejects_vcf_format_name(self):
         parser = sumstats_workflow.build_parser()
 
-        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--format", "plain"])
+        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--input-format", "plain"])
 
         self.assertEqual(args.sumstats_format, "plain")
         with self.assertRaises(SystemExit):
-            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--format", "vcf"])
+            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--input-format", "vcf"])
 
     def test_build_parser_requires_output_dir_for_infer_only(self):
         parser = sumstats_workflow.build_parser()
@@ -186,12 +186,12 @@ class SumstatsMungerTest(unittest.TestCase):
     def test_build_parser_selects_daner_via_format_and_rejects_legacy_flags(self):
         parser = sumstats_workflow.build_parser()
 
-        format_old_args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--format", "daner-old"])
-        format_new_args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--format", "daner-new"])
+        format_old_args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--input-format", "daner-old"])
+        format_new_args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--input-format", "daner-new"])
 
         self.assertEqual(format_old_args.sumstats_format, "daner-old")
         self.assertEqual(format_new_args.sumstats_format, "daner-new")
-        # The legacy boolean DANER flags are removed; --format is the only selector.
+        # The legacy boolean DANER flags are removed; --input-format is the only selector.
         for legacy in ("--daner-old", "--daner-new", "--daner", "--daner-n"):
             with self.assertRaises(SystemExit):
                 parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", legacy])
@@ -239,7 +239,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "DROP_ME,ALSO_DROP",
                 "--signed-sumstats",
                 "BETA,0",
-                "--format",
+                "--input-format",
                 "daner-new",
                 "--output-format",
                 "both",
@@ -2107,7 +2107,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             table = SumstatsMunger().run(
                 MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                MungeConfig(output_dir=tmpdir / "munged", keep_maf=True),
+                MungeConfig(output_dir=tmpdir / "munged"),
                 GlobalConfig(snp_identifier="rsid"),
             )
 
@@ -2297,7 +2297,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             table = SumstatsMunger().run(
                 MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                MungeConfig(output_dir=tmpdir / "munged", keep_maf=True),
+                MungeConfig(output_dir=tmpdir / "munged"),
                 GlobalConfig(snp_identifier="rsid"),
             )
 
@@ -2444,7 +2444,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(result.detected_format, "daner-old")
             self.assertIn("Detected format: daner-old", output)
             self.assertIn("Runnable: yes", output)
-            self.assertIn("--format daner-old", output)
+            self.assertIn("--input-format daner-old", output)
             self.assertIn("--output-genome-build hg38", output)
 
     def test_infer_only_reads_gzip_raw_sumstats(self):
@@ -2515,7 +2515,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "    ldsc munge-sumstats \\\n"
                 f"      --raw-sumstats-file {raw_path} \\\n"
                 f"      --output-dir {tmpdir / 'unused'} \\\n"
-                "      --format plain \\\n"
+                "      --input-format plain \\\n"
                 "      --snp-identifier chr_pos_allele_aware \\\n"
                 "      --output-genome-build hg38 \\\n"
                 "      --source-genome-build hg19 \\\n"
@@ -2750,7 +2750,7 @@ class SumstatsMungerTest(unittest.TestCase):
             result = sumstats_workflow.infer_raw_sumstats(raw_path)
 
             self.assertEqual(result.detected_format, "plain")
-            self.assertIn("--format", result.suggested_args)
+            self.assertIn("--input-format", result.suggested_args)
             self.assertIn("plain", result.suggested_args)
             self.assertEqual(result.column_hints, {"a1": "REF", "a2": "ALT"})
             self.assertTrue(result.runnable)

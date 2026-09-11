@@ -272,7 +272,7 @@ def prepare_munge_input(
     )
     qc = MungeQC(N=config.N, N_cas=config.N_cas, N_con=config.N_con,
                  info_min=config.info_min, maf_min=config.maf_min,
-                 n_min=config.n_min, nstudy_min=config.nstudy_min, keep_maf=config.keep_maf)
+                 n_min=config.n_min, nstudy_min=config.nstudy_min)
     _validate_explicit_sample_size_column_strategy(columns)
     file_cnames = read_header(source_path)  # note keys not cleaned
     flag_cnames, signed_sumstat_null = _column_hints(columns, config)
@@ -300,28 +300,6 @@ def prepare_munge_input(
         )
         qc = replace(qc, N_cas=N_cas, N_con=N_con)
         cname_map[frq_u] = 'FRQ'
-
-    if config.sumstats_format == 'daner-new':
-        frq_u = list(filter(lambda x: x.startswith('FRQ_U_'), file_cnames))[0]
-        cname_map[frq_u] = 'FRQ'
-        try:
-            dan_cas = clean_header(file_cnames[file_cnames.index('Nca')])
-        except ValueError as exc:
-            raise LDSCInputError(
-                f"munge-sumstats could not find the Nca column required by --daner-new in '{source_path}'. "
-                "Most likely the file is not in new-DANER format or uses a different case-count header. "
-                "Drop --daner-new or pass the correct case-count column with --N-cas-col."
-            ) from exc
-        try:
-            dan_con = clean_header(file_cnames[file_cnames.index('Nco')])
-        except ValueError as exc:
-            raise LDSCInputError(
-                f"munge-sumstats could not find the Nco column required by --daner-new in '{source_path}'. "
-                "Most likely the file is not in new-DANER format or uses a different control-count header. "
-                "Drop --daner-new or pass the correct control-count column with --N-con-col."
-            ) from exc
-        cname_map[dan_cas] = 'N_CAS'
-        cname_map[dan_con] = 'N_CON'
 
     cname_translation = {x: cname_map[clean_header(x)] for x in file_cnames if
                          clean_header(x) in cname_map}  # note keys not cleaned

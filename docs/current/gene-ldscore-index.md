@@ -1,6 +1,6 @@
 # Exact gene LD-score indexes
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 An exact gene LD-score index moves the repeated PLINK calculation for one
 baseline, reference panel, regression-row policy, and gene projection offline.
@@ -13,6 +13,8 @@ online matrix products, annotation counts, and overlap sufficient statistics—s
 [Exact gene LD-score index: mathematical algorithm](gene-ldscore-index-mathematics.md).
 
 ## Build one complete index
+
+`--threads` controls a chromosome thread pool during index building; `--threads 1` (the default) runs sequentially. The same flag on direct `ldscore` controls chromosome worker processes. Both settings increase chromosome concurrency and memory use. See [`build_gene_ldscore_index`](../../src/ldsc/gene_ldscore_index.py) and [`LDScoreCalculator`](../../src/ldsc/ldscore_calculator.py).
 
 ```bash
 ldsc build-gene-ldscore-index \
@@ -47,7 +49,7 @@ rows are bundled HapMap3 SNPs with MHC and centromere regions removed. Supply
 `--regr-snps-file custom.snplist` to replace the HapMap3 candidate set;
 `--regr-snps-exclude-regions` is still applied afterward. Its choices are `none`, `mhc`,
 `centromeres`, and `mhc-and-centromeres`.
-The former `--exclude-regions` spelling is accepted as a hidden CLI alias.
+The former `--exclude-regions` alias is removed; use `--regr-snps-exclude-regions`.
 
 The custom regression SNP file must be a **headered text table containing SNP
 identities**. Its required columns depend on the builder's explicit

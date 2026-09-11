@@ -1,6 +1,6 @@
 # Cross-Trait Genetic Correlation
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-11
 
 Goal: estimate genetic correlation for two or more traits from munged summary statistics and one matched LD-score reference.
 
@@ -128,7 +128,7 @@ LD-score table merge by normalized `CHR:POS:<allele_set>` identity, and
 matching, set `snp_identifier="chr_pos"` or pass `--snp-identifier chr_pos`;
 use the base `rsid` mode for rsID-only identity. The removed `--no-alleles`
 flag is not accepted.
-The munger defaults to `--format auto`, and `--infer-only` can report
+The munger defaults to `--input-format auto`, and `--infer-only` can report
 missing fields or exact repair flags without writing outputs. `A1` is the
 allele that the signed statistic is relative to; `A2` is its counterpart.
 `NEFF` is not inferred as total `N` automatically. Optional munger liftover is valid for chr_pos-family modes; use
@@ -139,6 +139,8 @@ audits row-level drops in `diagnostics/dropped_snps/dropped.tsv.gz`; examples ap
 `DEBUG`, not in the compatibility sidecar.
 
 ## CLI
+
+Intercepts are estimated by default. To request the standard fixed intercepts, add `--intercept-h2 1 --intercept-gencov 0`. This fixes both traits’ h2 intercepts to 1 and each covariance intercept to 0. In single-annotation fits, fixing only the covariance intercept fails because it conflicts with automatic two-step estimation. The removed `--no-intercept` shortcut is rejected; see the [legacy flag map](../docs/current/legacy-cli-flag-map.md#regression-intercept-consolidation).
 
 ```bash
 ldsc munge-sumstats \

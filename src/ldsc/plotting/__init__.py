@@ -14,6 +14,8 @@ numerical workflows do not import the plotting runtime.
 
 from __future__ import annotations
 
+from .._cli_help import CLIHelpFormatter
+from .._logging import LOG_LEVEL_HELP
 from .._result_files import atomic_write_json, declared_result_file
 
 import argparse
@@ -159,13 +161,30 @@ def plot_result(
 
 def add_plot_arguments(parser: argparse.ArgumentParser) -> None:
     """Add the public ``plot`` arguments to ``parser``."""
-    parser.add_argument("--result-dir", required=True, help="Canonical LDSC result root to plot.")
-    parser.add_argument("--overwrite", action="store_true", help="Replace the selected fixed plot family.")
-    parser.add_argument(
-        "--log-level",
-        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
-        default="INFO",
-        help="Workflow log threshold (default: INFO).",
+    parser.prog = 'ldsc plot'
+    parser.formatter_class = CLIHelpFormatter
+    parser.description = 'Create a plot from a saved LDSC result directory.'
+    inputs = parser.add_argument_group('Input result')
+    runtime = parser.add_argument_group('Output and logging')
+
+    inputs.add_argument(
+        '--result-dir', required=True, metavar='DIR',
+        help=(
+            'Required saved LDSC result directory to plot. The result type selects the plot automatically; '
+            'files are written below plots/ in this directory.'
+        ),
+    )
+
+    runtime.add_argument(
+        '--overwrite', action='store_true',
+        help=(
+            'Replace existing plot files for the selected result type. Default: off; stop if these output '
+            'files exist.'
+        ),
+    )
+    runtime.add_argument(
+        '--log-level', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'), default='INFO',
+        help=LOG_LEVEL_HELP,
     )
 
 

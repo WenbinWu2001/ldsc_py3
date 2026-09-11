@@ -2,7 +2,7 @@
 
 Last updated on: 2026-09-10
 
-Status: complete. All seven slices are implemented and verified locally. Design documentation was committed as `56d426a`; focused refactor commits and the final evidence are recorded below and in the [implementation audit](../audits/annotation-memory/progress.md).
+Status: reopened after the completion audit at `8ada67c`. The core refactor is implemented, but quantitative count equivalence, direct LD-table aggregation, and two diagnostic-retention paths remain unfinished. See the [completion review](../audits/annotation-memory/completion-review.md) for R1–R3 and evidence. Design documentation was committed as `56d426a`.
 
 Reference specification: [annotation and workflow memory optimization](../specs/2026-09-10-annotation-workflow-memory-design.md). Confirmed scope and decisions are recorded in [annotation memory decisions](../current/annotation-memory-decisions.md); standalone gene-list behavior is governed by [annotate gene-list decisions](../current/annotate-gene-list-decisions.md), especially its condition–outcome table. Keep this plan current as implementation evidence becomes available.
 
@@ -75,7 +75,7 @@ Exit checkpoint: a deterministic multi-chromosome fixture produces the independe
 
 ### 2. Deliver incremental standalone BED and gene-list annotation
 
-Status: complete. General standalone BED/gene entry points use shared staged resolution, annotation-grid support gates, and incremental canonical writing. Returned bundles reference saved query outputs and original baselines; construction scratch is removed before return, and explicit reads prepare privately on demand. Independent membership, both layouts, exhaustive gate failures, diagnostics, overwrite, reloadability, and scratch closure pass. Matched BED measurements and gene-versus-BED membership checks are in [the resource report](../audits/annotation-memory/results.md).
+Status: core behavior implemented; reopened for R3 (bounded coverage diagnostics). General standalone BED/gene entry points use shared staged resolution, annotation-grid support gates, and incremental canonical writing. Returned bundles reference saved query outputs and original baselines; construction scratch is removed before return, and explicit reads prepare privately on demand. Independent membership, both layouts, exhaustive gate failures, diagnostics, overwrite, reloadability, and scratch closure pass. Matched BED measurements and gene-versus-BED membership checks are in [the resource report](../audits/annotation-memory/results.md).
 
 Likely areas: [annotation_builder.py](../../src/ldsc/annotation_builder.py), [gene_list_resolver.py](../../src/ldsc/gene_list_resolver.py), [query_annotations.py](../../src/ldsc/query_annotations.py), CLI dispatch/exports, and output/logging helpers.
 
@@ -89,7 +89,7 @@ Exit checkpoint: real standalone BED and gene-list runs emit reloadable canonica
 
 ### 3. Batch direct LD projection within one traversal and restrict score rows
 
-Status: complete. Both direct backends reuse each LD block across query batches, preserve full reference contributors, and accumulate only output rows in float64. Baseline/weight work is shared, chromosome submissions are bounded, and completed source/reference diagnostics reference files. One-worker lifetime checks pass. Aggregate HM3 output formats are preserved. Batch/worker/chromosome/query-count measurements and their runtime trade-offs are in [the resource report](../audits/annotation-memory/results.md).
+Status: reopened for R1 (quantitative counts), R2 (LD-table aggregation), and R3 (coverage diagnostics). Both direct backends reuse each LD block across query batches, preserve full reference contributors, and accumulate only output rows in float64. Baseline/weight work is shared, chromosome submissions are bounded, and completed source/reference diagnostics reference files. One-worker lifetime checks pass. Aggregate HM3 output formats are preserved. Batch/worker/chromosome/query-count measurements and their runtime trade-offs are in [the resource report](../audits/annotation-memory/results.md).
 
 Likely areas: [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py), [config.py](../../src/ldsc/config.py), [_kernel/ref_panel.py](../../src/ldsc/_kernel/ref_panel.py), [_kernel/ldscore.py](../../src/ldsc/_kernel/ldscore.py), [_kernel/plink_bed.py](../../src/ldsc/_kernel/plink_bed.py), [_kernel/overlap.py](../../src/ldsc/_kernel/overlap.py), and annotation semantics/count helpers.
 
@@ -103,7 +103,7 @@ Exit checkpoint: each supported direct route works through the real entry points
 
 ### 4. Load gene-index chromosomes on demand and batch assembly
 
-Status: complete. Index validation and assembly load chromosome components on demand; each operator serves all that chromosome's query batches. Catalog state and support summaries remain shared, while selections/audits are staged. Construction retains its approved existing transaction. Final profiling removed repeated per-source summary construction and selection-frame copies; indexed assembly is still slower on the small measured operator fixture, as reported in [the resource results](../audits/annotation-memory/results.md). Integrity and direct/indexed numerical checks pass.
+Status: operator lifecycle implemented; shared coverage diagnostics remain open under R3. Index validation and assembly load chromosome components on demand; each operator serves all that chromosome's query batches. Catalog state and support summaries remain shared, while selections/audits are staged. Construction retains its approved existing transaction. Final profiling removed repeated per-source summary construction and selection-frame copies; indexed assembly is still slower on the small measured operator fixture, as reported in [the resource results](../audits/annotation-memory/results.md). Integrity and direct/indexed numerical checks pass.
 
 Likely areas: [gene_ldscore_index.py](../../src/ldsc/gene_ldscore_index.py), shared index kernels, query resolution/status helpers, and the canonical LD-score writer.
 
@@ -115,7 +115,7 @@ Exit checkpoint: a multi-chromosome index is validated and assembled without a d
 
 ### 5. Share batch-regression preparation and stream per-fit details
 
-Status: complete. Selective LD loading and shared trait/baseline preparation serve independent complete-genome model fits. Each completed detail set is staged and released, then published after stable final sorting. Returned batch results contain summaries and persistent paths. Real command checks cover ordering, model-specific behavior, failure/overwrite contracts, and selective reads. Matched 1,000-model comparisons include all category/delete-value tables and metadata and agree exactly; see [the resource report](../audits/annotation-memory/results.md).
+Status: core batching/writing implemented; reopened for R3 (legacy projection diagnostics). Selective LD loading and shared trait/baseline preparation serve independent complete-genome model fits. Each completed detail set is staged and released, then published after stable final sorting. Returned batch results contain summaries and persistent paths. Real command checks cover ordering, model-specific behavior, failure/overwrite contracts, and selective reads. Matched 1,000-model comparisons include all category/delete-value tables and metadata and agree exactly; see [the resource report](../audits/annotation-memory/results.md).
 
 Likely areas: [regression_runner.py](../../src/ldsc/regression_runner.py), [outputs.py](../../src/ldsc/outputs.py), selective LD-score loading, configuration, and partitioned-h2 result interfaces.
 
@@ -129,7 +129,7 @@ Exit checkpoint: a multi-query run agrees with the corresponding separate fits, 
 
 ### 6. Accumulate exact global quantile statistics from shards
 
-Status: complete. Bounded identity joins and two annotation passes preserve exact global float64 quantiles, ties/missingness, aggregate validation, and stable full-common statistics. The eligible target vector is released after boundary selection; fitted annotation matrices and dense indicators are not retained. Complete alignment diagnostics are file-backed. Focused checks pass, and matched numeric differences are at most 1.5210055437364645e-13 under unchanged tolerances; see [the resource report](../audits/annotation-memory/results.md).
+Status: quantile algorithm implemented; end-to-end acceptance depends on R1. Bounded identity joins and two annotation passes preserve exact global float64 quantiles, ties/missingness, aggregate validation, and stable full-common statistics. The eligible target vector is released after boundary selection; fitted annotation matrices and dense indicators are not retained. Complete alignment diagnostics are file-backed. Focused checks pass, and matched numeric differences are at most 1.5210055437364645e-13 under unchanged tolerances; see [the resource report](../audits/annotation-memory/results.md).
 
 Likely areas: [quantile_h2.py](../../src/ldsc/quantile_h2.py), shared annotation/reference readers, numerical quantile/statistics helpers, and diagnostics/output integration.
 
@@ -141,7 +141,7 @@ Exit checkpoint: real baseline-only and single-query fitted-result inputs reprod
 
 ### 7. Verify workflow memory and finish user documentation
 
-Status: complete. All eager migration interfaces are retired. Public docstrings, current design/navigation/contracts, README, wiki, and tutorials describe the implemented ownership and 1,000-pathway use case. The [developer memory design](../current/annotation-memory-design.md) explains separate artifacts, chromosome processes, query batches, index lifetime, regression writing, exact quantiles, and rationale. Full pytest passed 1,494 tests and 132 subtests with one skip; sequential unittest passed 1,000 tests with one skip. Actual CLI help, 44 concrete CLI examples, 17 Markdown Python blocks, and 16 notebook code cells were checked; the self-contained notebook executed through API and CLI. Matched memory/runtime/private-disk/output-size evidence and limitations are in [the report](../audits/annotation-memory/results.md).
+Status: reopened. The original resource comparisons, full-suite runs, public documentation, wiki, tutorials, and developer design are recorded below. The completion audit found R1–R3 despite passing existing tests; add the missing numerical/lifetime coverage, finish those implementation requirements, and refresh affected measurements and final verification before signing off.
 
 Complete the contract phase: remove migrated eager fields, obsolete BED-only wrappers, superseded readers/result collections, and temporary internal migration routes after a consumer search confirms they are unused. Update public exports and all remaining callers/tests/examples; do not retain compatibility aliases. Audit shared caches, query-resolution audits, alignment/drop diagnostics, writer conversions, completed futures, and returned objects across all workflows. Ensure each large payload has an explicit owner and release point and diagnostic completeness does not require reloading every row into result objects.
 
@@ -183,6 +183,10 @@ Planning is grounded in local `restructure` at `a505c45`, the confirmed specific
 
 ### Final verification (2026-09-10)
 
-Behavioral revision `91ad7bf` passed `/Users/wenbinwu/miniforge3/envs/ldsc3-dev/bin/python -m pytest -q --tb=short --show-capture=no`: **1,494 passed, one skipped, 132 subtests passed**, in **93.16 s**. The subsequent `python -m unittest discover -s tests -p 'test*.py' -v` passed **1,000 tests, one skipped**, in **51.699 s**. Source/docstring changes after that run only improve documentation and type annotations. The real installed `ldsc --help`, module help, and annotate/direct/index/regression/quantile subcommand help all succeeded.
+Behavioral revision `91ad7bf` passed `/Users/wenbinwu/miniforge3/envs/ldsc3-dev/bin/python -m pytest -q --tb=short --show-capture=no`: **1,494 passed, one skipped, 132 subtests passed**, in **93.16 s**. The subsequent `python -m unittest discover -s tests -p 'test*.py' -v` finished with **1,000 tests run, one skipped, OK**, in **51.699 s**. Source/docstring changes after that run only improve documentation and type annotations. The real installed `ldsc --help`, module help, and annotate/direct/index/regression/quantile subcommand help all succeeded.
 
 All **21** measured refactored artifact sets passed comparison with the appropriate baseline or matching BED memberships. All source modules and benchmark scripts compile; 44 concrete CLI examples parse, 17 Markdown Python blocks compile, and all 16 code cells in the two updated notebooks compile with saved outputs cleared. The self-contained cell-specific notebook ran through both API and CLI; the partitioned notebook is a user-data template and was syntax/interface checked, not run with its placeholder paths. Current/wiki/tutorial local links and all modified document dates were checked. `git diff --check` passed. No configured formatter, type checker, or documentation builder exists. No HPC run or external publication occurred.
+
+### Completion audit follow-up (2026-09-10)
+
+The [completion review](../audits/annotation-memory/completion-review.md) supersedes the earlier all-complete assessment. Its public-workflow probe reproduces R1 at the preserved quantile validation gate, its returned-result probe confirms R2, and preparation probes confirm both R3 paths. The six focused streaming/storage suites still pass 73 tests; existing coverage therefore does not establish full completion. Repair these gaps under the approved specification, then run appropriate focused and full verification.

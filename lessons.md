@@ -148,3 +148,7 @@ Last updated on: 2026-09-10
 ## A saved workflow result must detach from its construction owner
 
 - Summary/root cause/correction: Standalone annotation finished writing but retained private preparation shards through the returned bundle, so successful CLI runs left scratch behind; return persistent query descriptors with original baseline dependencies, defer any later read preparation, close the construction owner before return, and verify both immediate scratch cleanup and saved-query reads after original gene inputs are removed.
+
+## Float32 reduction order can invalidate aggregate metadata
+
+- Summary/root cause/required correction: A completion audit found batch-dependent quantitative annotation counts after column-major inputs became detached row-major reads and row tiles were reduced separately in float32; verify counts against independent normalized-value sums and the downstream aggregate gate across batch widths and layouts, then repair the reduction without loosening tolerances. LD-score equivalence on binary fixtures does not establish quantitative count equivalence. See the [completion review](docs/audits/annotation-memory/completion-review.md).

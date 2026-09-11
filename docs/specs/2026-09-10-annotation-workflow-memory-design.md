@@ -2,7 +2,7 @@
 
 Last updated on: 2026-09-10
 
-Status: confirmed specification, approved on 2026-09-10. Implementation has not started. This document captures the complete agreed design, including the internal storage and resource interfaces. The [decision map](../current/annotation-memory-decisions.md#decision-map) records the decisions; the [implementation plan](../plans/2026-09-10-annotation-workflow-memory.md) sequences delivery and verification.
+Status: confirmed specification, approved on 2026-09-10. Implementation is underway; the [completion review](../audits/annotation-memory/completion-review.md) records remaining gaps at `8ada67c`. This document captures the complete agreed design, including the internal storage and resource interfaces. The [decision map](../current/annotation-memory-decisions.md#decision-map) records the decisions; the [implementation plan](../plans/2026-09-10-annotation-workflow-memory.md) sequences delivery and verification.
 
 ## Problem, goal, and scope
 

@@ -2,12 +2,12 @@
 
 Last updated on: 2026-09-10
 
-All seven slices of the [confirmed plan](../../plans/2026-09-10-annotation-workflow-memory.md) are complete. The [developer design](../../current/annotation-memory-design.md) describes the final architecture; the [resource report](results.md) records dimensions, exact comparisons, peak process-tree RSS, elapsed time, private disk, persistent output size, and limitations separately.
+The [confirmed plan](../../plans/2026-09-10-annotation-workflow-memory.md) is reopened after the [completion review](completion-review.md) identified R1–R3 at `8ada67c`. Core storage, projection, index, regression, and quantile changes are implemented; the remaining count, aggregation, and diagnostic requirements prevent full completion. The [developer design](../../current/annotation-memory-design.md) describes the final architecture; the [resource report](results.md) records dimensions, exact comparisons, peak process-tree RSS, elapsed time, private disk, persistent output size, and limitations separately.
 
-## Final verification
+## Verification before the completion review
 
 - Full pytest on behavioral revision `91ad7bf`: **1,494 passed, one skipped, 132 subtests passed**, 189 warnings, **93.16 s**. Command: `python -m pytest -q --tb=short --show-capture=no`.
-- Sequential compatibility run: **1,000 unittest tests passed, one skipped**, **51.699 s**. Command: `python -m unittest discover -s tests -p 'test*.py' -v`.
+- Sequential compatibility run: **1,000 unittest tests run, one skipped, OK**, **51.699 s**. Command: `python -m unittest discover -s tests -p 'test*.py' -v`.
 - Installed `ldsc --help`, `python -m ldsc --help`, and help for `annotate`, `ldscore`, `build-gene-ldscore-index`, `partitioned-h2`, and `quantile-h2` succeeded.
 - All **21** measured current artifact sets matched their appropriate baseline or matching BED inputs. LD/count/overlap/membership/regression differences were zero; maximum quantile difference was **1.5210055437364645e-13**, within unchanged tolerances. Each regression comparison includes 3,002 tables plus model metadata.
 - Source and benchmark modules compile. **44** concrete README/wiki/tutorial CLI examples parse; **17** Markdown Python blocks and **16** cells in the updated notebooks compile. The self-contained cell-specific notebook executed API and CLI workflows. The partitioned notebook requires user datasets and was checked without pretending its placeholder paths are executable inputs.

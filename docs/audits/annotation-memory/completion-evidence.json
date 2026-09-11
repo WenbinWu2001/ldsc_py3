@@ -1,0 +1,182 @@
+{
+  "audited_revision": "8ada67cdb89104c563b44937a144f64716f01d16",
+  "baseline_revision": "a505c45d61d35b39a3fc086c2b623dd7d6936d96",
+  "date": "2026-09-10",
+  "minimal_probe": {
+    "rows": 6000,
+    "queries": 1000,
+    "seed": 182,
+    "exact_sum": 25.222538138448726,
+    "staged_values_equal": true,
+    "reductions": {
+      "prior_formula": {
+        "all_reference_count": 25.222545623779297,
+        "common_reference_count": 25.222549438476562,
+        "quantile_count_validation": "passed"
+      },
+      "batch_32": {
+        "all_reference_count": 25.222549438476562,
+        "common_reference_count": 25.222549438476562,
+        "quantile_count_validation": "passed"
+      },
+      "batch_1000": {
+        "all_reference_count": 25.222614288330078,
+        "common_reference_count": 25.222614288330078,
+        "quantile_count_validation": "quantile-h2 fitted annotation 'q0' has common reference-SNP universe sum 25.222538138448726, expected 25.222614288330078. Resupply the exact annotation sources used for LD-score construction."
+      }
+    }
+  },
+  "public_runs": [
+    {
+      "label": "original",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline/src/ldsc/__init__.py",
+      "counts": {
+        "all_reference_snp_count": 6000048128.0,
+        "column": "pathway0000",
+        "common_reference_snp_count": 5999816192.0,
+        "group": "query"
+      },
+      "aggregate_rows": 1200,
+      "retained_chromosome_rows": 1200,
+      "shares_query_column_memory": [
+        false
+      ]
+    },
+    {
+      "label": "current-32",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "counts": {
+        "all_reference_snp_count": 5999816192.0,
+        "column": "pathway0000",
+        "common_reference_snp_count": 5999816192.0,
+        "group": "query"
+      },
+      "aggregate_rows": 1200,
+      "retained_chromosome_rows": 1200,
+      "shares_query_column_memory": [
+        false
+      ]
+    },
+    {
+      "label": "current-1000",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "counts": {
+        "all_reference_snp_count": 6000163328.0,
+        "column": "pathway0000",
+        "common_reference_snp_count": 6000163328.0,
+        "group": "query"
+      },
+      "aggregate_rows": 1200,
+      "retained_chromosome_rows": 1200,
+      "shares_query_column_memory": [
+        false
+      ]
+    },
+    {
+      "label": "signed-original",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/.worktrees/memory-baseline/src/ldsc/__init__.py",
+      "counts": {
+        "all_reference_snp_count": 25.222545623779297,
+        "column": "pathway0000",
+        "common_reference_snp_count": 25.222549438476562,
+        "group": "query"
+      },
+      "aggregate_rows": 1200,
+      "retained_chromosome_rows": 1200,
+      "shares_query_column_memory": [
+        false
+      ]
+    },
+    {
+      "label": "signed-current-1000",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "counts": {
+        "all_reference_snp_count": 25.222614288330078,
+        "column": "pathway0000",
+        "common_reference_snp_count": 25.222614288330078,
+        "group": "query"
+      },
+      "aggregate_rows": 1200,
+      "retained_chromosome_rows": 1200,
+      "shares_query_column_memory": [
+        false
+      ]
+    }
+  ],
+  "signed_artifact_validation": {
+    "reference_sum": 25.222538138448726,
+    "count_gate": {
+      "signed-original": {
+        "passed": true
+      },
+      "signed-current-1000": {
+        "passed": false,
+        "error": "quantile-h2 fitted annotation 'pathway0000' has common reference-SNP universe sum 25.222538138448726, expected 25.222614288330078. Resupply the exact annotation sources used for LD-score construction."
+      }
+    },
+    "max_query_ld_difference": 0.0,
+    "identities_and_order_equal": true
+  },
+  "diagnostic_retention": {
+    "gene_coverage": [
+      {
+        "queries": 10,
+        "genes_per_query": 2000,
+        "summary_gene_id_chars": 319990,
+        "error_chars": 342020,
+        "retained_summary_bytes": 325402,
+        "identifiers_in_each_summary": [
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000
+        ]
+      },
+      {
+        "queries": 20,
+        "genes_per_query": 2000,
+        "summary_gene_id_chars": 639980,
+        "error_chars": 684050,
+        "retained_summary_bytes": 650692,
+        "identifiers_in_each_summary": [
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000,
+          2000
+        ]
+      }
+    ],
+    "legacy_batch_preparation": {
+      "aligned_rows": 50,
+      "retained_diagnostic_rows": 5000,
+      "retained_diagnostic_bytes": 1749132
+    }
+  },
+  "focused_tests": {
+    "passed": 73,
+    "warnings": 20,
+    "seconds": 5.63
+  }
+}

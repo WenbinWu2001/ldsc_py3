@@ -2,7 +2,9 @@
 
 Last updated on: 2026-09-10
 
-The completed refactor reduces avoidable memory for large pathway batches while keeping public HM3 LD tables aggregate. These local synthetic measurements show the trade-off: the 1,000-query direct and regression runs use less memory, while staging and smaller computations can cost runtime. This is evidence for the implemented ownership and batching design, not a production runtime guarantee. See the [developer design](../../current/annotation-memory-design.md), [plan](../../plans/2026-09-10-annotation-workflow-memory.md), [raw measurements](measurements.json), and [artifact comparisons](equivalence.json).
+The implemented refactor paths reduce avoidable memory for large pathway batches while keeping public HM3 LD tables aggregate. These local synthetic measurements show the trade-off: the 1,000-query direct and regression runs use less memory, while staging and smaller computations can cost runtime. This is evidence for the implemented ownership and batching design, not a production runtime guarantee. See the [developer design](../../current/annotation-memory-design.md), [plan](../../plans/2026-09-10-annotation-workflow-memory.md), [raw measurements](measurements.json), and [artifact comparisons](equivalence.json).
+
+The later [completion review](completion-review.md) found count equivalence and retention gaps outside these measured fixtures. These measurements remain valid for their recorded inputs; they do not establish full completion.
 
 ## Matched command measurements
 

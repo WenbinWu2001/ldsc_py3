@@ -1,6 +1,6 @@
 # Partitioned heritability
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-13
 
 `ldsc partitioned-h2` reads a canonical LD-score directory and tests how its
 annotations contribute to SNP heritability.
@@ -20,6 +20,19 @@ interpretation, see [the guided tutorial](../guided-tutorial.md) and the
 
 
 LD scoring accepts prebuilt annotation columns, BED intervals, or gene lists as mutually exclusive query routes. BED files can be prepared by users or obtained from an external resource in the required format, and support optional padding. Gene lists require a coordinate catalog for direct projection. See [annotation preparation](../utility-functionalities/annotate.md).
+
+## Baseline-only functional partitioning
+
+To fit all supplied baseline categories jointly, use a canonical LD-score directory built with baseline annotations and no query columns:
+
+```bash
+ldsc partitioned-h2 \
+  --ldscore-dir results/baseline_ldscores \
+  --sumstats-file results/trait/sumstats.parquet \
+  --output-dir results/functional_partitioning
+```
+
+The root `partitioned_h2.tsv` reports one row per baseline category. For binary categories, interpret `enrichment` with its two-sided `enrichment_p`. For focal query models, prefer the conditional `coefficient` and one-sided `coefficient_p`; each query is fitted separately with the baseline. Quantitative annotations require [continuous-annotation interpretation](../continuous-annotation-partitioned-ldsc.md). The [result schema](../../current/partitioned-h2-results.md) explains the saved columns, complete-model diagnostics, and distinctions between category and total heritability. Source: `run_partitioned_h2_from_args` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
 
 ## Testing enrichment for a large batch of pathways
 

@@ -1,6 +1,6 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-13
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
@@ -34,7 +34,7 @@ As a motivating example, we study the `mdd2025` trait, using 1000 Genomes Phase 
 
 All of these resources can be found under `ldsc3_test_bundle/resources/`, except for the raw GWAS sumstats files.
 
-Before running the commands below, follow the README to clone the `main` branch of the GitHub repo and install it in a suitable conda environment. The default LDSC installation includes Matplotlib and exposes `ldsc plot`; there is no separate plotting extra. Then run `conda activate ldsc3` before the analysis.
+These commands target the current `restructure` development branch. Follow the [README development installation](../../README.md#development-version), then run `conda activate ldsc3-dev`. The default installation includes Matplotlib and exposes `ldsc plot`; there is no separate plotting extra. Run the Bash examples below in one Bash session.
 
 We first set up the input and output directories:
 
@@ -46,27 +46,24 @@ OUTPUT_ROOT="${INPUT_ROOT}/tutorial_output"
 ### Remarks
 
 1. By default, `ldsc ldscore` writes regression rows from the bundled HapMap3 set, after applying its default MHC-and-centromere exclusion. `h2`, `rg`, and `partitioned-h2` consume those rows and have no HapMap3 flag. `munge-sumstats` also restricts to packaged HapMap3 by default; use `--sumstats-snps-file FILE` to replace its keep-list or `--no-snp-restriction` to disable it while retaining ordinary QC.
-2. For flags ending in `-sources`, you can use the glob pattern `*` to match multiple files and `@` as the placeholder for the chromosome number.
+2. Quote input patterns so LDSC receives them intact. Baseline and prebuilt annotation sources support `*` and complete-autosomal `@` suites; BED, gene-list, and rg sumstats sources support globs but not `@`. Genetic-map sources for `ldscore` and `build-gene-ldscore-index` accept comma-separated exact paths only. See the [command-specific path rules](../current/path-specification.md#pattern-support-in-command-help).
 3. Output directories are created automatically. Use `--overwrite` to allow overwriting existing output files.
 4. `ldsc ldscore` excludes the extended MHC and centromere regions by default.
 5. Be careful about the genome build of your input file. Although the package runs a guardrail check on the genome build, it is not comprehensive.
 6. To inspect what happened under the hood, check the log file in the `diagnostics/` directory inside each command's output directory.
-7. The memory and run-time recommendations below are NOT accurate (codebase not yet benchmarked); treat them as rough upper bounds. If you hit OOM, increase the memory allocation. 24 GB should be sufficient for the initial test runs.
+7. Resource use depends on SNP, sample, annotation, and worker counts. The [local benchmark report](../audits/annotation-memory/results.md) records synthetic workloads and their limitations; it does not establish production memory or runtime guarantees. Profile representative inputs with `--threads 1` before a larger LD-score run, allow temporary disk space under the output directory, and lower `--query-batch-size` to reduce active query workspace.
 
 ## Config you should follow across all steps
 
 - `snp_identifier=chr_pos`: use `chr` + `pos` as the unique identifier for a SNP.
-- ... [TODO]
+- Use `hg19` consistently for the coordinate-based examples below. Choose the output build explicitly during munging and provide matching baseline, BED, and reference-panel coordinates.
+- These examples explicitly select base `chr_pos`; the general package default is `chr_pos_allele_aware`. Use the same identity mode across materialized inputs. See [global configuration](main-functionalities/global-config.md).
 
 ## Munge-sumstats
 
 This section illustrates the `ldsc munge-sumstats` command.
 
 **Goal:** convert raw summary statistics files into a standardized format for use in downstream ldsc regression.
-
-**Recommended memory allocation:** < 4 GB
-
-**Expected running time:** < 5 min
 
 **Minimal command:**
 
@@ -128,10 +125,6 @@ Two reference-panel sources are supported (choose one):
 ## Analysis 1: estimate the heritability of a trait
 
 **Goal:** compute LD scores from a genomic reference panel, then estimate the trait's heritability using the munged sumstats file.
-
-**Recommended memory allocation:** Step 1: 24 GB (generous, for safety); Step 2: < 4 GB
-
-**Expected running time:** Step 1: < 1 h; Step 2: < 1 min
 
 ### Step 1: compute (unpartitioned) LD scores with `ldsc ldscore`
 
@@ -195,38 +188,36 @@ h2/mdd2025/
         h2.log
 ```
 
+For a binary trait, `ldsc convert-h2-scale` converts a saved h2 result using supplied sample and population prevalences and writes below `<h2-result-dir>/postprocessing/liability-scale/`. It does not refit regression. See [heritability scale conversion](main-functionalities/h2.md#convert-a-saved-estimate-to-liability-scale).
+
 The bin table records the exact fitted-data summary used by the binned LD Score regression diagnostic. Matplotlib is included in the default package installation; run `ldsc plot --result-dir "${H2_OUTPUT_DIR}"` to create the figure explicitly.
 
 ## Analysis 2: estimate cross-trait genetic correlation between multiple traits
 
 **Goal:** estimate the genetic correlation between traits using the GWAS sumstats and LD scores.
 
-**Recommended memory allocation:** Step 1: reuses Analysis 1 LD scores; Step 2: < 4 GB
-
-**Expected running time:** Step 1: reuses Analysis 1 LD scores; Step 2: < 1 min
-
 ### Munge two additional sumstats
 
 ```bash
 # Munge two other traits.
-TRAIT_NAMES=("scz2022" "adhd2019")
-RAW_SUMSTATS_FILES=(
+RG_TRAIT_NAMES=("scz2022" "adhd2019")
+RG_RAW_SUMSTATS_FILES=(
   "/path/to/scz2022_raw_sumstats.tsv"
   "/path/to/adhd2019_raw_sumstats.tsv"
 )  # change raw sumstats file path here
 
-for i in "${!TRAIT_NAMES[@]}"; do
-  TRAIT_NAME="${TRAIT_NAMES[$i]}"
-  RAW_SUMSTATS_FILE="${RAW_SUMSTATS_FILES[$i]}"
-  SUMSTATS_OUT_DIR="${OUTPUT_ROOT}/sumstats_processed/${TRAIT_NAME}"
+for i in "${!RG_TRAIT_NAMES[@]}"; do
+  RG_TRAIT_NAME="${RG_TRAIT_NAMES[$i]}"
+  RG_RAW_SUMSTATS_FILE="${RG_RAW_SUMSTATS_FILES[$i]}"
+  RG_SUMSTATS_OUT_DIR="${OUTPUT_ROOT}/sumstats_processed/${RG_TRAIT_NAME}"
 
   ldsc munge-sumstats \
     --snp-identifier chr_pos \
     --source-genome-build "auto" \
     --output-genome-build "hg19" \
-    --raw-sumstats-file "${RAW_SUMSTATS_FILE}" \
-    --trait-name "${TRAIT_NAME}" \
-    --output-dir "${SUMSTATS_OUT_DIR}" \
+    --raw-sumstats-file "${RG_RAW_SUMSTATS_FILE}" \
+    --trait-name "${RG_TRAIT_NAME}" \
+    --output-dir "${RG_SUMSTATS_OUT_DIR}" \
     --overwrite
 done
 
@@ -296,10 +287,6 @@ The dedicated [LDSC-SEG tutorial for protein-coding gene
 lists](LDSC-SEG-PC-genes.md) does not add a control-gene annotation and
 fits each query with the baseline annotations only.
 
-**Recommended memory allocation:** Step 1: 24 GB (generous, for safety); Step 2: < 4 GB
-
-**Expected running time:** Step 1: < 2 h; Step 2: < 5 min (depends on the number of query annotations)
-
 ### Step 1: compute partitioned LD scores with `ldsc ldscore` using query annotations
 
 We also need to specify the paths to the raw BED files (here, four of them) and to the baseline annotations:
@@ -310,7 +297,7 @@ RAW_QUERY_BED_SOURCES="$INPUT_ROOT/resources/example_raw_annot/*.bed"  # put all
 BASELINE_ANNOT_SOURCES="${INPUT_ROOT}/resources/1000G_EUR_Phase3_baseline/baseline.@.annot.gz"
 ```
 
-Place all of your raw query files in the same directory and use a glob pattern (as above) to match them. This lets their LD scores be computed in parallel within `ldsc ldscore`.
+Place your raw query files in the same directory and use a quoted glob to select them together. LDSC shares baseline/reference work and processes queries in batches. Chromosome concurrency is controlled separately by `--threads`, which defaults to `1`.
 
 ```bash
 PARTITIONED_LDSCORE_OUTPUT_DIR="${OUTPUT_ROOT}/partitioned_ldscore"
@@ -350,13 +337,13 @@ ldsc ldscore \
   the same canonical output directory and adds no gene control by default. To
   add one, pass an existing one-column file with `--control-gene-list-file`.
 - For the complete indexed workflow, see [Build an exact gene LD-score
-  index](https://github.com/WenbinWu2001/ldsc_py3/blob/ldsc3-beta/docs/wiki/utility-functionalities/build-gene-ldscore-index.md) and [Calculate LD
-  scores for gene lists with an index](https://github.com/WenbinWu2001/ldsc_py3/blob/ldsc3-beta/docs/wiki/main-functionalities/ldscore-from-gene-list.md).
+  index](utility-functionalities/build-gene-ldscore-index.md) and [Calculate LD
+  scores for gene lists with an index](main-functionalities/ldscore-from-gene-list.md).
   Per-chromosome `Finished` lines report durable private staging; the index
   becomes public only after complete reload validation. Stages cannot be
   resumed or used for incremental chromosome updates.
 
-**Caveat:** if you use `--ld-wind-cm`, make sure your PLINK suite has non-missing genetic coordinates (the third column in the `.bim` file). If they are missing (e.g., all zeros), the program will raise an error.
+**Genetic coordinates:** a cM window with PLINK input needs informative BIM CM values or a matching explicit genetic map through `--genetic-map-hg19-sources` (comma-separated exact paths). With R² input, CM comes from the required matching `chrN_meta.tsv.gz` sidecars. Genetic-map flags do not replace those sidecar values. See [effective CM coordinates](main-functionalities/ldscore.md#effective-cm-coordinates-and-metadata-export).
 
 **Outputs:**
 
@@ -375,8 +362,9 @@ partitioned_ldscore/
 ### Step 2: estimate each query annotation's heritability contribution with `ldsc partitioned-h2`
 
 ```bash
-# Step 2: Regress sumstats on partitioned LD scores.
-SUMSTATS_FILE="${SUMSTATS_OUT_DIR}/${TRAIT_NAME}.parquet"
+# Step 2: Select the focal trait explicitly, including when running this section alone.
+TRAIT_NAME="mdd2025"
+SUMSTATS_FILE="${OUTPUT_ROOT}/sumstats_processed/${TRAIT_NAME}/${TRAIT_NAME}.parquet"
 PARTITIONED_LDSCORE_DIR="${PARTITIONED_LDSCORE_OUTPUT_DIR}"
 
 PARTITIONED_H2_OUTPUT_DIR="${OUTPUT_ROOT}/partitioned-h2/${TRAIT_NAME}"
@@ -391,7 +379,7 @@ ldsc partitioned-h2 \
 **Remarks:**
 
 1. `partitioned-h2` reports the total h2 implied by the partitioned model; this is not necessarily identical to the standalone unpartitioned h2 estimate above.
-2. Query-annotation runs automatically save each query's complete baseline-plus-query fit under `diagnostics/query_annotations/`; the deprecated `--write-per-query-results` flag is unnecessary.
+2. Query-annotation runs automatically save each query's complete baseline-plus-query fit under `diagnostics/query_annotations/`; `--write-per-query-results` has been removed and must be omitted.
 
 **Outputs:**
 
@@ -426,10 +414,6 @@ For concise exploratory figures from h2, rg, functional partitioning, cell-type/
 
 **Goal:** curate binary annotations from BED files, given a set of baseline annotation files.
 
-**Recommended memory allocation:** < 8 GB for four query BED files
-
-**Expected running time:** < 15 min for four query BED files
-
 This step is not part of the analysis pipeline. We preserve it for convenience in case you need it for other purposes.
 
 ```bash
@@ -449,7 +433,7 @@ ldsc annotate \
 - For each chromosome, all input query annotations are combined into one file as separate columns, with each column name being the input's base filename (used as the annotation name).
 - The resulting `query.@.annot.gz` suite is the canonical input to downstream `ldsc ldscore`: one query annotation file per chromosome, containing multiple annotation columns; each column is one query annotation. Pass it with `--query-annot-sources "$ANNOT_OUT_DIR/query.@.annot.gz"`.
 - Do not create one chromosome-sharded suite per query. In sharded mode, `ldscore` expects one query file per chromosome and reads the separate queries from its columns.
-- The CM column is preserved in annotations for backward compatibility but is not read by the package downstream.
+- The generated annotation header includes `CM` for compatibility, with values written as `NA`. Input annotation CM values are discarded; LD scoring uses reference-panel CM. See [`_annotation_parsing.normalize_annotation_chunk`](../../src/ldsc/_annotation_parsing.py).
 - See the `annotate` wiki for more on this functionality.
 
 **Outputs:**
@@ -469,14 +453,12 @@ annot_processed/
 
 ## Backward compatibility with the legacy ldsc python2 codebase
 
-Munged sumstats, legacy ld ref suite (unpartitioned / baseline ref) -- not tested.
+Regression accepts legacy `.sumstats` and `.sumstats.gz` files containing `SNP`, `A1`, `A2`, `Z`, and `N` directly through `--sumstats-file` or `--sumstats-sources`; remunging is optional. Legacy LD-score suites must first pass through `ldsc convert-ldsc2-ldscores`. That converter accepts complete chromosome 1–22 unpartitioned or baseline-only suites with the required counts and supporting inputs. Regression then reads the converted canonical directory.
 
-[TODO]
+See the [sumstats compatibility contract](../current/legacy-sumstats-compatibility.md) and [conversion guide](utility-functionalities/convert-ldsc2-ldscores.md). Dedicated [sumstats tests](../../tests/test_legacy_sumstats_compatibility.py) and [conversion tests](../../tests/test_legacy_ldscore_converter.py) cover these routes; this coverage does not imply equivalence for every possible dataset.
 
-## TODO
+## Further workflow references
 
-- How to reuse previously generated annotations for partitioned LDSC.
-- Refine memory and run-time numbers with proper benchmarking rather than guessing from log files. In particular, the SLURM memory figure for `ldscore` is inaccurate (it somehow always reports the allocated memory minus 2 MB).
-- complete main functionality wiki. add link in this guided tutorial.
-- go with quarto?
-- User checklist: snp id, genome build, and etc.
+- [LD-score calculation](main-functionalities/ldscore.md), [heritability](main-functionalities/h2.md), and [partitioned heritability](main-functionalities/partitioned-h2.md).
+- [BED preparation](utility-functionalities/how-to-customize-your-bed-files.md), [reusable annotations](utility-functionalities/annotate.md), and [resource navigation](utility-functionalities/resources.md).
+- [Global configuration](main-functionalities/global-config.md) and [interface changes](main-functionalities/changes-from-LDSC2.md).

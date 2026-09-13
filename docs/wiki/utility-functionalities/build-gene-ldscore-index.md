@@ -1,6 +1,6 @@
 # Build an exact gene LD-score index
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-13
 
 For the mathematical construction of the disjoint atoms, stored operator, and
 sufficient statistics—and the full downstream indexed-assembly derivation—see
@@ -124,7 +124,7 @@ At build time **it recomputes baseline LD scores** from the these baseline annot
 This is intentional. Recalculation keeps the supplied baseline block, gene
 operator, counts, overlaps, and regression weights consistent with the same
 PLINK samples, genotype/MAF filtering, baseline/PLINK intersection, genetic
-map, LD window, adjusted-$r^2$ implementation, and regression-row policy. A
+map, LD window, adjusted-\(r^2\) implementation, and regression-row policy. A
 legacy `.ldscore.gz` file may have been produced under different choices even
 when it is distributed in the same baseline suite.
 
@@ -133,11 +133,13 @@ when it is distributed in the same baseline suite.
 ```bash
 RESOURCE_ROOT="/path/to/ldsc_resources"
 INDEX_ROOT="/path/to/gene_ldscore_indexes"
+INDEX_NAME="baseline_100kb"
+export INDEX_DIR="${INDEX_ROOT}/${INDEX_NAME}"
 
 ldsc build-gene-ldscore-index \
   --baseline-annot-sources "${RESOURCE_ROOT}/baseline/baseline.@.annot.gz" \
   --plink-prefix "${RESOURCE_ROOT}/plink/1000G.EUR.QC." \
-  --output-dir "${INDEX_ROOT}/baseline_100kb" \
+  --output-dir "${INDEX_DIR}" \
   --gene-coordinate-file "${RESOURCE_ROOT}/genes/gene-coordinates.hg19.tsv.gz" \
   --genome-build hg19 \
   --snp-identifier rsid \
@@ -165,10 +167,13 @@ for every column/reason and the recommended workflow.
 To use custom regression SNPs while retaining the standard region subtraction:
 
 ```bash
+INDEX_NAME="custom_regression_index"
+export INDEX_DIR="${INDEX_ROOT}/${INDEX_NAME}"
+
 ldsc build-gene-ldscore-index \
   --baseline-annot-sources "${RESOURCE_ROOT}/baseline/baseline.@.annot.gz" \
   --plink-prefix "${RESOURCE_ROOT}/plink/1000G.EUR.QC." \
-  --output-dir "${INDEX_ROOT}/custom_regression_index" \
+  --output-dir "${INDEX_DIR}" \
   --gene-coordinate-file "${RESOURCE_ROOT}/genes/gene-coordinates.hg19.tsv.gz" \
   --genome-build hg19 \
   --snp-identifier chr_pos \
@@ -250,20 +255,23 @@ complete transaction for every retry or configuration change.
 Monitor a running build with:
 
 ```bash
-tail -f "${INDEX_ROOT}/.production.build-state/build-gene-ldscore-index.log"
+tail -f "${INDEX_ROOT}/.${INDEX_NAME}.build-state/build-gene-ldscore-index.log"
 ```
 
 On success, the closed log moves to
-`${INDEX_ROOT}/production/diagnostics/build-gene-ldscore-index.log`. The log is
+`${INDEX_DIR}/diagnostics/build-gene-ldscore-index.log`. The log is
 the lifecycle status authority. The JSON file is written for a successful
 publication summary; no separate status file is needed.
 
 ## Validate from Python
 
+Start Python from the same shell so it inherits the exported `INDEX_DIR` from the build you selected.
+
 ```python
+import os
 from ldsc import load_gene_ldscore_index
 
-index = load_gene_ldscore_index("/path/to/gene_ldscore_indexes/production")
+index = load_gene_ldscore_index(os.environ["INDEX_DIR"])
 print(index.index_id)
 print(index.chromosomes)
 ```

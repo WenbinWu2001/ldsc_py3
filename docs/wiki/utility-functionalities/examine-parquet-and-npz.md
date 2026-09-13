@@ -1,6 +1,6 @@
 # Examine Parquet and NPZ Artifacts
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-13
 
 Start one Python session and replace the file placeholders:
 
@@ -8,7 +8,6 @@ Start one Python session and replace the file placeholders:
 python3
 >>> import pyarrow.parquet as pq
 >>> parquet = pq.ParquetFile("FILE.parquet")
->>> table = parquet.read()
 ```
 
 ## Parquet
@@ -27,7 +26,17 @@ A Parquet file is a column-oriented, compressed table format designed for effici
 These return, respectively, the schema, number of rows, number of columns, and
 number of row groups.
 
-### First and last rows
+### Read a bounded preview
+
+For a nonempty file, read one batch and only the columns you need. Replace `COLUMN` with a name from the schema:
+
+```python
+table = next(parquet.iter_batches(batch_size=1000, columns=["COLUMN"]))
+```
+
+The following row examples refer to that batch, so row 123 requires at least 124 rows. For a small file that fits comfortably in memory, `table = parquet.read()` loads the whole table instead. The last preview row is not necessarily the last row of the file.
+
+### First and last preview rows
 
 ```text
 >>> table.slice(0, 5)

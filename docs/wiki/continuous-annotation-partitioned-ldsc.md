@@ -1,6 +1,6 @@
 # Continuous annotations in partitioned LDSC
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-13
 
 This page starts after the partitioned-LDSC steps in the [guided tutorial](guided-tutorial.md). The regression itself does not use quantile bins: fit the continuous annotation directly, then use `ldsc quantile-h2` to summarize how the complete fitted joint model distributes heritability from low to high target values.
 
@@ -85,6 +85,10 @@ Rows in `quantile_h2.tsv` run from the lowest to the highest target values.
 `standardized_coefficients.tsv` has one row per fitted annotation. `tau_star` uses the complete common reference-SNP universe, including SNPs excluded only because the target value was missing. If total fitted-model heritability on that universe is nonpositive, raw `tau` remains available and `tau_star` is reported as `NaN`.
 
 The diagnostics directory contains the run log, full provenance, and a compressed table of excluded or problematic SNP identities. If you need coefficients for separate binary quantile categories rather than a post-fit projection, construct binary bins, recompute their LD scores, and fit those bins as annotations.
+
+## Known quantitative-count limitation
+
+The [memory completion review, R1](../audits/annotation-memory/completion-review.md#r1--quantitative-annotation-counts-change-beyond-tolerance) records batch-dependent float32 annotation-count discrepancies that can fail downstream aggregate validation for quantitative inputs. This remains open in the [active plan](../plans/2026-09-10-annotation-workflow-memory.md). Do not loosen validation tolerances to bypass such a failure; the issue concerns upstream LD-score count accumulation, not a change to the quantile model.
 
 ## Memory during exact quantile analysis
 

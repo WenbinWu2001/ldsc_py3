@@ -1,6 +1,6 @@
 # LDSC-SEG for Protein-Coding Gene Lists
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-13
 
 This tutorial tests whether one or more protein-coding gene lists are enriched for trait heritability. For each query gene list, LDSC3 fits the model
 
@@ -32,10 +32,9 @@ Choose either direct mode or fast mode. Both produce the same canonical LD-score
 
 ### Option A: direct mode
 
-Direct mode reads the baseline annotations and PLINK reference panel, constructs the query annotations in memory, and calculates their LD scores and annotation counts. The query annotations are not written to disk.
+Direct mode reads the baseline annotations and PLINK reference panel and projects gene intervals chromosome by chromosome. It writes private query matrices under the output directory while computing LD scores and counts; it does not publish reusable `.annot.gz` queries by default. Allow temporary disk space. Handled completion or failure cleans owned scratch; an interrupted process can leave private files. See [`build_query_shards`](../../src/ldsc/_annotation_queries.py) and the [memory design](../current/annotation-memory-design.md).
 
-- **Expected runtime:** approximately 1.5 hours
-- **Expected memory usage:** approximately 10 GB
+Resource use depends on the reference panel, number of query lists, and concurrency. Start with `--threads 1`; lower `--query-batch-size` from its default `1000` to reduce active query workspace. The [local benchmark report](../audits/annotation-memory/results.md) gives measured synthetic examples, not production GB/hour guarantees.
 
 ```bash
 RESULT_ROOT="${PROJECT_ROOT}/ldsc3/example_output/direct_mode"
@@ -85,8 +84,7 @@ Relevant flags omitted because their default values are used:
 
 Fast mode uses a precomputed exact gene LD-score index to assemble LD scores, annotation counts, and overlap statistics for the query gene lists. It does not reread the PLINK reference panel.
 
-- **Expected runtime:** approximately 10 minutes
-- **Expected memory usage:** approximately 6 GB
+Indexed assembly avoids rereading PLINK genotypes, but validation and chromosome-operator reads still incur I/O. Profile the actual index and query batch; see the [index reuse memory guidance](utility-functionalities/build-gene-ldscore-index.md#memory-during-index-reuse).
 - **Supported genome build:** hg19
 
 ```bash
@@ -158,7 +156,7 @@ Flags used in this command:
 - `--sumstats-file` specifies the munged summary statistics for one trait. LDSC3 artifacts and legacy LDSC2 `.sumstats` or `.sumstats.gz` files are supported.
 - `--ldscore-dir` specifies the output directory from Step 1.
 - `--output-dir` specifies the partitioned-heritability result directory.
-- Query-annotation runs automatically write a detailed result directory for each query under `diagnostics/query_annotations/`; the deprecated `--write-per-query-results` flag is unnecessary.
+- Query-annotation runs automatically write a detailed result directory for each query under `diagnostics/query_annotations/`; `--write-per-query-results` has been removed and must be omitted.
 - `--overwrite` permits replacement of existing result artifacts. Use it with caution.
 
 Relevant flags omitted because their default values are used:

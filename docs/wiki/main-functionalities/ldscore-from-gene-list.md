@@ -1,6 +1,6 @@
 # Calculate LD scores from gene lists
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-13
 
 Use gene-list mode to turn pathway, expression, proteomic, GO, or other gene
 sets into focal annotations for partitioned S-LDSC. LDSC resolves each list
@@ -16,19 +16,48 @@ Two backends are available:
 
 ## Gene lists and coordinate authority
 
-A gene-list file is headerless plain/gzip text with one exact `gene_id` or
-case-sensitive `gene_name` per nonblank line. Prefer authoritative gene IDs:
-names can be shared, and LDSC never guesses, strips identifier versions, or
-uses fuzzy synonyms.
+### Coordinate catalog
 
-Focal arguments may use exact paths or deterministic glob patterns. The
-control argument names one exact file.
+In direct mode, pass a headered TSV or `.tsv.gz` using `--gene-coordinate-file`. All six columns below must exist; column order does not matter.
 
-Direct mode requires a headered TSV/TSV.GZ coordinate catalog containing
-`gene_id`, `gene_name`, `chrom`, one-based inclusive `start`/`end`, and
-`genome_build`. This file defines the entire focal and control gene universe;
-there is no packaged fallback. Use a catalog generated from one authoritative
-annotation/build.
+| Column | Required content |
+| --- | --- |
+| `gene_id` | Unique, nonempty gene identifier. |
+| `gene_name` | Exact gene-name alias; values may be blank, but the column is required. |
+| `chrom` | Autosome `1`–`22`; `chr1` also works. |
+| `start` | One-based, inclusive integer ≥ 1. |
+| `end` | One-based, inclusive integer ≥ `start`. |
+| `genome_build` | One consistent build: `hg19`/`GRCh37` or `hg38`/`GRCh38`. |
+
+Illustrative catalog with **fictional coordinates**, separated by tabs:
+
+```tsv
+gene_id	gene_name	chrom	start	end	genome_build
+GENE001	GENEA	1	100001	110000	hg19
+GENE002	GENEB	2	200001	220000	hg19
+```
+
+Use actual gene coordinates from one authoritative annotation release/build. These are **not BED coordinates**: both `start` and `end` are one-based and inclusive. Extra columns are ignored. This catalog defines the entire focal and control gene universe; there is no packaged fallback. Indexed mode uses the catalog embedded in the index instead of a separate coordinate file.
+
+### Gene-list files
+
+Pass headerless text files using `--query-annot-gene-list-sources`, with one identifier per line. For example, `pathway_A.txt` selects both genes from the catalog above:
+
+```text
+GENE001
+GENE002
+```
+
+- Plain text and gzip are supported; blank lines are ignored and surrounding whitespace is removed.
+- Each identifier must exactly match a catalog `gene_id` or an unambiguous `gene_name`. Prefer authoritative gene IDs because names can be shared.
+- Matching is **case-sensitive**. Ensembl version suffixes are **not removed**, and synonyms are not inferred.
+- Do not include a header, extra columns, or comments: `#something` is treated as a gene identifier.
+- Duplicate entries resolving to the same gene count once per file.
+- Each file defines one query gene set. The filename determines its query name: remove a final `.gz`, then at most one final `.txt`, `.tsv`, or `.list` (extensions are case-insensitive). Query names must be unique and cannot collide with baseline columns or the reserved control name `gene_control`.
+
+Focal arguments may use exact paths or quoted glob patterns, such as `"/path/to/gene-sets/*.txt"`. The optional `--control-gene-list-file` uses the same file format but accepts exactly one literal file, not a glob. By default, unresolved or ambiguous identifiers stop the run.
+
+See [Gene-list query input](../../current/gene-list-input-format.md#gene-list-source-format) for the full parsing and resolution contract.
 
 ## Direct mode
 

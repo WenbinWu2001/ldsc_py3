@@ -19,8 +19,12 @@ _ANNOTATION_A1_COLUMN_SPEC = ColumnSpec(A1_COLUMN_SPEC.canonical, A1_COLUMN_SPEC
 _ANNOTATION_A2_COLUMN_SPEC = ColumnSpec(A2_COLUMN_SPEC.canonical, A2_COLUMN_SPEC.aliases, A2_COLUMN_SPEC.label, allow_suffix_match=False)
 
 
-def normalize_annotation_chunk(df, path, snp_identifier, chrom=None):
-    """Normalize a bounded input frame to aligned metadata and float32 values."""
+def normalize_annotation_chunk(df, path, snp_identifier, chrom=None, *, log_ignored_metadata=True):
+    """Normalize a bounded frame to aligned metadata and float32 values.
+
+    Chunk readers enable ``log_ignored_metadata`` only on their first chunk,
+    so the CM/MAF notice appears once per file read without process-wide state.
+    """
     context = str(path)
     chr_col = resolve_required_column(df.columns, CHR_COLUMN_SPEC, context=context)
     pos_col = resolve_required_column(df.columns, POS_COLUMN_SPEC, context=context)
@@ -59,7 +63,7 @@ def normalize_annotation_chunk(df, path, snp_identifier, chrom=None):
     # MAF is population-specific and never carried into annotation metadata: resolve
     # the column only to keep it out of the annotation value columns.
     maf_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["MAF"], context=context)
-    if cm_col is not None or maf_col is not None:
+    if log_ignored_metadata and (cm_col is not None or maf_col is not None):
         LOGGER.info(
             f"Annotation file '{path}' contains CM/MAF columns; these are ignored "
             "(the reference panel is authoritative for CM and MAF)."

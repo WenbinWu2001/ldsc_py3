@@ -100,8 +100,8 @@ def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_s
                     chunk_rows = max(1,min(65536,16*1024*1024//(8*max(1,width))))
                     chroms = set()
                     with pd.read_csv(path,sep=r"\s+",chunksize=chunk_rows) as reader:
-                        for chunk in reader:
-                            metadata, _ = normalize_annotation_chunk(chunk,path,global_config.snp_identifier)
+                        for chunk_index, chunk in enumerate(reader):
+                            metadata, _ = normalize_annotation_chunk(chunk,path,global_config.snp_identifier, log_ignored_metadata=chunk_index == 0)
                             chroms.update(metadata.CHR.astype(str))
                     if not chroms or not chroms <= set(AUTOSOMES):
                         raise LDSCInputError("Annotation contents must identify a nonempty autosomal chromosome set.")

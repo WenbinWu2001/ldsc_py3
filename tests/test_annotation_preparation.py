@@ -8,6 +8,56 @@ import pytest
 
 from ldsc._annotation_sources import prepare_annotation_sources
 from ldsc._annotation_storage import AnnotationWorkspace
+from ldsc._logging import workflow_logging
+from ldsc.errors import LDSCInputError
+
+
+@pytest.mark.parametrize("chrom, chromosomes, snps", [(None, 2, 2), ("2", 1, 1)])
+def test_preparation_log_marks_main_steps_and_retained_logical_rows(tmp_path, capsys, chrom, chromosomes, snps):
+    paths = [tmp_path / f"{role}.annot" for role in ("baseline", "query")]
+    for path, column in zip(paths, ("base", "query")):
+        path.write_text(f"CHR SNP POS {column}\n1 duplicate 1 1\n1 rs1 2 .5\n2 duplicate 1 1\n2 rs2 2 .25\n")
+    log_path = tmp_path / "preparation.log"
+    with workflow_logging("annotate", log_path, log_level="INFO"), AnnotationWorkspace(tmp_path / "out") as workspace:
+        prepared = prepare_annotation_sources(workspace, paths[:1], paths[1:], mode="rsid", chunk_rows=1, chrom=chrom)
+        messages = log_path.read_text().splitlines()
+        assert "Reading annotation inputs: baseline files=1, query files=1." in messages
+        assert "Checking SNP identities and preparing chromosome annotations." in messages
+        completed = [line for line in messages if line.startswith("Annotation preparation complete:")]
+        assert len(completed) == 1
+        assert completed[0].startswith(f"Annotation preparation complete: chromosomes={chromosomes}, retained SNPs={snps}, elapsed=")
+        assert messages.index(completed[0]) > messages.index("Checking SNP identities and preparing chromosome annotations.") > messages.index("Reading annotation inputs: baseline files=1, query files=1.")
+        np.testing.assert_array_equal(prepared.shards["2"].read(), [[.25, .25]])
+    assert capsys.readouterr() == ("", "")
+
+
+@pytest.mark.parametrize("rows, reached_identity", [("1 rs1 1 bad\n", False), ("1 rs1 1 1\n2 rs1 2 1\n", True)])
+def test_preparation_failure_does_not_log_completion(tmp_path, rows, reached_identity):
+    path = tmp_path / "baseline.annot"
+    path.write_text("CHR SNP POS base\n" + rows)
+    log_path = tmp_path / "preparation.log"
+    with pytest.raises(LDSCInputError), workflow_logging("annotate", log_path, log_level="INFO"), AnnotationWorkspace(tmp_path / "out") as workspace:
+        prepare_annotation_sources(workspace, [path], [], mode="rsid", chunk_rows=1)
+    log = log_path.read_text()
+    assert "Reading annotation inputs:" in log
+    assert ("Checking SNP identities" in log) == reached_identity
+    assert "Annotation preparation complete:" not in log
+    assert "Failed" in log and "Traceback" in log
+
+
+def test_metadata_notice_once_per_source_on_each_preparation(tmp_path, caplog):
+    paths = [tmp_path / f"baseline.{chrom}.annot" for chrom in (1, 2)]
+    for chrom, path in enumerate(paths, 1):
+        path.write_text(f"CHR SNP POS CM MAF base\n{chrom} rs{chrom}a 1 0 .2 1\n{chrom} rs{chrom}b 2 0 .3 .5\n")
+    for run in range(2):
+        caplog.clear()
+        with caplog.at_level("INFO", logger="LDSC"), AnnotationWorkspace(tmp_path / f"out{run}") as workspace:
+            prepared = prepare_annotation_sources(workspace, paths, [], mode="rsid", chunk_rows=1)
+            notices = [record.getMessage() for record in caplog.records if "contains CM/MAF" in record.getMessage()]
+            assert len(notices) == 2
+            assert all(sum(str(path) in message for message in notices) == 1 for path in paths)
+            np.testing.assert_array_equal(prepared.shards["1"].read(), [[1], [.5]])
+            assert prepared.shards["1"].metadata().CM.isna().all()
 
 
 @pytest.mark.parametrize("declared", [False, True])

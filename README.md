@@ -403,6 +403,8 @@ The derived `plot` and `convert-h2-scale` commands instead use the fixed nested 
 
 Directory writers share their artifact declarations with workflow preflight. Conditional files, including chromosome drop reports, are checked before the workflow log opens; successful overwrites reconcile the files actually produced. See [Output-Family Preflight](docs/current/workflow-logging.md#output-family-preflight) for ownership and cleanup rules.
 
+At the default INFO level, workflow logs mark annotation input reading, SNP identity checks and chromosome preparation, and preparation completion with retained counts and elapsed time. CM/MAF notices appear once per input file read, and intentional gene exclusions are summarized on one line per gene set. See [annotation preparation logging](docs/current/workflow-logging.md#annotation-preparation) for examples and interpretation.
+
 ## Verification
 
 Use the editable development installation described above and run these commands from the repository root. Tests do not inject `src` into Python paths. Run pytest and unittest sequentially because pybedtools cleanup can affect another runner’s temporary files. Goldens are immutable expectations; restore missing NPZs from version control rather than regenerating them during tests.

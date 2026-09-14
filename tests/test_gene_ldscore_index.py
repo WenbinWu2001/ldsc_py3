@@ -1057,6 +1057,9 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     assert "custom" in log_text
     assert "exclude-regions=centromeres" in log_text
     assert "baseline/PLINK identifier intersection" in log_text
+    milestones = ["Reading annotation inputs:", "Checking SNP identities and preparing chromosome annotations.",
+                  "Annotation preparation complete:", "Starting chromosome 22"]
+    assert [log_text.index(message) for message in milestones] == sorted(log_text.index(message) for message in milestones)
     assert "Starting chromosome 22" in log_text
     assert "Finished chromosome 22" in log_text
     assert "catalog genes=2" in log_text

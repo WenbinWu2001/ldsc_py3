@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
+from itertools import groupby
 from typing import Any, Sequence
 
 import numpy as np
@@ -265,7 +266,7 @@ def _select_chromosome_result_queries(
 
 
 def _log_gene_list_rejections(batch: Any) -> None:
-    """Log every rejected row and intentional gene-region exclusion."""
+    """Log rejected rows and one intentional-exclusion summary per source."""
     source_errors = batch.summary[batch.summary["source_status"].eq("error")]
     for row in source_errors.itertuples(index=False):
         LOGGER.warning(
@@ -274,15 +275,20 @@ def _log_gene_list_rejections(batch: Any) -> None:
             row.source,
             row.source_reasons,
         )
-    for disposition in ('rejected', 'excluded'):
-        for frame in batch.audit_frames():
-            for row in frame.loc[frame.disposition.eq(disposition)].itertuples(index=False):
-                if disposition == 'rejected':
-                    LOGGER.warning("Gene-list row rejected: role=%s source=%s line=%s input_gene=%r reason=%s",
-                        row.input_role, row.source, row.line, row.input_gene, row.reason)
-                else:
-                    LOGGER.info("Gene intentionally excluded by region policy: role=%s source=%s line=%s input_gene=%r canonical_gene_id=%s reason=%s",
-                        row.input_role, row.source, row.line, row.input_gene, row.canonical_gene_id, row.reason)
+    for frame in batch.audit_frames():
+        for row in frame.loc[frame.disposition.eq('rejected')].itertuples(index=False):
+            LOGGER.warning("Gene-list row rejected: role=%s source=%s line=%s input_gene=%r reason=%s",
+                row.input_role, row.source, row.line, row.input_gene, row.reason)
+    if LOGGER.isEnabledFor(logging.INFO):
+        excluded = (row for frame in batch.audit_frames()
+                    for row in frame.loc[frame.disposition.eq('excluded')].itertuples(index=False))
+        # Audit replay is source ordered; retain only one source's message across chunks.
+        for (role, _, source), rows in groupby(excluded, key=lambda row: (row.input_role, row.source_ordinal, row.source)):
+            entries = [f"{row.line}:{row.input_gene}" +
+                       (f"->{row.canonical_gene_id}" if row.input_gene != row.canonical_gene_id else "")
+                       for row in rows]
+            LOGGER.info("Genes intentionally excluded by region policy: role=%s source=%s count=%d line:gene=[%s]",
+                        role, source, len(entries), ", ".join(entries))
 
 
 def _log_gene_list_snp_support(batch: Any) -> None:

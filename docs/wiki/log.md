@@ -2,6 +2,14 @@
 
 Last updated on: 2026-09-14
 
+## 2026-09-14 update | annotation preparation and concise logs
+
+Reason: bring annotation, direct scoring, gene-list, and index-construction guidance up to date with group-aware chunks, metadata-only global identity cleanup, and the completed decision to retain serial preparation. Explain the three preparation milestones, one CM/MAF notice per file read, and one intentional-exclusion summary per gene set and role. Detailed row audits and workflow failure/publication semantics are unchanged. The partitioned and cell-specific tutorials and notebook prose use the same guidance.
+
+Source: `prepare_annotation_sources()` in [_annotation_sources.py](../../src/ldsc/_annotation_sources.py), `_log_gene_list_rejections()` in [query_annotations.py](../../src/ldsc/query_annotations.py), [workflow logging](../current/workflow-logging.md#annotation-preparation), and the [closed parallelism decision](../audits/annotation-memory/preparation-parallelism.md#decision). Recent implementation commits reviewed: `cf1dfac`, `ce2bce9`, `b91acbd`, and `6c90636`.
+
+Validation: the full pytest suite passed 1,664 tests with one skip and 132 passing subtests; unittest compatibility ran 1,000 tests successfully with one skip. Updated Python files parse, public signatures and docstrings were inspected, and CLI/root and index-build help succeed. All 233 local links and anchors across the 16 changed documentation files resolve. The two notebook changes affect Markdown only; code cells, outputs, and execution metadata are unchanged. No documentation builder is configured, and notebooks were not re-executed for prose-only changes. Work stayed local and did not modify HPC jobs.
+
 ## 2026-09-14 update | sequential query batches
 
 Reason: align scoring, gene-list, index-reuse, guided-analysis, and continuous-annotation guidance with sequential output batching. Document numbered genome-wide query files, the mandatory ordered manifest, explicit uncached Python reads, the small zero-write Python route, and indexed chromosome workers capped at chromosome count. Correct the earlier quantitative-count limitation: normalized float32 annotations now use float64 count accumulation with existing tolerances. Batch resumption remains a possible future feature.

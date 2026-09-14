@@ -1,9 +1,44 @@
 """Gene resolution remains exact across streamed source boundaries."""
 
 import pandas as pd
+import pytest
 
 from ldsc._annotation_storage import AnnotationWorkspace
 from ldsc.gene_list_resolver import GeneCatalog
+
+
+@pytest.mark.parametrize("chunk_rows", [1, 3])
+def test_exclusion_log_summarizes_each_source_across_audit_chunks(tmp_path, caplog, chunk_rows):
+    from ldsc._gene_query_storage import resolve_gene_lists_staged
+    from ldsc.query_annotations import _log_gene_list_rejections
+
+    catalog_path = tmp_path / "catalog.tsv"
+    catalog_path.write_text("gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
+                           "MHC1\tFIRST\t6\t30000000\t30000100\thg19\n"
+                           "MHC2\tSECOND\t6\t31000000\t31000100\thg19\n"
+                           "G1\tONE\t1\t10\t20\thg19\n")
+    focal, retained, other = [tmp_path / f"{name}.txt" for name in ("focal", "retained", "other")]
+    focal.write_text("MHC1\n\nSECOND\nG1\nUNKNOWN\n")
+    retained.write_text("G1\n")
+    other.write_text("MHC2\n")
+    with AnnotationWorkspace(tmp_path / "out") as workspace:
+        batch = resolve_gene_lists_staged([focal, retained, other], GeneCatalog.load(catalog_path), workspace,
+                                         control_path=focal, gene_exclude_regions="mhc",
+                                         resolution_policy="resolved-only", chunk_rows=chunk_rows)
+        before = pd.concat(batch.audit_frames(), ignore_index=True)
+        with caplog.at_level("INFO", logger="LDSC"):
+            _log_gene_list_rejections(batch)
+        messages = [record.getMessage() for record in caplog.records]
+        exclusions = [message for message in messages if "intentionally excluded" in message]
+        assert exclusions == [
+            "Genes intentionally excluded by region policy: role=focal source=focal.txt count=2 line:gene=[1:MHC1, 3:SECOND->MHC2]",
+            "Genes intentionally excluded by region policy: role=focal source=other.txt count=1 line:gene=[1:MHC2]",
+            "Genes intentionally excluded by region policy: role=control source=focal.txt count=2 line:gene=[1:MHC1, 3:SECOND->MHC2]",
+        ]
+        rejected = [message for message in messages if "Gene-list row rejected:" in message]
+        assert len(rejected) == 2 and all("line=5 input_gene='UNKNOWN'" in message for message in rejected)
+        pd.testing.assert_frame_equal(pd.concat(batch.audit_frames(), ignore_index=True), before)
+        assert batch.selection("focal", 1).canonical_gene_ids == ("G1",)
 
 
 def test_streamed_resolution_deduplicates_aliases_across_chunks(tmp_path):

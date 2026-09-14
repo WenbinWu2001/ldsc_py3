@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from contextlib import ExitStack
 from itertools import zip_longest
 from pathlib import Path
+from time import perf_counter
+import logging
 import shutil
 
 import numpy as np
@@ -26,6 +28,8 @@ from ._row_alignment import assert_same_snp_rows
 from .annotation_semantics import require_unique_annotation_names
 from .chromosome_inference import normalize_chromosome
 from .errors import LDSCInputError, LDSCUserError
+
+LOGGER = logging.getLogger("LDSC.annotation")
 
 
 @dataclass
@@ -63,8 +67,8 @@ def _scan(path, directory, mode, chunk_rows):
     columns = metadata_columns = ()
     try:
         with values_path.open("wb") as numeric, pd.read_csv(path, sep=r"\s+", compression="infer", chunksize=chunk_rows) as reader:
-            for chunk in reader:
-                metadata, values = normalize_annotation_chunk(chunk, path, mode)
+            for chunk_index, chunk in enumerate(reader):
+                metadata, values = normalize_annotation_chunk(chunk, path, mode, log_ignored_metadata=chunk_index == 0)
                 if metadata.empty:
                     continue
                 columns, metadata_columns = tuple(values.columns), tuple(metadata.columns)
@@ -194,11 +198,14 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     group; explicit ``chunk_rows`` applies unchanged to both stages. Identity
     passes never read numeric staging, and global duplicates precede requested
     chromosome selection. Final values are copied once using retained locators.
+    INFO records mark input reading, identity/shard preparation, and completion.
     """
     workspace.require_open()
     paths = [*baseline_files, *query_files]
     if not baseline_files and not input_issues:
         raise LDSCInputError("Annotation preparation requires baseline annotation sources.")
+    started = perf_counter()
+    LOGGER.info("Reading annotation inputs: baseline files=%d, query files=%d.", len(baseline_files), len(query_files))
     issues = list(input_issues)
     declared_chromosomes = declared_chromosomes or {}
     sources = []
@@ -249,6 +256,7 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     effective_mode = mode
     if is_allele_aware_mode(mode) and not any("A1" in s.metadata_columns for s in sources):
         effective_mode = identity_base_mode(mode)
+    LOGGER.info("Checking SNP identities and preparing chromosome annotations.")
     with DiskIdentityIndex(workspace.path / "identity.sqlite", effective_mode) as identity:
         for group, rows in zip(groups, group_rows):
             for metadata in _aligned_metadata(group, mode, rows):
@@ -261,5 +269,8 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
         error.annotation_drops = drops
         raise error
     scope = tuple(sorted(set().union(*(s.chromosomes for s in baselines)), key=_chrom_sort_key))
-    return PreparedAnnotationSources(shards, baseline_columns, query_columns, drops, scope,
+    prepared = PreparedAnnotationSources(shards, baseline_columns, query_columns, drops, scope,
         tuple((str(s.path), "baseline" if s in baselines else "query", tuple(s.chromosomes)) for s in sources))
+    LOGGER.info("Annotation preparation complete: chromosomes=%d, retained SNPs=%s, elapsed=%.2fs.",
+                len(shards), f"{sum(counts.values()):,}", perf_counter() - started)
+    return prepared

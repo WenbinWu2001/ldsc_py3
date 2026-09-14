@@ -27,6 +27,8 @@ logs are part of that preflight policy, but they are audit files rather than
 returned data artifacts. Removed legacy root diagnostic names are ignored by
 current preflight and cleanup.
 
+Live annotation preparation remains serial before chromosome computation. The INFO workflow log reports input reading, SNP identity checks and chromosome preparation, and preparation completion; it condenses intentional gene exclusions to one line per gene set and CM/MAF notices to one per file read. See [preparation logging](../docs/current/workflow-logging.md#annotation-preparation) for the counts, timing, and distinction from whole-workflow completion.
+
 For `chr_pos` workflows, `genome_build="auto"` can infer hg19/hg38 and
 0-based/1-based coordinates during annotation or LD-score loading. The same
 logic is public in Python as `infer_chr_pos_build()` and

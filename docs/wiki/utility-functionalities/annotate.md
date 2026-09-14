@@ -1,6 +1,6 @@
 # Create reusable query annotations
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-14
 
 `ldsc annotate` projects BED intervals or gene lists onto the SNP rows in baseline annotations and writes reusable binary query files. Direct `ldsc ldscore` accepts BED files and gene lists too, so standalone annotation is optional.
 
@@ -37,8 +37,10 @@ Gene Gate A reports safely discoverable source, naming, catalog, and identifier 
 
 `diagnostics/` contains metadata, the command log, statuses, applicable input/scope/catalog diagnostics, a complete drop audit, and gene audits/summaries in gene mode. Gene support is labeled `annotation_snp_count`; reference-panel counts are unevaluated. See the [complete condition–outcome table](../../current/annotate-gene-list-decisions.md#validation-gates-and-conditionoutcome-table).
 
+At the default INFO level, `diagnostics/annotate.log` marks input reading, SNP identity checks and chromosome preparation, and preparation completion with retained counts and elapsed time. Gene projection and output writing follow preparation. Intentional exclusions use one line per gene set with line–gene pairs; CM/MAF notices appear once per annotation file read. Complete audit rows remain available. See [the messages and their meaning](../../current/workflow-logging.md#annotation-preparation).
+
 ## Memory and Python ownership
 
-Preparation scans whole-genome files in bounded chunks. Projection and writing proceed chromosome by chromosome; the returned bundle references persistent outputs and may depend on original baselines. No whole-genome annotation matrix is returned. New private files stay under the selected output directory. Use `with run_annotate(...) as bundle:` or close a Python bundle after reading it.
+Preparation scans whole-genome and chromosome-sharded files in bounded chunks sized for the sources processed together. It checks SNP identities globally using metadata, then copies retained numeric values directly into private chromosome artifacts. Cross-chromosome duplicate identities are removed before projection. Projection and writing proceed chromosome by chromosome; the returned bundle references persistent outputs and may depend on original baselines. No whole-genome annotation matrix is returned. New private files stay under the selected output directory. Use `with run_annotate(...) as bundle:` or close a Python bundle after reading it.
 
 This architecture supports large pathway batches, including 1,000 pathways subsequently tested separately against shared baseline categories. Standalone annotate is sequential; direct LD scoring additionally supports bounded chromosome workers and query batching. Released arrays become reusable memory, but process RSS may not immediately decrease. See the [developer memory design](../../current/annotation-memory-design.md) and [LD-score guide](../main-functionalities/ldscore.md). Existing artifacts require `--overwrite`; failure markers and stale-output cleanup retain their command contracts.

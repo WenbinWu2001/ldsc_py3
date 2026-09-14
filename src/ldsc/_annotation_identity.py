@@ -46,8 +46,10 @@ class IdentityDropSpool(FrameSpool):
 class DiskIdentityIndex:
     """Index logical annotation rows once, then select globally unique rows.
 
-    Aligned column sources describe one logical row and must be combined before
-    ``add``. Invalid allele rows do not participate in duplicate or multi-allelic
+    Aligned column sources describe one logical row: add its aligned metadata
+    once, without loading annotation values. Add all chromosomes before calling
+    ``select``, which commits pending updates before its bounded lookups.
+    Invalid allele rows do not participate in duplicate or multi-allelic
     detection, matching the in-memory scientific identity policy. A logical
     shard omitting both allele columns uses base identities. Its unknown allele
     set can establish a duplicate, but cannot establish an allele conflict.

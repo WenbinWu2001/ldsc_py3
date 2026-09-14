@@ -62,6 +62,18 @@ class AnnotationBuilder:
             Complete dataset metadata and chromosome descriptors. Use a context
             manager or call ``close()`` after the last borrower has finished.
             Read selected values with ``bundle.read(chrom, rows=..., columns=...)``.
+
+        Notes
+        -----
+        Text/gzip preparation is serial for whole-genome and chromosome-sharded
+        inputs. Aligned baseline/query files describe one logical SNP grid;
+        identity cleanup covers that complete grid before chromosome selection.
+        Values are normalized to float32 in bounded tiles, separately from the
+        metadata used for global identity checks.
+
+        Preparation emits INFO milestones through the existing LDSC logger.
+        This method does not install a file or console handler; ``run_annotate``
+        owns the standalone workflow log and canonical output publication.
         """
         workspace = AnnotationWorkspace(output_dir)
         try:

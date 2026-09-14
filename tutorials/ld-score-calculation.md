@@ -27,6 +27,8 @@ Input-token rules used below:
 
 Output directories stay literal; only input fields are expanded.
 
+Live annotation preparation is serial for both whole-genome and chromosome-sharded inputs, before the chromosome workers selected by `--threads`. At INFO, `diagnostics/ldscore.log` marks input reading, SNP identity checks and chromosome preparation, and completion with retained counts and elapsed preparation time. CM/MAF notices appear once per source file read; intentional gene exclusions are summarized per gene set. See [preparation logging](../docs/current/workflow-logging.md#annotation-preparation). These milestones describe preparation, while LD-score computation and final output writing still follow.
+
 SNP restriction files used for the reference-panel or regression universes are
 identity-only filters. Duplicate restriction keys collapse to one retained key,
 and non-identity columns such as `CM` or `MAF` are ignored rather than carried
@@ -394,6 +396,8 @@ the closed log moves to
 `indexes/baseline_100kb/diagnostics/build-gene-ldscore-index.log`; failed logs
 remain in hidden state and are archived on retry. This keeps the destination
 absent or empty until a complete index is published.
+
+This live build log contains the same annotation-preparation milestones before `Starting chromosome N`. Index annotation preparation remains serial; the preparation parallelism study is closed, and `--threads` continues to control only subsequent chromosome computation. See [the measured decision](../docs/audits/annotation-memory/preparation-parallelism.md#decision).
 
 Use an updated reader for newly built gene indexes: chromosome metadata now carries only the published-row fingerprint, which also covers the effective SNP key. Otherwise-valid existing indexes remain readable; the semantic `index_id` and six input fingerprints are unchanged. See the [artifact and identity contract](../docs/current/gene-ldscore-index.md#artifact-and-identity-contract).
 

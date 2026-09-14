@@ -8,7 +8,7 @@ sufficient statistics—and the full downstream indexed-assembly derivation—se
 
 ## Goal
 
-`--threads` controls a chromosome thread pool for index construction and defaults to `1` (sequential). Direct and indexed `ldscore` use the same flag name for chromosome worker processes when generating scores.
+`--threads` controls a chromosome thread pool for index construction and defaults to `1` (sequential). Annotation preparation before these workers remains serial: the completed [parallelism evaluation](../../audits/annotation-memory/preparation-parallelism.md#decision) did not justify its additional memory and implementation costs. Direct and indexed `ldscore` use the same flag name for chromosome worker processes when generating scores.
 
 Build one complete reusable index that contains the fixed baseline LD scores,
 an embedded caller-supplied gene catalog, exact disjoint-gene atoms, and the sparse
@@ -257,6 +257,8 @@ Monitor a running build with:
 ```bash
 tail -f "${INDEX_ROOT}/.${INDEX_NAME}.build-state/build-gene-ldscore-index.log"
 ```
+
+At INFO, the first preparation milestone is `Reading annotation inputs`, followed by `Checking SNP identities and preparing chromosome annotations`. Global identity checks include duplicate rsIDs spanning chromosome files. `Annotation preparation complete` reports retained chromosome/SNP counts and elapsed preparation time before any `Starting chromosome N` computation message. CM/MAF notices appear once per source file read. These messages describe step boundaries; the workflow's final `Finished` or `Failed` footer establishes the overall outcome. See [preparation logging](../../current/workflow-logging.md#annotation-preparation).
 
 On success, the closed log moves to
 `${INDEX_DIR}/diagnostics/build-gene-ldscore-index.log`. The log is

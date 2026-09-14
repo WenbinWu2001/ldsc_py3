@@ -77,6 +77,29 @@ def test_direct_gate_a_reports_naming_and_identifier_issues_together(tmp_path, i
     assert len(audit) == 2
 
 
+def test_direct_log_has_preparation_milestones_and_one_exclusion_summary(tmp_path, inputs):
+    catalog = inputs[3]
+    with catalog.open("a") as stream:
+        stream.write("MHC1\tFIRST\t6\t30000000\t30000100\thg19\n"
+                     "MHC2\tSECOND\t6\t31000000\t31000100\thg19\n")
+    focal = tmp_path / "focal.txt"
+    focal.write_text("MHC1\n\nSECOND\nG1\n")
+    args = direct_args(tmp_path, inputs, [focal])
+    args.gene_exclude_regions = "mhc"
+    result = run_ldscore_from_args(args)
+    log = (tmp_path / "direct/diagnostics/ldscore.log").read_text()
+    assert log.count("Reading annotation inputs:") == 1
+    assert log.count("Checking SNP identities and preparing chromosome annotations.") == 1
+    assert log.count("Annotation preparation complete:") == 1
+    assert log.count("contains CM/MAF") == 1
+    assert log.count("intentionally excluded by region policy:") == 1
+    assert "source=focal.txt count=2 line:gene=[1:MHC1, 3:SECOND->MHC2]" in log
+    assert result.query_columns == ["focal"]
+    audit = pd.read_csv(tmp_path / "direct/diagnostics/gene_list_audit.tsv.gz", sep="\t")
+    assert audit.disposition.tolist() == ["excluded", "excluded", "retained"]
+    assert audit.line.tolist() == [1, 3, 4]
+
+
 def test_multichromosome_contents_cover_a_single_chromosome_pathway(tmp_path, inputs):
     prefix, baseline, regression, catalog = inputs
     metadata = pd.read_csv(baseline, sep="\t")

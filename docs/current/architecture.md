@@ -261,7 +261,7 @@ The kernel layer contains the actual numerical methods and low-level readers. It
   explicit elapsed-time footer such as `Elapsed time: 2.0min:12s`. Start/end
   timestamps and elapsed duration are derived from paired entry/exit timepoints
   so the footer reflects the interval covered by the log. A failed run also
-  records the full traceback before the footer. Gene-index publication keeps
+  records the full traceback in the failure footer. Gene-index publication keeps
   its open handler outside the replaceable tree, moves the closed successful
   log into the published diagnostics, and treats cleanup after destination
   reload validation as warning-only garbage collection.

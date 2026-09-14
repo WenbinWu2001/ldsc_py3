@@ -141,6 +141,8 @@ After identifier preflight,
 zero-variance skips. Zero-support genes and explicit MHC exclusions are audited
 but are not unresolved identifiers.
 
+Intentional MHC exclusions are summarized in `diagnostics/ldscore.log` on one INFO line per gene-list source and role, with the count and physical line–gene pairs. An alias includes its canonical ID when different; the full row audit remains unchanged. Direct runs also log the main annotation-preparation milestones before LD-score computation. See [preparation logging](../../current/workflow-logging.md#annotation-preparation) for examples; indexed runs reuse prepared index artifacts and do not scan live annotations.
+
 For every column/reason and step-by-step repair instructions, use the detailed
 [Gene-list diagnostics and repair](../../current/gene-list-diagnostics-and-repair.md)
 reference. The concise input contract is

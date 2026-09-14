@@ -1,6 +1,6 @@
 # Workflow Logging
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 Public workflow entry points share one logging policy:
 
@@ -18,11 +18,7 @@ Public workflow entry points share one logging policy:
   always appear in the file. Supported levels are `DEBUG`, `INFO`, `WARNING`, and
   `ERROR`.
 - Workflow result objects and `output_paths` mappings do not include log files.
-- LD-score BED/gene-list runs log the effective catalog projection build, one
-  warning for every non-`ok` query, and a final query-status summary. Gene-list
-  runs additionally log every rejected or zero-support row with role/source and
-  every intentional MHC exclusion; the compressed audit is the machine-readable
-  record of record.
+- LD-score BED/gene-list runs log the effective catalog projection build, one warning for every non-`ok` query, and a final query-status summary. Gene-list runs additionally log every rejected or zero-support row with role/source. Intentional MHC exclusions use one INFO line per gene-list source and role, listing the count and physical line–gene pairs in input order; a submitted alias includes its canonical gene ID only when different. Audit chunks do not create extra summary lines. The compressed audit remains the complete machine-readable row record.
 
 ## Console vs File Routing
 
@@ -72,14 +68,35 @@ while `@` chromosome-suite prefixes own the full build-r2-panel log family.
 
 This keeps an output directory from mixing artifacts from different
 configurations, while preserving unrelated user files. Direct Python writer
-APIs apply the same rule to their data artifacts. Public materializing workflow
-methods, including `AnnotationBuilder.run()`, create their canonical log.
+APIs apply the same rule to their data artifacts. Standalone `run_annotate()` owns the canonical annotation log; `AnnotationBuilder.run()` prepares private data without installing a workflow log.
 
 The six directory writers in `ldsc.outputs` each expose `artifact_family()`, returning an `ArtifactFamily` with selected output paths and the complete owned scope. H2, partitioned-h2, rg, quantile-h2, query-r2, and LD-score workflow preflights consult their writer's declaration and add workflow-owned logs or audits. The LDSC2 converter and indexed LD-score CLI also consult the LD-score writer. Declarations only describe paths; the existing `path_resolution.preflight_output_artifact_family()` still performs collision checks.
 
 Early checks discard the returned stale list because the final scientific and diagnostic outputs are not yet known. Each writer derives its final declaration from the result or write options, uses those same selected paths for output and metadata file entries, and removes stale owned siblings after its existing publication step. LD-score diagnostics-only writes use this same declaration; existing `diagnostics/dropped_snps/chr*_dropped.tsv.gz` reports are included in early collision checks and final reconciliation. There is no second workflow cleanup based on an earlier prediction.
 
 Annotation, munging, and reference-panel build workflows retain their local ownership declarations and existing cleanup stages. Reference-panel builds keep their chromosome scope, and gene-index publication retains its dedicated transaction. Logs and workflow-only audit extensions do not enter scientific metadata through `ArtifactFamily`. Failure markers remain owned by the marker helper. Validation lives in `tests/test_artifact_declarations.py`, `tests/test_output.py`, `tests/test_derived_output_lifecycle.py`, `tests/test_failure_markers.py`, and the reference-panel/index workflow tests.
+
+## Annotation preparation
+
+Shared source preparation emits three INFO milestones in the workflow log: reading annotation inputs, checking SNP identities and preparing chromosome annotations, and successful completion. For example:
+
+```text
+Reading annotation inputs: baseline files=22, query files=22.
+Checking SNP identities and preparing chromosome annotations.
+Annotation preparation complete: chromosomes=22, retained SNPs=1,000,000, elapsed=30.00s.
+```
+
+The counts and time above are illustrative. The first line precedes source scanning; the second precedes global identity validation, retained-row selection, and shard writing. Completion appears only after usable annotation shards are ready, with the number of retained chromosomes, logical SNP rows after identity cleanup and any chromosome selection, and elapsed preparation time. Aligned baseline/query files describe the same logical rows and do not double the SNP count. For the gene-index builder these messages precede `Starting chromosome N`; preparation remains serial.
+
+These are step boundaries, without per-chunk messages, periodic heartbeats, percentages, or an estimated finish time. A CM/MAF compatibility notice appears only on the first chunk of each annotation file read; later chunks do not repeat it, and later preparation calls still receive it. At `WARNING` or `ERROR`, INFO milestones and notices are suppressed by the existing log-level policy. Preparation failures retain the last reached milestone and the workflow's existing `Failed` footer and traceback, without a preparation-complete message. Preparation completion does not mean the enclosing workflow or output publication has finished.
+
+Intentional gene exclusions use the following compact form:
+
+```text
+Genes intentionally excluded by region policy: role=focal source=pathway.txt count=2 line:gene=[31:ENSG00000196126, 33:ENSG00000196735]
+```
+
+Mechanisms: [`_annotation_sources.py`](../../src/ldsc/_annotation_sources.py), `prepare_annotation_sources()`; [`_annotation_parsing.py`](../../src/ldsc/_annotation_parsing.py), `normalize_annotation_chunk()`; [`query_annotations.py`](../../src/ldsc/query_annotations.py), `_log_gene_list_rejections()`.
 
 ## LD-score chromosome diagnostics
 

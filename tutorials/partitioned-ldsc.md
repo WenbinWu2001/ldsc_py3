@@ -52,6 +52,8 @@ can synthesize an all-ones `base` column only when both baseline and query
 inputs are omitted for ordinary unpartitioned LD scores; it does not use that
 synthetic path for partitioned/query LDSC.
 
+Annotation preparation remains serial before chromosome computation; `--threads` applies to the subsequent LD-score workers. At INFO, `diagnostics/annotate.log` or `diagnostics/ldscore.log` marks input reading, SNP identity checks and chromosome preparation, and preparation completion with retained counts and elapsed time. CM/MAF notices appear once per file read, and intentional gene exclusions use one line per gene set. See [preparation logging](../docs/current/workflow-logging.md#annotation-preparation).
+
 ## Python API
 
 The writing workflow returns an `LDScoreSource` with shared baseline values and saved query paths. Completed query tables are released after writing. Regression reads only the columns it needs, including selections spanning several saved query files.

@@ -1,6 +1,6 @@
 # Munge summary statistics
 
-Last updated on: 2026-09-13
+Last updated on: 2026-09-14
 
 `ldsc munge-sumstats` converts a raw GWAS table into LDSC3-ready summary statistics. See the current [munge-sumstats guide](../../current/munge-sumstats.md) for the full workflow and output contract.
 
@@ -187,3 +187,34 @@ The table lists the raw-sumstats registry, including canonical spellings. Matchi
 For DANER inputs, format-specific header handling additionally recognizes encoded count/frequency fields. The table describes ordinary raw-column aliases, not every DANER header convention. `--infer-only` previews mappings and suggestions; it does not replace the full run's required-field and QC checks.
 
 Source: `RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS`, `RAW_SUMSTATS_SIGNED_STAT_SPECS`, and `clean_header` in [column_inference.py](../../../src/ldsc/column_inference.py); `get_cname_map` in [_sumstats_input.py](../../../src/ldsc/_sumstats_input.py); `infer_raw_sumstats` in [sumstats_munger.py](../../../src/ldsc/sumstats_munger.py).
+
+## Flags for specifying input column names
+
+### Required fields and sample-size alternatives
+
+| Field | Flag | Example |
+| --- | --- | --- |
+| SNP identifier | `--snp COLUMN` | `--snp variant_id` |
+| Chromosome | `--chr COLUMN` | `--chr chromosome` |
+| Position | `--pos COLUMN` | `--pos base_pair_location` |
+| Effect allele, A1 | `--a1 COLUMN` | `--a1 effect_allele` |
+| Other allele, A2 | `--a2 COLUMN` | `--a2 other_allele` |
+| P-value | `--p COLUMN` | `--p p_value` |
+| Signed effect statistic | `--signed-sumstats COLUMN,NULL` | `--signed-sumstats effect_size,0` |
+| Per-variant sample size | `--N-col COLUMN` | `--N-col sample_size` |
+| Case count, alternative to N | `--N-cas-col COLUMN` | `--N-cas-col cases` |
+| Control count, paired with cases | `--N-con-col COLUMN` | `--N-con-col controls` |
+
+Field requirements depend on identity mode and sample-size strategy; see [Minimal raw input fields](#minimal-raw-input-fields). For signed statistics, use null `0` for BETA, Z, or log odds; `1` for OR. Supply either `--N-col` or both case/control column flags.
+
+### Optional fields and ignored columns
+
+| Field | Flag | Example |
+| --- | --- | --- |
+| Allele frequency or MAF | `--frq COLUMN` | `--frq effect_allele_frequency` |
+| Scalar imputation INFO | `--info COLUMN` | `--info imputation_quality` |
+| INFO values stored as comma-separated lists within cells | `--info-list COLUMNS` | `--info-list per_study_info` |
+| Number of contributing studies | `--nstudy COLUMN` | `--nstudy study_count` |
+| Columns to exclude from inference and reading | `--ignore COL1,COL2` | `--ignore unused_beta,unused_frequency` |
+
+Source: column options in `build_parser` in [sumstats_munger.py](../../../src/ldsc/sumstats_munger.py).

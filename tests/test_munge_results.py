@@ -32,12 +32,16 @@ def test_summary_counts_parsed_rows_and_exclusive_filter_stages(tmp_path, suffix
     ))
     keep = tmp_path / "keep.tsv"
     keep.write_text("SNP\nsmall\nduplicate\nkeep1\nkeep2\n")
+    marker = tmp_path / "out/RUN_FAILED.txt"
+    marker.parent.mkdir()
+    marker.write_text("earlier failed overwrite")
     munger = SumstatsMunger()
     table = munger.run(
         MungeConfig(raw_sumstats_file=raw, output_dir=tmp_path / "out", sumstats_snps_file=keep, chunk_size=chunk_size),
         global_config=GlobalConfig(snp_identifier="rsid"),
     )
     summary = munger.build_run_summary()
+    assert not marker.exists()
     assert table.data.SNP.tolist() == ["keep1", "keep2"]
     np.testing.assert_allclose(table.data.Z, [-1.95996398454, 1.95996398454])
     assert summary.n_input_rows == 10

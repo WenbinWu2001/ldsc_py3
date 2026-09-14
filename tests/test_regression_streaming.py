@@ -159,7 +159,7 @@ def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypa
 
 
 @pytest.mark.parametrize("generation_width", [1, 2])
-def test_regression_across_query_files_matches_single_file(tmp_path, generation_width):
+def test_regression_across_query_files_matches_single_file(tmp_path, generation_width, monkeypatch):
     table, original = batch_inputs(tmp_path / "original")
     def batches():
         for start in range(0, len(original.query_columns), generation_width):
@@ -176,8 +176,11 @@ def test_regression_across_query_files_matches_single_file(tmp_path, generation_
     runner = workflow.RegressionRunner(original.config_snapshot, workflow.RegressionConfig(n_blocks=6))
     expected = runner.estimate_partitioned_h2_batch(table, original, output_dir=tmp_path / "expected",
                                                    query_batch_size=1000, summary_sort_by="category")
-    actual = runner.estimate_partitioned_h2_batch(table, saved, output_dir=tmp_path / "actual",
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LDSC_REGRESSION_OUT", str(tmp_path / "actual"))
+    actual = runner.estimate_partitioned_h2_batch(table, saved, output_dir="$LDSC_REGRESSION_OUT",
                                                  query_batch_size=2, summary_sort_by="category")
+    assert not (tmp_path / "$LDSC_REGRESSION_OUT").exists()
     pd.testing.assert_frame_equal(actual.summary, expected.summary, rtol=1e-10, atol=1e-12)
     for query, paths in actual.per_query_artifacts.items():
         before = expected.per_query_artifacts[query]
@@ -199,7 +202,11 @@ def cli_inputs(tmp_path):
 def test_real_partitioned_command_preserves_sorted_artifacts_metadata_and_overwrite(tmp_path, sort_by):
     args, source = cli_inputs(tmp_path)
     output = tmp_path / "out"
+    output.mkdir()
+    marker = output / "RUN_FAILED.txt"
+    marker.write_text("earlier failed overwrite")
     result = cli.main([*args, "--summary-sort-by", sort_by])
+    assert not marker.exists()
     written = pd.read_csv(output / "partitioned_h2.tsv", sep="\t")
     pd.testing.assert_frame_equal(written, result, check_dtype=False)
     key = "coefficient_p" if sort_by == "auto" else workflow.PARTITIONED_H2_SUMMARY_SORT_COLUMNS[sort_by]

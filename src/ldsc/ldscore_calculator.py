@@ -1499,7 +1499,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
             "ldscore indexed mode requires --query-annot-gene-list-sources."
         )
     from .gene_ldscore_index import run_indexed_ldscore
-    output_dir = Path(args.output_dir)
+    output_dir = Path(normalize_path_token(args.output_dir))
     log_path = output_dir / "diagnostics" / "ldscore.log"
     LDScoreDirectoryWriter.artifact_family(output_dir).preflight(
         overwrite=bool(getattr(args, "overwrite", False)), additional_paths=[log_path],
@@ -1524,7 +1524,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
             gene_list_resolution_policy=getattr(args, "gene_list_resolution_policy", "strict"),
             query_batch_size=getattr(args, "query_batch_size", 1000),
             threads=getattr(args, "threads", 1),
-            output_dir=args.output_dir,
+            output_dir=str(output_dir),
             overwrite=bool(getattr(args, "overwrite", False)),
         )
         if bool(getattr(args, "_emit_gene_console_notices", False)):

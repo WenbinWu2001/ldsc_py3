@@ -1683,7 +1683,8 @@ def test_final_log_move_failure_warns_and_retains_hidden_log(tmp_path, monkeypat
     assert not final_log.exists()
 
 
-def test_index_publication_recovery_restores_one_valid_owned_backup(tmp_path):
+@pytest.mark.parametrize("failed_destination", ["absent", "marker", "unrecognized"])
+def test_index_publication_recovery_restores_one_valid_owned_backup(tmp_path, failed_destination):
     chromosome, catalog, index_identity = _artifact_payload()
     index_dir = publish_gene_ldscore_index(
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
@@ -1699,6 +1700,17 @@ def test_index_publication_recovery_restores_one_valid_owned_backup(tmp_path):
     backup = transaction / "index.backup"
     index_dir.rename(backup)
     gene_ldscore_index._write_json(backup / ".gene-index-publication.json", marker)
+    if failed_destination != "absent":
+        index_dir.mkdir()
+        (index_dir / "RUN_FAILED.txt").write_text("interrupted publication")
+    if failed_destination == "unrecognized":
+        notes = index_dir / "notes.txt"
+        notes.write_text("user data")
+        with pytest.raises(LDSCInputError, match="unrecognized gene-index target"):
+            gene_ldscore_index._recover_gene_index_publication(index_dir, _allow_partial_for_tests=True)
+        assert notes.read_text() == "user data"
+        assert backup.is_dir()
+        return
 
     gene_ldscore_index._recover_gene_index_publication(
         index_dir, _allow_partial_for_tests=True
@@ -1706,6 +1718,8 @@ def test_index_publication_recovery_restores_one_valid_owned_backup(tmp_path):
 
     assert load_gene_ldscore_index(index_dir).index_id == calculate_index_id(index_identity)
     assert not transaction.exists()
+    if failed_destination == "marker":
+        assert (index_dir / "RUN_FAILED.txt").read_text() == "interrupted publication"
 
 
 def test_retry_discards_a_marked_partial_stage_instead_of_reusing_it(tmp_path):
@@ -1769,7 +1783,7 @@ def test_failed_index_overwrite_rolls_back_without_mutating_valid_index(tmp_path
     assert load_gene_ldscore_index(index_dir).index_id == original_id
 
 
-def test_indexed_gene_lists_assemble_control_queries_and_canonical_output(tmp_path):
+def test_indexed_gene_lists_assemble_control_queries_and_canonical_output(tmp_path, monkeypatch):
     chromosome, catalog, index_identity = _artifact_payload()
     index_dir = publish_gene_ldscore_index(
         tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
@@ -1779,17 +1793,20 @@ def test_indexed_gene_lists_assemble_control_queries_and_canonical_output(tmp_pa
     control = tmp_path / "control.txt"
     genes.write_text("G1\n", encoding="utf-8")
     control.write_text("G1\nG2\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LDSC_INDEXED_OUT", str(tmp_path / "ldscores"))
 
     result = run_indexed_ldscore(
         index_dir,
         query_gene_list_sources=(genes,),
         control_gene_list_file=control,
-        output_dir=tmp_path / "ldscores",
+        output_dir="$LDSC_INDEXED_OUT",
         overwrite=False,
     )
 
     assert result.baseline_columns == ["base", "gene_control"]
     assert result.query_columns == ["focal"]
+    assert not (tmp_path / "$LDSC_INDEXED_OUT").exists()
     np.testing.assert_allclose(result.baseline_table["gene_control"], [0.75, 1.6])
     np.testing.assert_allclose(result.read_queries(["focal"])["focal"], [0.75, 1.5])
     assert [record["column"] for record in result.count_records] == ["base", "gene_control", "focal"]
@@ -1879,6 +1896,11 @@ def test_explicit_indexed_cli_writes_the_canonical_workflow_log(tmp_path, monkey
     genes = tmp_path / "focal.txt"
     genes.write_text("G1\n", encoding="utf-8")
     output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    marker = output_dir / "RUN_FAILED.txt"
+    marker.write_text("earlier failed overwrite")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LDSC_INDEXED_OUT", str(output_dir))
     real_load = gene_ldscore_index._load_gene_ldscore_index
     monkeypatch.setattr(
         gene_ldscore_index,
@@ -1888,13 +1910,15 @@ def test_explicit_indexed_cli_writes_the_canonical_workflow_log(tmp_path, monkey
 
     cli.main(
         [
-            "ldscore", "--output-dir", str(output_dir),
+            "ldscore", "--output-dir", "$LDSC_INDEXED_OUT",
             "--gene-ldscore-index-dir", str(index_dir),
             "--query-annot-gene-list-sources", str(genes),
         ]
     )
 
     log_path = output_dir / "diagnostics" / "ldscore.log"
+    assert not marker.exists()
+    assert not (tmp_path / "$LDSC_INDEXED_OUT").exists()
     assert log_path.exists()
     assert "gene_ldscore_index" in log_path.read_text(encoding="utf-8")
     assert "gene_control" not in pd.read_parquet(output_dir / "ldscore.baseline.parquet").columns
@@ -2010,7 +2034,11 @@ def test_index_preflight_ignores_failure_marker_without_removing_it(tmp_path, ov
     assert marker.read_text() == "old failed run\n"
 
 
-@pytest.mark.parametrize("extra", ["user-file.txt", "user-directory", "metadata.json", "marker-directory", "marker-symlink"])
+@pytest.mark.parametrize("extra", [
+    "user-file.txt", "user-directory", "metadata.json", "marker-directory", "marker-symlink",
+    "diagnostics-file", "diagnostics-empty-subdirectory", "diagnostics-dangling-symlink",
+    "diagnostics-symlink",
+])
 def test_failure_marker_does_not_authorize_replacing_unrecognized_contents(tmp_path, extra):
     output = tmp_path / "index"
     output.mkdir()
@@ -2023,6 +2051,19 @@ def test_failure_marker_does_not_authorize_replacing_unrecognized_contents(tmp_p
         marker.write_text("old failure\n")
         if extra == "user-directory":
             (output / extra).mkdir()
+        elif extra == "diagnostics-file":
+            (output / "diagnostics").write_text("user data")
+        elif extra == "diagnostics-symlink":
+            target = tmp_path / "user-diagnostics"
+            target.mkdir()
+            (output / "diagnostics").symlink_to(target, target_is_directory=True)
+        elif extra.startswith("diagnostics-"):
+            diagnostics = output / "diagnostics"
+            diagnostics.mkdir()
+            if extra == "diagnostics-empty-subdirectory":
+                (diagnostics / "user-data").mkdir()
+            else:
+                (diagnostics / "build-gene-ldscore-index.log").symlink_to(tmp_path / "missing-log")
         else:
             (output / extra).write_text("unrecognized contents\n")
     before = sorted(path.name for path in output.iterdir())

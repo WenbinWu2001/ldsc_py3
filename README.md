@@ -401,6 +401,8 @@ For workflows that accept `--output-dir` or `output_dir`, the value is always a 
 
 Gene-index retries accept an output directory containing only `RUN_FAILED.txt` and recognized legacy build diagnostics. The marker remains until successful publication; unrelated contents still block replacement. See [gene-index retry guidance](docs/troubleshooting.md#build-gene-ldscore-index-output-directory-is-nonempty-but-invalid).
 
+Failure markers, logs, audits, scratch, and result files use the same normalized destination, including `~` and environment-variable expansion. A root failure marker does not count as a scientific output collision. See the [output-directory retry audit](docs/audits/2026-09-14-output-directory-retries.md) for coverage across all 13 commands.
+
 The overwrite flag applies only to the fixed files owned by that workflow. It
 does not remove unrelated files and never cleans a whole directory.
 The derived `plot` and `convert-h2-scale` commands instead use the fixed nested destinations described above.

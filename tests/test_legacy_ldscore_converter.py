@@ -122,6 +122,9 @@ def test_unpartitioned_conversion_writes_reloadable_canonical_suite_with_nullabl
     weights = tmp_path / "weights_hm3_no_hla"
     output = tmp_path / "converted"
     _write_unpartitioned_suite(reference, weights, missing_m_chrom=22)
+    output.mkdir()
+    marker = output / "RUN_FAILED.txt"
+    marker.write_text("earlier failed overwrite")
     with gzip.open(reference / "1.l2.ldscore.gz", "rt", encoding="utf-8") as handle:
         _write_text(reference / "1.l2.ldscore", handle.read())
 
@@ -132,6 +135,7 @@ def test_unpartitioned_conversion_writes_reloadable_canonical_suite_with_nullabl
     )
 
     assert result.profile == "unpartitioned"
+    assert not marker.exists()
     assert result.n_rows == 22
     baseline = pd.read_parquet(output / "ldscore.baseline.parquet")
     assert baseline.columns.tolist() == ["CHR", "POS", "SNP", "regression_ld_scores", "base"]

@@ -40,6 +40,7 @@ from types import TracebackType
 from typing import Any, Callable
 
 from .errors import LDSCUsageError
+from .path_resolution import normalize_path_token
 
 
 _LDSC_LOGGER_NAME = "LDSC"
@@ -183,7 +184,8 @@ def overwrite_failure_marker(
     Parameters
     ----------
     output_dir : path-like
-        Output scope that receives the marker.
+        Output scope that receives the marker. Expand user and environment
+        tokens with the same policy as scientific output destinations.
     overwrite : bool
         Whether this attempt explicitly authorized replacement. Failures from
         no-overwrite attempts do not create markers.
@@ -205,7 +207,7 @@ def overwrite_failure_marker(
     order left it. Any successful materializing retry removes the applicable
     old marker after the wrapped success path completes.
     """
-    marker_path = Path(output_dir) / marker_name
+    marker_path = Path(normalize_path_token(output_dir)) / marker_name
     try:
         yield marker_path
     except BaseException as exc:

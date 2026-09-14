@@ -285,8 +285,12 @@ class QuantileH2WorkflowTest(unittest.TestCase):
         )
 
     def test_baseline_only_workflow_writes_complete_result_family(self):
-        result = run_quantile_h2_from_args(self.args)
         output = Path(self.args.output_dir)
+        output.mkdir()
+        marker = output / "RUN_FAILED.txt"
+        marker.write_text("earlier failed overwrite")
+        result = run_quantile_h2_from_args(self.args)
+        self.assertFalse(marker.exists())
         self.assertEqual(result.quantile_h2["n_snps"].tolist(), [3, 1])
         self.assertTrue((output / "quantile_h2.tsv").is_file())
         self.assertTrue((output / "standardized_coefficients.tsv").is_file())

@@ -127,6 +127,8 @@ the failure, it remains with the usual `Failed` footer and traceback. A
 successful materializing retry removes its applicable marker after normal
 success. No-overwrite failures create no marker.
 
+The marker helper uses `path_resolution.normalize_path_token`, matching output preflight and publication. CLI marker scope follows the last occurrence of a destination option, as argparse does. Marker-only directories do not collide with writer artifact families. Gene-index preflight, direct publication, and interrupted-publication recovery share recognition of owned diagnostics; this excludes symlinks, special files, and unrelated empty subdirectories. Existing recovery of a validated owned backup preserves the failure marker until the current build succeeds. See the [output-directory audit](../audits/2026-09-14-output-directory-retries.md).
+
 CLI help and `munge-sumstats --infer-only` bypass the marker lifecycle entirely. Even with `--overwrite`, they create no output directories or files and never create, replace, or remove a failure marker. This also applies when inference or argument parsing fails.
 
 ## Log Layout

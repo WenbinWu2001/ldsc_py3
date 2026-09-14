@@ -392,8 +392,12 @@ class TestQueryR2CLI:
 
         pairs_path = self._write_pairs(tmp_path)
         out_dir = tmp_path / "result"
+        out_dir.mkdir()
+        marker = out_dir / "RUN_FAILED.txt"
+        marker.write_text("earlier failed overwrite")
         cli_main(self._argv(tmp_path, pairs_path, "--output-dir", str(out_dir)))
 
+        assert not marker.exists()
         result = pd.read_csv(out_dir / "query_r2.tsv", sep="\t")
         assert result["r2"].iloc[0] == pytest.approx(0.64, abs=1e-4)
         assert result.columns[-4:].tolist() == ["r2", "sign_r", "r", "status"]

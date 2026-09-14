@@ -37,6 +37,7 @@ from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, wo
 from .errors import LDSCDependencyError, LDSCInputError, LDSCUsageError
 from .path_resolution import (
     ensure_output_directory,
+    normalize_path_token,
     preflight_output_artifact_family,
     remove_output_artifacts,
 )
@@ -84,7 +85,7 @@ class H2ScaleConversionArtifact:
     lambda h2_result_dir, **kwargs: (
         (
             kwargs.get("output_dir")
-            or Path(h2_result_dir).expanduser() / "postprocessing" / "liability-scale",
+            or Path(normalize_path_token(h2_result_dir)) / "postprocessing" / "liability-scale",
             kwargs.get("overwrite", False),
             "RUN_FAILED.txt",
         )
@@ -119,7 +120,8 @@ def convert_h2_scale(
         Number of grid points in range mode. Default is 201.
     output_dir : path-like, optional
         Advanced Python-only destination. By default, write below
-        ``<h2-result>/postprocessing/liability-scale``.
+        ``<h2-result>/postprocessing/liability-scale``. User and environment
+        tokens are expanded.
     overwrite : bool, optional
         Replace this conversion's fixed artifact family. Default is ``False``.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
@@ -169,7 +171,7 @@ def convert_h2_scale(
 
     pyplot = _load_pyplot() if mode == "sensitivity" else None
     destination = (
-        Path(output_dir).expanduser()
+        Path(normalize_path_token(output_dir))
         if output_dir is not None
         else source_dir / "postprocessing" / "liability-scale"
     )
@@ -331,7 +333,7 @@ def run_convert_h2_scale_from_args(args: argparse.Namespace) -> H2ScaleConversio
 
 
 def _require_directory(path: str | os.PathLike[str], *, label: str) -> Path:
-    result = Path(path).expanduser()
+    result = Path(normalize_path_token(path))
     if not result.is_dir():
         raise LDSCInputError(f"{label} does not exist or is not a directory: '{result}'.")
     return result.resolve()

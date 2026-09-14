@@ -913,6 +913,7 @@ class RegressionRunner:
             Canonical shared baseline, metadata, and explicit query reads.
         output_dir : path-like
             Required destination for canonical results and owned private staging.
+            User and environment tokens are expanded before either is created.
         query_columns : sequence of str or None, optional
             Focal models to fit; None selects all declared queries. An empty
             sequence fits the complete baseline as one functional model.
@@ -943,6 +944,7 @@ class RegressionRunner:
         queries = list(ldscore_result.query_columns if query_columns is None else query_columns)
         queries = _validate_partitioned_query_columns(ldscore_result, queries)
         sort_by = _resolve_summary_sort(summary_sort_by, has_queries=bool(queries))
+        output_dir = normalize_path_token(output_dir)
         writer = PartitionedH2DirectoryWriter()
         writer.artifact_family(output_dir, write_per_query_results=bool(queries),
                                coefficient_delete_values=not queries).preflight(overwrite=overwrite)
@@ -2732,7 +2734,7 @@ def run_h2_from_args(args):
             written = H2DirectoryWriter().write(
                 summary,
                 H2OutputConfig(
-                    output_dir=output_dir_arg,
+                    output_dir=output_dir,
                     overwrite=getattr(args, "overwrite", False),
                 ),
                 metadata=_h2_metadata(
@@ -2745,7 +2747,7 @@ def run_h2_from_args(args):
                 diagnostic_bins=outcome.diagnostic_bins,
             )
             audit_path = _write_or_remove_legacy_sumstats_audit(
-                Path(output_dir_arg),
+                Path(output_dir),
                 legacy_used=_has_legacy_sumstats_source(sumstats_table),
                 drops=legacy_drops,
                 overwrite=getattr(args, "overwrite", False),
@@ -2934,13 +2936,13 @@ def run_rg_from_args(args):
             written = RgDirectoryWriter().write(
                 result,
                 RgOutputConfig(
-                    output_dir=output_dir_arg,
+                    output_dir=output_dir,
                     overwrite=getattr(args, "overwrite", False),
                     write_per_pair_detail=getattr(args, "write_per_pair_detail", False),
                 ),
             )
             audit_path = _write_or_remove_legacy_sumstats_audit(
-                Path(output_dir_arg),
+                Path(output_dir),
                 legacy_used=any(_has_legacy_sumstats_source(table) for table in sumstats_tables),
                 drops=legacy_drops,
                 overwrite=getattr(args, "overwrite", False),

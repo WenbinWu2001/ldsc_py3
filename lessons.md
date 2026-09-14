@@ -188,3 +188,7 @@ Last updated on: 2026-09-14
 ## Failure markers must not block their own retry
 
 - Summary/root cause/correction: A failed gene-index overwrite created a marker-only output directory that the next run rejected as unrecognized; both preflight and publication used a diagnostics predicate that omitted `RUN_FAILED.txt`. Recognize the regular root marker alongside owned diagnostics, preserve rejection of unrelated contents, and test repeated failure followed by successful publication and marker removal.
+
+## Output ownership must cover normalization and recovery
+
+- Summary/root cause/correction: A package-wide retry audit found raw-path logs/audits/scratch and markers diverging from normalized result roots, CLI markers choosing the first repeated destination, and index recovery rejecting its own marker while diagnostic scans overlooked empty directories and symlinks; reuse normalized destinations, follow argparse's final value, share index preflight, inspect every diagnostic entry, and test the existing owned-backup recovery with a retained failure marker.

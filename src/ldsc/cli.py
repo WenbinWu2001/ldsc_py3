@@ -319,14 +319,15 @@ def _cli_failure_marker_scope(argv: Sequence[str]) -> tuple[Path, str] | None:
 
 
 def _raw_option_value(argv: Sequence[str], option: str) -> str | None:
-    """Extract one raw ``--option value`` or ``--option=value`` token."""
+    """Extract the last option value, matching argparse's store action."""
+    value = None
     for index, token in enumerate(argv):
         if token == option and index + 1 < len(argv):
-            return argv[index + 1]
+            value = argv[index + 1]
         prefix = option + "="
         if token.startswith(prefix):
-            return token[len(prefix) :]
-    return None
+            value = token[len(prefix) :]
+    return value
 
 
 def _chromosome_from_concrete_prefix(prefix: str | None) -> str | None:

@@ -67,9 +67,13 @@ def test_returned_annotation_uses_persistent_outputs_after_build_scratch_is_rele
 
     baseline, genes, _, catalog = inputs(tmp_path)
     output = tmp_path / 'out'
+    output.mkdir()
+    marker = output / 'RUN_FAILED.txt'
+    marker.write_text('earlier failed overwrite')
     bundle = run_annotate(baseline_annot_sources=baseline, query_annot_gene_list_sources=[genes],
                           gene_coordinate_file=catalog, padding_bp=0, genome_build='hg19',
                           global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
+    assert not marker.exists()
     assert not list(output.glob('.ldsc-annotation-*'))
     assert bundle.n_rows == 5
     assert bundle.gene_list_batch.audit_path.is_file()

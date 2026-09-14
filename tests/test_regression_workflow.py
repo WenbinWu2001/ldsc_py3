@@ -2291,7 +2291,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
-                    "output_dir": str(tmpdir / "h2_out"),
+                    "output_dir": "$LDSC_REGRESSION_OUT/h2_out",
                     "overwrite": False,
                     "log_level": "INFO",
                     "n_blocks": 200,
@@ -2302,7 +2302,10 @@ class RegressionWorkflowTest(unittest.TestCase):
                 },
             )()
 
-            with _stub_h2_kernel(
+            marker = tmpdir / "h2_out/RUN_FAILED.txt"
+            marker.parent.mkdir()
+            marker.write_text("earlier failed overwrite")
+            with mock.patch.dict("os.environ", {"LDSC_REGRESSION_OUT": str(tmpdir)}), contextlib.chdir(tmpdir), _stub_h2_kernel(
                 mock.Mock(
                     tot=np.array([0.1]),
                     tot_se=np.array([0.01]),
@@ -2318,6 +2321,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 summary = regression_runner.run_h2_from_args(args)
 
             patched.assert_called_once()
+            self.assertFalse(marker.exists())
+            self.assertFalse((tmpdir / "$LDSC_REGRESSION_OUT").exists())
             self.assertEqual(patched.call_args.args[1].shape[1], 1)
             self.assertEqual(summary.loc[0, "trait_name"], "trait")
             self.assertTrue((tmpdir / "h2_out" / "h2.tsv").exists())
@@ -2679,6 +2684,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 regression_runner.run_rg_from_args(args)
 
     def test_run_rg_from_args_returns_result_family_and_writes_output(self):
+        from ldsc.outputs import RG_FULL_COLUMNS
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
@@ -2706,7 +2712,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "anchor_trait": None,
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
-                    "output_dir": str(tmpdir / "out"),
+                    "output_dir": "$LDSC_REGRESSION_OUT/out",
                     "overwrite": False,
                     "write_per_pair_detail": False,
                     "n_blocks": 200,
@@ -2718,12 +2724,21 @@ class RegressionWorkflowTest(unittest.TestCase):
                 },
             )()
 
+            expected = replace(expected, rg_full=expected.rg_full.reindex(columns=RG_FULL_COLUMNS))
+            marker = tmpdir / "out/RUN_FAILED.txt"
+            marker.parent.mkdir()
+            marker.write_text("earlier failed overwrite")
             stdout = io.StringIO()
-            with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected), mock.patch.object(
+            with mock.patch.dict("os.environ", {"LDSC_REGRESSION_OUT": str(tmpdir)}), contextlib.chdir(tmpdir), mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected), mock.patch.object(
                 regression_runner.RgDirectoryWriter,
                 "write",
+                wraps=regression_runner.RgDirectoryWriter().write,
             ) as writer, contextlib.redirect_stdout(stdout):
                 result = regression_runner.run_rg_from_args(args)
+            self.assertFalse(marker.exists())
+            self.assertFalse((tmpdir / "$LDSC_REGRESSION_OUT").exists())
+            self.assertTrue((tmpdir / "out/rg.tsv").is_file())
+            self.assertTrue((tmpdir / "out/diagnostics/dropped_snps/legacy_sumstats.tsv.gz").is_file())
 
         self.assertIs(result, expected)
         writer.assert_called_once()

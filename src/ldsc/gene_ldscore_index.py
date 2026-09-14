@@ -83,7 +83,7 @@ from .gene_list_resolver import (
     select_index_eligible_gene_indices,
 )
 from .hm3 import packaged_hm3_curated_map_path
-from .path_resolution import inspect_plink_inputs, split_cli_path_tokens
+from .path_resolution import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
 
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
@@ -1060,20 +1060,26 @@ def _recover_gene_index_publication(
             "Gene LD-score index publication recovery is ambiguous: the target is missing or invalid "
             f"and valid matching backups are {listed}. Preserve these paths and resolve them manually."
         )
-    if destination.exists():
-        target_marker = destination / ".gene-index-publication.json"
-        try:
-            marker = _read_json(target_marker, "target publication marker")
-        except LDSCInputError as exc:
-            raise LDSCInputError(
-                f"Cannot replace invalid unrecognized gene-index target during recovery: {destination}."
-            ) from exc
-        if marker.get("target") != str(destination):
-            raise LDSCInputError(
-                f"Cannot replace invalid unrecognized gene-index target during recovery: {destination}."
-            )
-        shutil.rmtree(destination)
     backup = valid_backups[0]
+    if destination.exists():
+        if _is_diagnostics_only_gene_index(destination):
+            failure_marker = destination / "RUN_FAILED.txt"
+            if failure_marker.is_file():
+                # Recovery is not completion of the current build; retain its marker.
+                os.replace(failure_marker, backup / failure_marker.name)
+        else:
+            target_marker = destination / ".gene-index-publication.json"
+            try:
+                marker = _read_json(target_marker, "target publication marker")
+            except LDSCInputError as exc:
+                raise LDSCInputError(
+                    f"Cannot replace invalid unrecognized gene-index target during recovery: {destination}."
+                ) from exc
+            if marker.get("target") != str(destination):
+                raise LDSCInputError(
+                    f"Cannot replace invalid unrecognized gene-index target during recovery: {destination}."
+                )
+        shutil.rmtree(destination)
     os.replace(backup, destination)
     try:
         (destination / ".gene-index-publication.json").unlink(missing_ok=True)
@@ -1264,16 +1270,25 @@ def _is_diagnostics_only_gene_index(path: Path) -> bool:
     marker = path / "RUN_FAILED.txt"
     if marker.is_symlink() or (marker.exists() and not marker.is_file()):
         return False
-    files = [file for file in path.rglob("*") if file.is_file()]
+    entries = list(path.rglob("*"))
+    if any(entry.is_symlink() for entry in entries):
+        return False
+    files = [entry for entry in entries if entry.is_file()]
     if not files:
         return False
-    return all(
+    if not all(
         file == marker or (
             file.relative_to(path).parts[0] == "diagnostics"
             and file.name.startswith("build-gene-ldscore-index")
         )
         for file in files
-    )
+    ):
+        return False
+    # Empty unrelated directories and special files are still user contents.
+    owned_directories = {path / "diagnostics"}
+    for file in files:
+        owned_directories.update(file.parents)
+    return all(entry.is_file() or (entry.is_dir() and entry in owned_directories) for entry in entries)
 
 
 def _log_gene_index_summary(payload: dict) -> None:
@@ -1674,27 +1689,9 @@ def publish_gene_ldscore_index(
     """
     destination = Path(index_dir)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.exists():
-        if not destination.is_dir():
-            raise FileExistsError(f"Gene LD-score index output is not a directory: {destination}")
-        if not any(destination.iterdir()):
-            pass
-        elif _is_diagnostics_only_gene_index(destination):
-            pass
-        else:
-            try:
-                _load_gene_ldscore_index(
-                    destination, _allow_partial_for_tests=_allow_partial_for_tests
-                )
-            except Exception as exc:
-                raise FileExistsError(
-                    f"Gene LD-score index output directory is nonempty but invalid: {destination}. "
-                    "Choose an empty directory; --overwrite does not replace unrecognized contents."
-                ) from exc
-            if not overwrite:
-                raise FileExistsError(
-                    f"Gene LD-score index already exists: {destination}. Pass --overwrite to rebuild it completely."
-                )
+    _preflight_gene_index_output(
+        destination, overwrite=overwrite, _allow_partial_for_tests=_allow_partial_for_tests,
+    )
     index_id = calculate_index_id(index_identity)
     stage_parent = _create_gene_index_transaction(destination)
     staged_index = stage_parent / destination.name
@@ -2007,6 +2004,7 @@ def run_indexed_ldscore(
         effective count is capped at the number of index chromosomes.
     output_dir : path-like
         Destination for the canonical self-contained LD-score directory.
+        User and environment tokens are expanded for both scratch and results.
     overwrite : bool, optional
         Replace workflow-owned output artifacts. Default is ``False``.
 
@@ -2044,6 +2042,7 @@ def run_indexed_ldscore(
         raise ValueError("query_batch_size must be a positive integer.")
     if isinstance(threads, bool) or not isinstance(threads, int) or threads == 0:
         raise ValueError("threads must be a nonzero integer (1, positive workers, or a negative CPU offset).")
+    output_dir = normalize_path_token(output_dir)
     with AnnotationWorkspace(output_dir) as workspace:
         return _run_indexed_ldscore_in_workspace(
             index_dir, query_gene_list_sources=query_gene_list_sources,

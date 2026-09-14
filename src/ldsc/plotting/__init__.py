@@ -34,7 +34,7 @@ import pandas as pd
 
 from .._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ..errors import LDSCDependencyError, LDSCInputError
-from ..path_resolution import ensure_output_directory, preflight_output_artifact_family
+from ..path_resolution import ensure_output_directory, normalize_path_token, preflight_output_artifact_family
 
 
 @dataclass(frozen=True)
@@ -73,7 +73,7 @@ class _PlotContract:
 @materializing_overwrite_guard(
     lambda result_dir, **kwargs: (
         (
-            kwargs.get("output_dir") or Path(result_dir).expanduser() / "plots",
+            kwargs.get("output_dir") or Path(normalize_path_token(result_dir)) / "plots",
             kwargs.get("overwrite", False),
             "RUN_FAILED.txt",
         )
@@ -96,7 +96,7 @@ def plot_result(
         quantile-h2 result.
     output_dir : path-like, optional
         Advanced Python-only destination. By default, write to
-        ``<result-dir>/plots``.
+        ``<result-dir>/plots``. User and environment tokens are expanded.
     overwrite : bool, optional
         Replace the selected plot family's fixed PNG, metadata, and log.
         Default is ``False``.
@@ -161,7 +161,7 @@ def plot_result(
                 "Supply a tab-separated table with one field per declared column."
             )
     builders = _load_builders()
-    destination = Path(output_dir).expanduser() if output_dir is not None else source_dir / "plots"
+    destination = Path(normalize_path_token(output_dir)) if output_dir is not None else source_dir / "plots"
     paths = {
         "plot": destination / contract.filename,
         "metadata": destination / "diagnostics" / "metadata.json",
@@ -251,7 +251,7 @@ def run_plot_from_args(args: argparse.Namespace) -> PlotArtifact:
 
 
 def _require_result_directory(path: str | os.PathLike[str]) -> Path:
-    result = Path(path).expanduser()
+    result = Path(normalize_path_token(path))
     if not result.is_dir():
         raise LDSCInputError(f"Plot result directory does not exist or is not a directory: '{result}'.")
     return result.resolve()

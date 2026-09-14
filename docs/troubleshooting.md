@@ -22,6 +22,8 @@ error and rerun the same materializing command with `--overwrite`; a successful
 retry removes the applicable marker. Do not treat the marker as a scientific
 result file.
 
+Markers, logs, audits, and scientific outputs use the same expanded destination. A marker alone does not prevent retry. If an older version placed logs or markers under a literal `$VARIABLE` or `~` directory, update the package and rerun using the intended destination; existing misplaced directories are not migrated or deleted automatically. The [output-directory audit](audits/2026-09-14-output-directory-retries.md) records the affected paths and regression coverage.
+
 ### Common: input path did not resolve to one file
 
 **Raised by:** `path_resolution.resolve_scalar_path()` and group/path-prefix resolvers

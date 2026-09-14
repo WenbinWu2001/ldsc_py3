@@ -2,15 +2,17 @@
 
 Last updated on: 2026-09-14
 
-The four serial preparation optimizations are committed as `ce2bce9` (`perf(annotation): streamline preparation`). This follow-up evaluates concurrency before integrating it into the package. Production preparation remains serial; the only executable additions are the [benchmark adapter](../../../benchmarks/annotation_preparation_parallel.py) and its [contract checks](../../../benchmarks/annotation_preparation_parallel_check.py). All work ran locally, without HPC access or job changes.
+The four serial preparation optimizations are committed as `ce2bce9` (`perf(annotation): streamline preparation`). This follow-up evaluated concurrency and concluded with a decision to retain serial preparation. The only executable additions are the [benchmark adapter](../../../benchmarks/annotation_preparation_parallel.py) and its [contract checks](../../../benchmarks/annotation_preparation_parallel_check.py). All work ran locally, without HPC access or job changes.
 
 ## Decision
 
-**Process workers are worthwhile for the measured large, narrow chromosome shards.** Four processes reduced median preparation time from **22.77 to 17.01 seconds (25.3%)**, while the post-identity phase fell from **9.15 to 3.57 seconds (61.0%)**. Median sampled process-tree peak RSS increased from **399 to 1,075 MiB**. This supports a focused production follow-up for selecting rows and writing shards after the shared global index is committed.
+**Keep annotation preparation serial.** After reviewing the measurements and prioritizing roughly unchanged peak RSS, the user chose to retain one process and stop further preparation optimization. The parallelism follow-up is closed; no production integration or additional writer-only experiment is planned. Retain the four completed serial optimizations and this benchmark evidence.
 
-Four processes offer a useful local balance. Eight reduced total time to 16.18 seconds, another 0.83 seconds, but increased RSS to 1,748 MiB. Two processes used 682 MiB and still saved 20.1% of total time. These are measured trade-offs, not a proposed hard-coded worker limit.
+The speed gain on large, narrow shards was measurable: four processes reduced median preparation time from **22.77 to 17.01 seconds (25.3%)**, while the post-identity phase fell from **9.15 to 3.57 seconds (61.0%)**. However, median sampled process-tree peak RSS increased from **399 to 1,075 MiB**. Eight processes took 16.18 seconds with 1,748 MiB RSS; two took 18.19 seconds with 682 MiB RSS. These gains apply only to preparation and do not satisfy the preferred memory trade-off. They do not justify the added worker, diagnostic, and failure-lifecycle complexity for the current priorities.
 
 **Skip numeric-only parallelism and thread-based selection.** Numeric writing represented only 5.3% of median serial time on the real inputs and 10.2% on the wide inputs. It did not dominate either workload. Real-data selection alone accounted for 6.63 seconds, so useful concurrency must include identity selection. Thread workers increased the real post-identity phase from 9.15 seconds to 10.03, 16.34, and 53.76 seconds at 2, 4, and 8 workers.
+
+Writer-only threads were not benchmarked in isolation. Perfect two-thread scaling of numeric writing would save at most about 2.7% of total real-input time or 5.1% of wide-input time before overhead. Those bounds do not establish a measured speedup or unchanged RSS, and the user chose not to pursue this smaller opportunity.
 
 **The wide synthetic workload does not justify concurrency.** Process-worker medians were 2.4–6.5% slower overall, with higher memory and scratch use. Input scanning dominated. Do not treat annotation width, chromosome count, or the availability of more CPUs as evidence that preparation parallelism will help.
 
@@ -29,7 +31,7 @@ The tested design has these boundaries:
 - Keep the shared database until all workers finish. Each worker releases only its own source staging after reading it. On an observed failure, stop submission, cancel pending work, and wait for active workers before the parent workspace closes.
 - Use the original serial calls for one worker or a single group, including whole-genome column sources. No repartitioning, nested pool, new public configuration, or publication path is added.
 
-The gene-index builder currently calls preparation before creating its chromosome computation thread pool in [`gene_ldscore_index.py`](../../../src/ldsc/gene_ldscore_index.py). The benchmark does **not** connect preparation to that command's `--threads` setting. Any production follow-up should preserve this phase separation and default serial path, reuse its worker budget, and validate through the public builder before release.
+The gene-index builder calls preparation before creating its chromosome computation thread pool in [`gene_ldscore_index.py`](../../../src/ldsc/gene_ldscore_index.py). The benchmark does **not** connect preparation to that command's `--threads` setting. The decision to keep preparation serial leaves the existing chromosome computation parallelism unchanged.
 
 ## Inputs and measurement
 

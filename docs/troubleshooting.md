@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 This reference explains `ldsc` errors that can **abort a run** and have more than
 one likely cause. It is organized by command. Each entry lists the likely causes
@@ -34,7 +34,7 @@ result file.
 |---|--------------|--------------|
 | 1 | The path is misspelled or relative to a different working directory | `pwd`; then `ls <path>` from the same shell |
 | 2 | A glob is too broad for an input that must be one file | `python -c "import glob; print(glob.glob('<pattern>'))"` |
-| 3 | A chromosome-suite token is missing the explicit `@` placeholder | Check whether the token looks like `chr@` / `.@.` rather than a bare prefix |
+| 3 | An ordinary file input uses an unsupported bare prefix (PLINK prefixes are supported) | Check whether the token looks like `chr@` / `.@.` rather than a bare prefix |
 | 4 | The file exists only with a suffix LDSC does not infer | `ls <prefix>*`; pass the full filename including suffix |
 | 5 | A PLINK prefix is incomplete | Confirm all three files exist: `<prefix>.bed`, `<prefix>.bim`, `<prefix>.fam` |
 
@@ -42,7 +42,9 @@ result file.
 
 1. Pass the exact existing file path when the command expects a single file.
 2. Narrow broad globs so they match exactly the intended file.
-3. For chromosome suites, use an explicit `@` token such as `baseline.@.annot.gz`.
+3. For annotation chromosome suites, use an explicit `@` token such as `baseline.@.annot.gz` or a quoted glob with the full file suffix.
+
+**PLINK resolution (`ldscore`, `build-gene-ldscore-index`, `build-r2-panel`):** A plain stem such as `1000G.EUR.QC.` is supported and preserves numeric suffixes such as `.22`. These commands share `path_resolution.inspect_plink_inputs()`. If `Could not resolve PLINK inputs` appears, read every listed issue: restore each missing BED/BIM/FAM member, replace malformed or truncated trios, verify BIM chromosome contents against any explicit `@` declaration, and narrow inputs when multiple trios contain the same chromosome. Renaming a file does not change its chromosome assignment. Gene-index construction requires chromosomes 1-22 even without `@`; direct query LD-score full-suite declarations also retain their coverage checks. Direct LD-score issues appear in its input diagnostics; gene-index issues are retained in `.<output-name>.build-state/plink_input_issues.tsv`; R²-builder issues appear in `diagnostics/plink_input_issues.tsv`. See the [shared resolution contract](current/path-specification.md#plink-prefix-resolution).
 
 ### Common: output artifact already exists
 

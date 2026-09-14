@@ -19,7 +19,7 @@ def prepare_plink(chrom, bundle, args):
         global_options["genome_build"] = args.genome_build
     panel = PlinkRefPanel(
         GlobalConfig(**global_options),
-        RefPanelConfig(backend="plink", plink_prefix=ldscore.resolve_bfile_prefix(args, chrom),
+        RefPanelConfig(backend="plink", plink_prefix=args.bfile,
                        keep_indivs_file=getattr(args, "keep", None), maf_min=getattr(args, "maf_min", None)),
     )
     config = LDScoreConfig(

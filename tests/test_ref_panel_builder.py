@@ -1136,7 +1136,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
 
     def _write_dummy_plink_prefix(self, root: Path, stem: str, chrom: str):
         prefix = root / stem
-        Path(str(prefix) + ".bed").write_bytes(b"")
+        Path(str(prefix) + ".bed").write_bytes(b"\x6c\x1b\x01\x00")
         Path(str(prefix) + ".fam").write_text("fam iid 0 0 0 -9\n", encoding="utf-8")
         Path(str(prefix) + ".bim").write_text(
             f"{chrom} rs{chrom} 0.0 100 A G\n",
@@ -1146,7 +1146,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
 
     def _write_plink_prefix_rows(self, root: Path, stem: str, rows: list[tuple]):
         prefix = root / stem
-        Path(str(prefix) + ".bed").write_bytes(b"")
+        Path(str(prefix) + ".bed").write_bytes(b"\x6c\x1b\x01" + b"\x00" * len(rows))
         Path(str(prefix) + ".fam").write_text("fam iid 0 0 0 -9\n", encoding="utf-8")
         lines = []
         for row in rows:

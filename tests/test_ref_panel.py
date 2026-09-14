@@ -245,7 +245,7 @@ class PlinkRefPanelTest(unittest.TestCase):
     def test_duplicate_rsid_raises(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             prefix = Path(tmpdir) / "dup"
-            prefix.with_suffix(".bed").write_bytes(b"")
+            prefix.with_suffix(".bed").write_bytes(b"\x6c\x1b\x01\x02\x02")
             prefix.with_suffix(".fam").write_text("fam iid 0 0 0 -9\n", encoding="utf-8")
             prefix.with_suffix(".bim").write_text(
                 "1 rs_dup 0.0 10 A G\n"
@@ -256,7 +256,7 @@ class PlinkRefPanelTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="rsid"),
                 RefPanelConfig(backend="plink", plink_prefix=str(prefix)),
             )
-            with self.assertRaises(LDSCInputError):
+            with self.assertRaisesRegex(LDSCInputError, "after duplicate SNP identity cleanup"):
                 panel.load_metadata("1")
 
     def test_global_restriction_applies(self):
@@ -696,7 +696,7 @@ class ParquetRefPanelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             prefix = tmpdir / "panel.1"
-            (tmpdir / "panel.1.bed").write_text("", encoding="utf-8")
+            (tmpdir / "panel.1.bed").write_bytes(b"\x6c\x1b\x01\x02")
             (tmpdir / "panel.1.bim").write_text(
                 "1 rs1 0.1 10 A G\n",
                 encoding="utf-8",

@@ -10,7 +10,7 @@ avoid ambiguous inputs.
 
 ## Supported Path Forms
 
-Public input tokens support exactly three forms:
+Public input file tokens support three forms (PLINK prefixes have the additional forms described below):
 
 - Exact path
   Example: `annotations/baseline.1.annot.gz`
@@ -21,7 +21,7 @@ Public input tokens support exactly three forms:
 
 Not supported:
 
-- Bare prefixes without `@`
+- Bare prefixes without `@` for ordinary file inputs (PLINK is an exception)
   Example: `annotations/baseline.`
 - Automatic suffix guessing
   Example: `annotations/baseline.@` when the real files are `.annot.gz`
@@ -44,6 +44,18 @@ Output paths are different:
   replace those fixed files; for coherent result-directory workflows, a
   successful overwrite also removes stale owned siblings that the current run
   did not produce
+
+### PLINK prefix resolution
+
+PLINK is an exception to the file-token rule against bare prefixes. `ldscore`, `build-gene-ldscore-index`, `build-r2-panel`, and direct Python PLINK panels use the shared `path_resolution.inspect_plink_inputs()` implementation.
+
+- Accept an exact prefix (`panel.22`), a member path (`panel.22.bim`), a plain stem (`1000G.EUR.QC.`), a glob (`"panel.*"`), or an explicit `@` pattern (`"panel.@"`). Only `.bed`, `.bim`, and `.fam` are stripped as PLINK member extensions; `.22` remains part of a prefix.
+- An exact selected prefix takes precedence over broader stem discovery. Otherwise a plain stem discovers matching PLINK members; a glob selects its actual matches. Every selected prefix must have a complete BED/BIM/FAM trio. Partially present trios are reported rather than silently omitted.
+- Validated BIM `CHR` values establish chromosome identity. Filenames do not select chromosomes. A multi-chromosome trio can supply several chromosomes; different trios containing the same chromosome fail as ambiguous. An explicit `@` member must contain its declared chromosome only.
+- Validation batches missing-member, malformed-trio, and chromosome-conflict issues before computation. BED header/size checks detect truncated or mismatched inputs. Workflows reuse the resulting chromosome-to-prefix mapping; workers do not reinterpret the original token.
+- Coverage remains workflow-specific. Direct query LD-score `@` declarations require autosomes 1-22; plain/glob inputs select their actual validated scope and must match baseline coverage. Gene-index construction always requires autosomes 1-22. Generic group expansion and `build-r2-panel` retain existing `@` members, while rejecting incomplete selected trios.
+
+[`inspect_plink_inputs()`](../../src/ldsc/path_resolution.py) returns prefixes, chromosome assignments, and issue records. `require_valid()` raises a combined error, optionally including missing required chromosomes. `resolve_plink_prefix_group()` retains the path-only group interface when no chromosome is requested; per-chromosome resolution uses the shared content validation. The direct workflow combines these issues with its annotation diagnostics. Failed gene-index attempts retain `plink_input_issues.tsv` under `.<output-name>.build-state/`; a later attempt archives that audit alongside the prior log. Failed `build-r2-panel` validation writes `diagnostics/plink_input_issues.tsv`.
 
 ### Pattern support in command help
 
@@ -362,9 +374,8 @@ PLINK prefix input:
 How they are handled:
 
 - group-style inputs may resolve to many files
-- per chromosome, the workflow first tries filename-based filtering and then
-  falls back to row-level `CHR` filtering
-- `plink_prefix` must resolve to exactly one PLINK prefix per chromosome pass
+- PLINK chromosome assignments come from validated BIM contents and are reused for every chromosome pass
+- `plink_prefix` must assign each requested chromosome to exactly one complete trio
 
 Requirements:
 
@@ -421,7 +432,7 @@ Relevant APIs:
 
 Accepted path forms:
 
-- `plink_prefix`: exact PLINK prefix, plain chromosome-suite stem, PLINK-prefix glob, or explicit `@` suite token. A plain stem such as `panel_chr` discovers chromosome-coded complete trios such as `panel_chr1.{bed,bim,fam}`
+- `plink_prefix`: exact PLINK prefix, plain chromosome-suite stem, PLINK-prefix glob, or explicit `@` suite token. A plain stem such as `panel_chr` discovers matching trios such as `panel_chr1.{bed,bim,fam}`; BIM contents establish chromosome identity
 - genetic-map inputs, when provided: exact files, globs, or `@` chromosome suites; liftover-chain inputs require exact paths
 - `ref_panel_snps_file`, when provided: scalar file-like token interpreted
   using `GlobalConfig.snp_identifier`; restriction files may omit alleles and
@@ -622,7 +633,7 @@ These are the main cases where users can get confused or introduce bugs.
 
 - Prefer explicit `@` suite tokens for chromosome-sharded inputs
 - Prefer globs only when you really mean “all matching files”
-- Keep chromosome labels visible in filenames if you want predictable per-chromosome file selection
+- For PLINK, verify BIM chromosome contents; filenames do not determine chromosome selection
 - Use exact paths or exact-one globs for scalar inputs
 - Use one dedicated output directory per reproducible run, and use
   `--overwrite` / `overwrite=True` only when replacing that run is intentional

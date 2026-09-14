@@ -380,7 +380,9 @@ Public workflow APIs accept normalized string tokens for inputs:
 - exact paths
 - Python glob patterns such as `annotations/*.annot.gz`
 - explicit chromosome suites using `@`, for example `baseline.@`
-- PLINK prefix tokens for reference-panel inputs, such as `panel_chr@`
+- PLINK exact prefixes/member paths, plain suite stems such as `1000G.EUR.QC.`, globs, and `@` patterns
+
+PLINK inputs share one discovery and validation implementation across `ldscore`, `build-gene-ldscore-index`, and `build-r2-panel`. Chromosomes come from BIM contents; a numeric suffix such as `.22` is preserved as part of the prefix. Selected trios must be complete, and different trios cannot claim the same chromosome. See [PLINK resolution](docs/current/path-specification.md#plink-prefix-resolution).
 
 Inputs are resolved before the internal kernel runs. Public outputs use fixed
 filenames inside the selected `output_dir`.

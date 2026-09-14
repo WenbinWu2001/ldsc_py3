@@ -83,7 +83,7 @@ from .gene_list_resolver import (
     select_index_eligible_gene_indices,
 )
 from .hm3 import packaged_hm3_curated_map_path
-from .path_resolution import split_cli_path_tokens
+from .path_resolution import inspect_plink_inputs, split_cli_path_tokens
 
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
@@ -594,6 +594,15 @@ def _run_gene_ldscore_index_build(
         else kernel_regions.load_preset_intervals(regression_presets, config.genome_build)
     )
     genetic_map = _load_builder_genetic_map(args)
+    plink = inspect_plink_inputs(config.plink_prefix, chromosomes=chromosomes, require_complete_suite=True)
+    issues_path = _gene_index_build_state_dir(Path(config.output_dir)) / "plink_input_issues.tsv"
+    try:
+        plink.require_valid(required_chromosomes=chromosomes)
+    except LDSCInputError:
+        pd.DataFrame(plink.issues).to_csv(issues_path, sep="\t", index=False)
+        LOGGER.error("PLINK input validation failed; complete repair audit: %s", issues_path)
+        raise
+    chromosome_prefixes = plink.chromosome_prefixes
 
     with AnnotationWorkspace(stage_parent) as workspace:
         paths, declared, issues = resolve_annotation_inputs(config.baseline_annot_sources)
@@ -621,7 +630,7 @@ def _run_gene_ldscore_index_build(
                 if metadata.empty:
                     raise LDSCInputError(f"No baseline annotation rows were found for chromosome {chrom}.")
                 kernel_args = argparse.Namespace(
-                    bfile=config.plink_prefix,
+                    bfile=chromosome_prefixes[chrom],
                     keep=config.keep_indivs_file,
                     maf_min=config.maf_min,
                     maf=None,
@@ -635,9 +644,7 @@ def _run_gene_ldscore_index_build(
                     common_maf_min=config.common_maf_min,
                     genetic_map=genetic_map,
                 )
-                prefix = kernel_ldscore.resolve_bfile_prefix(kernel_args, chrom=chrom)
-                if prefix is None:
-                    raise LDSCInputError(f"Could not resolve PLINK prefix for chromosome {chrom}.")
+                prefix = chromosome_prefixes[chrom]
                 bim_rows = _read_bim_identity(prefix)
                 phase = "baseline/PLINK identifier intersection"
                 intersection = intersect_baseline_plink_by_identifier(
@@ -671,6 +678,7 @@ def _run_gene_ldscore_index_build(
                     chrom,
                     kernel_bundle,
                     kernel_args,
+                    chromosome_prefixes=chromosome_prefixes,
                     regression_keys=regression_keys,
                     regression_regions=regression_regions,
                     gene_intervals=intervals,
@@ -803,6 +811,7 @@ def _run_gene_ldscore_index_build(
         genetic_map,
         catalog,
         evidence_by_chrom,
+        chromosome_prefixes,
     )
     index_path = Path(config.output_dir)
     index_id = calculate_index_id(index_identity)
@@ -1145,6 +1154,12 @@ def _prepare_gene_index_log(index_path: Path) -> Path:
         history = build_state / "history"
         history.mkdir(exist_ok=True)
         _archive_gene_index_log(log_path, history)
+    plink_issues = build_state / "plink_input_issues.tsv"
+    if plink_issues.exists():
+        history = build_state / "history"
+        history.mkdir(exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        os.replace(plink_issues, history / f"plink_input_issues.{timestamp}.tsv")
     issues_path = build_state / "gene_coordinate_catalog_issues.tsv.gz"
     if issues_path.exists():
         history = build_state / "history"
@@ -1431,13 +1446,13 @@ def _builder_index_identity(
     genetic_map: pd.DataFrame | None,
     catalog: GeneCatalog,
     evidence_by_chrom: dict[str, dict],
+    chromosome_prefixes: dict[str, str],
 ) -> dict:
     """Build the path-insensitive canonical scientific identity."""
     plink_files = []
     first_prefix = None
     for chrom in chromosomes:
-        kernel_args = argparse.Namespace(bfile=config.plink_prefix)
-        prefix = kernel_ldscore.resolve_bfile_prefix(kernel_args, chrom=chrom)
+        prefix = chromosome_prefixes[chrom]
         if first_prefix is None:
             first_prefix = prefix
         plink_files.extend(
@@ -2160,8 +2175,16 @@ def build_plink_index_chromosome(
     included: np.ndarray,
     padding_bp: int,
     atom_batch_size: int,
+    chromosome_prefixes: dict[str, str] | None = None,
 ) -> IndexChromosomeData:
-    """Construct exact common and atom payloads from one prepared PLINK chromosome."""
+    """Construct exact common and atom payloads from one PLINK chromosome.
+
+    ``chromosome_prefixes`` is the optional workflow-validated mapping from
+    normalized BIM chromosome labels to complete prefixes. Supplying it avoids
+    resolving ``args.bfile`` again; direct callers may omit it to use the same
+    content validation lazily through ``PlinkRefPanel``. Genotype alignment,
+    windowing, regression rows, and atom projection are unchanged.
+    """
     from .config import LDScoreConfig, RefPanelConfig
     from ._kernel.ref_panel import PlinkRefPanel
 
@@ -2170,8 +2193,9 @@ def build_plink_index_chromosome(
         global_options["genome_build"] = args.genome_build
     panel = PlinkRefPanel(
         GlobalConfig(**global_options),
-        RefPanelConfig(backend="plink", plink_prefix=kernel_ldscore.resolve_bfile_prefix(args, chrom),
+        RefPanelConfig(backend="plink", plink_prefix=args.bfile,
                        keep_indivs_file=getattr(args, "keep", None), maf_min=getattr(args, "maf_min", None)),
+        chromosome_prefixes=chromosome_prefixes,
     )
     config = LDScoreConfig(
         ld_wind_snps=args.ld_wind_snps, ld_wind_kb=args.ld_wind_kb, ld_wind_cm=args.ld_wind_cm,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from tests.ref_panel_helpers import prepare_plink, compute_plink
+from tests.test_path_resolution import _write_plink_trio
 
 from argparse import Namespace
 from dataclasses import replace
@@ -249,7 +250,8 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
     monkeypatch.setattr(
         gene_ldscore_index,
         "_read_bim_identity",
-        lambda prefix: identity_rows.assign(CHR=str(prefix), SNP=[f"rs{prefix}1", f"rs{prefix}2"]),
+        lambda prefix: identity_rows.assign(CHR=str(prefix).rsplit(".", 1)[-1],
+            SNP=[f"rs{str(prefix).rsplit('.', 1)[-1]}{i}" for i in (1, 2)]),
     )
     monkeypatch.setattr(
         gene_ldscore_index,
@@ -260,15 +262,12 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
             "catalog": gene_ldscore_index._catalog_identity_records(embedded_catalog),
         },
     )
-    monkeypatch.setattr(
-        gene_ldscore_index.kernel_ldscore,
-        "resolve_bfile_prefix",
-        lambda *args, chrom, **kwargs: chrom,
-    )
+    for chrom in ("1", "2"):
+        _write_plink_trio(tmp_path / f"reference.{chrom}", [chrom])
     output = tmp_path / "index"
     args = Namespace(
         baseline_annot_sources=str(baseline_path),
-        plink_prefix="reference.@",
+        plink_prefix=str(tmp_path / "reference.@"),
         output_dir=str(output),
         genome_build="hg19",
         snp_identifier="rsid",
@@ -1011,11 +1010,11 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     monkeypatch.setattr(gene_ldscore_index, "_read_bim_identity", lambda _prefix: identity_rows.copy())
     monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", lambda *args, **kwargs: chromosome)
     monkeypatch.setattr(gene_ldscore_index, "_builder_index_identity", lambda *args, **kwargs: index_identity)
-    monkeypatch.setattr(gene_ldscore_index.kernel_ldscore, "resolve_bfile_prefix", lambda *args, **kwargs: "fixture")
+    _write_plink_trio(tmp_path / "1000G.EUR.QC.22", ["22"])
 
     args = Namespace(
         baseline_annot_sources=str(baseline_path),
-        plink_prefix="reference/1000G.EUR.QC.22",
+        plink_prefix=str(tmp_path / "1000G.EUR.QC."),
         output_dir=str(tmp_path / "suite"),
         genome_build="hg19",
         snp_identifier="rsid",
@@ -1177,7 +1176,7 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
     monkeypatch.setattr(gene_ldscore_index, "read_snp_restriction_keys", lambda *args, **kwargs: {"rs1"})
     monkeypatch.setattr(gene_ldscore_index.kernel_regions, "load_preset_intervals", lambda *args: None)
     monkeypatch.setattr(gene_ldscore_index, "_read_bim_identity", lambda _prefix: identity_rows.copy())
-    monkeypatch.setattr(gene_ldscore_index.kernel_ldscore, "resolve_bfile_prefix", lambda *args, **kwargs: "fixture")
+    _write_plink_trio(tmp_path / "1000G.EUR.QC.22", ["22"])
 
     original_intersection = gene_ldscore_index.intersect_baseline_plink_by_identifier
 
@@ -1187,7 +1186,7 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
     monkeypatch.setattr(gene_ldscore_index, "intersect_baseline_plink_by_identifier", fail_intersection)
     args = Namespace(
         baseline_annot_sources=str(baseline_path),
-        plink_prefix="reference/1000G.EUR.QC.22",
+        plink_prefix=str(tmp_path / "1000G.EUR.QC."),
         output_dir=str(tmp_path / "suite"),
         genome_build="hg19",
         snp_identifier="rsid",

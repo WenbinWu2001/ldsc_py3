@@ -34,6 +34,8 @@ sumstats text onto the already-loaded canonical panel and owns the resulting
 drop audit. Neither compatibility path adds a legacy reader or writer to
 `_kernel`.
 
+PLINK discovery and chromosome assignment live in `path_resolution.inspect_plink_inputs()`. It uses the low-level BIM/FAM readers for structural inspection, returns combined issue records, and supplies concrete chromosome-prefix mappings to direct LD-score preflight, gene-index construction, and R²-panel construction. `PlinkRefPanel` consumes a supplied mapping or resolves it lazily once for direct Python use. The kernel no longer owns a PLINK path-token wrapper.
+
 ## Layer Matrix
 
 | Layer | Shared CLI, config, path, and schema contracts | Annotation building | Reference-panel building and loading | LD-score calculation | Summary-statistics munging | Regression | Output and persistence |

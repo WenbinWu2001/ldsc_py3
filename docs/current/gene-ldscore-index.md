@@ -42,6 +42,8 @@ The example above explicitly builds a non-default 100 kb index, which is why
 both its destination name and command record `100kb`/`100000`. Omit the flag
 for the default unpadded index.
 
+PLINK prefixes use the [shared content-based resolver](path-specification.md#plink-prefix-resolution). A plain stem such as `1000G.EUR.QC.` is sufficient; `@` is optional. The builder validates all selected trios and requires chromosomes 1-22 before annotation preparation and genotype computation. Failed PLINK validation writes a complete `plink_input_issues.tsv` repair audit under `.<output-name>.build-state/`, alongside the live build log.
+
 The builder is hg19/PLINK-only and supports the base `rsid` and `chr_pos`
 identity modes. Both `--genome-build hg19` and `--snp-identifier` are required;
 there is no default, `auto`, inference, or liftover. The default persisted regression/output

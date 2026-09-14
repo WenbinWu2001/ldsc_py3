@@ -545,11 +545,15 @@ class LDScoreCalculator:
         Returns outcomes keyed by chromosome. ``worker_count == 1`` runs inline
         on this calculator and the passed ``ref_panel`` (the exact pre-parallel
         path); larger counts fan out over a spawn ``ProcessPoolExecutor`` whose
-        workers rebuild the panel from ``ref_panel.spec`` because a live reader
+        workers rebuild the panel from ``ref_panel.spec`` and the resolved PLINK
+        chromosome mapping because a live reader
         cannot cross the process boundary. Callers re-order by the original
         chromosome list for deterministic aggregation, so completion order does
         not matter.
         """
+        from ._kernel.ref_panel import PlinkRefPanel
+
+        chromosome_prefixes = ref_panel._resolved_prefixes() if isinstance(ref_panel, PlinkRefPanel) else None
         if worker_count == 1:
             outcomes: dict[str, _ChromOutcome] = {}
             for chrom in chromosomes:
@@ -592,7 +596,7 @@ class LDScoreCalculator:
                     return
                 futures.add(pool.submit(_compute_one_chromosome,chrom,
                     _slice_annotation_bundle(annotation_bundle,chrom),ref_panel_spec,
-                    ldscore_config,global_config,export_dir))
+                    ldscore_config,global_config,export_dir,chromosome_prefixes=chromosome_prefixes))
             for _ in range(worker_count):
                 submit_next()
             try:
@@ -2542,6 +2546,7 @@ def _compute_one_chromosome(
     export_dir: str | None = None,
     regression_snps=_WORKER_UNSET,
     regression_regions=_WORKER_UNSET,
+    chromosome_prefixes=None,
 ) -> _ChromOutcome:
     """Compute one chromosome end-to-end and return a tagged outcome.
 
@@ -2557,7 +2562,9 @@ def _compute_one_chromosome(
         regression_snps = _WORKER_STATE.get("regression_snps")
     if regression_regions == _WORKER_UNSET:
         regression_regions = _WORKER_STATE.get("regression_regions")
-    prefixes = chrom_bundle.source_summary.get('chromosome_scope',{}).get('reference_prefixes_by_chrom')
+    prefixes = chromosome_prefixes
+    if prefixes is None:
+        prefixes = chrom_bundle.source_summary.get('chromosome_scope',{}).get('reference_prefixes_by_chrom')
     if ref_panel_spec.backend == 'plink' and prefixes:
         from ._kernel.ref_panel import PlinkRefPanel
         ref_panel = PlinkRefPanel(global_config,ref_panel_spec,chromosome_prefixes=prefixes)

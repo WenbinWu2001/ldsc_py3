@@ -18,8 +18,8 @@ from ._annotation_parsing import normalize_annotation_chunk
 from .chromosome_inference import normalize_chromosome
 from .config import RefPanelConfig
 from .errors import LDSCInputError, LDSCUserError
-from .path_resolution import normalize_path_token, split_cli_path_tokens
-from ._kernel import formats as parse, regions
+from .path_resolution import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
+from ._kernel import regions
 from ._kernel.ref_panel import RefPanelLoader, _read_metadata_table, _resolve_r2_build_dir
 
 
@@ -64,21 +64,14 @@ def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_s
                            reason=reason, details=str(details),
                            repair="Supply valid, matching baseline/reference artifacts for the declared scope. " + SCOPE_REPAIR))
 
-    def files(tokens, role, *, plink=False):
+    def files(tokens, role):
         selected = []
         for raw in split_cli_path_tokens(tokens):
             token = normalize_path_token(raw)
             declarations.append(token)
             expanded = [(token.replace("@", chrom), chrom) for chrom in AUTOSOMES] if "@" in token else [(token, "")]
             for pattern, chrom in expanded:
-                if plink:
-                    if pattern.endswith((".bed", ".bim", ".fam")):
-                        pattern = pattern[:-4]
-                    matches = sorted({path[:-4] for suffix in (".bed", ".bim", ".fam") for path in glob.glob(pattern + suffix)})
-                    if not matches and not glob.has_magic(pattern) and "@" not in token:
-                        matches = sorted({path[:-4] for suffix in (".bed", ".bim", ".fam") for path in glob.glob(pattern + "*" + suffix)})
-                else:
-                    matches = sorted(glob.glob(pattern)) if glob.has_magic(pattern) else ([pattern] if Path(pattern).is_file() else [])
+                matches = sorted(glob.glob(pattern)) if glob.has_magic(pattern) else ([pattern] if Path(pattern).is_file() else [])
                 if not matches:
                     issue(role, pattern, chrom, "missing_required_input", "No selected input exists.")
                 selected.extend((path, chrom) for path in matches)
@@ -156,38 +149,15 @@ def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_s
             except (OSError, EOFError, ValueError, LDSCUserError) as exc:
                 issue("reference", r2_dir, chrom, "invalid_required_input", exc)
     else:
-        for prefix, declared_chrom in files(getattr(args, "plink_prefix", None), "reference", plink=True):
-            member_errors = False
-            for suffix in (".bed", ".bim", ".fam"):
-                if not Path(prefix + suffix).is_file():
-                    issue("reference", prefix + suffix, declared_chrom, "missing_required_input", "PLINK requires the complete BED/BIM/FAM trio.")
-                    member_errors = True
-            if member_errors:
-                continue
-            try:
-                bim, fam = parse.PlinkBIMFile(prefix + ".bim"), parse.PlinkFAMFile(prefix + ".fam")
-                chroms = set(bim.df.CHR.map(normalize_chromosome))
-                if not chroms or not chroms <= set(AUTOSOMES) or len(fam.IDList) == 0:
-                    raise LDSCInputError("PLINK contents must identify autosomal SNPs and at least one sample.")
-                if declared_chrom and chroms != {declared_chrom}:
-                    raise LDSCInputError(f"@ PLINK member for chromosome {declared_chrom} contains chromosomes {sorted(chroms, key=int)}.")
-                if (pd.to_numeric(bim.df.BP, errors="raise") <= 0).any():
-                    raise LDSCInputError("PLINK positions must be positive.")
-                with open(prefix + ".bed", "rb") as bed:
-                    if bed.read(3) != b"\x6c\x1b\x01":
-                        raise LDSCInputError("Invalid PLINK BED magic number or unsupported non-SNP-major format.")
-                    bed.seek(0, 2)
-                    if bed.tell() != 3 + len(bim.IDList) * ((len(fam.IDList) + 3) // 4):
-                        raise LDSCInputError("PLINK BED size disagrees with BIM/FAM; truncated or mismatched trio.")
-                for chrom in chroms:
-                    if chrom in reference_prefixes and reference_prefixes[chrom] != prefix:
-                        issue("reference", prefix, chrom, "ambiguous_chromosome_input",
-                              f"Multiple PLINK trios contain chromosome {chrom}: {reference_prefixes[chrom]} and {prefix}. Select one complete trio per chromosome.")
-                    else:
-                        reference_prefixes[chrom] = prefix
-                sets["reference"].update(chroms)
-            except (OSError, EOFError, ValueError, LDSCUserError) as exc:
-                issue("reference", prefix, declared_chrom, "invalid_required_input", exc)
+        plink_tokens = split_cli_path_tokens(getattr(args, "plink_prefix", None))
+        declarations.extend(plink_tokens)
+        plink = inspect_plink_inputs(plink_tokens, chromosomes=AUTOSOMES, require_complete_suite=True)
+        issues.extend(plink.issues)
+        reference_prefixes = plink.chromosome_prefixes
+        sets["reference"].update(chrom for chrom in reference_prefixes if chrom in AUTOSOMES)
+        for chrom, prefix in reference_prefixes.items():
+            if chrom not in AUTOSOMES:
+                issue("reference", prefix, chrom, "invalid_required_input", "PLINK contents must identify autosomal SNPs.")
 
     requires_all = any("@" in token for token in declarations)
     if sets["baseline"] != sets["reference"] or (requires_all and sets["baseline"] != set(AUTOSOMES)):

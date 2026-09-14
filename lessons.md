@@ -180,3 +180,7 @@ Last updated on: 2026-09-14
 ## NumPy raw staging needs contiguous row tiles
 
 - Summary/root cause/correction: Replacing numeric pickles with raw staging initially slowed wide annotation scans because `ndarray.tofile()` wrote pandas' column-major blocks element by element; convert each bounded tile with `np.ascontiguousarray()` before writing and benchmark scan time separately from downstream reads.
+
+## PLINK filename parsing must be shared across workflows
+
+- Summary/root cause/correction: Dotted chromosome prefixes failed in gene-index construction while direct LD scores worked because filename-based discovery stripped `.22` with `Path.stem` and a separate preflight had already switched to BIM contents; centralize PLINK discovery, trio validation, and chromosome assignment, pass resolved mappings to workers, and test equivalent token forms through both numerical workflows.

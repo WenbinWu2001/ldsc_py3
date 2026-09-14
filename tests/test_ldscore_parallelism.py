@@ -332,7 +332,7 @@ def test_scheduler_bounds_submitted_work_by_workers(monkeypatch):
             return self
         def __exit__(self, *args):
             pass
-        def submit(self, function, chrom, *args):
+        def submit(self, function, chrom, *args, **kwargs):
             nonlocal active,peak
             active += 1
             peak = max(peak,active)

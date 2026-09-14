@@ -68,7 +68,7 @@ from ._kernel.snp_identity import (
 from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
 from ._coordinates import normalize_chr_pos_frame
 from .genome_build_inference import resolve_genome_build, resolve_genome_build_from_chr_pos_frames
-from .path_resolution import ensure_output_directory, preflight_output_artifact_family, remove_output_artifacts, resolve_file_group, resolve_plink_prefix_group, resolve_scalar_path
+from .path_resolution import ensure_output_directory, preflight_output_artifact_family, remove_output_artifacts, resolve_file_group, inspect_plink_inputs, resolve_scalar_path
 from ._logging import (
     configure_package_logging,
     log_inputs,
@@ -411,24 +411,21 @@ class ReferencePanelBuilder:
         print_global_config_banner(type(self).__name__, self.global_config)
         self._configure_logging()
         output_dir = ensure_output_directory(config.output_dir, label="output directory")
-        resolved_prefixes = resolve_plink_prefix_group((config.plink_prefix,), allow_chromosome_suite=True)
+        plink = inspect_plink_inputs(config.plink_prefix)
+        issues_path = output_dir / "diagnostics" / "plink_input_issues.tsv"
+        try:
+            plink.require_valid()
+        except LDSCInputError:
+            issues_path.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(plink.issues).to_csv(issues_path, sep="\t", index=False)
+            LOGGER.error("PLINK input validation failed; complete repair audit: %s", issues_path)
+            raise
+        resolved_prefixes = plink.prefixes
         config = self._resolve_source_genome_build(config, resolved_prefixes)
         build_state = self._prepare_build_state(config)
         snp_identifier_mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
 
-        chrom_sources: list[tuple[str, str]] = []
-        seen_chromosomes: set[str] = set()
-        for prefix in resolved_prefixes:
-            for chrom in self._discover_prefix_chromosomes(prefix):
-                if chrom in seen_chromosomes:
-                    raise LDSCInputError(
-                        f"build-r2-panel could not assign chromosome {chrom} to one PLINK input: "
-                        "that chromosome is present in multiple resolved PLINK prefixes. Most likely "
-                        "`--plink-prefix` matched overlapping files or mixed a concrete prefix with an "
-                        "`@` chromosome suite. Emit one PLINK source per chromosome and narrow the path token."
-                    )
-                seen_chromosomes.add(chrom)
-                chrom_sources.append((prefix, chrom))
+        chrom_sources = [(prefix, chrom) for chrom, prefix in plink.chromosome_prefixes.items()]
 
         chromosomes = [chrom for _, chrom in chrom_sources]
         workflow_log_path = _resolve_build_ref_panel_log_path(workflow_log_path, config, chrom_sources)
@@ -444,6 +441,7 @@ class ReferencePanelBuilder:
             label="reference-panel output artifact",
         )
         (output_dir / "diagnostics").mkdir(parents=True, exist_ok=True)
+        issues_path.unlink(missing_ok=True)
 
         with workflow_logging("build-r2-panel", workflow_log_path, log_level=self.global_config.log_level):
             log_inputs(
@@ -683,32 +681,6 @@ class ReferencePanelBuilder:
             restriction_keys=restriction_keys,
         )
 
-    def _discover_prefix_chromosomes(self, prefix: str) -> list[str]:
-        """List the normalized chromosomes present in one PLINK prefix."""
-        try:
-            bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
-        except ValueError as exc:
-            if "Usecols do not match columns" in str(exc):
-                raise LDSCInputError(
-                    f"build-r2-panel could not read PLINK BIM file '{prefix}.bim': "
-                    "A1 and A2 allele columns are required. Most likely the BIM file "
-                    "has fewer than six standard PLINK columns. Provide a complete "
-                    ".bim file with CHR/SNP/CM/BP/A1/A2 columns."
-                ) from exc
-            raise
-        normalized, _report = normalize_chr_pos_frame(
-            bim.df,
-            context=f"{prefix}.bim",
-            chr_col="CHR",
-            pos_col="BP",
-            coordinate_policy="drop",
-            logger=LOGGER,
-        )
-        chromosomes = sorted(
-            set(normalized["CHR"]),
-            key=kernel_ldscore.chrom_sort_key,
-        )
-        return chromosomes
 
     def _build_chromosome(
         self,

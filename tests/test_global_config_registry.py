@@ -17,6 +17,7 @@ from ldsc.ldscore_calculator import LDScoreResult
 from ldsc.ref_panel_builder import ReferencePanelBuildConfig, ReferencePanelBuilder
 from ldsc.regression_runner import RegressionRunner
 from ldsc.sumstats_munger import SumstatsTable
+from tests.test_path_resolution import _write_plink_trio
 
 
 def _make_build_config(tmpdir: Path) -> ReferencePanelBuildConfig:
@@ -205,13 +206,12 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = _make_build_config(Path(tmpdir))
             builder = ReferencePanelBuilder()
+            _write_plink_trio(Path(tmpdir) / "panel.1", ["1"])
 
-            with mock.patch("ldsc.ref_panel_builder.resolve_plink_prefix_group", return_value=["panel.1"]), mock.patch.object(
+            with mock.patch.object(
                 builder, "_configure_logging"
             ), mock.patch.object(
                 builder, "_prepare_build_state", return_value=mock.sentinel.state
-            ), mock.patch.object(
-                builder, "_discover_prefix_chromosomes", return_value=["1"]
             ), mock.patch.object(
                 builder,
                 "_build_chromosome",

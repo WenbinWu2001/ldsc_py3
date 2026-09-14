@@ -71,9 +71,6 @@ from ..column_inference import (
 )
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
-from ..path_resolution import (
-    resolve_plink_prefix,
-)
 from .._row_alignment import assert_same_snp_rows
 from . import formats as legacy_parse
 from .annotation import _annotation_parse_error_message, _validate_annotation_values
@@ -359,13 +356,6 @@ def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
     return sort_df.drop(columns="_chrom_key").reset_index(drop=True)
 
 
-
-
-def resolve_bfile_prefix(args: argparse.Namespace, chrom: str | None = None) -> str | None:
-    """Resolve the PLINK prefix for the requested chromosome, if any."""
-    if args.bfile is None:
-        return None
-    return resolve_plink_prefix(args.bfile, chrom=chrom)
 
 
 def read_text_table(path: str) -> pd.DataFrame:

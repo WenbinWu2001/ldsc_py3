@@ -4,6 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
+import pytest
+
 
 
 from ldsc.path_resolution import (
@@ -170,7 +172,11 @@ class PathResolutionTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             for chrom in ("1", "2"):
                 for suffix in (".bed", ".bim", ".fam"):
-                    (tmpdir / f"panel_chr{chrom}{suffix}").write_text("", encoding="utf-8")
+                    (tmpdir / f"panel_chr{chrom}{suffix}").write_bytes({
+                        ".bed": b"\x6c\x1b\x01\x00",
+                        ".bim": f"{chrom} rs{chrom} 0 10 A G\n".encode(),
+                        ".fam": b"F I 0 0 1 -9\n",
+                    }[suffix])
 
             stem = str(tmpdir / "panel_chr")
 
@@ -279,3 +285,88 @@ class PathResolutionTest(unittest.TestCase):
             self.assertIn(str(second), message)
             self.assertIn("--overwrite", message)
             self.assertIn("overwrite=True", message)
+
+
+def test_plain_plink_prefix_uses_bim_chromosomes(tmp_path):
+    from ldsc.path_resolution import resolve_plink_prefix
+
+    # The filename suggests chr1, but the data contain chr22.
+    prefix = tmp_path / "1000G.EUR.QC.1"
+    prefix.with_name(prefix.name + ".bed").write_bytes(b"\x6c\x1b\x01\x00")
+    prefix.with_name(prefix.name + ".bim").write_text("22 rs1 0 10 A G\n")
+    prefix.with_name(prefix.name + ".fam").write_text("F I 0 0 1 -9\n")
+    assert resolve_plink_prefix(str(tmp_path / "1000G.EUR.QC."), chrom="22") == str(prefix)
+
+
+def _write_plink_trio(prefix, chroms):
+    Path(str(prefix) + ".bed").write_bytes(b"\x6c\x1b\x01" + b"\x00" * len(chroms))
+    Path(str(prefix) + ".bim").write_text("".join(f"{chrom} rs{i} 0 {10+i} A G\n" for i, chrom in enumerate(chroms)))
+    Path(str(prefix) + ".fam").write_text("F I 0 0 1 -9\n")
+
+
+@pytest.mark.parametrize("style", ["1000G.EUR.QC.{chrom}", "panel_chr{chrom}"])
+@pytest.mark.parametrize("form", ["plain", "glob", "at", "exact", "bed", "bim", "fam"])
+def test_plink_forms_resolve_identical_chromosome_sources(tmp_path, style, form):
+    from ldsc.path_resolution import inspect_plink_inputs
+
+    expected = {}
+    for chrom in map(str, range(1, 23)):
+        prefix = tmp_path / style.format(chrom=chrom)
+        _write_plink_trio(prefix, [chrom])
+        expected[chrom] = str(prefix)
+    if form in {"plain", "glob", "at"}:
+        token = str(tmp_path / style.format(chrom={"plain": "", "glob": "*", "at": "@"}[form]))
+    else:
+        suffix = "" if form == "exact" else "." + form
+        token = [prefix + suffix for prefix in expected.values()]
+    result = inspect_plink_inputs(token, chromosomes=tuple(map(str, range(1, 23))), require_complete_suite=True)
+    result.require_valid(required_chromosomes=tuple(expected))
+    assert result.chromosome_prefixes == expected
+    assert set(resolve_plink_prefix_group(token, allow_chromosome_suite=True)) == set(expected.values())
+
+
+def test_plink_exact_prefix_precedes_stem_discovery(tmp_path):
+    from ldsc.path_resolution import inspect_plink_inputs
+    _write_plink_trio(tmp_path / "panel", ["22"])
+    _write_plink_trio(tmp_path / "panel.extra", ["22"])
+    result = inspect_plink_inputs(tmp_path / "panel")
+    result.require_valid()
+    assert result.chromosome_prefixes == {"22": str(tmp_path / "panel")}
+
+
+def test_plink_joint_file_and_wrong_requested_chromosome(tmp_path):
+    from ldsc.path_resolution import inspect_plink_inputs
+    prefix = tmp_path / "arbitrary.17"
+    _write_plink_trio(prefix, ["chr1", "22"])
+    result = inspect_plink_inputs(prefix)
+    result.require_valid()
+    assert result.chromosome_prefixes == {"1": str(prefix), "22": str(prefix)}
+    with pytest.raises(LDSCInputError, match="No validated PLINK trio contains chromosome 17"):
+        resolve_plink_prefix(prefix, chrom="17")
+
+
+def test_plink_reports_all_incomplete_and_conflicting_sources(tmp_path):
+    from ldsc.path_resolution import inspect_plink_inputs
+    for name in ("panel.a", "panel.b", "panel.c", "panel.d"):
+        _write_plink_trio(tmp_path / name, ["22"])
+    (tmp_path / "panel.c.bed").unlink()
+    (tmp_path / "panel.d.fam").unlink()
+    result = inspect_plink_inputs(tmp_path / "panel.")
+    assert {row["reason"] for row in result.issues} == {"missing_required_input", "ambiguous_chromosome_input"}
+    with pytest.raises(LDSCInputError) as caught:
+        result.require_valid()
+    assert all(name in str(caught.value) for name in ("panel.a", "panel.b", "panel.c.bed", "panel.d.fam"))
+    with pytest.raises(LDSCInputError, match="panel.c.bed"):
+        resolve_plink_prefix_group(tmp_path / "panel.", allow_chromosome_suite=True)
+
+
+def test_plink_at_declares_content_and_workflow_completeness(tmp_path):
+    from ldsc.path_resolution import inspect_plink_inputs
+    _write_plink_trio(tmp_path / "panel.22", ["22"])
+    token = tmp_path / "panel.@"
+    inspect_plink_inputs(token).require_valid()
+    full = inspect_plink_inputs(token, chromosomes=tuple(map(str, range(1, 23))), require_complete_suite=True)
+    assert [row["chrom"] for row in full.issues] == list(map(str, range(1, 22)))
+    _write_plink_trio(tmp_path / "panel.22", ["1"])
+    with pytest.raises(LDSCInputError, match="contains chromosomes.*1"):
+        inspect_plink_inputs(token).require_valid()

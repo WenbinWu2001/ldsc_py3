@@ -1,6 +1,6 @@
 # Build an R² Panel from PLINK
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 `ldsc build-r2-panel` computes pairwise, bias-adjusted R² from PLINK genotypes and writes reusable chromosome tables plus SNP metadata. Use these outputs with `ldsc ldscore` to aggregate LD scores, or with `ldsc query-r2` to inspect particular SNP pairs. The current command has no `build-ref-panel` alias.
 
@@ -21,6 +21,8 @@ The same arguments work with `python -m ldsc build-r2-panel`. Use a new output d
 For your own data, provide the prefix of a complete `.bed`, `.bim`, `.fam` trio. A quoted chromosome stem, `@` pattern, or ordinary glob can resolve multiple trios; see the [path rules](../docs/current/path-specification.md). The builder processes the resolved chromosomes sequentially. Separate chromosome invocations can share an output root because their diagnostics are scoped by chromosome.
 
 ## Choose the SNP universe and LD window
+
+The `--plink-prefix` argument also accepts a plain stem such as `reference/1000G.EUR.QC.`. Its shared resolver discovers selected BED/BIM/FAM trios and reads BIM chromosomes; numeric filename suffixes remain intact and `@` is optional. Missing trio members, malformed contents, and conflicting chromosome sources fail together, with an audit in `diagnostics/plink_input_issues.tsv`. See the [shared PLINK resolution contract](../docs/current/path-specification.md#plink-prefix-resolution).
 
 By default, all otherwise eligible reference SNPs contribute. PLINK filtering removes unusable variants; explicit `--maf-min`, `--ref-panel-snps-file`, and `--keep-indivs-file` further restrict variants or individuals. In coordinate modes, duplicate-coordinate groups are dropped using the fixed `drop-all` policy. There is no duplicate-position-policy CLI switch.
 

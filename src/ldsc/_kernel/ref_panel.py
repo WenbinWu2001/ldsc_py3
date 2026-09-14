@@ -34,7 +34,7 @@ from ..column_inference import (
 from ..config import GlobalConfig, LDScoreConfig, RefPanelConfig, validate_config_compatibility
 from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCUsageError
 from ..genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
-from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group, split_cli_path_tokens
+from ..path_resolution import inspect_plink_inputs, split_cli_path_tokens
 from . import formats as legacy_parse
 from . import ldscore as kernel_ldscore
 from .ldscore_projection import MappedAnnotations
@@ -338,7 +338,8 @@ class PlinkRefPanel(RefPanel):
 
     ``chromosome_prefixes`` optionally binds normalized chromosome labels to
     complete PLINK prefixes validated by the calling workflow. This bypasses
-    filename-based routing for content-authoritative query input globs.
+    repeated discovery for workflow-validated inputs. Direct Python use resolves
+    and caches the same mapping lazily from BIM contents.
     """
 
     def __init__(self, global_config: GlobalConfig, spec: RefPanelConfig, *,
@@ -349,17 +350,19 @@ class PlinkRefPanel(RefPanel):
 
     def available_chromosomes(self) -> list[str]:
         """List normalized chromosomes present in the resolved PLINK inputs."""
-        chromosomes = set()
-        for prefix in self._bim_prefixes(None):
-            with pd.read_csv(prefix + ".bim", sep=r"\s+", header=None, usecols=[0], chunksize=65536) as reader:
-                for chunk in reader:
-                    chromosomes.update(chunk.iloc[:,0].map(normalize_chromosome))
-        return sorted(chromosomes, key=_chrom_sort_key)
+        return sorted(self._resolved_prefixes(), key=_chrom_sort_key)
+
+    def _resolved_prefixes(self):
+        """Cache workflow resolution once for direct Python panel use."""
+        if self._chromosome_prefixes is None:
+            plink = inspect_plink_inputs(self.spec.plink_prefix)
+            plink.require_valid()
+            self._chromosome_prefixes = plink.chromosome_prefixes
+        return self._chromosome_prefixes
 
     def _load_source(self, chrom: str):
         """Resolve physical BED rows and apply panel identity/SNP restrictions once."""
-        prefix = (self._chromosome_prefixes[normalize_chromosome(chrom)] if self._chromosome_prefixes is not None
-                  else resolve_plink_prefix(self.spec.plink_prefix, chrom=chrom))
+        prefix = self._bim_prefixes(chrom)[0]
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
         metadata = bim.df.rename(columns={"BP": "POS"}).copy()
@@ -484,20 +487,13 @@ class PlinkRefPanel(RefPanel):
 
     def _bim_prefixes(self, chrom: str | None) -> list[str]:
         """Resolve source prefixes without retaining BIM tables."""
-        if self._chromosome_prefixes is not None:
-            prefixes = ([self._chromosome_prefixes[normalize_chromosome(chrom)]] if chrom is not None
-                        else list(dict.fromkeys(self._chromosome_prefixes.values())))
-        else:
-            prefixes = ([] if self.spec.plink_prefix is None else resolve_plink_prefix_group(
-                (self.spec.plink_prefix,), chrom=chrom, allow_chromosome_suite=(chrom is None),
-            ))
-        if not prefixes:
-            raise LDSCUsageError(
-                "PLINK reference-panel loading requires a PLINK prefix. Most likely "
-                "`RefPanelConfig(backend='plink')` was used without `plink_prefix` or "
-                "the prefix token resolved to no files. Pass a valid PLINK prefix."
-            )
-        return prefixes
+        prefixes = self._resolved_prefixes()
+        if chrom is None:
+            return list(dict.fromkeys(prefixes.values()))
+        chrom = normalize_chromosome(chrom)
+        if chrom not in prefixes:
+            raise LDSCInputError(f"No validated PLINK trio contains chromosome {chrom}.")
+        return [prefixes[chrom]]
 
 
 class ParquetR2RefPanel(RefPanel):
@@ -898,7 +894,9 @@ def _infer_plink_ref_panel_build(ref_panel_spec: RefPanelConfig) -> str | None:
     """Infer reference-panel build from PLINK BIM coordinates."""
     if ref_panel_spec.plink_prefix is None:
         return None
-    prefixes = resolve_plink_prefix_group((ref_panel_spec.plink_prefix,), allow_chromosome_suite=True)
+    plink = inspect_plink_inputs(ref_panel_spec.plink_prefix)
+    plink.require_valid()
+    prefixes = plink.prefixes
     frames: list[pd.DataFrame] = []
     for prefix in prefixes:
         frame = pd.read_csv(

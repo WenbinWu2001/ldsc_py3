@@ -19,6 +19,8 @@ Quote CLI glob patterns so the package receives them intact. Users own glob sele
 
 The examples below assume chromosome-pattern annotation inputs such as `annotations/baseline.1.annot.gz` and a package-built R2 directory such as `r2_ref_panel_1kg30x_1cM_hm3/hg38`. Canonical Parquet files have exactly four columns: `IDX_1`, `IDX_2`, `R2`, and `SIGN_R`. The endpoint indices reference rows in the required `chr*_meta.tsv.gz` sidecar, which supplies SNP identities, alleles, `MAF`, and `CM`. Schema metadata binds the pair table to that sidecar. External raw R2 and the older identity-expanded format are unsupported; use `build-r2-panel` to construct a canonical panel. See the [format and read pipeline](../docs/current/parquet-r2-format-and-read-pipeline.md).
 
+PLINK plain prefixes such as `reference/1000G.EUR.QC.` work in both `ldscore` and `build-gene-ldscore-index`; no `@` is required. The shared resolver checks complete trios and reads BIM chromosome values, including for filenames ending in `.1` through `.22`. Gene-index construction still requires all autosomes. See [PLINK resolution and coverage](../docs/current/path-specification.md#plink-prefix-resolution).
+
 Input-token rules used below:
 
 - exact path: one concrete file

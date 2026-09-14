@@ -33,6 +33,7 @@ import warnings
 from ._kernel.snp_identity import identity_mode_family, normalize_snp_identifier_mode
 from .column_inference import normalize_genome_build
 from .errors import LDSCConfigError
+from ._parallelism import _validate_threads
 from .path_resolution import normalize_optional_path_token, normalize_path_token, normalize_path_tokens
 
 LOGGER = logging.getLogger("LDSC.config")
@@ -527,9 +528,10 @@ class LDScoreConfig:
         machine, using the scikit-learn/joblib ``n_jobs`` convention: ``1``
         (default) runs sequentially in-process; ``-1`` uses all available cores;
         ``-2`` uses all but one; any other negative ``-k`` uses
-        ``max(1, n_cpus + 1 - k)``. Core counts respect CPU affinity (SLURM/cgroup
-        allocations), not the raw machine size. The effective count is capped at
-        the chromosome count, and ``0`` is rejected. Numerical results agree
+        ``max(1, n_cpus + 1 - k)``. Available core counts prefer CPU affinity,
+        falling back to the machine CPU count. The effective count is capped at
+        the chromosome count; an effective count of one runs inline.
+        Zero, booleans, and non-integer values are rejected. Numerical results agree
         within the existing tolerances regardless of this value.
     """
     ld_wind_snps: int | None = None
@@ -560,13 +562,7 @@ class LDScoreConfig:
             raise LDSCConfigError("query_batch_size must be a positive integer.")
         if self.snp_batch_size <= 0:
             raise LDSCConfigError(_positive_number_message("LDScoreConfig", "snp_batch_size", self.snp_batch_size))
-        if self.threads == 0:
-            raise LDSCConfigError(
-                "LDScoreConfig received threads=0, which is ambiguous. Most likely the "
-                "worker count was left unset to a sentinel. Use 1 for sequential, a "
-                "positive count for that many workers, -1 for all cores, or -2 for all "
-                "but one."
-            )
+        _validate_threads(self.threads, error_type=LDSCConfigError)
         object.__setattr__(self, "regr_snps_file", _normalize_optional_path(self.regr_snps_file))
 
 
@@ -623,7 +619,11 @@ class GeneLDScoreIndexBuildConfig:
     atom_batch_size : int, optional
         Positive offline internal atom-column batch size. Default is 64.
     threads : int, optional
-        Chromosome thread-pool size. Default is one; additional threads can
+        Nonzero integer chromosome-worker request, default one; booleans and
+        non-integer values are invalid.
+        Negative -k uses available CPUs + 1 - k (minimum one), preferring
+        affinity with a machine CPU-count fallback. Capped at chromosome
+        count; an effective count of one runs inline. Additional threads can
         multiply chromosome-local memory.
 
     Raises
@@ -679,8 +679,7 @@ class GeneLDScoreIndexBuildConfig:
             raise LDSCConfigError("maf_min must be in [0, 0.5].")
         if not 0 <= self.common_maf_min <= 0.5:
             raise LDSCConfigError("common_maf_min must be in [0, 0.5].")
-        if self.threads == 0:
-            raise LDSCConfigError("threads cannot be zero.")
+        _validate_threads(self.threads, error_type=LDSCConfigError)
 
 
 @dataclass(frozen=True)

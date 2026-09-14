@@ -38,6 +38,7 @@ import pandas as pd
 
 from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
+from ._parallelism import _parse_threads, _resolve_worker_count, _validate_threads
 from ._chr_sampler import sample_frame_from_chr_pattern
 from ._annotation_storage import TsvDiagnostics
 from .ldscore_source import LDScoreSource
@@ -1253,7 +1254,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     runtime.add_argument(
-        '--threads', default=1, type=int, metavar='N',
+        '--threads', default=1, type=_parse_threads, metavar='N',
         help=(
             'Number of chromosomes computed concurrently using worker processes. Default: 1, sequential. '
             'Positive N requests N workers; -1 uses available cores and -2 leaves one free; zero is '
@@ -1329,6 +1330,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
         remain resident in the returned object. ``output_paths`` contains
         scientific artifacts only.
     """
+    _validate_threads(getattr(args, "threads", 1), error_type=LDSCConfigError)
     _validate_padding_usage(args)
     _validate_gene_list_mode_args(args)
     if getattr(args, "gene_ldscore_index_dir", None) is not None:
@@ -2385,41 +2387,6 @@ def _output_config_from_args(args: argparse.Namespace) -> LDScoreOutputConfig:
         output_dir=normalize_path_token(args.output_dir),
         overwrite=getattr(args, "overwrite", False),
     )
-
-
-def _available_cpu_count() -> int:
-    """Return the number of CPUs available to this process.
-
-    Prefers ``os.sched_getaffinity`` (Linux) so SLURM/cgroup/cpuset/Docker CPU
-    allocations are respected rather than the whole machine's core count; falls
-    back to ``os.cpu_count()`` on platforms without affinity support.
-    """
-    getaffinity = getattr(os, "sched_getaffinity", None)
-    if getaffinity is not None:
-        try:
-            return len(getaffinity(0)) or 1
-        except OSError:
-            pass
-    return os.cpu_count() or 1
-
-
-def _resolve_worker_count(threads: int, n_chromosomes: int) -> int:
-    """Resolve the effective worker-process count from the ``threads`` setting.
-
-    Uses the joblib ``n_jobs`` convention: ``1`` is sequential, a positive ``N``
-    requests ``N`` workers, ``-1`` requests all available cores, ``-2`` all but
-    one, and any negative ``-k`` requests ``n_cpus + 1 - k``. Core counts respect
-    CPU affinity (see :func:`_available_cpu_count`). The result is capped at
-    ``n_chromosomes`` and floored at ``1`` so a single chromosome never spawns a
-    pool.
-    """
-    if n_chromosomes <= 0:
-        return 1
-    if threads < 0:
-        resolved = _available_cpu_count() + 1 + threads
-    else:
-        resolved = threads
-    return max(1, min(resolved, n_chromosomes))
 
 
 def _chromosomes_from_bundle(annotation_bundle) -> list[str]:

@@ -71,7 +71,8 @@ def _write_chromosome(index, chrom, batch, declarations, control_resolution, wid
 
 
 def _write_chromosomes(index, batch, declarations, control, width, root, threads):
-    from .ldscore_calculator import _resolve_worker_count, _init_worker
+    from .ldscore_calculator import _init_worker
+    from ._parallelism import _resolve_worker_count
 
     workers = _resolve_worker_count(threads, len(index.chromosomes))
     def arguments(chrom):

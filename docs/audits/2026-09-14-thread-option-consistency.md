@@ -2,7 +2,7 @@
 
 Last updated on: 2026-09-14
 
-Audited revision `6454dd8` on local `restructure`. This is a diagnosis and proposed correction; production behavior has not been changed by this audit. No HPC access was used.
+Audited revision `6454dd8` on local `restructure`. The findings below describe that revision. The correction is now implemented in [`_parallelism.py`](../../src/ldsc/_parallelism.py): shared strict validation and affinity-aware resolution, followed by inline execution for an effective count of one. [`test_worker_policy.py`](../../tests/test_worker_policy.py) covers all three workflows with real computation and executor-construction checks. No HPC access was used.
 
 ## Command inventory
 
@@ -55,4 +55,4 @@ The fixture and argument setup are `write_inputs` and `index_args` in [`test_pli
 
 Centralize nonzero-integer validation, affinity-aware CPU discovery, and worker-count resolution in a shared helper used by both commands and both LD-score modes. Resolve first, then choose inline execution when the effective count is one. Preserve the documented process/thread backends, positive-count behavior, chromosome cap, and negative-value arithmetic. Add cross-workflow tests under restricted affinity, fallback CPU discovery, and negative values that reach the minimum.
 
-Treat native-library thread control as a separate explicit policy; do not claim the chromosome-worker option caps every native runtime thread. Until the worker-count inconsistency is fixed, use an explicit allocation-derived count such as `--threads "${SLURM_CPUS_PER_TASK:-1}"` in SLURM scripts.
+Treat native-library thread control as a separate explicit policy; do not claim the chromosome-worker option caps every native runtime thread. For scheduler allocations not reflected in CPU affinity, use an explicit allocation-derived count such as `--threads "${SLURM_CPUS_PER_TASK:-1}"` in SLURM scripts.

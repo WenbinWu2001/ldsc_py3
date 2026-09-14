@@ -39,6 +39,7 @@ from scipy import sparse
 
 from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
+from ._parallelism import _parse_threads, _resolve_worker_count, _validate_threads
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel.gene_ldscore_index import (
     AtomStatistics,
@@ -245,10 +246,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     runtime.add_argument(
-        '--threads', type=int, default=1, metavar='N',
+        '--threads', type=_parse_threads, default=1, metavar='N',
         help=(
             'Number of chromosomes built concurrently using a thread pool. Default: 1, sequential. Positive '
-            'N requests N threads; -1 uses all cores and -2 leaves one free; zero is invalid. More threads '
+            'N requests N threads; -1 uses available cores and -2 leaves one free; zero is invalid. '
+            'CPU discovery prefers affinity, with a machine CPU-count fallback. Capped at chromosome '
+            'count; one effective worker runs inline. More threads '
             'use more memory. ldscore uses processes for the same flag.'
         ),
     )
@@ -764,16 +767,14 @@ def _run_gene_ldscore_index_build(
                 component_metadata=component_metadata,
             )
 
-        if config.threads == 1 or len(chromosomes) == 1:
+        max_workers = _resolve_worker_count(config.threads, len(chromosomes))
+        if max_workers == 1:
             completed = {chrom: build_one(chrom) for chrom in chromosomes}
         else:
-            max_workers = os.cpu_count() if config.threads == -1 else config.threads
-            if max_workers is None or max_workers < 1:
-                max_workers = max(1, (os.cpu_count() or 1) + 1 + config.threads)
-            with ThreadPoolExecutor(max_workers=min(max_workers, len(chromosomes))) as pool:
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
                 remaining = iter(chromosomes)
                 futures = {pool.submit(build_one, chrom) for chrom in
-                           [next(remaining) for _ in range(min(max_workers, len(chromosomes)))]}
+                           [next(remaining) for _ in range(max_workers)]}
                 completed = {}
                 try:
                     while futures:
@@ -2000,8 +2001,10 @@ def run_indexed_ldscore(
         Each pathway remains a separate annotation and regression model.
     threads : int, optional
         Chromosome workers, default 1. Positive values request workers; -1
-        uses available cores and -2 leaves one free. Zero is invalid. The
-        effective count is capped at the number of index chromosomes.
+        uses available cores and -2 leaves one free. CPU discovery prefers
+        affinity, falling back to the machine CPU count. Zero, booleans, and
+        non-integers are invalid. The effective count is capped at the number
+        of index chromosomes; one effective worker runs inline.
     output_dir : path-like
         Destination for the canonical self-contained LD-score directory.
         User and environment tokens are expanded for both scratch and results.
@@ -2040,8 +2043,7 @@ def run_indexed_ldscore(
     """
     if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
         raise ValueError("query_batch_size must be a positive integer.")
-    if isinstance(threads, bool) or not isinstance(threads, int) or threads == 0:
-        raise ValueError("threads must be a nonzero integer (1, positive workers, or a negative CPU offset).")
+    _validate_threads(threads)
     output_dir = normalize_path_token(output_dir)
     with AnnotationWorkspace(output_dir) as workspace:
         return _run_indexed_ldscore_in_workspace(

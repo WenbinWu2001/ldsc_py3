@@ -83,6 +83,7 @@ ldsc_py3_restructured/
 | `ldsc.ldscore_source` | validate ordered query manifests and read explicit selections across LD-score batch files |
 | `ldsc._annotation_memory` | small prepared annotations and diagnostics without filesystem writes |
 | `ldsc._ldscore_batch_output` | consume/release query batches, stage privately, and publish complete LD directories |
+| `ldsc._parallelism` | shared nonzero-integer worker validation, CLI parsing, affinity-aware CPU discovery, and chromosome-capped resolution; tested across all three workflows in `tests/test_worker_policy.py` |
 | `ldsc._indexed_ldscore_batches` | bounded chromosome workers holding one operator each and deterministic batch-fragment assembly |
 | `ldsc._quantile_inputs`, `ldsc._quantile_storage` | bounded common-universe reconstruction, exact global boundaries, sufficient statistics, and streamed alignment diagnostics |
 | `ldsc._kernel.ldscore_projection` | float64 output-row accumulators and query batches sharing each LD block |

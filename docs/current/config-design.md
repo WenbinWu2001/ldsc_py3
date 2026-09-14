@@ -2,6 +2,8 @@
 
 Last updated on: 2026-09-14
 
+Direct and indexed `ldscore` and `build-gene-ldscore-index` share the worker policy in [`_parallelism.py`](../../src/ldsc/_parallelism.py): `threads` must be a nonzero integer, excluding booleans and non-integer Python values. Positive requests are capped only by chromosome count. Negative `-k` requests use `max(1, available_cpus + 1 - k)`, preferring process CPU affinity and falling back to `os.cpu_count()` (or 1 if unknown), then apply the chromosome cap. Every effective count of 1 runs inline without constructing an executor. LD scoring uses processes; index building uses threads. Native BLAS/OpenMP settings remain separate and unchanged.
+
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
 ## Implementation Status

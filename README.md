@@ -6,6 +6,8 @@ This repository is the active refactored LDSC package.
 
 Current flag names and retired options are documented in the [LDSC2-to-current CLI flag map](docs/current/legacy-cli-flag-map.md). Munging uses `--input-format` and automatically preserves input frequency as `FRQ`; both `ldscore` and `build-gene-ldscore-index` retain `--threads`. It controls chromosome worker processes for direct `ldscore` and a chromosome thread pool for index building; both default to `1` (sequential).
 
+Both commands and indexed LD scoring require nonzero integer worker requests. Negative requests use process CPU affinity when available, with a machine CPU-count fallback. All requests are capped at chromosome count; an effective count of 1 runs inline. Python booleans and non-integer values are rejected. See the [shared worker policy](docs/current/config-design.md).
+
 Run `ldsc COMMAND --help` for options grouped by task, with required inputs first and descriptions of defaults, dependencies, and mode restrictions. Contributors should follow the [CLI help guidelines](docs/current/cli-help-guidelines.md).
 
 ## Authors and maintainer

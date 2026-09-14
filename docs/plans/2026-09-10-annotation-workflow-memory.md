@@ -1,8 +1,10 @@
 # Annotation and Workflow Memory Implementation Plan
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-14
 
 Status: reopened after the completion audit at `8ada67c`. The core refactor is implemented, but quantitative count equivalence, direct LD-table aggregation, and two diagnostic-retention paths remain unfinished. See the [completion review](../audits/annotation-memory/completion-review.md) for R1–R3 and evidence. Design documentation was committed as `56d426a`.
+
+September 14 follow-up: the [confirmed sequential-query decisions](../current/annotation-memory-decisions.md#confirmed-batch-integration-2026-09-14) supersede this plan's all-query accumulator, single-traversal, and single-query-file constraints. Revision `cf1dfac` completes the narrower R1/R2 work and execution-batch diagnostic cleanup, with full-suite verification and two approved 1,000-query chromosome-22 benchmarks recorded in the [batch audit](../audits/annotation-memory/sequential-query-batches.md). The broader R3 coverage-summary and regression-diagnostic findings remain outside that change. The September 10 slice descriptions below are historical; use the confirmed decisions and current design for implementation contracts.
 
 Reference specification: [annotation and workflow memory optimization](../specs/2026-09-10-annotation-workflow-memory-design.md). Confirmed scope and decisions are recorded in [annotation memory decisions](../current/annotation-memory-decisions.md); standalone gene-list behavior is governed by [annotate gene-list decisions](../current/annotate-gene-list-decisions.md), especially its condition–outcome table. Keep this plan current as implementation evidence becomes available.
 

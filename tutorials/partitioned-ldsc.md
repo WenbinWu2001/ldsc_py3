@@ -1,6 +1,6 @@
 # Partitioned LDSC
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 Goal: run partitioned LDSC in the refactored package by building query annotations, computing baseline-plus-query LD scores, and fitting one partitioned model per query annotation.
 
@@ -12,7 +12,7 @@ complete-model artifacts at the result root. Query-annotation runs fit one
 baseline-plus-query model per query and also write the per-query diagnostics
 tree described below.
 
-The examples below assume chromosome-pattern inputs such as `annotations/baseline.1.annot.gz`, `r2/reference.1.parquet`, and `r2/reference_metadata.1.tsv.gz`.
+The examples below assume chromosome-pattern inputs such as `annotations/baseline.1.annot.gz`, `r2/chr1_r2.parquet`, and `r2/chr1_meta.tsv.gz`.
 Package-built parquet R2 files use canonical `IDX_1`, `IDX_2`, `R2`, and `SIGN_R` columns bound to the paired metadata sidecar, with row-group statistics. The paired metadata sidecar is required; it defines the raw
 reference-panel SNP universe, while the parquet pair rows are queried only for
 LD values. External R2 formats are not supported by this workflow.
@@ -53,19 +53,19 @@ synthetic path for partitioned/query LDSC.
 
 ## Python API
 
-The source-backed workflow stages annotations under the selected output directory and releases chromosome working data as it advances. Regression reads the aggregate LD-score files selectively.
+The writing workflow returns an `LDScoreSource` with shared baseline values and saved query paths. Completed query tables are released after writing. Regression reads only the columns it needs, including selections spanning several saved query files.
 
 ```python
 from ldsc import (
     GlobalConfig, RegressionConfig, RegressionRunner,
-    load_ldscore_from_dir, load_sumstats, run_ldscore, set_global_config,
+    load_sumstats, run_ldscore, set_global_config,
 )
 
 GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
 set_global_config(GLOBAL_CONFIG)
 ldscore_dir = "tutorial_outputs/partitioned_ldscores"
 
-run_ldscore(
+source = run_ldscore(
     baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     query_annot_bed_sources="beds/*.bed",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg19",
@@ -74,7 +74,7 @@ run_ldscore(
     threads=1,
     output_dir=ldscore_dir,
 )
-source = load_ldscore_from_dir(ldscore_dir)
+# Later sessions can reopen the handle with load_ldscore_from_dir(ldscore_dir).
 sumstats = load_sumstats("tutorial_outputs/trait/trait.parquet", trait_name="trait")
 runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
 result = runner.estimate_partitioned_h2_batch(
@@ -89,7 +89,9 @@ print(result.per_query_artifacts)  # Persistent category/delete-value/metadata p
 
 Run `munge-sumstats` first if the trait is still in a raw format; see [heritability estimates](heritability-estimates.md). Current curated Parquet inputs carry identity/build provenance in their footer. The effective SNP key controls alignment; reference contributors and regression/output SNPs remain separate universes.
 
-This memory design supports 1,000 pathways in one run, each tested separately against shared baseline categories. The default `query_batch_size=1000` permits all 1,000 queries in one active batch; reducing it limits query workspace without changing the models. With `threads=1`, chromosome arrays are released before the next chromosome; allocators may retain freed pages, so RSS need not immediately fall. Final HM3 LD tables remain aggregate and may stay materialized.
+For 1,000 pathways, each query still fits separately against shared baseline categories. The default `query_batch_size=1000` permits all 1,000 queries in one execution batch. Reducing it bounds active query workspace and writes multiple numbered genome-wide query files, with an ordered `query_batches` manifest in root metadata. Direct calculation repeats reference/genotype work between batches; indexed calculation reuses one chromosome operator per worker through its batches. Direct and indexed `threads` default to 1 and are capped at the chromosome count. Freed pages can remain reserved by the allocator, so RSS need not immediately fall. See `LDScoreCalculator.run` and `LDScoreSource.read_queries` in the [memory design](../docs/current/annotation-memory-design.md).
+
+Generation and regression batch widths are independent. To inspect values explicitly, call `source.read_queries(["query_name"])`; reads preserve requested column order and have no cache or width cap. Current readers require the `query_batches` manifest; regenerate older directories. For the small prepared-input Python route that writes nothing, see [LD-score calculation without writes](ld-score-calculation.md#small-python-calculations-without-writes).
 
 For reusable annotations, use `with run_annotate(..., output_dir=...) as bundle:`. For explicit low-level preparation, use `with AnnotationBuilder(config).run(source_config, output_dir=...) as bundle:` and finish all borrowers before closure. Returned standalone bundles reference saved query outputs and may depend on original baseline inputs. See the [developer memory design](../docs/current/annotation-memory-design.md).
 
@@ -131,11 +133,8 @@ the workflow writes query shards, it also writes `diagnostics/annotate.log`
 under the output directory.
 
 The regression CLI consumes the LD-score result directory directly. It reads
-baseline columns from `ldscore.baseline.parquet`, query columns from `ldscore.query.parquet`,
-and counts from root `metadata.json`. Both parquet files stay flat, but their row
-groups are chromosome-aligned and listed in the metadata for targeted reads.
-If root `metadata.json` has an empty `query_columns` list, use `ldsc h2`/`ldsc rg`
-instead of `ldsc partitioned-h2`.
+baseline columns from `ldscore.baseline.parquet`, query columns from the files in `metadata.json.query_batches`,
+and counts from root `metadata.json`. Every Parquet file is genome-wide, with chromosome-aligned row groups listed in metadata. An empty `query_columns` list selects one baseline-only functional-category model in `partitioned-h2`; use `h2` for an unpartitioned heritability estimate or `rg` for genetic correlation.
 
 ```bash
 ldsc munge-sumstats \

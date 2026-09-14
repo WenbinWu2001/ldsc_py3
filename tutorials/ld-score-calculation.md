@@ -1,6 +1,6 @@
 # LD Score Calculation
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-built SNP-level annotations, or from raw BED/gene-list queries plus an explicit baseline.
 
@@ -81,11 +81,11 @@ participate in allele-aware matching.
 
 Important output behavior:
 
-- the in-memory result is one merged `LDScoreResult` with split `baseline_table` and optional `query_table`
-- `--output-dir` writes a canonical LD-score result directory containing root `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, and `diagnostics/ldscore.log`
-- `ldscore.baseline.parquet` and `ldscore.query.parquet` are still single flat files, but each parquet row group contains exactly one chromosome
-- root `metadata.json` records `row_group_layout`, `baseline_row_groups`, and `query_row_groups` for readers that want to load one chromosome by row-group index
-- `LDScoreResult.output_paths` lists scientific data artifacts only; it does not include `diagnostics/ldscore.log`
+- writing workflows return `LDScoreSource` with shared baseline/metadata and uncached `read_queries(names)` reads; a prepared single-batch calculation without output returns an in-memory `LDScoreResult`
+- `--output-dir` writes root `metadata.json`, one shared `ldscore.baseline.parquet`, query batch files when applicable, and `diagnostics/ldscore.log`; one query batch uses `ldscore.query.parquet`, while multiple batches use `ldscore.query.batch00001.parquet` and subsequent ordinals
+- each baseline/query file contains all computed chromosomes, with one parquet row group per chromosome
+- root `metadata.json.query_batches` records each ordered query file, its columns, and its chromosome row groups; `baseline_row_groups` describes the shared baseline; directories without the current manifest must be regenerated
+- `LDScoreSource.output_paths` lists scientific data artifacts and diagnostics; it does not include `diagnostics/ldscore.log`
 - regression-universe LD scores live in the `regression_ld_scores` column of `ldscore.baseline.parquet`; there is no separate `.w.l2.ldscore.gz` output
 - annotation counts are stored as metadata records, not as separate `.M` files
 - if both baseline and query inputs are omitted, the workflow synthesizes an all-ones baseline column named exactly `base` over retained reference-panel metadata
@@ -93,11 +93,9 @@ Important output behavior:
 - evaluated BED/gene runs write `diagnostics/query_annotation_status.tsv`; gene runs also write the row-complete `gene_list_audit.tsv.gz` and per-source `gene_list_resolution_summary.tsv`
 - missing output directories are created and existing directories are reused
 - existing owned LD-score artifacts, including unselected siblings such as a
-  stale `ldscore.query.parquet`, fail before writing starts; reruns that should
+  stale single or numbered query files, fail before writing starts; reruns that should
   replace them must pass `--overwrite` or `overwrite=True`
-- with overwrite enabled, successful baseline-only runs remove stale
-  `ldscore.query.parquet` so the result directory reflects the current
-  metadata
+- with overwrite enabled, successful runs remove stale single/numbered query files so the directory reflects current metadata
 
 Performance behavior for canonical parquet R2 input:
 
@@ -278,7 +276,7 @@ For repair procedures and every diagnostic term, see
 
 Full-file readers such as `pd.read_parquet("ldscore.baseline.parquet")` still work.
 For large outputs, use the root metadata row-group records to read exactly one
-chromosome from `ldscore.baseline.parquet` or `ldscore.query.parquet`.
+chromosome from the baseline file or one of the query files declared in the manifest.
 
 ```python
 import json
@@ -304,9 +302,33 @@ print(baseline_chr22["CHR"].unique())
 print(baseline_chr22.head())
 ```
 
-If query annotations were supplied, `metadata["query_row_groups"]` has the same
-shape for `ldscore.query.parquet`. It is `None` for baseline-only LD-score
-results.
+For queries, iterate `metadata["query_batches"]`: each entry has `file`, `query_columns`, and `row_groups` in the same shape as the baseline row-group records. `query_batches` is empty for baseline-only results. For selected genome-wide columns, prefer `load_ldscore_from_dir(ldscore_dir).read_queries(names)`; names may span files, requested order is preserved, and the caller owns the RAM cost.
+
+## Small Python calculations without writes
+
+Use already-prepared input frames and a prepared reference adapter when a single query batch fits in memory. This calculator route creates no annotation, diagnostic, temporary, logging, or output files. It may read existing reference files. Annotation values and complete diagnostic rows remain in RAM. Multiple batches require `LDScoreOutputConfig(output_dir=...)`; `run_ldscore(...)` and the CLI remain writing workflows.
+
+```python
+from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfig
+
+config = GlobalConfig(snp_identifier="rsid", genome_build="hg19")
+# metadata, baseline_values, and query_values are aligned in-memory DataFrames.
+# ref_panel is an already-configured PlinkRefPanel or ParquetR2RefPanel.
+with AnnotationBundle.from_frames(
+    metadata, baseline_values, query_values, config_snapshot=config,
+) as annotations:
+    result = LDScoreCalculator().run(
+        annotations, ref_panel, LDScoreConfig(ld_wind_cm=1, query_batch_size=1000),
+        config, output_config=None,
+    )
+# result.query_table and in-memory diagnostics remain available after closure.
+```
+
+Metadata must contain `CHR`, 1-based integer `POS`, and `SNP` for an rsID identity mode; supply both `A1` and `A2`, or neither. Frames align positionally, with finite numeric annotation values and unique names distinct from metadata. `from_frames` copies annotation values to float32 and drops all members of duplicate effective-SNP-key groups. It does not infer the build or perform liftover. Supply a reference adapter configured for the same identity and build. The caller owns the additional memory for preparation and diagnostics.
+
+This low-level calculator takes already-resolved `regression_snps` and `regression_regions` arguments. Omitting them selects all retained reference rows and applies no regression-region exclusions; it does not load `LDScoreConfig.regr_snps_file` or apply the high-level workflow's packaged HapMap3 and region defaults. Pass the same resolved restrictions when comparing with a writing workflow. Sources: `AnnotationBundle.from_frames` in [_annotation_bundle.py](../src/ldsc/_annotation_bundle.py) and `LDScoreCalculator.run` in [ldscore_calculator.py](../src/ldsc/ldscore_calculator.py).
+
+For writing workflows, `query_batch_size` defines sequential execution and output grouping. Direct mode repeats reference work between batches. Indexed mode reuses each worker's chromosome operator across its query batches. Both accept `threads=1`, positive worker counts, `-1`, or `-2`, capped at chromosome count; zero is invalid. Completed files stay private until the complete run succeeds. Resuming from a completed batch is a possible future feature, currently unsupported.
 
 ## Case 5: Reuse an Exact Gene LD-Score Index
 

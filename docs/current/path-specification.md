@@ -1,6 +1,6 @@
 # Input Path Specification
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -93,9 +93,7 @@ independent optional files:
   `sumstats.gz`, `diagnostics/dropped_snps/dropped.tsv.gz`, and
   `diagnostics/sumstats.log`
   for CLI/workflow runs
-- `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional
-  `ldscore.query.parquet`, optional `ldscore.overlap.parquet`, and
-  `diagnostics/ldscore.log` for CLI/workflow runs
+- `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query Parquet files, optional `ldscore.overlap.parquet`, and `diagnostics/ldscore.log` for CLI/workflow runs
 - `convert-ldsc2-ldscores`: canonical `metadata.json`,
   `ldscore.baseline.parquet`, optional `ldscore.overlap.parquet`,
   `diagnostics/conversion_issues.tsv.gz`, and
@@ -401,24 +399,16 @@ ldsc ldscore \
 Output:
 
 - `--output-dir` is a literal directory destination.
-- LD-score calculation writes `metadata.json`, `ldscore.baseline.parquet`,
-  optional `ldscore.query.parquet`, optional `ldscore.overlap.parquet`, and
-  `diagnostics/ldscore.log` inside that directory.
-- `ldscore.baseline.parquet` and `ldscore.query.parquet` remain flat parquet files, but each
-  row group contains exactly one chromosome. Root `metadata.json` records
-  `row_group_layout`, `baseline_row_groups`, and `query_row_groups`.
-- Existing canonical LD-score files or `diagnostics/ldscore.log` are refused before any of
-  them are written unless `--overwrite` or
-  `LDScoreOutputConfig(overwrite=True)` is supplied. With overwrite enabled, a
-  successful baseline-only run removes any stale `ldscore.query.parquet` sibling.
+- LD-score calculation writes `metadata.json`, `ldscore.baseline.parquet`, optional query Parquet files, optional `ldscore.overlap.parquet`, and `diagnostics/ldscore.log` inside that directory. One query batch uses `ldscore.query.parquet`; multiple batches use `ldscore.query.batch00001.parquet` and subsequent ordinals.
+- Each Parquet file is genome-wide, with one row group per chromosome. Root metadata records `row_group_layout`, `baseline_row_groups`, and the required ordered `query_batches` manifest with each file's columns and row groups. `query_row_groups` is populated only for one query file; baseline-only output has an empty `query_batches` list. Current readers require the manifest; regenerate older directories.
+- Existing canonical LD-score files or `diagnostics/ldscore.log` are refused before writing unless `--overwrite` or `LDScoreOutputConfig(overwrite=True)` is supplied. Successful overwrites remove stale owned single/numbered query files not produced by the new run. Query batches are staged under the output directory and published after successful computation, with metadata last. See `LDScoreDirectoryWriter.artifact_family` and `write_batches` in [outputs.py](../../src/ldsc/outputs.py).
 - `ldscore.baseline.parquet` contains `CHR`, `POS`, `SNP`,
   `regression_ld_scores`, and baseline LD-score columns. `regression_ld_scores`
   is the historical `w_ld` LD score over the regression SNP universe, not the
   final h2/rg regression weight. When both baseline and query inputs are
   omitted, the LD-score workflow writes a synthetic all-ones baseline column
   named `base`.
-- `ldscore.query.parquet` is present only when query annotations were supplied and
-  contains `CHR`, `POS`, `SNP`, and query LD-score columns.
+- Query files contain `CHR`, `POS`, `SNP`, available alleles, and the query LD-score columns assigned to that batch. They are omitted for baseline-only runs.
 - Regression commands consume this directory via `--ldscore-dir`; users do not
   pass count vectors, weight files, or annotation manifests.
 

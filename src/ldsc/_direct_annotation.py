@@ -12,7 +12,7 @@ import numpy as np
 
 from ._annotation_bundle import AnnotationBundle
 from ._annotation_preflight import input_issue, resolve_annotation_inputs
-from ._annotation_queries import build_query_shards, prepare_bed_queries
+from ._annotation_queries import build_query_shards, prepare_bed_queries, query_source_statuses, ProjectedQueries
 from ._annotation_sources import prepare_annotation_sources
 from ._annotation_storage import AnnotationShard, ColumnStore
 from ._ldscore_preflight import validate_direct_scope
@@ -74,7 +74,13 @@ def prepare_direct_annotations(args, config, spec, workspace, output_config, *, 
     if batch is not None or bed_sources:
         names = [d['query'] for d in batch.declarations] if batch is not None else [b.query for b in bed_sources]
         require_unique_annotation_names(bundle.baseline_columns,names)
-        build_query_shards(bundle,bed_sources=bed_sources,gene_batch=batch,padding_bp=spec.padding_bp,evaluate_support=False)
+        statuses = query_source_statuses(bed_sources, batch)
+        if batch is not None and any(item['input_role'] == 'control' for item in batch.declarations):
+            build_query_shards(bundle, gene_batch=batch, padding_bp=spec.padding_bp,
+                               evaluate_support=False, query_columns=[])
+        bundle.query_preparation = ProjectedQueries(tuple(bed_sources), spec.padding_bp)
+        bundle.query_statuses = statuses
+        bundle.query_columns = [item.query for item in statuses if item.status in {'ok', 'warning'}]
     bundle.validate()
     return bundle, scope
 

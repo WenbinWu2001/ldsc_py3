@@ -1,6 +1,6 @@
 # Heritability Estimates
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 Munging uses the supplied trait label for data filenames (for example, `trait.parquet` and optional `trait.sumstats.gz`). Without a label, filenames are `sumstats.parquet` and `sumstats.gz`. Parquet remains the default; see [output naming](../docs/current/munge-sumstats.md#output-artifacts).
 
@@ -12,8 +12,7 @@ The examples below assume chromosome-pattern annotation inputs such as
 `annotations/baseline.1.annot.gz` and a package-built R2 directory such as
 `r2_ref_panel_1kg30x_1cM_hm3/hg38`. For parquet-backed LD scores, each
 `chr*_r2.parquet` file is the canonical pair table and the matching
-`chr*_meta.tsv.gz` sidecar is optional but strongly recommended because it
-defines the complete reference SNP universe and supplies `MAF`/`CM`.
+`chr*_meta.tsv.gz` sidecar is required because it defines the complete reference SNP universe, binds the pair-index space, and supplies `MAF`/`CM`.
 Package-built R2 parquet files carry `ldsc:r2_bias` and `ldsc:n_samples` in
 schema metadata, so the examples omit R2 bias and sample-size arguments.
 
@@ -37,7 +36,7 @@ Resolution behavior:
 
 ## Python API
 
-The Python workflow is the most direct end-to-end path because `run_ldscore(...)` returns one merged in-memory `LDScoreResult` that `RegressionRunner` can consume immediately.
+`run_ldscore(...)` writes a canonical directory and returns `LDScoreSource`, which `RegressionRunner` can consume immediately. Its shared baseline values remain resident, while any query LD scores are read explicitly from the saved files. Ordinary unpartitioned output has no query files and records an empty `query_batches` manifest. Current readers require this manifest; regenerate older LD-score directories. See `run_ldscore` in [ldscore_calculator.py](../src/ldsc/ldscore_calculator.py) and `LDScoreSource` in [ldscore_source.py](../src/ldsc/ldscore_source.py).
 
 ```python
 from ldsc import (
@@ -86,7 +85,7 @@ ldscore_result = run_ldscore(
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
     common_maf_min=0.05,
     ld_wind_cm=1.0,
-    # overwrite=True,  # also removes stale ldscore.query.parquet if this run is baseline-only
+    # overwrite=True,  # also removes obsolete owned single/numbered query files
 )
 
 runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())

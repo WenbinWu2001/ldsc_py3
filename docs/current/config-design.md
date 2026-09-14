@@ -1,6 +1,6 @@
 # Config Design: Immutable Config + Provenance-Carrying Results
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -36,7 +36,7 @@ Implementation details:
   catalog projection build stays separate from `GlobalConfig.genome_build` in
   rsID modes.
 
-Memory controls are separate from statistical settings. `LDScoreConfig.query_batch_size` and the batch regression API/CLI setting default to 1000 and require a positive integer. `LDScoreConfig.threads` controls bounded chromosome worker processes; it does not change the number of pathways in a regression model. `AnnotationBuildConfig` describes source/projection settings, while the workflow's required output directory determines private storage ownership. The obsolete annotation-config output/compression/missing-query fields are removed. See the [memory design](annotation-memory-design.md) for lifetimes and output contracts.
+Memory controls are separate from statistical settings. `LDScoreConfig.query_batch_size` and the batch regression API/CLI setting default to 1000 and require a positive integer. Generation uses this width for sequential execution and output query files; direct mode repeats reference traversal. `LDScoreConfig.threads` and indexed `threads` control bounded chromosome worker processes, capped at chromosome count; it does not change the number of pathways in a regression model. `AnnotationBuildConfig` describes source/projection settings, while the workflow's required output directory determines private storage ownership. The obsolete annotation-config output/compression/missing-query fields are removed. See the [memory design](annotation-memory-design.md) for lifetimes and output contracts.
 
 ## The Problem This Design Solves
 
@@ -361,7 +361,7 @@ region-exclusion nor HM3 convenience flags.
 - BED and gene-list sources are query-local failure units. Only `ok`/`warning` queries enter scientific result objects; every source remains represented in diagnostic status records.
 - Reference-panel SNP restrictions become visible only during LD-score calculation, when `ref_panel.prepare_chromosome()` aligns `B_chrom` to the filtered reference rows.
 - Count records are accumulated over `ld_reference_snps = B ∩ A'` and stored in LD-score root `metadata.json`.
-- Public `ldscore.baseline.parquet` and optional `ldscore.query.parquet` rows are `ld_regression_snps = B ∩ A' ∩ C ∩ complement(regions)`; `w_ld` uses that same final set.
+- Public `ldscore.baseline.parquet` and optional query batch file rows are `ld_regression_snps = B ∩ A' ∩ C ∩ complement(regions)`; `w_ld` uses that same final set.
 - LD-score `metadata.json` records `snp_universe_policy`, including independent reference and regression policies plus the regression-region removal count.
 
 ### Migration Notes

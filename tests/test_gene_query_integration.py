@@ -137,7 +137,7 @@ def test_real_direct_and_indexed_outputs_agree(tmp_path, inputs, policy):
     assert direct.query_columns == indexed.query_columns == ["mixed"]
     assert [s.reason for s in direct.query_statuses] == [s.reason for s in indexed.query_statuses] == [
         "partial_gene_resolution" if policy == "resolved-only" else "partial_snp_support", "empty_gene_list", "zero_annotation_snps"]
-    np.testing.assert_allclose(direct.query_table["mixed"], indexed.query_table["mixed"], rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(direct.read_queries(["mixed"])["mixed"], indexed.read_queries(["mixed"])["mixed"], rtol=1e-6, atol=1e-7)
     np.testing.assert_allclose(direct.baseline_table[["base", "gene_control", "regression_ld_scores"]],
                                indexed.baseline_table[["base", "gene_control", "regression_ld_scores"]], rtol=1e-6, atol=1e-7)
     assert direct.count_records == indexed.count_records

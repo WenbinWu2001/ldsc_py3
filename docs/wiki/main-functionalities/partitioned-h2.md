@@ -1,6 +1,6 @@
 # Partitioned heritability
 
-Last updated on: 2026-09-13
+Last updated on: 2026-09-14
 
 `ldsc partitioned-h2` reads a canonical LD-score directory and tests how its
 annotations contribute to SNP heritability.
@@ -38,7 +38,7 @@ The root `partitioned_h2.tsv` reports one row per baseline category. For binary 
 
 The memory optimization is designed for testing many pathways at once—for example, 1,000 pathways in one run, with each pathway tested separately against the same baseline categories. Put one pathway in each gene-list or BED source, or one pathway in each prebuilt query annotation column.
 
-`ldscore --query-batch-size 1000` bounds the active query projection batch; this is the default. `--threads 1` processes chromosomes sequentially and releases their working arrays before the next chromosome. Larger worker counts process chromosomes concurrently and need more memory. The final HM3 LD tables remain aggregate Parquet files and may stay in memory; they are never split into public chromosome LD tables.
+`ldscore --query-batch-size 1000` bounds the active query calculation batch and defaults to 1000. Completed batches are written and their LD tables released. Multiple batches produce numbered query Parquet files, each covering the full regression SNP universe; root `metadata.json.query_batches` records their columns and chromosome row groups. Direct and indexed `--threads` control chromosome workers, default to 1, and are capped at the chromosome count. Larger worker counts need more memory. See [LD-score memory controls](ldscore.md#memory-for-many-pathways).
 
 After LD scoring, fit the pathways with:
 
@@ -50,7 +50,7 @@ ldsc partitioned-h2 \
   --output-dir results/pathway_enrichment
 ```
 
-The command prepares shared trait/baseline alignment once and reads query columns in batches. Every pathway still fits its complete retained genome-wide SNP set with model-specific filtering, weights, and jackknife calculations. A smaller batch such as `--query-batch-size 100` reduces active query memory without changing the separate models. It can increase I/O or reduce multiplication throughput; the best value depends on the workload.
+The command prepares shared trait/baseline alignment once and reads query columns in batches. Regression batch width is independent of generation batch width; one read can span several saved query files. Every pathway still fits its complete retained genome-wide SNP set with model-specific filtering, weights, and jackknife calculations. A smaller batch such as `--query-batch-size 100` reduces active query memory without changing the separate models. It can increase I/O or reduce multiplication throughput; the best value depends on the workload. Sources: `RegressionRunner.estimate_partitioned_h2_batch` in [regression_runner.py](../../../src/ldsc/regression_runner.py) and `LDScoreSource.read_queries` in [ldscore_source.py](../../../src/ldsc/ldscore_source.py).
 
 The aggregate `partitioned_h2.tsv` keeps the requested final ordering. Per-query category tables, coefficient delete values, and metadata are written as fits finish, staged privately until successful sorted publication under `diagnostics/query_annotations/`. Python `estimate_partitioned_h2_batch(..., output_dir=...)` returns the aggregate summary and persistent `per_query_artifacts` paths, rather than every detailed table in memory.
 

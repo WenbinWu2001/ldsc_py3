@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -14,7 +14,7 @@ result directory as the baseline design:
 <ldscore_dir>/
   metadata.json
   ldscore.baseline.parquet
-  ldscore.query.parquet        # omitted when no query annotations exist
+  ldscore.query.parquet        # one query batch; numbered files for multiple batches; omitted without queries
   ldscore.overlap.parquet      # overlap matrix; omitted for single-annotation (e.g. base-only) runs; required by partitioned-h2
   diagnostics/
     ldscore.log
@@ -22,6 +22,8 @@ result directory as the baseline design:
     gene_list_audit.tsv.gz       # gene-list runs
     gene_list_resolution_summary.tsv
 ```
+
+Multiple batches use `ldscore.query.batch00001.parquet` and subsequent ordinals. Root `metadata.json.query_batches` records the ordered files, query columns, and chromosome row groups; it is required even for baseline-only directories, where the list is empty. Every query file covers the same genome-wide SNP rows. Current readers require the manifest; regenerate older directories. Sources: `LDScoreDirectoryWriter.write_batches` in [outputs.py](../../src/ldsc/outputs.py) and `LDScoreSource` in [ldscore_source.py](../../src/ldsc/ldscore_source.py).
 
 Regression workflows consume this directory with `--ldscore-dir`; fragmented
 inputs such as LD-score files, count vectors, regression-weight files, and
@@ -76,8 +78,7 @@ Logs are audit files and should not be treated as output results.
 
 Adapted public paths:
 
-- `ldsc ldscore` writes `ldscore.baseline.parquet`, optional
-  `ldscore.query.parquet`, and optional `ldscore.overlap.parquet`.
+- `ldsc ldscore` writes `ldscore.baseline.parquet`, optional single or numbered query Parquet files, and optional `ldscore.overlap.parquet`.
 - `ldsc munge-sumstats` writes `sumstats.parquet` by default.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` require `output_dir` and write
   result tables as TSV.
@@ -183,14 +184,14 @@ Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requi
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--query-batch-size` | config | no | active focal query columns | Positive integer, default `1000`; independent of chromosome workers and separate model fitting. |
+| `--query-batch-size` | config | no | active focal query columns | Positive integer, default `1000`; bounds query preparation, computation, and output-file grouping. Direct mode repeats reference work between batches; indexed mode reuses each worker's chromosome operator through its batches. Independent of regression read width. |
 | `--output-dir` | output | yes | canonical LD-score result directory | Writes root scientific artifacts and `diagnostics/ldscore.log`; evaluated BED/gene runs add `query_annotation_status.tsv`, and gene runs add `gene_list_audit.tsv.gz` plus `gene_list_resolution_summary.tsv`. Parquet row groups are chromosome-aligned. |
 | `--gene-ldscore-index-dir` | input | no | exact gene LD-score index | Selects indexed gene-list assembly instead of live baseline/reference-panel computation; defaults to omitted/`None`. Requires `--query-annot-gene-list-sources`; scientific settings are inherited from the immutable index, so live inputs and non-default overrides are rejected, and explicit padding is always rejected. |
-| `--overwrite` | output mode | no | collision policy | Controls whether fixed LD-score files and `diagnostics/ldscore.log` may be replaced; defaults to `False`, so any existing owned LD-score artifact in `output_dir` is refused. With overwrite, stale `ldscore.query.parquet` is removed after successful baseline-only runs. |
+| `--overwrite` | output mode | no | collision policy | Controls whether fixed LD-score files and `diagnostics/ldscore.log` may be replaced; defaults to `False`, so any existing owned LD-score artifact in `output_dir` is refused. Successful overwrites remove stale owned single/numbered query files not produced by the current run. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`; these records go to `diagnostics/ldscore.log` and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
 | `--baseline-annot-sources` | input | no | baseline annotation files | Supplies baseline annotation files; defaults to omitted/`None`, and if no query inputs are supplied `ldscore` synthesizes an all-ones `base` column. |
 | `--query-annot-sources` | input | no | prebuilt query annotation files | Supplies prebuilt query annotations; defaults to omitted/`None`. The canonical sharded layout is one `query.<chrom>.annot.gz` file per chromosome containing all query annotation columns. Do not supply one chromosome-sharded suite per query, because that creates multiple query files for the same chromosome. Mutually exclusive with the BED and gene-list routes and requires `--baseline-annot-sources`. |
-| `--query-annot-bed-sources` | input | no | query BED interval files | Supplies BED intervals projected in memory; defaults to omitted/`None`. Mutually exclusive with the prebuilt and gene-list routes and requires `--baseline-annot-sources`. Concrete-source failures are recorded and skipped while usable siblings continue. |
+| `--query-annot-bed-sources` | input | no | query BED interval files | Supplies BED intervals projected one execution batch at a time with private staging under the output directory; defaults to omitted/`None`. Mutually exclusive with the prebuilt and gene-list routes and requires `--baseline-annot-sources`. Concrete-source failures are recorded and skipped while usable siblings continue. |
 | `--query-annot-gene-list-sources` | input | no | one-column gene lists | Supplies focal gene-list sources. Mutually exclusive with other query routes. Direct mode requires `--baseline-annot-sources`, `--gene-coordinate-file`, and explicit padding; indexed mode requires `--gene-ldscore-index-dir` and uses its embedded catalog. |
 | `--gene-coordinate-file` | input | conditional | one-based build-aware gene catalog | Required for direct gene-list mode and index construction. It is the sole focal/control resolution universe and is forbidden in indexed online mode. |
 | `--gene-list-resolution-policy` | policy | no | strict or deliberate subset resolution | `strict` by default; `resolved-only` permits approved rejected rows to be omitted with audit/metadata/console notice. Valid only in gene-list modes. |
@@ -214,7 +215,7 @@ Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requi
 | `--export-ref-metadata` | output | no | opt-in reference-metadata sidecar | When set (PLINK backend), writes `ref_metadata/chrN_meta.tsv.gz` (`CHR POS SNP A1 A2 CM MAF`, matching the parquet panel sidecar) next to the LD-score output. Default `False`. Parquet panels already ship this sidecar. |
 | `--common-maf-min` | input metadata | no | common-SNP count threshold | Sets the MAF threshold for common-SNP count vectors and the common-universe overlap matrix; defaults to `0.05` and uses inclusive `MAF >= common_maf_min` (deviates from legacy LDSC's strict `0.05 < FRQ < 0.95`). |
 | `--snp-batch-size` | performance | no | LD-score SNP batch size | Genotype batch size for the PLINK reference-panel backend; defaults to `128`. The parquet-R2 backend streams stored pairs and ignores this value. |
-| `--threads` | performance | no | cross-chromosome parallelism | Worker processes for cross-chromosome parallelism (joblib `n_jobs` convention): defaults to `1` (sequential), `N`=`N` workers, `-1`=all cores, `-2`=all but one. Capped at the chromosome count and CPU affinity. Workers are processes (the LD-score kernel is CPU-bound), each rebuilding its chromosome's panel, so peak RSS scales with the worker count. |
+| `--threads` | performance | no | cross-chromosome parallelism | Worker processes for cross-chromosome parallelism (joblib `n_jobs` convention): defaults to `1` (sequential), `N`=`N` workers, `-1`=all cores, `-2`=all but one. Capped at chromosome count; available-core counts used by negative values respect CPU affinity. Direct and indexed scoring use worker processes. Each indexed worker retains one operator through its query batches, while direct workers prepare their chromosome panel within each batch. More workers need more memory. |
 | `--yes-really` | safety override | no | whole-chromosome LD windows | Allows whole-chromosome LD windows; defaults to `False`, so such windows are rejected unless this flag is supplied. |
 
 Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--r2-sources`,
@@ -228,16 +229,11 @@ LD-score output schema:
 - `ldscore.baseline.parquet`: `CHR`, `POS`, `SNP`, `regression_ld_scores`, then baseline
   LD-score columns. In no-annotation unpartitioned runs, the baseline column
   list is exactly `base`.
-- `ldscore.query.parquet`: `CHR`, `POS`, `SNP`, then query LD-score columns; omitted
-  when there are no query annotations.
+- `ldscore.query.parquet` or numbered query files: `CHR`, `POS`, `SNP`, available alleles, then that batch's query LD-score columns; omitted when there are no query annotations.
 - `ldscore.overlap.parquet`: `row_annotation`, `col_annotation`,
   `overlap_all_snps`, `overlap_common_snps` (long-form annotation overlap matrix
   consumed by partitioned-h2); omitted for single-annotation (e.g. base-only) runs.
-- `metadata.json`: `artifact_type`, relative file paths (`baseline`, optional
-  `query`, optional `overlap`), baseline/query column names, count records, `count_config`,
-  `overlap_config`, config metadata, chromosomes, row
-  counts, `row_group_layout`, `baseline_row_groups`, and
-  `query_row_groups`.
+- `metadata.json`: `artifact_type`, relative file paths (`baseline`, optional `query` or `query_batchNNNNN` entries, optional `overlap`), baseline/query column names, count records, `count_config`, `overlap_config`, config metadata, chromosomes, row counts, `row_group_layout`, `baseline_row_groups`, and the required ordered `query_batches` manifest. `query_row_groups` is populated only for a single query file.
 
 ### `ldsc build-r2-panel`
 
@@ -334,7 +330,7 @@ It is not a legacy compatibility command and performs no inference or liftover.
 | `--regr-snps-exclude-regions` | input transform | no | regression-region subtraction | `none`, `mhc`, `centromeres`, or `mhc-and-centromeres`; defaults to `mhc-and-centromeres`. The obsolete `--exclude-regions` alias is rejected. |
 | `--genetic-map-hg19-sources` | input | no | genetic map | Optional explicit hg19 map; accepts comma-separated exact paths, without `*` or `@` expansion. Defaults to omitted/`None`; hg38 maps are not a builder CLI input. |
 | `--snp-batch-size`, `--atom-batch-size` | performance | no | computation batches | Bounds SNP and disjoint-atom matrix work; `--snp-batch-size` defaults to `128`, and `--atom-batch-size` defaults to `64`. |
-| `--threads` | performance | no | chromosome workers | Gene-index thread-pool size; defaults to `1`. Direct `ldscore` uses `--threads` for processes. |
+| `--threads` | performance | no | chromosome workers | Gene-index thread-pool size; defaults to `1`. Direct and indexed `ldscore` use `--threads` for chromosome processes. |
 | `--overwrite` | output mode | no | publication policy | Replaces only a complete valid owned index through staged publication; defaults to `False`. |
 | `--log-level` | logging | no | workflow log verbosity | Controls the persistent index build-state log; defaults to `INFO`. |
 
@@ -491,7 +487,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Requires an overlap artifact. With query columns, runs the cell-type regime (baseline plus one query per model); with no query columns, runs one functional-category model jointly over all baseline columns. This includes explicitly converted baseline-only LDSC2 suites. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. Accepts current Parquet or legacy LDSC2 text under the same projection rule as `h2`. |
 | `--trait-name` | input metadata | no | output trait label | Optional label override; defaults to omitted/`None`. If omitted, regression uses the sumstats parquet footer `ldsc:trait_name` when present, then the filename fallback. |
-| `--query-batch-size` | config | no | active focal query columns | Positive integer, default `1000`; independent of chromosome workers and separate model fitting. |
+| `--query-batch-size` | config | no | active focal query columns | Positive integer, default `1000`; bounds query preparation, computation, and output-file grouping. Direct mode repeats reference work between batches; indexed mode reuses each worker's chromosome operator through its batches. Independent of regression read width. |
 | `--output-dir` | output | yes | result output directory | Required destination for `partitioned_h2.tsv` and diagnostics. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--n-blocks` | model | no | block jackknife partitions | Number of jackknife blocks used by the regression estimator; defaults to `200`. |

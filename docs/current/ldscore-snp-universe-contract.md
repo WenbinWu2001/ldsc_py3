@@ -1,6 +1,6 @@
 # LD-score SNP-universe contract
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-14
 
 This table distinguishes the SNP universes used by canonical LD Score
 Regression (LDSC) and stratified LDSC. It is especially important for MHC and
@@ -20,11 +20,11 @@ Direct query chromosome coverage is established from validated baseline/referenc
 
 ## Projection and traversal contract
 
-For each chromosome, baseline/control annotations, query annotations, and the binary regression-SNP mask share one numerical LD traversal. PLINK computes each genotype-correlation block once; parquet-R2 decodes each stored pair chunk once. Baseline/control and regression-weight projections are computed once per block/chunk, and every query batch is projected against that same block/chunk before it is released. Query batching must not restart the chromosome kernel or repeat genotype/R2 traversal. The synthetic all-ones `base` annotation follows the same rule in unpartitioned runs.
+Within each direct query execution batch, baseline/control annotations, the active query columns, and the binary regression-SNP mask share one numerical LD traversal per chromosome. PLINK computes each genotype-correlation block once for that batch; Parquet R² decodes bounded pair chunks. The next execution batch repeats reference preparation and genotype/R² traversal. This repeated work is deliberate: completed query batches are written and released before the next batch is prepared. Shared baseline counts and overlap blocks are retained once, not added repeatedly across execution batches. The synthetic all-ones `base` annotation uses one no-query calculation in unpartitioned runs.
 
-The approved memory refactor permits separate bounded annotation reads for query batches instead of requiring one combined all-query matrix. It resolves output rows before score allocation and accumulates scores only for those rows, while retaining every eligible reference-SNP contributor and the existing all/common counts and overlap universes. Non-output endpoints still contribute to output endpoints. `w_ld` keeps its distinct filtered-regression contributor set. A caller requesting all output rows remains supported.
+The implementation reads bounded annotation tiles and resolves output rows before score allocation. It accumulates scores only for output rows while retaining every eligible reference-SNP contributor and the established all/common count and overlap universes. Non-output endpoints still contribute to output endpoints. `w_ld` keeps its distinct filtered-regression contributor set. A caller requesting all output rows remains supported. Counts sum normalized float32 annotation values in float64, preserving existing validation tolerances across query widths and array layouts.
 
-Implementation status: at commit `a505c45`, direct computation still materializes the combined annotation matrix and full-reference-row score buffers before filtering output rows. The preceding batching/output-row contract is approved but not implemented; see [memory decisions](annotation-memory-decisions.md#confirmed-direct-ld-score-batching-and-output-row-accumulation) and the [refactor plan](../plans/2026-09-10-annotation-workflow-memory.md). The public LD-score output remains one aggregated baseline Parquet file and one optional aggregated query Parquet file, not separate chromosome files.
+The [confirmed September 14 design](annotation-memory-decisions.md#confirmed-sequential-query-batches-2026-09-14) supersedes the earlier requirement for one traversal across all queries. Public output contains one shared genome-wide baseline file and one or more genome-wide query files, with chromosome row groups and the required ordered `query_batches` manifest. Generation batch width and chromosome workers affect execution memory, not SNP membership or scientific definitions. Sources: `LDScoreCalculator.run` in [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py), `ProjectionAccumulator` in [_kernel/ldscore_projection.py](../../src/ldsc/_kernel/ldscore_projection.py), and `annotation_statistics` in [_kernel/overlap.py](../../src/ldsc/_kernel/overlap.py). See the [numerical verification](../audits/annotation-memory/sequential-query-batches.md).
 
 The gene-index builder applies the same rule to its fixed common payload:
 supplied baseline columns and the regression mask share one PLINK traversal.

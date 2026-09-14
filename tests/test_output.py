@@ -466,7 +466,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             loaded = load_ldscore_from_dir(str(output_dir))
             self.assertEqual(metadata["files"], {"baseline": "ldscore.baseline.parquet"})
             self.assertFalse((output_dir / "ldscore.query.parquet").exists())
-            self.assertIsNone(loaded.query_path)
+            self.assertEqual(loaded.query_batches, ())
             self.assertNotIn("query", loaded.output_paths)
 
     def test_overwrite_removes_stale_overlap_parquet_for_unpartitioned_result(self):

@@ -56,7 +56,6 @@ from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
-import pyarrow.parquet as pq
 
 from ._cli_help import CLIHelpFormatter, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
@@ -86,7 +85,7 @@ from ._row_alignment import assert_same_snp_rows
 from .column_inference import infer_chr_pos_columns, normalize_snp_identifier_mode
 from .genome_build_inference import infer_chr_pos_build
 from .ldscore_calculator import LDScoreResult
-from .ldscore_source import LDScoreSource, validate_ldscore_schemas
+from .ldscore_source import LDScoreSource
 from .outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
@@ -3253,27 +3252,37 @@ def load_ldscore_from_dir(
     ----------
     ldscore_dir : str
         Directory containing ``metadata.json``, ``ldscore.baseline.parquet``,
-        and optional ``ldscore.query.parquet`` files written by the public
-        LD-score writer.
+        and the query files declared by the current ``query_batches`` manifest.
+        Older directories without this manifest must be regenerated.
     snp_identifier : {"rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"} or None, optional
         Identifier mode used to reconstruct the public regression SNP set from
-        the baseline table. When omitted, the metadata value is used.
+        the baseline table. When omitted, the metadata value is used. An
+        explicit value must agree with the saved identity configuration.
 
     Returns
     -------
     LDScoreSource
         Shared baseline values, SNP metadata, counts, and overlap statistics.
-        Call ``read_queries(columns)`` for explicit query batches. The original
-        directory must remain available and unchanged during use.
+        Call ``read_queries(columns)`` for explicit query selections, including
+        selections spanning saved files. Reads preserve requested column order,
+        are uncached, and have no width limit. The caller owns their memory
+        cost. The original directory must remain available and unchanged.
 
     Raises
     ------
-    FileNotFoundError
-        If ``metadata.json`` is absent.
-    NotADirectoryError
-        If ``ldscore_dir`` is not an existing directory.
-    ValueError
-        If required metadata file records are unsupported.
+    LDSCInputError
+        The directory or root metadata is missing, or the manifest, identity,
+        count, or overlap contract is invalid.
+    LDSCInternalError
+        A declared baseline/query schema lacks required columns.
+    ConfigMismatchError
+        An explicit identity mode disagrees with the saved configuration.
+
+    Notes
+    -----
+    Opening checks all declared schemas and allele metadata without loading
+    query LD-score values. Selected-query numerical checks and alignment to
+    baseline rows are performed by the consuming regression workflow.
     """
     root = Path(normalize_path_token(ldscore_dir))
     if not root.is_dir():
@@ -3300,15 +3309,11 @@ def load_ldscore_from_dir(
             f"Regenerate it with the current `ldsc ldscore`. Other causes & fixes: {_REGRESSION_SCHEMA_DOC}"
         )
     baseline_table = pd.read_parquet(root / baseline_rel)
-    query_rel = files.get("query")
-    query_schema = pq.read_schema(root / query_rel).names if query_rel else None
-    query_table = (pd.read_parquet(root / query_rel, columns=[
-        column for column in ("CHR", "SNP", "POS", "A1", "A2") if column in query_schema
-    ]) if query_rel else None)
     baseline_columns = [str(column) for column in metadata.get("baseline_columns", [])]
     query_columns = [str(column) for column in metadata.get("query_columns", [])]
     count_records = [dict(record) for record in metadata.get("counts", [])]
-    validate_ldscore_schemas(baseline_columns, query_columns, baseline_table.columns, query_schema)
+    from .ldscore_source import load_query_manifest
+    query_batches = load_query_manifest(root, metadata, baseline_columns, baseline_table.columns)
     _validate_count_overlap_config(metadata, root)
     overlap = None
     overlap_rel = files.get("overlap")
@@ -3339,16 +3344,22 @@ def load_ldscore_from_dir(
         table_name="baseline_table",
         snp_identifier=effective_identifier,
     )
-    if query_table is not None:
+    query_table = None
+    for entry in query_batches:
+        identities = pd.read_parquet(entry["path"], columns=[
+            name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in entry["schema"]])
         _validate_ldscore_allele_columns(
-            query_table,
+            identities,
             table_name="query_table",
             snp_identifier=effective_identifier,
         )
+        if query_table is None:
+            query_table = identities
+        del identities
     result = LDScoreSource(
         baseline_table=baseline_table,
         query_metadata=query_table,
-        query_path=root / query_rel if query_rel else None,
+        query_batches=query_batches,
         count_records=count_records,
         baseline_columns=baseline_columns,
         query_columns=query_columns,
@@ -3358,12 +3369,18 @@ def load_ldscore_from_dir(
         output_paths={
             "metadata": str(metadata_path),
             "baseline": str(root / baseline_rel),
-            **({"query": str(root / query_rel)} if query_rel else {}),
+            **{key: str(root / value) for key, value in files.items()},
         },
         count_config=dict(metadata.get("count_config", {})),
         config_snapshot=config_snapshot,
         overlap=overlap,
         annotation_types={str(key): str(value) for key, value in (metadata.get("annotation_types") or {}).items()},
+        snp_identifier=effective_identifier,
+        chromosome_scope=metadata.get("chromosome_scope") or {},
+        snp_universe_policy=metadata.get("snp_universe_policy"),
+        index_provenance=({key: metadata[key] for key in ("index_id", "index_snp_identifier", "index_genome_build")}
+                          if metadata.get("index_id") is not None else None),
+        legacy_ldsc2_import=metadata.get("legacy_ldsc2_import"),
     )
     query_rows = 0 if query_table is None else len(query_table)
     LOGGER.info(

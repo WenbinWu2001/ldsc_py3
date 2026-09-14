@@ -40,7 +40,7 @@ def test_directory_loading_defers_query_values_and_reads_only_requested_columns(
     assert not hasattr(source, "query_table")
     first = source.read_queries(["query2"])
     pd.testing.assert_series_equal(first.query2, expected.query_table.query2.astype(np.float32))
-    assert query_reads[-1] == ["query2"]
+    assert query_reads[-1] == ["CHR", "SNP", "POS", "query2"]
     ref = weakref.ref(first)
     del first
     assert ref() is None
@@ -156,6 +156,35 @@ def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypa
         pd.testing.assert_frame_equal(pd.read_parquet(paths.delete_values), expected[query][2])
         assert json.loads(paths.metadata.read_text())["n_snps"] == 58
     assert not list((tmp_path / "out").glob(".ldsc-annotation-*"))
+
+
+@pytest.mark.parametrize("generation_width", [1, 2])
+def test_regression_across_query_files_matches_single_file(tmp_path, generation_width):
+    table, original = batch_inputs(tmp_path / "original")
+    def batches():
+        for start in range(0, len(original.query_columns), generation_width):
+            columns = original.query_columns[start:start + generation_width]
+            yield LDScoreResult(
+                baseline_table=original.baseline_table, query_table=original.read_queries(columns),
+                baseline_columns=original.baseline_columns, query_columns=columns,
+                count_records=[record for record in original.count_records
+                               if record["group"] == "baseline" or record["column"] in columns],
+                config_snapshot=original.config_snapshot, count_config=original.count_config,
+                overlap=original.overlap.select_queries(columns), chromosome_results=[],
+                ld_reference_snps=frozenset(), ld_regression_snps=original.ld_regression_snps)
+    saved = LDScoreDirectoryWriter().write_batches(batches(), LDScoreOutputConfig(tmp_path / "batches"))
+    runner = workflow.RegressionRunner(original.config_snapshot, workflow.RegressionConfig(n_blocks=6))
+    expected = runner.estimate_partitioned_h2_batch(table, original, output_dir=tmp_path / "expected",
+                                                   query_batch_size=1000, summary_sort_by="category")
+    actual = runner.estimate_partitioned_h2_batch(table, saved, output_dir=tmp_path / "actual",
+                                                 query_batch_size=2, summary_sort_by="category")
+    pd.testing.assert_frame_equal(actual.summary, expected.summary, rtol=1e-10, atol=1e-12)
+    for query, paths in actual.per_query_artifacts.items():
+        before = expected.per_query_artifacts[query]
+        pd.testing.assert_frame_equal(pd.read_parquet(paths.delete_values), pd.read_parquet(before.delete_values),
+                                      rtol=1e-10, atol=1e-12)
+        pd.testing.assert_frame_equal(pd.read_csv(paths.full, sep="\t"), pd.read_csv(before.full, sep="\t"),
+                                      rtol=1e-10, atol=1e-12)
 
 
 def cli_inputs(tmp_path):

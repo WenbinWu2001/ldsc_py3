@@ -1783,7 +1783,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertEqual(set(result.output_paths),{'baseline','query','metadata','overlap','chromosome_scope','dropped_snps_chr22'})
             for path in result.output_paths.values():
                 self.assertTrue(Path(path).is_file())
-            pd.testing.assert_frame_equal(pd.read_parquet(result.output_paths['query']),result.query_table)
+            pd.testing.assert_frame_equal(pd.read_parquet(result.output_paths['query']),result.read_queries(result.query_columns))
             self.assertTrue((root/'out/diagnostics/ldscore.log').is_file())
             self.assertFalse(list((root/'out').glob('.ldsc-annotation-*')))
 
@@ -2141,7 +2141,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             result = ldscore_workflow.run_ldscore_from_args(build_parser().parse_args(argv))
             self.assertEqual(result.baseline_columns,['base'])
             self.assertEqual(result.query_columns,[])
-            self.assertIsNone(result.query_table)
+            self.assertIsNone(result.read_queries([]))
             self.assertNotIn('query',result.output_paths)
             self.assertEqual(result.count_records[0]['all_reference_snp_count'],3)
             self.assertEqual(result.baseline_table.columns.tolist(),['CHR','SNP','POS','A1','A2','regression_ld_scores','base'])

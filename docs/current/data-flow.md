@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -313,19 +313,15 @@ flowchart LR
 ## 4. `ldscore`: Reference Panel And Optional Annotations To LDSC Artifacts
 
 The canonical LD-score workflow preflights root `metadata.json`,
-`ldscore.baseline.parquet`, optional `ldscore.query.parquet`, optional
+`ldscore.baseline.parquet`, optional single or numbered query batch files, optional
 `ldscore.overlap.parquet`, and `diagnostics/ldscore.log` as one owned family
 before writing any of them. Use
 `--overwrite` or `LDScoreOutputConfig(overwrite=True)` only for intentional
-reruns. With overwrite enabled, a successful baseline-only run removes stale
-`ldscore.query.parquet`. `ldscore.overlap.parquet` carries the annotation overlap
+reruns. Successful overwrites remove obsolete owned single/numbered query files. `ldscore.overlap.parquet` carries the annotation overlap
 matrix consumed by `partitioned-h2`; it is written only when the run has two or
 more annotation columns, so an unpartitioned single-annotation run (e.g. the
 synthetic `base`) omits it.
-The parquet payloads remain single flat files, but each row group contains rows
-from exactly one chromosome. Root `metadata.json` records the row-group layout and
-per-chromosome offsets so readers can load one chromosome without scanning the
-whole table.
+Every Parquet payload spans the computed chromosomes, with one row group per chromosome. Root metadata records baseline row groups and the required ordered `query_batches` manifest, including file membership and chromosome offsets. Readers can select query columns across files or load one chromosome without scanning whole tables. One batch uses `ldscore.query.parquet`; multiple batches use numbered files. See `LDScoreDirectoryWriter.write_batches` in [outputs.py](../../src/ldsc/outputs.py).
 
 For ordinary unpartitioned LD scores, callers may omit both baseline and query
 inputs. The workflow then creates a synthetic baseline annotation named exactly
@@ -389,7 +385,7 @@ flowchart LR
 | File | Example | Notes |
 | --- | --- | --- |
 | baseline LD-score table | `CHR POS SNP regression_ld_scores base`<br/>`1 10 rs1 1.7 1.2` | `ldscore.baseline.parquet` inside `output_dir`; `regression_ld_scores` is historical `w_ld`, not the final h2/rg regression weight; one row group per chromosome |
-| query LD-score table | `CHR POS SNP enhancer_A`<br/>`1 10 rs1 0.4` | `ldscore.query.parquet` inside `output_dir`; one row group per chromosome; omitted when no query annotations exist |
+| query LD-score table | `CHR POS SNP enhancer_A`<br/>`1 10 rs1 0.4` | single `ldscore.query.parquet` or numbered `ldscore.query.batchNNNNN.parquet` files in the ordered `query_batches` manifest; one row group per chromosome; omitted for baseline-only runs |
 | annotation overlap matrix | `row_annotation col_annotation overlap_all_snps overlap_common_snps`<br/>`base enhancer_A 9000 7500` | `ldscore.overlap.parquet` inside `output_dir`; long-form `AᵀA` baseline-rows block + query self-overlaps; consumed by `partitioned-h2` |
 | metadata | JSON metadata with files, columns, counts, chromosomes, config, row counts, and row-group metadata | `metadata.json` inside `output_dir`; consumed by downstream regression |
 | workflow log | plain-text lifecycle and package records | `diagnostics/ldscore.log` inside `output_dir`; not included in `LDScoreResult.output_paths` |
@@ -585,7 +581,7 @@ merge. rsID-family and coordinate-family modes never mix.
 | File | Example | Notes |
 | --- | --- | --- |
 | munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; current Parquet recovers footer provenance. Legacy LDSC2 `.sumstats[.gz]` requires `SNP/A1/A2/Z/N` and is projected by rsID onto the panel. |
-| LD-score directory | `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, optional `ldscore.overlap.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; the overlap sidecar is written only for runs with >=2 annotation columns; `partitioned-h2` requires `ldscore.overlap.parquet` (baseline-only = functional regime, query columns = cell-type regime) and rejects directories that lack it; current parquet files have chromosome-aligned row groups; package-written directories without current metadata identity provenance are rejected and must be regenerated |
+| LD-score directory | `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query batch files, optional `ldscore.overlap.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; the overlap sidecar is written only for runs with >=2 annotation columns; `partitioned-h2` requires `ldscore.overlap.parquet` (baseline-only = functional regime, query columns = cell-type regime) and rejects directories that lack it; current parquet files have chromosome-aligned row groups; package-written directories without current metadata identity provenance are rejected and must be regenerated |
 
 ### Flow
 

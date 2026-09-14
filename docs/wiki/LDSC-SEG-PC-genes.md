@@ -1,6 +1,6 @@
 # LDSC-SEG for Protein-Coding Gene Lists
 
-Last updated on: 2026-09-13
+Last updated on: 2026-09-14
 
 This tutorial tests whether one or more protein-coding gene lists are enriched for trait heritability. For each query gene list, LDSC3 fits the model
 
@@ -34,7 +34,7 @@ Choose either direct mode or fast mode. Both produce the same canonical LD-score
 
 Direct mode reads the baseline annotations and PLINK reference panel and projects gene intervals chromosome by chromosome. It writes private query matrices under the output directory while computing LD scores and counts; it does not publish reusable `.annot.gz` queries by default. Allow temporary disk space. Handled completion or failure cleans owned scratch; an interrupted process can leave private files. See [`build_query_shards`](../../src/ldsc/_annotation_queries.py) and the [memory design](../current/annotation-memory-design.md).
 
-Resource use depends on the reference panel, number of query lists, and concurrency. Start with `--threads 1`; lower `--query-batch-size` from its default `1000` to reduce active query workspace. The [local benchmark report](../audits/annotation-memory/results.md) gives measured synthetic examples, not production GB/hour guarantees.
+Resource use depends on the reference panel, number of query lists, and concurrency. Start with `--threads 1`; lower `--query-batch-size` from its default 1000 to reduce active query workspace. Direct mode prepares, computes, writes, and releases one query batch before starting the next, repeating reference/genotype work across batches. The [current verification report](../audits/annotation-memory/sequential-query-batches.md) records numerical and lifetime checks; production memory and runtime still depend on the workload.
 
 ```bash
 RESULT_ROOT="${PROJECT_ROOT}/ldsc3/example_output/direct_mode"
@@ -84,7 +84,7 @@ Relevant flags omitted because their default values are used:
 
 Fast mode uses a precomputed exact gene LD-score index to assemble LD scores, annotation counts, and overlap statistics for the query gene lists. It does not reread the PLINK reference panel.
 
-Indexed assembly avoids rereading PLINK genotypes, but validation and chromosome-operator reads still incur I/O. Profile the actual index and query batch; see the [index reuse memory guidance](utility-functionalities/build-gene-ldscore-index.md#memory-during-index-reuse).
+Indexed assembly avoids rereading PLINK genotypes, but validation and chromosome-operator reads still incur I/O. Direct and indexed modes accept `--threads`: default 1, positive worker counts, `-1` for available cores, and `-2` to leave one core free, capped at the chromosome count. Each indexed worker owns one chromosome operator and writes/releases that chromosome's query batches before advancing. Profile the actual index and query batch; see the [index reuse memory guidance](utility-functionalities/build-gene-ldscore-index.md#memory-during-index-reuse).
 - **Supported genome build:** hg19
 
 ```bash
@@ -114,7 +114,7 @@ Do not supply live overrides such as `--baseline-annot-sources`, `--plink-prefix
 
 ### LD-score outputs
 
-Both modes write:
+Both modes write the following layout when all queries fit in one execution batch:
 
 ```text
 ldscore/
@@ -128,6 +128,8 @@ ldscore/
         gene_list_audit.tsv.gz
         gene_list_resolution_summary.tsv
 ```
+
+Multiple batches replace `ldscore.query.parquet` with numbered files such as `ldscore.query.batch00001.parquet`. Every query file covers the same genome-wide regression SNP rows and contains chromosome row groups. Root `metadata.json.query_batches` records the ordered files, columns, and row groups. Regression reads this manifest and may use a different batch width from generation. The baseline and overlap artifacts remain shared. Python writing workflows return `LDScoreSource`; call `read_queries(names)` explicitly when you need query values in memory. See [LD-score output and memory controls](main-functionalities/ldscore.md#memory-for-many-pathways).
 
 Use `diagnostics/ldscore.log` to monitor progress. Start curation with
 `gene_list_resolution_summary.tsv`, then filter `gene_list_audit.tsv.gz`; after

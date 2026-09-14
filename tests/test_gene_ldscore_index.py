@@ -1789,7 +1789,7 @@ def test_indexed_gene_lists_assemble_control_queries_and_canonical_output(tmp_pa
     assert result.baseline_columns == ["base", "gene_control"]
     assert result.query_columns == ["focal"]
     np.testing.assert_allclose(result.baseline_table["gene_control"], [0.75, 1.6])
-    np.testing.assert_allclose(result.query_table["focal"], [0.75, 1.5])
+    np.testing.assert_allclose(result.read_queries(["focal"])["focal"], [0.75, 1.5])
     assert [record["column"] for record in result.count_records] == ["base", "gene_control", "focal"]
     assert result.overlap.baseline_block_all.loc["gene_control", "focal"] == 2
     assert (tmp_path / "ldscores" / "ldscore.baseline.parquet").exists()
@@ -1862,6 +1862,7 @@ def test_explicit_indexed_mode_dispatches_without_live_reference(monkeypatch, tm
         "control_gene_list_file": None,
         "gene_list_resolution_policy": "strict",
         "query_batch_size": 1000,
+        "threads": 1,
         "output_dir": str(tmp_path / "out"),
         "overwrite": True,
     }
@@ -1933,7 +1934,6 @@ def test_indexed_control_gene_list_file_must_resolve_to_a_file(tmp_path):
     ("--genome-build", "hg19"),
     ("--gene-exclude-regions", "none"),
     ("--common-maf-min", "0.05"),
-    ("--threads", "1"),
 ])
 def test_explicit_indexed_mode_rejects_live_inputs(forbidden, tmp_path):
     with pytest.raises(LDSCInputError, match="indexed mode"):

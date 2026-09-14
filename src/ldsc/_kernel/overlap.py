@@ -94,8 +94,8 @@ def annotation_statistics(metadata, annotations, n_baseline, *, query_batch_size
                           common_maf_min=0.05, read_budget_bytes=16*1024*1024):
     """Accumulate counts, overlap blocks, and classifications in bounded tiles.
 
-    Counts retain the existing float32 reduction policy, while products use
-    float64. Only baseline-by-query overlaps and query diagonals are retained;
+    Counts and products accumulate in float64 so column width and row tiling
+    do not amplify float32 cancellation. Only baseline-by-query overlaps and query diagonals are retained;
     different focal queries are never crossed. All rows are reference SNPs,
     independently of which SNPs receive output LD scores.
     """
@@ -104,8 +104,8 @@ def annotation_statistics(metadata, annotations, n_baseline, *, query_batch_size
     n_rows, n_columns = annotations.shape
     n_query = n_columns-n_baseline
     common = None if 'MAF' not in metadata or metadata.MAF.isna().all() else (metadata.MAF >= common_maf_min).to_numpy()
-    counts = np.zeros(n_columns, dtype=np.float32)
-    counts_common = None if common is None else np.zeros(n_columns, dtype=np.float32)
+    counts = np.zeros(n_columns, dtype=np.float64)
+    counts_common = None if common is None else np.zeros(n_columns, dtype=np.float64)
     block = np.zeros((n_baseline,n_columns), dtype=np.float64)
     block_common = None if common is None else np.zeros_like(block)
     diagonal = np.zeros(n_query, dtype=np.float64)
@@ -122,13 +122,13 @@ def annotation_statistics(metadata, annotations, n_baseline, *, query_batch_size
         for start,stop in batches:
             names = annotations.columns[start:stop]
             values = baseline.astype(np.float32) if start == 0 and stop == n_baseline else annotations.read(rows=rows,columns=names)
-            counts[start:stop] += values.sum(axis=0,dtype=np.float32)
+            counts[start:stop] += values.sum(axis=0,dtype=np.float64)
             numeric = values.astype(np.float64)
             block[:,start:stop] += baseline.T @ numeric
             if start >= n_baseline:
                 diagonal[start-n_baseline:stop-n_baseline] += np.einsum('sq,sq->q',numeric,numeric)
             if selected is not None:
-                counts_common[start:stop] += values[selected].sum(axis=0,dtype=np.float32)
+                counts_common[start:stop] += values[selected].sum(axis=0,dtype=np.float64)
                 common_values = numeric[selected]
                 block_common[:,start:stop] += baseline[selected].T @ common_values
                 if start >= n_baseline:

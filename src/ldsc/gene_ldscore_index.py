@@ -57,7 +57,6 @@ from ._kernel.identifiers import read_snp_restriction_keys
 from ._kernel.snp_identity import (
     RestrictionIdentityKeys,
     clean_identity_artifact_table,
-    coerce_identity_drop_frame,
     effective_merge_key_series,
     empty_identity_drop_frame,
     normalize_snp_identifier_mode,
@@ -1952,6 +1951,7 @@ def run_indexed_ldscore(
     control_gene_list_file: str | Path | None = None,
     gene_list_resolution_policy: str = "strict",
     query_batch_size: int = 1000,
+    threads: int = 1,
     output_dir: str | Path,
     overwrite: bool = False,
     _allow_partial_for_tests: bool = False,
@@ -1973,7 +1973,12 @@ def run_indexed_ldscore(
         Apply the usual identifier-resolution gate; default is strict.
     query_batch_size : int, optional
         Positive maximum focal columns per operator multiplication, default 1000.
+        Also bounds genome-wide result assembly and saved query-file width.
         Each pathway remains a separate annotation and regression model.
+    threads : int, optional
+        Chromosome workers, default 1. Positive values request workers; -1
+        uses available cores and -2 leaves one free. Zero is invalid. The
+        effective count is capped at the number of index chromosomes.
     output_dir : path-like
         Destination for the canonical self-contained LD-score directory.
     overwrite : bool, optional
@@ -1981,9 +1986,10 @@ def run_indexed_ldscore(
 
     Returns
     -------
-    LDScoreResult
-        Assembled baseline/control and focal-query tables, counts, overlaps,
-        statuses, provenance, and canonical output paths.
+    LDScoreSource
+        Shared baseline/control values, counts, overlap, statuses, provenance,
+        and saved paths. ``read_queries(names)`` reads explicit selections
+        across the ordered query batch files; no query values are cached.
 
     Raises
     ------
@@ -1991,22 +1997,33 @@ def run_indexed_ldscore(
         If the index is invalid, a control is unusable, or every requested
         focal query is skipped. The all-skipped case writes diagnostics but no
         scientific LD-score tables.
+    ValueError
+        Query batch width is not a positive integer or the worker request is
+        not a nonzero integer.
+    FileExistsError
+        An owned output artifact exists and overwrite is disabled.
 
     Notes
     -----
     Overlapping, nested, duplicated, and alias-selected genes are combined by
-    Boolean union. Each chromosome operator serves all focal query batches
-    before release. The aggregate output-row accumulator remains float64 and
-    is narrowed only by the canonical Parquet writer.
+    Boolean union. Each worker retains one chromosome operator while writing
+    and releasing its query batches. Private fragments preserve float64 until
+    deterministic chromosome-order assembly and canonical Parquet narrowing.
+    Completed batches remain private until the complete run succeeds.
+    One query file is named ``ldscore.query.parquet``; multiple files use
+    numbered names in the required ``query_batches`` manifest. This API writes
+    outputs even for a single batch; batch resumption is not supported.
     """
     if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
         raise ValueError("query_batch_size must be a positive integer.")
+    if isinstance(threads, bool) or not isinstance(threads, int) or threads == 0:
+        raise ValueError("threads must be a nonzero integer (1, positive workers, or a negative CPU offset).")
     with AnnotationWorkspace(output_dir) as workspace:
         return _run_indexed_ldscore_in_workspace(
             index_dir, query_gene_list_sources=query_gene_list_sources,
             control_gene_list_file=control_gene_list_file,
             gene_list_resolution_policy=gene_list_resolution_policy,
-            query_batch_size=query_batch_size, output_dir=output_dir,
+            query_batch_size=query_batch_size, threads=threads, output_dir=output_dir,
             overwrite=overwrite, workspace=workspace,
             _allow_partial_for_tests=_allow_partial_for_tests,
         )
@@ -2014,16 +2031,13 @@ def run_indexed_ldscore(
 
 def _run_indexed_ldscore_in_workspace(
     index_dir, *, query_gene_list_sources, control_gene_list_file,
-    gene_list_resolution_policy, query_batch_size, output_dir, overwrite,
+    gene_list_resolution_policy, query_batch_size, threads, output_dir, overwrite,
     workspace, _allow_partial_for_tests,
 ):
     """Own staged gene selections until the canonical result has been written."""
-    from ._gene_query_storage import resolve_gene_lists_staged, persistent_gene_diagnostics
-    from .config import GlobalConfig
-    from .ldscore_calculator import LDScoreResult
-    from .query_annotations import assess_gene_coverage, gene_query_statuses, gene_control_errors, gene_viability_errors, finalize_query_statuses
+    from ._gene_query_storage import resolve_gene_lists_staged
+    from .query_annotations import assess_gene_coverage, gene_query_statuses, gene_control_errors, gene_viability_errors
     from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-    from .overlap_matrix import LDScoreOverlap
 
     try:
         index = _load_gene_ldscore_index(index_dir, _allow_partial_for_tests=_allow_partial_for_tests)
@@ -2101,164 +2115,15 @@ def _run_indexed_ldscore_in_workspace(
     if any(item["query"] == "gene_control" for item in usable):
         raise LDSCInputError("Focal query name 'gene_control' collides with the reserved fixed control column.")
 
-    supplied_baseline = list(index.baseline_columns)
-    if "gene_control" in supplied_baseline:
+    if "gene_control" in index.baseline_columns:
         raise LDSCInputError("Index supplied baseline columns contain reserved name 'gene_control'.")
-    baseline_columns = [*supplied_baseline, *(("gene_control",) if control_resolution is not None else ())]
-    query_columns = [item["query"] for item in usable]
-    baseline_tables: list[pd.DataFrame] = []
-    query_tables: list[pd.DataFrame] = []
-    baseline_count_all = np.zeros(len(baseline_columns), dtype=np.float64)
-    baseline_count_common = np.zeros(len(baseline_columns), dtype=np.float64)
-    query_count_all = np.zeros(len(query_columns), dtype=np.float64)
-    query_count_common = np.zeros(len(query_columns), dtype=np.float64)
-    block_all = np.zeros((len(baseline_columns), len(baseline_columns) + len(query_columns)), dtype=np.float64)
-    block_common = np.zeros_like(block_all)
-    query_diag_all = np.zeros(len(query_columns), dtype=np.float64)
-    query_diag_common = np.zeros(len(query_columns), dtype=np.float64)
-    total_all = total_common = 0
+    from ._indexed_ldscore_batches import indexed_results
 
-    for chrom in index.chromosomes:
-        record = index.load_chromosome(chrom)
-        control_selector = (
-            None
-            if control_resolution is None
-            else _selector_for_resolution(index.gene_catalog, record.atom_model, chrom, control_resolution)
-        )
-        baseline_table = record.baseline_rows.copy()
-        if control_selector is not None:
-            baseline_table["gene_control"] = assemble_indexed_ld_scores(record.operator, control_selector)
-        identity_columns = [column for column in ("CHR", "SNP", "POS", "A1", "A2") if column in baseline_table.columns]
-        query_table = baseline_table.loc[:, identity_columns].copy()
-        query_scores = np.empty((len(baseline_table), len(query_columns)), dtype=np.float64)
-
-        b = len(supplied_baseline)
-        baseline_count_all[:b] += record.baseline_count_all
-        baseline_count_common[:b] += record.baseline_count_common
-        block_all[:b, :b] += record.baseline_overlap_all
-        block_common[:b, :b] += record.baseline_overlap_common
-        if control_selector is not None:
-            control = assemble_selected_atom_statistics(record.atom_statistics, control_selector)
-            baseline_count_all[b] += control.count_all
-            baseline_count_common[b] += control.count_common
-            block_all[:b, b] += control.baseline_overlap_all
-            block_all[b, :b] += control.baseline_overlap_all
-            block_common[:b, b] += control.baseline_overlap_common
-            block_common[b, :b] += control.baseline_overlap_common
-            block_all[b, b] += control.count_all
-            block_common[b, b] += control.count_common
-        for batch_start in range(0, len(usable), query_batch_size):
-            declarations = usable[batch_start:batch_start + query_batch_size]
-            selectors = [
-                _selector_for_resolution(index.gene_catalog, record.atom_model, chrom,
-                                         batch.selection(item['input_role'], item['source_ordinal']))
-                for item in declarations
-            ]
-            selector_matrix = np.column_stack(selectors)
-            query_scores[:, batch_start:batch_start + len(selectors)] = assemble_indexed_ld_scores(
-                record.operator, selector_matrix,
-            )
-            for offset, selector in enumerate(selectors):
-                query_pos = batch_start + offset
-                selected = assemble_selected_atom_statistics(
-                    record.atom_statistics, selector, control_selector=control_selector,
-                )
-                column_pos = len(baseline_columns) + query_pos
-                query_count_all[query_pos] += selected.count_all
-                query_count_common[query_pos] += selected.count_common
-                query_diag_all[query_pos] += selected.count_all
-                query_diag_common[query_pos] += selected.count_common
-                block_all[:b, column_pos] += selected.baseline_overlap_all
-                block_common[:b, column_pos] += selected.baseline_overlap_common
-                if control_selector is not None:
-                    block_all[b, column_pos] += selected.control_overlap_all
-                    block_common[b, column_pos] += selected.control_overlap_common
-            del selector_matrix, selectors, selector
-        baseline_tables.append(baseline_table)
-        query_tables.append(pd.concat([query_table, pd.DataFrame(query_scores, columns=query_columns)], axis=1))
-        total_all += record.total_reference_snps_all
-        total_common += record.total_reference_snps_common
-        del record, query_scores, baseline_table, query_table, control_selector
-
-    baseline_table = pd.concat(baseline_tables, ignore_index=True)
-    query_table = pd.concat(query_tables, ignore_index=True)
-    count_records = [
-        {
-            "group": "baseline",
-            "column": column,
-            "all_reference_snp_count": float(baseline_count_all[idx]),
-            "common_reference_snp_count": float(baseline_count_common[idx]),
-        }
-        for idx, column in enumerate(baseline_columns)
-    ] + [
-        {
-            "group": "query",
-            "column": column,
-            "all_reference_snp_count": float(query_count_all[idx]),
-            "common_reference_snp_count": float(query_count_common[idx]),
-        }
-        for idx, column in enumerate(query_columns)
-    ]
-    all_columns = [*baseline_columns, *query_columns]
-    overlap = LDScoreOverlap(
-        baseline_block_all=pd.DataFrame(block_all, index=baseline_columns, columns=all_columns),
-        baseline_block_common=pd.DataFrame(block_common, index=baseline_columns, columns=all_columns),
-        query_diagonal_all=pd.Series(query_diag_all, index=query_columns),
-        query_diagonal_common=pd.Series(query_diag_common, index=query_columns),
-        total_all_reference_snps=float(total_all),
-        total_common_reference_snps=float(total_common),
-    )
-    result = LDScoreResult(
-        baseline_table=baseline_table,
-        query_table=query_table,
-        count_records=count_records,
-        baseline_columns=baseline_columns,
-        query_columns=query_columns,
-        ld_reference_snps=frozenset(),
-        ld_regression_snps=frozenset(
-            effective_merge_key_series(
-                baseline_table,
-                index.snp_identifier,
-                context="indexed gene LD-score regression rows",
-            ).astype(str)
-        ),
-        chromosome_results=[],
-        count_config={"common_reference_snp_maf_min": 0.05, "common_reference_snp_maf_operator": ">="},
-        config_snapshot=(
-            GlobalConfig(snp_identifier="rsid")
-            if index.snp_identifier == "rsid"
-            else GlobalConfig(snp_identifier="chr_pos", genome_build=index.genome_build)
-        ),
-        overlap=overlap,
-        query_statuses=statuses,
-        gene_list_batch=batch,
-        chromosome_scope=scope,
-        index_provenance={
-            "index_id": index.index_id,
-            "index_snp_identifier": index.snp_identifier,
-            "index_genome_build": index.genome_build,
-        },
-    )
-    result = finalize_query_statuses(result, statuses)
-    from .query_annotations import _log_query_annotation_statuses
-
-    _log_query_annotation_statuses(result.query_statuses)
-    control_errors = gene_viability_errors(batch, result.query_statuses, result)
-    if control_errors:
-        LDScoreDirectoryWriter().write_query_diagnostics(
-            result,
-            LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
-        )
-        raise LDSCInputError("; ".join(control_errors))
-    result.validate()
-    output_paths = LDScoreDirectoryWriter().write(
-        result,
-        LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
-    )
-    from dataclasses import replace
-
-    return replace(result, output_paths=output_paths,
-                   gene_list_batch=persistent_gene_diagnostics(batch, output_paths))
+    results = indexed_results(index, batch, usable, control_resolution, query_batch_size,
+                              workspace.path, threads, statuses, scope)
+    return LDScoreDirectoryWriter().write_batches(
+        results, LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
+        query_status_order=[status.query for status in statuses])
 
 
 def _baseline_columns_from_rows(frame: pd.DataFrame) -> list[str]:

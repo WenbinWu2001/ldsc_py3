@@ -1,6 +1,6 @@
 # Classes And Features
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 This document summarizes the public package surface. For workflow-level file streams, see [data-flow.md](data-flow.md).
 
@@ -94,7 +94,8 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 | `PartitionedH2BatchResult` | aggregate summary plus persistent `output_paths` and per-query fit artifact paths |
 | `ReferencePanelBuildResult` | summary of parquet panel artifacts written by one build |
 | `ChromLDScoreResult` | one chromosome’s LD-score and weight tables, plus `config_snapshot` provenance |
-| `LDScoreResult` | aggregated cross-chromosome artifacts plus config, final query statuses, and optional gene-list batch audit/summary state |
+| `LDScoreResult` | materialized single query batch with shared baseline, counts, overlap, configuration, and complete in-memory diagnostics when no output is requested |
+| `LDScoreSource` | saved LD-score directory with shared baseline/metadata and explicit uncached `read_queries(names)` reads across query batch files |
 | `SumstatsTable` | validated LDSC-ready summary-statistics table with canonical `SNP`, `CHR`, `POS`, `Z`, and `N` when available, plus known or unknown `config_snapshot` provenance |
 | `RawSumstatsInference` | header-level `munge-sumstats` inference report with detected format, safe column hints, missing fields, notes, and suggested command arguments |
 | `MungeRunSummary` | compact record of a munging run |
@@ -132,9 +133,7 @@ metadata, `--infer-only`, HM3, and liftover guide, see
   regenerate message. The shared `h2` collinearity guard reads the overlap matrix
   when present (>=2 LD-score columns) but does not require it; `rg` ignores it.
 - Public outputs use fixed workflow filenames under `output_dir`; run identity comes from the directory name.
-- LD-score `ldscore.baseline.parquet` and `ldscore.query.parquet` stay single flat files, but
-  each parquet row group contains one chromosome. `metadata.json` records
-  `row_group_layout`, `baseline_row_groups`, and `query_row_groups`.
+- LD-score output contains one shared `ldscore.baseline.parquet` plus one or more genome-wide query files. A single query batch uses `ldscore.query.parquet`; multiple batches use numbered files. Each Parquet row group contains one chromosome. `metadata.json` records `baseline_row_groups` and the required ordered `query_batches` manifest with each file's columns and row groups; `query_row_groups` is populated only for a single query file.
 - For runs with two or more annotation columns, LD-score output also writes
   `ldscore.overlap.parquet`, the long-form annotation overlap matrix consumed by
   `partitioned-h2` (an unpartitioned single-annotation run omits it).

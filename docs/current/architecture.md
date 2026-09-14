@@ -1,6 +1,6 @@
 # Architecture 
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 `ldsc` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
@@ -199,13 +199,8 @@ Internal `_FitOutcome` values in `regression_runner.py` carry the estimator, fit
 ### `ldsc.outputs`
 
 This is the canonical LD-score and regression result writer. For LD-score
-results it owns fixed files inside `output_dir`: `metadata.json`,
-`ldscore.baseline.parquet`, optional `ldscore.query.parquet`, and an optional
-`ldscore.overlap.parquet` (the long-form annotation overlap matrix, written only
-for runs with two or more annotation columns). The LD-score
-parquet files stay flat for compatibility, but are written with one row group per
-chromosome; root `metadata.json` records row-group layout and per-chromosome
-offsets for chromosome-scoped reads. For h2, it owns root `h2.tsv` plus diagnostic
+results it owns fixed files inside `output_dir`: `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query batch files, and an optional `ldscore.overlap.parquet` (the long-form annotation overlap matrix, written only
+for runs with two or more annotation columns). Each LD-score file spans the calculated chromosomes with one row group per chromosome; root `metadata.json.query_batches` records the ordered query files, query columns, and row groups. Direct/indexed writing workflows return `LDScoreSource` without retained query tables. Older LD-score directories without the current manifest require regeneration. For h2, it owns root `h2.tsv` plus diagnostic
 metadata. For partitioned-h2, it owns root `partitioned_h2.tsv` plus
 the optional diagnostic `diagnostics/query_annotations/` tree containing
 `manifest.tsv`, per-query `partitioned_h2.tsv`,
@@ -218,6 +213,19 @@ chooses the directory name and explicit overwrite policy, not per-run filename
 prefixes.
 
 Each directory writer exposes `artifact_family()` as the single declaration of its named outputs, conditional siblings, and derived roots. Workflows use it for early collision checks; writers use the final declaration for writing, metadata `files`, and stale cleanup. `ArtifactFamily` describes paths and delegates collision checks to `path_resolution`; it does not introduce a publication transaction. LD-score preparation no longer predicts a cleanup list that survives computation. See [workflow-logging.md, Output-Family Preflight](workflow-logging.md#output-family-preflight) and `tests/test_artifact_declarations.py` for the lifecycle contract and overwrite/reload checks.
+
+### Query execution and result ownership
+
+| Module and symbol | Responsibility |
+| --- | --- |
+| `_annotation_memory.bundle_from_frames` | Small prepared annotations and complete diagnostics in RAM, without filesystem staging |
+| `_annotation_queries.execution_query_bundle` | Project and release the active direct BED/gene batch while sharing baseline/control and global preflight state |
+| `LDScoreCalculator.run` | Outer direct query loop with bounded chromosome workers inside each batch |
+| `_indexed_ldscore_batches.indexed_results` | One operator per chromosome worker; private float64 query fragments; deterministic genome-wide batch assembly |
+| `_ldscore_batch_output.write_ldscore_batches` | Write/release batches, combine compact metadata, publish canonical artifacts after success, and clean owned scratch on handled failure |
+| `LDScoreSource.read_queries` | Explicit selected-query reads across manifest files in requested order, without caching or a width cap |
+
+`tests/test_ldscore_query_batches.py` verifies numerical precision, zero writes for prepared single-batch calculation, batch lifetimes, publication, and overwrite cleanup. `tests/test_gene_index_streaming.py` covers operator ownership, known union scores, and serial/parallel agreement. Annotation normalization and final Parquet LD values stay float32; LD accumulation, annotation sums, and overlap products use float64. Scientific SNP universes and fit-time validation are unchanged.
 
 ### `ldsc._kernel.*`
 

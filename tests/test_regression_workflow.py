@@ -121,7 +121,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "regression_ld_scores": [3.0],
                     "base": [1.0],
                 }
-            ).to_parquet(tmpdir / "baseline.parquet", index=False)
+            ).to_parquet(tmpdir / "ldscore.baseline.parquet", index=False)
             pd.DataFrame(
                 {
                     "CHR": ["1"],
@@ -129,18 +129,19 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "POS": [10],
                     "query": [2.0],
                 }
-            ).to_parquet(tmpdir / "query.parquet", index=False)
+            ).to_parquet(tmpdir / "ldscore.query.parquet", index=False)
             (tmpdir / "metadata.json").write_text(
                 json.dumps(
                     {
                         "schema_version": 1,
                         "artifact_type": "ldscore",
-                        "files": {"baseline": "baseline.parquet", "query": "query.parquet"},
+                        "files": {"baseline": "ldscore.baseline.parquet", "query": "ldscore.query.parquet"},
                         "snp_identifier": "rsid",
                         "genome_build": "hg38",
                         "chromosomes": ["1"],
                         "baseline_columns": ["base"],
                         "query_columns": ["query"],
+                        "query_batches": [{"file": "ldscore.query.parquet", "query_columns": ["query"], "row_groups": [{"chrom": "1", "row_group_index": 0, "row_offset": 0, "n_rows": 1}]}],
                         "counts": [
                             {
                                 "group": "baseline",
@@ -181,18 +182,19 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "regression_ld_scores": [3.0],
                     "base": [1.0],
                 }
-            ).to_parquet(tmpdir / "baseline.parquet", index=False)
+            ).to_parquet(tmpdir / "ldscore.baseline.parquet", index=False)
             (tmpdir / "metadata.json").write_text(
                 json.dumps(
                     {
                         "schema_version": 1,
                         "artifact_type": "ldscore",
-                        "files": {"baseline": "baseline.parquet"},
+                        "files": {"baseline": "ldscore.baseline.parquet"},
                         "snp_identifier": "rsid",
                         "genome_build": "hg38",
                         "chromosomes": ["1"],
                         "baseline_columns": ["base"],
                         "query_columns": [],
+                        "query_batches": [],
                         "counts": [
                             {
                                 "group": "baseline",
@@ -259,8 +261,8 @@ class RegressionWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             self.write_ldscore_dir(tmpdir, include_query=True)
-            pd.read_parquet(tmpdir / "baseline.parquet").drop(columns=["A1", "A2"]).to_parquet(
-                tmpdir / "baseline.parquet",
+            pd.read_parquet(tmpdir / "ldscore.baseline.parquet").drop(columns=["A1", "A2"]).to_parquet(
+                tmpdir / "ldscore.baseline.parquet",
                 index=False,
             )
             metadata_path = tmpdir / "metadata.json"
@@ -277,8 +279,8 @@ class RegressionWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             self.write_ldscore_dir(tmpdir, include_query=True)
-            pd.read_parquet(tmpdir / "query.parquet").drop(columns=["A1", "A2"]).to_parquet(
-                tmpdir / "query.parquet",
+            pd.read_parquet(tmpdir / "ldscore.query.parquet").drop(columns=["A1", "A2"]).to_parquet(
+                tmpdir / "ldscore.query.parquet",
                 index=False,
             )
             metadata_path = tmpdir / "metadata.json"
@@ -484,8 +486,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "regression_ld_scores": [2.0],
                 "base": [1.0],
             }
-        ).to_parquet(root / "baseline.parquet", index=False)
-        files = {"baseline": "baseline.parquet"}
+        ).to_parquet(root / "ldscore.baseline.parquet", index=False)
+        files = {"baseline": "ldscore.baseline.parquet"}
         query_columns = []
         counts = [
             {
@@ -505,8 +507,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "A2": ["C"],
                     "query": [2.0],
                 }
-            ).to_parquet(root / "query.parquet", index=False)
-            files["query"] = "query.parquet"
+            ).to_parquet(root / "ldscore.query.parquet", index=False)
+            files["query"] = "ldscore.query.parquet"
             query_columns = ["query"]
             counts.append(
                 {
@@ -527,6 +529,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "chromosomes": ["1"],
                     "baseline_columns": ["base"],
                     "query_columns": query_columns,
+                    "query_batches": [{"file": "ldscore.query.parquet", "query_columns": ["query"], "row_groups": [{"chrom": "1", "row_group_index": 0, "row_offset": 0, "n_rows": 1}]}] if include_query else [],
                     "counts": counts,
                 }
             ),

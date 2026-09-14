@@ -584,12 +584,13 @@ class LDScoreOutputConfig:
 class LDScoreDirectoryWriter:
     """Write canonical LD-score result directories.
 
-    The writer owns the fixed files ``metadata.json``,
-    ``ldscore.baseline.parquet``, optional ``ldscore.query.parquet``, and
-    conditional ``ldscore.overlap.parquet``. Annotation counts are embedded in
-    ``metadata.json`` rather than written as standalone files.
-    Parquet files are flat files for backward compatibility, but their internal
-    row groups are chromosome-aligned and described in root metadata.
+    The writer owns ``metadata.json``, one shared baseline, optional single or
+    numbered query batch files, and conditional ``ldscore.overlap.parquet``.
+    Annotation counts and the ordered ``query_batches`` manifest are embedded
+    in root metadata. Each Parquet file has chromosome-aligned row groups.
+    ``write_batches`` releases completed query values, publishes after complete
+    success, and returns an ``LDScoreSource``. ``write`` serializes an already
+    materialized single result and returns artifact paths.
     """
 
     @staticmethod
@@ -603,11 +604,12 @@ class LDScoreDirectoryWriter:
         """
         output_dir = Path(output_dir)
         scientific = result is not None and not diagnostics_only
+        query_batches = getattr(result, "query_batches", ())
         batch = gene_list_batch if gene_list_batch is not None else getattr(result, "gene_list_batch", None)
         entries = {
             "metadata": ("metadata.json", scientific),
             "baseline": ("ldscore.baseline.parquet", scientific),
-            "query": ("ldscore.query.parquet", scientific and getattr(result, "query_table", None) is not None),
+            "query": ("ldscore.query.parquet", scientific and (getattr(result, "query_table", None) is not None or len(query_batches) == 1)),
             "overlap": ("ldscore.overlap.parquet", scientific and getattr(result, "overlap", None) is not None),
             "query_status": ("diagnostics/query_annotation_status.tsv", bool(getattr(result, "query_statuses", ()))),
             "chromosome_scope": ("diagnostics/chromosome_scope.json", bool(getattr(result, "chromosome_scope", None) or getattr(result, "source_summary", {}).get("chromosome_scope"))),
@@ -616,12 +618,62 @@ class LDScoreDirectoryWriter:
             "gene_list_resolution_summary": ("diagnostics/gene_list_resolution_summary.tsv", batch is not None),
         }
         if scientific:
+            if len(query_batches) > 1:
+                for ordinal, entry in enumerate(query_batches, 1):
+                    entries[f"query_batch{ordinal:05d}"] = (entry["file"], True)
             for chrom in (getattr(result, "identity_drops_by_chrom", {}) or {}):
                 entries[f"dropped_snps_chr{chrom}"] = (f"diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz", True)
         return _declare_artifacts(
             output_dir, entries, label="LD-score output artifact",
-            extra_owned=sorted((output_dir / "diagnostics/dropped_snps").glob("chr*_dropped.tsv.gz")),
+            extra_owned=[*sorted((output_dir / "diagnostics/dropped_snps").glob("chr*_dropped.tsv.gz")),
+                         *sorted(path for path in output_dir.glob("ldscore.query.batch*.parquet")
+                                 if path.name.removeprefix("ldscore.query.batch").removesuffix(".parquet").isdigit())],
         )
+
+    def write_batches(self, results, output_config: LDScoreOutputConfig, *, query_status_order=()):
+        """Publish sequential materialized batches and return a saved source.
+
+        Parameters
+        ----------
+        results : iterable of LDScoreResult
+            Nonempty sequence of genome-wide results with identical baseline
+            values and SNP rows, disjoint query columns, and corresponding
+            counts and overlap statistics. Use a generator that releases each
+            yielded result when resumed to bound retained query values.
+        output_config : LDScoreOutputConfig
+            Output directory, Parquet compression, and overwrite policy.
+        query_status_order : sequence of str, optional
+            Original query-source order for diagnostic statuses. Empty by
+            default, preserving the order produced by the batches.
+
+        Returns
+        -------
+        LDScoreSource
+            Saved-artifact handle with shared baseline values, compact
+            statistics and diagnostics, and explicit ``read_queries`` access.
+            Completed query tables are not retained.
+
+        Raises
+        ------
+        FileExistsError
+            An owned artifact exists and overwrite is disabled.
+        LDSCInputError
+            No results were yielded, baseline values or SNP rows disagree
+            across batches, or annotation names are invalid or repeated.
+
+        Notes
+        -----
+        Each query table is privately written under the output directory and
+        released before requesting the next result. One query batch uses
+        ``ldscore.query.parquet``; multiple batches use numbered files. After
+        all batches succeed, the writer publishes shared artifacts and the
+        ordered ``query_batches`` manifest, with root metadata last. Handled
+        failure closes the producer and removes owned staging. Completed
+        batches are not resumable checkpoints.
+        """
+        from ._ldscore_batch_output import write_ldscore_batches
+
+        return write_ldscore_batches(self, results, output_config, query_status_order)
 
     def write_gene_list_preflight(
         self,
@@ -803,10 +855,14 @@ class LDScoreDirectoryWriter:
             "count_config": dict(getattr(result, "count_config", None) or DEFAULT_COUNT_CONFIG),
             "overlap_config": overlap_config,
             "n_baseline_rows": int(len(baseline_table)),
-            "n_query_rows": 0 if query_table is None else int(len(query_table)),
+            "n_query_rows": int(len(baseline_table)) if getattr(result, "query_columns", []) else 0,
             "row_group_layout": "one_per_chromosome",
             "baseline_row_groups": baseline_rg or [],
             "query_row_groups": query_rg,
+            "query_batches": getattr(result, "query_batches", None) or ([{
+                "file": files["query"], "query_columns": list(result.query_columns),
+                "row_groups": query_rg or [],
+            }] if query_table is not None else []),
         }
         query_statuses = tuple(getattr(result, "query_statuses", ()))
         gene_list_batch = getattr(result, "gene_list_batch", None)

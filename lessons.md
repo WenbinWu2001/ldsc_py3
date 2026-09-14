@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -155,7 +155,7 @@ Last updated on: 2026-09-11
 
 ## Float32 reduction order can invalidate aggregate metadata
 
-- Summary/root cause/required correction: A completion audit found batch-dependent quantitative annotation counts after column-major inputs became detached row-major reads and row tiles were reduced separately in float32; verify counts against independent normalized-value sums and the downstream aggregate gate across batch widths and layouts, then repair the reduction without loosening tolerances. LD-score equivalence on binary fixtures does not establish quantitative count equivalence. See the [completion review](docs/audits/annotation-memory/completion-review.md).
+- Summary/root cause/correction: A completion audit found batch-dependent quantitative annotation counts after column-major inputs became detached row-major reads and row tiles were reduced separately in float32; reduce normalized annotation values in float64 and verify signed/high-offset counts against independent `math.fsum` values across batch widths and C/F layouts without loosening tolerances. LD-score equivalence on binary fixtures does not establish quantitative count equivalence. See the [completion review](docs/audits/annotation-memory/completion-review.md).
 
 ## Optional coordinates must not shift frequency columns in TSV
 
@@ -172,3 +172,7 @@ Last updated on: 2026-09-11
 ## Tutorial correlation plots need finite jackknife uncertainty
 
 - Summary/root cause/correction: The 20-SNP rg tutorial produced finite rg with NaN SE because one delete-block heritability product was negative; increase the synthetic Z magnitudes to keep these toy fits positive, assert finite rg/SE before plotting, and execute every tutorial code cell without weakening the plotting validation.
+
+## Diagnostic scratch must follow execution ownership
+
+- Summary/root cause/correction: Prebuilt query batches reused the long-lived input workspace for per-batch drop reports, so completed diagnostics accumulated despite releasing query tables; give every execution batch its own scratch owner, including batches requiring no query projection, and assert earlier diagnostic paths are gone before the next batch.

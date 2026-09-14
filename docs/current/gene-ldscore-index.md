@@ -1,6 +1,6 @@
 # Exact gene LD-score indexes
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 An exact gene LD-score index moves the repeated PLINK calculation for one
 baseline, reference panel, regression-row policy, and gene projection offline.
@@ -14,7 +14,7 @@ online matrix products, annotation counts, and overlap sufficient statistics—s
 
 ## Build one complete index
 
-`--threads` controls a chromosome thread pool during index building; `--threads 1` (the default) runs sequentially. The same flag on direct `ldscore` controls chromosome worker processes. Both settings increase chromosome concurrency and memory use. See [`build_gene_ldscore_index`](../../src/ldsc/gene_ldscore_index.py) and [`LDScoreCalculator`](../../src/ldsc/ldscore_calculator.py).
+`--threads` controls a chromosome thread pool during index building; `--threads 1` (the default) runs sequentially. The same flag on direct and indexed `ldscore` controls chromosome worker processes, capped at chromosome count. Both settings increase chromosome concurrency and memory use. See [`build_gene_ldscore_index`](../../src/ldsc/gene_ldscore_index.py) and [`LDScoreCalculator`](../../src/ldsc/ldscore_calculator.py).
 
 ```bash
 ldsc build-gene-ldscore-index \
@@ -291,4 +291,4 @@ The build lifecycle retains preceding/current lock coordination in `_gene_index_
 
 ## Bounded validation and query assembly
 
-`LoadedGeneLDScoreIndex` holds shared catalog/settings, chromosome component paths, and compact support counts. Validation loads/releases one chromosome at a time. Assembly reloads that chromosome once and keeps its operator through all query batches. `run_indexed_ldscore(..., query_batch_size=1000)` and `ldscore --query-batch-size 1000` bound focal multiplications; the setting is a positive integer and does not combine separate pathway models. Construction retains its existing sibling staging/lock/publication transaction and float64 payloads. The final HM3 LD tables remain aggregate. See [the memory design](annotation-memory-design.md#immutable-gene-index-access) for ownership and runtime trade-offs.
+`LoadedGeneLDScoreIndex` holds shared catalog/settings, chromosome component paths, and compact support counts. Validation loads/releases one chromosome at a time. Assembly uses one chromosome operator per active worker; that worker writes and releases each query batch before advancing and releases its operator before its next chromosome. `run_indexed_ldscore(..., query_batch_size=1000, threads=1)` and the corresponding CLI flags bound focal multiplications and chromosome workers; query width must be positive and does not combine separate pathway models. Construction retains its existing sibling staging/lock/publication transaction and float64 payloads. The coordinator assembles float64 fragments in chromosome order into one genome-wide query batch at a time. Files publish only after complete success, with metadata last. One batch uses `ldscore.query.parquet`; multiple batches use numbered files in `metadata.json.query_batches`. Saved calls return `LDScoreSource`, with explicit uncached `read_queries(names)` reads. Worker settings match direct mode: 1 by default, positive N, -1 available cores, -2 leaves one free, zero invalid, capped at chromosome count. Resuming completed query batches is a potential future feature, currently unsupported. See [the memory design](annotation-memory-design.md#immutable-gene-index-access) for ownership and runtime trade-offs.

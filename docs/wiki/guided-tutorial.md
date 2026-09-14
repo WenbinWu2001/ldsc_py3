@@ -1,6 +1,6 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-09-13
+Last updated on: 2026-09-14
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
@@ -51,7 +51,7 @@ OUTPUT_ROOT="${INPUT_ROOT}/tutorial_output"
 4. `ldsc ldscore` excludes the extended MHC and centromere regions by default.
 5. Be careful about the genome build of your input file. Although the package runs a guardrail check on the genome build, it is not comprehensive.
 6. To inspect what happened under the hood, check the log file in the `diagnostics/` directory inside each command's output directory.
-7. Resource use depends on SNP, sample, annotation, and worker counts. The [local benchmark report](../audits/annotation-memory/results.md) records synthetic workloads and their limitations; it does not establish production memory or runtime guarantees. Profile representative inputs with `--threads 1` before a larger LD-score run, allow temporary disk space under the output directory, and lower `--query-batch-size` to reduce active query workspace.
+7. Resource use depends on SNP, sample, annotation, and worker counts. Start with `--threads 1`, allow temporary disk space under the output directory, and lower `--query-batch-size` to reduce active query workspace. Direct mode repeats reference work across batches; indexed mode keeps one chromosome operator per worker while writing that chromosome's batches. The [current verification report](../audits/annotation-memory/sequential-query-batches.md) documents numerical and lifetime checks; it does not establish production memory or runtime guarantees. The [earlier local benchmark](../audits/annotation-memory/results.md) predates sequential output batching.
 
 ## Config you should follow across all steps
 
@@ -297,7 +297,7 @@ RAW_QUERY_BED_SOURCES="$INPUT_ROOT/resources/example_raw_annot/*.bed"  # put all
 BASELINE_ANNOT_SOURCES="${INPUT_ROOT}/resources/1000G_EUR_Phase3_baseline/baseline.@.annot.gz"
 ```
 
-Place your raw query files in the same directory and use a quoted glob to select them together. LDSC shares baseline/reference work and processes queries in batches. Chromosome concurrency is controlled separately by `--threads`, which defaults to `1`.
+Place your raw query files in the same directory and use a quoted glob to select them together. Direct LDSC prepares, computes, writes, and releases one query batch before starting the next, repeating reference work across batches. The saved baseline artifact is shared. Chromosome concurrency is controlled separately by `--threads`, which defaults to 1 and is capped at the chromosome count in both direct and indexed calculation. See [LD-score memory controls](main-functionalities/ldscore.md#memory-for-many-pathways) for the implementation sources and tradeoffs.
 
 ```bash
 PARTITIONED_LDSCORE_OUTPUT_DIR="${OUTPUT_ROOT}/partitioned_ldscore"
@@ -358,6 +358,8 @@ partitioned_ldscore/
     diagnostics/
         ldscore.log
 ```
+
+The example's four queries fit in one batch and therefore share `ldscore.query.parquet`. When the query count exceeds `--query-batch-size` (default 1000), the directory instead contains `ldscore.query.batch00001.parquet`, `ldscore.query.batch00002.parquet`, and so on. Each covers the same genome-wide SNP rows. The required `metadata.json.query_batches` manifest records file membership and chromosome row groups. Current readers require this manifest; regenerate older LD-score directories. Regression can select columns across these files with a different batch width.
 
 ### Step 2: estimate each query annotation's heritability contribution with `ldsc partitioned-h2`
 
@@ -432,7 +434,7 @@ ldsc annotate \
 
 - For each chromosome, all input query annotations are combined into one file as separate columns, with each column name being the input's base filename (used as the annotation name).
 - The resulting `query.@.annot.gz` suite is the canonical input to downstream `ldsc ldscore`: one query annotation file per chromosome, containing multiple annotation columns; each column is one query annotation. Pass it with `--query-annot-sources "$ANNOT_OUT_DIR/query.@.annot.gz"`.
-- Do not create one chromosome-sharded suite per query. In sharded mode, `ldscore` expects one query file per chromosome and reads the separate queries from its columns.
+- Do not create one chromosome-sharded annotation suite per query. In sharded annotation-input mode, `ldscore` expects one query annotation file per chromosome and reads the separate queries from its columns. This input rule is distinct from the numbered genome-wide query LD-score output files described above.
 - The generated annotation header includes `CM` for compatibility, with values written as `NA`. Input annotation CM values are discarded; LD scoring uses reference-panel CM. See [`_annotation_parsing.normalize_annotation_chunk`](../../src/ldsc/_annotation_parsing.py).
 - See the `annotate` wiki for more on this functionality.
 

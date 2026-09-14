@@ -1,6 +1,6 @@
 # Calculate LD scores from gene lists
 
-Last updated on: 2026-09-13
+Last updated on: 2026-09-14
 
 Use gene-list mode to turn pathway, expression, proteomic, GO, or other gene
 sets into focal annotations for partitioned S-LDSC. LDSC resolves each list
@@ -93,7 +93,7 @@ ldsc ldscore \
 The index owns its catalog, baseline, panel, build, identity, padding, and
 exclusion policies. Do not pass live overrides. Production indexes always
 cover autosomes 1–22 and old indexes must be rebuilt for the current catalog
-schema.
+schema. Runtime controls `--threads` and `--query-batch-size` are accepted in indexed mode; they do not override the stored scientific configuration.
 
 ## Optional control genes
 
@@ -164,4 +164,6 @@ Query runs write the per-query result tree automatically. To summarize nominal c
 
 ## Large pathway batches
 
-For 1,000 pathways, LD scoring shares baseline work and regression still tests each pathway separately against the baseline categories. `--query-batch-size` defaults to `1000` in direct/indexed `ldscore` and `partitioned-h2`; lower it to reduce active query workspace. Indexed assembly loads one chromosome operator and uses it through every query batch, then releases it. Final HM3 LD files stay aggregate. See the [batch regression guide](partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways) for result writing and memory controls.
+For 1,000 pathways, regression tests each pathway separately against the same baseline categories. `--query-batch-size` defaults to `1000` in direct/indexed `ldscore` and `partitioned-h2`; lower it to reduce active query workspace. Direct LD scoring writes and releases one query batch before preparing the next, repeating reference/genotype work across batches. Indexed assembly keeps one chromosome operator per worker, writes and releases that chromosome's query batches, then releases the operator. `--threads` defaults to 1, accepts positive counts, `-1` for available cores and `-2` to leave one core free, and is capped at the chromosome count.
+
+The saved baseline and overlap artifacts are shared. One query batch writes `ldscore.query.parquet`; multiple batches write numbered `ldscore.query.batchNNNNN.parquet` files, each with the same genome-wide SNP rows. Root `metadata.json.query_batches` records the ordered files, columns, and chromosome row groups. Python writing workflows return `LDScoreSource`; explicit `read_queries(names)` calls load columns without caching them. Generation and regression batch widths may differ. See the [LD-score guide](ldscore.md#memory-for-many-pathways) for the implementation sources and the [batch regression guide](partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways) for result writing.

@@ -84,10 +84,35 @@ def test_index_assembly_loads_each_operator_twice_and_batches_queries(tmp_path, 
     assert all(ref() is None for ref in live)
     assert max(widths) <= batch_size
     # Stored atoms: G1/G3 select atoms 0,1; G2/G4 select 1,2.
-    np.testing.assert_allclose(result.query_table[["first", "second", "union"]],
+    np.testing.assert_allclose(result.read_queries(["first", "second", "union"])[["first", "second", "union"]],
                                [[.75, -.25, .75], [1.5, 1.1, 1.6]] * 2)
     assert result.baseline_table.SNP.tolist() == ["rs3", "rs4", "rs1", "rs2"]
     assert result.gene_list_batch.audit_path.is_file()
+
+
+@pytest.mark.parametrize("threads", [1, 2, -1, -2, 10])
+def test_parallel_index_batches_preserve_union_scores_and_counts(tmp_path, threads):
+    path = two_chromosome_index(tmp_path)
+    queries = []
+    for name, genes in [("first", "G1\nG3\n"), ("second", "G2\nG4\n"),
+                        ("union", "G1\nG2\nG3\nG4\n")]:
+        query = tmp_path / f"{name}.txt"
+        query.write_text(genes)
+        queries.append(query)
+    reference = run_indexed_ldscore(path, query_gene_list_sources=queries,
+                                   output_dir=tmp_path / "reference", query_batch_size=1000)
+    result = run_indexed_ldscore(path, query_gene_list_sources=queries,
+                                output_dir=tmp_path / "out", query_batch_size=1, threads=threads)
+    assert not hasattr(result, "query_table")
+    assert len(result.query_batches) == 3
+    columns = ["union", "second", "first"]
+    pd.testing.assert_frame_equal(result.read_queries(columns), reference.read_queries(columns))
+    np.testing.assert_allclose(result.read_queries(["first", "second", "union"])[["first", "second", "union"]],
+                               [[.75, -.25, .75], [1.5, 1.1, 1.6]] * 2, rtol=1e-6, atol=1e-8)
+    assert result.count_records == reference.count_records
+    pd.testing.assert_frame_equal(result.overlap.baseline_block_all, reference.overlap.baseline_block_all)
+    pd.testing.assert_frame_equal(result.overlap.baseline_block_common, reference.overlap.baseline_block_common)
+    assert not list((tmp_path / "out").glob(".ldsc-*"))
     assert not list((tmp_path / "out").glob(".ldsc-annotation-*"))
 
 

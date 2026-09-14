@@ -482,7 +482,7 @@ class LDScoreConfig:
     """Configuration for chromosome-wise LD-score calculation.
 
     Exactly one LD-window field must be provided. The remaining fields control
-    regression row selection and count-artifact emission.
+    regression row selection, annotation counts, and execution batch sizes.
 
     Parameters
     ----------
@@ -495,15 +495,19 @@ class LDScoreConfig:
     regr_snps_file : str or os.PathLike[str] or None, optional
         Optional path to the SNP list defining the regression SNP set used for
         the persisted ``ldscore.baseline.parquet`` row set and, when query
-        annotations are present, the aligned ``ldscore.query.parquet`` row set.
-        Default is ``None``.
+        annotations are present, the aligned query-file row set. The public
+        ``run_ldscore`` workflow loads this restriction, defaulting to packaged
+        HapMap3 when ``None``. Prepared-input calculator callers pass resolved
+        restrictions through ``regression_snps`` instead.
     snp_batch_size : int, optional
         Number of SNPs processed per LD-score sliding batch. Default is
         ``128``.
     query_batch_size : int, optional
-        Positive maximum number of focal query columns projected together,
-        default ``1000``. Shared baseline/weight projection and final aggregate
-        output dimensions are independent of this setting.
+        Positive maximum number of focal query columns prepared, computed,
+        and written as one execution batch; default ``1000``. Multiple batches
+        require an output directory and produce numbered query Parquet files.
+        Direct calculation repeats reference work across batches. This does
+        not change the scientific model or the total set of query columns.
     common_maf_min : float, optional
         Inclusive MAF threshold used only for common-SNP count vectors
         (``MAF >= common_maf_min``; deviates from legacy LDSC's strict
@@ -513,15 +517,20 @@ class LDScoreConfig:
     whole_chromosome_ok : bool, optional
         Override the guard that rejects windows effectively spanning an entire
         chromosome. Default is ``False``.
+    export_ref_metadata : bool, optional
+        Write retained PLINK reference metadata, including effective CM, under
+        ``ref_metadata/`` in the output directory. Default is ``False``.
+        Requires an output configuration and is not a zero-write option.
+        Parquet R2 inputs already have authoritative metadata sidecars.
     threads : int, optional
         Number of worker processes for cross-chromosome parallelism on one
         machine, using the scikit-learn/joblib ``n_jobs`` convention: ``1``
         (default) runs sequentially in-process; ``-1`` uses all available cores;
         ``-2`` uses all but one; any other negative ``-k`` uses
-        ``n_cpus + 1 - k``. Core counts respect CPU affinity (SLURM/cgroup
+        ``max(1, n_cpus + 1 - k)``. Core counts respect CPU affinity (SLURM/cgroup
         allocations), not the raw machine size. The effective count is capped at
-        the chromosome count, and ``0`` is rejected. Output is identical
-        regardless of this value.
+        the chromosome count, and ``0`` is rejected. Numerical results agree
+        within the existing tolerances regardless of this value.
     """
     ld_wind_snps: int | None = None
     ld_wind_kb: float | None = None

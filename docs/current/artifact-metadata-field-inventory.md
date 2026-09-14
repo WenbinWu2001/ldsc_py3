@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -225,7 +225,7 @@ ldscore/
     input_issues.tsv
 ```
 
-`ldscore.query.parquet` is present only when query LD scores are written.
+`ldscore.query.parquet` is present for a single query batch. Multiple batches instead use `ldscore.query.batch00001.parquet` and subsequent ordinals, with `files.query_batch00001` keys. Baseline-only output has no query file. All current directories require the ordered `query_batches` manifest, including an empty list for baseline-only output.
 `query_annotation_status.tsv` is present for BED/gene-list query runs;
 The row-complete audit and per-source summary are present for gene-list runs.
 `ldscore.overlap.parquet` holds the annotation overlap matrix (long form:
@@ -248,10 +248,11 @@ annotation columns; a single-annotation (e.g. base-only) run omits it.
 | `overlap_config` | Overlap-matrix provenance: `total_all_reference_snps`, `total_common_reference_snps`, `common_maf_min`, `common_maf_operator`, `stored_block`. `null` for single-annotation runs that write no overlap matrix. | Provides `M_tot` and the universe definition for overlap-aware partitioned-h2. |
 | `annotation_types` | Per-column `binary` or `quantitative` classification. | Interpretation and logging only; never changes fitting. |
 | `n_baseline_rows` | Number of rows in the baseline parquet table. | Reporting. |
-| `n_query_rows` | Number of rows in the query parquet table, or zero. | Reporting. |
+| `n_query_rows` | Genome-wide SNP row count shared by every query batch file, or zero without queries. | Reporting. |
 | `row_group_layout` | Row-group strategy. | Reporting/technical provenance. |
 | `baseline_row_groups` | Row-group metadata for `ldscore.baseline.parquet`. | Reporting/technical provenance. |
-| `query_row_groups` | Row-group metadata for `ldscore.query.parquet`, or `null`. | Reporting/technical provenance. |
+| `query_row_groups` | Row-group metadata for a single `ldscore.query.parquet`, or `null` for multiple/no query batches. | Reporting/technical provenance. |
+| `query_batches` | Ordered entries containing `file`, ordered `query_columns`, and `row_groups` with chromosome/index/offset/row count. | Required canonical query discovery and selected reads; older directories must be regenerated. |
 | `gene_list_resolution_policy` | `strict` or `resolved-only` for gene-list runs. | Scientific provenance; ignored by regression. |
 | `gene_list_resolution_counts` | Aggregate submitted, rejected, and unique-resolved counts. | Reproducibility/diagnostics; ignored by regression. |
 | `query_diagnostics` | Relative paths to available query status, scope, structural input issues, and, for gene runs, the audit and source summary. | Troubleshooting/navigation; ignored by regression. |

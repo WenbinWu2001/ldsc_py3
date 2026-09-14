@@ -40,6 +40,7 @@ from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
 from ._chr_sampler import sample_frame_from_chr_pattern
 from ._annotation_storage import TsvDiagnostics
+from .ldscore_source import LDScoreSource
 from ._kernel.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, identity_mode_family, is_allele_aware_mode
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from .config import (
@@ -193,7 +194,11 @@ class ChromLDScoreResult:
 
 @dataclass(frozen=True)
 class LDScoreResult:
-    """Aggregated cross-chromosome LD-score result in split persisted form.
+    """Materialized LD scores for one cross-chromosome calculation batch.
+
+    ``LDScoreCalculator.run`` returns this object for a single prepared-input
+    batch without an output configuration. Writing workflows return
+    ``LDScoreSource`` so completed query tables can be released.
 
     Parameters
     ----------
@@ -202,9 +207,10 @@ class LDScoreResult:
         the result is written. Required columns are ``CHR``, ``SNP``, ``POS``,
         ``regression_ld_scores``, and every entry in ``baseline_columns``.
     query_table : pandas.DataFrame or None
-        Optional cross-chromosome table persisted as ``ldscore.query.parquet``.
-        Required columns are ``CHR``, ``SNP``, ``POS``, and every entry in
-        ``query_columns``.
+        Optional materialized cross-chromosome query table. A standalone write
+        saves it as ``ldscore.query.parquet``; sequential output uses the
+        applicable numbered batch filename. Required columns are ``CHR``,
+        ``SNP``, ``POS``, and every entry in ``query_columns``.
     count_records : list of dict
         Manifest-ready count records. Each record names an annotation column and
         its all-SNP and optional common-SNP counts.
@@ -229,8 +235,8 @@ class LDScoreResult:
     identity_drops_by_chrom : dict, optional
         Chromosome diagnostic artifacts with explicit ``path`` and ``frames()``
         access. Published results reference persistent files. A calculator run
-        without output configuration borrows private diagnostics from the
-        caller's annotation bundle; consume or write them before closing it.
+        without output configuration owns complete in-memory diagnostics,
+        which remain available after the input bundle is closed.
     chromosome_scope : dict, optional
         Validated input chromosome coverage and effective analysis scope.
         Empty for workflows that do not perform query coverage preflight.
@@ -278,7 +284,27 @@ class LDScoreResult:
             )
 
     def read_queries(self, columns):
-        """Select an explicit query batch from caller-owned aggregate output."""
+        """Select named queries from this materialized result without file I/O.
+
+        Parameters
+        ----------
+        columns : sequence of str
+            Query names in the desired output column order.
+
+        Returns
+        -------
+        pandas.DataFrame or None
+            SNP metadata followed by selected query values, in existing row
+            order with a reset index. An empty selection returns metadata
+            only, or ``None`` when this result has no query table.
+
+        Raises
+        ------
+        LDSCInputError
+            Nonempty query selection is requested from a baseline-only result.
+        KeyError
+            A selected name is absent from the materialized table.
+        """
         if self.query_table is None:
             if columns:
                 raise LDSCInputError("LD-score result has no query table.")
@@ -312,6 +338,86 @@ class LDScoreCalculator:
         self.output_writer = output_writer or LDScoreDirectoryWriter()
 
     def run(
+        self, annotation_bundle, ref_panel, ldscore_config: LDScoreConfig,
+        global_config: GlobalConfig, output_config: LDScoreOutputConfig | None = None,
+        regression_snps=None, regression_regions=None, config_snapshot=None,
+    ):
+        """Calculate sequential query batches over one fixed SNP universe.
+
+        Parameters
+        ----------
+        annotation_bundle : AnnotationBundle
+            Prepared baseline and query inputs. ``AnnotationBundle.from_frames``
+            supplies a small in-memory dataset without filesystem staging.
+        ref_panel : RefPanel
+            Resolved PLINK or R2 adapter; input files are read without mutation.
+        ldscore_config : LDScoreConfig
+            Scientific settings, query execution width, and chromosome worker
+            count. Chromosome workers run within each active query batch.
+        global_config : GlobalConfig
+            Shared identifier, genome-build, and logging configuration.
+        output_config : LDScoreOutputConfig or None, optional
+            Required for multiple query batches. If supplied, all batch files
+            stay private until success. If omitted, one materialized batch and
+            complete diagnostics are returned without filesystem writes.
+        regression_snps : set of str or RestrictionIdentityKeys or None, optional
+            Already-resolved regression SNP candidates. ``None`` selects all
+            retained reference rows before region exclusions. This low-level
+            method does not load ``ldscore_config.regr_snps_file`` or apply the
+            public workflow's packaged HapMap3 default.
+        regression_regions : RegionIntervals or None, optional
+            Already-resolved region exclusions for regression rows and weight
+            contributors. ``None`` applies no region exclusions. Neither this
+            nor ``regression_snps`` changes the retained reference universe
+            used for annotation counts and LD-score contributors.
+        config_snapshot : dict or None, optional
+            Reserved argument; currently unused. Result provenance records
+            ``global_config``.
+
+        Returns
+        -------
+        LDScoreSource or LDScoreResult
+            Saved-artifact handle when writing; otherwise an in-memory result.
+            Explicit ``read_queries(names)`` on a saved handle has no width cap.
+
+        Raises
+        ------
+        LDSCUsageError
+            Output is omitted for multiple batches, annotations still need
+            disk preparation, or reference-metadata export is requested
+            without an output directory.
+
+        Notes
+        -----
+        Each direct batch repeats reference traversal. Query-related workspace
+        scales with active batch width and chromosome workers. Counts and LD
+        accumulation use float64; canonical output retains its usual precision.
+        The calculator borrows inputs and never closes the caller's bundle.
+        """
+        kwargs = dict(ref_panel=ref_panel, ldscore_config=ldscore_config, global_config=global_config,
+                      output_config=output_config, regression_snps=regression_snps,
+                      regression_regions=regression_regions, config_snapshot=config_snapshot)
+        if output_config is None:
+            return self._run_batch(annotation_bundle=annotation_bundle, **kwargs)
+
+        width = ldscore_config.query_batch_size
+        names = list(annotation_bundle.query_columns)
+        groups = [names[start:start + width] for start in range(0, len(names), width)] or [[]]
+        def results():
+            from ._annotation_queries import execution_query_bundle
+            for ordinal, columns in enumerate(groups):
+                selected = set(columns)
+                statuses = tuple(status for status in annotation_bundle.query_statuses
+                                 if status.query in selected or (ordinal == 0 and status.status not in {"ok", "warning"}))
+                with execution_query_bundle(annotation_bundle, columns, statuses, output_config.output_dir) as active:
+                    result = self._run_batch(annotation_bundle=active, **kwargs)
+                    yield result
+                    del result
+                del active
+        return self.output_writer.write_batches(results(), output_config,
+            query_status_order=[status.query for status in annotation_bundle.query_statuses])
+
+    def _run_batch(
         self,
         annotation_bundle,
         ref_panel,
@@ -322,56 +428,24 @@ class LDScoreCalculator:
         regression_regions: kernel_regions.RegionIntervals | None = None,
         config_snapshot: dict[str, Any] | None = None,
     ) -> LDScoreResult:
-        """Compute and aggregate LD scores across all chromosomes.
+        """Compute one materialized genome-wide batch using resolved inputs.
 
-        Chromosomes are computed independently and then aggregated in input
-        order. ``ldscore_config.threads`` controls cross-chromosome parallelism
-        (joblib ``n_jobs`` convention): ``1`` (default) runs sequentially
-        in-process, while ``-1`` (all cores), ``-2`` (all but one), or any
-        positive ``N`` fan out over a spawn ``ProcessPoolExecutor``. The
-        aggregated output is identical regardless of this setting.
-
-        Parameters
-        ----------
-        annotation_bundle : AnnotationBundle
-            Aligned SNP-level baseline and query annotations.
-        ref_panel : RefPanel
-            Reference-panel adapter that prepares the aligned SNP universe,
-            annotation matrix, LD windows, and reader. Preparation applies the
-            configured SNP/sample/MAF restrictions and supplies reference CM
-            and MAF independently of annotation-file metadata.
-        ldscore_config : LDScoreConfig
-            LD-window and retained-SNP settings.
-        global_config : GlobalConfig
-            Shared SNP identifier, genome-build, and logging settings.
-        output_config : LDScoreOutputConfig or None, optional
-            If provided, write the canonical LD-score result directory after
-            the aggregate result is built. Existing canonical files are refused
-            unless ``output_config.overwrite`` is true.
-            Default is ``None``, which keeps the result in memory only.
-            ``ldscore_config.export_ref_metadata=True`` requires an output
-            configuration because the exported metadata is a file artifact.
-        regression_snps : set of str, RestrictionIdentityKeys, or None, optional
-            Optional regression SNP universe used to define persisted rows and
-            regression-weight contributions. The CLI always provides its
-            bundled HM3 default; ``None`` is retained for direct API callers.
-        config_snapshot : dict or None, optional
-            Optional run metadata forwarded to the output layer. Default is
-            ``None``.
-
-        Returns
-        -------
-        LDScoreResult
-            Aggregated cross-chromosome result with aligned metadata and output
-            paths if writing was requested. Without output writing, diagnostic
-            artifacts borrow the input bundle's workspace and must be consumed
-            before its owner closes. Final HM3 score tables remain materialized.
+        Scientific preparation and chromosome aggregation are shared by writing
+        and no-output paths. Diagnostics use RAM when output is omitted; the
+        caller owns any writing-path workspace and final publication.
         """
         if ldscore_config.export_ref_metadata and output_config is None:
             raise LDSCUsageError(
                 "LDScoreCalculator.run() requires output_config when export_ref_metadata=True. "
                 "Reference metadata is a filesystem artifact, so pass LDScoreOutputConfig(output_dir=...)."
             )
+        if output_config is None:
+            if len(annotation_bundle.query_columns) > ldscore_config.query_batch_size:
+                raise LDSCUsageError("Multiple query execution batches require output_config with an output directory. Use one batch for a small in-memory calculation.")
+            if (annotation_bundle._source_loader is not None or annotation_bundle.query_preparation is not None
+                    or (annotation_bundle.workspace is not None and not annotation_bundle.workspace._created)):
+                raise LDSCUsageError("In-memory LD-score calculation requires already-prepared annotations. Use AnnotationBundle.from_frames() to prepare without disk staging.")
+            annotation_bundle = dataclass_replace(annotation_bundle, diagnostics_in_memory=True)
         print_global_config_banner(type(self).__name__, global_config)
         if annotation_bundle.config_snapshot is not None:
             validate_config_compatibility(
@@ -448,14 +522,6 @@ class LDScoreCalculator:
             result,
             tuple(getattr(annotation_bundle, "query_statuses", ())),
         )
-        if output_config is not None:
-            errors = gene_viability_errors(result.gene_list_batch, result.query_statuses, result)
-            if errors:
-                self.output_writer.write_query_diagnostics(result, output_config)
-                raise LDSCInputError("; ".join(errors))
-            output_paths = self.output_writer.write(result, output_config)
-            result = _replace_result_output_paths(result, output_paths)
-            LOGGER.info(f"Wrote LD-score result directory to '{output_config.output_dir}'.")
         LOGGER.info(
             f"Computed LD scores for {len(chromosome_results)} chromosomes "
             f"and {len(result.baseline_table)} retained SNP rows."
@@ -1187,14 +1253,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             'Number of chromosomes computed concurrently using worker processes. Default: 1, sequential. '
             'Positive N requests N workers; -1 uses available cores and -2 leaves one free; zero is '
-            'invalid. Capped at chromosome count. Direct mode only.'
+            'invalid. Capped at chromosome count. Applies to direct and indexed modes.'
         ),
     )
     runtime.add_argument(
         '--query-batch-size', default=1000, type=int, metavar='N',
         help=(
             'Maximum number of query annotations processed at once. Default: 1000; use a smaller positive '
-            'value to reduce memory. Applies to direct and indexed computation.'
+            'value to reduce memory. Each completed batch has its own query file; direct mode repeats reference traversal.'
         ),
     )
     runtime.add_argument(
@@ -1226,23 +1292,38 @@ def build_parser() -> argparse.ArgumentParser:
     ),
     command="run_ldscore_from_args(...)",
 )
-def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
+def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     """Run LD-score calculation from a parsed CLI namespace.
 
     The workflow resolves unified path tokens for baseline annotations, optional
     prebuilt, BED, or gene-list queries, and the reference panel. If no baseline
     or query annotations are supplied, it synthesizes an all-ones ``base``
     annotation over the retained reference-panel metadata. Before calculation
-    it preflights ``metadata.json``, ``ldscore.baseline.parquet``, optional
-    ``ldscore.query.parquet``, conditional ``ldscore.overlap.parquet``, query
-    diagnostics when applicable, and ``diagnostics/ldscore.log`` under
-    ``output_dir``. With
-    overwrite enabled, successful baseline-only runs remove stale query parquet
-    siblings. Each chromosome uses ``ref_panel.prepare_chromosome`` to bind
-    aligned annotations to one configured reader before numerical projection.
-    The workflow returns the normalized public ``LDScoreResult`` with split
-    baseline/query tables.
-    The result ``output_paths`` mapping contains data artifacts only.
+    it preflights the complete baseline/query/overlap artifact family, root
+    metadata, applicable diagnostics, and ``diagnostics/ldscore.log`` under
+    ``output_dir``. Each execution batch is privately written and released;
+    successful publication records ordered files and chromosome row groups in
+    ``metadata.json.query_batches``. A single batch uses
+    ``ldscore.query.parquet``; multiple batches use numbered query files.
+    Successful authorized overwrites remove stale owned batch files.
+
+    Direct batches repeat reference traversal. Indexed runs reuse one
+    chromosome operator per worker through its query batches. Both modes cap
+    chromosome workers at the chromosome count. Scientific restrictions and
+    count/overlap definitions are independent of these runtime settings.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed LD-score command arguments, including an output directory.
+
+    Returns
+    -------
+    LDScoreSource
+        Validated saved-artifact handle with shared baseline values and
+        explicit ``read_queries(names)`` access. No query LD-score tables
+        remain resident in the returned object. ``output_paths`` contains
+        scientific artifacts only.
     """
     _validate_padding_usage(args)
     _validate_gene_list_mode_args(args)
@@ -1328,7 +1409,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             return dataclass_replace(result,gene_list_batch=persistent_gene_diagnostics(result.gene_list_batch,result.output_paths))
 
 
-def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
+def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
     """Validate and dispatch the closed indexed gene-list mode."""
     explicit_options = set(getattr(args, "_explicit_cli_options", ()))
     live_options = {
@@ -1355,7 +1436,6 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
         "--genetic-map-hg38-sources",
         "--export-ref-metadata",
         "--snp-batch-size",
-        "--threads",
         "--yes-really",
     }
     forbidden = {
@@ -1390,8 +1470,6 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
         forbidden["--common-maf-min"] = getattr(args, "common_maf_min")
     if getattr(args, "snp_batch_size", 128) != 128:
         forbidden["--snp-batch-size"] = getattr(args, "snp_batch_size")
-    if getattr(args, "threads", 1) != 1:
-        forbidden["--threads"] = getattr(args, "threads")
     if bool(getattr(args, "export_ref_metadata", False)):
         forbidden["--export-ref-metadata"] = True
     if bool(getattr(args, "yes_really", False)):
@@ -1441,6 +1519,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> LDScoreResult:
             control_gene_list_file=getattr(args, "control_gene_list_file", None),
             gene_list_resolution_policy=getattr(args, "gene_list_resolution_policy", "strict"),
             query_batch_size=getattr(args, "query_batch_size", 1000),
+            threads=getattr(args, "threads", 1),
             output_dir=args.output_dir,
             overwrite=bool(getattr(args, "overwrite", False)),
         )
@@ -1784,7 +1863,7 @@ def _r2_dir_from_args(args: argparse.Namespace) -> str | None:
 
 
 
-def run_ldscore(**kwargs) -> LDScoreResult:
+def run_ldscore(**kwargs) -> "LDScoreSource":
     """Run LD-score calculation from Python using public CLI-style names.
 
     Keyword arguments are interpreted as CLI-equivalent option names without
@@ -1811,9 +1890,12 @@ def run_ldscore(**kwargs) -> LDScoreResult:
 
     Returns
     -------
-    LDScoreResult
-        Aggregated result with ``baseline_table``, optional ``query_table``,
-        count records, and canonical output paths.
+    LDScoreSource
+        Saved artifacts with shared baseline, counts, overlap, diagnostics, and
+        canonical paths. Use ``read_queries(names)`` to load selected queries
+        across batch files. No query LD tables remain resident after return.
+        For a small calculation without writes, use prepared inputs with
+        ``LDScoreCalculator.run(..., output_config=None)`` instead.
     """
     forbidden = sorted({"snp_identifier", "genome_build", "log_level"} & set(kwargs))
     if forbidden:
@@ -2301,19 +2383,6 @@ def _output_config_from_args(args: argparse.Namespace) -> LDScoreOutputConfig:
     )
 
 
-def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, str]) -> LDScoreResult:
-    """Return ``result`` with updated artifact-path metadata after writing outputs.
-
-    Uses ``dataclasses.replace`` so every other field (including ``overlap``) is
-    carried over; a manual reconstruction silently drops fields added later.
-    """
-    drops = {chrom: TsvDiagnostics(Path(output_paths[f"dropped_snps_chr{chrom}"]))
-             for chrom in result.identity_drops_by_chrom}
-    chromosomes = [dataclass_replace(chrom, identity_drops=drops.get(chrom.chrom)) for chrom in result.chromosome_results]
-    return dataclass_replace(result, output_paths=dict(output_paths), identity_drops_by_chrom=drops,
-                             chromosome_results=chromosomes)
-
-
 def _available_cpu_count() -> int:
     """Return the number of CPUs available to this process.
 
@@ -2369,6 +2438,13 @@ def _partition_annotation_drops(bundle):
     artifacts = {}
     if bundle.identity_drops is None:
         return artifacts
+    if bundle.diagnostics_in_memory or bundle.workspace is None:
+        from ._annotation_memory import MemoryDiagnostics
+        frames = list(bundle.identity_drops.frames())
+        if frames:
+            for chrom, rows in pd.concat(frames, ignore_index=True).groupby("CHR", sort=False):
+                artifacts[str(chrom)] = MemoryDiagnostics(rows.reset_index(drop=True))
+        return artifacts
     prefix = uuid4().hex
     for frame in bundle.identity_drops.frames():
         for chrom, rows in frame.groupby("CHR", sort=False):
@@ -2384,6 +2460,12 @@ def _stage_chromosome_drops(bundle, chrom, reference_drops):
     """Stream source cleanup followed by reference-stage drops into one artifact."""
     import gzip
     from uuid import uuid4
+
+    if bundle.diagnostics_in_memory or bundle.workspace is None:
+        from ._annotation_memory import MemoryDiagnostics
+        frames = [frame.loc[frame.CHR.astype(str).eq(str(chrom))] for frame in bundle.identity_drops.frames()] if bundle.identity_drops is not None else []
+        frames.append(coerce_identity_drop_frame(reference_drops))
+        return MemoryDiagnostics(coerce_identity_drop_frame(pd.concat(frames, ignore_index=True)))
 
     path = bundle.workspace.path / f"ldscore-drops-{chrom}-{uuid4().hex}.tsv.gz"
     with gzip.open(path, "wt") as stream:

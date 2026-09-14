@@ -1,6 +1,6 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `column_inference.py`, all
@@ -81,7 +81,7 @@ decimal digits printed, not numpy dtype.
 | Parquet artifact | Columns cast to `float32` on write | Columns kept as-is |
 | --- | --- | --- |
 | `sumstats.parquet` | none | `CHR` (str), `POS` (int64 when complete), `SNP` (str), alleles (str), `Z`/`N`/`FRQ` (numeric precision preserved) |
-| `ldscore.baseline.parquet`, `ldscore.query.parquet` | `regression_ld_scores`, all LD-score / annotation columns | `CHR` (str), `POS` (int64), `SNP` (str) |
+| `ldscore.baseline.parquet`, `ldscore.query.parquet` or `ldscore.query.batchNNNNN.parquet` | `regression_ld_scores`, all LD-score / annotation columns | `CHR` (str), `POS` (int64), `SNP` (str) |
 | `ldscore.overlap.parquet` | none (written directly, not through the chromosome-aligned writer) | `row_annotation` (str), `col_annotation` (str), `overlap_all_snps` / `overlap_common_snps` (`float64`, kept precise because overlap counts can exceed float32's exact-integer range) |
 | Pairwise R² parquet | `SIGN_R` (bool) | `IDX_1`, `IDX_2` (int32 sidecar-row indices); `R2` (int16 on-disk, symmetric quantization scale 32767, dequantized to float32 on read) |
 
@@ -328,7 +328,7 @@ the annotation rule unconditionally. The annotation-specific columns that follow
 |----------|----------------|-------------------|
 | Annotation (`.annot.gz`) | `CHR, BP, SNP, CM` | annotation columns (input order preserved); `BP` normalizes to internal `POS` on read |
 | LD-score output (`ldscore.baseline.parquet`) | `CHR, SNP, POS, regression_ld_scores` | baseline LD-score columns |
-| LD-score output (`ldscore.query.parquet`) | `CHR, SNP, POS` | query LD-score columns |
+| LD-score query output (single or numbered batch file) | `CHR, SNP, POS` | query LD-score columns |
 | LD-score overlap (`ldscore.overlap.parquet`) | `row_annotation, col_annotation` | `overlap_all_snps, overlap_common_snps` (long-form annotation overlap matrix) |
 | Munged sumstats (`sumstats.parquet` or `.sumstats.gz`) | `SNP, CHR, POS, A1, A2` | `Z, N, FRQ` |
 | Canonical pairwise R² parquet | `IDX_1, IDX_2, R2, SIGN_R` | index-only format; SNP identity lives in the paired `chrN_meta.tsv.gz` sidecar, not in the parquet |
@@ -358,7 +358,7 @@ The following locations must be kept consistent with this document.
 | `src/ldsc/column_inference.py` — `INTERNAL_ANNOT_ARTIFACT_SPECS` | Already correct: `CHR, POS, SNP, CM, MAF` |
 | `src/ldsc/_kernel/ldscore.py` — `ANNOT_META_COLUMNS` | `("CHR", "POS", "SNP", "CM", "MAF")` |
 | `src/ldsc/ldscore_calculator.py` — `_split_ldscore_table` | Public output order: baseline `CHR, SNP, POS, regression_ld_scores, ...`; query `CHR, SNP, POS, ...` |
-| `src/ldsc/outputs.py` — `_write_chromosome_aligned_parquet` | One row group per `CHR` in `ldscore.baseline.parquet` and `ldscore.query.parquet` |
+| `src/ldsc/outputs.py` — `_write_chromosome_aligned_parquet` | One row group per `CHR` in `ldscore.baseline.parquet` and each query batch file |
 | `src/ldsc/outputs.py` — `required_baseline` / `required_query` validation lists | Baseline requires `CHR`, `POS`, `SNP`, `regression_ld_scores`, and baseline columns; query requires `CHR`, `POS`, `SNP`, and query columns |
 
 `regression_ld_scores` is the historical `w_ld`: an LD score computed over the

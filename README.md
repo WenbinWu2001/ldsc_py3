@@ -1,6 +1,6 @@
 # ldsc3_Jerry
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 This repository is the active refactored LDSC package.
 
@@ -288,10 +288,9 @@ regime, although a single all-ones `base` column is a degenerate one-category
 fit rather than a meaningful partitioned analysis.
 
 Native LD-score runs classify fitted columns as binary or quantitative for interpretation only. Partitioned-h2 preserves numerical legacy enrichment summaries for quantitative columns but logs that those weighted values do not have the ordinary binary-category interpretation; coefficients remain interpretable. `ldsc quantile-h2` consumes one baseline-only or per-query fitted model plus resupplied annotation/reference sources and reports joint-model heritability by target quantile and standardized `tau_star`. Resupplied sources are checked for alignment and agreement with stored counts, annotation sums, and available overlap cross-products; passing these checks does not establish the original annotation value at every SNP. See [the technical contract](docs/current/continuous-annotation-quantile-h2.md) and [the concise workflow](docs/wiki/continuous-annotation-partitioned-ldsc.md).
-The LD-score parquet files remain flat `ldscore.baseline.parquet` and
-`ldscore.query.parquet` files, but they are written with one row group per chromosome. The metadata
-records `row_group_layout`, `baseline_row_groups`, and `query_row_groups` so
-callers can load a single chromosome by row-group index when needed.
+LD-score generation runs queries in sequential batches (`--query-batch-size`, default 1000). A single batch writes `ldscore.query.parquet`; multiple batches write `ldscore.query.batch00001.parquet` and subsequent ordinals. Every file spans the computed chromosomes with one row group per chromosome. Root `metadata.json.query_batches` records filenames, ordered query columns, and row groups; one shared baseline and overlap are written. Older LD-score directories without this manifest must be regenerated. Direct mode repeats reference work for each batch. Direct and indexed modes support `--threads`, capped at chromosome count.
+
+Writing Python workflows return `LDScoreSource`; use `result.read_queries(["pathway_a", "pathway_b"])` for explicit selections across files. These reads have no cache or width limit; the caller owns their RAM cost. For a small single-batch calculation with zero filesystem writes, prepare `AnnotationBundle.from_frames(...)` and call `LDScoreCalculator.run(..., output_config=None)` with a prepared reference adapter. An output directory is required for multiple batches. See the [memory contracts](docs/current/annotation-memory-design.md).
 
 Gene-list LD scores may also use an explicitly installed exact profile:
 

@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from ldsc.regression_runner import load_ldscore_from_dir
 from ldsc import run_ldscore
 from tests.test_ldscore_chromosome_scope import write_r2_inputs
 
@@ -13,6 +14,7 @@ from tests.test_ldscore_chromosome_scope import write_r2_inputs
 @pytest.mark.parametrize('batch_size', [1,2,1000])
 def test_direct_file_queries_use_shards_and_leave_only_persistent_outputs(tmp_path,monkeypatch,batch_size):
     from ldsc.annotation_builder import AnnotationBuilder
+    from ldsc import ldscore_calculator
     from ldsc import config
     monkeypatch.setattr(config, "_GLOBAL_CONFIG", config.GlobalConfig(snp_identifier="rsid"))
 
@@ -25,19 +27,27 @@ def test_direct_file_queries_use_shards_and_leave_only_persistent_outputs(tmp_pa
     def eager_path(*args,**kwargs):
         raise AssertionError('Whole-genome annotation preparation was invoked')
     monkeypatch.setattr(AnnotationBuilder,'run',eager_path)
+    original_diagnostics = ldscore_calculator._stage_chromosome_drops
+    diagnostic_paths = []
+    def stage_diagnostics(*args, **kwargs):
+        assert all(not path.exists() for path in diagnostic_paths), "previous batch diagnostics remain in scratch"
+        result = original_diagnostics(*args, **kwargs)
+        diagnostic_paths.append(result.path)
+        return result
+    monkeypatch.setattr(ldscore_calculator, '_stage_chromosome_drops', stage_diagnostics)
     output = tmp_path/'out'
     result = run_ldscore(output_dir=output,baseline_annot_sources=args.baseline_annot_sources,
         query_annot_sources=str(query),r2_dir=args.r2_dir,
         regr_snps_file=regression,regr_snps_exclude_regions='none',
         ld_wind_snps=2,yes_really=True,query_batch_size=batch_size)
-    assert result.query_table.SNP.tolist() == ['rs1','rs3']
-    np.testing.assert_allclose(result.query_table[['first','second']],[[.5,1],[.25,2]],atol=2e-5,rtol=0)
+    assert result.read_queries(result.query_columns).SNP.tolist() == ['rs1','rs3']
+    np.testing.assert_allclose(result.read_queries(result.query_columns)[['first','second']],[[.5,1],[.25,2]],atol=2e-5,rtol=0)
     np.testing.assert_allclose(result.baseline_table.regression_ld_scores,[1,1],atol=0,rtol=0)
     assert [row['all_reference_snp_count'] for row in result.count_records] == [3,1,3]
     assert (output/'ldscore.baseline.parquet').is_file()
-    assert (output/'ldscore.query.parquet').is_file()
+    assert all(entry['path'].is_file() for entry in result.query_batches)
     assert not list(output.glob('.ldsc-annotation-*'))
-    pd.testing.assert_frame_equal(pd.read_parquet(output/'ldscore.query.parquet'),result.query_table)
+    pd.testing.assert_frame_equal(load_ldscore_from_dir(str(output)).read_queries(result.query_columns),result.read_queries(result.query_columns))
 
 
 def test_direct_results_keep_complete_persistent_drop_records(tmp_path, monkeypatch):

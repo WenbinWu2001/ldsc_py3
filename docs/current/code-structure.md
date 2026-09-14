@@ -1,6 +1,6 @@
 # Code Structure
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-14
 
 This is the authoritative contributor entry for the `ldsc` package. Start here to locate a change. [Architecture](architecture.md) explains execution boundaries, [data flow](data-flow.md) explains artifact streams, and [layer structure](layer-structure.md) supplies the detailed ownership matrix. These domain references supplement this entry rather than defining competing navigation maps.
 
@@ -80,7 +80,10 @@ ldsc_py3_restructured/
 | `ldsc._annotation_sources`, `ldsc._annotation_identity`, `ldsc._annotation_loading` | bounded input scans, aligned source preparation, global identity cleanup, and shared source-backed construction |
 | `ldsc.annotate_workflow`, `ldsc._annotation_queries`, `ldsc._direct_annotation` | standalone BED/gene gates, incremental projection, and direct LD-score integration |
 | `ldsc._gene_query_storage` | staged per-source gene selections and complete audit replay with shared catalog state |
-| `ldsc.ldscore_source` | selective query reads from canonical aggregate LD-score Parquet files |
+| `ldsc.ldscore_source` | validate ordered query manifests and read explicit selections across LD-score batch files |
+| `ldsc._annotation_memory` | small prepared annotations and diagnostics without filesystem writes |
+| `ldsc._ldscore_batch_output` | consume/release query batches, stage privately, and publish complete LD directories |
+| `ldsc._indexed_ldscore_batches` | bounded chromosome workers holding one operator each and deterministic batch-fragment assembly |
 | `ldsc._quantile_inputs`, `ldsc._quantile_storage` | bounded common-universe reconstruction, exact global boundaries, sufficient statistics, and streamed alignment diagnostics |
 | `ldsc._kernel.ldscore_projection` | float64 output-row accumulators and query batches sharing each LD block |
 | `ldsc.ref_panel_builder` | parquet reference-panel build workflow, including source-build inference, optional coordinate liftover, explicit SNP/sample restrictions, and optional `min_r2` pair-emission threshold |

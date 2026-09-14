@@ -1,6 +1,7 @@
 """Prepare interval queries once and construct chromosome query artifacts."""
 
 from dataclasses import dataclass, replace
+from contextlib import contextmanager
 import gzip
 from pathlib import Path
 
@@ -8,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from ._annotation_projection import ChromosomeProjector
-from ._annotation_storage import ColumnStore, FrameSpool
+from ._annotation_storage import AnnotationWorkspace, ColumnStore, FrameSpool
 from ._kernel.regions import iter_bed_rows
 from .chromosome_inference import normalize_chromosome
 from .annotation_semantics import require_unique_annotation_names
@@ -62,21 +63,50 @@ def prepare_bed_queries(paths, workspace, *, chunk_rows=4096):
     return sources
 
 
-def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0, support_kind='annotation', evaluate_support=True):
+def query_source_statuses(bed_sources=(), gene_batch=None):
+    """Resolve ordered source statuses before materializing SNP annotations."""
+    if gene_batch is not None:
+        return gene_query_statuses(gene_batch)
+    return tuple(QueryAnnotationStatus(source.query, source.source, 'bed', 'ok' if source.n_intervals else 'skipped', source.failure_reason or ('' if source.n_intervals else 'empty_input'), details=source.details or (None if source.n_intervals else 'BED source contains no intervals')) for source in bed_sources)
+
+
+@dataclass(frozen=True)
+class ProjectedQueries:
+    """Resolved interval sources whose dense SNP values exist only per batch."""
+
+    bed_sources: tuple
+    padding_bp: int
+
+
+@contextmanager
+def execution_query_bundle(bundle, columns, statuses, output_dir):
+    """Borrow the fixed baseline universe and own one query preparation batch."""
+    active = replace(bundle, query_columns=list(columns), query_statuses=statuses)
+    preparation = bundle.query_preparation
+    with AnnotationWorkspace(output_dir) as workspace:
+        active = replace(active, shards=dict(bundle.shards), workspace=workspace, query_preparation=None)
+        if preparation is not None:
+            build_query_shards(active, bed_sources=preparation.bed_sources, gene_batch=bundle.gene_list_batch,
+                               padding_bp=preparation.padding_bp, evaluate_support=False,
+                               query_columns=columns, include_control=False)
+        active.query_statuses = statuses
+        yield active
+
+
+def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0, support_kind='annotation', evaluate_support=True,
+                       query_columns=None, include_control=True):
     """Project one query at a time, retaining only per-query and per-gene counts.
 
     Zero-valued chromosome shards are retained for globally supported queries.
     Gene controls are appended to baseline columns and never enter focal batches.
     This primitive does not apply reference-panel or LD-score variance checks.
     """
-    if gene_batch is None:
-        statuses = tuple(QueryAnnotationStatus(source.query, source.source, 'bed', 'ok' if source.n_intervals else 'skipped', source.failure_reason or ('' if source.n_intervals else 'empty_input'), details=source.details or (None if source.n_intervals else 'BED source contains no intervals')) for source in bed_sources)
-        names = [item.query for item in statuses if item.status == 'ok']
-        control = False
-    else:
-        statuses = gene_query_statuses(gene_batch)
-        names = [item.query for item in statuses if item.status in {'ok', 'warning'}]
-        control = any(item['input_role'] == 'control' for item in gene_batch.declarations)
+    statuses = query_source_statuses(bed_sources, gene_batch)
+    if query_columns is not None:
+        selected_names = set(query_columns)
+        statuses = tuple(status for status in statuses if status.query in selected_names)
+    names = [item.query for item in statuses if item.status in {'ok', 'warning'}]
+    control = include_control and gene_batch is not None and any(item['input_role'] == 'control' for item in gene_batch.declarations)
     baseline_names = [*bundle.baseline_columns, *(['gene_control'] if control else [])]
     require_unique_annotation_names(baseline_names, names)
     totals = dict.fromkeys(names, 0)
@@ -93,9 +123,9 @@ def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0,
         projector = ChromosomeProjector(metadata)
         store = ColumnStore.create(bundle.workspace.path / f'query-{chrom}.npy', shard.n_rows, [*(['gene_control'] if control else []), *names])
         if gene_batch is not None:
-            for selection in gene_batch.selections:
-                if selection.query not in store.columns:
-                    continue
+            declarations = (item for item in gene_batch.declarations if item['query'] in store.columns)
+            for declaration in declarations:
+                selection = gene_batch.selection(declaration['input_role'], declaration['source_ordinal'])
                 intervals = ((start, end) for c, start, end in selection.intervals if c == chrom)
                 values = projector.project(intervals, padding_bp=padding_bp)
                 store.write(0, values[:, None], columns=[selection.query])
@@ -106,7 +136,7 @@ def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0,
                 support.loc[genes.index] = projector.counts(genes.start0, genes.end, padding_bp=padding_bp)
         else:
             for source in bed_sources:
-                if not source.n_intervals:
+                if not source.n_intervals or source.query not in store.columns:
                     continue
                 values = np.zeros(shard.n_rows, dtype=bool)
                 if chrom in source.shards:

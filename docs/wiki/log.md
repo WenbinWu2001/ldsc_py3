@@ -1,6 +1,14 @@
 # Wiki Update Log
 
-Last updated on: 2026-09-13
+Last updated on: 2026-09-14
+
+## 2026-09-14 update | sequential query batches
+
+Reason: align scoring, gene-list, index-reuse, guided-analysis, and continuous-annotation guidance with sequential output batching. Document numbered genome-wide query files, the mandatory ordered manifest, explicit uncached Python reads, the small zero-write Python route, and indexed chromosome workers capped at chromosome count. Correct the earlier quantitative-count limitation: normalized float32 annotations now use float64 count accumulation with existing tolerances. Batch resumption remains a possible future feature.
+
+Source: `LDScoreCalculator.run`, `LDScoreSource.read_queries`, `indexed_results` in [_indexed_ldscore_batches.py](../../src/ldsc/_indexed_ldscore_batches.py), `annotation_statistics` in [_kernel/overlap.py](../../src/ldsc/_kernel/overlap.py), and the [numerical verification report](../audits/annotation-memory/sequential-query-batches.md). Historical entries below describe their original verification state.
+
+Validation: current CLI parsing succeeds for all 40 complete Bash examples across the updated wiki/tutorial pages; one abbreviated example is intentionally skipped. Local links and heading anchors resolve. Both updated tutorial notebooks execute successfully with their built-in or substituted small fixtures, including cross-file reads and an API/CLI numerical comparison. See [documentation verification](../audits/annotation-memory/sequential-query-batches.md#documentation-verification).
 
 ## 2026-09-13 update | wiki consistency corrections
 

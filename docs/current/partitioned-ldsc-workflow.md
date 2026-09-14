@@ -1,6 +1,6 @@
 # Partitioned LDSC Workflow: Technical Reference
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-14
 
 This document describes the refactored workflow for computing LD scores and
 running h2, partitioned-h2, and rg regression from one canonical LD-score result
@@ -34,7 +34,7 @@ An LD-score run writes:
 <ldscore_dir>/
   metadata.json
   ldscore.baseline.parquet
-  ldscore.query.parquet        # omitted when no query annotations were supplied
+  ldscore.query.parquet        # one query batch; numbered files for multiple batches; omitted without queries
   ldscore.overlap.parquet      # overlap matrix; omitted for single-annotation (e.g. base-only) runs; consumed by partitioned-h2
   diagnostics/
     ldscore.log
@@ -43,7 +43,8 @@ An LD-score run writes:
 `metadata.json` is the downstream metadata contract. It contains:
 
 - `artifact_type: "ldscore"`
-- relative file paths for `baseline`, optional `query`, and optional `overlap`
+- relative file paths for `baseline`, optional `query` or `query_batchNNNNN` entries, and optional `overlap`
+- required ordered `query_batches` entries containing `file`, `query_columns`, and chromosome `row_groups`; empty for baseline-only output
 - `snp_identifier`, `genome_build`, and processed `chromosomes`
 - ordered `baseline_columns` and `query_columns`
 - one count record per LD-score annotation column
@@ -62,7 +63,7 @@ requires this file; the shared `h2` collinearity guard reads it when present
 common-SNP universe uses
 `MAF >= common_maf_min` (inclusive), matching the `.M_5_50`-style common counts.
 
-All paths inside the metadata are relative to `ldscore_dir`.
+All scientific artifact paths inside the metadata are relative to `ldscore_dir`. A single query batch uses `ldscore.query.parquet`; multiple batches use `ldscore.query.batch00001.parquet` and subsequent ordinals. Each file covers the same genome-wide regression SNP rows, with chromosome row groups. Baseline values, counts, and overlap statistics are shared. Current readers require the manifest; regenerate older directories. Source: `LDScoreDirectoryWriter.write_batches` in [outputs.py](../../src/ldsc/outputs.py).
 
 `ldscore.baseline.parquet` columns:
 
@@ -70,14 +71,13 @@ All paths inside the metadata are relative to `ldscore_dir`.
 CHR, SNP, POS, regression_ld_scores, <baseline LD-score columns...>
 ```
 
-`ldscore.query.parquet` columns:
+Columns in each query file:
 
 ```text
 CHR, SNP, POS, <query LD-score columns...>
 ```
 
-`ldscore.query.parquet` duplicates the SNP key columns intentionally. Loaders validate
-that query rows match baseline rows exactly on `CHR/SNP/POS`.
+Query files duplicate SNP key columns intentionally, including available `A1`/`A2`. Opening a source validates all declared schemas and allele metadata. `LDScoreSource.read_queries` checks effective SNP-row alignment across selected files; regression checks selected query rows against the baseline. See [ldscore_source.py](../../src/ldsc/ldscore_source.py) and `load_ldscore_from_dir` in [regression_runner.py](../../src/ldsc/regression_runner.py).
 
 The public `SNP` column in LD-score outputs is a carried label, not necessarily
 a dbSNP rsID. For package-built parquet reference panels it comes from the
@@ -115,10 +115,9 @@ is not a separate h2 workflow.
 
 ### Query Annotations
 
-Query annotations are optional and become `ldscore.query.parquet` columns.
+Query annotations are optional and become columns in the saved query batch files.
 
-- `--query-annot-bed-sources`: BED intervals projected to the baseline SNP universe in
-  memory.
+- `--query-annot-bed-sources`: BED intervals projected onto the baseline SNP universe one execution batch at a time, using private staging under the output directory.
 - `--query-annot-sources`: pre-built query `.annot[.gz]` files.
 
 For pre-built chromosome-sharded inputs, use one query annotation file per
@@ -243,7 +242,7 @@ For the tunable estimator parameters (intercept policy, two-step cutoff,
 `chisq_max`, jackknife blocks, counts) and the per-command defaults, see
 [`regression-configuration.md`](regression-configuration.md).
 
-`h2` and `rg` use baseline LD scores only, even when `ldscore.query.parquet` exists.
+`h2` and `rg` use baseline LD scores only, even when query batch files exist.
 They also use the embedded `regression_ld_scores` column from
 `ldscore.baseline.parquet`; this is the historical `w_ld` LD score over the
 regression SNP universe, not the final model-dependent regression weight.
@@ -442,20 +441,12 @@ RgDirectoryWriter().write(
 )
 ```
 
-The public `LDScoreResult` shape is split:
+Writing LD-score workflows and `load_ldscore_from_dir` return `LDScoreSource`. It retains shared `baseline_table`, counts, overlap statistics, SNP metadata, provenance, and `output_paths`, with no query LD-score tables or chromosome result tables. Explicit `read_queries(names)` calls preserve requested column order and can span saved files. They do not cache values or enforce a read-width limit; the caller owns the RAM for those selections.
 
-- `baseline_table`
-- `query_table`
-- `count_records`
-- `baseline_columns`
-- `query_columns`
-- `ld_regression_snps`
-- `chromosome_results`
-- `config_snapshot`
-- `output_paths`
+`LDScoreResult` remains the materialized object for one execution batch. The small prepared-input Python exception, `LDScoreCalculator.run(..., output_config=None)`, returns one such batch with complete in-memory diagnostics and creates no files. Prepare annotations with `AnnotationBundle.from_frames` and supply resolved restrictions explicitly. Multiple batches require output configuration. See the [zero-write example](../../tutorials/ld-score-calculation.md#small-python-calculations-without-writes).
 
-`output_paths` records scientific artifacts such as `metadata.json`,
-`ldscore.baseline.parquet`, and optional `ldscore.query.parquet`; workflow logs such as
-`diagnostics/ldscore.log` are audit files and are not included.
+Generation `query_batch_size` bounds sequential output batches. Direct calculation repeats reference work across them; indexed calculation reuses one chromosome operator per worker through its batches. `threads` is capped at chromosome count. Regression chooses its own batch width independently and retains one complete genome-wide model per query. Sources: `LDScoreCalculator.run`, `run_indexed_ldscore`, and the [memory design](annotation-memory-design.md).
+
+`output_paths` records scientific artifacts such as metadata, shared baseline/overlap files, and query batch files; workflow logs such as `diagnostics/ldscore.log` are audit files and are not included.
 `RgOutputConfig(write_per_pair_detail=True)` controls the optional per-pair
 detail tree when writing `RgResultFamily` through `RgDirectoryWriter`.

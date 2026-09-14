@@ -192,3 +192,7 @@ Last updated on: 2026-09-14
 ## Output ownership must cover normalization and recovery
 
 - Summary/root cause/correction: A package-wide retry audit found raw-path logs/audits/scratch and markers diverging from normalized result roots, CLI markers choosing the first repeated destination, and index recovery rejecting its own marker while diagnostic scans overlooked empty directories and symlinks; reuse normalized destinations, follow argparse's final value, share index preflight, inspect every diagnostic entry, and test the existing owned-backup recovery with a retained failure marker.
+
+## Worker counts need one CPU-budget policy
+
+- Summary/root cause/proposed correction: The thread-option audit confirmed that gene-index construction used machine-wide CPU counts while both LD-score modes used CPU affinity, and only indexed-query API calls rejected non-integer thread values; share validation and worker resolution, then select inline execution from the resolved count. This correction remains proposed; explicit allocation-derived counts are the current workaround. See `docs/audits/2026-09-14-thread-option-consistency.md`.

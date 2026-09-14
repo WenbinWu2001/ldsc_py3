@@ -1,6 +1,6 @@
 # Munge summary statistics
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-13
 
 `ldsc munge-sumstats` converts a raw GWAS table into LDSC3-ready summary statistics. See the current [munge-sumstats guide](../../current/munge-sumstats.md) for the full workflow and output contract.
 
@@ -134,3 +134,56 @@ or:
 ```
 
 For `NEFF + NCAS + NCON`, use `--N-col NEFF` when effective N is the intended quantity. The inferred `NCAS`/`NCON` columns are then suppressed automatically; `--ignore` is unnecessary.
+
+## Minimal raw input fields
+
+For an ordinary headered, whitespace-delimited raw GWAS table, supply the fields below. Column names may use the aliases in the next table or explicit column flags. Each row represents one variant; matching the schema does not guarantee that the row survives QC or the default HM3 restriction.
+
+| Field | When needed | Meaning and alternatives |
+| --- | --- | --- |
+| `SNP` | Required by the current raw-input reader in every identity mode. | A variant label. In rsID modes it supplies the matching identifier; coordinate modes still require this column even though matching uses coordinates. |
+| `CHR`, `POS` | Required for `chr_pos` and `chr_pos_allele_aware`. | Chromosome and positive, one-based base-pair position in the source build. Optional for rsID modes. Choose the output build separately with `--output-genome-build`. |
+| `A1`, `A2` | Required for allele-aware modes, including the default `chr_pos_allele_aware`. | `A1` is the allele relative to which the signed statistic is defined; `A2` is the other allele. Base `chr_pos` and `rsid` modes can munge without allele columns. |
+| `P` | Required, including when input `Z` is available. | Association p-value in `(0, 1]`. LDSC derives the output Z magnitude from P; it does not compute P from a supplied effect or Z column. |
+| One signed statistic: `Z`, `BETA`, `LOG_ODDS`, or `OR` | Required unless `--a1-inc` is explicitly used. | Supplies the direction relative to A1. The null is `0` for Z/beta/log odds and `1` for OR. Choose one explicitly with `--signed-sumstats COLUMN,NULL` if several are present. `--a1-inc` asserts that A1 is always the increasing allele and produces positive Z; use it only when that assertion is justified. |
+| `N`, or both `N_CAS` and `N_CON` | Required unless sample size is supplied as a constant. | Use per-variant N or a case/control pair as described in [Sample-size columns](#sample-size-columns). Alternatively, use `--N VALUE` or both `--N-cas VALUE --N-con VALUE`. Input sample-size columns take precedence over these fallback constants. |
+
+For the default allele-aware coordinate mode with per-variant N, a minimal header is:
+
+```text
+SNP CHR POS A1 A2 P BETA N
+```
+
+For explicit `--snp-identifier rsid`, a minimal header is `SNP P BETA N`; allele-aware rsID mode additionally needs A1/A2. `INFO`, `FRQ`, and `NSTUDY` are optional. Standard errors are not required because this workflow derives Z from P and the selected direction statistic. Already-munged legacy `SNP A1 A2 Z N` files can be passed directly to regression; the raw munging route still requires P. See [legacy summary-statistics compatibility](../../current/legacy-sumstats-compatibility.md).
+
+Sources: `prepare_munge_input` in [_sumstats_input.py](../../../src/ldsc/_sumstats_input.py) validates required fields and sample-size choices; `munge_sumstats` in [_kernel/sumstats_munger.py](../../../src/ldsc/_kernel/sumstats_munger.py) converts P to signed Z.
+
+## Automatically inferred column aliases
+
+The table lists the raw-sumstats registry, including canonical spellings. Matching is case-insensitive; leading/trailing whitespace is stripped, and periods and hyphens are converted to underscores. For example, `p.value` matches `P_VALUE`. This reader uses cleaned exact aliases, not arbitrary substring or suffix matching. If multiple columns map to one field, choose the intended column explicitly or exclude the extra columns with `--ignore`.
+
+| Canonical field | Recognized headers | Explicit override / role |
+| --- | --- | --- |
+| `SNP` | `SNP`, `MARKERNAME`, `MARKERID`, `SNPID`, `SNP_ID`, `RS`, `RSID`, `RS_ID`, `ID`, `RS_NUMBER`, `RS_NUMBERS`, `MARKER` | `--snp COLUMN` |
+| `CHR` | `CHR`, `#CHROM`, `CHROM`, `CHROMOSOME` | `--chr COLUMN` |
+| `POS` | `POS`, `BP`, `POSITION`, `BASE_PAIR`, `BASEPAIR` | `--pos COLUMN` |
+| `NSTUDY` | `NSTUDY`, `N_STUDY`, `NSTUDIES`, `N_STUDIES` | `--nstudy COLUMN`; optional study-count filtering |
+| `P` | `P`, `PVALUE`, `P_VALUE`, `PVAL`, `P_VAL`, `GC_PVALUE` | `--p COLUMN` |
+| `A1` | `A1`, `ALLELE1`, `ALLELE_1`, `EFFECT_ALLELE`, `REFERENCE_ALLELE`, `INC_ALLELE`, `EA` | `--a1 COLUMN`; signed-statistic allele |
+| `A2` | `A2`, `ALLELE2`, `ALLELE_2`, `OTHER_ALLELE`, `NON_EFFECT_ALLELE`, `DEC_ALLELE`, `NEA` | `--a2 COLUMN`; other allele |
+| `N` | `N`, `WEIGHT` | `--N-col COLUMN` |
+| `N_CAS` | `N_CAS`, `NCASE`, `CASES_N`, `N_CASE`, `N_CASES`, `NCAS`, `Nca` | `--N-cas-col COLUMN`; pair with control count |
+| `N_CON` | `N_CON`, `N_CONTROLS`, `NCONTROL`, `CONTROLS_N`, `N_CONTROL`, `N_CTRL`, `NCON`, `Nco` | `--N-con-col COLUMN`; pair with case count |
+| `INFO` | `INFO`, `IMPINFO` | `--info COLUMN`; optional imputation-quality filter |
+| `FRQ` | `FRQ`, `EAF`, `MAF`, `FRQ_U`, `F_U` | `--frq COLUMN`; optional frequency/MAF filtering; selected values are preserved |
+| `Z` | `Z`, `ZSCORE`, `Z-SCORE`, `GC_ZSCORE` | `--signed-sumstats COLUMN,0` |
+| `OR` | `OR` | `--signed-sumstats COLUMN,1` |
+| `BETA` | `BETA`, `B`, `EFFECTS`, `EFFECT` | `--signed-sumstats COLUMN,0` |
+| `LOG_ODDS` | `LOG_ODDS` | `--signed-sumstats COLUMN,0` |
+| `SIGNED_SUMSTAT` | `SIGNED_SUMSTAT` | Recognized field name, but its null is not inferred; specify `--signed-sumstats SIGNED_SUMSTAT,NULL` |
+
+`NEFF` is deliberately not an automatic alias for N. Use `--N-col NEFF` only when its scientific meaning matches the intended sample-size input. A separate plain-format heuristic maps `REF` to A1 and `ALT` to A2 when both are present and none of `A1`, `A2`, `EA`, or `NEA` is present. Those hints are applied automatically unless overridden, although REF/ALT are not entries in the raw alias registry. Verify the effect orientation and use explicit `--a1`/`--a2` flags if the statistic refers to a different allele. Names such as `EFFECT_SIZE`, `LOGOR`, and `BETA_HAT` can produce suggestions rather than automatic mappings; supply `--signed-sumstats COLUMN,NULL` after checking their meaning. Frequency aliases do not establish allele orientation: a source field named `MAF` remains folded minor-allele frequency, not necessarily A1 frequency.
+
+For DANER inputs, format-specific header handling additionally recognizes encoded count/frequency fields. The table describes ordinary raw-column aliases, not every DANER header convention. `--infer-only` previews mappings and suggestions; it does not replace the full run's required-field and QC checks.
+
+Source: `RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS`, `RAW_SUMSTATS_SIGNED_STAT_SPECS`, and `clean_header` in [column_inference.py](../../../src/ldsc/column_inference.py); `get_cname_map` in [_sumstats_input.py](../../../src/ldsc/_sumstats_input.py); `infer_raw_sumstats` in [sumstats_munger.py](../../../src/ldsc/sumstats_munger.py).

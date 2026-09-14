@@ -461,6 +461,7 @@ def inspect_plink_inputs(
     *,
     chromosomes: Sequence[str] = STANDARD_CHROMOSOMES,
     require_complete_suite: bool = False,
+    discovered_members: Sequence[tuple[str, str]] | None = None,
 ) -> PlinkInputResolution:
     """Discover PLINK inputs and assign chromosomes from validated BIM contents.
 
@@ -477,6 +478,10 @@ def inspect_plink_inputs(
         members are skipped, preserving generic suite expansion semantics.
         Incomplete selected trios always produce issues.
 
+    discovered_members : sequence of (prefix, chromosome) pairs, optional
+        Reuse companion discovery from a successful declaration gate. Callers
+        must have rejected its issues before passing these members.
+
     Returns
     -------
     PlinkInputResolution
@@ -491,46 +496,53 @@ def inspect_plink_inputs(
     import pandas as pd
     from ._kernel import formats as parse
 
-    members, issues = _discover_plink_members(
-        tokens, chromosomes=chromosomes, allow_chromosome_suite=True,
-        require_complete_suite=require_complete_suite,
-    )
+    if discovered_members is None:
+        members, issues = _discover_plink_members(
+            tokens, chromosomes=chromosomes, allow_chromosome_suite=True,
+            require_complete_suite=require_complete_suite,
+        )
+    else:
+        members, issues = discovered_members, []
     declarations: dict[str, set[str]] = {}
     for prefix, declared in members:
         declarations.setdefault(prefix, set())
         if declared:
             declarations[prefix].add(declared)
     mapping: dict[str, str] = {}
-    for prefix, declared in declarations.items():
-        try:
-            bim, fam = parse.PlinkBIMFile(prefix + ".bim"), parse.PlinkFAMFile(prefix + ".fam")
-            chroms = {normalize_chromosome(value, context=prefix + ".bim") for value in bim.df.CHR.unique()}
-            if not chroms or len(fam.IDList) == 0:
-                raise LDSCInputError("PLINK contents must identify SNPs and at least one sample.")
-            if declared and (len(declared) != 1 or chroms != declared):
-                raise LDSCInputError(f"@ PLINK member declared for chromosomes {sorted(declared, key=chrom_sort_key)} "
-                                     f"contains chromosomes {sorted(chroms, key=chrom_sort_key)}.")
-            positions = pd.to_numeric(bim.df.BP, errors="raise")
-            if positions.isna().any() or (positions <= 0).any():
-                raise LDSCInputError("PLINK positions must be positive.")
-            with open(prefix + ".bed", "rb") as bed:
-                if bed.read(3) != b"\x6c\x1b\x01":
-                    raise LDSCInputError("Invalid PLINK BED magic number or unsupported non-SNP-major format.")
-                bed.seek(0, 2)
-                if bed.tell() != 3 + len(bim.IDList) * ((len(fam.IDList) + 3) // 4):
-                    raise LDSCInputError("PLINK BED size disagrees with BIM/FAM; truncated or mismatched trio.")
-            for chrom in sorted(chroms, key=chrom_sort_key):
-                if chrom in mapping and mapping[chrom] != prefix:
-                    issues.append(_plink_issue(prefix, chrom, "ambiguous_chromosome_input",
-                        f"Multiple PLINK trios contain chromosome {chrom}: {mapping[chrom]} and {prefix}. "
-                        "Select one complete trio per chromosome."))
-                else:
-                    mapping[chrom] = prefix
-        except (OSError, EOFError, ValueError, LDSCInputError) as exc:
-            if "Usecols do not match columns" in str(exc):
-                exc = LDSCInputError("PLINK BIM requires six columns CHR/SNP/CM/BP/A1/A2 and FAM requires sample IDs. " + str(exc))
-            issues.append(_plink_issue(prefix, ",".join(sorted(declared, key=chrom_sort_key)),
-                                       "invalid_required_input", str(exc)))
+    from ._progress import PhaseProgress
+    with PhaseProgress(logging.getLogger('LDSC.preflight'), 'validation', 'PLINK content', len(declarations)) as progress:
+        for prefix, declared in declarations.items():
+            progress.advance(0, object=prefix, force=True)
+            try:
+                bim, fam = parse.PlinkBIMFile(prefix + ".bim"), parse.PlinkFAMFile(prefix + ".fam")
+                chroms = {normalize_chromosome(value, context=prefix + ".bim") for value in bim.df.CHR.unique()}
+                if not chroms or len(fam.IDList) == 0:
+                    raise LDSCInputError("PLINK contents must identify SNPs and at least one sample.")
+                if declared and (len(declared) != 1 or chroms != declared):
+                    raise LDSCInputError(f"@ PLINK member declared for chromosomes {sorted(declared, key=chrom_sort_key)} "
+                                         f"contains chromosomes {sorted(chroms, key=chrom_sort_key)}.")
+                positions = pd.to_numeric(bim.df.BP, errors="raise")
+                if positions.isna().any() or (positions <= 0).any():
+                    raise LDSCInputError("PLINK positions must be positive.")
+                with open(prefix + ".bed", "rb") as bed:
+                    if bed.read(3) != b"\x6c\x1b\x01":
+                        raise LDSCInputError("Invalid PLINK BED magic number or unsupported non-SNP-major format.")
+                    bed.seek(0, 2)
+                    if bed.tell() != 3 + len(bim.IDList) * ((len(fam.IDList) + 3) // 4):
+                        raise LDSCInputError("PLINK BED size disagrees with BIM/FAM; truncated or mismatched trio.")
+                for chrom in sorted(chroms, key=chrom_sort_key):
+                    if chrom in mapping and mapping[chrom] != prefix:
+                        issues.append(_plink_issue(prefix, chrom, "ambiguous_chromosome_input",
+                            f"Multiple PLINK trios contain chromosome {chrom}: {mapping[chrom]} and {prefix}. "
+                            "Select one complete trio per chromosome."))
+                    else:
+                        mapping[chrom] = prefix
+            except (OSError, EOFError, ValueError, LDSCInputError) as exc:
+                if "Usecols do not match columns" in str(exc):
+                    exc = LDSCInputError("PLINK BIM requires six columns CHR/SNP/CM/BP/A1/A2 and FAM requires sample IDs. " + str(exc))
+                issues.append(_plink_issue(prefix, ",".join(sorted(declared, key=chrom_sort_key)),
+                                           "invalid_required_input", str(exc)))
+            progress.advance(object=prefix)
     return PlinkInputResolution(list(declarations), mapping, issues)
 
 

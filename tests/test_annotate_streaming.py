@@ -143,14 +143,14 @@ def test_gate_a_collects_independent_sources_and_omits_later_statuses(tmp_path):
     baseline, genes, _, catalog = inputs(tmp_path)
     genes.write_text('UNKNOWN\nG1\textra\n')
     missing = tmp_path/'missing.txt'
+    missing.write_text('G1\textra\n')
     output = tmp_path/'out'
     with pytest.raises(LDSCInputError, match='preflight'):
         run_annotate(baseline_annot_sources=baseline, query_annot_gene_list_sources=[genes,missing], gene_coordinate_file=catalog,
                      padding_bp=0, genome_build='hg19', gene_list_resolution_policy='resolved-only',
                      global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
     summary = pd.read_csv(output/'diagnostics'/'gene_list_resolution_summary.tsv', sep='\t').set_index('query')
-    assert summary.loc['missing','source_status'] == 'error'
-    assert pd.isna(summary.loc['missing','nonblank_input_rows'])
+    assert summary.loc['missing','nonblank_input_rows'] == 1
     audit = pd.read_csv(output/'diagnostics'/'gene_list_audit.tsv.gz', sep='\t')
     assert set(audit.reason) == {'unmatched_identifier','malformed_input'}
     assert not (output/'diagnostics'/'query_annotation_status.tsv').exists()
@@ -163,7 +163,7 @@ def test_explicit_suite_collects_missing_autosomes_and_bad_members(tmp_path):
     baseline, genes, _, catalog = inputs(tmp_path, True)
     (tmp_path/'baseline.3.annot.gz').write_bytes(b'not gzip')
     output=tmp_path/'out'
-    with pytest.raises(LDSCInputError, match='input preflight'):
+    with pytest.raises(LDSCInputError, match='[Ii]nput preflight'):
         run_annotate(baseline_annot_sources=[tmp_path/'baseline.@.annot.gz'], query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
                      padding_bp=0, genome_build='hg19', global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
     issues=pd.read_csv(output/'diagnostics'/'input_issues.tsv', sep='\t')

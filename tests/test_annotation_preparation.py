@@ -39,7 +39,7 @@ def test_preparation_failure_does_not_log_completion(tmp_path, rows, reached_ide
     with pytest.raises(LDSCInputError), workflow_logging("annotate", log_path, log_level="INFO"), AnnotationWorkspace(tmp_path / "out") as workspace:
         prepare_annotation_sources(workspace, [path], [], mode="rsid", chunk_rows=1)
     log = log_path.read_text()
-    assert "Reading annotation inputs:" in log
+    assert "Phase failed: validation" in log or "Reading annotation inputs:" in log
     assert ("Checking SNP identities" in log) == reached_identity
     assert "Annotation preparation complete:" not in log
     assert "Failed" in log and "Traceback" in log

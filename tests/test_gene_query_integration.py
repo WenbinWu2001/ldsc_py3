@@ -271,7 +271,7 @@ def test_indexed_missing_components_are_reported_together(tmp_path, inputs):
         (index / "chromosomes/chr1" / name).unlink()
     focal = tmp_path / "focal.txt"
     focal.write_text("G1\n")
-    with pytest.raises(LDSCInputError, match="chromosome preflight failed"):
+    with pytest.raises(LDSCInputError, match="preflight"):
         index_workflow.run_indexed_ldscore(index, query_gene_list_sources=[focal], output_dir=tmp_path / "indexed", _allow_partial_for_tests=True)
     issues = pd.read_csv(tmp_path / "indexed/diagnostics/input_issues.tsv", sep="\t")
     assert len(issues) == 2

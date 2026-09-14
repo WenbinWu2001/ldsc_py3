@@ -17,6 +17,8 @@ ldsc_py3_restructured/
 │   ├── config.py
 │   ├── _result_files.py
 │   ├── path_resolution.py
+│   ├── _input_preflight.py
+│   ├── _progress.py
 │   ├── _logging.py
 │   ├── column_inference.py
 │   ├── chromosome_inference.py
@@ -62,6 +64,8 @@ ldsc_py3_restructured/
 | `ldsc._cli_help` | shared `CLIHelpFormatter` keeps flag names and paths intact when help descriptions wrap; `CHROMOSOME_PATH_HELP` and `SCALAR_PATH_HELP` supply verified path syntax; workflow parsers own their descriptions and argument groups |
 | `ldsc.config` | frozen public config dataclasses and basic validation |
 | `ldsc.path_resolution` | normalize path tokens, resolve concrete input files, create output directories, preflight fixed output paths, and enforce coherent output artifact families |
+| `ldsc._input_preflight` | aggregate declaration, companion, bounded-header, and saved-manifest checks; retain concrete paths and six-column repair diagnostics; leave scientific content validators with their owners |
+| `ldsc._progress` | phase boundaries and time-throttled progress through existing logger routes; bounded counters, current objects, and elapsed time |
 | `ldsc._logging` | shared workflow logging context, LDSC logger level handling, lifecycle audit lines, CLI console-handler routing (file-authoritative, console error-only) with run-aborting traceback capture, durable authorized-overwrite failure markers without rollback, and log-only formatting helpers |
 | `ldsc.column_inference` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc.chromosome_inference` | canonical chromosome normalization and ordering |

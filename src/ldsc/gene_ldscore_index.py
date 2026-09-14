@@ -40,6 +40,7 @@ from scipy import sparse
 from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
 from ._parallelism import _parse_threads, _resolve_worker_count, _validate_threads
+from ._progress import report_phase, advance
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel.gene_ldscore_index import (
     AtomStatistics,
@@ -72,7 +73,6 @@ from ._logging import (
 )
 from ._annotation_storage import AnnotationWorkspace, FrameSpool
 from ._annotation_sources import prepare_annotation_sources
-from ._annotation_preflight import resolve_annotation_inputs
 from .chromosome_inference import normalize_chromosome, normalize_chromosome_series
 from ._coordinates import positive_int_position_series
 from .config import GeneLDScoreIndexBuildConfig, GlobalConfig
@@ -519,6 +519,16 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 process_id=os.getpid(),
                 hostname=socket.gethostname(),
             )
+            from ._input_preflight import inspect_declared_inputs
+            declared_inputs = inspect_declared_inputs(
+                baseline=config.baseline_annot_sources, plink=config.plink_prefix, chromosomes=chromosomes,
+                require_complete_suite=True, mode=config.snp_identifier,
+                files=[(name, getattr(args, name, None)) for name in (
+                    'genetic_map_hg19_sources', 'genetic_map_hg38_sources')],
+                scalar_files=[(name, getattr(args, name, None)) for name in (
+                    'gene_coordinate_file', 'keep_indivs_file', 'regr_snps_file')],
+                issues_path=_gene_index_build_state_dir(index_path)/'input_issues.tsv',
+                plink_issues_path=_gene_index_build_state_dir(index_path)/'plink_input_issues.tsv')
             try:
                 catalog = GeneCatalog.load(config.gene_coordinate_file, require_canonical=True)
             except GeneCatalogValidationError as exc:
@@ -552,6 +562,7 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                     catalog=catalog,
                     stage_parent=stage_parent,
                     started=started,
+                    declared_inputs=declared_inputs,
                 )
             except Exception:
                 _remove_gene_index_transaction(stage_parent, published=False)
@@ -560,6 +571,7 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
         return published_path
 
 
+@report_phase(LOGGER, 'workflow', 'gene-index build')
 def _run_gene_ldscore_index_build(
     args: argparse.Namespace,
     config: GeneLDScoreIndexBuildConfig,
@@ -568,6 +580,7 @@ def _run_gene_ldscore_index_build(
     catalog: GeneCatalog,
     stage_parent: Path,
     started: float,
+    declared_inputs,
 ) -> Path:
     """Build chromosome shards into one transaction and publish it atomically."""
     staged_index = stage_parent / Path(config.output_dir).name
@@ -585,33 +598,36 @@ def _run_gene_ldscore_index_build(
         else GlobalConfig(snp_identifier="chr_pos", genome_build=config.genome_build)
     )
     regression_path = Path(config.regr_snps_file or packaged_hm3_curated_map_path())
-    regression_keys = read_snp_restriction_keys(
-        regression_path,
-        config.snp_identifier,
-        genome_build=config.genome_build,
-    )
+    from ._input_preflight import InputGate
+    from ._progress import PhaseProgress
+    state_dir = _gene_index_build_state_dir(Path(config.output_dir))
+    gate = InputGate('Reference/control content validation', state_dir/'input_issues.tsv')
+    with PhaseProgress(LOGGER, 'validation', 'PLINK, regression restriction, and genetic map content'):
+        regression_keys = gate.check('regression SNPs', regression_path,
+            lambda: read_snp_restriction_keys(regression_path, config.snp_identifier, genome_build=config.genome_build))
+        genetic_map = gate.check('genetic map', getattr(args, 'genetic_map_hg19_sources', None),
+                                 lambda: _load_builder_genetic_map(args))
+        plink = inspect_plink_inputs(config.plink_prefix, chromosomes=chromosomes, require_complete_suite=True,
+                                     discovered_members=declared_inputs.files['plink_members'])
+        try:
+            plink.require_valid(required_chromosomes=chromosomes)
+        except LDSCInputError:
+            pd.DataFrame(plink.issues).to_csv(state_dir/'plink_input_issues.tsv', sep='\t', index=False)
+            gate.issues.extend(plink.issues)
+        gate.finish()
     regression_presets = kernel_regions.regr_snps_exclude_regions_choice_to_presets(config.regr_snps_exclude_regions)
     regression_regions = (
         None
         if not regression_presets
         else kernel_regions.load_preset_intervals(regression_presets, config.genome_build)
     )
-    genetic_map = _load_builder_genetic_map(args)
-    plink = inspect_plink_inputs(config.plink_prefix, chromosomes=chromosomes, require_complete_suite=True)
-    issues_path = _gene_index_build_state_dir(Path(config.output_dir)) / "plink_input_issues.tsv"
-    try:
-        plink.require_valid(required_chromosomes=chromosomes)
-    except LDSCInputError:
-        pd.DataFrame(plink.issues).to_csv(issues_path, sep="\t", index=False)
-        LOGGER.error("PLINK input validation failed; complete repair audit: %s", issues_path)
-        raise
     chromosome_prefixes = plink.chromosome_prefixes
 
     with AnnotationWorkspace(stage_parent) as workspace:
-        paths, declared, issues = resolve_annotation_inputs(config.baseline_annot_sources)
+        paths, declared, issues = declared_inputs.baseline, declared_inputs.declarations, []
         sources = prepare_annotation_sources(
             workspace, paths, [], mode=global_config.snp_identifier,
-            declared_chromosomes=declared, input_issues=issues,
+            declared_chromosomes=declared, input_issues=issues, header_widths=declared_inputs.widths,
         )
         missing = set(chromosomes).difference(sources.shards)
         if missing:
@@ -1626,6 +1642,7 @@ class LoadedGeneLDScoreIndex:
         )
 
 
+@report_phase(LOGGER, 'publication', 'immutable gene index')
 def publish_gene_ldscore_index(
     index_dir: str | Path,
     *,
@@ -1805,6 +1822,7 @@ def load_gene_ldscore_index(
     return _load_gene_ldscore_index(index_dir, _allow_partial_for_tests=False)
 
 
+@report_phase(LOGGER, 'validation', 'index content and compatibility')
 def _load_gene_ldscore_index(
     index_dir: str | Path,
     *,
@@ -1859,9 +1877,10 @@ def _load_gene_ldscore_index(
         raise LDSCInputError(
             "Gene LD-score index must cover autosomes 1 through 22; partial production indexes are unsupported."
         )
+    from ._input_preflight import inspect_index_paths
+    advance(0, total=len(chromosomes))
+    inspect_index_paths(index_path, metadata=root)
     catalog_path = index_path / "gene_catalog.parquet"
-    if not catalog_path.exists():
-        raise LDSCInputError("Gene LD-score index is missing gene_catalog.parquet.")
     catalog = pd.read_parquet(catalog_path)
     required_catalog = [
         "gene_index", "gene_id", "gene_name", "chrom", "start", "end", "genome_build",
@@ -1909,15 +1928,8 @@ def _load_gene_ldscore_index(
     baseline_columns = None
     support = pd.Series(pd.NA, index=catalog["gene_index"].astype(int), dtype="Int64")
     issues = []
-    required_files = ("metadata.json", "baseline_rows.parquet", "baseline_statistics.npz",
-                      "atoms.parquet", "gene_to_atom.npz", "ldscore_operator.npz", "atom_statistics.npz")
     for chrom in chromosomes:
-        missing = [name for name in required_files if not (index_path / "chromosomes" / f"chr{chrom}" / name).is_file()]
-        if missing:
-            issues.extend({"input_role": "index", "source": str(index_path / "chromosomes" / f"chr{chrom}" / name),
-                           "chrom": chrom, "reason": "missing_required_input", "details": "Required index component is missing.",
-                           "repair": "Restore or rebuild the complete immutable index."} for name in missing)
-            continue
+        advance(0, object=f'chromosome {chrom}', force=True)
         record = None
         try:
             chromosome_catalog = catalog.loc[catalog["chrom"].astype(str) == str(chrom)]
@@ -1943,6 +1955,7 @@ def _load_gene_ldscore_index(
             counts = record.atom_model.gene_to_atom.astype(np.int64) @ record.atom_statistics.atom_count_all
             support.loc[chromosome_catalog["gene_index"].astype(int)] = np.asarray(counts).reshape(-1)
             chromosome_paths[chrom] = index_path / "chromosomes" / f"chr{chrom}"
+            advance(object=f'chromosome {chrom}')
         except (OSError, ValueError, EOFError, LDSCInputError) as exc:
             issues.append({"input_role": "index", "source": str(index_path / "chromosomes" / f"chr{chrom}"),
                            "chrom": chrom, "reason": "invalid_required_input", "details": str(exc),
@@ -2045,6 +2058,21 @@ def run_indexed_ldscore(
         raise ValueError("query_batch_size must be a positive integer.")
     _validate_threads(threads)
     output_dir = normalize_path_token(output_dir)
+    from ._input_preflight import inspect_declared_inputs, inspect_index_paths
+    from .outputs import LDScoreDirectoryWriter
+    LDScoreDirectoryWriter.artifact_family(output_dir).preflight(overwrite=overwrite)
+    try:
+        inspect_declared_inputs(files=[('query genes', query_gene_list_sources), ('control genes', control_gene_list_file)],
+            checks=[('index', index_dir, lambda: inspect_index_paths(index_dir))],
+            issues_path=Path(output_dir)/'diagnostics/input_issues.tsv')
+    except LDSCInputError as exc:
+        diagnostic = SimpleNamespace(input_issues=exc.input_issues, chromosome_scope={
+            'selection': 'validated_immutable_index', 'chromosomes': None,
+            'analysis_chromosomes': [], 'validation_status': 'failed'})
+        LDScoreDirectoryWriter._write_query_diagnostic_files(diagnostic, {
+            'input_issues': Path(output_dir)/'diagnostics/input_issues.tsv',
+            'chromosome_scope': Path(output_dir)/'diagnostics/chromosome_scope.json'})
+        raise
     with AnnotationWorkspace(output_dir) as workspace:
         return _run_indexed_ldscore_in_workspace(
             index_dir, query_gene_list_sources=query_gene_list_sources,
@@ -2708,6 +2736,18 @@ def _load_npz_members(path: Path, required: set[str]) -> dict[str, np.ndarray]:
         raise LDSCInputError(f"Gene LD-score index payload is unreadable: {path}") from exc
 
 
+def _validate_chromosome_metadata(component_meta, *, chrom, index_id, snp_identifier, genome_build):
+    """Check small component metadata before opening any chromosome payload."""
+    _validate_metadata_identity(component_meta, index_id=index_id)
+    if (
+        component_meta.get("snp_identifier") != snp_identifier
+        or component_meta.get("genome_build") != genome_build
+    ):
+        raise LDSCInputError("Gene LD-score index component identity metadata disagrees with the root.")
+    if component_meta.get("chromosome") != str(chrom):
+        raise LDSCInputError("Gene LD-score index component chromosome identity is invalid.")
+
+
 def _load_index_chromosome(
     index_path: Path,
     chrom: str,
@@ -2719,14 +2759,8 @@ def _load_index_chromosome(
 ) -> IndexChromosomeData:
     component_path = index_path / "chromosomes" / f"chr{chrom}"
     component_meta = _read_json(component_path / "metadata.json", f"chromosome {chrom}")
-    _validate_metadata_identity(component_meta, index_id=index_id)
-    if (
-        component_meta.get("snp_identifier") != snp_identifier
-        or component_meta.get("genome_build") != genome_build
-    ):
-        raise LDSCInputError("Gene LD-score index component identity metadata disagrees with the root.")
-    if component_meta.get("chromosome") != str(chrom):
-        raise LDSCInputError("Gene LD-score index component chromosome identity is invalid.")
+    _validate_chromosome_metadata(component_meta, chrom=chrom, index_id=index_id,
+                                 snp_identifier=snp_identifier, genome_build=genome_build)
     baseline_rows = pd.read_parquet(component_path / "baseline_rows.parquet")
     if len(baseline_rows) != int(component_meta.get("n_rows", -1)):
         raise LDSCInputError("Gene LD-score index baseline row count disagrees with component metadata.")

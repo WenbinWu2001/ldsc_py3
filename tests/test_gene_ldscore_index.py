@@ -107,11 +107,14 @@ def test_builder_catalog_failure_writes_full_issues_before_atom_transaction(tmp_
         "G1\tDUP\t2\t40\t30\thg19\n",
         encoding="utf-8",
     )
+    baseline = tmp_path / "baseline.annot"
+    baseline.write_text("CHR SNP POS base\n1 rs1 10 1\n")
+    _write_plink_trio(tmp_path / "reference", ["1"])
     output = tmp_path / "index"
     args = gene_ldscore_index.build_parser().parse_args(
         [
-            "--baseline-annot-sources", "unused.@.annot.gz",
-            "--plink-prefix", "unused.@",
+            "--baseline-annot-sources", str(baseline),
+            "--plink-prefix", str(tmp_path / "reference"),
             "--output-dir", str(output),
             "--gene-coordinate-file", str(catalog),
             "--genome-build", "hg19",
@@ -140,11 +143,14 @@ def test_builder_rejects_catalog_build_mismatch_before_atom_transaction(tmp_path
         "G1\tGENE1\t1\t10\t20\thg38\n",
         encoding="utf-8",
     )
+    baseline = tmp_path / "baseline.annot"
+    baseline.write_text("CHR SNP POS base\n1 rs1 10 1\n")
+    _write_plink_trio(tmp_path / "reference", ["1"])
     output = tmp_path / "index"
     args = gene_ldscore_index.build_parser().parse_args(
         [
-            "--baseline-annot-sources", "unused.@.annot.gz",
-            "--plink-prefix", "unused.@",
+            "--baseline-annot-sources", str(baseline),
+            "--plink-prefix", str(tmp_path / "reference"),
             "--output-dir", str(output),
             "--gene-coordinate-file", str(catalog),
             "--genome-build", "hg19",
@@ -265,6 +271,9 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
     for chrom in ("1", "2"):
         _write_plink_trio(tmp_path / f"reference.{chrom}", [chrom])
     output = tmp_path / "index"
+    import gzip
+    with gzip.open(tmp_path / "catalog.tsv.gz", "wt") as stream:
+        stream.write("catalog content supplied by the mocked loader\n")
     args = Namespace(
         baseline_annot_sources=str(baseline_path),
         plink_prefix=str(tmp_path / "reference.@"),
@@ -281,7 +290,7 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
         regr_snps_exclude_regions="mhc-and-centromeres",
         genetic_map_hg19_sources=None,
         genetic_map_hg38_sources=None,
-        gene_coordinate_file="catalog.tsv.gz",
+        gene_coordinate_file=str(tmp_path / "catalog.tsv.gz"),
         _test_chromosomes=("1", "2"),
         snp_batch_size=128,
         atom_batch_size=64,
@@ -1012,6 +1021,10 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     monkeypatch.setattr(gene_ldscore_index, "_builder_index_identity", lambda *args, **kwargs: index_identity)
     _write_plink_trio(tmp_path / "1000G.EUR.QC.22", ["22"])
 
+    import gzip
+    with gzip.open(tmp_path / "catalog.tsv.gz", "wt") as stream:
+        stream.write("catalog content supplied by the mocked loader\n")
+    (tmp_path / "custom-regression.tsv").write_text("SNP\nrs1\n")
     args = Namespace(
         baseline_annot_sources=str(baseline_path),
         plink_prefix=str(tmp_path / "1000G.EUR.QC."),
@@ -1024,11 +1037,11 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
         maf_min=None,
         common_maf_min=0.05,
         keep_indivs_file=None,
-        regr_snps_file="custom-regression.tsv",
+        regr_snps_file=str(tmp_path / "custom-regression.tsv"),
         regr_snps_exclude_regions="centromeres",
         genetic_map_hg19_sources=None,
         genetic_map_hg38_sources=None,
-        gene_coordinate_file="catalog.tsv.gz",
+        gene_coordinate_file=str(tmp_path / "catalog.tsv.gz"),
         _test_chromosomes=("22",),
         snp_batch_size=128,
         atom_batch_size=64,
@@ -1066,7 +1079,7 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     assert diagnostics["chromosomes"]["22"]["catalog_genes"] == 2
     assert diagnostics["chromosomes"]["22"]["operator_nnz"] == chromosome.operator.nnz
     assert f"operator_nnz={chromosome.operator.nnz}" in log_text
-    assert captured_restriction["path"] == Path("custom-regression.tsv")
+    assert captured_restriction["path"] == tmp_path / "custom-regression.tsv"
     dropped_sidecar = index_dir / "diagnostics" / "dropped_snps" / "chr22_dropped.tsv.gz"
     assert dropped_sidecar.exists()
     assert pd.read_csv(dropped_sidecar, sep="\t").empty
@@ -1184,6 +1197,9 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
         raise LDSCInputError("identifier intersection failure in fixture")
 
     monkeypatch.setattr(gene_ldscore_index, "intersect_baseline_plink_by_identifier", fail_intersection)
+    import gzip
+    with gzip.open(tmp_path / "catalog.tsv.gz", "wt") as stream:
+        stream.write("catalog content supplied by the mocked loader\n")
     args = Namespace(
         baseline_annot_sources=str(baseline_path),
         plink_prefix=str(tmp_path / "1000G.EUR.QC."),
@@ -1200,7 +1216,7 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
         regr_snps_exclude_regions="mhc-and-centromeres",
         genetic_map_hg19_sources=None,
         genetic_map_hg38_sources=None,
-        gene_coordinate_file="catalog.tsv.gz",
+        gene_coordinate_file=str(tmp_path / "catalog.tsv.gz"),
         _test_chromosomes=("22",),
         snp_batch_size=128,
         atom_batch_size=64,

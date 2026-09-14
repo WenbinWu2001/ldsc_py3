@@ -633,14 +633,10 @@ def run_query_r2_from_args(args: argparse.Namespace) -> pd.DataFrame:
     ``diagnostics/metadata.json`` and ``diagnostics/query-r2.log``, matching the
     other workflow commands.
     """
-    pairs_handle = sys.stdin if args.pairs == "-" else args.pairs
-    sep = "," if str(args.pairs).endswith(".csv") else "\t"
-    pairs = pd.read_csv(pairs_handle, sep=sep)
-
-    return _write_query_r2_directory(args, pairs)
+    return _write_query_r2_directory(args)
 
 
-def _write_query_r2_directory(args: argparse.Namespace, pairs: pd.DataFrame) -> pd.DataFrame:
+def _write_query_r2_directory(args: argparse.Namespace, pairs: pd.DataFrame | None = None) -> pd.DataFrame:
     """Query against the panel and write the canonical result directory."""
     output_dir = ensure_output_directory(args.output_dir, label="output directory")
     diagnostics_dir = output_dir / "diagnostics"
@@ -650,6 +646,16 @@ def _write_query_r2_directory(args: argparse.Namespace, pairs: pd.DataFrame) -> 
     )
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     with workflow_logging("query-r2", log_path, log_level=args.log_level):
+        from ._input_preflight import inspect_declared_inputs, inspect_r2_headers
+        from ._progress import PhaseProgress
+        inspect_declared_inputs(files=[] if args.pairs == '-' else [('pairs', args.pairs)],
+            checks=[('reference', args.panel_dir, lambda: inspect_r2_headers(args.panel_dir, args.genome_build))],
+            issues_path=diagnostics_dir/'input_issues.tsv')
+        if pairs is None:
+            with PhaseProgress(LOGGER, 'validation', 'pair input loading'):
+                pairs_handle = sys.stdin if args.pairs == '-' else args.pairs
+                sep = ',' if str(args.pairs).endswith('.csv') else '\t'
+                pairs = pd.read_csv(pairs_handle, sep=sep)
         log_inputs(panel_dir=args.panel_dir, pairs=args.pairs, output_dir=str(output_dir))
         LOGGER.info(f"Querying R2 for pairs from '{args.pairs}' against panel '{args.panel_dir}'.")
         panel = R2Panel.open(args.panel_dir, snp_identifier=args.snp_identifier, genome_build=args.genome_build)

@@ -8,6 +8,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import logging
+from ._progress import report_phase, advance
+
 from ._annotation_projection import ChromosomeProjector
 from ._annotation_storage import AnnotationWorkspace, ColumnStore, FrameSpool
 from ._kernel.regions import iter_bed_rows
@@ -32,12 +35,17 @@ class BedQuerySource:
         return sum(spool.n_rows for spool in self.shards.values())
 
 
+LOGGER = logging.getLogger('LDSC.annotation')
+
+@report_phase(LOGGER, 'validation/staging', 'BED interval content')
 def prepare_bed_queries(paths, workspace, *, chunk_rows=4096):
     """Parse each BED stream once, preserving header and line validation."""
     sources = []
     for ordinal, path in enumerate(map(Path, paths)):
+        advance(0, object=f'{ordinal + 1}/{len(paths)} {path}', force=True)
         shards, chunk = {}, []
         def append(rows):
+            advance(len(rows), object=str(path))
             frame = pd.DataFrame(rows, columns=['chrom', 'start', 'end'])
             for chrom, group in frame.groupby('chrom', sort=False):
                 spool = shards.setdefault(chrom, FrameSpool(workspace.path / f'bed-{ordinal}' / chrom))
@@ -93,6 +101,7 @@ def execution_query_bundle(bundle, columns, statuses, output_dir):
         yield active
 
 
+@report_phase(LOGGER, 'computation', 'annotation projection')
 def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0, support_kind='annotation', evaluate_support=True,
                        query_columns=None, include_control=True):
     """Project one query at a time, retaining only per-query and per-gene counts.
@@ -117,7 +126,9 @@ def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0,
             selected[list(selection.catalog_indices)] = True
         support = pd.Series(pd.NA, index=gene_batch.catalog.frame.index, dtype='Int64')
         support.loc[selected] = 0
+    advance(0, total=len(bundle.chromosomes))
     for chrom in bundle.chromosomes:
+        advance(0, object=f'chromosome {chrom}', force=True)
         shard = bundle.shard(chrom)
         metadata = shard.metadata()
         projector = ChromosomeProjector(metadata)
@@ -145,6 +156,7 @@ def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0,
                 store.write(0, values[:, None], columns=[source.query])
                 totals[source.query] += int(values.sum())
         bundle.shards[chrom] = replace(shard, stores=(*shard.stores, store))
+        advance(object=f'chromosome {chrom}')
         del metadata, projector
         values = genes = intervals = selection = None
     if gene_batch is not None and evaluate_support:

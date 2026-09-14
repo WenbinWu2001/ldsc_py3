@@ -9,6 +9,7 @@ unreadable inputs as scientific zero support.
 
 from dataclasses import dataclass
 import glob
+import logging
 import gzip
 from pathlib import Path
 
@@ -49,7 +50,68 @@ class DirectInputPreflight:
         return self.scope["chromosomes"]
 
 
-def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_sources=None, annotation_issues=()):
+def inspect_reference_inputs(args, global_config, *, require_autosomes=True, plink_members=None):
+    """Validate references before annotation staging; retain scope and PLINK mapping.
+
+    R2 integrity requires a streamed pair scan and sidecar identity checks.
+    PLINK integrity reads BIM/FAM and BED header/size, without correlations.
+    The returned evidence is reused by the later content-dependent scope gate.
+    """
+    from ._progress import PhaseProgress
+    issues, declarations = [], []
+    sets = {"reference": set()}
+    reference_prefixes = {}
+
+    def issue(role, source, chrom, reason, details):
+        issues.append(dict(input_role=role, source=str(source), chrom=chrom,
+                           reason=reason, details=str(details), repair=SCOPE_REPAIR))
+
+    r2_dir = getattr(args, "r2_dir", None)
+    if r2_dir:
+        try:
+            root = _resolve_r2_build_dir(r2_dir, global_config.genome_build)
+            members = sorted({path.name.split("_")[0][3:] for pattern in ("chr*_r2.parquet", "chr*_meta.tsv.gz") for path in root.glob(pattern)}, key=lambda value: (len(value), value))
+            if not members:
+                raise LDSCInputError("No R2/sidecar chromosome artifacts found.")
+        except (OSError, EOFError, ValueError, LDSCUserError) as exc:
+            issue("reference", r2_dir, "", "invalid_required_input", exc)
+            members = []
+        panel = RefPanelLoader(global_config).load(RefPanelConfig(backend="parquet_r2", r2_dir=r2_dir)) if members else None
+        for chrom in members:
+            try:
+                path = root / f"chr{chrom}_meta.tsv.gz"
+                metadata = _read_metadata_table(path, None, global_config)
+                if set(metadata.CHR.astype(str)) != {chrom} or (require_autosomes and chrom not in AUTOSOMES):
+                    raise LDSCInputError("R2 sidecar contents disagree with their chromosome member.")
+                reader = panel.build_reader(chrom, metadata=metadata)
+                try:
+                    if require_autosomes:
+                        with PhaseProgress(logging.getLogger('LDSC.preflight'), 'validation', f'R2 pairs chromosome {chrom}') as progress:
+                            for pairs in reader.iter_all_pairs():
+                                progress.advance(object=f'chromosome {chrom} pair block')
+                finally:
+                    reader.close()
+                sets["reference"].add(chrom)
+            except (OSError, EOFError, ValueError, LDSCUserError) as exc:
+                issue("reference", r2_dir, chrom, "invalid_required_input", exc)
+    else:
+        plink_tokens = split_cli_path_tokens(getattr(args, "plink_prefix", None))
+        declarations.extend(plink_tokens)
+        plink = inspect_plink_inputs(plink_tokens, chromosomes=AUTOSOMES, require_complete_suite=require_autosomes, discovered_members=plink_members)
+        issues.extend(plink.issues)
+        reference_prefixes = plink.chromosome_prefixes
+        sets["reference"].update(chrom for chrom in reference_prefixes if chrom in AUTOSOMES)
+        for chrom, prefix in reference_prefixes.items():
+            if require_autosomes and chrom not in AUTOSOMES:
+                issue("reference", prefix, chrom, "invalid_required_input", "PLINK contents must identify autosomal SNPs.")
+
+    return DirectInputPreflight(
+        dict(chromosomes=sorted(sets['reference'], key=lambda c: (len(c), c)),
+             reference_prefixes_by_chrom=reference_prefixes, declarations=declarations),
+        pd.DataFrame(issues, columns=ISSUE_COLUMNS))
+
+
+def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_sources=None, annotation_issues=(), reference_inputs=None):
     """Inspect all selected annotation and reference artifacts before filtering.
 
     Validate BED/BIM/FAM integrity or the complete R2/sidecar binding, without
@@ -122,42 +184,11 @@ def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_s
             except (OSError, EOFError, ValueError, LDSCUserError) as exc:
                 issue("query", path, "", "invalid_required_input", exc)
 
-    r2_dir = getattr(args, "r2_dir", None)
-    if r2_dir:
-        try:
-            root = _resolve_r2_build_dir(r2_dir, global_config.genome_build)
-            members = sorted({path.name.split("_")[0][3:] for pattern in ("chr*_r2.parquet", "chr*_meta.tsv.gz") for path in root.glob(pattern)}, key=lambda value: (len(value), value))
-            if not members:
-                raise LDSCInputError("No R2/sidecar chromosome artifacts found.")
-        except (OSError, EOFError, ValueError, LDSCUserError) as exc:
-            issue("reference", r2_dir, "", "invalid_required_input", exc)
-            members = []
-        panel = RefPanelLoader(global_config).load(RefPanelConfig(backend="parquet_r2", r2_dir=r2_dir))
-        for chrom in members:
-            try:
-                path = root / f"chr{chrom}_meta.tsv.gz"
-                metadata = _read_metadata_table(path, None, global_config)
-                if set(metadata.CHR.astype(str)) != {chrom} or chrom not in AUTOSOMES:
-                    raise LDSCInputError("R2 sidecar contents disagree with their chromosome member.")
-                reader = panel.build_reader(chrom, metadata=metadata)
-                try:
-                    for _ in reader.iter_all_pairs():
-                        pass
-                finally:
-                    reader.close()
-                sets["reference"].add(chrom)
-            except (OSError, EOFError, ValueError, LDSCUserError) as exc:
-                issue("reference", r2_dir, chrom, "invalid_required_input", exc)
-    else:
-        plink_tokens = split_cli_path_tokens(getattr(args, "plink_prefix", None))
-        declarations.extend(plink_tokens)
-        plink = inspect_plink_inputs(plink_tokens, chromosomes=AUTOSOMES, require_complete_suite=True)
-        issues.extend(plink.issues)
-        reference_prefixes = plink.chromosome_prefixes
-        sets["reference"].update(chrom for chrom in reference_prefixes if chrom in AUTOSOMES)
-        for chrom, prefix in reference_prefixes.items():
-            if chrom not in AUTOSOMES:
-                issue("reference", prefix, chrom, "invalid_required_input", "PLINK contents must identify autosomal SNPs.")
+    reference = reference_inputs or inspect_reference_inputs(args, global_config)
+    issues.extend(reference.issues.to_dict('records'))
+    declarations.extend(reference.scope['declarations'])
+    sets['reference'].update(reference.chromosomes)
+    reference_prefixes = reference.scope['reference_prefixes_by_chrom']
 
     requires_all = any("@" in token for token in declarations)
     if sets["baseline"] != sets["reference"] or (requires_all and sets["baseline"] != set(AUTOSOMES)):

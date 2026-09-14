@@ -389,6 +389,10 @@ PLINK inputs share one discovery and validation implementation across `ldscore`,
 Inputs are resolved before the internal kernel runs. Public outputs use fixed
 filenames inside the selected `output_dir`.
 
+## Input validation stages
+
+Input validation is separate from output-overwrite protection. Direct LD scores validate reference inputs before annotation staging; gene-index and R2 builders check companion and auxiliary declarations together. Index consumers inspect every chromosome's component paths and small headers before loading operators. Independent defects at each gate are reported together with machine-readable repair diagnostics. Alignment, identity cleanup, and post-filter support are later content-dependent checks; a successful path gate does not guarantee a valid scientific dataset. See [staged validation and progress](docs/current/workflow-logging.md#staged-input-validation) and [repair guidance](docs/troubleshooting.md#staged-input-validation).
+
 ## Output Collision Policy
 
 For workflows that accept `--output-dir` or `output_dir`, the value is always a directory:
@@ -411,7 +415,7 @@ The derived `plot` and `convert-h2-scale` commands instead use the fixed nested 
 
 Directory writers share their artifact declarations with workflow preflight. Conditional files, including chromosome drop reports, are checked before the workflow log opens; successful overwrites reconcile the files actually produced. See [Output-Family Preflight](docs/current/workflow-logging.md#output-family-preflight) for ownership and cleanup rules.
 
-At the default INFO level, workflow logs mark annotation input reading, SNP identity checks and chromosome preparation, and preparation completion with retained counts and elapsed time. CM/MAF notices appear once per input file read, and intentional gene exclusions are summarized on one line per gene set. See [annotation preparation logging](docs/current/workflow-logging.md#annotation-preparation) for examples and interpretation.
+At the default INFO level, workflow logs mark validation, staging, computation, and publication phases with elapsed time, plus periodic counts and the current object at long-running chunk checkpoints. Annotation preparation retains its input-reading, identity-checking, and retained-count completion milestones. CM/MAF notices appear once per input file read, and intentional gene exclusions are summarized on one line per gene set. See [annotation preparation logging](docs/current/workflow-logging.md#annotation-preparation) for examples and interpretation.
 
 ## Verification
 

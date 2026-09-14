@@ -39,6 +39,7 @@ import pandas as pd
 from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
 from ._parallelism import _parse_threads, _resolve_worker_count, _validate_threads
+from ._progress import report_phase
 from ._chr_sampler import sample_frame_from_chr_pattern
 from ._annotation_storage import TsvDiagnostics
 from .ldscore_source import LDScoreSource
@@ -418,6 +419,7 @@ class LDScoreCalculator:
         return self.output_writer.write_batches(results(), output_config,
             query_status_order=[status.query for status in annotation_bundle.query_statuses])
 
+    @report_phase(LOGGER, 'computation', 'LD-score chromosome batch')
     def _run_batch(
         self,
         annotation_bundle,
@@ -1339,17 +1341,18 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     from .gene_list_resolver import GeneCatalog
     from ._gene_query_storage import resolve_gene_lists_staged, persistent_gene_diagnostics
     from ._annotation_storage import AnnotationWorkspace
-    from ._direct_annotation import prepare_direct_annotations, prepare_synthetic_base
+    from ._direct_annotation import prepare_direct_annotations, prepare_synthetic_base, validate_gene_query_names
 
     has_queries = any(_has_cli_tokens(getattr(args, name, None)) for name in (
         "query_annot_gene_list_sources", "query_annot_bed_sources", "query_annot_sources",
     ))
     if has_queries and not _has_cli_tokens(getattr(args, "baseline_annot_sources", None)):
         raise LDSCUsageError(_QUERY_REQUIRES_BASELINE_MESSAGE)
+    option_values = dict(vars(args))
+    option_values.update(bfile=getattr(args, 'plink_prefix', None), keep=getattr(args, 'keep_indivs_file', None))
+    _validate_run_args(argparse.Namespace(**option_values))
+    _ldscore_config_from_args(args)
     normalized_args = global_config = None
-    if not _has_cli_tokens(getattr(args,"query_annot_gene_list_sources",None)):
-        normalized_args, global_config = _normalize_run_args(args)
-        _validate_run_args(normalized_args)
     output_config = _output_config_from_args(args)
     output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
     log_path = output_dir / "diagnostics" / "ldscore.log"
@@ -1358,6 +1361,19 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with AnnotationWorkspace(output_dir) as workspace:
         with workflow_logging("ldscore", log_path, log_level=getattr(args,"log_level","INFO")):
+            from ._input_preflight import inspect_declared_inputs, inspect_r2_headers, InputGate
+            from ._ldscore_preflight import inspect_reference_inputs
+            from ._progress import PhaseProgress
+            declared_inputs = inspect_declared_inputs(
+                baseline=getattr(args, 'baseline_annot_sources', None), query=getattr(args, 'query_annot_sources', None),
+                files=[(name, getattr(args, name, None)) for name in (
+                    'query_annot_bed_sources', 'query_annot_gene_list_sources')],
+                scalar_files=[(name, getattr(args, name, None)) for name in (
+                    'control_gene_list_file', 'gene_coordinate_file', 'regr_snps_file', 'ref_panel_snps_file', 'keep_indivs_file')],
+                plink=getattr(args, 'plink_prefix', None), require_complete_suite=has_queries,
+                mode=getattr(args, 'snp_identifier', 'rsid'), issues_path=output_dir/'diagnostics/input_issues.tsv',
+                checks=[('reference', args.r2_dir, lambda: inspect_r2_headers(args.r2_dir, getattr(args, 'genome_build', None)))]
+                       if getattr(args, 'r2_dir', None) else ())
             batch = catalog = None
             if _has_cli_tokens(getattr(args,"query_annot_gene_list_sources",None)):
                 catalog = GeneCatalog.load(args.gene_coordinate_file)
@@ -1366,25 +1382,41 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                     control_path=getattr(args,"control_gene_list_file",None),
                     resolution_policy=getattr(args,"gene_list_resolution_policy","strict"),
                     gene_exclude_regions=getattr(args,"gene_exclude_regions","none"))
+                batch = validate_gene_query_names(batch, {column for path in declared_inputs.baseline
+                    for column in declared_inputs.columns[path]})
                 _log_gene_list_rejections(batch)
+                if batch.has_fatal_gate_a_issues:
+                    from .query_annotations import _gene_list_gate_a_message
+                    LDScoreDirectoryWriter().write_gene_list_preflight(batch, output_config)
+                    raise LDSCInputError(_gene_list_gate_a_message(batch))
             if normalized_args is None:
                 normalized_args, global_config = _normalize_run_args(args,gene_catalog=catalog)
             print_global_config_banner("run_ldscore_from_args",global_config)
             _validate_run_args(normalized_args)
             ldscore_config = _ldscore_config_from_args(normalized_args)
-            regression_snps = _load_regression_snps(_regr_snps_file_from_config(ldscore_config),global_config,
-                label="packaged HM3 regression SNP map" if ldscore_config.regr_snps_file is None else "regression SNP list")
-            regression_regions = _regression_region_intervals(normalized_args,global_config)
+            with PhaseProgress(LOGGER, 'validation', 'reference content and compatibility'):
+                reference_inputs = inspect_reference_inputs(normalized_args, global_config, require_autosomes=has_queries, plink_members=declared_inputs.files.get('plink_members'))
+                gate = InputGate('Reference/control content validation', output_dir/'diagnostics/input_issues.tsv',
+                                 reference_inputs.issues.to_dict('records'))
+                regression_path = _regr_snps_file_from_config(ldscore_config)
+                regression_snps = gate.check('regression SNPs', regression_path,
+                    lambda: _load_regression_snps(regression_path, global_config,
+                        label="packaged HM3 regression SNP map" if ldscore_config.regr_snps_file is None else "regression SNP list"))
+                regression_regions = gate.check('regression regions', getattr(normalized_args, 'regr_snps_exclude_regions', None),
+                    lambda: _regression_region_intervals(normalized_args, global_config))
+                gate.finish()
             scope = {}
             if _has_cli_tokens(normalized_args.baseline_annot_sources):
                 annotation_bundle, scope = prepare_direct_annotations(normalized_args,global_config,
-                    _annotation_build_config_from_args(normalized_args),workspace,output_config,batch=batch)
+                    _annotation_build_config_from_args(normalized_args),workspace,output_config,batch=batch,
+                    declared_inputs=declared_inputs,reference_inputs=reference_inputs)
                 ref_panel = _ref_panel_from_args(normalized_args,global_config,
-                    chromosome_prefixes=scope.get("reference_prefixes_by_chrom"))
+                    chromosome_prefixes=reference_inputs.scope.get("reference_prefixes_by_chrom"))
             else:
-                ref_panel = _ref_panel_from_args(normalized_args,global_config)
+                ref_panel = _ref_panel_from_args(normalized_args,global_config,
+                    chromosome_prefixes=reference_inputs.scope.get("reference_prefixes_by_chrom"))
                 annotation_bundle = prepare_synthetic_base(ref_panel,global_config,workspace)
-            if scope:
+            if scope.get("chromosomes"):
                 LOGGER.info("Chromosomes resolved and entering the analysis: %s.", ", ".join(scope['chromosomes']))
             log_inputs(output_dir=str(output_dir),reference_mode=ref_panel.spec.backend,
                 snp_identifier=global_config.snp_identifier,genome_build=global_config.genome_build,
@@ -2156,6 +2188,7 @@ def _resolve_ldscore_chr_pos_genome_build(
     return resolved[0][1]
 
 
+@report_phase(LOGGER, 'validation', 'regression SNP restriction')
 def _load_regression_snps(
     path: str | None,
     global_config: GlobalConfig,

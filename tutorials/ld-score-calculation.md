@@ -15,6 +15,12 @@ These rules apply to both PLINK and parquet-R² references, without an additiona
 
 Quote CLI glob patterns so the package receives them intact. Users own glob selection: a missing file can be undetectable if it disappears from the matches and the remaining required artifacts consistently cover the same subset. Check the chromosomes resolved and entering analysis in `diagnostics/ldscore.log` and `diagnostics/chromosome_scope.json`. See the [pass/fail examples](../docs/current/gene-list-input-format.md#direct-query-chromosome-scope) and [coverage diagnostics](../docs/current/gene-list-diagnostics-and-repair.md#chromosome-scope-and-pathway-coverage). Public indexed workflows still require complete autosomes 1–22.
 
+## Read validation progress
+
+Before annotation staging, the workflow checks declared source paths and headers and inspects reference inputs. Repair every row in `diagnostics/input_issues.tsv` together; gene audits provide identifier-level details. For offline index construction, early repair tables live beside the destination in `.<index>.build-state/` so a failed input check does not publish a partial index.
+
+At INFO, `diagnostics/ldscore.log` records phase start/completion/failure, elapsed seconds, and periodic source/chromosome progress at chunk boundaries. Unknown totals remain unknown. Annotation alignment, actual chromosome coverage, and post-filter gene support follow their required content passes. A completed preparation phase is followed by computation and publication. See [the gate contract](../docs/current/workflow-logging.md#staged-input-validation).
+
 ## Reference inputs and conventions
 
 The examples below assume chromosome-pattern annotation inputs such as `annotations/baseline.1.annot.gz` and a package-built R2 directory such as `r2_ref_panel_1kg30x_1cM_hm3/hg38`. Canonical Parquet files have exactly four columns: `IDX_1`, `IDX_2`, `R2`, and `SIGN_R`. The endpoint indices reference rows in the required `chr*_meta.tsv.gz` sidecar, which supplies SNP identities, alleles, `MAF`, and `CM`. Schema metadata binds the pair table to that sidecar. External raw R2 and the older identity-expanded format are unsupported; use `build-r2-panel` to construct a canonical panel. See the [format and read pipeline](../docs/current/parquet-r2-format-and-read-pipeline.md).

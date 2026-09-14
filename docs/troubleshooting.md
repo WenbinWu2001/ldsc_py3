@@ -10,6 +10,22 @@ Most errors are self-explanatory from their terminal message alone and are not
 repeated here. When a message says `... see docs/troubleshooting.md#<section>`,
 that slug is a heading below — jump to it.
 
+## Staged input validation
+
+**Raised by:** `_input_preflight.InputGate` and workflow content gates. **Symptom:** a combined error lists multiple input objects or chromosomes before staging or numerical work proceeds.
+
+| Cause | Check and repair |
+| --- | --- |
+| Missing path or PLINK companion | Read every `source` and `chrom` in `input_issues.tsv`; restore each selected BED/BIM/FAM trio. Quote globs and preserve dotted prefixes. |
+| Wrong header, delimiter, or compressed/Parquet file | Inspect the named file's header and format; restore canonical fields and readable compression. Annotation checks use the existing alias and identity rules. |
+| Missing or incompatible index component | Restore the complete immutable index with matching chromosome/root metadata; never combine components from separate indexes. |
+| Declared chromosome coverage differs from content | Use matching annotation/reference suites and a covered catalog selection. An explicit `@` requires the workflow's documented chromosome suite; a glob selects actual matches. |
+| Later alignment, identity, or support failure | These checks need scanned rows or filtered intersections. Use the existing chromosome-scope, gene-list, and SNP-drop audits; passing the earlier path gate cannot establish them. |
+
+Writing workflows retain the six fields `input_role`, `source`, `chrom`, `reason`, `details`, and `repair` in `diagnostics/input_issues.tsv`; gene-index construction uses `.<index>.build-state/input_issues.tsv`. Python exceptions also expose the repair frame as `input_issues`. Existing specialized diagnostics remain authoritative for gene rows, PLINK contents, and alignment. Correct all reported defects at the current gate before rerunning; later content gates may expose defects that could not be established from headers.
+
+Output collisions are a separate error: passing `--overwrite` authorizes owned output replacement but never bypasses input validation. Early input failures preserve existing scientific files and retain the established authorized-overwrite `RUN_FAILED.txt` contract. INFO phase records distinguish validation, staging, computation, and publication; periodic progress occurs when bounded chunks return, not during a blocking third-party call.
+
 ## Common
 
 ### Common: `RUN_FAILED` is present in an output directory

@@ -539,10 +539,6 @@ class SumstatsMunger:
         _validate_munge_build_contract(munge_config, config_snapshot)
         liftover_request = _liftover_request_from_config(munge_config, config_snapshot.genome_build)
         _validate_liftover_request_before_io(config_snapshot, liftover_request)
-        source_path = resolve_scalar_path(raw_sumstats_config.raw_sumstats_file, label="raw sumstats")
-        raw_sumstats_config, munge_config, inference = _apply_raw_sumstats_inference(
-            source_path, raw_sumstats_config, munge_config
-        )
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
         diagnostics_dir = output_dir / "diagnostics"
         output_files = _sumstats_output_files(output_dir, munge_config.output_format, raw_sumstats_config.trait_name)
@@ -565,9 +561,17 @@ class SumstatsMunger:
             overwrite=munge_config.overwrite,
             label="munged output artifact",
         )
-        restriction_path = _resolve_sumstats_snps_path(munge_config)
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         with workflow_logging("munge-sumstats", log_path, log_level=config_snapshot.log_level):
+            from ._input_preflight import inspect_declared_inputs
+            inspect_declared_inputs(files=[('raw summary statistics', raw_sumstats_config.raw_sumstats_file),
+                ('SNP restriction', sumstats_snps_path), ('liftover chain', liftover_request.liftover_chain_file)],
+                issues_path=diagnostics_dir/'input_issues.tsv')
+            source_path = resolve_scalar_path(raw_sumstats_config.raw_sumstats_file, label="raw sumstats")
+            raw_sumstats_config, munge_config, inference = _apply_raw_sumstats_inference(
+                source_path, raw_sumstats_config, munge_config
+            )
+            restriction_path = _resolve_sumstats_snps_path(munge_config)
             log_inputs(
                 raw_sumstats_file=source_path,
                 output_dir=str(output_dir),

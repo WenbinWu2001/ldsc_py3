@@ -68,6 +68,7 @@ from ._kernel.snp_identity import (
 from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
 from ._coordinates import normalize_chr_pos_frame
 from .genome_build_inference import resolve_genome_build, resolve_genome_build_from_chr_pos_frames
+from ._progress import report_phase
 from .path_resolution import ensure_output_directory, preflight_output_artifact_family, remove_output_artifacts, resolve_file_group, inspect_plink_inputs, resolve_scalar_path
 from ._logging import (
     configure_package_logging,
@@ -303,6 +304,7 @@ def _ref_panel_output_family(
     return paths
 
 
+@report_phase(LOGGER, 'publication', 'reference-panel metadata')
 def _write_ref_panel_metadata(
     path: Path,
     *,
@@ -411,7 +413,14 @@ class ReferencePanelBuilder:
         print_global_config_banner(type(self).__name__, self.global_config)
         self._configure_logging()
         output_dir = ensure_output_directory(config.output_dir, label="output directory")
-        plink = inspect_plink_inputs(config.plink_prefix)
+        from ._input_preflight import inspect_declared_inputs
+        declared_inputs = inspect_declared_inputs(plink=config.plink_prefix,
+            files=[(name, getattr(config, name, None)) for name in (
+                'genetic_map_hg19_sources', 'genetic_map_hg38_sources')],
+            scalar_files=[(name, getattr(config, name, None)) for name in ('keep_indivs_file', 'ref_panel_snps_file')],
+            issues_path=output_dir/'diagnostics/input_issues.tsv',
+            plink_issues_path=output_dir/'diagnostics/plink_input_issues.tsv')
+        plink = inspect_plink_inputs(config.plink_prefix, discovered_members=declared_inputs.files['plink_members'])
         issues_path = output_dir / "diagnostics" / "plink_input_issues.tsv"
         try:
             plink.require_valid()
@@ -422,7 +431,6 @@ class ReferencePanelBuilder:
             raise
         resolved_prefixes = plink.prefixes
         config = self._resolve_source_genome_build(config, resolved_prefixes)
-        build_state = self._prepare_build_state(config)
         snp_identifier_mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
 
         chrom_sources = [(prefix, chrom) for chrom, prefix in plink.chromosome_prefixes.items()]
@@ -444,6 +452,7 @@ class ReferencePanelBuilder:
         issues_path.unlink(missing_ok=True)
 
         with workflow_logging("build-r2-panel", workflow_log_path, log_level=self.global_config.log_level):
+            build_state = self._prepare_build_state(config)
             log_inputs(
                 plink_prefix=config.plink_prefix,
                 output_dir=str(output_dir),
@@ -456,6 +465,7 @@ class ReferencePanelBuilder:
                 )
             chrom_records: list[tuple[str, dict[str, str]]] = []
             for prefix, chrom in chrom_sources:
+                LOGGER.info('Computing and publishing reference chromosome %s (%d/%d).', chrom, len(chrom_records)+1, len(chrom_sources))
                 chrom_paths = self._build_chromosome(prefix, chrom, config, build_state)
                 if chrom_paths is None:
                     continue
@@ -543,6 +553,7 @@ class ReferencePanelBuilder:
         LOGGER.info(f"Using source_genome_build='{source_build}' for PLINK reference-panel coordinates.")
         return dataclass_replace(config, source_genome_build=source_build)
 
+    @report_phase(LOGGER, 'validation', 'maps, restrictions, and liftover configuration')
     def _prepare_build_state(self, config: ReferencePanelBuildConfig) -> _BuildState:
         """Resolve optional maps, chain paths, and source-build restrictions.
 
@@ -682,6 +693,7 @@ class ReferencePanelBuilder:
         )
 
 
+    @report_phase(LOGGER, 'computation/publication', 'reference chromosome')
     def _build_chromosome(
         self,
         prefix: str,

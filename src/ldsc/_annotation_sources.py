@@ -18,6 +18,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from ._progress import report_phase, advance
+
 from ._annotation_identity import DiskIdentityIndex, IdentityDropSpool
 from ._annotation_parsing import normalize_annotation_chunk
 from ._annotation_preflight import AUTOSOMES, INPUT_ISSUE_COLUMNS, input_issue
@@ -59,7 +61,9 @@ def _chunk_size(width):
     return max(1, min(65536, (16 * 1024 * 1024) // (max(1, width) * 8)))
 
 
+@report_phase(LOGGER, 'validation/staging', 'annotation content scan and scratch spool')
 def _scan(path, directory, mode, chunk_rows):
+    advance(0, object=str(path), force=True)
     directory.mkdir(parents=True, exist_ok=True)
     spool = FrameSpool(directory / "metadata")
     values_path = directory / "values.bin"
@@ -68,6 +72,7 @@ def _scan(path, directory, mode, chunk_rows):
     try:
         with values_path.open("wb") as numeric, pd.read_csv(path, sep=r"\s+", compression="infer", chunksize=chunk_rows) as reader:
             for chunk_index, chunk in enumerate(reader):
+                advance(len(chunk), object=str(path))
                 metadata, values = normalize_annotation_chunk(chunk, path, mode, log_ignored_metadata=chunk_index == 0)
                 if metadata.empty:
                     continue
@@ -132,6 +137,7 @@ def _aligned_metadata(sources, mode, chunk_rows):
         yield reference
 
 
+@report_phase(LOGGER, 'staging', 'retained annotation metadata')
 def _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom):
     """Write final metadata and bounded row locators, counting retained rows."""
     selections, counts, writers = [], {}, {}
@@ -142,6 +148,7 @@ def _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom):
             selections.append(selection)
             offset = 0
             for metadata in _aligned_metadata(group, mode, chunk_rows):
+                advance(len(metadata), object=f'group {ordinal + 1}/{len(groups)}')
                 keep, dropped = identity.select(metadata)
                 drops.append(dropped)
                 if selected_chrom is not None:
@@ -161,6 +168,7 @@ def _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom):
     return selections, counts
 
 
+@report_phase(LOGGER, 'staging', 'retained annotation values')
 def _write_values(groups, selections, counts, workspace, columns):
     """Copy numeric tiles once, writing each source directly to its columns."""
     stores, offsets = {}, dict.fromkeys(counts, 0)
@@ -168,6 +176,7 @@ def _write_values(groups, selections, counts, workspace, columns):
         with ExitStack() as stack:
             streams = [stack.enter_context(source.values_path.open("rb")) for source in group]
             for frame in selection.frames():
+                advance(len(frame), object=','.join(str(source.path) for source in group))
                 first, stop = int(frame["row"].iloc[0]), int(frame["row"].iloc[-1]) + 1
                 by_chrom = list(frame.groupby("CHR", sort=False))
                 for label, _ in by_chrom:
@@ -189,7 +198,8 @@ def _write_values(groups, selections, counts, workspace, columns):
             for label in sorted(stores, key=_chrom_sort_key)}
 
 
-def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, chunk_rows=None, chrom=None, declared_chromosomes=None, input_issues=(), autosomes_only=False):
+@report_phase(LOGGER, 'preparation', 'annotation alignment and identity validation')
+def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, chunk_rows=None, chrom=None, declared_chromosomes=None, input_issues=(), autosomes_only=False, header_widths=None):
     """Scan, validate, and stage aligned whole-genome or chromosome-sharded inputs.
 
     ``workspace`` owns every scratch file. Automatic chunk sizes target 16 MiB
@@ -204,6 +214,11 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     paths = [*baseline_files, *query_files]
     if not baseline_files and not input_issues:
         raise LDSCInputError("Annotation preparation requires baseline annotation sources.")
+    if header_widths is None:
+        from ._input_preflight import inspect_declared_inputs
+        declared_inputs = inspect_declared_inputs(baseline=baseline_files, query=query_files,
+            mode=mode, initial_issues=input_issues)
+        header_widths = declared_inputs.widths
     started = perf_counter()
     LOGGER.info("Reading annotation inputs: baseline files=%d, query files=%d.", len(baseline_files), len(query_files))
     issues = list(input_issues)
@@ -213,6 +228,8 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
         declared = declared_chromosomes.get(str(path), '')
         try:
             scan_rows = chunk_rows
+            if scan_rows is None and header_widths is not None:
+                scan_rows = _chunk_size(header_widths[str(path)])
             if scan_rows is None:
                 width = 1
                 try:
@@ -260,6 +277,7 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     with DiskIdentityIndex(workspace.path / "identity.sqlite", effective_mode) as identity:
         for group, rows in zip(groups, group_rows):
             for metadata in _aligned_metadata(group, mode, rows):
+                advance(len(metadata), object=','.join(str(source.path) for source in group))
                 identity.add(metadata)
         selections, counts = _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom)
     (workspace.path / "identity.sqlite").unlink()

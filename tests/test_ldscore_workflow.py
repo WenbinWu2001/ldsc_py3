@@ -1984,6 +1984,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
             focal.write_text("GENE1\nMISSING_FOCAL\n", encoding="utf-8")
             control.write_text("MISSING_CONTROL\n", encoding="utf-8")
+            from tests.test_gene_ldscore_index import _write_plink_trio
+            _write_plink_trio(tmpdir / "panel", ["1"])
             args = build_parser().parse_args(
                 [
                     "--output-dir", str(output_dir),
@@ -1992,7 +1994,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     "--gene-coordinate-file", str(catalog),
                     "--control-gene-list-file", str(control),
                     "--padding-bp", "0",
-                    "--plink-prefix", "unused-panel",
+                    "--plink-prefix", str(tmpdir / "panel"),
                     "--ld-wind-snps", "10",
                     "--snp-identifier", "rsid",
                     "--genome-build", "hg19",
@@ -2206,12 +2208,14 @@ class LDScoreWorkflowTest(unittest.TestCase):
             output_dir.mkdir()
             legacy_log = output_dir / "ldscore.log"
             legacy_log.write_text("legacy log\n", encoding="utf-8")
+            from tests.test_gene_ldscore_index import _write_plink_trio
+            _write_plink_trio(tmpdir / "panel", ["1"])
             args = Namespace(
                 output_dir=str(output_dir),
                 query_annot_sources=None,
                 query_annot_bed_sources=None,
                 baseline_annot_sources=None,
-                plink_prefix="panel",
+                plink_prefix=str(tmpdir / "panel"),
                 snp_identifier="rsid",
                 genome_build="hg38",
                 ref_panel_snps_file=None,
@@ -2256,12 +2260,14 @@ class LDScoreWorkflowTest(unittest.TestCase):
             output_dir.mkdir()
             stale = output_dir / "ldscore.query.parquet"
             stale.write_text("stale\n", encoding="utf-8")
+            from tests.test_gene_ldscore_index import _write_plink_trio
+            _write_plink_trio(tmpdir / "panel", ["1"])
             args = Namespace(
                 output_dir=str(output_dir),
                 query_annot_sources=None,
                 query_annot_bed_sources=None,
                 baseline_annot_sources=None,
-                plink_prefix="panel",
+                plink_prefix=str(tmpdir / "panel"),
                 snp_identifier="rsid",
                 genome_build="hg38",
                 ref_panel_snps_file=None,

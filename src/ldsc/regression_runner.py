@@ -152,6 +152,7 @@ _REGRESSION_SCHEMA_DOC = "docs/troubleshooting.md#common-ldsc-artifact-schema-or
 def _log_phase_timing(phase: str):
     """Log elapsed wall time for one observable workflow phase."""
     started = time.perf_counter()
+    LOGGER.info("Phase start: %s.", phase)
     try:
         yield
     except Exception:
@@ -2708,6 +2709,12 @@ def run_h2_from_args(args):
     """
     output_dir, log_path = _preflight_regression_outputs(args, "h2", H2DirectoryWriter)
     with workflow_logging("h2", log_path, log_level=getattr(args, "log_level", "INFO")):
+        from ._input_preflight import inspect_declared_inputs, inspect_artifact_paths
+        inspect_declared_inputs(
+            files=[('sumstats', getattr(args, 'sumstats_file', None) or getattr(args, 'sumstats_sources', None)),
+                   ('prevalence manifest', getattr(args, 'prevalence_manifest', None))],
+            checks=[('LD scores', args.ldscore_dir, lambda: inspect_artifact_paths(args.ldscore_dir))],
+            issues_path=Path(output_dir)/'diagnostics/input_issues.tsv')
         runner, config = _runner_from_args(args)
         print_global_config_banner("run_h2_from_args", runner.global_config)
         log_inputs(sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir, output_dir=output_dir)
@@ -2782,6 +2789,12 @@ def run_partitioned_h2_from_args(args):
         raise ValueError("query_batch_size must be a positive integer.")
     output_dir, log_path = _preflight_regression_outputs(args, "partitioned-h2", PartitionedH2DirectoryWriter)
     with workflow_logging("partitioned-h2", log_path, log_level=getattr(args, "log_level", "INFO")):
+        from ._input_preflight import inspect_declared_inputs, inspect_artifact_paths
+        inspect_declared_inputs(
+            files=[('sumstats', getattr(args, 'sumstats_file', None) or getattr(args, 'sumstats_sources', None)),
+                   ('prevalence manifest', getattr(args, 'prevalence_manifest', None))],
+            checks=[('LD scores', args.ldscore_dir, lambda: inspect_artifact_paths(args.ldscore_dir))],
+            issues_path=Path(output_dir)/'diagnostics/input_issues.tsv')
         runner, config = _runner_from_args(args)
         print_global_config_banner("run_partitioned_h2_from_args", runner.global_config)
         log_inputs(sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir, output_dir=output_dir)
@@ -2869,13 +2882,19 @@ def run_rg_from_args(args):
     from .prevalence import resolve_rg_prevalences
 
     output_dir, log_path = _preflight_regression_outputs(args, "rg", RgDirectoryWriter)
-    sumstats_paths = resolve_file_group(getattr(args, "sumstats_sources", ()), label="sumstats sources")
-    if len(sumstats_paths) < 2:
-        raise LDSCUserError(
-            "rg requires at least two sumstats inputs. Most likely `--sumstats-sources` "
-            "resolved to fewer than two files. Pass two or more munged `.sumstats` artifacts."
-        )
     with workflow_logging("rg", log_path, log_level=getattr(args, "log_level", "INFO")):
+        from ._input_preflight import inspect_declared_inputs, inspect_artifact_paths
+        declared_inputs = inspect_declared_inputs(
+            files=[('sumstats', getattr(args, 'sumstats_file', None) or getattr(args, 'sumstats_sources', None)),
+                   ('prevalence manifest', getattr(args, 'prevalence_manifest', None))],
+            checks=[('LD scores', args.ldscore_dir, lambda: inspect_artifact_paths(args.ldscore_dir))],
+            issues_path=Path(output_dir)/'diagnostics/input_issues.tsv')
+        sumstats_paths = declared_inputs.files['sumstats']
+        if len(sumstats_paths) < 2:
+            raise LDSCUserError(
+                "rg requires at least two sumstats inputs. Most likely `--sumstats-sources` "
+                "resolved to fewer than two files. Pass two or more munged `.sumstats` artifacts."
+            )
         runner, config = _runner_from_args(args)
         print_global_config_banner("run_rg_from_args", runner.global_config)
         log_inputs(
@@ -2888,7 +2907,17 @@ def run_rg_from_args(args):
             f"Starting rg regression for {len(sumstats_paths)} sumstats files "
             f"using LD-score directory '{args.ldscore_dir}'."
         )
-        sumstats_tables = [_load_sumstats_table(str(path), None) for path in sumstats_paths]
+        from ._input_preflight import InputGate
+        from ._progress import PhaseProgress
+        gate = InputGate('Summary-statistic content validation', Path(output_dir)/'diagnostics/input_issues.tsv')
+        sumstats_tables = []
+        with PhaseProgress(LOGGER, 'validation', 'summary-statistic content', len(sumstats_paths)) as progress:
+            for path in sumstats_paths:
+                table = gate.check('sumstats', path, lambda path=path: _load_sumstats_table(str(path), None))
+                if table is not None:
+                    sumstats_tables.append(table)
+                progress.advance(object=str(path))
+            gate.finish()
         # Resolve prevalence against the original munged names so the manifest
         # duplicate-name guard fires before disambiguation renames collisions.
         prevalences = resolve_rg_prevalences(

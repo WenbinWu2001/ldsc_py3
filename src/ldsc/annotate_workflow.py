@@ -11,7 +11,6 @@ from dataclasses import replace
 from pathlib import Path
 
 from ._annotation_bundle import AnnotationBundle
-from ._annotation_preflight import resolve_annotation_inputs
 from ._annotation_queries import prepare_bed_queries, build_query_shards
 from ._annotation_sources import prepare_annotation_sources
 from ._annotation_storage import AnnotationWorkspace
@@ -129,6 +128,11 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
     try:
         with workflow_logging('annotate', output/'diagnostics'/'annotate.log', log_level=config.log_level):
             log_inputs(baseline_annot_sources=baseline, query_sources=genes or bed, padding_bp=spec.padding_bp, output_dir=str(output))
+            from ._input_preflight import inspect_declared_inputs
+            declared_inputs = inspect_declared_inputs(baseline=baseline,
+                files=[('BED', bed), ('gene lists', genes)], scalar_files=[('gene catalog', spec.gene_coordinate_file)],
+                mode=config.snp_identifier, strict_annotations=bool(genes),
+                issues_path=output/'diagnostics/input_issues.tsv')
             if genes:
                 try:
                     catalog = GeneCatalog.load(spec.gene_coordinate_file)
@@ -137,13 +141,15 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
                     raise
                 batch = resolve_gene_lists_staged(genes, catalog, workspace, resolution_policy=spec.gene_list_resolution_policy, gene_exclude_regions=spec.gene_exclude_regions)
                 writer.write_diagnostics(output, batch=batch, catalog_issues=catalog.issues)
+                if batch.has_fatal_gate_a_issues:
+                    raise _gate_a_error(batch)
             requested = genome_build if genome_build is not None else config.genome_build
             projection_build = _projection_build(requested, config.snp_identifier, baseline, catalog)
             resolved_config = GlobalConfig(snp_identifier=config.snp_identifier,
                                            genome_build=projection_build if identity_mode_family(config.snp_identifier) == 'chr_pos' else None,
                                            log_level=config.log_level)
-            paths, declared, issues = resolve_annotation_inputs(baseline) if genes else (resolve_file_group(baseline, allow_chromosome_suite=True), {}, [])
-            prepared = prepare_annotation_sources(workspace, paths, [], mode=config.snp_identifier, declared_chromosomes=declared, input_issues=issues, autosomes_only=bool(genes))
+            paths, declared, issues = declared_inputs.baseline, declared_inputs.declarations, []
+            prepared = prepare_annotation_sources(workspace, paths, [], mode=config.snp_identifier, declared_chromosomes=declared, input_issues=issues, autosomes_only=bool(genes), header_widths=declared_inputs.widths)
             bundle = AnnotationBundle(prepared.shards, list(prepared.baseline_columns), [], workspace,
                                       config_snapshot=resolved_config, identity_drops=prepared.drops, gene_list_batch=batch)
             names = [d['query'] for d in batch.declarations] if batch is not None else [Path(path).stem for path in resolve_file_group(bed, label='BED file')]
@@ -181,7 +187,7 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
                 if errors:
                     raise LDSCInputError('; '.join(errors))
             else:
-                sources = prepare_bed_queries(resolve_file_group(bed, label='BED file'), workspace)
+                sources = prepare_bed_queries(declared_inputs.files['BED'], workspace)
                 build_query_shards(bundle, bed_sources=sources, padding_bp=spec.padding_bp)
             provenance = {'query_source_kind': 'gene_list' if genes else 'bed', 'query_sources': genes or bed,
                           'baseline_annot_sources': baseline, 'query_annot_bed_sources': bed, 'query_annot_gene_list_sources': genes,

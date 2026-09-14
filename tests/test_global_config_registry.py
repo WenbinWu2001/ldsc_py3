@@ -205,6 +205,8 @@ class GlobalConfigRegistryTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             config = _make_build_config(Path(tmpdir))
+            Path(config.genetic_map_hg19_sources).write_text("CHR POS CM\n1 100 0.1\n")
+            Path(config.genetic_map_hg38_sources).write_text("CHR POS CM\n1 100 0.1\n")
             builder = ReferencePanelBuilder()
             _write_plink_trio(Path(tmpdir) / "panel.1", ["1"])
 

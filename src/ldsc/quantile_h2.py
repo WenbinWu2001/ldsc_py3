@@ -660,6 +660,12 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     issues_path = diagnostics_dir / "snp_alignment_issues.tsv.gz"
     with workflow_logging("quantile-h2", log_path, log_level=args.log_level):
+        from ._input_preflight import inspect_declared_inputs, inspect_artifact_paths
+        inspect_declared_inputs(files=[(name, getattr(args, name, None)) for name in (
+            'baseline_annot_sources', 'query_annot_sources', 'query_annot_bed_sources', 'ref_metadata_sources')],
+            checks=[('fitted model', args.partitioned_h2_result_dir,
+                     lambda: inspect_artifact_paths(args.partitioned_h2_result_dir, metadata_file=('metadata.json' if (Path(args.partitioned_h2_result_dir)/'metadata.json').is_file() else 'diagnostics/metadata.json')))],
+            issues_path=diagnostics_dir/'input_issues.tsv')
         log_inputs(
             partitioned_h2_result_dir=args.partitioned_h2_result_dir,
             target_annotation=args.target_annotation,

@@ -196,3 +196,7 @@ Last updated on: 2026-09-14
 ## Worker counts need one CPU-budget policy
 
 - Summary/root cause/correction: The thread-option audit confirmed that gene-index construction used machine-wide CPU counts while both LD-score modes used CPU affinity, and only indexed-query API calls rejected non-integer thread values; share validation and worker resolution, then select inline execution from the resolved count. Implemented in `_parallelism.py` and verified through real builds and both scoring workflows under restricted affinity, including effective-one executor avoidance. See `docs/audits/2026-09-14-thread-option-consistency.md`.
+
+## Preflight must preserve every supported input route
+
+- Summary/root cause/correction: Staged preflight integration initially used unresolved munging state and assumed only the root fitted-model metadata layout; move consumers with their path dependencies, reuse existing scalar/group and model-layout policies, and test all supported entry routes before treating an early gate as equivalent to the content loader. Keep input validation separate from output authorization and retain collected repair records on early failures.

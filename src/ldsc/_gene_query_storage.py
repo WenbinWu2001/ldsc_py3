@@ -7,12 +7,15 @@ into an all-pathway interval matrix.
 
 from dataclasses import dataclass, replace
 import gzip
+import logging
 from pathlib import Path
 import shutil
 import zlib
 
 import numpy as np
 import pandas as pd
+
+from ._progress import report_phase, advance
 
 from ._annotation_storage import FrameSpool
 from .gene_list_resolver import (
@@ -41,6 +44,8 @@ class GeneListDiagnostics:
         if Path(path).resolve() != self.audit_path.resolve():
             shutil.copyfile(self.audit_path, path)
 
+
+LOGGER = logging.getLogger('LDSC.annotation')
 
 def persistent_gene_diagnostics(batch, output_paths):
     """Detach a completed result from private resolution storage after writing."""
@@ -163,6 +168,7 @@ def _source_chunks(declaration, chunk_rows):
             yield pd.DataFrame(rows)
 
 
+@report_phase(LOGGER, 'validation/staging', 'gene-list content and identifier resolution')
 def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, control_path=None, resolution_policy='strict', gene_exclude_regions='none', chunk_rows=4096):
     """Resolve all safely readable sources with bounded rows and staged audits.
 
@@ -198,6 +204,7 @@ def resolve_gene_lists_staged(focal_paths, catalog, workspace, *, control_path=N
             source_errors.append('duplicate_query_name')
         try:
             for rows in _source_chunks(declaration, chunk_rows):
+                advance(len(rows), object=f"{source_index+1}/{len(declarations)} {declaration['source']}")
                 # Resolve each distinct submitted token once per chunk. This
                 # prevents repeated ambiguous identifiers from multiplying the
                 # catalog candidate table before their audit rows are replayed.

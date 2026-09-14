@@ -2000,3 +2000,50 @@ def test_indexed_strict_unresolved_stops_at_gate_a_with_complete_audit(tmp_path)
     assert (output_dir / "diagnostics" / "gene_list_resolution_summary.tsv").exists()
     assert not (output_dir / "metadata.json").exists()
     assert not (output_dir / "ldscore.baseline.parquet").exists()
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_index_preflight_ignores_failure_marker_without_removing_it(tmp_path, overwrite):
+    marker = tmp_path / "RUN_FAILED.txt"
+    marker.write_text("old failed run\n")
+    gene_ldscore_index._preflight_gene_index_output(tmp_path, overwrite=overwrite)
+    assert marker.read_text() == "old failed run\n"
+
+
+@pytest.mark.parametrize("extra", ["user-file.txt", "user-directory", "metadata.json", "marker-directory", "marker-symlink"])
+def test_failure_marker_does_not_authorize_replacing_unrecognized_contents(tmp_path, extra):
+    output = tmp_path / "index"
+    output.mkdir()
+    marker = output / "RUN_FAILED.txt"
+    if extra == "marker-directory":
+        marker.mkdir()
+    elif extra == "marker-symlink":
+        marker.symlink_to(tmp_path / "missing-marker-target")
+    else:
+        marker.write_text("old failure\n")
+        if extra == "user-directory":
+            (output / extra).mkdir()
+        else:
+            (output / extra).write_text("unrecognized contents\n")
+    before = sorted(path.name for path in output.iterdir())
+    with pytest.raises(FileExistsError, match="nonempty but invalid"):
+        gene_ldscore_index._preflight_gene_index_output(output, overwrite=True)
+    assert sorted(path.name for path in output.iterdir()) == before
+
+
+@pytest.mark.parametrize("legacy_diagnostics", [False, True])
+def test_index_publisher_accepts_failure_marker_only_destination(tmp_path, legacy_diagnostics):
+    chromosome, catalog, identity = _artifact_payload()
+    output = tmp_path / "index"
+    output.mkdir()
+    marker = output / "RUN_FAILED.txt"
+    marker.write_text("old failure\n")
+    if legacy_diagnostics:
+        (output / "diagnostics").mkdir()
+        (output / "diagnostics/build-gene-ldscore-index.log").write_text("old build log\n")
+    published = publish_gene_ldscore_index(
+        output, index_identity=identity, gene_catalog=catalog,
+        chromosomes={"22": chromosome}, overwrite=True,
+    )
+    assert load_gene_ldscore_index(published).index_id == calculate_index_id(identity)
+    assert not marker.exists()

@@ -104,3 +104,25 @@ def test_r2_builder_accepts_plain_dotted_prefix(tmp_path):
     assert len(result.output_paths["r2_hg19"]) == 2
     for path in result.output_paths["r2_hg19"]:
         assert Path(path).is_file()
+
+
+def test_failed_gene_index_build_can_retry_with_its_failure_marker(tmp_path):
+    write_inputs(tmp_path)
+    output = tmp_path / "index"
+    args = index_args(tmp_path, str(tmp_path / "missing-panel"), output)
+    args.overwrite = True
+    with pytest.raises(LDSCInputError, match="No selected PLINK input exists"):
+        gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+    marker = output / "RUN_FAILED.txt"
+    assert marker.is_file()
+    assert list(output.iterdir()) == [marker]
+    with pytest.raises(LDSCInputError, match="No selected PLINK input exists"):
+        gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+    assert marker.is_file()
+
+    args.plink_prefix = str(tmp_path / "1000G.EUR.QC.")
+    gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+    assert not marker.exists()
+    index = gene_ldscore_index._load_gene_ldscore_index(output, _allow_partial_for_tests=True)
+    assert index.chromosomes == ("21", "22")
+    np.testing.assert_array_equal(index.gene_support, [4, 4])

@@ -273,6 +273,12 @@ An authorized overwrite can leave `RUN_FAILED.txt` after failure. Inspect diagno
 
 ## ldscore
 
+### build-gene-ldscore-index: output directory is nonempty but invalid
+
+A regular root `RUN_FAILED.txt` file is an owned diagnostic, not an index artifact. If a failed build leaves only that marker (optionally with recognized legacy build diagnostics), rerun the corrected command in the same output directory. Preflight preserves the marker, and a successful build removes it. Versions before this retry fix incorrectly rejected marker-only directories even with `--overwrite`; update the package rather than deleting the directory.
+
+If the current version still reports this error, the directory contains an incomplete index or other unrecognized contents. The marker does not grant permission to replace those contents. Preserve them for inspection and choose a fresh output directory, or explicitly resolve the conflicting files. A valid existing index still requires `--overwrite`.
+
 ### build-gene-ldscore-index: baseline/PLINK identifier intersection fails
 
 **Symptom:** the builder reports an empty `rsid` or `chr_pos` baseline/PLINK

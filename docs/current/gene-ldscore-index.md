@@ -220,11 +220,9 @@ Online assembly and direct gene-list workflows share `query_annotations.assess_g
   empty, until successful publication.
 - A valid existing index requires `--overwrite`, even if its `index_id` would
   be unchanged.
-- A nonempty invalid directory fails before chromosome computation, including
-  with `--overwrite`.
-- A failed build never creates a partial or diagnostics-only public index.
-  Graceful failure removes its marked private transaction best-effort; an
-  interrupted transaction is never reused scientifically on retry.
+- A directory containing only the regular root `RUN_FAILED.txt` marker, optionally alongside recognized legacy build diagnostics, is reusable. Preflight leaves the marker in place; successful publication replaces the directory and clears it. Marker presence does not authorize replacing unrelated files, directories, or incomplete scientific artifacts.
+- Other nonempty invalid directories fail before chromosome computation, including with `--overwrite`.
+- A failed build never publishes a partial scientific index. An authorized overwrite failure may leave a marker-only public directory. Graceful failure removes its marked private transaction best-effort; an interrupted transaction is never reused scientifically on retry.
 - Two builders cannot target the same absolute directory concurrently.
 
 While the build is running, the live log is

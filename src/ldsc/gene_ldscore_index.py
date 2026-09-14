@@ -1256,15 +1256,22 @@ def _scientific_payload_bytes(index_path: Path) -> int:
 
 
 def _is_diagnostics_only_gene_index(path: Path) -> bool:
-    """Recognize a legacy failed-build directory containing only owned diagnostics."""
+    """Recognize a failed build containing only owned markers or diagnostics."""
     if not path.is_dir() or (path / "metadata.json").exists():
+        return False
+    if any(entry.name not in {"RUN_FAILED.txt", "diagnostics"} for entry in path.iterdir()):
+        return False
+    marker = path / "RUN_FAILED.txt"
+    if marker.is_symlink() or (marker.exists() and not marker.is_file()):
         return False
     files = [file for file in path.rglob("*") if file.is_file()]
     if not files:
         return False
     return all(
-        file.relative_to(path).parts[0] == "diagnostics"
-        and file.name.startswith("build-gene-ldscore-index")
+        file == marker or (
+            file.relative_to(path).parts[0] == "diagnostics"
+            and file.name.startswith("build-gene-ldscore-index")
+        )
         for file in files
     )
 
@@ -1626,8 +1633,9 @@ def publish_gene_ldscore_index(
     chromosomes : dict of str to IndexChromosomeData
         Ordered chromosome records to persist in the index.
     overwrite : bool
-        Replace an existing valid complete index when true. Invalid nonempty
-        destinations are never replaced.
+        Replace an existing valid complete index when true. Unrecognized
+        nonempty destinations are never replaced. A directory containing only
+        the owned failure marker or recognized legacy diagnostics may be reused.
     diagnostic_payload : dict, optional
         Successful-build diagnostic record. When supplied, payload-byte fields
         are added in place before the record is written.
@@ -1651,7 +1659,10 @@ def publish_gene_ldscore_index(
     Existing valid indexes require ``overwrite=True`` and are kept loadable
     until their complete replacement has passed staged reload validation.
     Nonempty directories that are neither valid indexes nor recognized
-    legacy diagnostics-only failed builds are rejected even with overwrite.
+    failed builds containing only ``RUN_FAILED.txt`` or owned legacy diagnostics
+    are rejected even with overwrite. The failure marker remains in place
+    until publication replaces the destination; it does not authorize removal
+    of unrelated contents.
     Mutable live logs are stored in hidden sibling build state and never enter
     the replaceable transaction. The workflow wrapper moves the closed
     successful log into published diagnostics. Once the destination has been

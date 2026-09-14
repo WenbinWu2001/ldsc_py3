@@ -184,3 +184,7 @@ Last updated on: 2026-09-14
 ## PLINK filename parsing must be shared across workflows
 
 - Summary/root cause/correction: Dotted chromosome prefixes failed in gene-index construction while direct LD scores worked because filename-based discovery stripped `.22` with `Path.stem` and a separate preflight had already switched to BIM contents; centralize PLINK discovery, trio validation, and chromosome assignment, pass resolved mappings to workers, and test equivalent token forms through both numerical workflows.
+
+## Failure markers must not block their own retry
+
+- Summary/root cause/correction: A failed gene-index overwrite created a marker-only output directory that the next run rejected as unrecognized; both preflight and publication used a diagnostics predicate that omitted `RUN_FAILED.txt`. Recognize the regular root marker alongside owned diagnostics, preserve rejection of unrelated contents, and test repeated failure followed by successful publication and marker removal.

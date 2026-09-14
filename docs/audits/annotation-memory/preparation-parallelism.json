@@ -1,0 +1,2774 @@
+{
+  "date": "2026-09-14",
+  "revision": "ce2bce90b89159eac96b52e859471df64ae3f745",
+  "production_change": "none; benchmark-only coordinator adapter",
+  "machine": {
+    "cpu": "Apple M1 Pro",
+    "logical_cpus": 8,
+    "ram_bytes": 17179869184
+  },
+  "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+  "sqlite": "3.53.1",
+  "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+  "versions": {
+    "numpy": "2.4.5",
+    "pandas": "2.3.3",
+    "pyarrow": "23.0.1"
+  },
+  "measurement": {
+    "sample_interval_seconds": 0.05,
+    "rss": "simultaneous sum of benchmark process-tree RSS, including pool/resource tracker and sampling subprocess; may double-count shared pages",
+    "scratch": "peak logical file bytes and file count inside the owned annotation workspace; reference snapshots excluded",
+    "timed": "prepare_annotation_sources only; includes worker startup, shutdown, and diagnostic merging; excludes input generation and post-run comparisons",
+    "native_pools": "PyArrow CPU and I/O pools each limited to 1 in parent and worker processes",
+    "repetition": "Fresh processes, sequential runs, no cold-cache control. Initial real-serial-1 characterizes phases; real serial medians use 2-4. Three runs per process worker count and per wide serial baseline. Thread screens once per count after they showed no worthwhile gain.",
+    "local_run_root": "/private/tmp/ldsc-annotation-parallel-20260914"
+  },
+  "cases": {
+    "real": {
+      "input_rows": {
+        "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/data/ld_refs/baseline_v1.2/baseline.15.annot.gz": 287001,
+        "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/data/ld_refs/baseline_v1.2/baseline.16.annot.gz": 316981,
+        "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/data/ld_refs/baseline_v1.2/baseline.17.annot.gz": 269222,
+        "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/data/ld_refs/baseline_v1.2/baseline.18.annot.gz": 285156,
+        "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/data/ld_refs/baseline_v1.2/baseline.19.annot.gz": 232363,
+        "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/data/ld_refs/baseline_v1.2/baseline.20.annot.gz": 221626,
+        "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/data/ld_refs/baseline_v1.2/baseline.21.annot.gz": 138712,
+        "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/data/ld_refs/baseline_v1.2/baseline.22.annot.gz": 141123
+      },
+      "retained_rows": {
+        "15": 287001,
+        "16": 316981,
+        "17": 269222,
+        "18": 285156,
+        "19": 232363,
+        "20": 221626,
+        "21": 138712,
+        "22": 141123
+      },
+      "baseline_columns": 53,
+      "query_columns": 0,
+      "identity_drops": 0,
+      "input_compressed_bytes": 32286604,
+      "identity": "rsid",
+      "chrom": null,
+      "logical_input_rows": 1892184,
+      "description": "Unmodified baseline_v1.2 chromosome 15-22 annotation files"
+    },
+    "wide": {
+      "input_rows": {
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/baseline.1.annot.gz": 6000,
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/baseline.2.annot.gz": 6000,
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/baseline.3.annot.gz": 6000,
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/baseline.4.annot.gz": 6000,
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/baseline.5.annot.gz": 6000,
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/baseline.6.annot.gz": 6000,
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/baseline.7.annot.gz": 6000,
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/baseline.8.annot.gz": 6000,
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/query.1.annot.gz": 6000,
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/query.2.annot.gz": 6000,
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/query.3.annot.gz": 6000,
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/query.4.annot.gz": 6000,
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/query.5.annot.gz": 6000,
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/query.6.annot.gz": 6000,
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/query.7.annot.gz": 6000,
+        "/private/tmp/ldsc-annotation-parallel-20260914/synthetic/wide-eight/query.8.annot.gz": 6000
+      },
+      "retained_rows": {
+        "1": 5999,
+        "2": 5999,
+        "3": 5999,
+        "4": 5999,
+        "5": 5999,
+        "6": 5999,
+        "7": 5999,
+        "8": 5999
+      },
+      "baseline_columns": 8,
+      "query_columns": 1000,
+      "identity_drops": 8,
+      "input_compressed_bytes": 4438856,
+      "identity": "rsid",
+      "chrom": null,
+      "logical_input_rows": 48000,
+      "description": "Eight synthetic chromosome shards, 6000 logical rows each, 8 baseline and 1000 query columns",
+      "formula": "For zero-based row i and within-source column j: ((7*i+j)%41-20)/8; the first rsID is shared across all eight chromosomes."
+    }
+  },
+  "summary": [
+    {
+      "case": "real",
+      "variant": "serial",
+      "workers": 1,
+      "n": 3,
+      "runs": [
+        "real-serial-2",
+        "real-serial-3",
+        "real-serial-4"
+      ],
+      "elapsed_seconds": {
+        "median": 22.769983167061582,
+        "min": 21.959893624996766,
+        "max": 24.419195249909535
+      },
+      "scan_seconds": {
+        "median": 8.572041164385155,
+        "min": 7.804582416312769,
+        "max": 9.81955749890767
+      },
+      "identity_add_seconds": {
+        "median": 4.7445187892299145,
+        "min": 4.674811044242233,
+        "max": 4.95607066876255
+      },
+      "post_identity_seconds": {
+        "median": 9.152118248865008,
+        "min": 9.093274250160903,
+        "max": 9.277716499753296
+      },
+      "rss_bytes": {
+        "median": 418709504,
+        "min": 409993216,
+        "max": 444219392
+      },
+      "scratch_bytes": {
+        "median": 579990722,
+        "min": 579990722,
+        "max": 579990722
+      },
+      "scratch_files": {
+        "median": 33,
+        "min": 33,
+        "max": 33
+      }
+    },
+    {
+      "case": "real",
+      "variant": "process",
+      "workers": 2,
+      "n": 3,
+      "runs": [
+        "real-process-2-1",
+        "real-process-2-2",
+        "real-process-2-3"
+      ],
+      "elapsed_seconds": {
+        "median": 18.188445874955505,
+        "min": 17.788279542000964,
+        "max": 18.248318207915872
+      },
+      "scan_seconds": {
+        "median": 8.471103583928198,
+        "min": 8.214152457658201,
+        "max": 8.53385200118646
+      },
+      "identity_add_seconds": {
+        "median": 4.652576540596783,
+        "min": 4.619429998332635,
+        "max": 4.723491629585624
+      },
+      "post_identity_seconds": {
+        "median": 4.662387582939118,
+        "min": 4.638202749891207,
+        "max": 4.711348208831623
+      },
+      "rss_bytes": {
+        "median": 715538432,
+        "min": 669204480,
+        "max": 920174592
+      },
+      "scratch_bytes": {
+        "median": 587469580,
+        "min": 580462806,
+        "max": 648313792
+      },
+      "scratch_files": {
+        "median": 22,
+        "min": 22,
+        "max": 23
+      }
+    },
+    {
+      "case": "real",
+      "variant": "process",
+      "workers": 4,
+      "n": 3,
+      "runs": [
+        "real-process-4-1",
+        "real-process-4-2",
+        "real-process-4-3"
+      ],
+      "elapsed_seconds": {
+        "median": 17.011301457881927,
+        "min": 16.001699833199382,
+        "max": 18.65177091700025
+      },
+      "scan_seconds": {
+        "median": 8.343586707720533,
+        "min": 7.8819126682356,
+        "max": 9.306850749067962
+      },
+      "identity_add_seconds": {
+        "median": 4.6548711659852415,
+        "min": 4.489438708871603,
+        "max": 5.4064437474589795
+      },
+      "post_identity_seconds": {
+        "median": 3.5678006659727544,
+        "min": 3.296455459203571,
+        "max": 3.6776157922577113
+      },
+      "rss_bytes": {
+        "median": 1126973440,
+        "min": 1061076992,
+        "max": 1156857856
+      },
+      "scratch_bytes": {
+        "median": 714506661,
+        "min": 713855775,
+        "max": 781706761
+      },
+      "scratch_files": {
+        "median": 28,
+        "min": 28,
+        "max": 29
+      }
+    },
+    {
+      "case": "real",
+      "variant": "process",
+      "workers": 8,
+      "n": 3,
+      "runs": [
+        "real-process-8-1",
+        "real-process-8-2",
+        "real-process-8-3"
+      ],
+      "elapsed_seconds": {
+        "median": 16.182651083916426,
+        "min": 15.809367125155404,
+        "max": 16.74804445798509
+      },
+      "scan_seconds": {
+        "median": 8.16716849990189,
+        "min": 7.961140705039725,
+        "max": 8.23037991579622
+      },
+      "identity_add_seconds": {
+        "median": 4.714596132282168,
+        "min": 4.520173417637125,
+        "max": 4.862028543371707
+      },
+      "post_identity_seconds": {
+        "median": 2.9862769569735974,
+        "min": 2.8764228341169655,
+        "max": 3.3568883340340108
+      },
+      "rss_bytes": {
+        "median": 1832468480,
+        "min": 1792606208,
+        "max": 1871790080
+      },
+      "scratch_bytes": {
+        "median": 701907970,
+        "min": 700262823,
+        "max": 711038745
+      },
+      "scratch_files": {
+        "median": 35,
+        "min": 34,
+        "max": 35
+      }
+    },
+    {
+      "case": "real",
+      "variant": "thread",
+      "workers": 2,
+      "n": 1,
+      "runs": [
+        "real-thread-2-1"
+      ],
+      "elapsed_seconds": {
+        "median": 24.450350750004873,
+        "min": 24.450350750004873,
+        "max": 24.450350750004873
+      },
+      "scan_seconds": {
+        "median": 9.093913832679391,
+        "min": 9.093913832679391,
+        "max": 9.093913832679391
+      },
+      "identity_add_seconds": {
+        "median": 4.968045879388228,
+        "min": 4.968045879388228,
+        "max": 4.968045879388228
+      },
+      "post_identity_seconds": {
+        "median": 10.03472216706723,
+        "min": 10.03472216706723,
+        "max": 10.03472216706723
+      },
+      "rss_bytes": {
+        "median": 419414016,
+        "min": 419414016,
+        "max": 419414016
+      },
+      "scratch_bytes": {
+        "median": 648313792,
+        "min": 648313792,
+        "max": 648313792
+      },
+      "scratch_files": {
+        "median": 23,
+        "min": 23,
+        "max": 23
+      }
+    },
+    {
+      "case": "real",
+      "variant": "thread",
+      "workers": 4,
+      "n": 1,
+      "runs": [
+        "real-thread-4-1"
+      ],
+      "elapsed_seconds": {
+        "median": 29.059835667023435,
+        "min": 29.059835667023435,
+        "max": 29.059835667023435
+      },
+      "scan_seconds": {
+        "median": 7.892664126120508,
+        "min": 7.892664126120508,
+        "max": 7.892664126120508
+      },
+      "identity_add_seconds": {
+        "median": 4.515977540053427,
+        "min": 4.515977540053427,
+        "max": 4.515977540053427
+      },
+      "post_identity_seconds": {
+        "median": 16.33845008397475,
+        "min": 16.33845008397475,
+        "max": 16.33845008397475
+      },
+      "rss_bytes": {
+        "median": 518291456,
+        "min": 518291456,
+        "max": 518291456
+      },
+      "scratch_bytes": {
+        "median": 644143238,
+        "min": 644143238,
+        "max": 644143238
+      },
+      "scratch_files": {
+        "median": 26,
+        "min": 26,
+        "max": 26
+      }
+    },
+    {
+      "case": "real",
+      "variant": "thread",
+      "workers": 8,
+      "n": 1,
+      "runs": [
+        "real-thread-8-1"
+      ],
+      "elapsed_seconds": {
+        "median": 67.17610508389771,
+        "min": 67.17610508389771,
+        "max": 67.17610508389771
+      },
+      "scan_seconds": {
+        "median": 8.452732999809086,
+        "min": 8.452732999809086,
+        "max": 8.452732999809086
+      },
+      "identity_add_seconds": {
+        "median": 4.62183687207289,
+        "min": 4.62183687207289,
+        "max": 4.62183687207289
+      },
+      "post_identity_seconds": {
+        "median": 53.75696700112894,
+        "min": 53.75696700112894,
+        "max": 53.75696700112894
+      },
+      "rss_bytes": {
+        "median": 524828672,
+        "min": 524828672,
+        "max": 524828672
+      },
+      "scratch_bytes": {
+        "median": 630550286,
+        "min": 630550286,
+        "max": 630550286
+      },
+      "scratch_files": {
+        "median": 34,
+        "min": 34,
+        "max": 34
+      }
+    },
+    {
+      "case": "wide",
+      "variant": "serial",
+      "workers": 1,
+      "n": 3,
+      "runs": [
+        "wide-serial-1",
+        "wide-serial-2",
+        "wide-serial-3"
+      ],
+      "elapsed_seconds": {
+        "median": 6.152544500073418,
+        "min": 6.106286708032712,
+        "max": 9.071167290909216
+      },
+      "scan_seconds": {
+        "median": 4.897740833228454,
+        "min": 4.736673083156347,
+        "max": 7.292447624728084
+      },
+      "identity_add_seconds": {
+        "median": 0.06847850000485778,
+        "min": 0.06255091517232358,
+        "max": 0.07093274942599237
+      },
+      "post_identity_seconds": {
+        "median": 0.9869364169426262,
+        "min": 0.7583417079877108,
+        "max": 1.2942808750085533
+      },
+      "rss_bytes": {
+        "median": 435240960,
+        "min": 423460864,
+        "max": 437239808
+      },
+      "scratch_bytes": {
+        "median": 221792376,
+        "min": 221792376,
+        "max": 221792376
+      },
+      "scratch_files": {
+        "median": 50,
+        "min": 50,
+        "max": 50
+      }
+    },
+    {
+      "case": "wide",
+      "variant": "process",
+      "workers": 2,
+      "n": 3,
+      "runs": [
+        "wide-process-2-1",
+        "wide-process-2-2",
+        "wide-process-2-3"
+      ],
+      "elapsed_seconds": {
+        "median": 6.551405791891739,
+        "min": 6.374156333040446,
+        "max": 6.646033042110503
+      },
+      "scan_seconds": {
+        "median": 5.042447583051398,
+        "min": 4.83425841992721,
+        "max": 5.154004665091634
+      },
+      "identity_add_seconds": {
+        "median": 0.06302158371545374,
+        "min": 0.06263795983977616,
+        "max": 0.07366645825095475
+      },
+      "post_identity_seconds": {
+        "median": 1.0690471669659019,
+        "min": 0.9174527090508491,
+        "max": 1.0889148330315948
+      },
+      "rss_bytes": {
+        "median": 727891968,
+        "min": 695615488,
+        "max": 839712768
+      },
+      "scratch_bytes": {
+        "median": 246016988,
+        "min": 245408490,
+        "max": 246016988
+      },
+      "scratch_files": {
+        "median": 41,
+        "min": 39,
+        "max": 41
+      }
+    },
+    {
+      "case": "wide",
+      "variant": "process",
+      "workers": 4,
+      "n": 3,
+      "runs": [
+        "wide-process-4-1",
+        "wide-process-4-2",
+        "wide-process-4-3"
+      ],
+      "elapsed_seconds": {
+        "median": 6.301866916939616,
+        "min": 6.1510607078671455,
+        "max": 6.636136000044644
+      },
+      "scan_seconds": {
+        "median": 4.894137125695124,
+        "min": 4.822798082372174,
+        "max": 5.0349652918521315
+      },
+      "identity_add_seconds": {
+        "median": 0.07613958232104778,
+        "min": 0.06152658280916512,
+        "max": 0.07756133144721389
+      },
+      "post_identity_seconds": {
+        "median": 0.937277166871354,
+        "min": 0.8971961250063032,
+        "max": 1.115995126310736
+      },
+      "rss_bytes": {
+        "median": 923746304,
+        "min": 893747200,
+        "max": 939458560
+      },
+      "scratch_bytes": {
+        "median": 294663632,
+        "min": 294663632,
+        "max": 294663632
+      },
+      "scratch_files": {
+        "median": 49,
+        "min": 49,
+        "max": 49
+      }
+    },
+    {
+      "case": "wide",
+      "variant": "process",
+      "workers": 8,
+      "n": 3,
+      "runs": [
+        "wide-process-8-1",
+        "wide-process-8-2",
+        "wide-process-8-3"
+      ],
+      "elapsed_seconds": {
+        "median": 6.324046458117664,
+        "min": 6.083167957840487,
+        "max": 6.549275084165856
+      },
+      "scan_seconds": {
+        "median": 4.847551332321018,
+        "min": 4.630729958880693,
+        "max": 4.933830875670537
+      },
+      "identity_add_seconds": {
+        "median": 0.07689066347666085,
+        "min": 0.06817837432026863,
+        "max": 0.0808872093912214
+      },
+      "post_identity_seconds": {
+        "median": 1.0445590410381556,
+        "min": 0.9988303328864276,
+        "max": 1.1633090421091765
+      },
+      "rss_bytes": {
+        "median": 1349320704,
+        "min": 1321107456,
+        "max": 1457700864
+      },
+      "scratch_bytes": {
+        "median": 343467016,
+        "min": 318828816,
+        "max": 391956920
+      },
+      "scratch_files": {
+        "median": 63,
+        "min": 58,
+        "max": 65
+      }
+    },
+    {
+      "case": "wide",
+      "variant": "thread",
+      "workers": 2,
+      "n": 1,
+      "runs": [
+        "wide-thread-2-1"
+      ],
+      "elapsed_seconds": {
+        "median": 6.218076082877815,
+        "min": 6.218076082877815,
+        "max": 6.218076082877815
+      },
+      "scan_seconds": {
+        "median": 4.9360212532337755,
+        "min": 4.9360212532337755,
+        "max": 4.9360212532337755
+      },
+      "identity_add_seconds": {
+        "median": 0.06390945799648762,
+        "min": 0.06390945799648762,
+        "max": 0.06390945799648762
+      },
+      "post_identity_seconds": {
+        "median": 0.8060997501015663,
+        "min": 0.8060997501015663,
+        "max": 0.8060997501015663
+      },
+      "rss_bytes": {
+        "median": 430243840,
+        "min": 430243840,
+        "max": 430243840
+      },
+      "scratch_bytes": {
+        "median": 246016988,
+        "min": 246016988,
+        "max": 246016988
+      },
+      "scratch_files": {
+        "median": 41,
+        "min": 41,
+        "max": 41
+      }
+    },
+    {
+      "case": "wide",
+      "variant": "thread",
+      "workers": 4,
+      "n": 1,
+      "runs": [
+        "wide-thread-4-1"
+      ],
+      "elapsed_seconds": {
+        "median": 6.448051708983257,
+        "min": 6.448051708983257,
+        "max": 6.448051708983257
+      },
+      "scan_seconds": {
+        "median": 4.887486706255004,
+        "min": 4.887486706255004,
+        "max": 4.887486706255004
+      },
+      "identity_add_seconds": {
+        "median": 0.06394354184158146,
+        "min": 0.06394354184158146,
+        "max": 0.06394354184158146
+      },
+      "post_identity_seconds": {
+        "median": 1.1187324591446668,
+        "min": 1.1187324591446668,
+        "max": 1.1187324591446668
+      },
+      "rss_bytes": {
+        "median": 459309056,
+        "min": 459309056,
+        "max": 459309056
+      },
+      "scratch_bytes": {
+        "median": 294663632,
+        "min": 294663632,
+        "max": 294663632
+      },
+      "scratch_files": {
+        "median": 49,
+        "min": 49,
+        "max": 49
+      }
+    },
+    {
+      "case": "wide",
+      "variant": "thread",
+      "workers": 8,
+      "n": 1,
+      "runs": [
+        "wide-thread-8-1"
+      ],
+      "elapsed_seconds": {
+        "median": 6.961231374880299,
+        "min": 6.961231374880299,
+        "max": 6.961231374880299
+      },
+      "scan_seconds": {
+        "median": 4.726767207728699,
+        "min": 4.726767207728699,
+        "max": 4.726767207728699
+      },
+      "identity_add_seconds": {
+        "median": 0.06383754033595324,
+        "min": 0.06383754033595324,
+        "max": 0.06383754033595324
+      },
+      "post_identity_seconds": {
+        "median": 1.7881458757910877,
+        "min": 1.7881458757910877,
+        "max": 1.7881458757910877
+      },
+      "rss_bytes": {
+        "median": 421675008,
+        "min": 421675008,
+        "max": 421675008
+      },
+      "scratch_bytes": {
+        "median": 391956920,
+        "min": 391956920,
+        "max": 391956920
+      },
+      "scratch_files": {
+        "median": 65,
+        "min": 65,
+        "max": 65
+      }
+    }
+  ],
+  "contract_checks": {
+    "passed": 14,
+    "checks": [
+      "thread-1-chrom-None",
+      "thread-2-chrom-None",
+      "thread-4-chrom-None",
+      "thread-8-chrom-None",
+      "thread-2-chrom-2",
+      "thread-failure-cleanup",
+      "process-1-chrom-None",
+      "process-2-chrom-None",
+      "process-4-chrom-None",
+      "process-8-chrom-None",
+      "process-2-chrom-2",
+      "process-failure-cleanup",
+      "whole-genome-sequential-fallback",
+      "readonly-sqlite"
+    ]
+  },
+  "runs": [
+    {
+      "run": "real-process-2-1",
+      "case": "real",
+      "variant": "process",
+      "workers": 2,
+      "elapsed_seconds": 18.188445874955505,
+      "phase_seconds": {
+        "_scan": 8.471103583928198,
+        "add": 4.652576540596783,
+        "_select_rows": 4.711346791824326,
+        "_write_values": 1.4170072972774506e-06
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 669204480,
+        "scratch_bytes": 587469580,
+        "scratch_files": 22,
+        "processes": 5
+      },
+      "parent_peak_rss_bytes": 401768448,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 2,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 1.0948087500873953,
+            "numeric_seconds": 0.19984804186969995
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 1.2088025829289109,
+            "numeric_seconds": 0.24140825006179512
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 1.0236971660051495,
+            "numeric_seconds": 0.14943745895288885
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 1.0575629589147866,
+            "numeric_seconds": 0.17005725018680096
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 0.8225862497929484,
+            "numeric_seconds": 0.15262420801445842
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.7588035420048982,
+            "numeric_seconds": 0.14685350004583597
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.4789688750170171,
+            "numeric_seconds": 0.06627287506125867
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.48230679193511605,
+            "numeric_seconds": 0.06129550002515316
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "real-process-2-2",
+      "case": "real",
+      "variant": "process",
+      "workers": 2,
+      "elapsed_seconds": 18.248318207915872,
+      "phase_seconds": {
+        "_scan": 8.53385200118646,
+        "add": 4.723491629585624,
+        "_select_rows": 4.662385875126347,
+        "_write_values": 1.7078127712011337e-06
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 715538432,
+        "scratch_bytes": 580462806,
+        "scratch_files": 22,
+        "processes": 5
+      },
+      "parent_peak_rss_bytes": 414646272,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 2,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 1.0924085420556366,
+            "numeric_seconds": 0.1700750000309199
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 1.2068488751538098,
+            "numeric_seconds": 0.2157387500628829
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 1.0018322919495404,
+            "numeric_seconds": 0.1335516250692308
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 1.0353812079411,
+            "numeric_seconds": 0.14910904201678932
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 0.83129020803608,
+            "numeric_seconds": 0.15270683402195573
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.7533930840436369,
+            "numeric_seconds": 0.1347437498625368
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.48461995809338987,
+            "numeric_seconds": 0.0885865839663893
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.4817212501075119,
+            "numeric_seconds": 0.08827995788305998
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "real-process-2-3",
+      "case": "real",
+      "variant": "process",
+      "workers": 2,
+      "elapsed_seconds": 17.788279542000964,
+      "phase_seconds": {
+        "_scan": 8.214152457658201,
+        "add": 4.619429998332635,
+        "_select_rows": 4.638200624845922,
+        "_write_values": 2.125045284628868e-06
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 920174592,
+        "scratch_bytes": 648313792,
+        "scratch_files": 23,
+        "processes": 5
+      },
+      "parent_peak_rss_bytes": 386891776,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 2,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 1.0488548749126494,
+            "numeric_seconds": 0.1895300829783082
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 1.1619810829870403,
+            "numeric_seconds": 0.20907524996437132
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 1.0330139580182731,
+            "numeric_seconds": 0.16410499997437
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 1.0935996670741588,
+            "numeric_seconds": 0.16970349987968802
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 0.9094686249736696,
+            "numeric_seconds": 0.17698145820759237
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.8112262501381338,
+            "numeric_seconds": 0.13887520786374807
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.47705508302897215,
+            "numeric_seconds": 0.06773379188962281
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.4866510829888284,
+            "numeric_seconds": 0.07786416704766452
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "real-process-4-1",
+      "case": "real",
+      "variant": "process",
+      "workers": 4,
+      "elapsed_seconds": 16.001699833199382,
+      "phase_seconds": {
+        "_scan": 7.8819126682356,
+        "add": 4.489438708871603,
+        "_select_rows": 3.296453000046313,
+        "_write_values": 2.459157258272171e-06
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 1156857856,
+        "scratch_bytes": 781706761,
+        "scratch_files": 29,
+        "processes": 7
+      },
+      "parent_peak_rss_bytes": 407863296,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 4,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 1.2701854170300066,
+            "numeric_seconds": 0.43626462505199015
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 1.4096854999661446,
+            "numeric_seconds": 0.3229820418637246
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 1.1868904998991638,
+            "numeric_seconds": 0.38965591602027416
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 1.2575262081809342,
+            "numeric_seconds": 0.45367279183119535
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 0.9096179590560496,
+            "numeric_seconds": 0.16824300005100667
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.8220809581689537,
+            "numeric_seconds": 0.14409462502226233
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.5370115409605205,
+            "numeric_seconds": 0.0973214590921998
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.5408166251145303,
+            "numeric_seconds": 0.09881150000728667
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "real-process-4-2",
+      "case": "real",
+      "variant": "process",
+      "workers": 4,
+      "elapsed_seconds": 18.65177091700025,
+      "phase_seconds": {
+        "_scan": 9.306850749067962,
+        "add": 5.4064437474589795,
+        "_select_rows": 3.567799290874973,
+        "_write_values": 1.375097781419754e-06
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 1061076992,
+        "scratch_bytes": 714506661,
+        "scratch_files": 28,
+        "processes": 7
+      },
+      "parent_peak_rss_bytes": 348585984,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 4,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 1.3565411248710006,
+            "numeric_seconds": 0.35520475008524954
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 1.473901042016223,
+            "numeric_seconds": 0.3091565410140902
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 1.2694063340313733,
+            "numeric_seconds": 0.22784175002016127
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 1.355497166980058,
+            "numeric_seconds": 0.36608137493021786
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 1.1013932500500232,
+            "numeric_seconds": 0.16095487494021654
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.9699852499179542,
+            "numeric_seconds": 0.1926646251231432
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.5744740408845246,
+            "numeric_seconds": 0.1664289589971304
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.6510559578891844,
+            "numeric_seconds": 0.11326766712591052
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "real-process-4-3",
+      "case": "real",
+      "variant": "process",
+      "workers": 4,
+      "elapsed_seconds": 17.011301457881927,
+      "phase_seconds": {
+        "_scan": 8.343586707720533,
+        "add": 4.6548711659852415,
+        "_select_rows": 3.677612667204812,
+        "_write_values": 3.125052899122238e-06
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 1126973440,
+        "scratch_bytes": 713855775,
+        "scratch_files": 28,
+        "processes": 7
+      },
+      "parent_peak_rss_bytes": 422969344,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 4,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 1.249526249943301,
+            "numeric_seconds": 0.30821420811116695
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 1.387948082992807,
+            "numeric_seconds": 0.28007462504319847
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 1.1519928330089897,
+            "numeric_seconds": 0.21848183288238943
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 1.2357669579796493,
+            "numeric_seconds": 0.32913029193878174
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 1.391454332973808,
+            "numeric_seconds": 0.17411908390931785
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 1.3124851670581847,
+            "numeric_seconds": 0.140474040992558
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.9855840420350432,
+            "numeric_seconds": 0.10890216683037579
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.9568503329064697,
+            "numeric_seconds": 0.1018292501103133
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "real-process-8-1",
+      "case": "real",
+      "variant": "process",
+      "workers": 8,
+      "elapsed_seconds": 15.809367125155404,
+      "phase_seconds": {
+        "_scan": 7.961140705039725,
+        "add": 4.520173417637125,
+        "_select_rows": 2.986274416092783,
+        "_write_values": 2.5408808141946793e-06
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 1792606208,
+        "scratch_bytes": 701907970,
+        "scratch_files": 35,
+        "processes": 11
+      },
+      "parent_peak_rss_bytes": 401768448,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 8,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 1.732610790990293,
+            "numeric_seconds": 0.34875716688111424
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 1.883493124973029,
+            "numeric_seconds": 0.29136899998411536
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 1.6373085000086576,
+            "numeric_seconds": 0.29606904182583094
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 1.8160408749245107,
+            "numeric_seconds": 0.30904125003144145
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 1.4727637500036508,
+            "numeric_seconds": 0.17332349997013807
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 1.3213973750825971,
+            "numeric_seconds": 0.16168633289635181
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.8823500839062035,
+            "numeric_seconds": 0.13931345799937844
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.9212760420050472,
+            "numeric_seconds": 0.1235702910926193
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "real-process-8-2",
+      "case": "real",
+      "variant": "process",
+      "workers": 8,
+      "elapsed_seconds": 16.74804445798509,
+      "phase_seconds": {
+        "_scan": 8.16716849990189,
+        "add": 4.862028543371707,
+        "_select_rows": 3.3568864171393216,
+        "_write_values": 1.9168946892023087e-06
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 1871790080,
+        "scratch_bytes": 711038745,
+        "scratch_files": 35,
+        "processes": 11
+      },
+      "parent_peak_rss_bytes": 412467200,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 8,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 1.8192925839684904,
+            "numeric_seconds": 0.32014287495985627
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 1.9370109168812633,
+            "numeric_seconds": 0.30677229119464755
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 1.7445847080089152,
+            "numeric_seconds": 0.2973233328666538
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 1.832071250071749,
+            "numeric_seconds": 0.33402695786207914
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 1.558299999916926,
+            "numeric_seconds": 0.18994141602888703
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 1.4507244578562677,
+            "numeric_seconds": 0.19939816696569324
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 1.0191466251853853,
+            "numeric_seconds": 0.16429366590455174
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 1.006262833951041,
+            "numeric_seconds": 0.13543841615319252
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "real-process-8-3",
+      "case": "real",
+      "variant": "process",
+      "workers": 8,
+      "elapsed_seconds": 16.182651083916426,
+      "phase_seconds": {
+        "_scan": 8.23037991579622,
+        "add": 4.714596132282168,
+        "_select_rows": 2.876421208959073,
+        "_write_values": 1.62515789270401e-06
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 1832468480,
+        "scratch_bytes": 700262823,
+        "scratch_files": 34,
+        "processes": 11
+      },
+      "parent_peak_rss_bytes": 399867904,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 8,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 1.7079640419688076,
+            "numeric_seconds": 0.3874426248949021
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 1.8638257498387247,
+            "numeric_seconds": 0.2640826250426471
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 1.656703416025266,
+            "numeric_seconds": 0.26426537497900426
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 1.7148116249591112,
+            "numeric_seconds": 0.3455514160450548
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 1.481720041949302,
+            "numeric_seconds": 0.1611516249831766
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 1.3254175840411335,
+            "numeric_seconds": 0.1509257908910513
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.9299747911281884,
+            "numeric_seconds": 0.11454395879991353
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.9714335419703275,
+            "numeric_seconds": 0.108473707921803
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "real-serial-1",
+      "case": "real",
+      "variant": "serial",
+      "workers": 1,
+      "elapsed_seconds": 25.034343915991485,
+      "phase_seconds": {
+        "_scan": 9.8520835400559,
+        "add": 5.2614165807608515,
+        "select": 6.659971123328432,
+        "_select_rows": 8.072045125067234,
+        "_write_values": 1.4461663751862943
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "select": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 361971712,
+        "scratch_bytes": 579990722,
+        "scratch_files": 33,
+        "processes": 2
+      },
+      "parent_peak_rss_bytes": 363986944,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 1,
+        "parallel_used": false,
+        "group_phases": []
+      },
+      "verification": "serial reference snapshot saved"
+    },
+    {
+      "run": "real-serial-2",
+      "case": "real",
+      "variant": "serial",
+      "workers": 1,
+      "elapsed_seconds": 21.959893624996766,
+      "phase_seconds": {
+        "_scan": 7.804582416312769,
+        "add": 4.674811044242233,
+        "select": 6.6271685438696295,
+        "_select_rows": 7.944965665927157,
+        "_write_values": 1.2071525829378515
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "select": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 418709504,
+        "scratch_bytes": 579990722,
+        "scratch_files": 33,
+        "processes": 2
+      },
+      "parent_peak_rss_bytes": 416940032,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 1,
+        "group_phases": [],
+        "parallel_used": false
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "real-serial-3",
+      "case": "real",
+      "variant": "serial",
+      "workers": 1,
+      "elapsed_seconds": 22.769983167061582,
+      "phase_seconds": {
+        "_scan": 8.572041164385155,
+        "add": 4.7445187892299145,
+        "select": 6.4394541687797755,
+        "_select_rows": 7.842119500041008,
+        "_write_values": 1.2511547501198947
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "select": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 444219392,
+        "scratch_bytes": 579990722,
+        "scratch_files": 33,
+        "processes": 2
+      },
+      "parent_peak_rss_bytes": 442417152,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 1,
+        "group_phases": [],
+        "parallel_used": false
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "real-serial-4",
+      "case": "real",
+      "variant": "serial",
+      "workers": 1,
+      "elapsed_seconds": 24.419195249909535,
+      "phase_seconds": {
+        "_scan": 9.81955749890767,
+        "add": 4.95607066876255,
+        "select": 6.870451498776674,
+        "_select_rows": 8.115197999868542,
+        "_write_values": 1.1625184998847544
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "select": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 409993216,
+        "scratch_bytes": 579990722,
+        "scratch_files": 33,
+        "processes": 2
+      },
+      "parent_peak_rss_bytes": 408223744,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 1,
+        "group_phases": [],
+        "parallel_used": false
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "real-thread-2-1",
+      "case": "real",
+      "variant": "thread",
+      "workers": 2,
+      "elapsed_seconds": 24.450350750004873,
+      "phase_seconds": {
+        "_scan": 9.093913832679391,
+        "add": 4.968045879388228,
+        "_select_rows": 10.034718125127256,
+        "_write_values": 4.041939973831177e-06
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 419414016,
+        "scratch_bytes": 648313792,
+        "scratch_files": 23,
+        "processes": 2
+      },
+      "parent_peak_rss_bytes": 418463744,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 2,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 2.962123417062685,
+            "numeric_seconds": 0.32269091601483524
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 3.0787681660149246,
+            "numeric_seconds": 0.3302164999768138
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 2.542064000153914,
+            "numeric_seconds": 0.28715274995192885
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 2.691614832961932,
+            "numeric_seconds": 0.2923735829535872
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 2.1612980409990996,
+            "numeric_seconds": 0.262779250042513
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 2.0039044581353664,
+            "numeric_seconds": 0.19686062494292855
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 1.2909023340325803,
+            "numeric_seconds": 0.159178416011855
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 1.3160015831235796,
+            "numeric_seconds": 0.10597529192455113
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "real-thread-4-1",
+      "case": "real",
+      "variant": "thread",
+      "workers": 4,
+      "elapsed_seconds": 29.059835667023435,
+      "phase_seconds": {
+        "_scan": 7.892664126120508,
+        "add": 4.515977540053427,
+        "_select_rows": 16.338448291877285,
+        "_write_values": 1.7920974642038345e-06
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 518291456,
+        "scratch_bytes": 644143238,
+        "scratch_files": 26,
+        "processes": 2
+      },
+      "parent_peak_rss_bytes": 516456448,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 4,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 9.970802791882306,
+            "numeric_seconds": 0.47148804110474885
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 10.85382229089737,
+            "numeric_seconds": 0.3032029590103775
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 9.19705345807597,
+            "numeric_seconds": 0.23309041699394584
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 9.842735582962632,
+            "numeric_seconds": 0.4343136250972748
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 6.670745916897431,
+            "numeric_seconds": 0.21656595799140632
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 5.800266709178686,
+            "numeric_seconds": 0.22555958293378353
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 4.727519375039265,
+            "numeric_seconds": 0.11302570882253349
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 4.447786082979292,
+            "numeric_seconds": 0.15841479203663766
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "real-thread-8-1",
+      "case": "real",
+      "variant": "thread",
+      "workers": 8,
+      "elapsed_seconds": 67.17610508389771,
+      "phase_seconds": {
+        "_scan": 8.452732999809086,
+        "add": 4.62183687207289,
+        "_select_rows": 53.756964958971366,
+        "_write_values": 2.0421575754880905e-06
+      },
+      "phase_calls": {
+        "_scan": 8,
+        "add": 55,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 524828672,
+        "scratch_bytes": 630550286,
+        "scratch_files": 34,
+        "processes": 2
+      },
+      "parent_peak_rss_bytes": 523141120,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 8,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 53.22828079201281,
+            "numeric_seconds": 0.35235520801506937
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 53.54913454107009,
+            "numeric_seconds": 0.19049837486818433
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 52.74240225018002,
+            "numeric_seconds": 0.25859629083424807
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 53.13175583304837,
+            "numeric_seconds": 0.38194716698490083
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 51.084183959057555,
+            "numeric_seconds": 0.2725108750164509
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 49.046259958064184,
+            "numeric_seconds": 0.2629731250926852
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 38.72192075010389,
+            "numeric_seconds": 0.18167733401060104
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 38.987987250089645,
+            "numeric_seconds": 0.1858854170423001
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "wide-process-2-1",
+      "case": "wide",
+      "variant": "process",
+      "workers": 2,
+      "elapsed_seconds": 6.374156333040446,
+      "phase_seconds": {
+        "_scan": 4.83425841992721,
+        "add": 0.06302158371545374,
+        "_select_rows": 1.0690451669506729,
+        "_write_values": 2.00001522898674e-06
+      },
+      "phase_calls": {
+        "_scan": 16,
+        "add": 24,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 839712768,
+        "scratch_bytes": 246016988,
+        "scratch_files": 41,
+        "processes": 5
+      },
+      "parent_peak_rss_bytes": 426246144,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 2,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 0.04253387497738004,
+            "numeric_seconds": 0.0819074169266969
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 0.04218983300961554,
+            "numeric_seconds": 0.07833037502132356
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 0.040875792037695646,
+            "numeric_seconds": 0.09398329211398959
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 0.04196141706779599,
+            "numeric_seconds": 0.09017612505704165
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 0.04025470791384578,
+            "numeric_seconds": 0.07438683300279081
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.04033241607248783,
+            "numeric_seconds": 0.07389204180799425
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.03905862499959767,
+            "numeric_seconds": 0.06539099989458919
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.03874487499706447,
+            "numeric_seconds": 0.073092709062621
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "wide-process-2-2",
+      "case": "wide",
+      "variant": "process",
+      "workers": 2,
+      "elapsed_seconds": 6.646033042110503,
+      "phase_seconds": {
+        "_scan": 5.042447583051398,
+        "add": 0.06263795983977616,
+        "_select_rows": 1.0889125000685453,
+        "_write_values": 2.3329630494117737e-06
+      },
+      "phase_calls": {
+        "_scan": 16,
+        "add": 24,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 727891968,
+        "scratch_bytes": 245408490,
+        "scratch_files": 39,
+        "processes": 5
+      },
+      "parent_peak_rss_bytes": 385826816,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 2,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 0.0481349159963429,
+            "numeric_seconds": 0.0646952090319246
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 0.04603145900182426,
+            "numeric_seconds": 0.06372758303768933
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 0.04143416602164507,
+            "numeric_seconds": 0.07193341688252985
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 0.0411210001911968,
+            "numeric_seconds": 0.06850945786572993
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 0.0471665000077337,
+            "numeric_seconds": 0.11239812499843538
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.04612100007943809,
+            "numeric_seconds": 0.14260895806364715
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.043368250131607056,
+            "numeric_seconds": 0.0991778748575598
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.04127012495882809,
+            "numeric_seconds": 0.09552541701123118
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "wide-process-2-3",
+      "case": "wide",
+      "variant": "process",
+      "workers": 2,
+      "elapsed_seconds": 6.551405791891739,
+      "phase_seconds": {
+        "_scan": 5.154004665091634,
+        "add": 0.07366645825095475,
+        "_select_rows": 0.9174515421036631,
+        "_write_values": 1.1669471859931946e-06
+      },
+      "phase_calls": {
+        "_scan": 16,
+        "add": 24,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 695615488,
+        "scratch_bytes": 246016988,
+        "scratch_files": 41,
+        "processes": 5
+      },
+      "parent_peak_rss_bytes": 387383296,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 2,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 0.042289291974157095,
+            "numeric_seconds": 0.06028420804068446
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 0.04226179211400449,
+            "numeric_seconds": 0.07047312497161329
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 0.039322457974776626,
+            "numeric_seconds": 0.054444084176793694
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 0.039713541977107525,
+            "numeric_seconds": 0.05989729193970561
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 0.039829042041674256,
+            "numeric_seconds": 0.05401975009590387
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.03805995802395046,
+            "numeric_seconds": 0.08898979192599654
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.04180783312767744,
+            "numeric_seconds": 0.044140541926026344
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.039318749913945794,
+            "numeric_seconds": 0.0484307911247015
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "wide-process-4-1",
+      "case": "wide",
+      "variant": "process",
+      "workers": 4,
+      "elapsed_seconds": 6.1510607078671455,
+      "phase_seconds": {
+        "_scan": 4.822798082372174,
+        "add": 0.06152658280916512,
+        "_select_rows": 0.8971949999686331,
+        "_write_values": 1.125037670135498e-06
+      },
+      "phase_calls": {
+        "_scan": 16,
+        "add": 24,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 939458560,
+        "scratch_bytes": 294663632,
+        "scratch_files": 49,
+        "processes": 7
+      },
+      "parent_peak_rss_bytes": 437272576,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 4,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 0.04914183309301734,
+            "numeric_seconds": 0.14944437495432794
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 0.05068245786242187,
+            "numeric_seconds": 0.1332071670331061
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 0.05218833312392235,
+            "numeric_seconds": 0.13596866698935628
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 0.048017957946285605,
+            "numeric_seconds": 0.13702133321203291
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 0.04107508319430053,
+            "numeric_seconds": 0.11361233284696937
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.03960004192776978,
+            "numeric_seconds": 0.13104316592216492
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.042405208107084036,
+            "numeric_seconds": 0.13375587482005358
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.0425972081720829,
+            "numeric_seconds": 0.13743587490171194
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "wide-process-4-2",
+      "case": "wide",
+      "variant": "process",
+      "workers": 4,
+      "elapsed_seconds": 6.636136000044644,
+      "phase_seconds": {
+        "_scan": 5.0349652918521315,
+        "add": 0.07756133144721389,
+        "_select_rows": 1.1159939591307193,
+        "_write_values": 1.1671800166368484e-06
+      },
+      "phase_calls": {
+        "_scan": 16,
+        "add": 24,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 893747200,
+        "scratch_bytes": 294663632,
+        "scratch_files": 49,
+        "processes": 7
+      },
+      "parent_peak_rss_bytes": 425558016,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 4,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 0.08195745921693742,
+            "numeric_seconds": 0.12376633286476135
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 0.08232625015079975,
+            "numeric_seconds": 0.12249645800329745
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 0.07809379207901657,
+            "numeric_seconds": 0.1267863749526441
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 0.07154850009828806,
+            "numeric_seconds": 0.12439670809544623
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 0.03986241691745818,
+            "numeric_seconds": 0.12377054104581475
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.04089558287523687,
+            "numeric_seconds": 0.12094041705131531
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.0392072091344744,
+            "numeric_seconds": 0.12272254098206758
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.039587292121723294,
+            "numeric_seconds": 0.11616808292455971
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "wide-process-4-3",
+      "case": "wide",
+      "variant": "process",
+      "workers": 4,
+      "elapsed_seconds": 6.301866916939616,
+      "phase_seconds": {
+        "_scan": 4.894137125695124,
+        "add": 0.07613958232104778,
+        "_select_rows": 0.9372741249389946,
+        "_write_values": 3.0419323593378067e-06
+      },
+      "phase_calls": {
+        "_scan": 16,
+        "add": 24,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 923746304,
+        "scratch_bytes": 294663632,
+        "scratch_files": 49,
+        "processes": 7
+      },
+      "parent_peak_rss_bytes": 419184640,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 4,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 0.046455583069473505,
+            "numeric_seconds": 0.11110612493939698
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 0.044770915992558,
+            "numeric_seconds": 0.11996283405460417
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 0.047624167054891586,
+            "numeric_seconds": 0.1147815000731498
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 0.04598970804363489,
+            "numeric_seconds": 0.11458779196254909
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 0.04323216713964939,
+            "numeric_seconds": 0.09539666585624218
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.044576041866093874,
+            "numeric_seconds": 0.1435491251759231
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.04340704088099301,
+            "numeric_seconds": 0.1408734591677785
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.042073999997228384,
+            "numeric_seconds": 0.11593195796012878
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "wide-process-8-1",
+      "case": "wide",
+      "variant": "process",
+      "workers": 8,
+      "elapsed_seconds": 6.083167957840487,
+      "phase_seconds": {
+        "_scan": 4.630729958880693,
+        "add": 0.0808872093912214,
+        "_select_rows": 0.998826582916081,
+        "_write_values": 3.7499703466892242e-06
+      },
+      "phase_calls": {
+        "_scan": 16,
+        "add": 24,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 1321107456,
+        "scratch_bytes": 343467016,
+        "scratch_files": 63,
+        "processes": 11
+      },
+      "parent_peak_rss_bytes": 380551168,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 8,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 0.04805987514555454,
+            "numeric_seconds": 0.1364812080282718
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 0.06252762489020824,
+            "numeric_seconds": 0.1449361671693623
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 0.05619270890019834,
+            "numeric_seconds": 0.1636346250306815
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 0.057541208108887076,
+            "numeric_seconds": 0.14662220887839794
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 0.06093550007790327,
+            "numeric_seconds": 0.1414509580936283
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.06936816684901714,
+            "numeric_seconds": 0.11904808296822011
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.06469762488268316,
+            "numeric_seconds": 0.11361108301207423
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.06800858303904533,
+            "numeric_seconds": 0.09171020798385143
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "wide-process-8-2",
+      "case": "wide",
+      "variant": "process",
+      "workers": 8,
+      "elapsed_seconds": 6.324046458117664,
+      "phase_seconds": {
+        "_scan": 4.847551332321018,
+        "add": 0.06817837432026863,
+        "_select_rows": 1.0445580000523478,
+        "_write_values": 1.0409858077764511e-06
+      },
+      "phase_calls": {
+        "_scan": 16,
+        "add": 24,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 1457700864,
+        "scratch_bytes": 318828816,
+        "scratch_files": 58,
+        "processes": 11
+      },
+      "parent_peak_rss_bytes": 451346432,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 8,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 0.06105054100044072,
+            "numeric_seconds": 0.16852520895190537
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 0.06586800003424287,
+            "numeric_seconds": 0.22580324998125434
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 0.06470170803368092,
+            "numeric_seconds": 0.2184053750243038
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 0.04983004182577133,
+            "numeric_seconds": 0.22789325006306171
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 0.04792333417572081,
+            "numeric_seconds": 0.22590708290226758
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.061703457962721586,
+            "numeric_seconds": 0.2138890828937292
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.116757667157799,
+            "numeric_seconds": 0.11661158292554319
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.10730237513780594,
+            "numeric_seconds": 0.11503487499430776
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "wide-process-8-3",
+      "case": "wide",
+      "variant": "process",
+      "workers": 8,
+      "elapsed_seconds": 6.549275084165856,
+      "phase_seconds": {
+        "_scan": 4.933830875670537,
+        "add": 0.07689066347666085,
+        "_select_rows": 1.1633079580496997,
+        "_write_values": 1.084059476852417e-06
+      },
+      "phase_calls": {
+        "_scan": 16,
+        "add": 24,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 1349320704,
+        "scratch_bytes": 391956920,
+        "scratch_files": 65,
+        "processes": 11
+      },
+      "parent_peak_rss_bytes": 390676480,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 8,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 0.07196387508884072,
+            "numeric_seconds": 0.24260979192331433
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 0.08224716689437628,
+            "numeric_seconds": 0.26514720800332725
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 0.062237208941951394,
+            "numeric_seconds": 0.24128233292140067
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 0.07871866715140641,
+            "numeric_seconds": 0.26342674996703863
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 0.07764874980784953,
+            "numeric_seconds": 0.26414558407850564
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.06556649995036423,
+            "numeric_seconds": 0.24825291708111763
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.06529816705733538,
+            "numeric_seconds": 0.24950045789591968
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.06813708296976984,
+            "numeric_seconds": 0.27127241692505777
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "wide-serial-1",
+      "case": "wide",
+      "variant": "serial",
+      "workers": 1,
+      "elapsed_seconds": 6.106286708032712,
+      "phase_seconds": {
+        "_scan": 4.897740833228454,
+        "add": 0.07093274942599237,
+        "select": 0.1530679971911013,
+        "_select_rows": 0.354268082883209,
+        "_write_values": 0.40407362510450184
+      },
+      "phase_calls": {
+        "_scan": 16,
+        "add": 24,
+        "select": 24,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 435240960,
+        "scratch_bytes": 221792376,
+        "scratch_files": 50,
+        "processes": 2
+      },
+      "parent_peak_rss_bytes": 433438720,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 1,
+        "group_phases": [],
+        "parallel_used": false
+      },
+      "verification": "serial reference snapshot saved"
+    },
+    {
+      "run": "wide-serial-2",
+      "case": "wide",
+      "variant": "serial",
+      "workers": 1,
+      "elapsed_seconds": 6.152544500073418,
+      "phase_seconds": {
+        "_scan": 4.736673083156347,
+        "add": 0.06255091517232358,
+        "select": 0.15823966404423118,
+        "_select_rows": 0.35890524997375906,
+        "_write_values": 0.6280311669688672
+      },
+      "phase_calls": {
+        "_scan": 16,
+        "add": 24,
+        "select": 24,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 437239808,
+        "scratch_bytes": 221792376,
+        "scratch_files": 50,
+        "processes": 2
+      },
+      "parent_peak_rss_bytes": 435470336,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 1,
+        "group_phases": [],
+        "parallel_used": false
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "wide-serial-3",
+      "case": "wide",
+      "variant": "serial",
+      "workers": 1,
+      "elapsed_seconds": 9.071167290909216,
+      "phase_seconds": {
+        "_scan": 7.292447624728084,
+        "add": 0.06847850000485778,
+        "select": 0.1760262898169458,
+        "_select_rows": 0.38626362499780953,
+        "_write_values": 0.9080172500107437
+      },
+      "phase_calls": {
+        "_scan": 16,
+        "add": 24,
+        "select": 24,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 423460864,
+        "scratch_bytes": 221792376,
+        "scratch_files": 50,
+        "processes": 2
+      },
+      "parent_peak_rss_bytes": 422199296,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 1,
+        "group_phases": [],
+        "parallel_used": false
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "wide-thread-2-1",
+      "case": "wide",
+      "variant": "thread",
+      "workers": 2,
+      "elapsed_seconds": 6.218076082877815,
+      "phase_seconds": {
+        "_scan": 4.9360212532337755,
+        "add": 0.06390945799648762,
+        "_select_rows": 0.8060985000338405,
+        "_write_values": 1.250067725777626e-06
+      },
+      "phase_calls": {
+        "_scan": 16,
+        "add": 24,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 430243840,
+        "scratch_bytes": 246016988,
+        "scratch_files": 41,
+        "processes": 2
+      },
+      "parent_peak_rss_bytes": 428474368,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 2,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 0.1100692090112716,
+            "numeric_seconds": 0.13089100015349686
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 0.10577016696333885,
+            "numeric_seconds": 0.11305050016380847
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 0.07632129197008908,
+            "numeric_seconds": 0.09106445801444352
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 0.08287041587755084,
+            "numeric_seconds": 0.14837795915082097
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 0.07065629190765321,
+            "numeric_seconds": 0.12510925019159913
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.06764495791867375,
+            "numeric_seconds": 0.1301994591485709
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.06219145795330405,
+            "numeric_seconds": 0.12218404188752174
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.05304091703146696,
+            "numeric_seconds": 0.0717754999641329
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "wide-thread-4-1",
+      "case": "wide",
+      "variant": "thread",
+      "workers": 4,
+      "elapsed_seconds": 6.448051708983257,
+      "phase_seconds": {
+        "_scan": 4.887486706255004,
+        "add": 0.06394354184158146,
+        "_select_rows": 1.1187312500551343,
+        "_write_values": 1.209089532494545e-06
+      },
+      "phase_calls": {
+        "_scan": 16,
+        "add": 24,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 459309056,
+        "scratch_bytes": 294663632,
+        "scratch_files": 49,
+        "processes": 2
+      },
+      "parent_peak_rss_bytes": 464994304,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 4,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 0.2879824168048799,
+            "numeric_seconds": 0.30234266608022153
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 0.2597895411308855,
+            "numeric_seconds": 0.26797062484547496
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 0.2908659589011222,
+            "numeric_seconds": 0.3619113750755787
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 0.27624600008130074,
+            "numeric_seconds": 0.2817697499413043
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 0.21942291618324816,
+            "numeric_seconds": 0.3316092088352889
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.2785434168763459,
+            "numeric_seconds": 0.2577967499382794
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.26960608293302357,
+            "numeric_seconds": 0.2394181250128895
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.250870417105034,
+            "numeric_seconds": 0.20043916697613895
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    },
+    {
+      "run": "wide-thread-8-1",
+      "case": "wide",
+      "variant": "thread",
+      "workers": 8,
+      "elapsed_seconds": 6.961231374880299,
+      "phase_seconds": {
+        "_scan": 4.726767207728699,
+        "add": 0.06383754033595324,
+        "_select_rows": 1.7881445838138461,
+        "_write_values": 1.2919772416353226e-06
+      },
+      "phase_calls": {
+        "_scan": 16,
+        "add": 24,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "peak_sampled": {
+        "rss_bytes": 421675008,
+        "scratch_bytes": 391956920,
+        "scratch_files": 65,
+        "processes": 2
+      },
+      "parent_peak_rss_bytes": 439435264,
+      "owned_scratch_cleanup": "passed",
+      "prototype": {
+        "effective_workers": 8,
+        "group_phases": [
+          {
+            "ordinal": 0,
+            "selection_seconds": 0.8511992499697953,
+            "numeric_seconds": 0.8811438749544322
+          },
+          {
+            "ordinal": 1,
+            "selection_seconds": 0.8351023329887539,
+            "numeric_seconds": 0.9258920000866055
+          },
+          {
+            "ordinal": 2,
+            "selection_seconds": 0.8818355419207364,
+            "numeric_seconds": 0.892873666016385
+          },
+          {
+            "ordinal": 3,
+            "selection_seconds": 0.9097584579139948,
+            "numeric_seconds": 0.8421943751163781
+          },
+          {
+            "ordinal": 4,
+            "selection_seconds": 1.0015044580213726,
+            "numeric_seconds": 0.7373496668878943
+          },
+          {
+            "ordinal": 5,
+            "selection_seconds": 0.8354435421060771,
+            "numeric_seconds": 0.927874457789585
+          },
+          {
+            "ordinal": 6,
+            "selection_seconds": 0.9583535420242697,
+            "numeric_seconds": 0.8162603748496622
+          },
+          {
+            "ordinal": 7,
+            "selection_seconds": 0.7750402081292123,
+            "numeric_seconds": 0.9723687919322401
+          }
+        ],
+        "parallel_used": true
+      },
+      "verification": "all metadata, values, dtypes, order, and diagnostics equal the serial reference"
+    }
+  ]
+}

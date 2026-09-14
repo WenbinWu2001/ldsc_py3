@@ -7,6 +7,7 @@ resident. Metadata and value descriptors are safe to pass to chromosome workers.
 
 from dataclasses import dataclass
 from pathlib import Path
+import pickle
 import shutil
 import tempfile
 import uuid
@@ -186,8 +187,9 @@ class ColumnStore:
 class FrameSpool:
     """Append bounded private frames and replay them without retaining records.
 
-    The pickles are internal, locally generated scratch, never user inputs.
-    Only a path, row count, and part count are retained in memory.
+    One append stream holds independently serialized frames, keeping file count
+    constant as chunks accumulate. Pickles are locally generated scratch, never
+    user inputs. Descriptors retain no records or open handles.
     """
 
     path: Path
@@ -198,13 +200,16 @@ class FrameSpool:
         if frame.empty:
             return
         self.path.mkdir(parents=True, exist_ok=True)
-        frame.to_pickle(self.path / f"{self.n_parts}.pkl")
+        with (self.path / "frames.pkl").open("ab" if self.n_parts else "wb") as stream:
+            pickle.dump(frame, stream, protocol=pickle.HIGHEST_PROTOCOL)
         self.n_parts += 1
         self.n_rows += len(frame)
 
     def frames(self):
-        for index in range(self.n_parts):
-            yield pd.read_pickle(self.path / f"{index}.pkl")
+        if self.n_parts:
+            with (self.path / "frames.pkl").open("rb") as stream:
+                for _ in range(self.n_parts):
+                    yield pickle.load(stream)
 
     def write_tsv(self, path, *, columns=(), na_rep=""):
         """Publish all records, retaining only one append chunk at a time."""

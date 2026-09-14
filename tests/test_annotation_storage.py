@@ -53,6 +53,24 @@ def test_column_store_empty_selection_and_out_of_bounds(tmp_path):
         store.read(columns=["missing"])
 
 
+def test_frame_spool_keeps_one_file_and_replays_exact_frames(tmp_path):
+    from ldsc._annotation_storage import FrameSpool
+
+    spool = FrameSpool(tmp_path / "spool")
+    frames = [pd.DataFrame({"position": pd.Series([i], dtype="Int64"),
+                            "label": [f"row{i}"]}, index=[0]) for i in range(100)]
+    for frame in frames:
+        spool.append(frame)
+    spool.append(pd.DataFrame())
+    assert spool.n_rows == spool.n_parts == 100
+    assert len([p for p in spool.path.iterdir() if p.is_file()]) == 1
+    for _ in range(2):
+        for actual, expected in zip(spool.frames(), frames, strict=True):
+            pd.testing.assert_frame_equal(actual, expected)
+    spool.append(frames[0])
+    assert len(list(spool.frames())) == 101
+
+
 @pytest.mark.parametrize("mode, expected", [("rsid", ["unique"]), ("chr_pos", ["dup", "unique", "dup"])])
 def test_disk_identity_cleanup_is_global_across_chunks_and_chromosomes(tmp_path, mode, expected):
     from ldsc._annotation_identity import DiskIdentityIndex
@@ -90,6 +108,59 @@ def test_disk_identity_allele_policy_excludes_invalid_before_global_clusters(tmp
         "multi_allelic_base_key": ["multi", "multi"], "duplicate_identity": ["dup", "dup"],
         "strand_ambiguous_allele": ["bad"], "invalid_allele": ["valid"],
     }
+
+
+def test_identity_lookup_batches_respect_sqlite_limits_and_global_counts(tmp_path):
+    from ldsc._annotation_identity import DiskIdentityIndex
+    import sqlite3
+
+    frame = pd.DataFrame({"CHR": ["1"] * 1100, "POS": np.arange(1100) + 1,
+                          "SNP": [f"rs'{i}" for i in range(1100)]})
+    with DiskIdentityIndex(tmp_path / "identity.sqlite", "rsid") as index:
+        index.add(frame)
+        index.add(frame.iloc[[1, 1000]].assign(CHR="2"))
+        statements = []
+        index.connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 127)
+        index.connection.set_trace_callback(statements.append)
+        keep, dropped = index.select(frame)
+        assert np.flatnonzero(~keep).tolist() == [1, 1000]
+        assert dropped.SNP.tolist() == ["rs'1", "rs'1000"]
+        assert dropped.reason.tolist() == ["duplicate_identity"] * 2
+        lookups = [sql for sql in statements if sql.startswith("SELECT")]
+        assert len(lookups) <= 9
+
+
+def test_identity_add_batches_transactions_and_finishes_before_selection(tmp_path):
+    from ldsc._annotation_identity import DiskIdentityIndex
+
+    frame = pd.DataFrame({"CHR": ["1"], "POS": [1], "SNP": ["rs1"]})
+    with DiskIdentityIndex(tmp_path / "identity.sqlite", "rsid") as index:
+        for _ in range(10):
+            index.add(frame)
+        assert index.connection.in_transaction
+        keep, dropped = index.select(frame)
+        assert not index.connection.in_transaction
+        assert keep.tolist() == [False]
+        assert dropped.reason.tolist() == ["duplicate_identity"]
+
+
+def test_identity_transaction_limit_spans_chunks_without_losing_duplicates(tmp_path, monkeypatch):
+    from ldsc import _annotation_identity as identity
+
+    monkeypatch.setattr(identity, "_TRANSACTION_ROWS", 8)
+    frame = pd.DataFrame({"CHR": ["1"] * 11, "POS": np.arange(11) + 1,
+                          "SNP": [f"rs{i}" for i in range(11)]})
+    with identity.DiskIdentityIndex(tmp_path / "identity.sqlite", "rsid") as index:
+        statements = []
+        index.connection.set_trace_callback(statements.append)
+        index.add(frame)
+        assert statements.count("COMMIT") == 1
+        index.add(frame.iloc[[0, 2, 3, 4, 5]])
+        assert statements.count("COMMIT") == 2
+        assert not index.connection.in_transaction
+        keep, dropped = index.select(frame)
+        assert np.flatnonzero(~keep).tolist() == [0, 2, 3, 4, 5]
+        assert dropped.reason.eq("duplicate_identity").all()
 
 
 def test_mixed_shards_preserve_omitted_alleles_and_global_duplicate_cleanup(tmp_path):

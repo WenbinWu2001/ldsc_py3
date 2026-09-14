@@ -1,0 +1,2000 @@
+{
+  "baseline_revision": "6373bdf85dddd73120b89d092dff91f6d4c4ab77",
+  "measured_date": "2026-09-14",
+  "matched_runs": [
+    {
+      "variant": "before",
+      "repetition": 2,
+      "case": "small",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 0.07591904094442725,
+      "phase_seconds": {
+        "_scan": 0.014204499078914523,
+        "_aligned_rows": 0.01607745815999806,
+        "add": 0.0022610838059335947,
+        "select": 0.008576583117246628,
+        "_finish_shard": 0.02033274993300438
+      },
+      "phase_calls": {
+        "_scan": 4,
+        "_aligned_rows": 4,
+        "add": 2,
+        "select": 2,
+        "_finish_shard": 2
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 100,
+          "max": 100,
+          "count": 2
+        },
+        "select": {
+          "min": 100,
+          "max": 100,
+          "count": 2
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 2,
+        "SELECT": 200
+      },
+      "scratch_peak_sampled": {
+        "files": 6,
+        "bytes": 29012
+      },
+      "scratch_files_created_python": 10,
+      "scratch_open_calls_python": {
+        "w": 10,
+        "r": 10,
+        "None": 6,
+        "r+": 2
+      },
+      "prepared_bytes": 14620,
+      "peak_rss_bytes": 120209408,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/private/tmp/ldsc-annotation-preparation-20260914/before/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "before",
+      "repetition": 3,
+      "case": "small",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 0.046055000042542815,
+      "phase_seconds": {
+        "_scan": 0.010353126097470522,
+        "_aligned_rows": 0.013859917176887393,
+        "add": 0.002079831901937723,
+        "select": 0.00787608278915286,
+        "_finish_shard": 0.00429025012999773
+      },
+      "phase_calls": {
+        "_scan": 4,
+        "_aligned_rows": 4,
+        "add": 2,
+        "select": 2,
+        "_finish_shard": 2
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 100,
+          "max": 100,
+          "count": 2
+        },
+        "select": {
+          "min": 100,
+          "max": 100,
+          "count": 2
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 2,
+        "SELECT": 200
+      },
+      "scratch_peak_sampled": {
+        "files": 6,
+        "bytes": 28496
+      },
+      "scratch_files_created_python": 10,
+      "scratch_open_calls_python": {
+        "w": 10,
+        "r": 10,
+        "None": 6,
+        "r+": 2
+      },
+      "prepared_bytes": 14620,
+      "peak_rss_bytes": 119439360,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/private/tmp/ldsc-annotation-preparation-20260914/before/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "before",
+      "repetition": 4,
+      "case": "small",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 0.04894558293744922,
+      "phase_seconds": {
+        "_scan": 0.010227292077615857,
+        "_aligned_rows": 0.014726417139172554,
+        "add": 0.001988625153899193,
+        "select": 0.008436040952801704,
+        "_finish_shard": 0.005052166059613228
+      },
+      "phase_calls": {
+        "_scan": 4,
+        "_aligned_rows": 4,
+        "add": 2,
+        "select": 2,
+        "_finish_shard": 2
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 100,
+          "max": 100,
+          "count": 2
+        },
+        "select": {
+          "min": 100,
+          "max": 100,
+          "count": 2
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 2,
+        "SELECT": 200
+      },
+      "scratch_peak_sampled": {
+        "files": 5,
+        "bytes": 28496
+      },
+      "scratch_files_created_python": 10,
+      "scratch_open_calls_python": {
+        "w": 10,
+        "r": 10,
+        "None": 6,
+        "r+": 2
+      },
+      "prepared_bytes": 14620,
+      "peak_rss_bytes": 120160256,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/private/tmp/ldsc-annotation-preparation-20260914/before/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "after",
+      "repetition": 2,
+      "case": "small",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 0.040417667012661695,
+      "phase_seconds": {
+        "_scan": 0.009741457179188728,
+        "_aligned_metadata": 0.009329081978648901,
+        "add": 0.001137124840170145,
+        "select": 0.006692208116874099,
+        "_select_rows": 0.016495042014867067,
+        "_write_values": 0.003743541892617941
+      },
+      "phase_calls": {
+        "_scan": 4,
+        "_aligned_metadata": 4,
+        "add": 2,
+        "select": 2,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 100,
+          "max": 100,
+          "count": 2
+        },
+        "select": {
+          "min": 100,
+          "max": 100,
+          "count": 2
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 2
+      },
+      "scratch_peak_sampled": {
+        "files": 11,
+        "bytes": 31024
+      },
+      "scratch_files_created_python": 13,
+      "scratch_open_calls_python": {
+        "w": 13,
+        "r": 14,
+        "a": 1,
+        "r+": 4,
+        "None": 6
+      },
+      "prepared_bytes": 14620,
+      "peak_rss_bytes": 120045568,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "after",
+      "repetition": 3,
+      "case": "small",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 0.04263495816849172,
+      "phase_seconds": {
+        "_scan": 0.010693916119635105,
+        "_aligned_metadata": 0.01017920789308846,
+        "add": 0.0012343327980488539,
+        "select": 0.007589542306959629,
+        "_select_rows": 0.01773470896296203,
+        "_write_values": 0.0030555829871445894
+      },
+      "phase_calls": {
+        "_scan": 4,
+        "_aligned_metadata": 4,
+        "add": 2,
+        "select": 2,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 100,
+          "max": 100,
+          "count": 2
+        },
+        "select": {
+          "min": 100,
+          "max": 100,
+          "count": 2
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 2
+      },
+      "scratch_peak_sampled": {
+        "files": 9,
+        "bytes": 28036
+      },
+      "scratch_files_created_python": 13,
+      "scratch_open_calls_python": {
+        "w": 13,
+        "r": 14,
+        "a": 1,
+        "r+": 4,
+        "None": 6
+      },
+      "prepared_bytes": 14620,
+      "peak_rss_bytes": 119701504,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "after",
+      "repetition": 4,
+      "case": "small",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 0.043152415892109275,
+      "phase_seconds": {
+        "_scan": 0.01104466593824327,
+        "_aligned_metadata": 0.010746540036052465,
+        "add": 0.00133033306337893,
+        "select": 0.007333000190556049,
+        "_select_rows": 0.017471374943852425,
+        "_write_values": 0.003363249823451042
+      },
+      "phase_calls": {
+        "_scan": 4,
+        "_aligned_metadata": 4,
+        "add": 2,
+        "select": 2,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 100,
+          "max": 100,
+          "count": 2
+        },
+        "select": {
+          "min": 100,
+          "max": 100,
+          "count": 2
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 2
+      },
+      "scratch_peak_sampled": {
+        "files": 11,
+        "bytes": 31024
+      },
+      "scratch_files_created_python": 13,
+      "scratch_open_calls_python": {
+        "w": 13,
+        "r": 14,
+        "a": 1,
+        "r+": 4,
+        "None": 6
+      },
+      "prepared_bytes": 14620,
+      "peak_rss_bytes": 119603200,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "before",
+      "repetition": 2,
+      "case": "sharded",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 7.90047970903106,
+      "phase_seconds": {
+        "_scan": 2.7840290835592896,
+        "_aligned_rows": 0.6883469074964523,
+        "add": 0.4378632085863501,
+        "select": 2.4416866339743137,
+        "_finish_shard": 0.9633715839590877
+      },
+      "phase_calls": {
+        "_scan": 22,
+        "_aligned_rows": 396,
+        "add": 198,
+        "select": 198,
+        "_finish_shard": 22
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        },
+        "select": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 198,
+        "SELECT": 176000
+      },
+      "scratch_peak_sampled": {
+        "files": 418,
+        "bytes": 150275345
+      },
+      "scratch_files_created_python": 440,
+      "scratch_open_calls_python": {
+        "w": 440,
+        "r": 594,
+        "None": 44,
+        "r+": 198
+      },
+      "prepared_bytes": 69731298,
+      "peak_rss_bytes": 264650752,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/private/tmp/ldsc-annotation-preparation-20260914/before/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "before",
+      "repetition": 3,
+      "case": "sharded",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 6.799973792163655,
+      "phase_seconds": {
+        "_scan": 2.875185042619705,
+        "_aligned_rows": 0.46307071205228567,
+        "add": 0.4139201552607119,
+        "select": 1.881717049749568,
+        "_finish_shard": 0.716991831548512
+      },
+      "phase_calls": {
+        "_scan": 22,
+        "_aligned_rows": 396,
+        "add": 198,
+        "select": 198,
+        "_finish_shard": 22
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        },
+        "select": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 198,
+        "SELECT": 176000
+      },
+      "scratch_peak_sampled": {
+        "files": 417,
+        "bytes": 149871978
+      },
+      "scratch_files_created_python": 440,
+      "scratch_open_calls_python": {
+        "w": 440,
+        "r": 594,
+        "None": 44,
+        "r+": 198
+      },
+      "prepared_bytes": 69731298,
+      "peak_rss_bytes": 284884992,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/private/tmp/ldsc-annotation-preparation-20260914/before/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "before",
+      "repetition": 4,
+      "case": "sharded",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 6.7809849579352885,
+      "phase_seconds": {
+        "_scan": 2.760126998880878,
+        "_aligned_rows": 0.4608298360835761,
+        "add": 0.40527824172750115,
+        "select": 1.9151015493553132,
+        "_finish_shard": 0.7792060845531523
+      },
+      "phase_calls": {
+        "_scan": 22,
+        "_aligned_rows": 396,
+        "add": 198,
+        "select": 198,
+        "_finish_shard": 22
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        },
+        "select": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 198,
+        "SELECT": 176000
+      },
+      "scratch_peak_sampled": {
+        "files": 416,
+        "bytes": 149468611
+      },
+      "scratch_files_created_python": 440,
+      "scratch_open_calls_python": {
+        "w": 440,
+        "r": 594,
+        "None": 44,
+        "r+": 198
+      },
+      "prepared_bytes": 69731298,
+      "peak_rss_bytes": 290013184,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/private/tmp/ldsc-annotation-preparation-20260914/before/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "after",
+      "repetition": 2,
+      "case": "sharded",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 2.7214998328126967,
+      "phase_seconds": {
+        "_scan": 1.6676869147922844,
+        "_aligned_metadata": 0.04106558649800718,
+        "add": 0.19372904137708247,
+        "select": 0.4859293738845736,
+        "_select_rows": 0.6253720000386238,
+        "_write_values": 0.12573333294130862
+      },
+      "phase_calls": {
+        "_scan": 22,
+        "_aligned_metadata": 44,
+        "add": 22,
+        "select": 22,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 8000,
+          "max": 8000,
+          "count": 22
+        },
+        "select": {
+          "min": 8000,
+          "max": 8000,
+          "count": 22
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 352
+      },
+      "scratch_peak_sampled": {
+        "files": 88,
+        "bytes": 80495141
+      },
+      "scratch_files_created_python": 89,
+      "scratch_open_calls_python": {
+        "w": 89,
+        "r": 88,
+        "a": 21,
+        "r+": 22,
+        "None": 44
+      },
+      "prepared_bytes": 69783165,
+      "peak_rss_bytes": 284426240,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "after",
+      "repetition": 3,
+      "case": "sharded",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 2.8580327921081334,
+      "phase_seconds": {
+        "_scan": 1.580438791308552,
+        "_aligned_metadata": 0.04626941587775946,
+        "add": 0.2703999576624483,
+        "select": 0.5666972482576966,
+        "_select_rows": 0.7371459580026567,
+        "_write_values": 0.13764070789329708
+      },
+      "phase_calls": {
+        "_scan": 22,
+        "_aligned_metadata": 44,
+        "add": 22,
+        "select": 22,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 8000,
+          "max": 8000,
+          "count": 22
+        },
+        "select": {
+          "min": 8000,
+          "max": 8000,
+          "count": 22
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 352
+      },
+      "scratch_peak_sampled": {
+        "files": 88,
+        "bytes": 80496389
+      },
+      "scratch_files_created_python": 89,
+      "scratch_open_calls_python": {
+        "w": 89,
+        "r": 88,
+        "a": 21,
+        "r+": 22,
+        "None": 44
+      },
+      "prepared_bytes": 69783165,
+      "peak_rss_bytes": 277790720,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "after",
+      "repetition": 4,
+      "case": "sharded",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 2.7522628330625594,
+      "phase_seconds": {
+        "_scan": 1.650953330565244,
+        "_aligned_metadata": 0.03883254900574684,
+        "add": 0.1916797098238021,
+        "select": 0.5000239186920226,
+        "_select_rows": 0.6417514169588685,
+        "_write_values": 0.16473387484438717
+      },
+      "phase_calls": {
+        "_scan": 22,
+        "_aligned_metadata": 44,
+        "add": 22,
+        "select": 22,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 8000,
+          "max": 8000,
+          "count": 22
+        },
+        "select": {
+          "min": 8000,
+          "max": 8000,
+          "count": 22
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 352
+      },
+      "scratch_peak_sampled": {
+        "files": 88,
+        "bytes": 80495141
+      },
+      "scratch_files_created_python": 89,
+      "scratch_open_calls_python": {
+        "w": 89,
+        "r": 88,
+        "a": 21,
+        "r+": 22,
+        "None": 44
+      },
+      "prepared_bytes": 69783165,
+      "peak_rss_bytes": 276152320,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "before",
+      "repetition": 2,
+      "case": "wide-sharded",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 4.171676374971867,
+      "phase_seconds": {
+        "_scan": 2.837645708117634,
+        "_aligned_rows": 0.378052877727896,
+        "add": 0.0546326651237905,
+        "select": 0.208189835306257,
+        "_finish_shard": 0.4304204590152949
+      },
+      "phase_calls": {
+        "_scan": 6,
+        "_aligned_rows": 54,
+        "add": 27,
+        "select": 27,
+        "_finish_shard": 3
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 488,
+          "max": 689,
+          "count": 27
+        },
+        "select": {
+          "min": 488,
+          "max": 689,
+          "count": 27
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 27,
+        "SELECT": 18000
+      },
+      "scratch_peak_sampled": {
+        "files": 83,
+        "bytes": 142962380
+      },
+      "scratch_files_created_python": 87,
+      "scratch_open_calls_python": {
+        "w": 87,
+        "r": 135,
+        "None": 9,
+        "r+": 27
+      },
+      "prepared_bytes": 72782608,
+      "peak_rss_bytes": 287735808,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/private/tmp/ldsc-annotation-preparation-20260914/before/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "before",
+      "repetition": 3,
+      "case": "wide-sharded",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 3.7444364582188427,
+      "phase_seconds": {
+        "_scan": 2.5318437912501395,
+        "_aligned_rows": 0.3283731644041836,
+        "add": 0.044517623726278543,
+        "select": 0.19387337495572865,
+        "_finish_shard": 0.4015637510456145
+      },
+      "phase_calls": {
+        "_scan": 6,
+        "_aligned_rows": 54,
+        "add": 27,
+        "select": 27,
+        "_finish_shard": 3
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 488,
+          "max": 689,
+          "count": 27
+        },
+        "select": {
+          "min": 488,
+          "max": 689,
+          "count": 27
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 27,
+        "SELECT": 18000
+      },
+      "scratch_peak_sampled": {
+        "files": 84,
+        "bytes": 145772377
+      },
+      "scratch_files_created_python": 87,
+      "scratch_open_calls_python": {
+        "w": 87,
+        "r": 135,
+        "None": 9,
+        "r+": 27
+      },
+      "prepared_bytes": 72782608,
+      "peak_rss_bytes": 284786688,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/private/tmp/ldsc-annotation-preparation-20260914/before/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "before",
+      "repetition": 4,
+      "case": "wide-sharded",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 3.915499791968614,
+      "phase_seconds": {
+        "_scan": 2.65493349917233,
+        "_aligned_rows": 0.3371551709715277,
+        "add": 0.048363999696448445,
+        "select": 0.20160612626932561,
+        "_finish_shard": 0.4219962088391185
+      },
+      "phase_calls": {
+        "_scan": 6,
+        "_aligned_rows": 54,
+        "add": 27,
+        "select": 27,
+        "_finish_shard": 3
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 488,
+          "max": 689,
+          "count": 27
+        },
+        "select": {
+          "min": 488,
+          "max": 689,
+          "count": 27
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 27,
+        "SELECT": 18000
+      },
+      "scratch_peak_sampled": {
+        "files": 84,
+        "bytes": 145772377
+      },
+      "scratch_files_created_python": 87,
+      "scratch_open_calls_python": {
+        "w": 87,
+        "r": 135,
+        "None": 9,
+        "r+": 27
+      },
+      "prepared_bytes": 72782608,
+      "peak_rss_bytes": 304201728,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/private/tmp/ldsc-annotation-preparation-20260914/before/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "after",
+      "repetition": 2,
+      "case": "wide-sharded",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 2.159580667037517,
+      "phase_seconds": {
+        "_scan": 1.6631422089412808,
+        "_aligned_metadata": 0.09552216366864741,
+        "add": 0.0221471656113863,
+        "select": 0.06037516635842621,
+        "_select_rows": 0.13271445804275572,
+        "_write_values": 0.19197108410298824
+      },
+      "phase_calls": {
+        "_scan": 6,
+        "_aligned_metadata": 18,
+        "add": 9,
+        "select": 9,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 1864,
+          "max": 2068,
+          "count": 9
+        },
+        "select": {
+          "min": 1864,
+          "max": 2068,
+          "count": 9
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 42
+      },
+      "scratch_peak_sampled": {
+        "files": 20,
+        "bytes": 98289701
+      },
+      "scratch_files_created_python": 19,
+      "scratch_open_calls_python": {
+        "w": 19,
+        "a": 14,
+        "r": 21,
+        "r+": 18,
+        "None": 9
+      },
+      "prepared_bytes": 72783180,
+      "peak_rss_bytes": 395984896,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "after",
+      "repetition": 3,
+      "case": "wide-sharded",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 2.104072416899726,
+      "phase_seconds": {
+        "_scan": 1.6202899164054543,
+        "_aligned_metadata": 0.09113749815151095,
+        "add": 0.02154525090008974,
+        "select": 0.058812668547034264,
+        "_select_rows": 0.1297604579012841,
+        "_write_values": 0.18205579090863466
+      },
+      "phase_calls": {
+        "_scan": 6,
+        "_aligned_metadata": 18,
+        "add": 9,
+        "select": 9,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 1864,
+          "max": 2068,
+          "count": 9
+        },
+        "select": {
+          "min": 1864,
+          "max": 2068,
+          "count": 9
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 42
+      },
+      "scratch_peak_sampled": {
+        "files": 20,
+        "bytes": 98289701
+      },
+      "scratch_files_created_python": 19,
+      "scratch_open_calls_python": {
+        "w": 19,
+        "a": 14,
+        "r": 21,
+        "r+": 18,
+        "None": 9
+      },
+      "prepared_bytes": 72783180,
+      "peak_rss_bytes": 362561536,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "after",
+      "repetition": 4,
+      "case": "wide-sharded",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 2.719889000058174,
+      "phase_seconds": {
+        "_scan": 2.223018834134564,
+        "_aligned_metadata": 0.09216429060325027,
+        "add": 0.021899292012676597,
+        "select": 0.06393324909731746,
+        "_select_rows": 0.1361950000282377,
+        "_write_values": 0.19151833304204047
+      },
+      "phase_calls": {
+        "_scan": 6,
+        "_aligned_metadata": 18,
+        "add": 9,
+        "select": 9,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 1864,
+          "max": 2068,
+          "count": 9
+        },
+        "select": {
+          "min": 1864,
+          "max": 2068,
+          "count": 9
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 42
+      },
+      "scratch_peak_sampled": {
+        "files": 20,
+        "bytes": 98289701
+      },
+      "scratch_files_created_python": 19,
+      "scratch_open_calls_python": {
+        "w": 19,
+        "a": 14,
+        "r": 21,
+        "r+": 18,
+        "None": 9
+      },
+      "prepared_bytes": 72783180,
+      "peak_rss_bytes": 375275520,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "before",
+      "repetition": 2,
+      "case": "wide-whole",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 2.6417985421139747,
+      "phase_seconds": {
+        "_scan": 1.696621251059696,
+        "_aligned_rows": 0.2131306652445346,
+        "add": 0.029421501560136676,
+        "select": 0.1657345409039408,
+        "_finish_shard": 0.33119341684505343
+      },
+      "phase_calls": {
+        "_scan": 2,
+        "_aligned_rows": 18,
+        "add": 9,
+        "select": 9,
+        "_finish_shard": 3
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 1456,
+          "max": 2068,
+          "count": 9
+        },
+        "select": {
+          "min": 1456,
+          "max": 2068,
+          "count": 9
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 9,
+        "SELECT": 18000
+      },
+      "scratch_peak_sampled": {
+        "files": 32,
+        "bytes": 141418242
+      },
+      "scratch_files_created_python": 35,
+      "scratch_open_calls_python": {
+        "w": 35,
+        "r": 47,
+        "None": 5,
+        "r+": 11
+      },
+      "prepared_bytes": 72784172,
+      "peak_rss_bytes": 500482048,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/private/tmp/ldsc-annotation-preparation-20260914/before/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "before",
+      "repetition": 3,
+      "case": "wide-whole",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 2.425404209177941,
+      "phase_seconds": {
+        "_scan": 1.5724787078797817,
+        "_aligned_rows": 0.19356558239087462,
+        "add": 0.027224082965403795,
+        "select": 0.16222316632047296,
+        "_finish_shard": 0.293341499986127
+      },
+      "phase_calls": {
+        "_scan": 2,
+        "_aligned_rows": 18,
+        "add": 9,
+        "select": 9,
+        "_finish_shard": 3
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 1456,
+          "max": 2068,
+          "count": 9
+        },
+        "select": {
+          "min": 1456,
+          "max": 2068,
+          "count": 9
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 9,
+        "SELECT": 18000
+      },
+      "scratch_peak_sampled": {
+        "files": 32,
+        "bytes": 141418242
+      },
+      "scratch_files_created_python": 35,
+      "scratch_open_calls_python": {
+        "w": 35,
+        "r": 47,
+        "None": 5,
+        "r+": 11
+      },
+      "prepared_bytes": 72784172,
+      "peak_rss_bytes": 519389184,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/private/tmp/ldsc-annotation-preparation-20260914/before/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "before",
+      "repetition": 4,
+      "case": "wide-whole",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 2.5208128329832107,
+      "phase_seconds": {
+        "_scan": 1.6509502911940217,
+        "_aligned_rows": 0.19983466737903655,
+        "add": 0.02827745908871293,
+        "select": 0.16200170619413257,
+        "_finish_shard": 0.29160004248842597
+      },
+      "phase_calls": {
+        "_scan": 2,
+        "_aligned_rows": 18,
+        "add": 9,
+        "select": 9,
+        "_finish_shard": 3
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 1456,
+          "max": 2068,
+          "count": 9
+        },
+        "select": {
+          "min": 1456,
+          "max": 2068,
+          "count": 9
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 9,
+        "SELECT": 18000
+      },
+      "scratch_peak_sampled": {
+        "files": 32,
+        "bytes": 141418242
+      },
+      "scratch_files_created_python": 35,
+      "scratch_open_calls_python": {
+        "w": 35,
+        "r": 47,
+        "None": 5,
+        "r+": 11
+      },
+      "prepared_bytes": 72784172,
+      "peak_rss_bytes": 517390336,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/private/tmp/ldsc-annotation-preparation-20260914/before/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "after",
+      "repetition": 2,
+      "case": "wide-whole",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 2.0685196248814464,
+      "phase_seconds": {
+        "_scan": 1.54984341817908,
+        "_aligned_metadata": 0.09076574724167585,
+        "add": 0.02046062587760389,
+        "select": 0.05996508430689573,
+        "_select_rows": 0.1294676661491394,
+        "_write_values": 0.28209587512537837
+      },
+      "phase_calls": {
+        "_scan": 2,
+        "_aligned_metadata": 18,
+        "add": 9,
+        "select": 9,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 1456,
+          "max": 2068,
+          "count": 9
+        },
+        "select": {
+          "min": 1456,
+          "max": 2068,
+          "count": 9
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 43
+      },
+      "scratch_peak_sampled": {
+        "files": 12,
+        "bytes": 146665143
+      },
+      "scratch_files_created_python": 9,
+      "scratch_open_calls_python": {
+        "w": 9,
+        "a": 18,
+        "r": 7,
+        "r+": 22,
+        "None": 3
+      },
+      "prepared_bytes": 72784172,
+      "peak_rss_bytes": 393428992,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "after",
+      "repetition": 3,
+      "case": "wide-whole",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 2.193935374962166,
+      "phase_seconds": {
+        "_scan": 1.6158357500098646,
+        "_aligned_metadata": 0.08993416791781783,
+        "add": 0.020822831662371755,
+        "select": 0.0587647904176265,
+        "_select_rows": 0.12671074992977083,
+        "_write_values": 0.34138487512245774
+      },
+      "phase_calls": {
+        "_scan": 2,
+        "_aligned_metadata": 18,
+        "add": 9,
+        "select": 9,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 1456,
+          "max": 2068,
+          "count": 9
+        },
+        "select": {
+          "min": 1456,
+          "max": 2068,
+          "count": 9
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 43
+      },
+      "scratch_peak_sampled": {
+        "files": 12,
+        "bytes": 146665143
+      },
+      "scratch_files_created_python": 9,
+      "scratch_open_calls_python": {
+        "w": 9,
+        "a": 18,
+        "r": 7,
+        "r+": 22,
+        "None": 3
+      },
+      "prepared_bytes": 72784172,
+      "peak_rss_bytes": 418873344,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "variant": "after",
+      "repetition": 4,
+      "case": "wide-whole",
+      "declared": false,
+      "chunk_rows": null,
+      "sql_batch_size": null,
+      "transaction_rows": null,
+      "elapsed_seconds": 2.129603707930073,
+      "phase_seconds": {
+        "_scan": 1.581518751103431,
+        "_aligned_metadata": 0.09224128699861467,
+        "add": 0.020374167012050748,
+        "select": 0.05893612513318658,
+        "_select_rows": 0.13015612494200468,
+        "_write_values": 0.3094706248957664
+      },
+      "phase_calls": {
+        "_scan": 2,
+        "_aligned_metadata": 18,
+        "add": 9,
+        "select": 9,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 1456,
+          "max": 2068,
+          "count": 9
+        },
+        "select": {
+          "min": 1456,
+          "max": 2068,
+          "count": 9
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 43
+      },
+      "scratch_peak_sampled": {
+        "files": 12,
+        "bytes": 146665143
+      },
+      "scratch_files_created_python": 9,
+      "scratch_open_calls_python": {
+        "w": 9,
+        "a": 18,
+        "r": 7,
+        "r+": 22,
+        "None": 3
+      },
+      "prepared_bytes": 72784172,
+      "peak_rss_bytes": 359120896,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    }
+  ],
+  "sql_pilots": [
+    {
+      "case": "sharded",
+      "declared": false,
+      "chunk_rows": 962,
+      "sql_batch_size": 1,
+      "transaction_rows": 262144,
+      "elapsed_seconds": 6.582687624963,
+      "phase_seconds": {
+        "_scan": 2.9447973715141416,
+        "_aligned_metadata": 0.111343092052266,
+        "add": 0.25922830030322075,
+        "select": 2.263589380774647,
+        "_select_rows": 2.76059850002639,
+        "_write_values": 0.5603899171110243
+      },
+      "phase_calls": {
+        "_scan": 22,
+        "_aligned_metadata": 396,
+        "add": 198,
+        "select": 198,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        },
+        "select": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 176000
+      },
+      "scratch_peak_sampled": {
+        "files": 90,
+        "bytes": 81091807
+      },
+      "scratch_files_created_python": 89,
+      "scratch_open_calls_python": {
+        "w": 89,
+        "a": 373,
+        "r": 88,
+        "r+": 198,
+        "None": 44
+      },
+      "prepared_bytes": 69731298,
+      "peak_rss_bytes": 287227904,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "case": "sharded",
+      "declared": false,
+      "chunk_rows": 962,
+      "sql_batch_size": 128,
+      "transaction_rows": 262144,
+      "elapsed_seconds": 4.741873874794692,
+      "phase_seconds": {
+        "_scan": 2.73294125078246,
+        "_aligned_metadata": 0.09990217466838658,
+        "add": 0.25262788124382496,
+        "select": 0.773975083604455,
+        "_select_rows": 1.1898065421264619,
+        "_write_values": 0.5198392500169575
+      },
+      "phase_calls": {
+        "_scan": 22,
+        "_aligned_metadata": 396,
+        "add": 198,
+        "select": 198,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        },
+        "select": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 1474
+      },
+      "scratch_peak_sampled": {
+        "files": 90,
+        "bytes": 80912436
+      },
+      "scratch_files_created_python": 89,
+      "scratch_open_calls_python": {
+        "w": 89,
+        "a": 373,
+        "r": 88,
+        "r+": 198,
+        "None": 44
+      },
+      "prepared_bytes": 69731298,
+      "peak_rss_bytes": 285671424,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "case": "sharded",
+      "declared": false,
+      "chunk_rows": 962,
+      "sql_batch_size": 2048,
+      "transaction_rows": 262144,
+      "elapsed_seconds": 4.85874441685155,
+      "phase_seconds": {
+        "_scan": 2.7321089198812842,
+        "_aligned_metadata": 0.10262163658626378,
+        "add": 0.26218191371299326,
+        "select": 0.8120292499661446,
+        "_select_rows": 1.2418467081151903,
+        "_write_values": 0.5740577499382198
+      },
+      "phase_calls": {
+        "_scan": 22,
+        "_aligned_metadata": 396,
+        "add": 198,
+        "select": 198,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        },
+        "select": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 198
+      },
+      "scratch_peak_sampled": {
+        "files": 90,
+        "bytes": 80850581
+      },
+      "scratch_files_created_python": 89,
+      "scratch_open_calls_python": {
+        "w": 89,
+        "a": 373,
+        "r": 88,
+        "r+": 198,
+        "None": 44
+      },
+      "prepared_bytes": 69731298,
+      "peak_rss_bytes": 276447232,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "case": "sharded",
+      "declared": false,
+      "chunk_rows": 962,
+      "sql_batch_size": 512,
+      "transaction_rows": 262144,
+      "elapsed_seconds": 4.937113583087921,
+      "phase_seconds": {
+        "_scan": 2.773606586502865,
+        "_aligned_metadata": 0.10373010975308716,
+        "add": 0.25929599860683084,
+        "select": 0.7984569929540157,
+        "_select_rows": 1.241986625129357,
+        "_write_values": 0.6131476250011474
+      },
+      "phase_calls": {
+        "_scan": 22,
+        "_aligned_metadata": 396,
+        "add": 198,
+        "select": 198,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        },
+        "select": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 1,
+        "SELECT": 374
+      },
+      "scratch_peak_sampled": {
+        "files": 90,
+        "bytes": 80912436
+      },
+      "scratch_files_created_python": 89,
+      "scratch_open_calls_python": {
+        "w": 89,
+        "a": 373,
+        "r": 88,
+        "r+": 198,
+        "None": 44
+      },
+      "prepared_bytes": 69731298,
+      "peak_rss_bytes": 279412736,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "case": "sharded",
+      "declared": false,
+      "chunk_rows": 962,
+      "sql_batch_size": 512,
+      "transaction_rows": 65536,
+      "elapsed_seconds": 5.004995166091248,
+      "phase_seconds": {
+        "_scan": 2.734038371127099,
+        "_aligned_metadata": 0.1078099119476974,
+        "add": 0.2781843366101384,
+        "select": 0.8298133695498109,
+        "_select_rows": 1.2906182499136776,
+        "_write_values": 0.6500471250619739
+      },
+      "phase_calls": {
+        "_scan": 22,
+        "_aligned_metadata": 396,
+        "add": 198,
+        "select": 198,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        },
+        "select": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 3,
+        "SELECT": 374
+      },
+      "scratch_peak_sampled": {
+        "files": 91,
+        "bytes": 84051263
+      },
+      "scratch_files_created_python": 89,
+      "scratch_open_calls_python": {
+        "w": 89,
+        "a": 373,
+        "r": 88,
+        "r+": 198,
+        "None": 44
+      },
+      "prepared_bytes": 69731298,
+      "peak_rss_bytes": 275480576,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    },
+    {
+      "case": "sharded",
+      "declared": false,
+      "chunk_rows": 962,
+      "sql_batch_size": 512,
+      "transaction_rows": 962,
+      "elapsed_seconds": 4.999049832811579,
+      "phase_seconds": {
+        "_scan": 2.736854876158759,
+        "_aligned_metadata": 0.11645079986192286,
+        "add": 0.3899333691224456,
+        "select": 0.827921953285113,
+        "_select_rows": 1.284722917014733,
+        "_write_values": 0.5274473330937326
+      },
+      "phase_calls": {
+        "_scan": 22,
+        "_aligned_metadata": 396,
+        "add": 198,
+        "select": 198,
+        "_select_rows": 1,
+        "_write_values": 1
+      },
+      "identity_chunk_rows": {
+        "add": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        },
+        "select": {
+          "min": 304,
+          "max": 962,
+          "count": 198
+        }
+      },
+      "sqlite_statements": {
+        "PRAGMA": 3,
+        "CREATE": 1,
+        "commit_calls": 183,
+        "SELECT": 374
+      },
+      "scratch_peak_sampled": {
+        "files": 90,
+        "bytes": 80839999
+      },
+      "scratch_files_created_python": 89,
+      "scratch_open_calls_python": {
+        "w": 89,
+        "a": 373,
+        "r": 88,
+        "r+": 198,
+        "None": 44
+      },
+      "prepared_bytes": 69731298,
+      "peak_rss_bytes": 277856256,
+      "verification": "all values, metadata order, dtype, cross-chromosome drops and owner cleanup passed",
+      "import_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/__init__.py",
+      "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+      "versions": {
+        "numpy": "2.4.5",
+        "pandas": "2.3.3",
+        "pyarrow": "23.0.1"
+      },
+      "sqlite_version": "3.53.1"
+    }
+  ]
+}

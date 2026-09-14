@@ -44,6 +44,7 @@ Resolution behavior:
 - there is no separate `*_chr` public argument anymore; one argument now handles both shared inputs and chromosome-sharded inputs
 - group inputs may expand to many files through a glob or an `@` suite token
 - chromosome scope comes from validated contents; whole-genome sources are scanned once in bounded chunks and normalized into private chromosome artifacts
+- chunk sizing accounts for the baseline/query files aligned together; identity cleanup remains global across chromosomes and reads metadata separately from numeric staging
 - if multiple files contribute annotation columns for the same chromosome, their SNP rows must align exactly and their annotation column names must be unique
 
 Query annotations require explicit baseline annotations. The LD-score workflow

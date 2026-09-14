@@ -1,11 +1,12 @@
 """Bounded discovery, positional alignment, and preparation of annotation files.
 
-Each compressed source is scanned once into append spools. Aligned source rows
-are joined before chromosome partitioning and global identity cleanup. Prepared
-shards contain seekable float32 values and separate Parquet row metadata.
+Each compressed source is scanned once into separate metadata and numeric
+streams. Identity passes read only aligned metadata. Retained row locations
+then drive one numeric copy into column-major NumPy shards beside Parquet rows.
 """
 
 from dataclasses import dataclass
+from contextlib import ExitStack
 from itertools import zip_longest
 from pathlib import Path
 import shutil
@@ -43,29 +44,41 @@ class PreparedAnnotationSources:
 class _Source:
     path: Path
     spool: FrameSpool
+    values_path: Path
     columns: tuple[str, ...]
     metadata_columns: tuple[str, ...]
     chromosomes: set[str]
+    width: int
+
+
+def _chunk_size(width):
+    return max(1, min(65536, (16 * 1024 * 1024) // (max(1, width) * 8)))
 
 
 def _scan(path, directory, mode, chunk_rows):
-    spool = FrameSpool(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    spool = FrameSpool(directory / "metadata")
+    values_path = directory / "values.bin"
     chromosomes = set()
     columns = metadata_columns = ()
     try:
-        with pd.read_csv(path, sep=r"\s+", compression="infer", chunksize=chunk_rows) as reader:
+        with values_path.open("wb") as numeric, pd.read_csv(path, sep=r"\s+", compression="infer", chunksize=chunk_rows) as reader:
             for chunk in reader:
                 metadata, values = normalize_annotation_chunk(chunk, path, mode)
                 if metadata.empty:
                     continue
                 columns, metadata_columns = tuple(values.columns), tuple(metadata.columns)
                 chromosomes.update(metadata["CHR"])
-                spool.append(pd.concat([metadata, values], axis=1))
+                spool.append(metadata)
+                # A contiguous row tile avoids tofile's element-wise writes
+                # when pandas supplies a column-major numeric block.
+                np.ascontiguousarray(values.to_numpy(dtype=np.float32)).tofile(numeric)
+                width = len(chunk.columns)
     except (pd.errors.ParserError, UnicodeDecodeError, ValueError) as exc:
         raise LDSCInputError(_annotation_parse_error_message(path, details=str(exc))) from exc
     if not chromosomes:
         raise LDSCInputError(f"Annotation file '{path}' has no SNP rows. Supply a nonempty annotation grid.")
-    return _Source(Path(path), spool, columns, metadata_columns, chromosomes)
+    return _Source(Path(path), spool, values_path, columns, metadata_columns, chromosomes, width)
 
 
 def _layout(sources, label):
@@ -83,51 +96,104 @@ def _layout(sources, label):
     return result
 
 
-def _aligned_rows(sources, mode):
-    for chunks in zip_longest(*(source.spool.frames() for source in sources)):
+def _metadata_chunks(source, chunk_rows):
+    """Reblock metadata after discovering which sources describe aligned rows."""
+    parts, size = [], 0
+    for frame in source.spool.frames():
+        start = 0
+        while start < len(frame):
+            stop = min(len(frame), start + chunk_rows - size)
+            parts.append(frame.iloc[start:stop])
+            size += stop - start
+            start = stop
+            if size == chunk_rows:
+                yield pd.concat(parts, ignore_index=True)
+                parts, size = [], 0
+    if parts:
+        yield pd.concat(parts, ignore_index=True)
+
+
+def _aligned_metadata(sources, mode, chunk_rows):
+    for chunks in zip_longest(*(_metadata_chunks(source, chunk_rows) for source in sources)):
         if any(chunk is None for chunk in chunks):
             raise LDSCInputError("Annotation SNP rows do not match across files: row count mismatch. Regenerate aligned sources.")
-        reference = chunks[0].loc[:, sources[0].metadata_columns].reset_index(drop=True)
-        values = []
-        for source, chunk in zip(sources, chunks):
-            current = chunk.loc[:, source.metadata_columns].reset_index(drop=True)
+        reference = chunks[0]
+        for source, current in zip(sources[1:], chunks[1:]):
             alignment_mode = mode
             if not all({"A1", "A2"}.issubset(frame.columns) for frame in (reference, current)):
                 alignment_mode = identity_base_mode(mode)
-            if source is not sources[0]:
-                assert_same_snp_rows(reference, current, context=f"Annotation SNP rows do not match across files: {source.path}", snp_identifier=alignment_mode)
+            assert_same_snp_rows(reference, current, context=f"Annotation SNP rows do not match across files: {source.path}", snp_identifier=alignment_mode)
             if {"A1", "A2"}.issubset(current.columns) and "A1" not in reference:
                 reference[["A1", "A2"]] = current[["A1", "A2"]]
-            values.append(chunk.loc[:, source.columns].reset_index(drop=True))
-        yield reference, pd.concat(values, axis=1)
+        yield reference
 
 
-def _finish_shard(spool, root, columns, metadata_columns):
-    store = ColumnStore.create(root / "values.npy", spool.n_rows, columns)
-    metadata_path = root / "metadata.parquet"
-    offset = 0
-    writer = None
-    try:
-        for frame in spool.frames():
-            metadata = pa.Table.from_pandas(frame.loc[:, metadata_columns], preserve_index=False)
-            if writer is None:
-                writer = pq.ParquetWriter(metadata_path, metadata.schema)
-            writer.write_table(metadata)
-            store.write(offset, frame.loc[:, columns].to_numpy(dtype=np.float32))
-            offset += len(frame)
-    finally:
-        if writer is not None:
-            writer.close()
-    shutil.rmtree(spool.path)
-    return AnnotationShard(metadata_path, (store,), spool.n_rows)
+def _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom):
+    """Write final metadata and bounded row locators, counting retained rows."""
+    selections, counts, writers = [], {}, {}
+    selected_chrom = normalize_chromosome(chrom) if chrom is not None else None
+    with ExitStack() as stack:
+        for ordinal, (group, chunk_rows) in enumerate(zip(groups, group_rows)):
+            selection = FrameSpool(workspace.path / f"selection-{ordinal}")
+            selections.append(selection)
+            offset = 0
+            for metadata in _aligned_metadata(group, mode, chunk_rows):
+                keep, dropped = identity.select(metadata)
+                drops.append(dropped)
+                if selected_chrom is not None:
+                    keep &= metadata["CHR"].to_numpy() == selected_chrom
+                retained = metadata.loc[keep]
+                selection.append(pd.DataFrame({"row": np.flatnonzero(keep) + offset,
+                                               "CHR": retained["CHR"].to_numpy()}))
+                offset += len(metadata)
+                for label, rows in retained.groupby("CHR", sort=False):
+                    table = pa.Table.from_pandas(rows, preserve_index=False)
+                    if label not in writers:
+                        root = workspace.path / f"chrom-{label}"
+                        root.mkdir()
+                        writers[label] = stack.enter_context(pq.ParquetWriter(root / "metadata.parquet", table.schema))
+                    writers[label].write_table(table)
+                    counts[label] = counts.get(label, 0) + len(rows)
+    return selections, counts
+
+
+def _write_values(groups, selections, counts, workspace, columns):
+    """Copy numeric tiles once, writing each source directly to its columns."""
+    stores, offsets = {}, dict.fromkeys(counts, 0)
+    for group, selection in zip(groups, selections):
+        with ExitStack() as stack:
+            streams = [stack.enter_context(source.values_path.open("rb")) for source in group]
+            for frame in selection.frames():
+                first, stop = int(frame["row"].iloc[0]), int(frame["row"].iloc[-1]) + 1
+                by_chrom = list(frame.groupby("CHR", sort=False))
+                for label, _ in by_chrom:
+                    if label not in stores:
+                        stores[label] = ColumnStore.create(workspace.path / f"chrom-{label}" / "values.npy", counts[label], columns)
+                for source, stream in zip(group, streams):
+                    width = len(source.columns)
+                    stream.seek(first * width * np.dtype(np.float32).itemsize)
+                    values = np.fromfile(stream, dtype=np.float32, count=(stop - first) * width).reshape(-1, width)
+                    for label, rows in by_chrom:
+                        stores[label].write(offsets[label], values[rows["row"].to_numpy() - first], columns=source.columns)
+                for label, rows in by_chrom:
+                    offsets[label] += len(rows)
+        for source in group:
+            shutil.rmtree(source.values_path.parent)
+        if selection.n_rows:
+            shutil.rmtree(selection.path)
+    return {label: AnnotationShard(workspace.path / f"chrom-{label}" / "metadata.parquet", (stores[label],), counts[label])
+            for label in sorted(stores, key=_chrom_sort_key)}
 
 
 def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, chunk_rows=None, chrom=None, declared_chromosomes=None, input_issues=(), autosomes_only=False):
     """Scan, validate, and stage aligned whole-genome or chromosome-sharded inputs.
 
     ``workspace`` owns every scratch file. Automatic chunk sizes target 16 MiB
-    of parsed numeric cells and at most 65,536 rows across all aligned sources.
-    Global duplicate detection precedes requested chromosome selection.
+    of parsed cells and at most 65,536 rows per independently scanned file.
+    Metadata is reblocked using the combined width of each discovered aligned
+    group; explicit ``chunk_rows`` applies unchanged to both stages. Identity
+    passes never read numeric staging, and global duplicates precede requested
+    chromosome selection. Final values are copied once using retained locators.
     """
     workspace.require_open()
     paths = [*baseline_files, *query_files]
@@ -135,19 +201,19 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
         raise LDSCInputError("Annotation preparation requires baseline annotation sources.")
     issues = list(input_issues)
     declared_chromosomes = declared_chromosomes or {}
-    if chunk_rows is None:
-        width = 0
-        for path in paths:
-            try:
-                width += len(pd.read_csv(path, sep=r"\s+", nrows=0).columns)
-            except (OSError, EOFError, ValueError, UnicodeError):
-                pass  # The complete scan below records this file's issue once.
-        chunk_rows = max(1, min(65536, (16 * 1024 * 1024) // (max(1, width) * 8)))
     sources = []
     for i, path in enumerate(paths):
         declared = declared_chromosomes.get(str(path), '')
         try:
-            source = _scan(path, workspace.path / f"source-{i}", mode, chunk_rows)
+            scan_rows = chunk_rows
+            if scan_rows is None:
+                width = 1
+                try:
+                    width = len(pd.read_csv(path, sep=r"\s+", nrows=0).columns)
+                except (OSError, EOFError, ValueError, UnicodeError):
+                    pass  # The complete scan records the existing parse diagnostic.
+                scan_rows = _chunk_size(width)
+            source = _scan(path, workspace.path / f"source-{i}", mode, scan_rows)
             if autosomes_only and not source.chromosomes.issubset(AUTOSOMES):
                 raise LDSCInputError('Annotation contents must identify an autosomal chromosome set.')
             if declared and source.chromosomes != {declared}:
@@ -179,30 +245,17 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     require_unique_annotation_names(baseline_columns, query_columns)
     columns = baseline_columns + query_columns
     drops = IdentityDropSpool(workspace.path / "identity-drops")
-    spools, metadata_columns = {}, {}
+    group_rows = [chunk_rows if chunk_rows is not None else _chunk_size(sum(source.width for source in group)) for group in groups]
     effective_mode = mode
     if is_allele_aware_mode(mode) and not any("A1" in s.metadata_columns for s in sources):
         effective_mode = identity_base_mode(mode)
     with DiskIdentityIndex(workspace.path / "identity.sqlite", effective_mode) as identity:
-        for group in groups:
-            for metadata, values in _aligned_rows(group, mode):
+        for group, rows in zip(groups, group_rows):
+            for metadata in _aligned_metadata(group, mode, rows):
                 identity.add(metadata)
-        for group in groups:
-            for metadata, values in _aligned_rows(group, mode):
-                keep, dropped = identity.select(metadata)
-                drops.append(dropped)
-                if chrom is not None:
-                    keep &= metadata["CHR"].to_numpy() == normalize_chromosome(chrom)
-                retained = pd.concat([metadata.loc[keep], values.loc[keep]], axis=1)
-                for label, rows in retained.groupby("CHR", sort=False):
-                    root = workspace.path / f"chrom-{label}"
-                    spool = spools.setdefault(label, FrameSpool(root / "spool"))
-                    spool.append(rows.reset_index(drop=True))
-                    metadata_columns[label] = tuple(metadata.columns)
-    for source in sources:
-        shutil.rmtree(source.spool.path)
-    shards = {label: _finish_shard(spools[label], workspace.path / f"chrom-{label}", columns, metadata_columns[label]) for label in sorted(spools, key=_chrom_sort_key)}
+        selections, counts = _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom)
     (workspace.path / "identity.sqlite").unlink()
+    shards = _write_values(groups, selections, counts, workspace, columns)
     if not shards:
         error = LDSCInputError("annotate retained no annotation rows after SNP identity cleanup. Supply valid, unique SNP identities. Other causes & fixes: docs/troubleshooting.md#annotate-no-annotation-snp-rows-remain")
         error.annotation_drops = drops

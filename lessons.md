@@ -176,3 +176,7 @@ Last updated on: 2026-09-14
 ## Diagnostic scratch must follow execution ownership
 
 - Summary/root cause/correction: Prebuilt query batches reused the long-lived input workspace for per-batch drop reports, so completed diagnostics accumulated despite releasing query tables; give every execution batch its own scratch owner, including batches requiring no query projection, and assert earlier diagnostic paths are gone before the next batch.
+
+## NumPy raw staging needs contiguous row tiles
+
+- Summary/root cause/correction: Replacing numeric pickles with raw staging initially slowed wide annotation scans because `ndarray.tofile()` wrote pandas' column-major blocks element by element; convert each bounded tile with `np.ascontiguousarray()` before writing and benchmark scan time separately from downstream reads.

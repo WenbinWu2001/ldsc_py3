@@ -132,6 +132,8 @@ the supplied baseline matrix or its LD-reference universe.
 The builder consumes annotation values and reconstructs the numerical baseline
 payload; it does not import the suite's precomputed LD-score or count files.
 
+Before launching chromosome workers, [`_build_and_publish_index()`](../../src/ldsc/gene_ldscore_index.py) calls shared [`prepare_annotation_sources()`](../../src/ldsc/_annotation_sources.py). This serial phase scans and validates the complete baseline suite, applies global duplicate cleanup using metadata alone, and copies retained values into private NumPy/Parquet shards inside the existing build transaction. Automatic tiles use each aligned group's width, so unrelated chromosome shards do not shrink them. `--threads` controls the subsequent chromosome calculations. Preparation parallelism is a separate possible follow-up; see the [storage design](annotation-memory-design.md#bounded-source-preparation) and [local measurements](../audits/annotation-memory/annotation-preparation.md).
+
 | Baseline-suite component | Used by index builder? |
 | --- | --- |
 | `baseline.N.annot.gz` | **Yes.** Supplies $A$, the baseline annotation matrix. |

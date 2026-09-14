@@ -160,6 +160,8 @@ Sources: `prepare_munge_input` in [_sumstats_input.py](../../../src/ldsc/_sumsta
 
 ## Automatically inferred column aliases
 
+*<u>[Clean up this section.]</u>*
+
 The table lists the raw-sumstats registry, including canonical spellings. Matching is case-insensitive; leading/trailing whitespace is stripped, and periods and hyphens are converted to underscores. For example, `p.value` matches `P_VALUE`. This reader uses cleaned exact aliases, not arbitrary substring or suffix matching. If multiple columns map to one field, choose the intended column explicitly or exclude the extra columns with `--ignore`.
 
 | Canonical field | Recognized headers | Explicit override / role |
@@ -188,7 +190,7 @@ For DANER inputs, format-specific header handling additionally recognizes encode
 
 Source: `RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS`, `RAW_SUMSTATS_SIGNED_STAT_SPECS`, and `clean_header` in [column_inference.py](../../../src/ldsc/column_inference.py); `get_cname_map` in [_sumstats_input.py](../../../src/ldsc/_sumstats_input.py); `infer_raw_sumstats` in [sumstats_munger.py](../../../src/ldsc/sumstats_munger.py).
 
-## Flags for specifying input column names
+## Flags for specifying input fields and sample sizes
 
 ### Required fields and sample-size alternatives
 
@@ -205,7 +207,17 @@ Source: `RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS`, `RAW_SUMSTATS_SIGNED_STAT_SPE
 | Case count, alternative to N | `--N-cas-col COLUMN` | `--N-cas-col cases` |
 | Control count, paired with cases | `--N-con-col COLUMN` | `--N-con-col controls` |
 
-Field requirements depend on identity mode and sample-size strategy; see [Minimal raw input fields](#minimal-raw-input-fields). For signed statistics, use null `0` for BETA, Z, or log odds; `1` for OR. Supply either `--N-col` or both case/control column flags.
+Field requirements depend on identity mode and sample-size strategy; see [Minimal raw input fields](#minimal-raw-input-fields). For signed statistics, use null `0` for BETA, Z, or log odds; `1` for OR. For per-variant sample sizes, supply either `--N-col` or both case/control column flags.
+
+**Constant sample sizes:** these flags take numbers instead of column names and supply the same sample size for every retained variant when per-variant sample-size columns are absent.
+
+| Field | Flag | Example |
+| --- | --- | --- |
+| Constant total sample size | `--N VALUE` | `--N 100000` |
+| Constant case count | `--N-cas VALUE` | `--N-cas 20000` |
+| Constant control count | `--N-con VALUE` | `--N-con 80000` |
+
+Supply either `--N` or both `--N-cas` and `--N-con`; the paired constants are added, so the example gives `N = 100000`. These are fallbacks: input N or paired case/control columns take precedence, followed by `--N`, then the paired constants. To use a constant instead of existing sample-size columns, exclude those columns with `--ignore` and omit their column-mapping flags. Constants are assigned after sample-size filtering and are not filtered by `--n-min`. Source: sample-size options in `build_parser` in [sumstats_munger.py](../../../src/ldsc/sumstats_munger.py) and `process_n` in [_kernel/sumstats_munger.py](../../../src/ldsc/_kernel/sumstats_munger.py).
 
 ### Optional fields and ignored columns
 

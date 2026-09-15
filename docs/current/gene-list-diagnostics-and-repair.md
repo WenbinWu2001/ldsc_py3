@@ -1,13 +1,12 @@
 # Gene-list diagnostics and repair
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-15
 
 This guide is the detailed reference for diagnosing direct and indexed
 gene-list `ldscore` runs. The design assumes that users do not inspect a file
 log after a successful SLURM job. Therefore, strict mode stops before LD-score
 calculation when identifier resolution would silently change the submitted
-gene set. The exploratory `resolved-only` policy continues only with an
-explicit audit, summary, metadata record, and bounded console warning.
+gene set. The value-free `--allow-unresolved-genes` flag selects the exploratory `resolved-only` policy, which continues only with an explicit audit, summary, metadata record, and bounded console warning.
 
 Start with `diagnostics/gene_list_resolution_summary.tsv`. It identifies the
 affected focal or control files and shows their resolved/total counts. Then
@@ -197,18 +196,14 @@ change the conditioning model.
 
 ## Strict versus resolved-only
 
-Strict is the default and recommended policy for final analyses:
-
-```bash
---gene-list-resolution-policy strict
-```
+Strict is the default and recommended policy for final analyses; omit `--allow-unresolved-genes`.
 
 Any rejected focal/control row stops Gate A after the complete batch has been
 audited. Use the exploratory policy only when deliberate subset analysis is
 appropriate, for example a preliminary screen of hundreds of pathways:
 
 ```bash
---gene-list-resolution-policy resolved-only
+--allow-unresolved-genes
 ```
 
 It may omit unmatched, ambiguous, namespace-conflicting, duplicate-ID,
@@ -220,7 +215,7 @@ batch systems.
 
 ### Resolution policy versus computation mode
 
-`strict` and `resolved-only` are resolution policies; direct and indexed are computation modes. Both modes accept either policy through `--gene-list-resolution-policy`. Direct mode resolves genes against the supplied coordinate catalog. Indexed mode first validates the index, then resolves genes against its embedded catalog.
+`strict` and `resolved-only` are resolution policies; direct and indexed are computation modes. Both modes default to `strict`; supplying the value-free flag `--allow-unresolved-genes` selects `resolved-only`. Direct mode resolves genes against the supplied coordinate catalog. Indexed mode first validates the index, then resolves genes against its embedded catalog.
 
 In the table below, **fail** means stop the entire run. **Omit rows** means deliberately exclude the affected input rows and record them in diagnostics; continuation still requires a usable focal query and, when requested, a usable control. A **rejected row** is an input identifier that cannot provide one unique, valid catalog interval. A successfully resolved gene with no retained-SNP support is evaluated separately after resolution.
 
@@ -278,9 +273,7 @@ Implementation references: [`query_annotations.py`](../../src/ldsc/query_annotat
 7. Rerun with `--overwrite`, then diff the decompressed audit. Confirm that only
    the curated rows changed and that the final query statuses are usable.
 
-For exploratory pathway screening, preserve the original lists and run with
-`resolved-only`; archive the summary and audit with the results. Before a final
-analysis, curate the source lists and return to strict mode.
+For exploratory pathway screening, preserve the original lists and add `--allow-unresolved-genes`; archive the summary and audit with the results. Before a final analysis, curate the source lists and omit the flag to return to strict resolution.
 
 ## Coordinate-catalog repair and index-builder issues
 

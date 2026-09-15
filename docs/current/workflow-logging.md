@@ -45,7 +45,7 @@ logger keeps `propagate = True` and the root logger is never given a handler, so
 nothing is duplicated to the console and `caplog`-based tests keep working.
 
 Gene-list `ldscore` adds two deliberately bounded, direct stderr notices after a
-successful CLI run: one when `resolved-only` omitted rows and one when Gate B
+successful CLI run: one when `--allow-unresolved-genes` selected `resolved-only` and omitted rows, and one when Gate B
 found zero-SNP support or skipped/warning query outcomes. These notices bypass
 the ordinary logger threshold so a successful SLURM job cannot hide a
 science-relevant subset/skip in a log that users may never open. They name the

@@ -67,7 +67,7 @@ ldsc quantile-h2 \
   --output-dir "${OUTPUT_ROOT}/external-score-quantiles"
 ```
 
-Use the same query input form used for LD scores: `--query-annot-sources`, `--query-annot-bed-sources`, or `--query-annot-gene-list-sources` with its gene options.
+Use the same query input form used for LD scores: `--query-annot-sources`, `--query-annot-bed-sources`, or `--query-annot-gene-list-sources` with its gene options. Gene-list reconstruction is strict by default; add `--allow-unresolved-genes` with no value if the original LD-score run used the deliberate `resolved-only` subset. Reproduce the original catalog, padding, exclusions, and any control as well. The old `--gene-list-resolution-policy` option is rejected without an alias. See [gene-list reconstruction](../current/continuous-annotation-quantile-h2.md#gene-list-resolution); source: `add_quantile_h2_arguments()` in [quantile_h2.py](../../src/ldsc/quantile_h2.py).
 
 By default, every target value must be finite and numeric. If exactly one token means missingness, name it explicitly, for example `--target-missing-value NaN`. Those SNPs are excluded from quantile construction. Zero is retained unless you explicitly choose zero as the missing token.
 

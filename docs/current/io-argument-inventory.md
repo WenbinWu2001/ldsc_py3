@@ -178,7 +178,7 @@ are written.
 
 Removed flags: `--bed-files`, `--baseline-annot`, `--bed-padding-bp`.
 
-Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requires `--gene-coordinate-file` and explicit nonnegative `--padding-bp`, and supports `--gene-list-resolution-policy {strict,resolved-only}` and `--gene-exclude-regions {none,mhc}`. It has no control list. `--output-dir` remains required; the complete contract is in [annotate gene-list decisions](annotate-gene-list-decisions.md).
+Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requires `--gene-coordinate-file` and explicit nonnegative `--padding-bp`, and supports the opt-in flag `--allow-unresolved-genes` (omission keeps strict resolution) and `--gene-exclude-regions {none,mhc}`. It has no control list. `--output-dir` remains required; the complete contract is in [annotate gene-list decisions](annotate-gene-list-decisions.md).
 
 ### `ldsc ldscore`
 
@@ -194,7 +194,7 @@ Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requi
 | `--query-annot-bed-sources` | input | no | query BED interval files | Supplies BED intervals projected one execution batch at a time with private staging under the output directory; defaults to omitted/`None`. Mutually exclusive with the prebuilt and gene-list routes and requires `--baseline-annot-sources`. Concrete-source failures are recorded and skipped while usable siblings continue. |
 | `--query-annot-gene-list-sources` | input | no | one-column gene lists | Supplies focal gene-list sources. Mutually exclusive with other query routes. Direct mode requires `--baseline-annot-sources`, `--gene-coordinate-file`, and explicit padding; indexed mode requires `--gene-ldscore-index-dir` and uses its embedded catalog. |
 | `--gene-coordinate-file` | input | conditional | one-based build-aware gene catalog | Required for direct gene-list mode and index construction. It is the sole focal/control resolution universe and is forbidden in indexed online mode. |
-| `--gene-list-resolution-policy` | policy | no | strict or deliberate subset resolution | `strict` by default; `resolved-only` permits approved rejected rows to be omitted with audit/metadata/console notice. Valid only in gene-list modes. |
+| `--allow-unresolved-genes` | flag | no | deliberate subset resolution | Off by default (`strict`); supplying the flag selects `resolved-only` and permits approved rejected rows to be omitted with audit/metadata/console notice. Valid only in gene-list modes. |
 | `--padding-bp` | input transform | conditional | live BED or gene interval expansion | Live gene lists must supply it explicitly (`0` means gene bodies); live BED omission means `0`. Padding extends both ends of the supplied BED intervals; use `0` when they already include the intended padding to avoid double padding. Explicit padding is rejected for prebuilt/no-query/indexed modes. |
 | `--gene-exclude-regions` | input transform | no | live gene exclusion policy | Excludes `none` or `mhc` from live gene-list projection before padding; defaults to `none`. It is independent of SNP `--regr-snps-exclude-regions`; the non-default `mhc` choice is rejected outside live gene-list mode. |
 | `--control-gene-list-file` | input | no | fixed gene control | Supplies one existing one-column control gene-list file for live or indexed gene-list runs. When omitted (the default), no `gene_control` column is added. Supplying it requires a gene-list run. |

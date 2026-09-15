@@ -257,7 +257,6 @@ ldsc ldscore \
   --query-annot-gene-list-sources "gene_lists/*.txt.gz" \
   --gene-coordinate-file "annotations/gene-coordinates.hg38.tsv.gz" \
   --padding-bp 100000 \
-  --gene-list-resolution-policy strict \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
   --snp-identifier chr_pos_allele_aware \
   --genome-build auto \
@@ -270,8 +269,8 @@ universe. Its declared build must agree with baseline/reference-panel evidence;
 `auto` reports the resolved build in `diagnostics/ldscore.log`. Gene-list
 padding must be chosen explicitly, including `--padding-bp 0` for gene bodies.
 
-Strict mode batches all focal/control identifier problems and stops before
-LD-score work. Use `resolved-only` deliberately for exploratory subset analysis.
+The command above uses strict resolution: it audits all focal/control identifier problems and stops before LD-score work if any identifiers are rejected. For deliberate exploratory subset analysis, add `--allow-unresolved-genes` with no following value. This selects `resolved-only` and records omissions. The retired `--gene-list-resolution-policy` option is rejected without an alias; remove its `strict` option/value pair from older commands or replace its `resolved-only` pair with the new flag.
+
 Start diagnosis with `gene_list_resolution_summary.tsv`, then filter
 `gene_list_audit.tsv.gz`; after Gate A, `query_annotation_status.tsv` records
 query-local viability. Valid siblings continue through SNP-support or variance
@@ -388,6 +387,8 @@ ldsc ldscore \
   --output-dir "tutorial_outputs/indexed_gene_ldscores"
 ```
 
+This indexed example also uses strict resolution. Add `--allow-unresolved-genes` only for a deliberate resolved subset; index integrity, chromosome coverage, and requested-control viability remain required.
+
 Indexed assembly inherits the validated index identity and hg19 provenance.
 It adds no gene control unless one existing one-column file is supplied with
 `--control-gene-list-file`.
@@ -447,13 +448,14 @@ To construct the same persistent annotation format from gene lists, select the g
 ldsc annotate \
   --query-annot-gene-list-sources "gene_lists/*.txt" \
   --gene-coordinate-file references/genes_hg19.tsv.gz \
-  --gene-list-resolution-policy strict \
   --gene-exclude-regions none \
   --padding-bp 0 \
   --genome-build hg19 \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --output-dir annotations/query_from_genes
 ```
+
+The standalone example is strict by default. Add `--allow-unresolved-genes` with no value to omit approved rejected identifiers with diagnostics. Python callers use `run_annotate(..., gene_list_resolution_policy="resolved-only")` for the same policy.
 
 Standalone gene annotation measures support on the cleaned baseline SNP grid and reports `annotation_snp_count`; it does not evaluate reference-panel or regression support. Empty and globally unsupported focal lists are skipped, usable siblings continue, and an all-skipped batch fails. All-one queries are retained. No control-gene route is accepted. See the [standalone guide](../docs/wiki/utility-functionalities/annotate.md) for coverage, diagnostics, and build rules.
 

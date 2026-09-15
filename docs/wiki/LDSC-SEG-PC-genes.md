@@ -54,7 +54,6 @@ ldsc ldscore \
   --ld-wind-cm 1.0 \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
-  --gene-list-resolution-policy strict \
   --output-dir "${PARTITIONED_LDSCORE_DIR}" \
   --overwrite
 ```
@@ -69,7 +68,7 @@ Flags used in this command:
 - `--ld-wind-cm 1.0` calculates LD within a 1-cM window.
 - `--padding-bp 100000` adds 100 kb to either side of each gene interval.
 - `--gene-coordinate-file` is the sole one-based hg19 catalog for focal and control lists; there is no packaged fallback.
-- `--gene-list-resolution-policy strict` stops before LD-score work if any submitted identifier is unresolved or ambiguous. Use `resolved-only` only for deliberate exploratory subset analysis.
+- Strict resolution stops before LD-score work if any submitted identifier is unresolved or ambiguous. Add `--allow-unresolved-genes` only for deliberate exploratory subset analysis.
 - No control-gene annotation is added by default. To add one, pass a single existing file with `--control-gene-list-file`; it must contain one Ensembl gene ID or gene name per line, without a header.
 - `--gene-exclude-regions mhc` removes query genes whose unpadded intervals overlap the MHC before padding and projection. If a control gene list is enabled, the same filter also applies to it. This is a gene-level filter; it does not remove SNPs from the LD reference panel.
 - `--output-dir` specifies the LD-score output directory.

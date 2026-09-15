@@ -1,6 +1,6 @@
 # LDSC2 to Current CLI Flag Map
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-15
 
 This document maps changed LDSC2 flags to the supported `ldsc` commands and records the flag-cleanup decisions. “Removed” means the parser rejects the old option; there are no compatibility aliases. A retired option whose behavior is now automatic has that behavior described explicitly below. The [IO argument inventory](io-argument-inventory.md) lists the complete current surface, and [munge-sumstats](munge-sumstats.md) describes its input and artifact contracts.
 
@@ -10,6 +10,7 @@ Some replaced spellings came from earlier LDSC3 revisions rather than LDSC2. The
 
 | LDSC2 flag | Earlier LDSC3 spelling | Current command/flag | Current behavior |
 | --- | --- | --- | --- |
+| No equivalent LDSC2 flag | `--gene-list-resolution-policy {strict,resolved-only}` | `annotate`, `ldscore`, and `quantile-h2`: `--allow-unresolved-genes` | Value-free opt-in flag. Omission retains strict resolution; supplying it selects the existing `resolved-only` policy and omission diagnostics. Remove the entire `--gene-list-resolution-policy strict` option/value pair from existing commands; replace `--gene-list-resolution-policy resolved-only` with the new flag. The old option is rejected without an alias. Python policy arguments and metadata values remain unchanged. |
 | `munge_sumstats.py --keep-maf` | `munge-sumstats --keep-maf` | Removed; no replacement toggle | Preserve a recognized/selected input frequency column as `FRQ` whenever present; omit `FRQ` when absent. Preserve its values without converting them to MAF, including frequencies above 0.5. `--maf-min` still filters on folded MAF. There is no `--keep-frequency` option. |
 | `munge_sumstats.py --daner` | `munge-sumstats --format daner-old` | `ldsc munge-sumstats --input-format daner-old` | Read constant case/control counts from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers. Default `--input-format auto` can detect this profile. |
 | `munge_sumstats.py --daner-n` | `munge-sumstats --format daner-new` | `ldsc munge-sumstats --input-format daner-new` | Retain new-DANER selection, using the same shared preparation, aliases, optional fields, validation, and reader as automatically detected new-DANER input. `Nca/Nco`, `NCAS/NCON`, and case variants use the central alias registry. `FRQ_U_*` is optional. |

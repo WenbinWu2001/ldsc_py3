@@ -1,6 +1,6 @@
 # Continuous-Annotation Quantile Heritability: Technical Contract
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-15
 
 `ldsc quantile-h2` is a post-fit projection workflow for interpreting a continuous target annotation. It consumes exactly one fitted joint `partitioned-h2` model, reconstructs that model's common reference-SNP universe, assigns eligible SNPs to target-value quantiles, and projects the saved whole-data and delete-one-block coefficient vectors onto those quantiles. It does not refit LDSC.
 
@@ -40,6 +40,10 @@ The command deliberately does not copy original annotation matrices into regress
 Path arguments accept exact files, globs, `@` chromosome placeholders, and existing path-token conventions. Parquet-R2 users can supply the existing `chr*_meta.tsv.gz` sidecars. PLINK users should supply metadata previously produced with `ldscore --export-ref-metadata`. Reference metadata requires `CHR`, `POS` (or `BP`), `SNP`, and `MAF`; allele-aware identity also uses `A1/A2`, with inference allowed only when the base identity is unique.
 
 Annotation names must be globally unique within one LD-score artifact. The annotation classifier labels a column `binary` only when all finite values are exactly `0` or `1`; every other finite numeric column is `quantitative`. Classification affects logs and metadata only, never coefficients or other numerical results.
+
+### Gene-list resolution
+
+When reconstructing a gene-list query, supply `--query-annot-gene-list-sources` and reproduce the original catalog, padding, exclusions, optional control, and resolution policy. Resolution is strict by default. Add the value-free `--allow-unresolved-genes` flag if the original LD-score run deliberately used the `resolved-only` subset; do not append a policy value. The old `--gene-list-resolution-policy` option is rejected without an alias. Other source, coverage, and model-consistency checks still apply. See [resolution choices and migration](gene-list-input-format.md#strict-and-exploratory-resolution) and `add_quantile_h2_arguments()` in [quantile_h2.py](../../src/ldsc/quantile_h2.py).
 
 ## Missing target values
 

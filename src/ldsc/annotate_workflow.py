@@ -84,8 +84,13 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
     padding_bp : int, optional
         Nonnegative interval padding. Gene mode requires an explicit value;
         omitted BED padding is zero. Gene starts are clipped at zero.
-    gene_list_resolution_policy : {'strict', 'resolved-only'}, optional
-        Gene-only rejection policy, default strict.
+    gene_list_resolution_policy : {'strict', 'resolved-only'} or None, optional
+        Gene-only rejection policy. Omitted or ``None`` means ``'strict'``:
+        rejected identifiers stop preparation after the batch audit.
+        ``'resolved-only'`` omits allowlisted rejected rows and records the
+        resolved subset in diagnostics. Structural input and chromosome-coverage
+        errors remain fatal. The CLI selects this policy with the value-free
+        ``--allow-unresolved-genes`` flag; the Python parameter remains a string.
     gene_exclude_regions : {'none', 'mhc'}, optional
         Gene-only explicit exclusion before padding, default none.
     genome_build : str, optional

@@ -2006,7 +2006,13 @@ def run_indexed_ldscore(
         Optional fixed-control gene-list file. When omitted, no
         ``gene_control`` annotation is added.
     gene_list_resolution_policy : {"strict", "resolved-only"}, optional
-        Apply the usual identifier-resolution gate; default is strict.
+        Default ``"strict"`` stops on rejected identifiers after auditing all
+        focal lists and the optional control. ``"resolved-only"`` omits
+        allowlisted rejected rows with diagnostics; invalid indexes, incomplete
+        chromosome coverage, and an unusable requested control remain fatal.
+        This Python parameter retains its string values. In ``ldsc ldscore``,
+        omit ``--allow-unresolved-genes`` for strict resolution or supply that
+        value-free flag for ``"resolved-only"``.
     query_batch_size : int, optional
         Positive maximum focal columns per operator multiplication, default 1000.
         Also bounds genome-wide result assembly and saved query-file width.

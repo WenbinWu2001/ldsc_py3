@@ -1,6 +1,6 @@
 # Standalone Annotate Gene-list Decisions
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-15
 
 Status: standalone BED/gene-list CLI and `run_annotate()` are implemented using staged chromosome access. Direct/indexed workflow migration is implemented under the [memory implementation plan](../plans/2026-09-10-annotation-workflow-memory.md). The decision table remains the behavior contract; implementation evidence is recorded in the [memory audit](../audits/annotation-memory/progress.md).
 
@@ -20,10 +20,12 @@ Accept exactly one of `--query-annot-bed-sources` and `--query-annot-gene-list-s
 | `--query-annot-gene-list-sources` | Focal gene-list exact paths or globs, using existing path-token normalization, deterministic expansion, source naming, and resolution rules. |
 | `--gene-coordinate-file` | Required for gene lists; the user-supplied TSV/TSV.GZ is the sole coordinate and gene-resolution authority. |
 | `--padding-bp` | Gene lists require an explicit nonnegative integer, including explicit `0` for gene bodies. BED omission remains effective zero. Preserve omission until the route is known. |
-| `--gene-list-resolution-policy` | Gene-only; `strict` by default or explicit `resolved-only`, using the existing omission allowlist. |
+| `--allow-unresolved-genes` | Gene-only boolean flag; omitted means `strict`, supplied means `resolved-only`, using the existing omission allowlist. |
 | `--gene-exclude-regions` | Gene-only; `none` by default or explicit `mhc`. Exclude genes using their unpadded intervals before applying padding. |
 | `--snp-identifier`, `--genome-build` | Preserve identity modes and reuse applicable direct-ldscore build-resolution rules described below. |
 | `--overwrite`, `--log-level` | Existing output-family and logging controls. |
+
+The CLI flag takes no value. The retired `--gene-list-resolution-policy` option is rejected without an alias. Python `run_annotate()` retains `gene_list_resolution_policy`: omission or `None` selects `strict`, and `"resolved-only"` explicitly permits the audited subset. Metadata retains the effective policy string.
 
 Do not expose `--control-gene-list-file`. A control becomes baseline column `gene_control` in direct ldscore, whereas annotate writes query columns. No control or copied-baseline output suite is added. Existing shared control support remains available to its current workflows.
 

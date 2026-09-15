@@ -1159,10 +1159,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     genes.add_argument(
-        '--gene-list-resolution-policy', choices=('strict', 'resolved-only'), default='strict',
+        '--allow-unresolved-genes', action='store_const', const='resolved-only',
+        dest='gene_list_resolution_policy', default='strict',
         help=(
-            'Handle rejected gene identifiers: strict stops the run; resolved-only continues with the '
-            'usable subset. Default: strict. Applies to --query-annot-gene-list-sources.'
+            'Omit rejected gene identifiers and continue with the usable subset, recording omissions '
+            'in diagnostics. Default: off (strict resolution; rejected identifiers stop the run). '
+            'Requires --query-annot-gene-list-sources. Other validation errors remain fatal.'
         ),
     )
     genes.add_argument(
@@ -1612,7 +1614,7 @@ def _validate_gene_list_mode_args(args: argparse.Namespace) -> None:
         "--gene-coordinate-file",
         "--gene-exclude-regions",
         "--control-gene-list-file",
-        "--gene-list-resolution-policy",
+        "--allow-unresolved-genes",
     }
     if not has_gene_lists:
         if (
@@ -1730,7 +1732,7 @@ def _emit_resolved_only_notice(batch: Any | None) -> None:
     )
     extra = max(0, len(affected) - MAX_CONSOLE_GENE_ISSUES)
     message = (
-        f"WARNING: --gene-list-resolution-policy resolved-only completed with {rejected} of {total} "
+        f"WARNING: --allow-unresolved-genes completed with {rejected} of {total} "
         f"submitted row(s) omitted: {sources}"
         + (f", plus {extra} more affected source(s)" if extra else "")
         + ". See diagnostics/gene_list_resolution_summary.tsv and diagnostics/gene_list_audit.tsv.gz."
@@ -1925,6 +1927,14 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
     explicitly for live gene lists; passing it with a prebuilt annotation
     query, no query, or an exact index raises ``LDSCUsageError`` even when its
     value is zero.
+
+    Gene-list resolution defaults to ``gene_list_resolution_policy="strict"``.
+    For deliberate subset analysis, pass
+    ``gene_list_resolution_policy="resolved-only"`` to omit allowlisted rejected
+    rows with diagnostics. Structural input, chromosome-coverage, and requested
+    control validation still apply. This Python keyword retains its policy
+    strings; the CLI uses the value-free ``--allow-unresolved-genes`` flag to
+    select ``"resolved-only"`` and rejects ``--gene-list-resolution-policy``.
 
     Returns
     -------

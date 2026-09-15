@@ -177,11 +177,12 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
     genes.add_argument(
-        '--gene-list-resolution-policy', choices=('strict', 'resolved-only'), default=None,
+        '--allow-unresolved-genes', action='store_const', const='resolved-only',
+        dest='gene_list_resolution_policy', default=None,
         help=(
-            'Handle rejected gene identifiers: strict stops the run; resolved-only continues with the '
-            'usable subset. Default: strict. Requires --query-annot-gene-list-sources when explicitly '
-            'supplied.'
+            'Omit rejected gene identifiers and continue with the usable subset, recording omissions '
+            'in diagnostics. Default: off (strict resolution; rejected identifiers stop the run). '
+            'Requires --query-annot-gene-list-sources. Other validation errors remain fatal.'
         ),
     )
     genes.add_argument(

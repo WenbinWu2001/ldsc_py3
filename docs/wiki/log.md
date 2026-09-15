@@ -51,3 +51,9 @@ Source: `src/ldsc/sumstats_munger.py` (`build_parser`, `run_munge_sumstats_from_
 Reason: record the completed 1,000-query chromosome-22 comparison at generation widths 1,000 and 100. Explain the measured scratch/runtime trade-off and essentially unchanged peak RAM, and distinguish these pilots from full-genome projections and the gene-list tutorial's different padding.
 
 Source: [batch benchmark audit](../audits/annotation-memory/sequential-query-batches.md#resource-measurements-and-limits) and its [portable measured/projection evidence](../audits/annotation-memory/sequential-query-batch-benchmarks.json), measured at package revision `cf1dfac`.
+
+## 2026-09-15 update | gene-list resolution flag
+
+Reason: align gene-list LD-score, standalone annotation, and continuous-annotation guidance with the value-free `--allow-unresolved-genes` flag, strict omission default, and rejection of the retired option without a compatibility alias. Explain unchanged Python policy strings and metadata, and reproduction of the original resolution policy for quantile reconstruction. Update the corresponding docstrings, current references, and LD-score tutorial.
+
+Source: `build_parser()` and `run_ldscore()` in [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py), `add_annotate_arguments()` in [annotation_builder.py](../../src/ldsc/annotation_builder.py), `run_annotate()` in [annotate_workflow.py](../../src/ldsc/annotate_workflow.py), and `add_quantile_h2_arguments()` in [quantile_h2.py](../../src/ldsc/quantile_h2.py).

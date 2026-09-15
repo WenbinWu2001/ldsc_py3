@@ -335,7 +335,13 @@ class AnnotationBuildConfig:
     gene_coordinate_file : path-like, optional
         Required coordinate catalog for gene-list queries.
     gene_list_resolution_policy : {"strict", "resolved-only"}, optional
-        Identifier-resolution policy; default is ``"strict"``.
+        Identifier-resolution policy, default ``"strict"``: rejected identifiers
+        stop preparation after the batch audit. ``"resolved-only"`` permits
+        allowlisted rejected rows to be omitted with diagnostics; structural
+        input and chromosome-coverage validation still apply. The CLI selects
+        this policy with the value-free ``--allow-unresolved-genes`` flag;
+        omitting that flag keeps strict resolution. Python retains this
+        string-valued parameter.
 
     Notes
     -----

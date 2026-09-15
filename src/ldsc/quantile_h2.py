@@ -569,13 +569,13 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
     genes.add_argument(
-        '--gene-list-resolution-policy', choices=('strict', 'resolved-only'), default='strict',
+        '--allow-unresolved-genes', action='store_const', const='resolved-only',
+        dest='gene_list_resolution_policy', default='strict',
         help=(
-            (
-            'Handle rejected gene identifiers: strict stops; resolved-only continues with usable genes and '
-            'requires --query-annot-gene-list-sources. Default: strict. Reproduce the original LD-score '
-            'policy.'
-        )
+            'Omit rejected gene identifiers and continue with the usable subset, recording omissions '
+            'in diagnostics. Default: off (strict resolution; rejected identifiers stop the run). '
+            'Requires --query-annot-gene-list-sources. Other validation errors remain fatal. '
+            'Reproduce the original LD-score policy.'
         ),
     )
     genes.add_argument(
@@ -637,7 +637,12 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
     ----------
     args : argparse.Namespace
         Parsed command arguments registered by
-        :func:`add_quantile_h2_arguments`.
+        :func:`add_quantile_h2_arguments`. For gene-list reconstruction, omitting
+        ``--allow-unresolved-genes`` sets ``gene_list_resolution_policy`` to
+        ``"strict"``; supplying that value-free flag sets ``"resolved-only"``.
+        Resupply the original LD-score resolution policy and gene inputs so the
+        reconstructed annotations represent the fitted model. The retired
+        ``--gene-list-resolution-policy`` CLI option is rejected.
 
     Returns
     -------

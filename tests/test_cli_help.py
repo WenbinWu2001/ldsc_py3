@@ -21,6 +21,32 @@ def commands():
                 if isinstance(action, argparse._SubParsersAction)).choices
 
 
+@pytest.mark.parametrize("command, inputs, default", [
+    ("annotate", ["--baseline-annot-sources", "baseline.annot.gz",
+                  "--query-annot-gene-list-sources", "genes.txt"], None),
+    ("ldscore", [], "strict"),
+    ("quantile-h2", ["--partitioned-h2-result-dir", "results",
+                     "--target-annot-sources", "target.annot.gz",
+                     "--target-annotation", "target",
+                     "--baseline-annot-sources", "baseline.annot.gz",
+                     "--ref-metadata-sources", "ref.tsv.gz"], "strict"),
+])
+def test_allow_unresolved_genes_is_an_opt_in_flag(commands, command, inputs, default, capsys):
+    parser = commands[command]
+    argv = [*inputs, "--output-dir", "out"]
+    assert parser.parse_args(argv).gene_list_resolution_policy == default
+    assert parser.parse_args([*argv, "--allow-unresolved-genes"]).gene_list_resolution_policy == "resolved-only"
+    for removed_or_extra in (["--gene-list-resolution-policy", "resolved-only"],
+                             ["--allow-unresolved-genes", "resolved-only"]):
+        with pytest.raises(SystemExit) as error:
+            parser.parse_args([*argv, *removed_or_extra])
+        assert error.value.code == 2
+        assert "unrecognized arguments" in capsys.readouterr().err
+    help_text = parser.format_help()
+    assert "--allow-unresolved-genes" in help_text
+    assert "--gene-list-resolution-policy" not in help_text
+
+
 def test_every_visible_option_has_help_and_logging_levels(commands):
     for name, parser in commands.items():
         for action in parser._actions:

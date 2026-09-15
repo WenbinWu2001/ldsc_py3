@@ -402,6 +402,9 @@ def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentPars
             destination.add_argument(*option_strings, action="store_true", default=action.default, help=action.help)
         elif action.__class__.__name__ == "_StoreFalseAction":
             destination.add_argument(*option_strings, action="store_false", default=action.default, help=action.help)
+        elif action.__class__.__name__ == "_StoreConstAction":
+            kwargs.pop("nargs", None)
+            destination.add_argument(*option_strings, action="store_const", **kwargs)
         else:
             destination.add_argument(*option_strings, **kwargs)
 

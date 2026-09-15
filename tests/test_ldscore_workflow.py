@@ -1295,7 +1295,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             [
                 "--output-dir", "out",
                 "--query-annot-bed-sources", "query.bed",
-                "--gene-list-resolution-policy", "resolved-only",
+                "--allow-unresolved-genes",
             ]
         )
 
@@ -1305,7 +1305,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
     def test_explicit_default_gene_options_are_rejected_outside_gene_list_mode(self):
         parser = ldscore_workflow.build_parser()
         for option, value in (
-            ("--gene-list-resolution-policy", "strict"),
             ("--gene-exclude-regions", "none"),
         ):
             with self.subTest(option=option):
@@ -1354,8 +1353,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 "genes.tsv.gz",
                 "--padding-bp",
                 "0",
-                "--gene-list-resolution-policy",
-                "resolved-only",
+                "--allow-unresolved-genes",
             ]
         )
 
@@ -1899,8 +1897,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     str(genes),
                     "--gene-coordinate-file",
                     str(catalog),
-                    "--gene-list-resolution-policy",
-                    "resolved-only",
+                    "--allow-unresolved-genes",
                     "--padding-bp",
                     "0",
                     "--plink-prefix",

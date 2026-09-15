@@ -1,6 +1,6 @@
 # Gene-list query input
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-15
 
 `ldsc ldscore` accepts one or more focal gene lists through
 `--query-annot-gene-list-sources`. Direct mode requires an explicit coordinate
@@ -14,8 +14,8 @@ backend but still requires focal gene lists.
 
 | Mode | Required inputs | Mode-specific optional inputs | Forbidden combinations |
 | --- | --- | --- | --- |
-| Live gene list | `--query-annot-gene-list-sources`, `--gene-coordinate-file`, explicit `--padding-bp`, live baseline/reference | `--control-gene-list-file`, `--gene-exclude-regions`, `--gene-list-resolution-policy` | Index, BED query, prebuilt query |
-| Indexed gene list | `--query-annot-gene-list-sources`, `--gene-ldscore-index-dir` | `--control-gene-list-file`, `--gene-list-resolution-policy` | Live catalog/baseline/reference/build/padding/exclusion overrides, BED query, prebuilt query |
+| Live gene list | `--query-annot-gene-list-sources`, `--gene-coordinate-file`, explicit `--padding-bp`, live baseline/reference | `--control-gene-list-file`, `--gene-exclude-regions`, `--allow-unresolved-genes` | Index, BED query, prebuilt query |
+| Indexed gene list | `--query-annot-gene-list-sources`, `--gene-ldscore-index-dir` | `--control-gene-list-file`, `--allow-unresolved-genes` | Live catalog/baseline/reference/build/padding/exclusion overrides, BED query, prebuilt query |
 | Prebuilt query annotations | `--query-annot-sources`, live baseline/reference | Ordinary LD-score controls | Gene-list, coordinate/control-gene/index/BED inputs and explicit padding |
 | Live query BED | `--query-annot-bed-sources`, live baseline/reference | `--padding-bp` | Gene-list/catalog/control-gene/exclusion/index/prebuilt query inputs |
 
@@ -92,11 +92,16 @@ authoritative single-build source.
 
 ## Strict and exploratory resolution
 
-The default is:
+Strict resolution is the default in `annotate`, direct/indexed `ldscore`, and `quantile-h2`; omit `--allow-unresolved-genes`. The flag takes no value and requires `--query-annot-gene-list-sources`.
 
-```text
---gene-list-resolution-policy strict
-```
+| CLI request | Effective policy |
+| --- | --- |
+| Omit `--allow-unresolved-genes` | `strict`: stop on rejected identifiers after auditing the batch. |
+| Supply `--allow-unresolved-genes` | `resolved-only`: omit approved rejected rows with diagnostics and continue with the usable subset. |
+
+The retired `--gene-list-resolution-policy` option is rejected; there is no compatibility alias. Remove `--gene-list-resolution-policy strict` from old commands and replace `--gene-list-resolution-policy resolved-only` with `--allow-unresolved-genes`.
+
+Python callers still use `gene_list_resolution_policy="strict"` or `gene_list_resolution_policy="resolved-only"`. Metadata and diagnostic tables retain those policy strings. For `quantile-h2`, reproduce the resolution policy and inputs used to create the fitted annotations. Sources: `build_parser()` in [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py), `add_annotate_arguments()` in [annotation_builder.py](../../src/ldsc/annotation_builder.py), and `add_quantile_h2_arguments()` in [quantile_h2.py](../../src/ldsc/quantile_h2.py).
 
 Strict Gate A scans all focal lists and the optional control together and then
 stops if any submitted row cannot supply one valid interval. It writes the
@@ -105,7 +110,7 @@ complete audit/summary before doing substantial LD-score work.
 For a preliminary screen of many pathways, explicitly choose:
 
 ```text
---gene-list-resolution-policy resolved-only
+--allow-unresolved-genes
 ```
 
 This uses the resolved subset and records the exact effect in diagnostics,
@@ -155,7 +160,6 @@ ldsc ldscore \
   --padding-bp 100000 \
   --control-gene-list-file gene-lists/assay-background.txt \
   --gene-exclude-regions mhc \
-  --gene-list-resolution-policy strict \
   --r2-dir ref-panel/hg38 \
   --snp-identifier chr_pos_allele_aware \
   --genome-build auto \
@@ -172,8 +176,7 @@ ldsc ldscore \
   --output-dir results/gene-list-ldscores \
   --gene-ldscore-index-dir indexes/1000G-EUR-baseline \
   --query-annot-gene-list-sources "gene-lists/*.txt.gz" \
-  --control-gene-list-file gene-lists/assay-background.txt \
-  --gene-list-resolution-policy strict
+  --control-gene-list-file gene-lists/assay-background.txt
 ```
 
 Do not pass a live catalog, padding, exclusion, baseline/reference, identity,

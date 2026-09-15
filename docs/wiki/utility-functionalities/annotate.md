@@ -1,6 +1,6 @@
 # Create reusable query annotations
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 `ldsc annotate` projects BED intervals or gene lists onto the SNP rows in baseline annotations and writes reusable binary query files. Direct `ldsc ldscore` accepts BED files and gene lists too, so standalone annotation is optional.
 
@@ -9,7 +9,7 @@ Last updated on: 2026-09-14
 Supply `--baseline-annot-sources`, `--output-dir`, and exactly one query route:
 
 - `--query-annot-bed-sources`: user-created or externally obtained BED files. The first three fields are chromosome, 0-based start, and exclusive end. See [BED format](../../current/bed-input-format.md). Omitted padding is zero; explicit nonnegative `--padding-bp` expands both ends and clips starts at zero.
-- `--query-annot-gene-list-sources`: one-column lists resolved exactly against `--gene-coordinate-file`. Explicit nonnegative `--padding-bp` is required; `0` selects gene bodies. Use `--gene-list-resolution-policy strict` or `resolved-only`, and `--gene-exclude-regions none` or `mhc`. Standalone annotate has no control-gene-list option.
+- `--query-annot-gene-list-sources`: one-column lists resolved exactly against `--gene-coordinate-file`. Explicit nonnegative `--padding-bp` is required; `0` selects gene bodies. Resolution is strict by default; add `--allow-unresolved-genes` to use the resolved subset. Use `--gene-exclude-regions none` or `mhc`. Standalone annotate has no control-gene-list option.
 
 Baseline rows supply the annotation grid. Exact paths and globs select the actual input contents; an `@` suite explicitly requires autosomes 1–22. Resolved genes outside this scope fail under either resolution policy after explicit exclusions. Catalog and baseline projection builds must agree; rsID identity records projection-build provenance separately.
 
@@ -24,6 +24,8 @@ ldsc annotate \
   --genome-build hg19 \
   --output-dir annotations/pathways
 ```
+
+The example uses strict resolution. `--allow-unresolved-genes` takes no value and explicitly permits the audited resolved subset; structural input and coverage checks still apply. The retired `--gene-list-resolution-policy` option is rejected without an alias. Python `run_annotate()` still accepts `gene_list_resolution_policy="resolved-only"`; omission or `None` means strict. See [the resolution contract](../../current/gene-list-input-format.md#strict-and-exploratory-resolution); sources: `add_annotate_arguments()` in [annotation_builder.py](../../../src/ldsc/annotation_builder.py) and `run_annotate()` in [annotate_workflow.py](../../../src/ldsc/annotate_workflow.py).
 
 For BED input, replace the gene-list/catalog/exclusion options with `--query-annot-bed-sources 'beds/*.bed'`; padding remains available.
 

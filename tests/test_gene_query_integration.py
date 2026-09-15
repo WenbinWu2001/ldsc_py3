@@ -40,9 +40,11 @@ def direct_args(tmp_path, inputs, sources, *, policy="strict", control=None, nam
     prefix, baseline, regression, catalog = inputs
     argv = ["--output-dir", str(tmp_path / name), "--baseline-annot-sources", str(baseline),
             "--query-annot-gene-list-sources", ",".join(map(str, sources)), "--gene-coordinate-file", str(catalog),
-            "--padding-bp", "0", "--gene-list-resolution-policy", policy,
+            "--padding-bp", "0",
             "--plink-prefix", str(prefix), "--genome-build", "hg19", "--snp-identifier", "rsid",
             "--ld-wind-cm", "0.2", "--regr-snps-file", str(regression), "--regr-snps-exclude-regions", "none"]
+    if policy == "resolved-only":
+        argv += ["--allow-unresolved-genes"]
     if control:
         argv += ["--control-gene-list-file", str(control)]
     return build_parser().parse_args(argv)

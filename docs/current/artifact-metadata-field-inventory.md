@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -253,7 +253,7 @@ annotation columns; a single-annotation (e.g. base-only) run omits it.
 | `baseline_row_groups` | Row-group metadata for `ldscore.baseline.parquet`. | Reporting/technical provenance. |
 | `query_row_groups` | Row-group metadata for a single `ldscore.query.parquet`, or `null` for multiple/no query batches. | Reporting/technical provenance. |
 | `query_batches` | Ordered entries containing `file`, ordered `query_columns`, and `row_groups` with chromosome/index/offset/row count. | Required canonical query discovery and selected reads; older directories must be regenerated. |
-| `gene_list_resolution_policy` | `strict` or `resolved-only` for gene-list runs. | Scientific provenance; ignored by regression. |
+| `gene_list_resolution_policy` | `strict` when `--allow-unresolved-genes` is omitted; `resolved-only` when supplied. The metadata field and Python policy strings are unchanged by the CLI rename. | Scientific provenance; ignored by regression. |
 | `gene_list_resolution_counts` | Aggregate submitted, rejected, and unique-resolved counts. | Reproducibility/diagnostics; ignored by regression. |
 | `query_diagnostics` | Relative paths to available query status, scope, structural input issues, and, for gene runs, the audit and source summary. | Troubleshooting/navigation; ignored by regression. |
 | `chromosome_scope` | Validated input scope and selection semantics, separately from chromosomes with retained output rows. Empty for workflows without query coverage preflight. | Scientific provenance; ignored by regression. |

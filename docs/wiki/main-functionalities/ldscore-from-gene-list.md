@@ -69,7 +69,6 @@ ldsc ldscore \
   --gene-coordinate-file "/path/to/gene-coordinates.hg19.tsv.gz" \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
-  --gene-list-resolution-policy strict \
   --snp-identifier rsid \
   --genome-build hg19 \
   --ld-wind-cm 1.0 \
@@ -86,7 +85,6 @@ applied before padding and is distinct from SNP `--regr-snps-exclude-regions`.
 ldsc ldscore \
   --gene-ldscore-index-dir "/path/to/index" \
   --query-annot-gene-list-sources "/path/to/gene-sets/*.txt" \
-  --gene-list-resolution-policy strict \
   --output-dir "/path/to/results/gene-set-ldscores"
 ```
 
@@ -116,12 +114,14 @@ list and the control together; any unresolved or ambiguous row stops before
 substantial calculation and reports the complete batch.
 
 For preliminary screens of hundreds of pathways, explicitly use
-`--gene-list-resolution-policy resolved-only`. The run uses only resolved genes
+`--allow-unresolved-genes`. The run uses only resolved genes
 and records exact resolved/total counts. Unusable focal queries are skipped
 without failing usable siblings. This policy deliberately changes submitted
 sets, so the CLI console, result metadata, audit, and summary all identify it.
 The CLI also prints a bounded successful-run notice for zero-SNP support or
 skipped query outcomes.
+
+The flag takes no value and applies to both direct and indexed gene-list runs. Omit it for strict resolution. It does not relax malformed inputs, index integrity, chromosome coverage, or requested-control viability. The retired `--gene-list-resolution-policy` option is rejected without an alias: remove its `strict` option/value pair or replace its `resolved-only` pair with `--allow-unresolved-genes`. Python callers retain `gene_list_resolution_policy="strict"` or `"resolved-only"`, and diagnostics retain those policy names. See [the current resolution contract](../../current/gene-list-input-format.md#strict-and-exploratory-resolution); source: `build_parser()` in [ldscore_calculator.py](../../../src/ldsc/ldscore_calculator.py).
 
 ## Diagnose and curate
 
@@ -164,7 +164,7 @@ Each focal result is conditional on the supplied baseline block and optional
 biological null; inspect diagnostics before regression.
 Query runs write the per-query result tree automatically for successful fits. To summarize nominal conditional-coefficient evidence across fitted query gene lists, pass the aggregate partitioned-h2 result root to `ldsc plot`; do not pass an individual query folder.
 
-Regression is strict by default: any query error prevents publication of new scientific results. Add the single flag `--continue-on-query-error` to the regression command to skip failed queries and publish successful fits. Inspect regression `diagnostics/query_status.tsv` for all attempted queries and `diagnostics/partitioned-h2.log` for error and block diagnostics. This is separate from LD-score generation's `--gene-list-resolution-policy` and `diagnostics/query_annotation_status.tsv`. Shared input/output errors, interrupts, and scans with no successful fits remain fatal. See [regression failure handling](partitioned-h2.md#choose-what-happens-when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
+Regression is strict by default: any query error prevents publication of new scientific results. Add the single flag `--continue-on-query-error` to the regression command to skip failed queries and publish successful fits. Inspect regression `diagnostics/query_status.tsv` for all attempted queries and `diagnostics/partitioned-h2.log` for error and block diagnostics. This is separate from LD-score generation's `--allow-unresolved-genes` and `diagnostics/query_annotation_status.tsv`. Shared input/output errors, interrupts, and scans with no successful fits remain fatal. See [regression failure handling](partitioned-h2.md#choose-what-happens-when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
 
 ## Large pathway batches
 

@@ -1,6 +1,6 @@
 # Munge-Sumstats
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-15
 
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`
@@ -200,10 +200,26 @@ values are available. Downstream LDSC commands do not consume this file.
 
 ## `--infer-only`
 
-`--infer-only` is the quick pre-run diagnosis mode. It reads the raw header and
-a small coordinate sample, prints the inferred configuration, and writes no
-artifacts. The CLI still requires `--output-dir` for a uniform command contract;
-the directory is not created in inference-only mode.
+`--infer-only` diagnoses the input without writing artifacts. It requires nonempty `--raw-sumstats-file` and `--output-dir` values, but does not create the output directory. Suggested commands preserve column overrides, sample-size constants, filters, and other effective CLI options alongside resolved format/build choices.
+
+It checks selected input columns for all-missing values in bounded chunks, including required inputs and optional filtering columns such as MAF/FRQ and INFO. Ignored columns and aliases replaced by explicit overrides are excluded. The scan stops once every selected column has a nonmissing value; establishing that a column is entirely missing requires reading the whole file. Missing-value tokens and INFO-list handling follow the munging parser. Every entirely missing selected column is reported, and the report is marked `Runnable: no`. Replace or repair those columns, or explicitly ignore optional columns. This check does not replace full munging/QC validation.
+
+The suggested command preserves every column-parsing override: `--snp`, `--chr`, `--pos`, `--a1`, `--a2`, `--p`, `--signed-sumstats`, `--N-col`, `--N-cas-col`, `--N-con-col`, `--frq`, `--info`, `--info-list`, `--nstudy`, and `--ignore`. Other effective nondefault CLI options are preserved too. Format/build inference emits resolved values; options equal to their defaults may be omitted without changing behavior. The suggested command performs munging, so it omits `--infer-only`.
+
+The missingness check covers the selected raw columns mapped to these fields:
+
+| Fields | Selection rules |
+| --- | --- |
+| `SNP`, `CHR`, `POS` | Recognized or explicitly selected identity/coordinate columns present in the input. |
+| `A1`, `A2` | Recognized or explicitly selected allele columns present in the input. |
+| `P` | Selected p-value column. |
+| `Z`, `BETA`, `OR`, `LOG_ODDS`, `SIGNED_SUMSTAT` | Selected signed-statistic column(s); `--signed-sumstats` replaces automatic effect-column aliases, and `--a1-inc` suppresses automatic effect-column selection. |
+| `N`, `N_CAS`, `N_CON` | Selected per-SNP sample-size columns; explicit direct-N or paired case/control selection suppresses the other strategy. Constant sample-size flags are values, not columns to scan. |
+| `FRQ` | Selected frequency/MAF column, including the selected DANER control-frequency column. |
+| `INFO` | Selected scalar INFO or per-study INFO-list column(s); a list containing only missing entries is missing. |
+| `NSTUDY` | Selected study-count column, unless a per-SNP N column or paired case/control columns are selected. |
+
+These are canonical field names; the input headers may differ through aliases or overrides. Columns excluded with `--ignore` or replaced by another selected alias are not scanned. The report names the actual input headers when it finds entirely missing columns.
 
 This no-write contract applies on success and failure, including with `--overwrite`: no log, diagnostics, or `RUN_FAILED` marker is written, and existing output contents and markers remain untouched. The Python inference-only entry point follows the same rule.
 

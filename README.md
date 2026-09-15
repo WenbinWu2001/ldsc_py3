@@ -268,6 +268,8 @@ those utilities. Concrete single-chromosome reference-panel attempts use
 it does not roll back artifacts or change the existing workflow action order.
 A successful retry removes its applicable marker.
 
+`munge-sumstats --infer-only` requires nonempty `--raw-sumstats-file` and `--output-dir` values, preserves effective CLI overrides in its suggested command, and checks selected required and optional input columns for all-missing values, scanning to the end when necessary. Entirely missing selected columns make the report non-runnable.
+
 Help and `munge-sumstats --infer-only` create no output directories, logs, artifacts, or failure markers, even with `--overwrite` or a failed inference check. Existing output contents, including failure markers, remain untouched.
 
 `ldsc ldscore` supports ordinary unpartitioned LD-score generation without

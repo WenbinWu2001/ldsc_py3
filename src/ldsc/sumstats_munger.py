@@ -803,12 +803,21 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
         If artifacts for the resolved names already exist and ``args.overwrite`` is
         false.
     """
+    if not str(getattr(args, "raw_sumstats_file", "") or "").strip():
+        raise LDSCUsageError(
+            "munge-sumstats requires a nonempty --raw-sumstats-file, including with --infer-only. "
+            "Pass --raw-sumstats-file <file>; if using a shell variable, make sure it contains the input path."
+        )
+    if not str(getattr(args, "output_dir", "") or "").strip():
+        raise LDSCUsageError("munge-sumstats requires a nonempty --output-dir. Pass --output-dir <directory>, including with --infer-only; dry runs write nothing.")
     raw_config, munge_config = _munge_configs_from_args(args)
     if getattr(args, "infer_only", False):
         global_config = _resolve_main_global_config(args)
         source_path = resolve_scalar_path(raw_config.raw_sumstats_file, label="raw sumstats")
         inference = infer_raw_sumstats(source_path, raw_config, munge_config, global_config)
         inference = _apply_build_inference_report(source_path, raw_config, munge_config, global_config, inference)
+        inference = _apply_missing_column_report(source_path, raw_config, munge_config, inference)
+        inference = _preserve_inference_options(inference, args)
         print(_render_inference_report(inference, source_path, args.output_dir))
         return inference
     munger = SumstatsMunger()
@@ -1079,7 +1088,7 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument(
         '--raw-sumstats-file', required=True, metavar='FILE',
         help=(
-            'Required raw GWAS summary-statistics text file. Columns are detected from their headers unless '
+            'Required nonempty raw GWAS summary-statistics file path, including with --infer-only. Columns are detected from their headers unless '
             'overridden. '
             + SCALAR_PATH_HELP
         ),
@@ -1111,7 +1120,7 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument(
         '--infer-only', action='store_true', default=False,
         help=(
-            'Inspect headers and sample rows, then print detected columns and a suggested command without '
+            'Inspect headers and check selected columns for all-missing values in bounded chunks, then print a suggested command without '
             'writing files. Requires --raw-sumstats-file and --output-dir. Default: off; perform the full '
             'conversion.'
         ),
@@ -1681,6 +1690,82 @@ def _append_suggested_flag(args: list[str], flag: str) -> None:
         args.append(flag)
 
 
+
+
+def _apply_missing_column_report(
+    source_path: str,
+    raw_config: MungeConfig,
+    config: MungeConfig,
+    inference: RawSumstatsInference,
+) -> RawSumstatsInference:
+    """Scan raw columns in bounded chunks and diagnose unusable selected inputs."""
+    headers = read_header(source_path)
+    config = replace(config, info_list_columns=inference.info_list_columns)
+    columns = {munge_input.COLUMN_HINT_TARGETS[key]: value
+               for key, value in {**inference.column_hints, **raw_config.column_hints}.items()
+               if key in munge_input.COLUMN_HINT_TARGETS}
+    flags, _ = munge_input._column_hints(columns, config)
+    aliases = {key: target for key, target in default_cnames.items()
+               if not (config.signed_sumstats_spec or config.a1_inc) or target not in null_values}
+    mapping = munge_input.get_cname_map(flags, aliases, inference.ignore_columns)
+    if inference.detected_format == "daner-old":
+        frq = _first_column_with_clean_prefix(headers, "FRQ_U_")
+        if frq is not None:
+            mapping[clean_header(frq)] = "FRQ"
+    selected = {column: mapping[clean_header(column)] for column in headers if clean_header(column) in mapping}
+    if columns.get("N") is not None or columns.get("N_CAS") is not None:
+        munge_input._resolve_sample_size_column_strategy(columns, selected, source_path)
+    targets = set(selected.values())
+    if "N" in targets or {"N_CAS", "N_CON"}.issubset(targets):
+        selected = {column: target for column, target in selected.items() if target != "NSTUDY"}
+
+    empty = set(selected)
+    if not empty:
+        return inference
+    info_lists = {clean_header(column) for column in inference.info_list_columns}
+    _, compression = get_compression(source_path)
+    with pd.read_csv(
+        source_path, sep=r"\s+", compression=compression, na_values=[".", "NA"],
+        skiprows=munge_input.count_leading_sumstats_comment_lines(source_path),
+        chunksize=config.chunk_size, dtype=str, usecols=list(selected),
+    ) as reader:
+        for chunk in reader:
+            for column in tuple(empty):
+                values = chunk[column]
+                if clean_header(column) in info_lists:
+                    values = values.map(lambda value: kernel_munge._mean_info_list_value(value, column))
+                if values.notna().any():
+                    empty.remove(column)
+            if not empty:
+                break
+    if not empty:
+        return inference
+    names = [column for column in headers if column in empty]
+    notes = [*inference.notes, "All-missing columns: " + ", ".join(names)]
+    notes.append("Selected columns contain no nonmissing values: " + ", ".join(names)
+                 + ". Supply populated columns with column overrides or repair the input; use --ignore only for optional columns and provide any required replacement.")
+    return replace(inference, notes=tuple(notes), missing_fields=(
+        *inference.missing_fields, *(f"all-missing column: {column}" for column in names)))
+
+
+def _preserve_inference_options(inference: RawSumstatsInference, args: argparse.Namespace) -> RawSumstatsInference:
+    """Retain effective CLI options alongside resolved inference suggestions."""
+    suggested = list(inference.suggested_args)
+    for action in build_parser()._actions:
+        if not action.option_strings or action.dest in {"help", "infer_only", "raw_sumstats_file", "output_dir"}:
+            continue
+        value = getattr(args, action.dest, action.default)
+        if value == action.default:
+            value = inference.column_hints.get(action.dest, value)
+        if value is None or value == action.default:
+            continue
+        flag = action.option_strings[0]
+        if action.nargs == 0:
+            if value:
+                _append_suggested_flag(suggested, flag)
+        else:
+            _append_suggested_option(suggested, flag, value)
+    return replace(inference, suggested_args=tuple(suggested))
 
 
 def _render_inference_report(

@@ -106,6 +106,8 @@ removes a stale `diagnostics/query_annotations/` tree from an earlier query run.
 
 ## Query failures and continuation
 
+The following contract applies to inline and parallel whole-query runs (`--threads`, default 1). Completion order never changes the input-order status ledger, stable summary sorting, or manifest ordinals. Workers stage into distinct ordinal directories; only the coordinator publishes the final result family. An abruptly exited worker or a broken communication channel is fatal even with continuation because completion of its in-flight query cannot be established. The error identifies the affected in-flight queries; workers are stopped before scratch cleanup. See [worker and memory policy](regression-configuration.md#43-query-workers-and-memory).
+
 There is one CLI flag and one equivalent Python argument:
 
 | CLI | Python batch argument | If a query raises an exception |

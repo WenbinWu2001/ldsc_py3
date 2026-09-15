@@ -1,0 +1,677 @@
+{
+  "date": "2026-09-15",
+  "base_revision": "63ac296",
+  "workload": {
+    "snp_rows": 17380,
+    "baseline_annotations": 53,
+    "query_annotations": 1000,
+    "chromosomes": [
+      "22"
+    ],
+    "query_batch_size": 100,
+    "n_blocks": 200,
+    "sumstats": "Existing synthetic fixture, seed 20260914, N=100000; no biological interpretation"
+  },
+  "preimplementation_profile": {
+    "total_seconds": 125.456,
+    "query_summary_seconds": 48.864,
+    "estimator_seconds": 41.89,
+    "model_preparation_seconds": 12.527,
+    "private_staging_seconds": 10.557,
+    "publication_tree_seconds": 5.861,
+    "query_loading_seconds": 0.826,
+    "shared_preparation_seconds": 0.013,
+    "method": "cProfile on original inline workflow; full-suite tests also ran during this diagnostic profile, so use measured phase costs as bottleneck evidence, not clean wall-time comparison"
+  },
+  "initial_two_rounds": {
+    "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+    "sample_interval_seconds": 0.1,
+    "rss_policy": "simultaneous process-tree RSS; shared pages may be counted repeatedly",
+    "ldscore_dir": "inputs/chr22-ldscores",
+    "sumstats_file": "inputs/synthetic-chr22.sumstats.gz",
+    "query_batch_size": 100,
+    "native_threads": 1,
+    "runs": [
+      {
+        "repeat": 1,
+        "threads": 1,
+        "effective_workers": 1,
+        "elapsed_seconds": 76.35022529191338,
+        "peak_process_tree_rss_bytes": 449495040,
+        "max_processes": 1,
+        "samples": 597,
+        "successful_queries": 999,
+        "failed_queries": 1,
+        "phases": {
+          "sumstats loading": {
+            "calls": 1,
+            "seconds": 0.018
+          },
+          "LD-score loading": {
+            "calls": 1,
+            "seconds": 0.187
+          },
+          "legacy projection": {
+            "calls": 1,
+            "seconds": 0.077
+          },
+          "shared regression preparation": {
+            "calls": 1,
+            "seconds": 0.011
+          },
+          "query batch loading": {
+            "calls": 10,
+            "seconds": 0.679
+          },
+          "query model preparation": {
+            "calls": 1000,
+            "seconds": 11.392999999999862
+          },
+          "estimator execution": {
+            "calls": 1000,
+            "seconds": 28.601999999999855
+          },
+          "query summary": {
+            "calls": 999,
+            "seconds": 20.637999999999757
+          },
+          "query output staging": {
+            "calls": 999,
+            "seconds": 7.45299999999992
+          },
+          "output writing": {
+            "calls": 1,
+            "seconds": 3.594
+          }
+        },
+        "models_compared": 999,
+        "scratch_cleaned": true
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "effective_workers": 2,
+        "elapsed_seconds": 50.25376491690986,
+        "peak_process_tree_rss_bytes": 889389056,
+        "max_processes": 4,
+        "samples": 384,
+        "successful_queries": 999,
+        "failed_queries": 1,
+        "phases": {
+          "sumstats loading": {
+            "calls": 1,
+            "seconds": 0.012
+          },
+          "LD-score loading": {
+            "calls": 1,
+            "seconds": 0.139
+          },
+          "legacy projection": {
+            "calls": 1,
+            "seconds": 0.071
+          },
+          "shared regression preparation": {
+            "calls": 1,
+            "seconds": 0.014
+          },
+          "query worker preparation": {
+            "calls": 1,
+            "seconds": 0.038
+          },
+          "query batch loading": {
+            "calls": 10,
+            "seconds": 0.798
+          },
+          "query batch mapping": {
+            "calls": 10,
+            "seconds": 0.104
+          },
+          "query model preparation": {
+            "calls": 1000,
+            "seconds": 16.10299999999993
+          },
+          "estimator execution": {
+            "calls": 1000,
+            "seconds": 30.99799999999995
+          },
+          "query summary": {
+            "calls": 999,
+            "seconds": 22.64600000000008
+          },
+          "query output staging": {
+            "calls": 999,
+            "seconds": 8.658999999999924
+          },
+          "query batch execution": {
+            "calls": 10,
+            "seconds": 43.747
+          },
+          "output writing": {
+            "calls": 1,
+            "seconds": 3.339
+          }
+        },
+        "models_compared": 999,
+        "scratch_cleaned": true
+      },
+      {
+        "repeat": 1,
+        "threads": 4,
+        "effective_workers": 4,
+        "elapsed_seconds": 30.23433858389035,
+        "peak_process_tree_rss_bytes": 1706213376,
+        "max_processes": 6,
+        "samples": 227,
+        "successful_queries": 999,
+        "failed_queries": 1,
+        "phases": {
+          "sumstats loading": {
+            "calls": 1,
+            "seconds": 0.011
+          },
+          "LD-score loading": {
+            "calls": 1,
+            "seconds": 0.137
+          },
+          "legacy projection": {
+            "calls": 1,
+            "seconds": 0.068
+          },
+          "shared regression preparation": {
+            "calls": 1,
+            "seconds": 0.011
+          },
+          "query worker preparation": {
+            "calls": 1,
+            "seconds": 0.043
+          },
+          "query batch loading": {
+            "calls": 10,
+            "seconds": 0.7300000000000002
+          },
+          "query batch mapping": {
+            "calls": 10,
+            "seconds": 0.119
+          },
+          "query model preparation": {
+            "calls": 1000,
+            "seconds": 17.082999999999974
+          },
+          "estimator execution": {
+            "calls": 1000,
+            "seconds": 32.919000000000004
+          },
+          "query summary": {
+            "calls": 999,
+            "seconds": 23.280999999999942
+          },
+          "query output staging": {
+            "calls": 999,
+            "seconds": 10.32099999999993
+          },
+          "query batch execution": {
+            "calls": 10,
+            "seconds": 23.956999999999997
+          },
+          "output writing": {
+            "calls": 1,
+            "seconds": 3.254
+          }
+        },
+        "models_compared": 999,
+        "scratch_cleaned": true
+      },
+      {
+        "repeat": 2,
+        "threads": 4,
+        "effective_workers": 4,
+        "elapsed_seconds": 29.48043637513183,
+        "peak_process_tree_rss_bytes": 1581973504,
+        "max_processes": 6,
+        "samples": 225,
+        "successful_queries": 999,
+        "failed_queries": 1,
+        "phases": {
+          "sumstats loading": {
+            "calls": 1,
+            "seconds": 0.011
+          },
+          "LD-score loading": {
+            "calls": 1,
+            "seconds": 0.139
+          },
+          "legacy projection": {
+            "calls": 1,
+            "seconds": 0.068
+          },
+          "shared regression preparation": {
+            "calls": 1,
+            "seconds": 0.011
+          },
+          "query worker preparation": {
+            "calls": 1,
+            "seconds": 0.039
+          },
+          "query batch loading": {
+            "calls": 10,
+            "seconds": 0.7099999999999999
+          },
+          "query batch mapping": {
+            "calls": 10,
+            "seconds": 0.098
+          },
+          "query model preparation": {
+            "calls": 1000,
+            "seconds": 16.083999999999985
+          },
+          "estimator execution": {
+            "calls": 1000,
+            "seconds": 31.90100000000003
+          },
+          "query summary": {
+            "calls": 999,
+            "seconds": 22.63499999999993
+          },
+          "query output staging": {
+            "calls": 999,
+            "seconds": 10.276999999999935
+          },
+          "query batch execution": {
+            "calls": 10,
+            "seconds": 23.224
+          },
+          "output writing": {
+            "calls": 1,
+            "seconds": 3.292
+          }
+        },
+        "models_compared": 999,
+        "scratch_cleaned": true
+      },
+      {
+        "repeat": 2,
+        "threads": 2,
+        "effective_workers": 2,
+        "elapsed_seconds": 47.95275654201396,
+        "peak_process_tree_rss_bytes": 1009008640,
+        "max_processes": 4,
+        "samples": 374,
+        "successful_queries": 999,
+        "failed_queries": 1,
+        "phases": {
+          "sumstats loading": {
+            "calls": 1,
+            "seconds": 0.012
+          },
+          "LD-score loading": {
+            "calls": 1,
+            "seconds": 0.137
+          },
+          "legacy projection": {
+            "calls": 1,
+            "seconds": 0.067
+          },
+          "shared regression preparation": {
+            "calls": 1,
+            "seconds": 0.011
+          },
+          "query worker preparation": {
+            "calls": 1,
+            "seconds": 0.032
+          },
+          "query batch loading": {
+            "calls": 10,
+            "seconds": 0.71
+          },
+          "query batch mapping": {
+            "calls": 10,
+            "seconds": 0.09899999999999999
+          },
+          "query model preparation": {
+            "calls": 1000,
+            "seconds": 14.754999999999912
+          },
+          "estimator execution": {
+            "calls": 1000,
+            "seconds": 29.85199999999994
+          },
+          "query summary": {
+            "calls": 999,
+            "seconds": 21.133000000000102
+          },
+          "query output staging": {
+            "calls": 999,
+            "seconds": 8.377999999999952
+          },
+          "query batch execution": {
+            "calls": 10,
+            "seconds": 41.602999999999994
+          },
+          "output writing": {
+            "calls": 1,
+            "seconds": 3.379
+          }
+        },
+        "models_compared": 999,
+        "scratch_cleaned": true
+      },
+      {
+        "repeat": 2,
+        "threads": 1,
+        "effective_workers": 1,
+        "elapsed_seconds": 74.23461320903152,
+        "peak_process_tree_rss_bytes": 456294400,
+        "max_processes": 1,
+        "samples": 585,
+        "successful_queries": 999,
+        "failed_queries": 1,
+        "phases": {
+          "sumstats loading": {
+            "calls": 1,
+            "seconds": 0.012
+          },
+          "LD-score loading": {
+            "calls": 1,
+            "seconds": 0.138
+          },
+          "legacy projection": {
+            "calls": 1,
+            "seconds": 0.07
+          },
+          "shared regression preparation": {
+            "calls": 1,
+            "seconds": 0.011
+          },
+          "query batch loading": {
+            "calls": 10,
+            "seconds": 0.665
+          },
+          "query model preparation": {
+            "calls": 1000,
+            "seconds": 11.343999999999852
+          },
+          "estimator execution": {
+            "calls": 1000,
+            "seconds": 27.933999999999944
+          },
+          "query summary": {
+            "calls": 999,
+            "seconds": 20.12899999999982
+          },
+          "query output staging": {
+            "calls": 999,
+            "seconds": 7.166999999999907
+          },
+          "output writing": {
+            "calls": 1,
+            "seconds": 3.29
+          }
+        },
+        "models_compared": 999,
+        "scratch_cleaned": true
+      }
+    ]
+  },
+  "final_runtime_control_round": {
+    "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+    "sample_interval_seconds": 0.1,
+    "rss_policy": "simultaneous process-tree RSS; shared pages may be counted repeatedly",
+    "ldscore_dir": "inputs/chr22-ldscores",
+    "sumstats_file": "inputs/synthetic-chr22.sumstats.gz",
+    "query_batch_size": 100,
+    "native_threads": 1,
+    "runs": [
+      {
+        "repeat": 1,
+        "threads": 1,
+        "effective_workers": 1,
+        "elapsed_seconds": 74.17363391583785,
+        "peak_process_tree_rss_bytes": 495075328,
+        "max_processes": 1,
+        "samples": 581,
+        "successful_queries": 999,
+        "failed_queries": 1,
+        "phases": {
+          "sumstats loading": {
+            "calls": 1,
+            "seconds": 0.012
+          },
+          "LD-score loading": {
+            "calls": 1,
+            "seconds": 0.138
+          },
+          "legacy projection": {
+            "calls": 1,
+            "seconds": 0.07
+          },
+          "shared regression preparation": {
+            "calls": 1,
+            "seconds": 0.011
+          },
+          "query batch loading": {
+            "calls": 10,
+            "seconds": 0.663
+          },
+          "query model preparation": {
+            "calls": 1000,
+            "seconds": 11.20199999999986
+          },
+          "estimator execution": {
+            "calls": 1000,
+            "seconds": 28.19699999999984
+          },
+          "query summary": {
+            "calls": 999,
+            "seconds": 20.218999999999895
+          },
+          "query output staging": {
+            "calls": 999,
+            "seconds": 7.288999999999919
+          },
+          "output writing": {
+            "calls": 1,
+            "seconds": 3.423
+          }
+        },
+        "models_compared": 999,
+        "scratch_cleaned": true
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "effective_workers": 2,
+        "elapsed_seconds": 47.62788645806722,
+        "peak_process_tree_rss_bytes": 1098792960,
+        "max_processes": 4,
+        "samples": 366,
+        "successful_queries": 999,
+        "failed_queries": 1,
+        "phases": {
+          "sumstats loading": {
+            "calls": 1,
+            "seconds": 0.012
+          },
+          "LD-score loading": {
+            "calls": 1,
+            "seconds": 0.15
+          },
+          "legacy projection": {
+            "calls": 1,
+            "seconds": 0.07
+          },
+          "shared regression preparation": {
+            "calls": 1,
+            "seconds": 0.012
+          },
+          "query worker preparation": {
+            "calls": 1,
+            "seconds": 0.032
+          },
+          "query batch loading": {
+            "calls": 10,
+            "seconds": 0.698
+          },
+          "query batch mapping": {
+            "calls": 10,
+            "seconds": 0.09300000000000001
+          },
+          "query model preparation": {
+            "calls": 1000,
+            "seconds": 14.99999999999992
+          },
+          "estimator execution": {
+            "calls": 1000,
+            "seconds": 29.597999999999896
+          },
+          "query summary": {
+            "calls": 999,
+            "seconds": 21.167000000000144
+          },
+          "query output staging": {
+            "calls": 999,
+            "seconds": 8.114999999999963
+          },
+          "query batch execution": {
+            "calls": 10,
+            "seconds": 41.387
+          },
+          "output writing": {
+            "calls": 1,
+            "seconds": 3.26
+          }
+        },
+        "models_compared": 999,
+        "scratch_cleaned": true
+      },
+      {
+        "repeat": 1,
+        "threads": 4,
+        "effective_workers": 4,
+        "elapsed_seconds": 30.469053291948512,
+        "peak_process_tree_rss_bytes": 1579679744,
+        "max_processes": 6,
+        "samples": 222,
+        "successful_queries": 999,
+        "failed_queries": 1,
+        "phases": {
+          "sumstats loading": {
+            "calls": 1,
+            "seconds": 0.011
+          },
+          "LD-score loading": {
+            "calls": 1,
+            "seconds": 0.143
+          },
+          "legacy projection": {
+            "calls": 1,
+            "seconds": 0.07
+          },
+          "shared regression preparation": {
+            "calls": 1,
+            "seconds": 0.014
+          },
+          "query worker preparation": {
+            "calls": 1,
+            "seconds": 0.043
+          },
+          "query batch loading": {
+            "calls": 10,
+            "seconds": 0.722
+          },
+          "query batch mapping": {
+            "calls": 10,
+            "seconds": 0.137
+          },
+          "query model preparation": {
+            "calls": 1000,
+            "seconds": 17.02499999999999
+          },
+          "estimator execution": {
+            "calls": 1000,
+            "seconds": 32.585999999999956
+          },
+          "query summary": {
+            "calls": 999,
+            "seconds": 23.296999999999976
+          },
+          "query output staging": {
+            "calls": 999,
+            "seconds": 11.789999999999875
+          },
+          "query batch execution": {
+            "calls": 10,
+            "seconds": 24.477
+          },
+          "output writing": {
+            "calls": 1,
+            "seconds": 2.965
+          }
+        },
+        "models_compared": 999,
+        "scratch_cleaned": true
+      }
+    ]
+  },
+  "validation": {
+    "numeric_rtol": 1e-10,
+    "numeric_atol": 1e-12,
+    "tables": [
+      "compact summaries",
+      "full category coefficients, SEs and p-values",
+      "coefficient delete values",
+      "query status",
+      "manifest ordering"
+    ],
+    "queries_successful": 999,
+    "queries_failed": 1,
+    "all_runs_agree": true,
+    "scratch_removed_after_every_run": true,
+    "original_inline_vs_final_inline_models_compared": 999
+  },
+  "verification": {
+    "python": "3.13.13",
+    "pytest": {
+      "passed": 1869,
+      "subtests_passed": 131,
+      "skipped": 1,
+      "warnings": 311,
+      "seconds": 153.53
+    },
+    "unittest": {
+      "tests": 1000,
+      "status": "OK",
+      "skipped": 1,
+      "seconds": 53.173
+    },
+    "focused_tests_passed": 109,
+    "worker_policy_tests_passed": 32,
+    "cli_help_checked": true,
+    "diff_whitespace_checked": true
+  },
+  "thread_policy_alignment": {
+    "policy": "Reuse the same CLI parser, validator and worker resolver as ldscore and build-gene-ldscore-index, with min(query count, query batch size) as the work cap. Negative requests use affinity/machine CPU discovery; positive requests have only the work cap; SLURM_CPUS_PER_TASK is not read separately.",
+    "red_test": "Positive request 4 with three queries and affinity/SLURM count 1 initially resolved to 1 instead of expected 3.",
+    "focused_tests_passed": 81,
+    "focused_seconds": 23.14,
+    "pytest": {
+      "passed": 1866,
+      "subtests_passed": 131,
+      "skipped": 1,
+      "warnings": 311,
+      "seconds": 174.25
+    },
+    "benchmark_rerun_needed": false,
+    "benchmark_policy_effect": "Earlier benchmark requests still resolve to 1/2/4 workers on the benchmark host.",
+    "unittest": {
+      "tests": 1000,
+      "status": "OK",
+      "skipped": 1,
+      "seconds": 50.764
+    },
+    "cli_help_checked": true,
+    "diff_whitespace_checked": true
+  },
+  "input_path_policy": "Input paths are portable labels; host-specific locations remain only in local benchmark records."
+}

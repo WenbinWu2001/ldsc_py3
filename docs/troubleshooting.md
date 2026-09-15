@@ -720,6 +720,12 @@ Inspect `diagnostics/query_status.tsv` for all attempted queries and `diagnostic
 
 Default strict mode collects per-query failures and publishes no new scientific results if any fail. Add `--continue-on-query-error` to publish successful query models and retain failed queries in the diagnostic ledger. Shared input/output errors, process interruption, and all-query-failed scans still fail. Do not substitute a pseudoinverse, fabricate uncertainty, or automatically move block boundaries. See [the result contract](current/partitioned-h2-results.md#query-failures-and-continuation).
 
+### partitioned-h2: a query worker exits or cannot write
+
+With `--threads` greater than one, ordinary model exceptions still follow the query error policy above. An abruptly exited worker, broken pipe, or failed private output write aborts the run even with `--continue-on-query-error`. The log identifies the query or in-flight queries and includes any available worker traceback. The parent reaps children and removes owned scratch; successful publication remains coordinator-only.
+
+Check the job's memory limit if a worker disappeared without a traceback. Reduce `--threads` to reduce simultaneous model workspaces and `--query-batch-size` to reduce loaded query values; `--threads 1` exercises the inline path. For a filesystem exception, inspect its recorded path and resolve disk-space or access problems before retrying. The scan has no automatic resume, and abrupt parent SIGKILL may leave private scratch. See [CPU and memory policy](current/regression-configuration.md#43-query-workers-and-memory).
+
 ### partitioned-h2: missing overlap matrix
 
 **Raised by:** `regression_runner.estimate_partitioned_h2_batch()` /

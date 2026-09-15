@@ -10,6 +10,7 @@ INSTALL_REQUIRES = [
     # Required for canonical parquet I/O, row-group pruning, and LDSC schema metadata.
     "pyarrow>=21,<24",
     "matplotlib>=3.9,<4",
+    "threadpoolctl>=3.6,<4",
 ]
 
 PLINK_REQUIRES = [

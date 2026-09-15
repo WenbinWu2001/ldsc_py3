@@ -196,6 +196,8 @@ This module rebuilds an `LDScoreResult` from on-disk artifacts, projects legacy 
 
 Internal `_FitOutcome` values in `regression_runner.py` carry the estimator, fitted dataset, realized block count, effective cap, and optional single-annotation diagnostic bins. The h2, partitioned-h2, and rg reporting paths consume these values directly. Public estimator methods unwrap the estimator; output diagnostics remain owned by the workflow rather than being attached dynamically to numerical kernel objects.
 
+Optional partitioned query workers live in `_partitioned_h2_parallel.py`. The runner owns input preparation, batch reads, the shared `_fit_partitioned_query()` calculation, and final publication; the private module owns read-only numeric transport, spawned processes, bounded dispatch, log forwarding, and child cleanup. Workers borrow output-owned maps and stage unique complete-query results. The parent assembles outcomes in query order before stable summary sorting. `_parallelism` shares parsing, validation, and `_resolve_worker_count()` with chromosome workflows, using the bounded query count as the work limit. Tests in `test_regression_streaming.py`, `test_partitioned_query_failures.py`, `test_partitioned_query_workers.py`, and `test_worker_policy.py` cover numerical/artifact parity, CPU and memory ownership, strict/continue policies, and real process failures. See [query workers](regression-configuration.md#43-query-workers-and-memory).
+
 ### `ldsc.outputs`
 
 This is the canonical LD-score and regression result writer. For LD-score

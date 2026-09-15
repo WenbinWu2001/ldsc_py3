@@ -50,11 +50,40 @@ ldsc partitioned-h2 \
   --output-dir results/pathway_enrichment
 ```
 
-The command prepares shared trait/baseline alignment once and reads query columns in batches. Regression batch width is independent of generation batch width; one read can span several saved query files. Every pathway still fits its complete retained genome-wide SNP set with model-specific filtering, weights, and jackknife calculations. A smaller batch such as `--query-batch-size 100` reduces active query memory without changing the separate models. It can increase I/O or reduce multiplication throughput; the best value depends on the workload. Sources: `RegressionRunner.estimate_partitioned_h2_batch` in [regression_runner.py](../../../src/ldsc/regression_runner.py) and `LDScoreSource.read_queries` in [ldscore_source.py](../../../src/ldsc/ldscore_source.py).
+The command prepares shared trait/baseline alignment once and reads query columns in batches. Regression batch width is independent of generation batch width; one read can span several saved query files. Every pathway still fits its complete retained genome-wide SNP set with model-specific filtering, weights, and jackknife calculations. A smaller batch such as `--query-batch-size 100` reduces loaded query values and private mapping space, but also limits how many query workers can be active. Loading and mapping overhead can change with batch width; the best value depends on the workload. Sources: `RegressionRunner.estimate_partitioned_h2_batch` in [regression_runner.py](../../../src/ldsc/regression_runner.py) and `LDScoreSource.read_queries` in [ldscore_source.py](../../../src/ldsc/ldscore_source.py).
 
 The aggregate `partitioned_h2.tsv` keeps the requested final ordering. Per-query category tables, coefficient delete values, and metadata are written as fits finish, staged privately until successful sorted publication under `diagnostics/query_annotations/`. Python `estimate_partitioned_h2_batch(..., output_dir=...)` returns the aggregate summary and persistent `per_query_artifacts` paths, rather than every detailed table in memory.
 
-New temporary files stay below the selected output directory and are cleaned on handled completion or failure. Existing overwrite/failure-marker behavior is preserved. Released allocations can remain reserved by Python/NumPy, so RSS need not fall after every chromosome. See the [memory design](../../current/annotation-memory-design.md) for ownership, indexing, and exact-quantile details.
+New temporary files stay below the selected output directory and are cleaned on handled completion or failure. Existing overwrite/failure-marker behavior is preserved. Released allocations can remain reserved by Python/NumPy, so RSS need not fall after every fit. See the [memory design](../../current/annotation-memory-design.md) for ownership, indexing, and exact-quantile details.
+
+## Fit queries concurrently
+
+Use `--threads` when several independent queries are ready to fit. For example, with four allocated CPUs:
+
+```bash
+ldsc partitioned-h2 \
+  --ldscore-dir results/pathway_ldscores \
+  --sumstats-file results/trait/sumstats.parquet \
+  --threads 4 \
+  --query-batch-size 100 \
+  --output-dir results/pathway_parallel
+```
+
+This loads at most 100 query columns at once and fits up to four complete baseline-plus-query models concurrently. Each process performs its own filtering, weights, regression, jackknife, summaries, and private output staging. SNP ordering and jackknife blocks follow the inline calculation; a model is never divided into chromosome fits.
+
+| Setting | Rule |
+| --- | --- |
+| `--threads 1` | Default inline execution; no worker processes. |
+| Positive `--threads N` | Request N workers, capped by query count and batch width. |
+| Negative `--threads -k` | Request available CPUs + 1 - k, floored at one and then capped by query count and batch width; `-1` uses all available CPUs and `-2` leaves one free. |
+| Available CPUs | Prefer process CPU affinity, otherwise machine CPU count. This discovery applies to negative requests. |
+| `--query-batch-size 1` or one query | One effective worker, so run inline. Baseline-only input also stays inline. |
+
+Parsing, validation, and resolution are shared with `ldscore` and `build-gene-ldscore-index`; zero and non-integer requests are invalid. These commands do not separately read `SLURM_CPUS_PER_TASK`. Choose a positive N within your job allocation when affinity does not reflect that allocation. Each parallel query process uses one native numerical thread. Inline execution preserves caller settings. See the [runtime policy](../../current/regression-configuration.md#43-query-workers-and-memory), including the launch-time Accelerate setting required before macOS 15.
+
+Workers borrow read-only maps of the shared baseline/trait arrays and current query batch from private output scratch. More workers still need more RAM for private filtered model matrices and estimators, and the maps need disk space. Query completion order does not change the requested status order or the stable summary/manifest order. The INFO log reports requested/effective workers and phase timings; the same counts appear in root and successful per-query metadata. A local bounded 1,000-query chromosome-22 benchmark measured 74.17, 47.63, and 30.47 seconds with 1, 2, and 4 workers, respectively, including preparation and publication. Its sampled peak process-tree RSS was 472, 1,048, and 1,507 MiB; these are not full-genome RAM estimates. See the [benchmark and limits](../../audits/2026-09-15_partitioned-query-workers.md#end-to-end-benchmark).
+
+The Python option is `runner.estimate_partitioned_h2_batch(..., threads=4, query_batch_size=100)`. Put parallel calls in an importable script under `if __name__ == "__main__":`; from a notebook, use the CLI in a subprocess for parallel fitting. Both error policies below apply to ordinary query-model exceptions. Worker death, transport errors, output errors, and interrupts abort under either policy, identify affected queries, and trigger child-process cleanup. Sources: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py), the shared resolver in [_parallelism.py](../../../src/ldsc/_parallelism.py), and process ownership in [_partitioned_h2_parallel.py](../../../src/ldsc/_partitioned_h2_parallel.py).
 
 ## Choose what happens when a query fails
 

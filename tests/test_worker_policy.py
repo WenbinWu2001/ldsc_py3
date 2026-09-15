@@ -1,4 +1,6 @@
-"""Shared chromosome-worker validation and execution contracts."""
+"""Shared chromosome/query-worker validation and execution contracts."""
+
+import json
 
 import pytest
 
@@ -8,9 +10,9 @@ from ldsc.gene_ldscore_index import run_indexed_ldscore
 
 
 @pytest.mark.parametrize("threads", [0, True, False, 1.5, 1.0, "2", None])
-@pytest.mark.parametrize("workflow", ["direct", "build", "indexed"])
+@pytest.mark.parametrize("workflow", ["direct", "build", "indexed", "partitioned"])
 def test_invalid_workers_rejected_before_io(tmp_path, threads, workflow):
-    error = ValueError if workflow == "indexed" else LDSCConfigError
+    error = ValueError if workflow in {"indexed", "partitioned"} else LDSCConfigError
     with pytest.raises(error, match="threads"):
         if workflow == "direct":
             LDScoreConfig(ld_wind_cm=1, threads=threads)
@@ -20,9 +22,14 @@ def test_invalid_workers_rejected_before_io(tmp_path, threads, workflow):
                 gene_coordinate_file="missing", output_dir=str(tmp_path / "out"),
                 genome_build="hg19", snp_identifier="rsid", threads=threads,
             )
-        else:
+        elif workflow == "indexed":
             run_indexed_ldscore("missing", query_gene_list_sources=[],
                                 output_dir=tmp_path / "out", threads=threads)
+        else:
+            from ldsc import RegressionRunner
+            RegressionRunner().estimate_partitioned_h2_batch(
+                None, None, output_dir=tmp_path / "out", threads=threads,
+            )
     assert not (tmp_path / "out").exists()
 
 
@@ -46,10 +53,13 @@ def test_workflows_share_affinity_resolution_and_inline_execution(tmp_path, monk
     import numpy as np
     from ldsc import gene_ldscore_index as builder, ldscore_calculator as direct
     from ldsc import _indexed_ldscore_batches as indexed
+    from ldsc import RegressionRunner, RegressionConfig
     from tests.test_plink_workflow_resolution import write_inputs, index_args
+    from tests.test_regression_streaming import batch_inputs
 
     monkeypatch.setattr(os, "cpu_count", lambda: 8)
     monkeypatch.setattr(os, "sched_getaffinity", lambda pid: set(range(cpus)), raising=False)
+    monkeypatch.setenv("SLURM_CPUS_PER_TASK", "1")
     calls = {"build": [], "direct": [], "indexed": []}
 
     def observe(module, attribute, workflow):
@@ -90,6 +100,16 @@ def test_workflows_share_affinity_resolution_and_inline_execution(tmp_path, monk
     np.testing.assert_allclose(result.baseline_table["base"], np.ones(8), atol=1e-7)
     np.testing.assert_allclose(result.read_queries(["query"])["query"], [1.] * 4 + [0.] * 4, atol=1e-7)
     assert calls == {name: ([] if expected == 1 else [expected]) for name in calls}
+
+    table, source = batch_inputs(tmp_path / "query-inputs")
+    result = RegressionRunner(source.config_snapshot, RegressionConfig(n_blocks=6)).estimate_partitioned_h2_batch(
+        table, source, output_dir=tmp_path / "partitioned", threads=threads,
+        query_columns=["first", "second"],
+    )
+    metadata = json.loads((tmp_path / "partitioned/diagnostics/metadata.json").read_text())
+    assert metadata["query_workers_requested"] == threads
+    assert metadata["query_workers_effective"] == expected
+    assert result.query_status.status.tolist() == ["success", "success"]
 
 
 @pytest.mark.parametrize("affinity", ["missing", "unavailable", "empty"])

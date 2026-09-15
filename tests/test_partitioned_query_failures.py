@@ -21,8 +21,10 @@ def concentrate_queries(tmp_path, names=("second",)):
     queries.to_parquet(path, index=False, row_group_size=30)
 
 
-def test_continue_publishes_valid_queries_and_logs_singular_block(tmp_path):
+@pytest.mark.parametrize("threads", [1, 2])
+def test_continue_publishes_valid_queries_and_logs_singular_block(tmp_path, threads):
     args, _ = cli_inputs(tmp_path)
+    args.extend(["--threads", str(threads)])
     before = cli.main([*args, "--summary-sort-by", "category"])
     concentrate_queries(tmp_path)
 
@@ -55,8 +57,10 @@ def test_continue_publishes_valid_queries_and_logs_singular_block(tmp_path):
     assert not (output / "RUN_FAILED.txt").exists()
 
 
-def test_strict_default_collects_query_failures_without_publishing(tmp_path):
+@pytest.mark.parametrize("threads", [1, 2])
+def test_strict_default_collects_query_failures_without_publishing(tmp_path, threads):
     args, _ = cli_inputs(tmp_path)
+    args.extend(["--threads", str(threads)])
     concentrate_queries(tmp_path, ("second", "third"))
     with pytest.raises(JackknifeIdentifiabilityError) as caught:
         cli.main(args)
@@ -69,8 +73,10 @@ def test_strict_default_collects_query_failures_without_publishing(tmp_path):
     assert not list(output.glob(".ldsc-annotation-*"))
 
 
-def test_continue_with_no_successes_fails_and_keeps_all_statuses(tmp_path):
+@pytest.mark.parametrize("threads", [1, 2])
+def test_continue_with_no_successes_fails_and_keeps_all_statuses(tmp_path, threads):
     args, _ = cli_inputs(tmp_path)
+    args.extend(["--threads", str(threads)])
     concentrate_queries(tmp_path, ("first", "second", "third"))
     with pytest.raises(JackknifeIdentifiabilityError) as caught:
         cli.main([*args, "--continue-on-query-error"])
@@ -136,10 +142,12 @@ def test_continue_does_not_swallow_process_control(tmp_path, monkeypatch, error_
     assert not (tmp_path / "out/partitioned_h2.tsv").exists()
 
 
-def test_continue_does_not_swallow_publication_failure(tmp_path, monkeypatch):
+@pytest.mark.parametrize("threads", [1, 2])
+def test_continue_does_not_swallow_publication_failure(tmp_path, monkeypatch, threads):
     import os
 
     args, _ = cli_inputs(tmp_path)
+    args.extend(["--threads", str(threads)])
     original = os.replace
 
     def replace(source, destination):
@@ -153,20 +161,21 @@ def test_continue_does_not_swallow_publication_failure(tmp_path, monkeypatch):
     assert not (tmp_path / "out/diagnostics/query_annotations").exists()
 
 
-def test_python_api_records_query_preparation_error_and_baseline_retry_removes_status(tmp_path):
+@pytest.mark.parametrize("threads", [1, 2])
+def test_python_api_records_query_preparation_error_and_baseline_retry_removes_status(tmp_path, threads):
     table, source = batch_inputs(tmp_path / "ld")
     source.count_records[:] = [record for record in source.count_records if record["column"] != "second"]
     runner = RegressionRunner(source.config_snapshot, RegressionConfig(n_blocks=6))
     output = tmp_path / "out"
     result = runner.estimate_partitioned_h2_batch(
-        table, source, output_dir=output, continue_on_query_error=True,
+        table, source, output_dir=output, continue_on_query_error=True, threads=threads,
     )
     assert set(result.summary.category) == {"first", "third"}
     assert result.query_status.status.tolist() == ["success", "failed", "success"]
     assert result.query_status.loc[1, "stage"] == "model_preparation"
     assert result.query_status.loc[1, "error_type"] == "LDSCInputError"
     assert set(result.per_query_artifacts) == {"first", "third"}
-    runner.estimate_partitioned_h2_batch(table, source, output_dir=output, query_columns=[], overwrite=True)
+    runner.estimate_partitioned_h2_batch(table, source, output_dir=output, query_columns=[], overwrite=True, threads=threads)
     assert not (output / "diagnostics/query_status.tsv").exists()
     assert not (output / "diagnostics/query_annotations").exists()
 
@@ -183,3 +192,18 @@ def test_python_api_requires_explicit_boolean_continuation(tmp_path):
     runner = RegressionRunner()
     with pytest.raises(ValueError, match="continue_on_query_error must be a boolean"):
         runner.estimate_partitioned_h2_batch(None, None, output_dir=tmp_path, continue_on_query_error="False")
+
+
+def test_parallel_strict_overwrite_preserves_previous_science_and_marks_failure(tmp_path):
+    args, _ = cli_inputs(tmp_path)
+    cli.main([*args, "--threads", "2"])
+    output = tmp_path / "out"
+    previous = (output / "partitioned_h2.tsv").read_bytes()
+    manifest = (output / "diagnostics/query_annotations/manifest.tsv").read_bytes()
+    concentrate_queries(tmp_path)
+    with pytest.raises(JackknifeIdentifiabilityError):
+        cli.main([*args, "--threads", "2", "--overwrite"])
+    assert (output / "partitioned_h2.tsv").read_bytes() == previous
+    assert (output / "diagnostics/query_annotations/manifest.tsv").read_bytes() == manifest
+    assert (output / "RUN_FAILED.txt").exists()
+    assert not list(output.glob(".ldsc-annotation-*"))

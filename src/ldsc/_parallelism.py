@@ -1,4 +1,4 @@
-"""Shared chromosome-worker policy for LD scoring and gene-index construction.
+"""Shared worker-count validation and resolution for LDSC workflows.
 
 Negative requests use process CPU affinity with a machine CPU-count fallback.
 Native numerical-library thread settings are owned by the workflow workers.
@@ -35,14 +35,20 @@ def _available_cpu_count() -> int:
 
 
 def _resolve_worker_count(threads: int, n_chromosomes: int) -> int:
-    """Resolve the effective chromosome-worker count from the ``threads`` setting.
+    """Resolve the effective worker count from the ``threads`` setting.
 
     Uses the joblib ``n_jobs`` convention: ``1`` is sequential, a positive ``N``
     requests ``N`` workers, ``-1`` requests all available cores, ``-2`` all but
     one, and any negative ``-k`` requests ``n_cpus + 1 - k``. Core counts respect
     CPU affinity (see :func:`_available_cpu_count`). The result is capped at
-    ``n_chromosomes`` and floored at ``1`` so a single chromosome never spawns a
-    pool.
+    ``n_chromosomes`` and floored at ``1`` so a single work item never spawns a
+    pool. Query workflows pass their bounded query count as the work limit.
+    Positive requests are capped only by work; scheduler allocations influence
+    negative requests when reflected in CPU affinity.
+
+    For example, eight available CPUs and three work items resolve requests
+    ``4`` and ``-1`` to three workers; ``-7`` resolves to two. A positive request
+    is not capped by CPU count, and ``SLURM_CPUS_PER_TASK`` is not read here.
     """
     _validate_threads(threads)
     if n_chromosomes <= 0:

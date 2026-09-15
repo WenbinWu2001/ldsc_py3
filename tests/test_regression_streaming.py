@@ -159,7 +159,8 @@ def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypa
 
 
 @pytest.mark.parametrize("generation_width", [1, 2])
-def test_regression_across_query_files_matches_single_file(tmp_path, generation_width, monkeypatch):
+@pytest.mark.parametrize("threads", [1, 2])
+def test_regression_across_query_files_matches_single_file(tmp_path, generation_width, monkeypatch, threads):
     table, original = batch_inputs(tmp_path / "original")
     def batches():
         for start in range(0, len(original.query_columns), generation_width):
@@ -179,7 +180,7 @@ def test_regression_across_query_files_matches_single_file(tmp_path, generation_
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("LDSC_REGRESSION_OUT", str(tmp_path / "actual"))
     actual = runner.estimate_partitioned_h2_batch(table, saved, output_dir="$LDSC_REGRESSION_OUT",
-                                                 query_batch_size=2, summary_sort_by="category")
+                                                 query_batch_size=2, summary_sort_by="category", threads=threads)
     assert not (tmp_path / "$LDSC_REGRESSION_OUT").exists()
     pd.testing.assert_frame_equal(actual.summary, expected.summary, rtol=1e-10, atol=1e-12)
     for query, paths in actual.per_query_artifacts.items():
@@ -196,6 +197,33 @@ def cli_inputs(tmp_path):
     fixtures.RegressionWorkflowTest().write_footer_sumstats_parquet(path, frame=table.data, trait_name="MDD")
     return ["partitioned-h2", "--ldscore-dir", str(tmp_path / "ld"), "--sumstats-file", str(path),
             "--output-dir", str(tmp_path / "out"), "--n-blocks", "6", "--query-batch-size", "2"], source
+
+
+@pytest.mark.parametrize("batch_size", [2, 1000])
+def test_parallel_queries_match_inline_models_and_artifact_order(tmp_path, batch_size):
+    table, source = batch_inputs(tmp_path / "ld")
+    # Trait order must never determine contiguous jackknife blocks.
+    table = workflow.replace(table, data=table.data.iloc[::-1].reset_index(drop=True))
+    runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(n_blocks=6))
+    results = [runner.estimate_partitioned_h2_batch(
+        table, source, output_dir=tmp_path / f"workers-{threads}", threads=threads,
+        query_columns=["third", "first", "second"], query_batch_size=batch_size,
+    ) for threads in (1, 2)]
+    expected, actual = results
+    pd.testing.assert_frame_equal(actual.summary, expected.summary, rtol=1e-10, atol=1e-12)
+    pd.testing.assert_frame_equal(actual.query_status, expected.query_status)
+    assert actual.query_status.query_annotation.tolist() == ["third", "first", "second"]
+    assert list(actual.per_query_artifacts) == list(expected.per_query_artifacts)
+    for query, paths in actual.per_query_artifacts.items():
+        reference = expected.per_query_artifacts[query]
+        pd.testing.assert_frame_equal(pd.read_csv(paths.full, sep="\t"), pd.read_csv(reference.full, sep="\t"),
+                                      rtol=1e-10, atol=1e-12)
+        pd.testing.assert_frame_equal(pd.read_parquet(paths.delete_values), pd.read_parquet(reference.delete_values),
+                                      rtol=1e-10, atol=1e-12)
+        for field in ("n_snps", "n_blocks_used", "effective_chisq_max", "retained_ld_columns", "ordinal", "folder"):
+            assert json.loads(paths.metadata.read_text())[field] == json.loads(reference.metadata.read_text())[field]
+    for threads in (1, 2):
+        assert not list((tmp_path / f"workers-{threads}").glob(".ldsc-annotation-*"))
 
 
 @pytest.mark.parametrize("sort_by", ["auto", *workflow.PARTITIONED_H2_SUMMARY_SORT_COLUMNS])

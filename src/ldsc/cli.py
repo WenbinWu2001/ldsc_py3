@@ -55,7 +55,7 @@ _SUBCOMMAND_HELP = {
     "convert-ldsc2-ldscores": "Convert selected LDSC2 LD-score suites to LDSC3 format.",
     "munge-sumstats": "Munge GWAS summary statistics.",
     "h2": "Estimate heritability from munged sumstats and LD scores.",
-    "partitioned-h2": "Estimate partitioned heritability by looping over query annotations.",
+    "partitioned-h2": "Estimate partitioned heritability with independent query models.",
     "quantile-h2": "Summarize fitted heritability across annotation quantiles.",
     "rg": "Estimate genetic correlation.",
     "query-r2": "Query R2 for SNP pairs from a reference panel.",
@@ -216,7 +216,7 @@ def main(argv: Sequence[str] | None = None):
             regression_runner = _load_regression_runner()
             parser = _NoAbbrevArgumentParser(
                 prog="ldsc partitioned-h2",
-                description="Estimate partitioned heritability by looping over query annotations.",
+                description="Estimate partitioned heritability with independent query models.",
             )
             regression_runner.add_partitioned_h2_arguments(parser)
             parsed = parser.parse_args(subargv)

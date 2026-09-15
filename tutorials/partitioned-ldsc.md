@@ -84,6 +84,7 @@ sumstats = load_sumstats("tutorial_outputs/trait/trait.parquet", trait_name="tra
 runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
 result = runner.estimate_partitioned_h2_batch(
     sumstats, source,
+    threads=1,
     query_batch_size=1000,
     output_dir="tutorial_outputs/partitioned_h2",
     metadata={"ldscore_dir": ldscore_dir, "trait_name": "trait"},
@@ -102,13 +103,28 @@ print(failed_queries[["query_annotation", "stage", "error_type", "error_message"
 
 Run `munge-sumstats` first if the trait is still in a raw format; see [heritability estimates](heritability-estimates.md). Current curated Parquet inputs carry identity/build provenance in their footer. The effective SNP key controls alignment; reference contributors and regression/output SNPs remain separate universes.
 
-For 1,000 pathways, each query still fits separately against shared baseline categories. The default `query_batch_size=1000` permits all 1,000 queries in one execution batch. Reducing it bounds active query workspace and writes multiple numbered genome-wide query files, with an ordered `query_batches` manifest in root metadata. Direct calculation repeats reference/genotype work between batches; indexed calculation reuses one chromosome operator per worker through its batches. Direct and indexed `threads` default to 1 and are capped at the chromosome count. Freed pages can remain reserved by the allocator, so RSS need not immediately fall. See `LDScoreCalculator.run` and `LDScoreSource.read_queries` in the [memory design](../docs/current/annotation-memory-design.md).
+The Python example above runs inline and is suitable for notebooks. Parallel API calls belong in a script with an `if __name__ == "__main__":` guard; use the CLI subprocess pattern in [the cell-specific notebook](cell-specific-ldsc.ipynb) for notebook-driven parallel runs.
+
+For 1,000 pathways, each query still fits separately against shared baseline categories. During LD-score generation, the default `query_batch_size=1000` permits all 1,000 queries in one execution batch. Reducing the generation width bounds active query workspace and writes multiple numbered genome-wide query files, with an ordered `query_batches` manifest in root metadata. Direct calculation repeats reference/genotype work between batches; indexed calculation reuses one chromosome operator per worker through its batches. Direct and indexed `threads` default to 1 and are capped at the chromosome count. Freed pages can remain reserved by the allocator, so RSS need not immediately fall. See `LDScoreCalculator.run` and `LDScoreSource.read_queries` in the [memory design](../docs/current/annotation-memory-design.md).
 
 Generation and regression batch widths are independent. To inspect values explicitly, call `source.read_queries(["query_name"])`; reads preserve requested column order and have no cache or width cap. Current readers require the `query_batches` manifest; regenerate older directories. For the small prepared-input Python route that writes nothing, see [LD-score calculation without writes](ld-score-calculation.md#small-python-calculations-without-writes).
 
 For reusable annotations, use `with run_annotate(..., output_dir=...) as bundle:`. For explicit low-level preparation, use `with AnnotationBuilder(config).run(source_config, output_dir=...) as bundle:` and finish all borrowers before closure. Returned standalone bundles reference saved query outputs and may depend on original baseline inputs. See the [developer memory design](../docs/current/annotation-memory-design.md).
 
 ## CLI
+
+For a large query scan, choose a worker count and a bounded loading width independently:
+
+```bash
+ldsc partitioned-h2 \
+  --sumstats-file sumstats.parquet \
+  --ldscore-dir tutorial_outputs/partitioned_ldscores \
+  --output-dir tutorial_outputs/partitioned_results \
+  --threads 4 \
+  --query-batch-size 100
+```
+
+Each worker fits one complete baseline-plus-query model; `--threads 1` is the default inline path. The flag follows the same parsing and resolution as `ldscore` and `build-gene-ldscore-index`: positive N requests N workers, while negative values use CPU affinity with a machine CPU-count fallback (`-1` for all available CPUs, `-2` for all but one). All requests are capped by queries and batch width. Choose positive N within your job's CPU allocation; `SLURM_CPUS_PER_TASK` is not read separately. Each parallel process uses one numerical thread. Use fewer workers if private model memory is limiting. The Python equivalent is `runner.estimate_partitioned_h2_batch(table, source, output_dir="results", threads=4, query_batch_size=100)`, called under a script's `if __name__ == "__main__":` guard. Strict failure handling is the default; explicitly add `--continue-on-query-error` to publish successful models after collecting query failures. See [the worker policy](../docs/current/regression-configuration.md#43-query-workers-and-memory).
 
 The CLI supports BED-driven LD-score generation directly:
 

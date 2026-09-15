@@ -142,6 +142,8 @@ Because no control-gene file is supplied, `ldscore.baseline.parquet` contains on
 
 Use the LD-score directory produced by either direct or fast mode in Step 1.
 
+The regression example runs inline by default. With four allocated CPUs, add `--threads 4 --query-batch-size 100` to fit up to four complete gene-set models concurrently while loading at most 100 queries. The worker-count convention matches `ldscore` and index construction; the work cap is query count/batch width. Each parallel worker uses one numerical thread and additional private model RAM. Baseline filtering, weights, SNP order, jackknife blocks, and final ordering stay the same. See [concurrent query fitting](main-functionalities/partitioned-h2.md#fit-queries-concurrently) for CPU discovery, memory measurements, and process-failure behavior.
+
 The command below uses strict error handling: if any query regression fails, no new scientific results are published. For a large scan where valid fits should survive query errors, add `--continue-on-query-error`. Failed queries are skipped and recorded in `diagnostics/query_status.tsv`; the CLI log records their names, stages, tracebacks, and available jackknife block/rank/support diagnostics. Shared input/output failures, interrupts, and scans with no successful fits remain fatal. This flag does not change the gene-resolution policy or jackknife block rule. See [query error handling](main-functionalities/partitioned-h2.md#choose-what-happens-when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py).
 
 ```bash

@@ -25,6 +25,8 @@ partitioned-h2/<trait>/diagnostics/query_annotations/0001_<query>/
 
 Do not pass the aggregate multi-query root: its rows belong to different baseline-plus-one-query regressions.
 
+These selection rules also apply when the preceding regression used `--threads` to fit queries concurrently. Every successful folder still contains one complete model and that model's jackknife delete values; worker count does not change the quantile reconstruction inputs. See [concurrent query fitting](main-functionalities/partitioned-h2.md#fit-queries-concurrently).
+
 If regression used `--continue-on-query-error`, failed queries appear only in `diagnostics/query_status.tsv` and the regression log; they have no fitted model or uncertainty estimates to supply to `quantile-h2`. Select a successful query from `diagnostics/query_annotations/manifest.tsv`. Without this flag, any query error prevents new scientific publication. See [query failure handling](main-functionalities/partitioned-h2.md#choose-what-happens-when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py).
 
 ## 2. Prepare the resupplied sources

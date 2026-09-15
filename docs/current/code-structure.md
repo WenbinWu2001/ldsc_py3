@@ -1,6 +1,6 @@
 # Code Structure
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 This is the authoritative contributor entry for the `ldsc` package. Start here to locate a change. [Architecture](architecture.md) explains execution boundaries, [data flow](data-flow.md) explains artifact streams, and [layer structure](layer-structure.md) supplies the detailed ownership matrix. These domain references supplement this entry rather than defining competing navigation maps.
 
@@ -87,7 +87,7 @@ ldsc_py3_restructured/
 | `ldsc.ldscore_source` | validate ordered query manifests and read explicit selections across LD-score batch files |
 | `ldsc._annotation_memory` | small prepared annotations and diagnostics without filesystem writes |
 | `ldsc._ldscore_batch_output` | consume/release query batches, stage privately, and publish complete LD directories |
-| `ldsc._parallelism` | shared nonzero-integer worker validation, CLI parsing, affinity-aware CPU discovery, and chromosome-capped resolution; tested across all three workflows in `tests/test_worker_policy.py` |
+| `ldsc._parallelism` | shared nonzero-integer worker validation, CLI parsing, affinity-aware CPU discovery, and work-capped resolution; tested across direct/indexed scoring, gene-index construction, and partitioned query fitting in `tests/test_worker_policy.py` |
 | `ldsc._indexed_ldscore_batches` | bounded chromosome workers holding one operator each and deterministic batch-fragment assembly |
 | `ldsc._quantile_inputs`, `ldsc._quantile_storage` | bounded common-universe reconstruction, exact global boundaries, sufficient statistics, and streamed alignment diagnostics |
 | `ldsc._kernel.ldscore_projection` | float64 output-row accumulators and query batches sharing each LD block |
@@ -100,6 +100,7 @@ ldsc_py3_restructured/
 | `ldsc._sumstats_input` | private workflow helper resolving raw schema, DANER/sample-size settings, bounded source-build evidence and keep-lists into `ResolvedMungeInput` |
 | `ldsc._kernel.sumstats_munger` | chunk QC and restriction, whole-table N and sign conversion, resolved liftover and global identity cleanup; returns `MungeResult` with counts and provenance |
 | `ldsc.regression_runner` | file-driven regression dataset assembly, automatic legacy LDSC2 sumstats rsID-to-panel projection and allele harmonization, active effective identity-key merging (`SNP`, `SNP:<allele_set>`, `CHR:POS`, or `CHR:POS:<allele_set>`), h2/partitioned-h2/rg estimator dispatch (including the two overlap-aware partitioned-h2 regimes), observed/liability-scale summary columns, exact final-fit h2 regression-bin diagnostics, and rg result-family writing |
+| `ldsc._partitioned_h2_parallel`, `ldsc._parallelism` | private read-only regression maps, bounded spawned whole-query workers, worker termination/log forwarding, and shared worker-count resolution; statistical calculations remain in `RegressionRunner._fit_partitioned_query()` |
 | `ldsc.quantile_h2` | post-fit continuous-target quantile assignment, fitted-source/common-universe reconstruction and verification, vectorized coefficient/delete-value projection, standardized `tau_star`, CLI orchestration, and diagnostics |
 | `ldsc.prevalence` | parse and validate binary-trait prevalence inputs (scalar `--samp-prev`/`--pop-prev` for h2/partitioned-h2; comma-separated lists or a `--prevalence-manifest` TSV for rg) into a normalized per-trait `(samp_prev, pop_prev)` structure for observed-to-liability conversion |
 | `ldsc.h2_scale` | strict post-fit observed-to-liability conversion from a canonical h2 result, including exact and prevalence-range modes and the fixed nested derived-result family |

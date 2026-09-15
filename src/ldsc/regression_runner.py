@@ -28,8 +28,9 @@ only when ``--allow-identity-downgrade`` or
 rsID or coordinate family.
 Partitioned-h2 fits the complete baseline model for baseline-only inputs and
 one baseline-plus-query model per query annotation otherwise. Query runs share
-trait/baseline preparation, load query columns in bounded batches, and stage
-completed category/delete-value/metadata files immediately. The output-layer
+trait/baseline preparation, load query columns in bounded batches, and fit
+inline by default or in bounded whole-query processes via ``threads``. Completed
+category/delete-value/metadata files are staged immediately. The output-layer
 ``PartitionedH2DirectoryWriter`` publishes them after final summary sorting.
 Strict batches require every query to succeed. Explicit continuation records
 failed queries and publishes successful models with an attempted-query ledger.
@@ -46,7 +47,7 @@ paths. Final HM3 LD tables remain aggregate files.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import hashlib
 import json
 import logging
@@ -54,6 +55,7 @@ import math
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Sequence
 
 import numpy as np
@@ -70,7 +72,7 @@ from .config import (
     print_global_config_banner,
     suppress_global_config_banner,
 )
-from .path_resolution import ensure_output_directory, normalize_path_token, resolve_file_group
+from .path_resolution import ensure_output_directory, normalize_path_token
 from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ._kernel import regression as reg
 from ._kernel._jackknife import JackknifeIdentifiabilityError
@@ -85,6 +87,7 @@ from ._kernel.snp_identity import (
     validate_identity_artifact_metadata,
 )
 from ._row_alignment import assert_same_snp_rows
+from ._parallelism import _parse_threads, _resolve_worker_count, _validate_threads
 from .column_inference import infer_chr_pos_columns, normalize_snp_identifier_mode
 from .genome_build_inference import infer_chr_pos_build
 from .ldscore_calculator import LDScoreResult
@@ -217,6 +220,14 @@ class PreparedRegressionInputs:
 
 
 @dataclass(frozen=True)
+class _PartitionedModelInputs:
+    """Aligned model state without input readers or the full query source."""
+
+    dataset: RegressionDataset
+    counts_by_column: dict[str, dict]
+
+
+@dataclass(frozen=True)
 class RGRegressionDataset:
     """Merged genetic-correlation dataset built from two traits and LD scores.
 
@@ -286,6 +297,9 @@ class PartitionedH2BatchResult:
     and ``error_message``. Status is ``success``, ``unestimable`` for singular
     jackknife deletions, or ``failed`` for other per-query exceptions. Successful
     query scans also persist this table as ``diagnostics/query_status.tsv``.
+    Worker completion order does not affect status order, stable summary
+    sorting, or the final per-query folder order. Worker-count provenance is
+    recorded in root and successful per-query metadata, not scientific tables.
     """
 
     summary: pd.DataFrame
@@ -520,8 +534,7 @@ class RegressionRunner:
     def _dataset_from_query_values(self, prepared, selected, query_values, *, config=None):
         """Form one model from already aligned, bounded query values."""
         config = config or self.regression_config
-        ldscore_result = prepared.ldscore
-        ref_ld_columns = list(ldscore_result.baseline_columns) + list(selected)
+        ref_ld_columns = list(prepared.dataset.ref_ld_columns) + list(selected)
         merged = prepared.dataset.merged
         if selected:
             weight_position = merged.columns.get_loc(prepared.dataset.weight_column)
@@ -926,10 +939,54 @@ class RegressionRunner:
         samp_prev, pop_prev = _config_prevalence(config or self.regression_config)
         return summarize_partitioned_h2(hsq, dataset, selected_queries, samp_prev=samp_prev, pop_prev=pop_prev)
 
+    def _fit_partitioned_query(self, prepared, query, values, directory, *, config):
+        """Fit, summarize and privately stage one complete genome-wide query.
+
+        Both inline and worker execution use this boundary. Only model errors
+        become query outcomes; staging errors and interrupts still abort runs.
+        Returned objects contain no estimator, SNP matrix or traceback frames.
+        """
+        stage = "model_preparation"
+        try:
+            with _log_phase_timing("query model preparation"):
+                dataset = self._dataset_from_query_values(prepared, [query], values, config=config)
+            stage = "estimator"
+            with _log_phase_timing("estimator execution"):
+                outcome = self._fit_h2_dataset(dataset, config=config)
+            hsq, dataset = outcome.estimator, outcome.dataset
+            stage = "summary"
+            with _log_phase_timing("query summary"):
+                samp_prev, pop_prev = _config_prevalence(config)
+                focal = summarize_partitioned_h2(hsq, dataset, [query], samp_prev=samp_prev, pop_prev=pop_prev)
+                full = summarize_partitioned_h2(hsq, dataset, dataset.retained_ld_columns,
+                                               samp_prev=samp_prev, pop_prev=pop_prev)
+                delete_values = _coefficient_delete_frame(hsq, dataset.retained_ld_columns)
+        except Exception as error:
+            status = "unestimable" if isinstance(error, JackknifeIdentifiabilityError) else "failed"
+            record = {"query_annotation": query, "status": status, "stage": stage,
+                      "error_type": type(error).__name__, "error_message": str(error)}
+            LOGGER.exception("Query %r failed at %s; marked %s: %s", query, stage, status, error)
+            if isinstance(error, JackknifeIdentifiabilityError):
+                LOGGER.error("Query %r jackknife diagnostics: %s", query, json.dumps(error.failures))
+            error.add_note(f"partitioned-h2 query {query!r} failed at {stage}.")
+            error.__traceback__ = error.__cause__ = error.__context__ = None
+            return None, None, record, error
+        with _log_phase_timing("query output staging"):
+            artifacts = stage_partitioned_h2_fit(
+                directory, full, delete_values,
+                {"dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
+                 "n_snps": outcome.n_snps, "n_blocks_used": outcome.n_blocks,
+                 "effective_chisq_max": outcome.effective_chisq_max,
+                 "effective_snp_identifier": dataset.effective_snp_identifier,
+                 "identity_downgrade_applied": dataset.identity_downgrade_applied},
+            )
+        return focal, artifacts, {"query_annotation": query, "status": "success", "stage": "complete",
+                                  "error_type": "", "error_message": ""}, None
+
     def estimate_partitioned_h2_batch(
         self, sumstats_table, ldscore_result, *, output_dir, query_columns=None,
         config=None, query_batch_size=1000, overwrite=False, summary_sort_by="auto", metadata=None,
-        continue_on_query_error=False,
+        continue_on_query_error=False, threads=1,
     ) -> PartitionedH2BatchResult:
         """Fit and write separate pathway models using shared SNP preparation.
 
@@ -951,6 +1008,20 @@ class RegressionRunner:
         query_batch_size : int, optional
             Maximum query columns loaded at once, default 1000. Pathways in a
             batch are still fitted separately against baseline categories.
+            Also caps concurrent query workers; a width of one runs inline.
+            Independent of the batch width used to generate the LD scores.
+        threads : int, optional
+            Query worker processes, default 1 (inline). Positive values request
+            that many workers; -1 uses available CPUs, -2 leaves one CPU free.
+            Uses the same validation and resolution as ldscore and gene-index
+            construction: negative values use CPU affinity (machine count
+            fallback), and all requests are capped by query count and batch
+            size. Zero, booleans and non-integers are invalid. Positive requests
+            must fit the caller's CPU allocation; SLURM_CPUS_PER_TASK is not
+            read separately. Parallel workers use one native numerical
+            thread each; inline execution preserves the caller's thread policy.
+            On macOS before 15, launch Python with VECLIB_MAXIMUM_THREADS=1
+            for parallel execution; newer macOS uses the Accelerate runtime API.
         overwrite : bool, optional
             Replace workflow-owned outputs, default False.
         summary_sort_by : str, optional
@@ -974,7 +1045,18 @@ class RegressionRunner:
 
         Notes
         -----
-        This is the Python equivalent of the single CLI flag
+        Parallel execution uses spawned processes and read-only numeric maps
+        inside private output scratch. Each worker owns one complete model;
+        batch maps are removed between batches and workers exit before shared
+        scratch cleanup. Python scripts using multiple workers must launch
+        this call under ``if __name__ == "__main__":``. Worker death and transport
+        failures abort the run and identify the affected in-flight queries.
+        Query statuses follow requested query order; stable summary sorting
+        determines the published row and folder order regardless of completion
+        order. Numeric maps reduce transport copies, but each concurrent model
+        still needs its own filtered matrices and estimator workspace.
+
+        ``continue_on_query_error`` is the Python equivalent of the CLI flag
         ``--continue-on-query-error``. Omit the flag or leave this argument
         False for strict publication; enable it to skip failed query fits.
         It does not change gene-list resolution, SNP filtering, weights, block
@@ -988,6 +1070,7 @@ class RegressionRunner:
         Shared loading/publication errors and interrupts can stop the scan
         before that final diagnostic table is written.
         """
+        _validate_threads(threads)
         if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
             raise ValueError("query_batch_size must be a positive integer.")
         if not isinstance(continue_on_query_error, bool):
@@ -997,6 +1080,7 @@ class RegressionRunner:
             raise LDSCInputError(PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE)
         queries = list(ldscore_result.query_columns if query_columns is None else query_columns)
         queries = _validate_partitioned_query_columns(ldscore_result, queries)
+        worker_count = _resolve_worker_count(threads, min(len(queries), query_batch_size))
         sort_by = _resolve_summary_sort(summary_sort_by, has_queries=bool(queries))
         output_dir = normalize_path_token(output_dir)
         writer = PartitionedH2DirectoryWriter()
@@ -1045,52 +1129,44 @@ class RegressionRunner:
 
             rows, private_artifacts, statuses = [], {}, []
             first_error = None
-            for start in range(0, len(queries), query_batch_size):
-                batch_columns = queries[start:start + query_batch_size]
-                batch = self._read_query_batch(prepared, batch_columns)
-                for query in batch_columns:
-                    stage = "model_preparation"
-                    dataset = outcome = hsq = focal = full = delete_values = None
-                    try:
-                        dataset = self._dataset_from_query_values(prepared, [query], batch, config=config)
-                        stage = "estimator"
-                        with _log_phase_timing("estimator execution"):
-                            outcome = self._fit_h2_dataset(dataset, config=config)
-                        hsq, dataset = outcome.estimator, outcome.dataset
-                        stage = "summary"
-                        focal = summarize_partitioned_h2(hsq, dataset, [query], samp_prev=samp_prev, pop_prev=pop_prev)
-                        full = summarize_partitioned_h2(hsq, dataset, dataset.retained_ld_columns, samp_prev=samp_prev, pop_prev=pop_prev)
-                        delete_values = _coefficient_delete_frame(hsq, dataset.retained_ld_columns)
-                    except Exception as error:
-                        status = "unestimable" if isinstance(error, JackknifeIdentifiabilityError) else "failed"
-                        statuses.append({"query_annotation": query, "status": status, "stage": stage,
-                                         "error_type": type(error).__name__, "error_message": str(error)})
-                        LOGGER.exception("Query %r failed at %s; marked %s: %s", query, stage, status, error)
-                        if isinstance(error, JackknifeIdentifiabilityError):
-                            LOGGER.error("Query %r jackknife diagnostics: %s", query, json.dumps(error.failures))
-                        if first_error is None:
-                            # Retain the original exception type without keeping
-                            # failed model arrays alive through traceback frames.
-                            error.add_note(f"partitioned-h2 query {query!r} failed at {stage}.")
-                            error.__traceback__ = error.__cause__ = error.__context__ = None
-                            first_error = error
-                        dataset = outcome = hsq = focal = full = delete_values = None
-                        continue
-                    # Disk failures remain run failures: they do not establish
-                    # that this query is scientifically unestimable.
-                    private_artifacts[query] = stage_partitioned_h2_fit(
-                        workspace.path / f"fit-{len(rows) + 1}", full, delete_values,
-                        {"dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
-                         "n_snps": outcome.n_snps, "n_blocks_used": outcome.n_blocks,
-                         "effective_chisq_max": outcome.effective_chisq_max,
-                         "effective_snp_identifier": dataset.effective_snp_identifier,
-                         "identity_downgrade_applied": dataset.identity_downgrade_applied},
-                    )
-                    rows.append(focal)
-                    statuses.append({"query_annotation": query, "status": "success", "stage": "complete",
-                                     "error_type": "", "error_message": ""})
-                    del hsq, dataset, outcome, focal, full, delete_values
-                del batch
+            LOGGER.info("Query workers: requested=%d, effective=%d; native threads=%s; query batch size=%d.",
+                        threads, worker_count, "1 per worker" if worker_count > 1 else "caller settings", query_batch_size)
+            metadata.update(query_workers_requested=threads, query_workers_effective=worker_count,
+                            query_worker_native_threads=1 if worker_count > 1 else None)
+            models = _PartitionedModelInputs(prepared.dataset, prepared.counts_by_column)
+            if worker_count > 1:
+                from ._partitioned_h2_parallel import _QueryWorkers, _stage_query_batch
+                with _log_phase_timing("query worker preparation"):
+                    workers = _QueryWorkers(workspace.path, models, self, config, worker_count)
+            else:
+                workers = nullcontext(None)
+            with workers as pool:
+                for start in range(0, len(queries), query_batch_size):
+                    batch_columns = queries[start:start + query_batch_size]
+                    with _log_phase_timing("query batch loading"):
+                        batch = self._read_query_batch(prepared, batch_columns)
+                    if pool is None:
+                        outcomes = (self._fit_partitioned_query(
+                            models, query, batch, workspace.path / f"fit-{start + index}", config=config,
+                        ) for index, query in enumerate(batch_columns))
+                    else:
+                        with TemporaryDirectory(prefix="query-batch-", dir=workspace.path) as batch_root:
+                            with _log_phase_timing("query batch mapping"):
+                                mapped = _stage_query_batch(batch, Path(batch_root) / "values")
+                            batch = None
+                            tasks = [(query, mapped[query], workspace.path / f"fit-{start + index}")
+                                     for index, query in enumerate(batch_columns)]
+                            with _log_phase_timing("query batch execution"):
+                                outcomes = pool.map(tasks)
+                    for focal, artifacts, status, error in outcomes:
+                        statuses.append(status)
+                        if error is not None:
+                            first_error = first_error or error
+                        else:
+                            rows.append(focal)
+                            private_artifacts[status["query_annotation"]] = artifacts
+                    del outcomes, batch
+            del models
             del prepared
             query_status = pd.DataFrame(statuses)
             n_failed = len(queries) - len(rows)
@@ -2732,10 +2808,21 @@ def add_partitioned_h2_arguments(parser) -> None:
     )
     runtime = parser.add_argument_group("Output, performance, and logging")
     runtime.add_argument(
+        '--threads', type=_parse_threads, default=1, metavar='N',
+        help=(
+            'Whole-query worker processes: 1 runs inline (default); positive N requests N workers; '
+            '-1 uses available cores and -2 leaves one free; zero is invalid. '
+            'Same worker-count rule as ldscore and build-gene-ldscore-index: negative values use '
+            'CPU affinity with a machine CPU-count fallback; all values are capped by query count '
+            'and query batch size. Choose positive N within your CPU allocation. '
+            'Parallel workers use one native numerical thread each; inline execution keeps caller settings.'
+        ),
+    )
+    runtime.add_argument(
         '--query-batch-size', type=int, default=1000, metavar='N',
         help=(
             'Maximum number of query annotations loaded at once; each query is fitted separately with the '
-            'shared baseline. Default: 1000; a smaller positive value reduces memory.'
+            'shared baseline. Default: 1000; a smaller positive value reduces memory and caps active query workers.'
         ),
     )
     runtime.add_argument(
@@ -2913,7 +3000,15 @@ def run_partitioned_h2_from_args(args):
     failures: successful models are published and every attempted query is
     recorded in ``diagnostics/query_status.tsv``. Strict mode, the default,
     collects query errors and publishes only the diagnostic ledger on failure.
+    ``args.threads`` uses the shared LD-score/index worker-count policy, with
+    query count and ``args.query_batch_size`` as the work limits. The default
+    and every effective count of one run inline. Parallel processes each fit
+    one complete query model with one native numerical thread; baseline-only
+    input remains one inline joint fit. Worker death and transport/output
+    failures abort under either query-error policy. Requested/effective counts
+    and phase timings are recorded in the workflow log.
     """
+    _validate_threads(getattr(args, "threads", 1))
     query_batch_size = getattr(args, "query_batch_size", 1000)
     if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
         raise ValueError("query_batch_size must be a positive integer.")
@@ -2947,6 +3042,7 @@ def run_partitioned_h2_from_args(args):
             result = runner.estimate_partitioned_h2_batch(
                 sumstats_table, ldscore_result, config=config, output_dir=output_dir,
                 query_batch_size=getattr(args, "query_batch_size", 1000),
+                threads=getattr(args, "threads", 1),
                 continue_on_query_error=getattr(args, "continue_on_query_error", False),
                 overwrite=getattr(args, "overwrite", False),
                 summary_sort_by=getattr(args, "summary_sort_by", "auto"),

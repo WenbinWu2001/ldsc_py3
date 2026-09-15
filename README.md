@@ -143,7 +143,7 @@ python -m pip install -e ".[dev]"
 ```
 
 The package supports Python 3.11 through 3.13. The base install includes
-NumPy, pandas, SciPy, PyArrow, and Matplotlib. Optional extras are split by workflow:
+NumPy, pandas, SciPy, PyArrow, Matplotlib, and threadpoolctl. The last dependency limits supported native numerical libraries inside parallel query workers; see [query-worker runtime controls](docs/current/regression-configuration.md#43-query-workers-and-memory). Optional extras are split by workflow:
 `.[plink]` installs `bitarray` for PLINK-backed LD computation, `.[bed]`
 installs `pybedtools` for BED projection, and `.[liftover]` installs
 `pyliftover` for chain-file liftover in sumstats munging and cross-build
@@ -285,6 +285,8 @@ Query annotation inputs still require explicit `--baseline-annot-sources`.
 Regression diagnostics report the SNP population and jackknife block count actually used for fitting. The h2 LD-score regression plot summarizes that same fitted population; see [regression configuration](docs/current/regression-configuration.md).
 
 For large query scans, `ldsc partitioned-h2 --continue-on-query-error` skips queries whose model preparation, regression, or result calculation raises an exception and publishes successful fits. Every attempted query is recorded in `diagnostics/query_status.tsv`; failed queries have no scientific results. The log includes query/stage tracebacks and available jackknife block diagnostics. The default remains strict: any query failure prevents publication. Shared input/output failures and scans with no successful queries still fail. See [query failure handling](docs/current/partitioned-h2-results.md#query-failures-and-continuation).
+
+`partitioned-h2 --threads N` fits independent whole-query models concurrently; the Python equivalent is `RegressionRunner.estimate_partitioned_h2_batch(..., threads=N)`. It shares parsing and worker-count resolution with `ldscore` and `build-gene-ldscore-index`: the default `1` runs inline, positive counts request that many workers, and negative values use available CPUs (`-1` for all, `-2` for all but one), preferring CPU affinity with a machine CPU-count fallback. All requests are capped by query count and `--query-batch-size`. Choose positive counts within your CPU allocation; these commands do not separately read `SLURM_CPUS_PER_TASK`. Each parallel worker uses one numerical-library thread, enforced with runtime controls for the numerical backend; inline execution keeps caller settings. Shared numeric baseline/trait arrays and the current query batch use read-only maps in private output scratch. Model filtering, weights, jackknife blocks, output ordering, and error policies are unchanged. See [query workers](docs/current/regression-configuration.md#43-query-workers-and-memory) for memory costs and Python process-launch requirements.
 
 Use this synthetic `base` directory for `ldsc h2` or `ldsc rg`. A baseline-only
 directory is also accepted by `ldsc partitioned-h2` in its functional-category

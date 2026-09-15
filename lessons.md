@@ -197,6 +197,8 @@ Last updated on: 2026-09-15
 
 - Summary/root cause/correction: The thread-option audit confirmed that gene-index construction used machine-wide CPU counts while both LD-score modes used CPU affinity, and only indexed-query API calls rejected non-integer thread values; share validation and worker resolution, then select inline execution from the resolved count. Implemented in `_parallelism.py` and verified through real builds and both scoring workflows under restricted affinity, including effective-one executor avoidance. See `docs/audits/2026-09-14-thread-option-consistency.md`.
 
+- Recurrence: A query-specific resolver introduced extra CPU/SLURM caps after the shared policy was established; reuse `_resolve_worker_count` with the bounded query work count, and test partitioned fitting alongside direct/indexed LD scoring and index construction under the same affinity and scheduler settings.
+
 ## Preflight must preserve every supported input route
 
 - Summary/root cause/correction: Staged preflight integration initially used unresolved munging state and assumed only the root fitted-model metadata layout; move consumers with their path dependencies, reuse existing scalar/group and model-layout policies, and test all supported entry routes before treating an early gate as equivalent to the content loader. Keep input validation separate from output authorization and retain collected repair records on early failures.
@@ -204,3 +206,11 @@ Last updated on: 2026-09-15
 ## Full-data rank does not establish jackknife identifiability
 
 - Summary/root cause/correction: A partitioned-h2 query supported in one genomic block passes the full-data check but loses its coefficient when that block is deleted; independently constructed equal-row blocks reproduce this without batch sharing. Report failed solves with query/block/rank/support context and retain LD-score panel coordinates for rsID-only trait diagnostics; keep strict publication by default and allow explicit continuation with an attempted-query ledger. A pseudoinverse or automatic repartitioning does not establish valid uncertainty estimates.
+
+## Structured exceptions need an explicit process transport contract
+
+- Summary/root cause/correction: A spawned query returned a singular-jackknife exception that failed to unpickle in the parent because default exception pickling passed its message into a structured constructor; preserve failures, block count, separators, and notes through `__reduce__`, and test strict/continue behavior through real worker processes.
+
+## Native thread-limit tests must identify the actual backend
+
+- Summary/root cause/correction: A worker thread-limit assertion passed vacuously because `threadpoolctl` returned no libraries for Apple Accelerate; inspect NumPy's linked backend and verify Apple's runtime BLAS/LAPACK threading mode directly, using its macOS 15 setter or an inherited launch-time limit on older macOS.

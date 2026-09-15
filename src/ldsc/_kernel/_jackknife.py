@@ -34,6 +34,7 @@ class JackknifeIdentifiabilityError(np.linalg.LinAlgError):
     def __init__(self, failures, n_blocks, separators=None):
         self.failures = failures
         self.n_blocks = n_blocks
+        self.separators = separators
         details = []
         for failure in failures:
             index = failure["block_index"]
@@ -51,6 +52,10 @@ class JackknifeIdentifiabilityError(np.linalg.LinAlgError):
             + "; ".join(details) + ". Inspect annotation support and dependence outside these blocks. "
             "A pseudoinverse does not recover valid jackknife uncertainty."
         )
+
+    def __reduce__(self):
+        """Preserve structured diagnostics and notes across query processes."""
+        return type(self), (self.failures, self.n_blocks, self.separators), self.__dict__
 
 
 def _check_shape(x, y):

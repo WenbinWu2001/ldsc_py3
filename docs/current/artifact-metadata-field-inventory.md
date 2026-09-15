@@ -318,6 +318,7 @@ partitioned-h2/
     metadata.json
     coefficient_delete_values.parquet
     partitioned-h2.log
+    query_status.tsv
     query_annotations/manifest.tsv
     query_annotations/<query>/metadata.json
     query_annotations/<query>/partitioned_h2.tsv
@@ -329,13 +330,19 @@ The `diagnostics/query_annotations/` tree is present for every query-annotation
 run and absent for baseline-only runs. `--output-dir` is required; the retired
 `--write-per-query-results` flag is rejected.
 
-Root and per-query `diagnostics/metadata.json` files are provenance only. The
-root file is self-describing about the analysis: `analysis_type`
-(`functional_category` | `cell_type_specific`), `headline_metric` (`enrichment` |
-`coefficient`), `enrichment_p_test` (`two_sided_t`), and `coefficient_p_test`
-(`one_sided_greater`).
+Root `diagnostics/metadata.json` and per-query `metadata.json` files are provenance only. The root file is self-describing about the analysis: `analysis_type` (`functional_category` | `cell_type_specific`), `headline_metric` (`enrichment` | `coefficient`), `enrichment_p_test` (`two_sided_t`), and `coefficient_p_test` (`one_sided_greater`).
 
 Model metadata records `n_snps`, `effective_chisq_max`, and `n_blocks_used` from the fitted population: at the root for a baseline-only model and in each per-query metadata file for query models.
+
+Completed query scans write `diagnostics/query_status.tsv` in requested order, including failed queries; strict failures publish this ledger without new scientific results. Root and successful per-query metadata record the following runtime fields. Baseline-only runs omit these query-worker fields and the status table.
+
+| Field | Meaning |
+| --- | --- |
+| `query_workers_requested` | Original nonzero integer `threads` request, including a negative CPU offset if supplied. |
+| `query_workers_effective` | Resolved process count after the shared worker policy and query/batch work cap; 1 means inline execution. |
+| `query_worker_native_threads` | 1 for parallel workers; `null` when inline execution retains caller settings. |
+
+These fields describe execution, not scientific filtering or jackknife construction. Worker completion order does not change status order or the stable summary/manifest order. Source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py); see [query workers and memory](regression-configuration.md#43-query-workers-and-memory).
 
 The root coefficient-delete file is present for a baseline-only fitted model. In the cell-type regime, each written per-query directory contains the delete values for that complete baseline-plus-query fit. Metadata records the block count, fitted annotation order, and relative file path. These float64 matrices are required by `quantile-h2` and must never be concatenated across query runs.
 

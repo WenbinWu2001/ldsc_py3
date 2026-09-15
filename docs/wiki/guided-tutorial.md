@@ -384,6 +384,8 @@ ldsc partitioned-h2 \
 2. Query-annotation runs automatically save each successful query's complete baseline-plus-query fit under `diagnostics/query_annotations/`; `--write-per-query-results` has been removed and must be omitted.
 3. Error handling is strict by default: any query error prevents publication of new scientific results. Add `--continue-on-query-error` to skip failed query fits and publish successful ones. Check `diagnostics/query_status.tsv` for every attempted query and `diagnostics/partitioned-h2.log` for tracebacks and available block diagnostics. Shared input/output failures, interrupts, and all-query-failed scans still stop. See [query error handling](main-functionalities/partitioned-h2.md#choose-what-happens-when-a-query-fails), implemented by `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py).
 
+4. The command above uses the default inline fit. With four allocated CPUs, add `--threads 4` to fit the four query models concurrently; each process fits one complete model. For larger scans, `--query-batch-size 100` limits loaded query columns and caps concurrency. Parsing and worker-count resolution match `ldscore` and index construction, with queries/batch width replacing the chromosome work cap. See [concurrent query fitting](main-functionalities/partitioned-h2.md#fit-queries-concurrently) for negative counts, numerical-thread limits, memory costs, and failure behavior.
+
 **Outputs:**
 
 Upon a successful run, you should expect the following files in your output directory:

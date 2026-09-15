@@ -1134,6 +1134,9 @@ def stage_partitioned_h2_fit(directory, category_table, delete_values, metadata)
     The caller supplies a unique directory inside its owned output workspace.
     Returned paths remain private until the final summary determines folder
     ordering and the directory writer publishes the complete query tree.
+    Concurrent query workers receive distinct ordinal directories from the
+    coordinator. Only the coordinator assigns public folder names and publishes
+    results, after applying the run's query-error policy.
     """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=False)
@@ -1226,7 +1229,9 @@ class PartitionedH2DirectoryWriter:
         per_query_artifacts : dict of str to PartitionedH2FitArtifacts, optional
             Completed private or persistent fits keyed by original query name.
             Files are copied into the sorted publication tree without loading
-            category tables or delete-value matrices.
+            category tables or delete-value matrices. Workers may stage fits
+            concurrently; the coordinator calls this writer after fitting and
+            decides which successful artifacts may be published.
         metadata : dict, optional
             Run-level metadata copied into every per-query ``metadata.json``.
         coefficient_delete_values : pandas.DataFrame, optional

@@ -1,8 +1,8 @@
 # Annotation preparation parallelism evaluation
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
-The four serial preparation optimizations are committed as `ce2bce9` (`perf(annotation): streamline preparation`). This follow-up evaluated concurrency and concluded with a decision to retain serial preparation. The only executable additions are the [benchmark adapter](../../../benchmarks/annotation_preparation_parallel.py) and its [contract checks](../../../benchmarks/annotation_preparation_parallel_check.py). All work ran locally, without HPC access or job changes.
+The four serial preparation optimizations are committed as `ce2bce9` (`perf(annotation): streamline preparation`). This follow-up evaluated concurrency and concluded with a decision to retain serial preparation. The only executable additions are the [benchmark adapter](https://github.com/WenbinWu2001/ldsc_py3/blob/dc023e80a2a9caf9f2c7a35aa327e24e31c65087/benchmarks/annotation_preparation_parallel.py) and its [contract checks](https://github.com/WenbinWu2001/ldsc_py3/blob/dc023e80a2a9caf9f2c7a35aa327e24e31c65087/benchmarks/annotation_preparation_parallel_check.py). All work ran locally, without HPC access or job changes.
 
 ## Decision
 
@@ -42,7 +42,7 @@ Hardware: Apple M1 Pro, eight logical CPUs, 16 GiB RAM, macOS 15.3.2. Software: 
 | Real `baseline_v1.2` | 1,892,184 | Complete shards 15–22 | 53 / 0 | 30.79 MiB | 0 |
 | Synthetic wide shards | 48,000 | 1–8; 6,000 rows each | 8 / 1,000 | 4.23 MiB | 8 |
 
-The real files are the unmodified local `data/ld_refs/baseline_v1.2/baseline.<chrom>.annot.gz` sources. The wide data reuse the [existing deterministic generator](../../../benchmarks/annotation_preparation.py): annotation value at zero-based row `i`, within-source column `j` is `((7*i+j)%41-20)/8`. The first rsID is shared by all chromosomes. Aligned baseline/query records describe one logical row, so eight records are dropped globally, not sixteen. Input generation is outside measurement.
+The real files are the unmodified local `data/ld_refs/baseline_v1.2/baseline.<chrom>.annot.gz` sources. The wide data reuse the [existing deterministic generator](https://github.com/WenbinWu2001/ldsc_py3/blob/dc023e80a2a9caf9f2c7a35aa327e24e31c65087/benchmarks/annotation_preparation.py): annotation value at zero-based row `i`, within-source column `j` is `((7*i+j)%41-20)/8`. The first rsID is shared by all chromosomes. Aligned baseline/query records describe one logical row, so eight records are dropped globally, not sixteen. Input generation is outside measurement.
 
 Each run uses a fresh Python process and fresh owned scratch; runs do not overlap. The timer encloses preparation, including worker startup, shutdown, and diagnostic collection. Reference snapshots and comparisons occur afterward. Process-tree RSS and private scratch are sampled every 50 ms. RSS is a simultaneous sum over the benchmark process and descendants, including pool helpers and the sampling subprocess; shared pages can be counted more than once. Scratch bytes are logical file sizes, including prepared shards, not physical disk blocks or transferred bytes. Snapshots and original inputs are outside scratch measurements. Samples can miss short peaks.
 
@@ -90,6 +90,16 @@ The unchanged production preparation/storage suites passed **33 tests in 7.30 se
 
 ## Reproduction
 
+The benchmark scripts were removed from the active tree on September 15, 2026. To run the historical commands below, first extract the archived scripts from commit `dc023e80a2a9caf9f2c7a35aa327e24e31c65087` into a fresh temporary directory (run this from the repository root in the same shell):
+
+```bash
+benchmark_archive=$(mktemp -d)
+git archive dc023e80a2a9caf9f2c7a35aa327e24e31c65087 benchmarks | tar -x -C "$benchmark_archive"
+benchmark_scripts="$benchmark_archive/benchmarks"
+```
+
+This restores only the scripts. Use the package revisions and compatible inputs described in this report to reproduce historical measurements; running against a newer package measures that version instead.
+
 Run from the repository root in the editable `ldsc3-dev` environment. Process-tree RSS sampling requires permission to run `ps`. Use a fresh output root; scripts refuse existing per-run destinations.
 
 ```bash
@@ -97,23 +107,23 @@ annotation_python=/Users/wenbinwu/miniforge3/envs/ldsc3-dev/bin/python
 annotation_data=/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/data/ld_refs/baseline_v1.2
 annotation_runs=$(mktemp -d /private/tmp/ldsc-preparation-parallel-XXXXXXXX)
 
-"$annotation_python" benchmarks/annotation_preparation_parallel.py \
+"$annotation_python" "$benchmark_scripts/annotation_preparation_parallel.py" \
   --baseline "$annotation_data"/baseline.{15..22}.annot.gz \
   --output "$annotation_runs/serial" --save-reference
 
 for annotation_workers in 2 4 8; do
-  "$annotation_python" benchmarks/annotation_preparation_parallel.py \
+  "$annotation_python" "$benchmark_scripts/annotation_preparation_parallel.py" \
     --baseline "$annotation_data"/baseline.{15..22}.annot.gz \
     --executor process --workers "$annotation_workers" \
     --output "$annotation_runs/process-$annotation_workers" \
     --reference "$annotation_runs/serial/reference"
 done
 
-"$annotation_python" benchmarks/annotation_preparation_parallel_check.py "$annotation_runs/checks"
+"$annotation_python" "$benchmark_scripts/annotation_preparation_parallel_check.py" "$annotation_runs/checks"
 "$annotation_python" -m pytest -q tests/test_annotation_preparation.py tests/test_annotation_storage.py --tb=short
 ```
 
-Use `--executor thread` for thread screens and unique output names for repeats. Generate the wide inputs in a separate process with `benchmarks` on `sys.path`, set `annotation_preparation.CASES = {"wide-eight": (8, 6000, 8, 1000, True)}`, and call its `generate(Path(fresh_directory))`. Pass the ordered baseline/query paths from the resulting `wide-eight/inputs.json` through `--baseline` and `--query`. Save a serial reference for that dataset before testing worker counts. The exact locally used paths and each measured configuration are retained in the JSON.
+Use `--executor thread` for thread screens and unique output names for repeats. Generate the wide inputs in a separate process with the extracted `$benchmark_scripts` directory on `sys.path`, set `annotation_preparation.CASES = {"wide-eight": (8, 6000, 8, 1000, True)}`, and call its `generate(Path(fresh_directory))`. Pass the ordered baseline/query paths from the resulting `wide-eight/inputs.json` through `--baseline` and `--query`. Save a serial reference for that dataset before testing worker counts. The exact locally used paths and each measured configuration are retained in the JSON.
 
 ## Remaining limits
 

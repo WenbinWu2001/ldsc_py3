@@ -1,6 +1,6 @@
 # Annotation memory: local resource and equivalence results
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-15
 
 The implemented refactor paths reduce avoidable memory for large pathway batches while keeping public HM3 LD tables aggregate. These local synthetic measurements show the trade-off: the 1,000-query direct and regression runs use less memory, while staging and smaller computations can cost runtime. This is evidence for the implemented ownership and batching design, not a production runtime guarantee. See the [developer design](../../current/annotation-memory-design.md), [plan](../../plans/2026-09-10-annotation-workflow-memory.md), [raw measurements](measurements.json), and [artifact comparisons](equivalence.json).
 
@@ -53,7 +53,7 @@ The instrumented index comparison separates validation from sparse multiplicatio
 
 ## Scientific and artifact equivalence
 
-[`compare_annotation_memory.py`](../../../benchmarks/compare_annotation_memory.py), `compare()` and `compare_table()`, compares canonical tables, identities and order, annotation/count/overlap metadata, gene audit/status tables, and per-query regression metadata. Numeric comparisons use existing `rtol=1e-6`, `atol=1e-8`; identity/category/delete-block columns are exact. No reference goldens or tolerances were changed.
+[`compare_annotation_memory.py`](https://github.com/WenbinWu2001/ldsc_py3/blob/dc023e80a2a9caf9f2c7a35aa327e24e31c65087/benchmarks/compare_annotation_memory.py), `compare()` and `compare_table()`, compares canonical tables, identities and order, annotation/count/overlap metadata, gene audit/status tables, and per-query regression metadata. Numeric comparisons use existing `rtol=1e-6`, `atol=1e-8`; identity/category/delete-block columns are exact. No reference goldens or tolerances were changed.
 
 All measured current variants passed. Direct LD values, annotation memberships, counts, overlaps, and all 1,000 separate regression fits matched exactly in these fixtures. Each regression variant checks 3,002 tables, including category results and coefficient delete values, plus fitted-model metadata. The final standalone gene annotations match the independently specified BED intervals exactly. Quantile output differs by at most **1.5210055437364645e-13**, consistent with the changed stable accumulation order and well within the existing tolerance. The broader test suite separately covers membership boundaries, ties, omitted target values, both baseline layouts, identity cleanup, skipped siblings, gate failures, overwrite behavior, reloadability, bounded reads, and object lifetimes; see [progress](progress.md).
 
@@ -61,7 +61,7 @@ These checks compare the same backend before and after refactoring. The syntheti
 
 ## Inputs, environment, and measurement method
 
-[`annotation_memory.py`](../../../benchmarks/annotation_memory.py), `prepare()`, fixes seed **20260910**. Direct fixtures contain three chromosomes, 6,000 SNPs each, two baseline columns, and 1,000 binary query columns. The PLINK panel has 128 samples; the R2 panel uses deterministic short-range pairs. Whole-genome baseline and query gzip files are separate. Output selection retains every fifth SNP. The narrower input contains the first 100 query columns. Standalone projection uses 100 BEDs or matching lists from a 3,000-gene catalog. The index was built once from the same PLINK inputs and reused for both assembly versions; its three-chromosome fixture uses the existing private partial-index test seam. Production index commands still require autosomes 1–22. Index construction time is excluded from the assembly comparison.
+[`annotation_memory.py`](https://github.com/WenbinWu2001/ldsc_py3/blob/dc023e80a2a9caf9f2c7a35aa327e24e31c65087/benchmarks/annotation_memory.py), `prepare()`, fixes seed **20260910**. Direct fixtures contain three chromosomes, 6,000 SNPs each, two baseline columns, and 1,000 binary query columns. The PLINK panel has 128 samples; the R2 panel uses deterministic short-range pairs. Whole-genome baseline and query gzip files are separate. Output selection retains every fifth SNP. The narrower input contains the first 100 query columns. Standalone projection uses 100 BEDs or matching lists from a 3,000-gene catalog. The index was built once from the same PLINK inputs and reused for both assembly versions; its three-chromosome fixture uses the existing private partial-index test seam. Production index commands still require autosomes 1–22. Index construction time is excluded from the assembly comparison.
 
 The regression fixture contains 2,000 LD rows, 1,000 query columns, and 20 jackknife blocks. Every model is a separate baseline-plus-query fit over its full retained genome-wide SNP set. The quantile fixture has 120,000 rows, 60 fitted binary annotations, 10 exact global quantiles, and 20 coefficient delete vectors; fitted artifacts are deterministic synthetic valid inputs to the quantile post-processing command. Fixture creation is excluded from every measured command.
 
@@ -73,30 +73,40 @@ Most cells are single observations with no cold-cache guarantee, confidence inte
 
 ## Reproduction
 
+The benchmark scripts were removed from the active tree on September 15, 2026. To run the historical commands below, first extract the archived scripts from commit `dc023e80a2a9caf9f2c7a35aa327e24e31c65087` into a fresh temporary directory (run this from the repository root in the same shell):
+
+```bash
+benchmark_archive=$(mktemp -d)
+git archive dc023e80a2a9caf9f2c7a35aa327e24e31c65087 benchmarks | tar -x -C "$benchmark_archive"
+benchmark_scripts="$benchmark_archive/benchmarks"
+```
+
+This restores only the scripts. Use the package revisions and compatible inputs described in this report to reproduce historical measurements; running against a newer package measures that version instead.
+
 Run from the repository root with the development environment active. The baseline checkout is a separate local worktree; do not replace an existing unrelated directory. Generation and index construction happen once, outside timed commands. Output paths must be new because the harness refuses to overwrite an existing measurement.
 
 ```bash
 git worktree add --detach .worktrees/memory-baseline a505c45
-python benchmarks/annotation_memory.py prepare --inputs "$PWD/.worktrees/memory-benchmark/inputs"
-python benchmarks/annotation_memory.py build-index --inputs "$PWD/.worktrees/memory-benchmark/inputs"
-python benchmarks/annotation_memory.py matrix \
+python "$benchmark_scripts/annotation_memory.py" prepare --inputs "$PWD/.worktrees/memory-benchmark/inputs"
+python "$benchmark_scripts/annotation_memory.py" build-index --inputs "$PWD/.worktrees/memory-benchmark/inputs"
+python "$benchmark_scripts/annotation_memory.py" matrix \
   --checkout "$PWD" \
   --inputs "$PWD/.worktrees/memory-benchmark/inputs" \
   --output "$PWD/.worktrees/memory-benchmark/runs"
-python benchmarks/annotation_memory.py prepare-direct-subset \
+python "$benchmark_scripts/annotation_memory.py" prepare-direct-subset \
   --inputs "$PWD/.worktrees/memory-benchmark/inputs" \
   --output "$PWD/.worktrees/memory-benchmark/inputs-100" --query-count 100
-python benchmarks/annotation_memory.py measure \
+python "$benchmark_scripts/annotation_memory.py" measure \
   --checkout "$PWD/.worktrees/memory-baseline" \
   --inputs "$PWD/.worktrees/memory-benchmark/inputs-100" \
   --output "$PWD/.worktrees/memory-benchmark/runs/baseline-direct-r2-q100" \
   --case direct-r2-q100
-python benchmarks/annotation_memory.py measure \
+python "$benchmark_scripts/annotation_memory.py" measure \
   --checkout "$PWD" \
   --inputs "$PWD/.worktrees/memory-benchmark/inputs-100" \
   --output "$PWD/.worktrees/memory-benchmark/runs/current-direct-r2-q100" \
   --case direct-r2-q100 --batch 1000
-python benchmarks/compare_annotation_memory.py \
+python "$benchmark_scripts/compare_annotation_memory.py" \
   --runs .worktrees/memory-benchmark/runs \
   --output docs/audits/annotation-memory/equivalence.json
 ```

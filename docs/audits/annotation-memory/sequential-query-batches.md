@@ -1,6 +1,8 @@
 # Sequential query batch verification
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
+
+The benchmark scripts were removed from the active tree on September 15, 2026. Script links below point to their archived Git revision; the recorded measurements remain historical evidence.
 
 The [confirmed September 14 design](../../current/annotation-memory-decisions.md#confirmed-batch-integration-2026-09-14) is implemented locally on `restructure`. Direct calculation now prepares, computes, privately writes, and releases each query batch. Indexed generation retains one operator per chromosome worker, writes float64 batch fragments, and assembles them in deterministic chromosome order. Both writing routes return `LDScoreSource` without retained query LD tables. Single-batch prepared Python inputs can return a materialized result and complete diagnostics without filesystem writes.
 
@@ -36,7 +38,7 @@ Forty complete Bash LDSC examples across the updated wiki/tutorial pages parsed 
 
 ## Resource measurements and limits
 
-Both approved local chromosome-22 benchmarks completed at committed package revision `cf1dfac052728df6ef4d919a09ff814f41e95b77`. The [benchmark runner](../../../benchmarks/sequential_query_batches.py) replayed the same preserved CLI command into fresh output directories, sampling simultaneous process-tree RSS and private/persistent logical disk bytes separately. Each run used 1,000 chr22-supported gene lists, 53 binary baselines, 489 individuals, 141,123 reference SNPs, 17,380 output SNPs, a 1-cM window, and 35-kb gene padding. The requested 22 workers were capped at one chromosome; BLAS pools used one thread.
+Both approved local chromosome-22 benchmarks completed at committed package revision `cf1dfac052728df6ef4d919a09ff814f41e95b77`. The [benchmark runner](https://github.com/WenbinWu2001/ldsc_py3/blob/dc023e80a2a9caf9f2c7a35aa327e24e31c65087/benchmarks/sequential_query_batches.py) replayed the same preserved CLI command into fresh output directories, sampling simultaneous process-tree RSS and private/persistent logical disk bytes separately. Each run used 1,000 chr22-supported gene lists, 53 binary baselines, 489 individuals, 141,123 reference SNPs, 17,380 output SNPs, a 1-cM window, and 35-kb gene padding. The requested 22 workers were capped at one chromosome; BLAS pools used one thread.
 
 | Generation width | Query files | Wall time | Peak sampled process-tree RSS | Peak private logical disk | Persistent output |
 | ---: | ---: | ---: | ---: | ---: | ---: |

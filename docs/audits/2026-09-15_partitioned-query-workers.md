@@ -36,7 +36,7 @@ Summaries, preparation, and private writing were substantial, so the worker boun
 
 Workload: existing local chromosome-22 LD-score artifacts, **17,380 SNP rows, 53 baseline annotations, 1,000 queries**, loading width 100, and 200 requested jackknife blocks. Summary statistics are the existing synthetic fixture (seed 20260914, N=100000). These are computational measurements with no biological interpretation. Host: macOS 15.3.2 arm64, Python 3.13.13, NumPy 2.4.5 linked to Accelerate.
 
-[`benchmarks/partitioned_h2_workers.py`](../../benchmarks/partitioned_h2_workers.py) launches a fresh real CLI process per configuration and measures through process exit, including imports, input loading/projection, shared preparation, maps, model work, summaries, private staging, final publication, and cleanup. It samples simultaneous parent-plus-descendant RSS using POSIX `ps` about every 0.1 seconds. Shared mapped pages may be counted repeatedly; sampling can miss brief peaks. The sampler is excluded. Numerical environment limits are set to one for every launch, including the inline reference. No other test suite ran during these measurements.
+[`benchmarks/partitioned_h2_workers.py`](https://github.com/WenbinWu2001/ldsc_py3/blob/dc023e80a2a9caf9f2c7a35aa327e24e31c65087/benchmarks/partitioned_h2_workers.py) launches a fresh real CLI process per configuration and measures through process exit, including imports, input loading/projection, shared preparation, maps, model work, summaries, private staging, final publication, and cleanup. It samples simultaneous parent-plus-descendant RSS using POSIX `ps` about every 0.1 seconds. Shared mapped pages may be counted repeatedly; sampling can miss brief peaks. The sampler is excluded. Numerical environment limits are set to one for every launch, including the inline reference. No other test suite ran during these measurements.
 
 Two initial rounds ran in orders 1/2/4 and 4/2/1. After verifying Apple's explicit runtime limit, the final implementation was measured again in order 1/2/4:
 
@@ -52,10 +52,20 @@ Every run produced the same 999 successes and one collinearity failure, with all
 
 These measurements establish useful local concurrency on this bounded workload. They do not establish full-genome/18,000-query RAM requirements or Longleaf runtime. Whole-genome fits have larger private matrices, and network-filesystem map/output I/O, CPU allocation, cache state, and host load can change scaling. Do not extrapolate the measured memory as a production allocation.
 
+The benchmark scripts were removed from the active tree on September 15, 2026. To run the historical commands below, first extract the archived scripts from commit `dc023e80a2a9caf9f2c7a35aa327e24e31c65087` into a fresh temporary directory (run this from the repository root in the same shell):
+
+```bash
+benchmark_archive=$(mktemp -d)
+git archive dc023e80a2a9caf9f2c7a35aa327e24e31c65087 benchmarks | tar -x -C "$benchmark_archive"
+benchmark_scripts="$benchmark_archive/benchmarks"
+```
+
+This restores only the scripts. Use the package revisions and compatible inputs described in this report to reproduce historical measurements; running against a newer package measures that version instead.
+
 Reproduce with an installed development environment and compatible local inputs:
 
 ```bash
-python benchmarks/partitioned_h2_workers.py \
+python "$benchmark_scripts/partitioned_h2_workers.py" \
   --ldscore-dir /path/to/canonical/ldscores \
   --sumstats-file /path/to/compatible/synthetic.sumstats.gz \
   --query-batch-size 100 \

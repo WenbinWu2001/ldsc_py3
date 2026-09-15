@@ -1,6 +1,6 @@
 # Annotation preparation optimization
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 ## Scope and implementation
 
@@ -15,7 +15,7 @@ The gene-index builder already calls this shared preparation before chromosome w
 
 ## Matched workloads and method
 
-The [harness](../../../benchmarks/annotation_preparation.py) generates deterministic gzip annotations with signed, exactly representable fractional values and a duplicate SNP spanning every chromosome. It verifies every retained numeric value, float32 dtype, row and column selection order, duplicate diagnostics, and workspace cleanup against the input formula. Inputs contain no real research data or reference-panel calculations.
+The [harness](https://github.com/WenbinWu2001/ldsc_py3/blob/dc023e80a2a9caf9f2c7a35aa327e24e31c65087/benchmarks/annotation_preparation.py) generates deterministic gzip annotations with signed, exactly representable fractional values and a duplicate SNP spanning every chromosome. It verifies every retained numeric value, float32 dtype, row and column selection order, duplicate diagnostics, and workspace cleanup against the input formula. Inputs contain no real research data or reference-panel calculations.
 
 | Case | Chromosomes | Rows per chromosome | Baseline columns | Query columns | Layout |
 | --- | ---: | ---: | ---: | ---: | --- |
@@ -85,18 +85,28 @@ Reducing file creation, numeric serialization, SQL dispatch, and commits should 
 
 ## Reproduction
 
+The benchmark scripts were removed from the active tree on September 15, 2026. To run the historical commands below, first extract the archived scripts from commit `dc023e80a2a9caf9f2c7a35aa327e24e31c65087` into a fresh temporary directory (run this from the repository root in the same shell):
+
+```bash
+benchmark_archive=$(mktemp -d)
+git archive dc023e80a2a9caf9f2c7a35aa327e24e31c65087 benchmarks | tar -x -C "$benchmark_archive"
+benchmark_scripts="$benchmark_archive/benchmarks"
+```
+
+This restores only the scripts. Use the package revisions and compatible inputs described in this report to reproduce historical measurements; running against a newer package measures that version instead.
+
 From the repository root, use the configured `ldsc3-dev` environment. The harness imports whichever package is on `PYTHONPATH`, so use separate source trees to compare revisions. Preserve the original source before editing; the recorded baseline revision is above. Each output directory must be new.
 
 ```bash
-python benchmarks/annotation_preparation.py generate /private/tmp/annotation-preparation-inputs
-PYTHONPATH=/absolute/path/to/before/src python benchmarks/annotation_preparation.py measure /private/tmp/annotation-preparation-inputs /private/tmp/annotation-before-sharded --case sharded
-PYTHONPATH=src python benchmarks/annotation_preparation.py measure /private/tmp/annotation-preparation-inputs /private/tmp/annotation-after-sharded --case sharded
+python "$benchmark_scripts/annotation_preparation.py" generate /private/tmp/annotation-preparation-inputs
+PYTHONPATH=/absolute/path/to/before/src python "$benchmark_scripts/annotation_preparation.py" measure /private/tmp/annotation-preparation-inputs /private/tmp/annotation-before-sharded --case sharded
+PYTHONPATH=src python "$benchmark_scripts/annotation_preparation.py" measure /private/tmp/annotation-preparation-inputs /private/tmp/annotation-after-sharded --case sharded
 ```
 
 Repeat with `wide-sharded`, `wide-whole`, and `small`, using a fresh output directory for every repetition and alternating variant order. No input regeneration is needed between variants. `--declared` exercises declared chromosome labels for sharded cases. To reproduce a SQL pilot on the final implementation:
 
 ```bash
-PYTHONPATH=src python benchmarks/annotation_preparation.py measure /private/tmp/annotation-preparation-inputs /private/tmp/annotation-sql-pilot --case sharded --chunk-rows 962 --sql-batch-size 512 --transaction-rows 262144
+PYTHONPATH=src python "$benchmark_scripts/annotation_preparation.py" measure /private/tmp/annotation-preparation-inputs /private/tmp/annotation-sql-pilot --case sharded --chunk-rows 962 --sql-batch-size 512 --transaction-rows 262144
 ```
 
 The SQL options are benchmark-only overrides of private constants; they add no public API or CLI options. All generated inputs and measurement directories for this session were placed under `/private/tmp/ldsc-annotation-preparation-20260914/`.

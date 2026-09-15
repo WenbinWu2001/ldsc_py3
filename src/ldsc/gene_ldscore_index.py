@@ -771,7 +771,7 @@ def _run_gene_ldscore_index_build(
                 f"Finished chromosome {chrom}: catalog genes={catalog_genes}, "
                 f"retained-reference={evidence['retained_reference_rows']}, "
                 f"regression-rows={evidence['regression_rows']}, atoms={evidence['atom_count']}, "
-                f"nnz(Y)={evidence['nnz_Y']}, elapsed={evidence['elapsed_seconds']:.3f}s."
+                f"nonzero SNP–atom LD scores={evidence['nnz_Y']}, elapsed={evidence['elapsed_seconds']:.3f}s."
             )
             if not len(record.baseline_rows):
                 LOGGER.warning(
@@ -1351,8 +1351,7 @@ def _log_gene_index_summary(payload: dict) -> None:
             f"regression-rows={values['regression_rows']}, "
             f"catalog genes={values['catalog_genes']}, "
             f"genes-with-padded-atoms={values['genes_with_padded_atoms']}, "
-            f"atoms={values['atom_count']}, nnz(Y)={values['nnz_Y']}, "
-            f"operator_nnz={values['operator_nnz']}, "
+            f"atoms={values['atom_count']}, nonzero SNP–atom LD scores={values['nnz_Y']}, "
             f"payload-bytes={values['payload_bytes']}, "
             f"elapsed={values['elapsed_seconds']:.3f}s."
         )
@@ -1364,7 +1363,7 @@ def _log_gene_index_summary(payload: dict) -> None:
     LOGGER.info(
         f"Gene LD-score index build completed and validated: chromosomes={totals['chromosome_count']}, "
         f"catalog genes={totals['catalog_genes']}, atoms={totals['atom_count']}, "
-        f"operator_nnz={totals['operator_nnz']}, payload_bytes={payload['payload_bytes']}, "
+        f"nonzero SNP–atom LD scores={totals['operator_nnz']}, payload_bytes={payload['payload_bytes']}, "
         f"peak_rss_bytes={payload['peak_rss_bytes']}, elapsed_seconds={payload['elapsed_seconds']:.6f}, "
         f"index={publication['index_path']}."
     )

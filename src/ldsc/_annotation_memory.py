@@ -10,6 +10,7 @@ from .annotation_semantics import require_unique_annotation_names
 from .chromosome_inference import normalize_chromosome
 from .config import get_global_config
 from .errors import LDSCInputError
+from ._annotation_storage import BINARY_BITORDER
 from ._kernel.snp_identity import clean_identity_artifact_table, identity_base_mode, identity_mode_family
 
 
@@ -32,11 +33,18 @@ class MemoryDiagnostics:
 
 @dataclass(frozen=True)
 class MemoryAnnotationShard:
-    """Own prepared row metadata and float32 annotation values for a chromosome."""
+    """Own chromosome metadata, packed binary values, and dense float32 values."""
 
     frame: pd.DataFrame
     values: np.ndarray
-    columns: tuple[str, ...]
+    continuous_columns: tuple[str, ...]
+    binary_values: np.ndarray
+    binary_columns: tuple[str, ...]
+    bitorder: str = BINARY_BITORDER
+
+    @property
+    def columns(self):
+        return self.binary_columns + self.continuous_columns
 
     @property
     def n_rows(self):
@@ -45,10 +53,19 @@ class MemoryAnnotationShard:
     def metadata(self):
         return self.frame.copy()
 
-    def read(self, *, rows=None, columns=None, max_read_rows=65536):
+    def read(self, *, columns, rows=None, max_read_rows=65536):
+        """Decode selected SNPs in the requested column order as float32."""
         indices = np.arange(self.n_rows) if rows is None else np.arange(self.n_rows)[rows]
-        selected = np.arange(len(self.columns)) if columns is None else [self.columns.index(name) for name in columns]
-        return self.values[np.ix_(np.asarray(indices), selected)]
+        binary = {name: index for index, name in enumerate(self.binary_columns)}
+        continuous = {name: index for index, name in enumerate(self.continuous_columns)}
+        result = np.empty((len(indices), len(columns)), dtype=np.float32)
+        shifts = indices % 8 if self.bitorder == "little" else 7 - indices % 8
+        for j, name in enumerate(columns):
+            if name in binary:
+                result[:, j] = (self.binary_values[indices // 8, binary[name]] >> shifts) & 1
+            else:
+                result[:, j] = self.values[indices, continuous[name]]
+        return result
 
 
 def bundle_from_frames(cls, metadata, baseline_annotations, query_annotations, config_snapshot):
@@ -68,8 +85,11 @@ def bundle_from_frames(cls, metadata, baseline_annotations, query_annotations, c
     if set(names).intersection(metadata.columns):
         raise LDSCInputError("Prepared annotation names must not overlap SNP metadata column names.")
     values = pd.concat([baseline_annotations.reset_index(drop=True),
-                        query_annotations.reset_index(drop=True) if query_annotations is not None else pd.DataFrame()], axis=1).to_numpy(dtype=np.float32)
-    if not np.isfinite(values).all():
+                        query_annotations.reset_index(drop=True) if query_annotations is not None else pd.DataFrame()], axis=1).apply(pd.to_numeric)
+    binary = values.isin((0, 1)).all(axis=0)
+    binary_columns, continuous_columns = tuple(values.columns[binary]), tuple(values.columns[~binary])
+    continuous = values.loc[:, list(continuous_columns)].to_numpy(dtype=np.float32)
+    if not np.isfinite(continuous).all():
         raise LDSCInputError("Prepared annotation values must be finite numeric values.")
     frame = metadata.reset_index(drop=True).copy()
     frame["CHR"] = frame["CHR"].map(normalize_chromosome)
@@ -81,7 +101,11 @@ def bundle_from_frames(cls, metadata, baseline_annotations, query_annotations, c
     for chrom, rows in clean.cleaned.groupby("CHR", sort=False):
         rows = rows.sort_values("POS", kind="stable")
         indices = rows["_memory_row"].to_numpy(dtype=np.int64)
-        shards[chrom] = MemoryAnnotationShard(rows.drop(columns="_memory_row").reset_index(drop=True), values[indices], tuple(names))
+        packed = np.empty(((len(rows) + 7) // 8, len(binary_columns)), dtype=np.uint8, order="F")
+        for j, name in enumerate(binary_columns):
+            packed[:, j] = np.packbits(values[name].to_numpy()[indices].astype(bool, copy=False), bitorder=BINARY_BITORDER)
+        shards[chrom] = MemoryAnnotationShard(rows.drop(columns="_memory_row").reset_index(drop=True),
+                                             continuous[indices], continuous_columns, packed, binary_columns)
     bundle = cls(shards, baseline, queries, None, config_snapshot=config,
                  identity_drops=MemoryDiagnostics(clean.dropped), diagnostics_in_memory=True)
     bundle.validate()

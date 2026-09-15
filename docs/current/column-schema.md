@@ -1,6 +1,6 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `column_inference.py`, all
@@ -59,13 +59,9 @@ truth for any computation or validation.
 | `R2` | `float64` | |
 | `L2` (and annotation-specific LD columns) | `float64` | |
 
-External `.annot` annotation values are always loaded as `float32`, including
-columns whose observed values happen to be only zero and one. BED- and
-gene-list-derived columns created by `annotate` use ordinary Boolean dtype in
-the `AnnotationBundle`. The `.annot.gz` writer serializes those generated
-Booleans as integer text `0`/`1`; annotation loading converts them back to
-`float32`. LD-score calculation converts each chromosome-local annotation
-matrix to `float32` at its numerical boundary.
+`AnnotationBundle.read()` returns `float32`, including binary-only selections. Private annotation storage separates packed binary columns from dense float32 continuous columns. Generated BED/gene membership, gene controls, and synthetic `base` are binary by construction. Supplied columns are binary only when all parsed values are exactly zero or one across every input chunk and chromosome, before float32 narrowing. Type does not depend on baseline/query membership. Continuous values remain dense even when mostly zero. Missing/nonnumeric annotation validation is unchanged; zero is not a missing-value code.
+
+Packed files store eight SNP rows per uint8 in column-major order, with explicit little bit order and logical row count in the descriptor. Public default reads preserve baseline-then-query input order through explicit column mapping, independently of the binary/continuous files. Numerical kernels accumulate LD scores, annotation sums, and overlap products in float64. The `.annot.gz` writer retains generated integer text `0`/`1`; LD-score Parquet values retain float32. See [annotation format policy](annotation-memory-design.md#annotation-format-policy) for the two-pass preparation, encoding, selected reads, and size contracts.
 
 ### On-disk dtypes (parquet)
 

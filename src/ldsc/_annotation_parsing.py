@@ -19,11 +19,13 @@ _ANNOTATION_A1_COLUMN_SPEC = ColumnSpec(A1_COLUMN_SPEC.canonical, A1_COLUMN_SPEC
 _ANNOTATION_A2_COLUMN_SPEC = ColumnSpec(A2_COLUMN_SPEC.canonical, A2_COLUMN_SPEC.aliases, A2_COLUMN_SPEC.label, allow_suffix_match=False)
 
 
-def normalize_annotation_chunk(df, path, snp_identifier, chrom=None, *, log_ignored_metadata=True):
-    """Normalize a bounded frame to aligned metadata and float32 values.
+def normalize_annotation_chunk(df, path, snp_identifier, chrom=None, *, log_ignored_metadata=True, value_dtype=np.float32):
+    """Normalize aligned metadata and numeric values, ordinarily to float32.
 
-    Chunk readers enable ``log_ignored_metadata`` only on their first chunk,
-    so the CM/MAF notice appears once per file read without process-wide state.
+    Source preparation enables ``log_ignored_metadata`` only on the first
+    classification chunk, so the CM/MAF notice appears once per source per
+    preparation. The second, numeric-only pass does not call this normalizer.
+    ``value_dtype=None`` preserves parsed precision for exact binary detection.
     """
     context = str(path)
     chr_col = resolve_required_column(df.columns, CHR_COLUMN_SPEC, context=context)
@@ -87,6 +89,7 @@ def normalize_annotation_chunk(df, path, snp_identifier, chrom=None, *, log_igno
         df,
         annotation_columns,
         path=path,
+        dtype=value_dtype,
     ).reset_index(drop=True)
     metadata = metadata.reset_index(drop=True)
     return metadata, annotations

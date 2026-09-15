@@ -1,6 +1,6 @@
 # LD Score Calculation
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-built SNP-level annotations, or from raw BED/gene-list queries plus an explicit baseline.
 
@@ -35,7 +35,7 @@ Input-token rules used below:
 
 Output directories stay literal; only input fields are expanded.
 
-Live annotation preparation is serial for both whole-genome and chromosome-sharded inputs, before the chromosome workers selected by `--threads`. At INFO, `diagnostics/ldscore.log` marks input reading, SNP identity checks and chromosome preparation, and completion with retained counts and elapsed preparation time. CM/MAF notices appear once per source file read; intentional gene exclusions are summarized per gene set. See [preparation logging](../docs/current/workflow-logging.md#annotation-preparation). These milestones describe preparation, while LD-score computation and final output writing still follow.
+Live annotation preparation is serial for both whole-genome and chromosome-sharded inputs, before the chromosome workers selected by `--threads`. Two bounded input passes automatically classify supplied columns, then write packed binary and dense float32 values directly to private stores. Generated gene/BED annotations are packed during projection. Public reads retain float32 and input column order; no dtype option is needed. At INFO, `diagnostics/ldscore.log` reports input reading, SNP identity checks and chromosome preparation, storage column counts/file bytes, and completion with retained counts and elapsed preparation time. CM/MAF notices appear once per source during classification; intentional gene exclusions are summarized per gene set. See [annotation format policy](../docs/current/annotation-memory-design.md#annotation-format-policy) and [preparation logging](../docs/current/workflow-logging.md#annotation-preparation). LD-score computation and final output writing still follow.
 
 SNP restriction files used for the reference-panel or regression universes are
 identity-only filters. Duplicate restriction keys collapse to one retained key,
@@ -334,7 +334,7 @@ with AnnotationBundle.from_frames(
 # result.query_table and in-memory diagnostics remain available after closure.
 ```
 
-Metadata must contain `CHR`, 1-based integer `POS`, and `SNP` for an rsID identity mode; supply both `A1` and `A2`, or neither. Frames align positionally, with finite numeric annotation values and unique names distinct from metadata. `from_frames` copies annotation values to float32 and drops all members of duplicate effective-SNP-key groups. It does not infer the build or perform liftover. Supply a reference adapter configured for the same identity and build. The caller owns the additional memory for preparation and diagnostics.
+Metadata must contain `CHR`, 1-based integer `POS`, and `SNP` for an rsID identity mode; supply both `A1` and `A2`, or neither. Frames align positionally, with finite numeric annotation values and unique names distinct from metadata. `from_frames` packs columns containing only exact 0/1 values and copies other columns to dense float32, while public `read()` calls always return float32. Classification covers the complete input before float32 conversion. It drops all members of duplicate effective-SNP-key groups, does not infer the build, and performs no liftover. Supply a reference adapter configured for the same identity and build. The caller owns the additional memory for preparation and diagnostics.
 
 This low-level calculator takes already-resolved `regression_snps` and `regression_regions` arguments. Omitting them selects all retained reference rows and applies no regression-region exclusions; it does not load `LDScoreConfig.regr_snps_file` or apply the high-level workflow's packaged HapMap3 and region defaults. Pass the same resolved restrictions when comparing with a writing workflow. Sources: `AnnotationBundle.from_frames` in [_annotation_bundle.py](../src/ldsc/_annotation_bundle.py) and `LDScoreCalculator.run` in [ldscore_calculator.py](../src/ldsc/ldscore_calculator.py).
 

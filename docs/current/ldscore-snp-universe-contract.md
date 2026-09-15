@@ -1,6 +1,6 @@
 # LD-score SNP-universe contract
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 This table distinguishes the SNP universes used by canonical LD Score
 Regression (LDSC) and stratified LDSC. It is especially important for MHC and
@@ -22,7 +22,7 @@ Direct query chromosome coverage is established from validated baseline/referenc
 
 Within each direct query execution batch, baseline/control annotations, the active query columns, and the binary regression-SNP mask share one numerical LD traversal per chromosome. PLINK computes each genotype-correlation block once for that batch; Parquet R² decodes bounded pair chunks. The next execution batch repeats reference preparation and genotype/R² traversal. This repeated work is deliberate: completed query batches are written and released before the next batch is prepared. Shared baseline counts and overlap blocks are retained once, not added repeatedly across execution batches. The synthetic all-ones `base` annotation uses one no-query calculation in unpartitioned runs.
 
-The implementation reads bounded annotation tiles and resolves output rows before score allocation. It accumulates scores only for output rows while retaining every eligible reference-SNP contributor and the established all/common count and overlap universes. Non-output endpoints still contribute to output endpoints. `w_ld` keeps its distinct filtered-regression contributor set. A caller requesting all output rows remains supported. Counts sum normalized float32 annotation values in float64, preserving existing validation tolerances across query widths and array layouts.
+The implementation reads bounded annotation tiles and resolves output rows before score allocation. It accumulates scores only for output rows while retaining every eligible reference-SNP contributor and the established all/common count and overlap universes. Non-output endpoints still contribute to output endpoints. `w_ld` keeps its distinct filtered-regression contributor set. A caller requesting all output rows remains supported. Counts sum binary 0/1 and normalized float32 continuous annotation values in float64, preserving existing validation tolerances across query widths and array layouts. Packed storage and selected decoding follow the [annotation format policy](annotation-memory-design.md#annotation-format-policy).
 
 The [confirmed September 14 design](annotation-memory-decisions.md#confirmed-sequential-query-batches-2026-09-14) supersedes the earlier requirement for one traversal across all queries. Public output contains one shared genome-wide baseline file and one or more genome-wide query files, with chromosome row groups and the required ordered `query_batches` manifest. Generation batch width and chromosome workers affect execution memory, not SNP membership or scientific definitions. Sources: `LDScoreCalculator.run` in [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py), `ProjectionAccumulator` in [_kernel/ldscore_projection.py](../../src/ldsc/_kernel/ldscore_projection.py), and `annotation_statistics` in [_kernel/overlap.py](../../src/ldsc/_kernel/overlap.py). See the [numerical verification](../audits/annotation-memory/sequential-query-batches.md).
 

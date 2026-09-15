@@ -1,6 +1,7 @@
 """Resource-owning annotation dataset with explicit chromosome/column access."""
 
 from dataclasses import dataclass, field
+import numpy as np
 from ._annotation_storage import AnnotationShard, AnnotationWorkspace, FrameSpool, TsvDiagnostics
 from .annotation_semantics import require_unique_annotation_names
 from .chromosome_inference import normalize_chromosome
@@ -13,8 +14,9 @@ class AnnotationBundle:
     """Complete annotation dataset represented by on-demand chromosome shards.
 
     File-backed ``shards`` contain descriptors. ``from_frames`` instead owns
-    arrays and diagnostics in memory for small prepared-input calculations.
-    Reads return detached chromosome/column/row selections owned by the caller.
+    packed binary arrays, dense float32 continuous arrays, and diagnostics in
+    memory for small prepared-input calculations. Reads return detached
+    float32 chromosome/column/row selections owned by the caller.
     Use the bundle as a context manager or call ``close()`` to release private
     staging. A calculator borrowing this bundle must not close it. Closing
     invalidates subsequent reads but preserves canonical outputs and original
@@ -65,8 +67,10 @@ class AnnotationBundle:
         baseline_annotations : pandas.DataFrame
             Nonempty set of numeric annotation columns, with one row per
             metadata row. Names must be unique across baseline and queries and
-            must not overlap metadata names. Values are copied to float32 and
-            must remain finite after conversion, as for file preparation.
+            must not overlap metadata names. Exact 0/1 columns are packed;
+            other values are copied to float32 and must remain finite after
+            conversion. Classification precedes float32 narrowing and covers
+            the complete input. Public reads always return float32.
         query_annotations : pandas.DataFrame or None, optional
             Optional query columns subject to the same row and value rules.
             Defaults to ``None`` for a baseline-only bundle.
@@ -109,7 +113,7 @@ class AnnotationBundle:
         return sum(shard.n_rows for shard in self.shards.values())
 
     def shard(self, chrom):
-        """Return one descriptor while verifying its owner's lifetime."""
+        """Return one chromosome accessor while verifying its owner's lifetime."""
         self._require_open()
         self._prepare_sources()
         return self.shards[normalize_chromosome(chrom)]
@@ -130,16 +134,39 @@ class AnnotationBundle:
     def read(self, chrom, *, rows=None, columns=None):
         """Read detached values for selected SNP rows and annotation columns.
 
-        Ordinary annotations are float32. Explicitly selecting a query batch
-        and LD block bounds the returned matrix; omitting selectors requests
-        all active columns/rows of this chromosome only.
+        Parameters
+        ----------
+        chrom : str or int
+            Chromosome label, normalized using the shared chromosome rules.
+        rows : sequence of int, slice, boolean mask, or None, optional
+            Zero-based positions in this chromosome's annotation metadata.
+            Integer indices must be nonnegative; a Boolean mask must match the
+            chromosome's logical row count. Defaults to the complete annotation
+            grid, which may include SNPs absent from the retained reference panel.
+        columns : sequence of str or None, optional
+            Annotation names in the requested output order. Defaults to baseline
+            then query columns, preserving resolved input order within each group.
+
+        Returns
+        -------
+        numpy.ndarray
+            Float32 values with shape ``(n_selected_rows, n_selected_columns)``,
+            including binary-only and empty selections. Requested row/column
+            order and duplicates are preserved independently of physical stores.
+
+        Notes
+        -----
+        Packed values use bounded selected reads; no value cache is retained.
+        The entire requested result is materialized, so explicit row and column
+        selections determine its memory cost. Deferred source-backed bundles may
+        prepare private stores on the first read. The bundle must remain open.
         """
         columns = self.baseline_columns + self.query_columns if columns is None else list(columns)
         allowed = set(self.baseline_columns + self.query_columns)
         for name in columns:
             if name not in allowed:
                 raise KeyError(name)
-        return self.shard(chrom).read(rows=rows, columns=columns)
+        return self.shard(chrom).read(rows=rows, columns=columns).astype(np.float32, copy=False)
 
     def validate(self):
         """Prepare deferred sources if needed, then validate descriptor contracts."""

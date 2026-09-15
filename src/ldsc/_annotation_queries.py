@@ -80,7 +80,7 @@ def query_source_statuses(bed_sources=(), gene_batch=None):
 
 @dataclass(frozen=True)
 class ProjectedQueries:
-    """Resolved interval sources whose dense SNP values exist only per batch."""
+    """Resolved interval sources whose packed SNP values exist only per batch."""
 
     bed_sources: tuple
     padding_bp: int
@@ -132,7 +132,7 @@ def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0,
         shard = bundle.shard(chrom)
         metadata = shard.metadata()
         projector = ChromosomeProjector(metadata)
-        store = ColumnStore.create(bundle.workspace.path / f'query-{chrom}.npy', shard.n_rows, [*(['gene_control'] if control else []), *names])
+        store = ColumnStore.create(bundle.workspace.path / f'query-{chrom}.npy', shard.n_rows, [*(['gene_control'] if control else []), *names], dtype=bool)
         if gene_batch is not None:
             declarations = (item for item in gene_batch.declarations if item['query'] in store.columns)
             for declaration in declarations:

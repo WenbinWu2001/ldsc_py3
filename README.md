@@ -1,6 +1,6 @@
 # ldsc3_Jerry
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 This repository is the active refactored LDSC package.
 
@@ -52,7 +52,7 @@ These academic credit instructions are separate from the software license. Cite 
 
 ## Large pathway batches
 
-The annotation and regression workflows are designed for large pathway batches, such as **1,000 pathways in one run, each tested separately against shared baseline categories**. Whole-genome and chromosome-sharded annotation inputs are prepared in bounded chunks sized for the files processed together. Global identity cleanup reads metadata separately, then retained numeric values are copied directly into private chromosome artifacts. Chromosome working data are released between sequential runs, and parallel work is bounded by `--threads`; annotation preparation itself remains serial. `--query-batch-size` defaults to `1000` for direct/indexed `ldscore` and batch `partitioned-h2`; use a smaller positive value to reduce active query workspace. Final HM3 LD-score tables remain aggregate Parquet files, never public chromosome LD shards.
+The annotation and regression workflows are designed for large pathway batches, such as **1,000 pathways in one run, each tested separately against shared baseline categories**. Whole-genome and chromosome-sharded annotation inputs are prepared in bounded chunks sized for the files processed together. Binary columns are detected automatically and stored as packed bits; continuous columns use dense float32. Two input passes validate/classify supplied values, then write retained values directly into private chromosome artifacts, with metadata kept separately for global identity cleanup. Public reads remain float32 in input column order, and no new option is needed. Chromosome working data are released between sequential runs, and parallel work is bounded by `--threads`; annotation preparation itself remains serial. `--query-batch-size` defaults to `1000` for direct/indexed `ldscore` and batch `partitioned-h2`; use a smaller positive value to reduce active query workspace. Final HM3 LD-score tables remain aggregate Parquet files, never public chromosome LD shards. See [annotation format policy](docs/current/annotation-memory-design.md#annotation-format-policy) for classification and measured storage sizes.
 
 Standalone `annotate` accepts BED files or gene lists and writes reusable chromosome annotation shards incrementally. Source-backed Python preparation requires an output directory and explicit bundle ownership; new scratch stays under that destination, with the existing gene-index construction transaction as the exception. See the [developer memory design](docs/current/annotation-memory-design.md) and [pathway batch guide](docs/wiki/main-functionalities/partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways).
 

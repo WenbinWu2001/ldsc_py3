@@ -1,6 +1,6 @@
 # Annotation and Workflow Memory Implementation Plan
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 Status: reopened after the completion audit at `8ada67c`. The core refactor is implemented, but quantitative count equivalence, direct LD-table aggregation, and two diagnostic-retention paths remain unfinished. See the [completion review](../audits/annotation-memory/completion-review.md) for R1–R3 and evidence. Design documentation was committed as `56d426a`.
 
@@ -13,6 +13,8 @@ September 14 parallelism evaluation: the serial preparation work is committed as
 September 14 logging refinement: shared preparation now logs input reading, SNP identity checks and chromosome preparation, and successful completion with retained counts and elapsed time. Intentional gene exclusions use one source/role summary across audit chunks; CM/MAF notices appear once per file read. Full row audits, failure behavior, and serial execution are preserved. Docstrings, current guidance, wiki pages, and tutorial prose describe the optimized preparation and completed parallelism decision. See [workflow logging](../current/workflow-logging.md#annotation-preparation); this visibility change does not close unrelated R3 work.
 
 Reference specification: [annotation and workflow memory optimization](../specs/2026-09-10-annotation-workflow-memory-design.md). Confirmed scope and decisions are recorded in [annotation memory decisions](../current/annotation-memory-decisions.md); standalone gene-list behavior is governed by [annotate gene-list decisions](../current/annotate-gene-list-decisions.md), especially its condition–outcome table. Keep this plan current as implementation evidence becomes available.
+
+September 15 annotation-storage follow-up: the user authorized a separate package-wide storage change. Exact binary classification before float32 conversion, packed binary stores, separate dense float32 continuous stores, and bounded selected decoding are implemented. Supplied inputs use two content passes and no numeric spool; generated annotations pack directly. Public float32 reads, logical column order, serial preparation, and LD-score outputs/aggregation are preserved. The full suite passed 1,812 tests and 132 subtests, with one skip. See the [current format policy and measured chromosome-22 sizes](../current/annotation-memory-design.md#annotation-format-policy); the older dense-storage choices and benchmark figures below remain historical.
 
 ## Goal and success signal
 

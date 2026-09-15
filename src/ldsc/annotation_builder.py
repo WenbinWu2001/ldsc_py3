@@ -44,7 +44,7 @@ class AnnotationBuilder:
         self.projection_genome_build = projection_genome_build
 
     def run(self, source_spec: AnnotationBuildConfig | None = None, *, output_dir) -> AnnotationBundle:
-        """Prepare sources once and return an owned chromosome-shard handle.
+        """Prepare sources and return an owned chromosome-shard handle.
 
         Parameters
         ----------
@@ -68,8 +68,12 @@ class AnnotationBuilder:
         Text/gzip preparation is serial for whole-genome and chromosome-sharded
         inputs. Aligned baseline/query files describe one logical SNP grid;
         identity cleanup covers that complete grid before chromosome selection.
-        Values are normalized to float32 in bounded tiles, separately from the
-        metadata used for global identity checks.
+        Two bounded content passes classify supplied columns, then write
+        retained values directly to packed-binary or dense-float32 stores.
+        Binary eligibility requires exact 0/1 values across the complete input,
+        before float32 narrowing. Generated interval values are packed directly.
+        Identity checks stage only metadata; no numeric spool is created.
+        Public reads retain float32 and logical baseline-then-query column order.
 
         Preparation emits INFO milestones through the existing LDSC logger.
         This method does not install a file or console handler; ``run_annotate``

@@ -64,8 +64,13 @@ def _validate_annotation_values(
     annotation_columns: Sequence[str],
     *,
     path: str | Path,
+    dtype=np.float32,
 ) -> pd.DataFrame:
-    """Return numeric annotation values or raise an actionable format error."""
+    """Validate numeric, non-missing annotations and apply the requested dtype.
+
+    ``dtype=None`` preserves parsed precision so exact binary classification
+    can precede the ordinary float32 normalization.
+    """
     values = frame.loc[:, annotation_columns]
     numeric = values.apply(pd.to_numeric, errors="coerce")
     missing = values.isna()
@@ -86,7 +91,7 @@ def _validate_annotation_values(
                     f"{_summarize_row_numbers(non_numeric_rows)}"
                 )
         raise LDSCInputError(_annotation_parse_error_message(path, details="; ".join(problems)))
-    return numeric.astype(np.float32)
+    return numeric if dtype is None else numeric.astype(dtype)
 
 
 def _summarize_row_numbers(rows: np.ndarray, *, limit: int = 5) -> str:

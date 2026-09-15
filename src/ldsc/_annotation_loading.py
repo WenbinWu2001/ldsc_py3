@@ -8,7 +8,7 @@ from .errors import LDSCInputError
 
 
 def build_annotation_shards(spec, config, workspace, *, projection_genome_build=None):
-    """Normalize aligned sources once and construct optional interval queries.
+    """Prepare aligned sources and construct optional interval queries.
 
     The caller owns ``workspace`` and the returned bundle borrows that same
     owner. This preparation API writes no canonical artifacts. Standalone

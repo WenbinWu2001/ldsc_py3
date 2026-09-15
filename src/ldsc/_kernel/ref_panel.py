@@ -243,8 +243,9 @@ class RefPanel(ABC):
         chrom : str
             Chromosome label to resolve in this panel.
         annotations : ldsc._kernel.ldscore.AnnotationBundle
-            SNP metadata in genomic order and numeric annotation columns in
-            baseline-then-query order. Input tables are not modified.
+            SNP metadata in genomic order and a selected-read annotation source
+            in baseline-then-query order. The source may access packed binary
+            and dense continuous stores. Input tables are not modified.
         config : LDScoreConfig
             Window geometry and whole-chromosome-window policy.
         genetic_map : pandas.DataFrame or None, optional

@@ -1,6 +1,6 @@
 # Workflow Logging
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 Public workflow entry points share one logging policy:
 
@@ -88,17 +88,18 @@ Validation remains staged: BIM/FAM rows and BED dimensions require reference ins
 
 ## Annotation preparation
 
-Shared source preparation emits three INFO milestones in the workflow log: reading annotation inputs, checking SNP identities and preparing chromosome annotations, and successful completion. For example:
+Shared source preparation emits INFO milestones in the workflow log for reading annotation inputs, checking SNP identities and preparing chromosome annotations, and successful completion. A storage summary immediately before completion records binary/continuous column counts and actual value-file bytes. For example:
 
 ```text
 Reading annotation inputs: baseline files=22, query files=22.
 Checking SNP identities and preparing chromosome annotations.
+Annotation storage: binary=50 packed-bit columns, continuous=3 float32 columns; value files=18,255,632 bytes.
 Annotation preparation complete: chromosomes=22, retained SNPs=1,000,000, elapsed=30.00s.
 ```
 
-The counts and time above are illustrative. The first line precedes source scanning; the second precedes global identity validation, retained-row selection, and shard writing. Completion appears only after usable annotation shards are ready, with the number of retained chromosomes, logical SNP rows after identity cleanup and any chromosome selection, and elapsed preparation time. Aligned baseline/query files describe the same logical rows and do not double the SNP count. For the gene-index builder these messages precede `Starting chromosome N`; preparation remains serial.
+The counts, bytes, and time above are illustrative. The first line precedes the validation/classification pass; the second precedes global identity validation, retained-row selection, and a second input pass that writes final compact stores directly. The storage line counts each supplied logical column once; bytes sum the completed NPY files across retained chromosomes, including headers but excluding Parquet metadata, identity/diagnostic scratch, and any subsequently generated queries. These are file sizes, not peak RSS. Completion appears only after usable annotation shards are ready, with the number of retained chromosomes, logical SNP rows after identity cleanup and any chromosome selection, and elapsed preparation time. Aligned baseline/query files describe the same logical rows and do not double the SNP count. For the gene-index builder these messages precede `Starting chromosome N`; preparation remains serial.
 
-These milestones accompany structured phase records from `_progress.PhaseProgress`: start, complete, failed, and progress at bounded chunk/object checkpoints after at least 30 seconds. Records name validation, staging, computation, or publication, the current source/chromosome, completed units, a total when known, and elapsed time. Unknown totals are explicit; row counts measure scanned or staged rows within the named phase, not unique genome-wide SNPs. A blocking library call cannot emit an intermediate record until control returns. A CM/MAF compatibility notice appears only on the first chunk of each annotation file read; later chunks do not repeat it, and later preparation calls still receive it. At `WARNING` or `ERROR`, INFO milestones and notices are suppressed by the existing log-level policy. Preparation failures retain the last reached milestone and the workflow's existing `Failed` footer and traceback, without a preparation-complete message. Preparation completion does not mean the enclosing workflow or output publication has finished.
+These milestones accompany structured phase records from `_progress.PhaseProgress`: start, complete, failed, and progress at bounded chunk/object checkpoints after at least 30 seconds. Records name validation, staging, computation, or publication, the current source/chromosome, completed units, a total when known, and elapsed time. Unknown totals are explicit; row counts measure scanned or staged rows within the named phase, not unique genome-wide SNPs. A blocking library call cannot emit an intermediate record until control returns. A CM/MAF compatibility notice appears once per source during the first content pass; later chunks and the second numeric pass do not repeat it, and later preparation calls still receive it. At `WARNING` or `ERROR`, INFO milestones and notices are suppressed by the existing log-level policy. Preparation failures retain the last reached milestone and the workflow's existing `Failed` footer and traceback, without a preparation-complete message. Preparation completion does not mean the enclosing workflow or output publication has finished.
 
 Intentional gene exclusions use the following compact form:
 

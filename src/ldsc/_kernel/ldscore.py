@@ -14,8 +14,10 @@ workflow adapters. BED-to-SNP projection belongs to ``ldsc.annotation_builder``.
 
 Scientific contracts
 --------------------
-Prepared metadata, float32 annotation rows, and window bounds describe the
-same retained SNP universe in genomic order. Reference-panel CM and MAF are
+Prepared metadata, selected annotation rows, and window bounds describe the
+same retained SNP universe in genomic order. Binary annotations can remain
+packed until selected reads; continuous values retain float32 normalization.
+Projection accumulates in float64. Reference-panel CM and MAF are
 authoritative. PLINK sample selection precedes genotype QC and inclusive MAF
 filtering; chromosome LD scores retain the existing float32 result conversion.
 Parquet projection accumulates in float64. Common-SNP counts and overlap use

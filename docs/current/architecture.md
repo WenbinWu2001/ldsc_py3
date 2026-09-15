@@ -1,6 +1,6 @@
 # Architecture 
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 `ldsc` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
@@ -170,7 +170,7 @@ This module orchestrates chromosome-wise LD-score computation. It resolves annot
 
 ### `ldsc._kernel.ref_panel`, `ldsc._kernel.ldscore`
 
-`RefPanel.prepare_chromosome(chrom, annotations, config)` is the shared preparation boundary for `LDScoreCalculator.compute_chromosome()` and PLINK gene-index construction. The PLINK/parquet adapters own source resolution, identity and SNP restrictions, sample/MAF filtering, annotation alignment, authoritative reference CM/MAF, LD-window validation, and reader policy. They return `PreparedChromosome`: metadata, a float32 annotation matrix, window bounds, and one owned reader describing the same retained SNP rows. PLINK preparation preserves physical BIM/BED row indices through sorting and filtering. Parquet preparation calls `ParquetR2RefPanel.build_reader()`, so bias/sample-size metadata and sidecar binding follow the same path in production and adapter tests.
+`RefPanel.prepare_chromosome(chrom, annotations, config)` is the shared preparation boundary for `LDScoreCalculator.compute_chromosome()` and PLINK gene-index construction. The PLINK/parquet adapters own source resolution, identity and SNP restrictions, sample/MAF filtering, annotation alignment, authoritative reference CM/MAF, LD-window validation, and reader policy. They return `PreparedChromosome`: metadata, a selected annotation accessor mapping retained reference SNPs to stored annotation rows, window bounds, and one owned reader. Packed binary and dense float32 annotation stores remain behind that accessor. PLINK preparation preserves physical BIM/BED row indices through sorting and filtering. Parquet preparation calls `ParquetR2RefPanel.build_reader()`, so bias/sample-size metadata and sidecar binding follow the same path in production and adapter tests.
 
 `_kernel.ldscore.compute_chromosome()` projects baseline/query annotations and regression weights together, then derives counts and overlap. It consumes prepared state without reopening sources. Use prepared state in a `with` block: readers close on success or failure, and metadata caches retain tables only. Separate `load_metadata()` inspection may read PLINK data independently; one chromosome calculation itself constructs one BED reader. `tests/test_reference_preparation.py` covers known raw/unbiased results, alignment, authoritative metadata, physical row mapping, and failure cleanup; `tests/test_ldscore_workflow.py` verifies the public single-reader path.
 
@@ -225,7 +225,7 @@ Each directory writer exposes `artifact_family()` as the single declaration of i
 | `_ldscore_batch_output.write_ldscore_batches` | Write/release batches, combine compact metadata, publish canonical artifacts after success, and clean owned scratch on handled failure |
 | `LDScoreSource.read_queries` | Explicit selected-query reads across manifest files in requested order, without caching or a width cap |
 
-`tests/test_ldscore_query_batches.py` verifies numerical precision, zero writes for prepared single-batch calculation, batch lifetimes, publication, and overwrite cleanup. `tests/test_gene_index_streaming.py` covers operator ownership, known union scores, and serial/parallel agreement. Annotation normalization and final Parquet LD values stay float32; LD accumulation, annotation sums, and overlap products use float64. Scientific SNP universes and fit-time validation are unchanged.
+`tests/test_ldscore_query_batches.py` verifies numerical precision, zero writes for prepared single-batch calculation, batch lifetimes, publication, and overwrite cleanup. `tests/test_gene_index_streaming.py` covers operator ownership, known union scores, and serial/parallel agreement. `tests/test_annotation_format.py` and `tests/test_annotation_storage.py` cover automatic exact binary classification, packed storage, bounded decoding, and logical column order. Public annotation reads and final Parquet LD values stay float32; LD accumulation, annotation sums, and overlap products use float64. Scientific SNP universes and fit-time validation are unchanged. See [annotation format policy](annotation-memory-design.md#annotation-format-policy).
 
 ### `ldsc._kernel.*`
 

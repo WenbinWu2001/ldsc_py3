@@ -88,9 +88,9 @@ def prepare_synthetic_base(panel, config, workspace):
         metadata = metadata.rename(columns={'BP':'POS'})
         columns = ['CHR','SNP','CM','POS',*[c for c in ('A1','A2') if c in metadata]]
         metadata.loc[:,columns].to_parquet(root/'metadata.parquet',index=False)
-        values = ColumnStore.create(root/'values.npy',len(metadata),['base'])
+        values = ColumnStore.create(root/'values.npy',len(metadata),['base'],dtype=bool)
         for start in range(0,len(metadata),65536):
-            values.write(start,np.ones((min(65536,len(metadata)-start),1),dtype=np.float32))
+            values.write(start,np.ones((min(65536,len(metadata)-start),1),dtype=bool))
         shards[str(chrom)] = AnnotationShard(root/'metadata.parquet',(values,),len(metadata))
         del metadata
     if not shards:

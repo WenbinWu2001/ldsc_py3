@@ -1,6 +1,6 @@
 # Partitioned LDSC
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 Goal: run partitioned LDSC in the refactored package by building query annotations, computing baseline-plus-query LD scores, and fitting one partitioned model per query annotation.
 
@@ -43,8 +43,8 @@ Resolution behavior:
 
 - there is no separate `*_chr` public argument anymore; one argument now handles both shared inputs and chromosome-sharded inputs
 - group inputs may expand to many files through a glob or an `@` suite token
-- chromosome scope comes from validated contents; whole-genome sources are scanned once in bounded chunks and normalized into private chromosome artifacts
-- chunk sizing accounts for the baseline/query files aligned together; identity cleanup remains global across chromosomes and reads metadata separately from numeric staging
+- chromosome scope comes from validated contents; supplied sources use two bounded content passes to validate/classify columns, then write private chromosome artifacts directly
+- chunk sizing accounts for the baseline/query files aligned together; identity cleanup remains global across chromosomes and stages only metadata, with no numeric spool
 - if multiple files contribute annotation columns for the same chromosome, their SNP rows must align exactly and their annotation column names must be unique
 
 Query annotations require explicit baseline annotations. The LD-score workflow
@@ -52,7 +52,9 @@ can synthesize an all-ones `base` column only when both baseline and query
 inputs are omitted for ordinary unpartitioned LD scores; it does not use that
 synthetic path for partitioned/query LDSC.
 
-Annotation preparation remains serial before chromosome computation; `--threads` applies to the subsequent LD-score workers. At INFO, `diagnostics/annotate.log` or `diagnostics/ldscore.log` marks input reading, SNP identity checks and chromosome preparation, and preparation completion with retained counts and elapsed time. CM/MAF notices appear once per file read, and intentional gene exclusions use one line per gene set. See [preparation logging](../docs/current/workflow-logging.md#annotation-preparation).
+Binary annotation columns are detected automatically and packed; continuous columns stay dense float32. Generated gene/BED annotations are binary, while supplied baseline and query columns are checked for exact 0/1 values across the complete input. Public reads retain float32 and baseline-then-query input order. This is an internal storage choice requiring no new options; annotation text and LD-score output formats stay the same. See [annotation format policy](../docs/current/annotation-memory-design.md#annotation-format-policy).
+
+Annotation preparation remains serial before chromosome computation; `--threads` applies to the subsequent LD-score workers. At INFO, `diagnostics/annotate.log` or `diagnostics/ldscore.log` marks input reading, SNP identity checks and chromosome preparation, and preparation completion with retained counts and elapsed time. A storage summary gives binary/continuous column counts and actual value-file bytes. CM/MAF notices appear once per source during classification, and intentional gene exclusions use one line per gene set. See [preparation logging](../docs/current/workflow-logging.md#annotation-preparation).
 
 ## Python API
 

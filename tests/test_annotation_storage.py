@@ -19,6 +19,66 @@ def test_selected_reads_preserve_row_order_and_column_values(tmp_path):
         np.testing.assert_array_equal(np.load(store.path), [[1, 11, 21], [1, 12, 22], [1, 13, 23], [1, 14, 24], [1, 15, 25]])
 
 
+def test_binary_store_packs_snp_bits_and_preserves_partial_writes(tmp_path):
+    values = np.array([[1, 0], [0, 1], [1, 0], [0, 1], [0, 1], [0, 1],
+                       [0, 1], [1, 0], [1, 0], [0, 1], [1, 0]], dtype=bool)
+    store = ColumnStore.create(tmp_path / "binary.npy", 11, ["a", "b"], dtype=bool)
+    for first, last in [(0, 3), (3, 9), (9, 11)]:
+        store.write(first, values[first:last])
+    # SNP zero is the low bit; the unused five bits of the last byte are zero.
+    np.testing.assert_array_equal(np.load(store.path), np.array([[133, 122], [5, 2]], dtype=np.uint8))
+    assert store.path.stat().st_size - store.offset == 4
+    assert store.n_rows == 11 and store.bitorder == "little"
+    np.testing.assert_array_equal(store.read(), values)
+    np.testing.assert_array_equal(store.read(rows=[9, 7, 3, 7], columns=["b", "a", "b"], max_read_rows=1),
+                                  [[1, 0, 1], [0, 1, 0], [1, 0, 1], [0, 1, 0]])
+    store.write(7, np.array([[0, 1], [0, 1]]))
+    np.testing.assert_array_equal(np.load(store.path), [[5, 250], [4, 3]])
+    with pytest.raises(ValueError, match="zero or one"):
+        store.write(0, np.array([[.5, 1]]))
+
+
+@pytest.mark.parametrize("n_rows", [0, 1, 7, 8, 9, 17])
+def test_binary_store_padding_empty_reads_and_worker_descriptor(tmp_path, n_rows):
+    import pickle
+
+    store = ColumnStore.create(tmp_path / "binary.npy", n_rows, ["zero", "one"], dtype=bool)
+    store.write(0, np.ones((n_rows, 1), dtype=bool), columns=["one"])
+    store.write(0, np.zeros((n_rows, 1), dtype=bool), columns=["zero"])
+    # Worker transfer retains the logical length; NPY itself describes bytes.
+    restored = pickle.loads(pickle.dumps(store))
+    np.testing.assert_array_equal(restored.read(columns=["one", "zero"]),
+                                  np.column_stack([np.ones(n_rows), np.zeros(n_rows)]))
+    physical = np.load(store.path)
+    assert physical.dtype == np.uint8
+    assert physical.shape == ((n_rows + 7) // 8, 2)
+    if n_rows:
+        assert physical[-1, 1] == (1 << ((n_rows - 1) % 8 + 1)) - 1
+    assert restored.read(rows=[]).shape == (0, 2)
+    assert restored.read(columns=[]).shape == (n_rows, 0)
+
+
+def test_binary_selected_reads_decode_bounded_runs_and_detect_truncation(tmp_path, monkeypatch):
+    values = (np.arange(4097) % 3 == 0)[:, None]
+    store = ColumnStore.create(tmp_path / "binary.npy", len(values), ["x"], dtype=bool)
+    store.write(0, values)
+    unpack = np.unpackbits
+    decoded_bytes = []
+
+    def unpackbits(packed, **kwargs):
+        decoded_bytes.append(packed.nbytes)
+        return unpack(packed, **kwargs)
+
+    monkeypatch.setattr(np, "unpackbits", unpackbits)
+    for rows in ([4096, 7, 8, 9, 7, 0], slice(19, 3, -3), np.arange(len(values)) % 257 == 0):
+        np.testing.assert_array_equal(store.read(rows=rows, max_read_rows=7), values[rows])
+    assert max(decoded_bytes) <= 2
+    with store.path.open("r+b") as stream:
+        stream.truncate(store.path.stat().st_size - 1)
+    with pytest.raises(OSError, match="Truncated annotation shard"):
+        store.read(rows=[4096])
+
+
 def test_workspace_closes_only_its_owned_scratch(tmp_path):
     persistent = tmp_path / "query.1.annot.gz"
     persistent.write_bytes(b"persistent output")
@@ -175,7 +235,7 @@ def test_mixed_shards_preserve_omitted_alleles_and_global_duplicate_cleanup(tmp_
         assert prepared.shards["1"].metadata().SNP.tolist() == ["unique1"]
         assert prepared.shards["2"].metadata().SNP.tolist() == ["unique2"]
         assert "A1" not in prepared.shards["2"].metadata()
-        np.testing.assert_array_equal(prepared.shards["2"].read(), [[3]])
+        np.testing.assert_array_equal(prepared.shards["2"].read(columns=prepared.baseline_columns), [[3]])
         drops = pd.concat(prepared.drops.frames(), ignore_index=True)
         assert drops.reason.tolist() == ["duplicate_identity", "duplicate_identity"]
         assert drops.SNP.tolist() == ["duplicate", "duplicate"]
@@ -221,7 +281,7 @@ def test_aligned_whole_genome_column_sources_are_not_duplicate_observations(tmp_
     with AnnotationWorkspace(tmp_path / "output") as workspace:
         source = prepare_annotation_sources(workspace, paths, [], mode="rsid", chunk_rows=1)
         assert source.drops.n_rows == 0
-        np.testing.assert_array_equal(source.shards["2"].read(), [[1, 9]])
+        np.testing.assert_array_equal(source.shards["2"].read(columns=source.baseline_columns + source.query_columns), [[1, 9]])
 
 
 def test_bundle_does_not_cache_chromosome_arrays_and_close_invalidates_reads(tmp_path):

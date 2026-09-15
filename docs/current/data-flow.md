@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -697,4 +697,4 @@ flowchart LR
 
 ## Bounded annotation and model flow
 
-Annotation sources are scanned once into separate metadata/numeric streams. Metadata is aligned in tiles sized for each discovered source group, globally indexed, and selected before retained numeric values are copied directly into chromosome NumPy/Parquet artifacts. No retained numeric pickle stage is needed. BED and gene queries are constructed on demand; direct LD scoring holds at most the configured chromosome workers and active query batches. Final HM3 LD tables remain aggregate. Batch regression shares trait/baseline alignment, reads selected query columns, and stages each completed fit. Exact quantile reconstruction uses global float64 boundaries and two bounded annotation passes. See [the implemented memory design](annotation-memory-design.md) for the owner and release point at each boundary.
+Supplied annotation sources use two bounded content passes. The first validates/classifies columns and stages only metadata. Metadata is aligned in tiles sized for each discovered source group, globally indexed, and selected; the second input pass writes retained numeric values directly into packed binary and dense float32 chromosome stores beside Parquet metadata. No numeric spool or conversion file is created. BED and gene queries are packed directly during projection. Public selected reads remain float32 and preserve logical input order across physical stores. Direct LD scoring holds at most the configured chromosome workers and active query batches. Final HM3 LD tables remain aggregate. Batch regression shares trait/baseline alignment, reads selected query columns, and stages each completed fit. Exact quantile reconstruction uses global float64 boundaries and two bounded annotation passes. See [the annotation format policy](annotation-memory-design.md#annotation-format-policy) for encoding and [the implemented memory design](annotation-memory-design.md) for owner/release boundaries.

@@ -27,7 +27,7 @@ def test_preparation_log_marks_main_steps_and_retained_logical_rows(tmp_path, ca
         assert len(completed) == 1
         assert completed[0].startswith(f"Annotation preparation complete: chromosomes={chromosomes}, retained SNPs={snps}, elapsed=")
         assert messages.index(completed[0]) > messages.index("Checking SNP identities and preparing chromosome annotations.") > messages.index("Reading annotation inputs: baseline files=1, query files=1.")
-        np.testing.assert_array_equal(prepared.shards["2"].read(), [[.25, .25]])
+        np.testing.assert_array_equal(prepared.shards["2"].read(columns=["base", "query"]), [[.25, .25]])
     assert capsys.readouterr() == ("", "")
 
 
@@ -56,7 +56,7 @@ def test_metadata_notice_once_per_source_on_each_preparation(tmp_path, caplog):
             notices = [record.getMessage() for record in caplog.records if "contains CM/MAF" in record.getMessage()]
             assert len(notices) == 2
             assert all(sum(str(path) in message for message in notices) == 1 for path in paths)
-            np.testing.assert_array_equal(prepared.shards["1"].read(), [[1], [.5]])
+            np.testing.assert_array_equal(prepared.shards["1"].read(columns=["base"]), [[1], [.5]])
             assert prepared.shards["1"].metadata().CM.isna().all()
 
 
@@ -86,19 +86,17 @@ def test_sharded_scan_budget_does_not_shrink_with_chromosome_count(tmp_path, mon
             declared_chromosomes={str(p): str(i) for i, p in enumerate(paths, 1)} if declared else None,
         )
         assert list(prepared.shards) == ["1", "2", "3"]
-        assert requested == [chunk_rows or 48770] * 3
+        assert requested == [chunk_rows or 48770] * 6
 
 
-def test_identity_preparation_never_reopens_numeric_staging(tmp_path, monkeypatch):
+def test_identity_preparation_uses_only_metadata_and_never_stages_numeric_values(tmp_path, monkeypatch):
     from ldsc._annotation_identity import DiskIdentityIndex
 
     path = tmp_path / "base.annot"
     path.write_text("CHR SNP POS base\n1 rs1 1 1\n2 rs2 2 -0.25\n")
     original_open = Path.open
     original_select = DiskIdentityIndex.select
-    original_fromfile = np.fromfile
     indexing = True
-    numeric_reads = []
 
     def select(self, frame):
         nonlocal indexing
@@ -106,14 +104,10 @@ def test_identity_preparation_never_reopens_numeric_staging(tmp_path, monkeypatc
         return original_select(self, frame)
 
     def open_path(self, mode="r", *args, **kwargs):
+        assert self.suffix != ".bin"
         if indexing and mode == "rb":
-            assert self.suffix not in {".bin", ".npy"}
+            assert self.suffix != ".npy"
         return original_open(self, mode, *args, **kwargs)
-
-    def fromfile(stream, *args, **kwargs):
-        assert not indexing
-        numeric_reads.append(kwargs["count"])
-        return original_fromfile(stream, *args, **kwargs)
 
     import pickle
     original_load = pickle.load
@@ -127,11 +121,9 @@ def test_identity_preparation_never_reopens_numeric_staging(tmp_path, monkeypatc
     monkeypatch.setattr(DiskIdentityIndex, "select", select)
     monkeypatch.setattr(Path, "open", open_path)
     monkeypatch.setattr(pickle, "load", load)
-    monkeypatch.setattr(np, "fromfile", fromfile)
     with AnnotationWorkspace(tmp_path / "out") as workspace:
         prepared = prepare_annotation_sources(workspace, [path], [], mode="rsid", chunk_rows=1)
-        np.testing.assert_array_equal(prepared.shards["2"].read(), [[-0.25]])
-        assert numeric_reads == [1, 1]
+        np.testing.assert_array_equal(prepared.shards["2"].read(columns=["base"]), [[-0.25]])
 
 
 @pytest.mark.parametrize("sharded", [False, True])
@@ -165,7 +157,7 @@ def test_automatic_tiles_align_unequal_widths_and_preserve_logical_rows(tmp_path
             np.testing.assert_array_equal(shard.read(columns=["q499", "base", "q0"]),
                                           np.column_stack([values[start + 1:start + rows, -1],
                                                            np.ones(rows - 1), values[start + 1:start + rows, 0]]))
-            assert shard.read(rows=[0]).dtype == np.float32
+            assert shard.read(rows=[0], columns=["base", "q0"]).dtype == np.float32
             assert np.load(shard.stores[0].path, mmap_mode="r").flags.f_contiguous
         drops = pd.concat(prepared.drops.frames(), ignore_index=True)
         assert drops.CHR.tolist() == (["1", "2"] if sharded else ["2", "1"])
@@ -187,7 +179,7 @@ def test_chromosome_selection_follows_global_conflicts_and_preserves_order(tmp_p
         assert list(prepared.shards) == ["2"]
         assert prepared.scope_chromosomes == ("1", "2")
         assert prepared.shards["2"].metadata().POS.tolist() == [40, 5]
-        np.testing.assert_array_equal(prepared.shards["2"].read(), [[-1.25], [.125]])
+        np.testing.assert_array_equal(prepared.shards["2"].read(columns=["base"]), [[-1.25], [.125]])
         drops = pd.concat(prepared.drops.frames(), ignore_index=True)
         assert drops.reason.tolist() == ["invalid_allele", "multi_allelic_base_key", "multi_allelic_base_key",
                                          "duplicate_identity", "duplicate_identity"]
@@ -234,16 +226,24 @@ def test_empty_retained_result_preserves_complete_diagnostics(tmp_path):
         assert not list(workspace.path.glob("source-*"))
 
 
-def test_numeric_copy_failure_closes_handles_and_cleans_owned_scratch(tmp_path, monkeypatch):
+def test_second_source_pass_failure_closes_handles_and_cleans_owned_scratch(tmp_path, monkeypatch):
     path = tmp_path / "base.annot"
     path.write_text("CHR SNP POS base\n1 rs1 1 1\n2 rs2 2 2\n")
     handles = []
+    original = pd.read_csv
 
-    def fail_read(stream, **kwargs):
-        handles.append(stream)
-        raise OSError("interrupted numeric read")
+    def read_csv(*args, **kwargs):
+        reader = original(*args, **kwargs)
+        if "chunksize" in kwargs and "usecols" in kwargs:
+            handles.extend(reader.handles.created_handles)
 
-    monkeypatch.setattr(np, "fromfile", fail_read)
+            def fail_read(*args, **kwargs):
+                raise OSError("interrupted numeric read")
+
+            monkeypatch.setattr(reader, "read", fail_read)
+        return reader
+
+    monkeypatch.setattr(pd, "read_csv", read_csv)
     output = tmp_path / "out"
     with pytest.raises(OSError, match="interrupted numeric read"):
         with AnnotationWorkspace(output) as workspace:

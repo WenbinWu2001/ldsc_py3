@@ -1,8 +1,8 @@
 """Bounded discovery, positional alignment, and preparation of annotation files.
 
-Each compressed source is scanned once into separate metadata and numeric
-streams. Identity passes read only aligned metadata. Retained row locations
-then drive one numeric copy into column-major NumPy shards beside Parquet rows.
+The first bounded pass classifies complete columns and stages only metadata.
+After identity selection, a second input pass writes retained values directly
+to packed-binary and dense-continuous NumPy stores beside Parquet metadata.
 """
 
 from dataclasses import dataclass
@@ -24,7 +24,7 @@ from ._annotation_identity import DiskIdentityIndex, IdentityDropSpool
 from ._annotation_parsing import normalize_annotation_chunk
 from ._annotation_preflight import AUTOSOMES, INPUT_ISSUE_COLUMNS, input_issue
 from ._annotation_storage import AnnotationShard, ColumnStore, FrameSpool
-from ._kernel.annotation import _chrom_sort_key, _annotation_parse_error_message
+from ._kernel.annotation import _chrom_sort_key, _annotation_parse_error_message, _validate_annotation_values
 from ._kernel.snp_identity import identity_base_mode, is_allele_aware_mode
 from ._row_alignment import assert_same_snp_rows
 from .annotation_semantics import require_unique_annotation_names
@@ -50,44 +50,44 @@ class PreparedAnnotationSources:
 class _Source:
     path: Path
     spool: FrameSpool
-    values_path: Path
     columns: tuple[str, ...]
     metadata_columns: tuple[str, ...]
     chromosomes: set[str]
     width: int
+    binary_columns: tuple[str, ...]
 
 
 def _chunk_size(width):
     return max(1, min(65536, (16 * 1024 * 1024) // (max(1, width) * 8)))
 
 
-@report_phase(LOGGER, 'validation/staging', 'annotation content scan and scratch spool')
+@report_phase(LOGGER, 'validation/staging', 'annotation classification and metadata')
 def _scan(path, directory, mode, chunk_rows):
     advance(0, object=str(path), force=True)
     directory.mkdir(parents=True, exist_ok=True)
     spool = FrameSpool(directory / "metadata")
-    values_path = directory / "values.bin"
     chromosomes = set()
+    quantitative = set()
     columns = metadata_columns = ()
     try:
-        with values_path.open("wb") as numeric, pd.read_csv(path, sep=r"\s+", compression="infer", chunksize=chunk_rows) as reader:
+        with pd.read_csv(path, sep=r"\s+", compression="infer", chunksize=chunk_rows) as reader:
             for chunk_index, chunk in enumerate(reader):
                 advance(len(chunk), object=str(path))
-                metadata, values = normalize_annotation_chunk(chunk, path, mode, log_ignored_metadata=chunk_index == 0)
+                metadata, values = normalize_annotation_chunk(chunk, path, mode, log_ignored_metadata=chunk_index == 0,
+                                                              value_dtype=None)
                 if metadata.empty:
                     continue
                 columns, metadata_columns = tuple(values.columns), tuple(metadata.columns)
                 chromosomes.update(metadata["CHR"])
                 spool.append(metadata)
-                # A contiguous row tile avoids tofile's element-wise writes
-                # when pandas supplies a column-major numeric block.
-                np.ascontiguousarray(values.to_numpy(dtype=np.float32)).tofile(numeric)
+                quantitative.update(values.columns[~values.isin((0, 1)).all(axis=0)])
                 width = len(chunk.columns)
     except (pd.errors.ParserError, UnicodeDecodeError, ValueError) as exc:
         raise LDSCInputError(_annotation_parse_error_message(path, details=str(exc))) from exc
     if not chromosomes:
         raise LDSCInputError(f"Annotation file '{path}' has no SNP rows. Supply a nonempty annotation grid.")
-    return _Source(Path(path), spool, values_path, columns, metadata_columns, chromosomes, width)
+    return _Source(Path(path), spool, columns, metadata_columns, chromosomes, width,
+                   tuple(name for name in columns if name not in quantitative))
 
 
 def _layout(sources, label):
@@ -169,32 +169,51 @@ def _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom):
 
 
 @report_phase(LOGGER, 'staging', 'retained annotation values')
-def _write_values(groups, selections, counts, workspace, columns):
-    """Copy numeric tiles once, writing each source directly to its columns."""
-    stores, offsets = {}, dict.fromkeys(counts, 0)
-    for group, selection in zip(groups, selections):
-        with ExitStack() as stack:
-            streams = [stack.enter_context(source.values_path.open("rb")) for source in group]
-            for frame in selection.frames():
-                advance(len(frame), object=','.join(str(source.path) for source in group))
-                first, stop = int(frame["row"].iloc[0]), int(frame["row"].iloc[-1]) + 1
-                by_chrom = list(frame.groupby("CHR", sort=False))
-                for label, _ in by_chrom:
-                    if label not in stores:
-                        stores[label] = ColumnStore.create(workspace.path / f"chrom-{label}" / "values.npy", counts[label], columns)
-                for source, stream in zip(group, streams):
-                    width = len(source.columns)
-                    stream.seek(first * width * np.dtype(np.float32).itemsize)
-                    values = np.fromfile(stream, dtype=np.float32, count=(stop - first) * width).reshape(-1, width)
-                    for label, rows in by_chrom:
-                        stores[label].write(offsets[label], values[rows["row"].to_numpy() - first], columns=source.columns)
-                for label, rows in by_chrom:
-                    offsets[label] += len(rows)
+def _write_values(groups, selections, group_rows, counts, workspace, columns):
+    """Reread input tiles directly into final stores using retained row locators."""
+    quantitative = set()
+    for group in groups:
         for source in group:
-            shutil.rmtree(source.values_path.parent)
+            quantitative.update(set(source.columns).difference(source.binary_columns))
+    layouts = [(np.dtype(bool), "binary.npy", tuple(name for name in columns if name not in quantitative)),
+               (np.dtype(np.float32), "continuous.npy", tuple(name for name in columns if name in quantitative))]
+    stores = {chrom: {dtype: ColumnStore.create(workspace.path / f"chrom-{chrom}" / filename, count, names, dtype=dtype)
+                      for dtype, filename, names in layouts if names} for chrom, count in counts.items()}
+    for group, selection, chunk_rows in zip(groups, selections, group_rows):
+        for source in group:
+            offsets = dict.fromkeys(counts, 0)
+            locators = iter(selection.frames())
+            retained = next(locators, None)
+            positions = {name: index for index, name in enumerate(source.columns)}
+            selected_columns = [(dtype, [name for name in names if name in positions])
+                                for dtype, _, names in layouts]
+            selected_columns = [(dtype, names, [positions[name] for name in names])
+                                for dtype, names in selected_columns if names]
+            first = 0
+            # Use the identity-selection tile width so each locator frame belongs
+            # to exactly one input tile, even when earlier tiles retained no rows.
+            with pd.read_csv(source.path, sep=r"\s+", compression="infer", usecols=list(source.columns),
+                             chunksize=chunk_rows) as reader:
+                for chunk in reader:
+                    stop = first + len(chunk)
+                    advance(len(chunk), object=str(source.path))
+                    if retained is not None and retained["row"].iloc[0] < stop:
+                        if retained["row"].iloc[0] < first or retained["row"].iloc[-1] >= stop:
+                            raise LDSCInputError(f"Annotation rows changed between input passes: {source.path}. Keep source files unchanged during preparation.")
+                        values = _validate_annotation_values(chunk, source.columns, path=source.path).to_numpy()
+                        for chrom, rows in retained.groupby("CHR", sort=False):
+                            indices = rows["row"].to_numpy() - first
+                            for dtype, names, positions in selected_columns:
+                                stores[chrom][dtype].write(offsets[chrom], values[np.ix_(indices, positions)], columns=names)
+                            offsets[chrom] += len(rows)
+                        retained = next(locators, None)
+                    first = stop
+            if retained is not None or first != source.spool.n_rows:
+                raise LDSCInputError(f"Annotation row count changed between input passes: {source.path}. Keep source files unchanged during preparation.")
+            shutil.rmtree(source.spool.path.parent)
         if selection.n_rows:
             shutil.rmtree(selection.path)
-    return {label: AnnotationShard(workspace.path / f"chrom-{label}" / "metadata.parquet", (stores[label],), counts[label])
+    return {label: AnnotationShard(workspace.path / f"chrom-{label}" / "metadata.parquet", tuple(stores[label].values()), counts[label])
             for label in sorted(stores, key=_chrom_sort_key)}
 
 
@@ -205,10 +224,13 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     ``workspace`` owns every scratch file. Automatic chunk sizes target 16 MiB
     of parsed cells and at most 65,536 rows per independently scanned file.
     Metadata is reblocked using the combined width of each discovered aligned
-    group; explicit ``chunk_rows`` applies unchanged to both stages. Identity
-    passes never read numeric staging, and global duplicates precede requested
-    chromosome selection. Final values are copied once using retained locators.
-    INFO records mark input reading, identity/shard preparation, and completion.
+    group; explicit ``chunk_rows`` controls both input passes and alignment. Identity
+    passes inspect metadata, and global duplicates precede requested chromosome
+    selection. A second input pass writes final values using retained locators;
+    no numeric staging copy is created. Binary eligibility spans every input
+    chunk and chromosome and is determined before float32 narrowing.
+    INFO records mark input reading, identity/shard preparation, storage column
+    counts and value-file bytes, and successful completion.
     """
     workspace.require_open()
     paths = [*baseline_files, *query_files]
@@ -281,7 +303,7 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
                 identity.add(metadata)
         selections, counts = _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom)
     (workspace.path / "identity.sqlite").unlink()
-    shards = _write_values(groups, selections, counts, workspace, columns)
+    shards = _write_values(groups, selections, group_rows, counts, workspace, columns)
     if not shards:
         error = LDSCInputError("annotate retained no annotation rows after SNP identity cleanup. Supply valid, unique SNP identities. Other causes & fixes: docs/troubleshooting.md#annotate-no-annotation-snp-rows-remain")
         error.annotation_drops = drops
@@ -289,6 +311,10 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     scope = tuple(sorted(set().union(*(s.chromosomes for s in baselines)), key=_chrom_sort_key))
     prepared = PreparedAnnotationSources(shards, baseline_columns, query_columns, drops, scope,
         tuple((str(s.path), "baseline" if s in baselines else "query", tuple(s.chromosomes)) for s in sources))
+    binary_count = sum(len(store.columns) for store in next(iter(shards.values())).stores if store.bitorder)
+    LOGGER.info("Annotation storage: binary=%d packed-bit columns, continuous=%d float32 columns; value files=%s bytes.",
+                binary_count, len(columns) - binary_count,
+                f"{sum(store.path.stat().st_size for shard in shards.values() for store in shard.stores):,}")
     LOGGER.info("Annotation preparation complete: chromosomes=%d, retained SNPs=%s, elapsed=%.2fs.",
                 len(shards), f"{sum(counts.values()):,}", perf_counter() - started)
     return prepared

@@ -1160,18 +1160,50 @@ class PartitionedH2DirectoryWriter:
     final location, so ordinary validation and I/O failures do not expose a
     partially populated final tree. A successful overwrite also removes the
     default plot root derived from the superseded result.
+    An optional ``diagnostics/query_status.tsv`` records all attempted queries,
+    including failed queries absent from the summary and model tree. The
+    regression runner owns the strict/continue decision; this writer publishes
+    only the successful model artifacts supplied by that runner.
     """
 
     @staticmethod
-    def artifact_family(output_dir, *, write_per_query_results=False, coefficient_delete_values=False) -> ArtifactFamily:
-        """Declare joint-model outputs and optional per-query or delete-value artifacts."""
+    def artifact_family(output_dir, *, write_per_query_results=False, coefficient_delete_values=False,
+                        query_status=False) -> ArtifactFamily:
+        """Declare summaries, model artifacts, and an optional attempted-query ledger."""
         return _declare_artifacts(output_dir, {
             "summary": ("partitioned_h2.tsv", True),
             "metadata": ("diagnostics/metadata.json", True),
             "coefficient_delete_values": ("diagnostics/coefficient_delete_values.parquet", coefficient_delete_values),
             "query_annotations": ("diagnostics/query_annotations", write_per_query_results),
+            "query_status": ("diagnostics/query_status.tsv", query_status),
             "plots": ("plots", False),
         }, label="partitioned-h2 output artifact")
+
+    @staticmethod
+    def write_query_status(output_dir, query_status):
+        """Write attempted-query statuses after the caller's output preflight.
+
+        This diagnostic can survive a failed run without publishing any
+        scientific results. Successful runs write it with their result family.
+
+        Parameters
+        ----------
+        output_dir : path-like
+            Caller-preflighted result directory. This method does not request
+            overwrite authorization or write scientific result files.
+        query_status : pandas.DataFrame
+            Attempted queries in input order, with ``query_annotation``,
+            ``status``, ``stage``, ``error_type``, and ``error_message`` columns.
+
+        Returns
+        -------
+        pathlib.Path
+            Path to the written ``diagnostics/query_status.tsv``.
+        """
+        path = PartitionedH2DirectoryWriter.artifact_family(output_dir, query_status=True).paths["query_status"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_dataframe(query_status, path, na_rep="NaN")
+        return path
 
     def write(
         self,
@@ -1180,6 +1212,7 @@ class PartitionedH2DirectoryWriter:
         per_query_artifacts: dict[str, PartitionedH2FitArtifacts] | None = None,
         metadata: dict[str, object] | None = None,
         coefficient_delete_values: pd.DataFrame | None = None,
+        query_status: pd.DataFrame | None = None,
     ) -> dict[str, str]:
         """Write partitioned-h2 summary artifacts.
 
@@ -1200,13 +1233,17 @@ class PartitionedH2DirectoryWriter:
             Baseline-only fitted model's delete-one-block coefficient vectors.
             The first column is ``delete_block`` and remaining columns retain
             fitted annotation order.
+        query_status : pandas.DataFrame, optional
+            One diagnostic row per attempted query, including failures absent
+            from the scientific summary and per-query artifact tree.
 
         Returns
         -------
         dict of str to str
             Written path map. Always includes ``"summary"`` and additionally
             includes ``"per_query_root"`` and ``"per_query_manifest"`` when
-            per-query output is enabled.
+            per-query output is enabled, and ``"query_status"`` when the
+            attempted-query table is supplied.
 
         Raises
         ------
@@ -1220,6 +1257,7 @@ class PartitionedH2DirectoryWriter:
         family = self.artifact_family(
             output_dir, write_per_query_results=output_config.write_per_query_results,
             coefficient_delete_values=coefficient_delete_values is not None,
+            query_status=query_status is not None,
         )
         summary_path = family.paths["summary"]
         metadata_path = family.paths["metadata"]
@@ -1236,6 +1274,8 @@ class PartitionedH2DirectoryWriter:
                 column for column in coefficient_delete_values.columns if column != "delete_block"
             ]
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        if query_status is not None:
+            self.write_query_status(output_dir, query_status)
         if not output_config.write_per_query_results:
             _atomic_write_dataframe(
                 _select_columns(summary, PARTITIONED_H2_COLUMNS, label="partitioned-h2 summary"),

@@ -1,6 +1,6 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
@@ -381,7 +381,8 @@ ldsc partitioned-h2 \
 **Remarks:**
 
 1. `partitioned-h2` reports the total h2 implied by the partitioned model; this is not necessarily identical to the standalone unpartitioned h2 estimate above.
-2. Query-annotation runs automatically save each query's complete baseline-plus-query fit under `diagnostics/query_annotations/`; `--write-per-query-results` has been removed and must be omitted.
+2. Query-annotation runs automatically save each successful query's complete baseline-plus-query fit under `diagnostics/query_annotations/`; `--write-per-query-results` has been removed and must be omitted.
+3. Error handling is strict by default: any query error prevents publication of new scientific results. Add `--continue-on-query-error` to skip failed query fits and publish successful ones. Check `diagnostics/query_status.tsv` for every attempted query and `diagnostics/partitioned-h2.log` for tracebacks and available block diagnostics. Shared input/output failures, interrupts, and all-query-failed scans still stop. See [query error handling](main-functionalities/partitioned-h2.md#choose-what-happens-when-a-query-fails), implemented by `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py).
 
 **Outputs:**
 
@@ -393,6 +394,7 @@ partitioned-h2/mdd2025/
     diagnostics/
         metadata.json
         partitioned-h2.log
+        query_status.tsv
         query_annotations/
             manifest.tsv
             0001_<query-annotation-slug>/

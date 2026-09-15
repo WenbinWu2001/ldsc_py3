@@ -284,6 +284,8 @@ synthetic all-ones baseline column named exactly `base` in
 Query annotation inputs still require explicit `--baseline-annot-sources`.
 Regression diagnostics report the SNP population and jackknife block count actually used for fitting. The h2 LD-score regression plot summarizes that same fitted population; see [regression configuration](docs/current/regression-configuration.md).
 
+For large query scans, `ldsc partitioned-h2 --continue-on-query-error` skips queries whose model preparation, regression, or result calculation raises an exception and publishes successful fits. Every attempted query is recorded in `diagnostics/query_status.tsv`; failed queries have no scientific results. The log includes query/stage tracebacks and available jackknife block diagnostics. The default remains strict: any query failure prevents publication. Shared input/output failures and scans with no successful queries still fail. See [query failure handling](docs/current/partitioned-h2-results.md#query-failures-and-continuation).
+
 Use this synthetic `base` directory for `ldsc h2` or `ldsc rg`. A baseline-only
 directory is also accepted by `ldsc partitioned-h2` in its functional-category
 regime, although a single all-ones `base` column is a degenerate one-category

@@ -1,6 +1,14 @@
 # Wiki Update Log
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
+
+## 2026-09-15 update | query regression failures
+
+Updated the partitioned-h2 and gene-list functionality pages, guided tutorial, LDSC-SEG PC-gene walkthrough, and continuous-annotation guide to explain strict default behavior and the single `--continue-on-query-error` flag. Documented the attempted-query status table, successful-only scientific artifacts, detailed failure logs, fatal shared failures, and unchanged jackknife method. Aligned the Python docstrings, current reference docs, Markdown tutorials, and two notebook tutorials.
+
+Source: `RegressionRunner.estimate_partitioned_h2_batch` in [regression_runner.py](../../src/ldsc/regression_runner.py), `PartitionedH2DirectoryWriter` in [outputs.py](../../src/ldsc/outputs.py), and [query failures and continuation](../current/partitioned-h2-results.md#query-failures-and-continuation).
+
+Validation: both edited notebooks pass JSON and code-cell syntax checks. The synthetic cell-specific notebook executes top to bottom, including its API/CLI numerical comparison. The real-input partitioned notebook requires user-supplied inputs and was syntax-checked only. All 293 local file links across changed Markdown documents resolve; edited Python modules parse, and `git diff --check` passes.
 
 ## 2026-09-14 update | annotation preparation and concise logs
 

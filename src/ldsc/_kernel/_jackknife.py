@@ -22,6 +22,37 @@ from scipy.optimize import nnls
 from ..errors import LDSCInternalError
 
 
+class JackknifeIdentifiabilityError(np.linalg.LinAlgError):
+    """A delete-block normal equation could not be solved uniquely.
+
+    ``failures`` contains primitive diagnostics for every failed deletion,
+    including the zero-based block index and normal-matrix rank. Row intervals
+    are zero-based, half-open and refer to the rows supplied to the jackknife.
+    No replacement coefficients or uncertainty estimates are computed.
+    """
+
+    def __init__(self, failures, n_blocks, separators=None):
+        self.failures = failures
+        self.n_blocks = n_blocks
+        details = []
+        for failure in failures:
+            index = failure["block_index"]
+            interval = ""
+            if separators is not None:
+                start, end = map(int, separators[index:index + 2])
+                failure.update(row_start=start, row_end=end)
+                interval = f", rows [{start}, {end})"
+            details.append(
+                f"block {index + 1}/{n_blocks} (zero-based index {index}{interval}): "
+                f"normal-matrix rank {failure['rank']}/{failure['n_parameters']}"
+            )
+        super().__init__(
+            "Jackknife regression is unestimable: Singular matrix after deleting "
+            + "; ".join(details) + ". Inspect annotation support and dependence outside these blocks. "
+            "A pseudoinverse does not recover valid jackknife uncertainty."
+        )
+
+
 def _check_shape(x, y):
     '''Check that x and y have the correct shapes (for regression jackknives).'''
     if len(x.shape) != 2 or len(y.shape) != 2:
@@ -357,7 +388,7 @@ class LstsqJackknifeFast(Jackknife):
         Jackknife.__init__(self, x, y, n_blocks, separators)
         xty, xtx = self.block_values(x, y, self.separators)
         self.est = self.block_values_to_est(xty, xtx)
-        self.delete_values = self.block_values_to_delete_values(xty, xtx)
+        self.delete_values = self.block_values_to_delete_values(xty, xtx, separators=self.separators)
         self.pseudovalues = self.delete_values_to_pseudovalues(
             self.delete_values, self.est)
         (self.jknife_est, self.jknife_var, self.jknife_se, self.jknife_cov) =\
@@ -436,7 +467,7 @@ class LstsqJackknifeFast(Jackknife):
         return np.linalg.solve(xtx, xty).reshape((1, p))
 
     @classmethod
-    def block_values_to_delete_values(cls, xty_block_values, xtx_block_values):
+    def block_values_to_delete_values(cls, xty_block_values, xtx_block_values, *, separators=None):
         '''
         Converts block values to delete values.
 
@@ -446,8 +477,8 @@ class LstsqJackknifeFast(Jackknife):
             Block values of X^T Y.
         xtx_block_values : 3D np.array with shape (n_blocks, p, p)
             Block values of X^T X
-        est : np.matrix with shape (1, p)
-            Whole data estimate
+        separators : sequence of int, optional
+            Block boundaries, used only to label failed-deletion diagnostics.
 
         Returns
         -------
@@ -456,8 +487,9 @@ class LstsqJackknifeFast(Jackknife):
 
         Raises
         ------
-        LinAlgError :
-            If delete design matrix is singular.
+        JackknifeIdentifiabilityError :
+            If any delete-block solve fails, with diagnostics for all failed
+            deletions. Optional separators supply retained-row intervals.
         ValueError :
             If the last two dimensions of xtx_block_values are not equal or if the first two
         dimensions of xtx_block_values do not equal the shape of xty_block_values.
@@ -467,11 +499,21 @@ class LstsqJackknifeFast(Jackknife):
         delete_values = np.zeros((n_blocks, p))
         xty_tot = np.sum(xty_block_values, axis=0)
         xtx_tot = np.sum(xtx_block_values, axis=0)
+        failures = []
         for j in range(n_blocks):
             delete_xty = xty_tot - xty_block_values[j]
             delete_xtx = xtx_tot - xtx_block_values[j]
-            delete_values[j, ...] = np.linalg.solve(
-                delete_xtx, delete_xty).reshape((1, p))
+            try:
+                delete_values[j, ...] = np.linalg.solve(
+                    delete_xtx, delete_xty).reshape((1, p))
+            except np.linalg.LinAlgError:
+                failures.append({
+                    "block_index": j, "rank": int(np.linalg.matrix_rank(delete_xtx)),
+                    "n_parameters": p,
+                    "zero_column_indices": np.flatnonzero(~np.any(delete_xtx, axis=0)).tolist(),
+                })
+        if failures:
+            raise JackknifeIdentifiabilityError(failures, n_blocks, separators)
 
         return delete_values
 

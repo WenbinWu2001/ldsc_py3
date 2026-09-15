@@ -92,6 +92,14 @@ print(result.summary)
 print(result.per_query_artifacts)  # Persistent category/delete-value/metadata paths.
 ```
 
+To preserve successful fits in a large scan that contains failing queries, explicitly add `continue_on_query_error=True` to `estimate_partitioned_h2_batch()`, or add the single flag `--continue-on-query-error` to `ldsc partitioned-h2`. Without the flag, or with the Python default `False`, any query error prevents publication of new scientific results. With it, failed queries are skipped and marked, and successful fits are published. Inspect `result.query_status` or `diagnostics/query_status.tsv` for every attempted query, including those omitted from the scientific summary. The CLI records exceptions and available jackknife block/support details in `diagnostics/partitioned-h2.log`; direct Python calls use the configured LDSC logger. Shared input/output failures, interrupts, and all-query-failed scans still stop. The option does not change block boundaries or substitute coefficients. See [query failure handling](../docs/current/partitioned-h2-results.md#query-failures-and-continuation).
+
+```python
+# After a successful batch return, inspect failures separately from scientific results.
+failed_queries = result.query_status.loc[result.query_status["status"] != "success"]
+print(failed_queries[["query_annotation", "stage", "error_type", "error_message"]])
+```
+
 Run `munge-sumstats` first if the trait is still in a raw format; see [heritability estimates](heritability-estimates.md). Current curated Parquet inputs carry identity/build provenance in their footer. The effective SNP key controls alignment; reference contributors and regression/output SNPs remain separate universes.
 
 For 1,000 pathways, each query still fits separately against shared baseline categories. The default `query_batch_size=1000` permits all 1,000 queries in one execution batch. Reducing it bounds active query workspace and writes multiple numbered genome-wide query files, with an ordered `query_batches` manifest in root metadata. Direct calculation repeats reference/genotype work between batches; indexed calculation reuses one chromosome operator per worker through its batches. Direct and indexed `threads` default to 1 and are capped at the chromosome count. Freed pages can remain reserved by the allocator, so RSS need not immediately fall. See `LDScoreCalculator.run` and `LDScoreSource.read_queries` in the [memory design](../docs/current/annotation-memory-design.md).
@@ -165,6 +173,8 @@ ldsc partitioned-h2 \
   --output-dir tutorial_outputs/partitioned_h2
 ```
 
+The CLI example above is strict. Add `--continue-on-query-error` to its `partitioned-h2` command if failing queries should be skipped. That flag belongs to regression, not the preceding LD-score calculation or gene-list resolution steps.
+
 The command writes `tutorial_outputs/partitioned_h2/partitioned_h2.tsv` and
 `tutorial_outputs/partitioned_h2/diagnostics/partitioned-h2.log`.
 The summary columns are documented in
@@ -177,7 +187,7 @@ intentional.
 For query-annotation runs, the same command keeps the aggregate
 `partitioned_h2.tsv` and adds
 `diagnostics/query_annotations/manifest.tsv` plus sanitized query folders such as
-`diagnostics/query_annotations/0001_enhancer_a/`. Each query folder contains its one-row
+`diagnostics/query_annotations/0001_enhancer_a/`. Only successfully fitted queries have folders; `diagnostics/query_status.tsv` records both successful and failed queries. Each query folder contains its one-row
 `partitioned_h2.tsv`, the fitted baseline-plus-query `partitioned_h2_full.tsv`,
 `coefficient_delete_values.parquet`, and `metadata.json` with the original query annotation name.
 The retired `--write-per-query-results` flag is rejected; omit it. Baseline-only runs do not create

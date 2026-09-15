@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -487,7 +487,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Requires an overlap artifact. With query columns, runs the cell-type regime (baseline plus one query per model); with no query columns, runs one functional-category model jointly over all baseline columns. This includes explicitly converted baseline-only LDSC2 suites. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. Accepts current Parquet or legacy LDSC2 text under the same projection rule as `h2`. |
 | `--trait-name` | input metadata | no | output trait label | Optional label override; defaults to omitted/`None`. If omitted, regression uses the sumstats parquet footer `ldsc:trait_name` when present, then the filename fallback. |
-| `--query-batch-size` | config | no | active focal query columns | Positive integer, default `1000`; bounds query preparation, computation, and output-file grouping. Direct mode repeats reference work between batches; indexed mode reuses each worker's chromosome operator through its batches. Independent of regression read width. |
+| `--query-batch-size` | config | no | active focal query columns | Positive integer, default `1000`; bounds query LD-score columns read together for regression. Each query fits separately. Independent of generation batch width and the query error policy. |
 | `--output-dir` | output | yes | result output directory | Required destination for `partitioned_h2.tsv` and diagnostics. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--n-blocks` | model | no | block jackknife partitions | Number of jackknife blocks used by the regression estimator; defaults to `200`. |
@@ -498,6 +498,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--samp-prev` | model | no | sample (case) prevalence | Scalar sample prevalence `P` for liability-scale conversion; defaults to `None`. A probability in `(0, 1)`, or `nan` for a quantitative trait. Requires `--pop-prev`; omit both for observed scale. Adds the `*_liab` heritability columns (e.g. `category_h2_liab`/`category_h2_liab_se` and `total_h2_liab`/`total_h2_liab_se`) and the applied prevalence columns (proportions, enrichment, and coefficients are scale-invariant). |
 | `--pop-prev` | model | no | population prevalence | Scalar population prevalence `K` for liability-scale conversion; defaults to `None`. A probability in `(0, 1)`, or `nan`. Requires `--samp-prev`. Validated before inputs load. |
 | `--summary-sort-by` | output mode | no | aggregate row sorting | Sort key for the partitioned-h2 table; defaults to `auto`, which resolves to `coefficient-p` in the cell-type regime (query annotations present) and `category` in the functional regime. Explicit choices: `category`, `prop-snps`, `prop-h2`, `enrichment`, `enrichment-p`, `coefficient`, and `coefficient-p`. |
+| `--continue-on-query-error` | output policy | no | failed query handling | Off by default. When enabled, skip per-query model preparation, estimator, and summary exceptions and publish successful fits. Every attempted query appears in `diagnostics/query_status.tsv`; failed queries have no scientific result. Shared input/output failures and scans with no successful fits remain fatal. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`. Records go to `diagnostics/partitioned-h2.log`; the console (stderr) shows only errors. |
 | `--overwrite` | output mode | no | collision policy | Controls whether aggregate/per-query outputs and diagnostics may be replaced; defaults to `False`, so any owned partitioned-h2 artifact or default `plots/` root is refused. With overwrite, stale query trees and plots are removed after successful writes when not part of the new result. |
 

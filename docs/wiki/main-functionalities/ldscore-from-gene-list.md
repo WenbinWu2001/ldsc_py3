@@ -1,6 +1,6 @@
 # Calculate LD scores from gene lists
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 Use gene-list mode to turn pathway, expression, proteomic, GO, or other gene
 sets into focal annotations for partitioned S-LDSC. LDSC resolves each list
@@ -162,7 +162,9 @@ ldsc partitioned-h2 \
 Each focal result is conditional on the supplied baseline block and optional
 `gene_control`. A missing focal output is a workflow status, not evidence for a
 biological null; inspect diagnostics before regression.
-Query runs write the per-query result tree automatically. To summarize nominal conditional-coefficient evidence across all query gene lists, pass the aggregate partitioned-h2 result root to `ldsc plot`; do not pass an individual query folder.
+Query runs write the per-query result tree automatically for successful fits. To summarize nominal conditional-coefficient evidence across fitted query gene lists, pass the aggregate partitioned-h2 result root to `ldsc plot`; do not pass an individual query folder.
+
+Regression is strict by default: any query error prevents publication of new scientific results. Add the single flag `--continue-on-query-error` to the regression command to skip failed queries and publish successful fits. Inspect regression `diagnostics/query_status.tsv` for all attempted queries and `diagnostics/partitioned-h2.log` for error and block diagnostics. This is separate from LD-score generation's `--gene-list-resolution-policy` and `diagnostics/query_annotation_status.tsv`. Shared input/output errors, interrupts, and scans with no successful fits remain fatal. See [regression failure handling](partitioned-h2.md#choose-what-happens-when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
 
 ## Large pathway batches
 

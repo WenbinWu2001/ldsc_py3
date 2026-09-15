@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 This reference explains `ldsc` errors that can **abort a run** and have more than
 one likely cause. It is organized by command. Each entry lists the likely causes
@@ -705,6 +705,20 @@ with decisive evidence is rejected. See
    when duplicate base identities have been cleaned.
 3. Broaden or rebuild the regression SNP universe so the traits and LD-score
    directory share retained SNPs.
+
+### partitioned-h2: a query regression fails
+
+**Raised by:** `RegressionRunner.estimate_partitioned_h2_batch()` and `LstsqJackknifeFast.block_values_to_delete_values()`. Singular deletions raise `JackknifeIdentifiabilityError`, a NumPy `LinAlgError` subclass; other per-query errors retain their original exception type.
+
+Inspect `diagnostics/query_status.tsv` for all attempted queries and `diagnostics/partitioned-h2.log` for query names, failed stages, and tracebacks. For singular deletions, the log includes block numbers and zero-based retained-row intervals, available LD-score panel genomic spans, normal-matrix ranks, and support counts before/after deletion.
+
+| Cause | Interpretation and action |
+| --- | --- |
+| Query LD scores occur in one jackknife block | Removing that block erases the query coefficient's information. Mark the query unestimable under this design; a full-data fit cannot provide the missing jackknife uncertainty. |
+| Remaining columns become dependent | Deletion can make baseline/query columns dependent even when every column remains nonzero. Inspect the conditional model and the failed block. |
+| Other query preparation, estimator, or summary exception | Use the logged stage, exception type, and full traceback to investigate the specific error. |
+
+Default strict mode collects per-query failures and publishes no new scientific results if any fail. Add `--continue-on-query-error` to publish successful query models and retain failed queries in the diagnostic ledger. Shared input/output errors, process interruption, and all-query-failed scans still fail. Do not substitute a pseudoinverse, fabricate uncertainty, or automatically move block boundaries. See [the result contract](current/partitioned-h2-results.md#query-failures-and-continuation).
 
 ### partitioned-h2: missing overlap matrix
 

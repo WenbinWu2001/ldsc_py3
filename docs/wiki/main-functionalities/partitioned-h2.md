@@ -1,6 +1,6 @@
 # Partitioned heritability
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 `ldsc partitioned-h2` reads a canonical LD-score directory and tests how its
 annotations contribute to SNP heritability.
@@ -55,3 +55,30 @@ The command prepares shared trait/baseline alignment once and reads query column
 The aggregate `partitioned_h2.tsv` keeps the requested final ordering. Per-query category tables, coefficient delete values, and metadata are written as fits finish, staged privately until successful sorted publication under `diagnostics/query_annotations/`. Python `estimate_partitioned_h2_batch(..., output_dir=...)` returns the aggregate summary and persistent `per_query_artifacts` paths, rather than every detailed table in memory.
 
 New temporary files stay below the selected output directory and are cleaned on handled completion or failure. Existing overwrite/failure-marker behavior is preserved. Released allocations can remain reserved by Python/NumPy, so RSS need not fall after every chromosome. See the [memory design](../../current/annotation-memory-design.md) for ownership, indexing, and exact-quantile details.
+
+## Choose what happens when a query fails
+
+One flag controls this behavior:
+
+| Regression command | Query-error behavior |
+| --- | --- |
+| Without `--continue-on-query-error` (default) | Collect per-query errors and fail the run without publishing new scientific results if any query fails. |
+| With `--continue-on-query-error` | Skip and mark failed queries, finish the scan, and publish successful fits. |
+
+For a scan where successful fits should survive query errors:
+
+```bash
+ldsc partitioned-h2 \
+  --ldscore-dir results/pathway_ldscores \
+  --sumstats-file results/trait/sumstats.parquet \
+  --continue-on-query-error \
+  --output-dir results/pathway_enrichment
+```
+
+Each completed query scan writes `diagnostics/query_status.tsv` in requested order. Its columns are `query_annotation`, `status`, `stage`, `error_type`, and `error_message`. Status is `success`, `unestimable` for singular jackknife deletions, or `failed` for other exceptions. Failed queries have no scientific summary row or result folder; their absence is not a null association. Keep the full status table when accounting for the requested testing family.
+
+The CLI log, `diagnostics/partitioned-h2.log`, records query names, stages, exceptions, and tracebacks. Singular delete-block failures also report block numbers, retained-row intervals, available genomic spans, normal-matrix ranks, and support counts. A query can fit on all SNPs but become unidentifiable when its only supported block is deleted. The flag does not change filtering, weights, blocks, or the solver.
+
+Shared input loading, output failures, and interrupts remain fatal. A scan with no successful fits also fails, retaining its query diagnostics. Baseline-only regressions have no independent query to skip. This flag is separate from `ldscore --gene-list-resolution-policy`, which controls gene identifier resolution before regression.
+
+For Python, use `runner.estimate_partitioned_h2_batch(..., continue_on_query_error=True)` and inspect `result.query_status`. The method logs through the configured LDSC logger; the CLI owns the log-file handler. Sources: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py) and the [result contract](../../current/partitioned-h2-results.md#query-failures-and-continuation).

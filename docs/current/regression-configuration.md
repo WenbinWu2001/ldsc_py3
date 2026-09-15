@@ -1,6 +1,6 @@
 # Regression Configuration Reference (Advanced)
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-15
 
 This document describes the tunable configuration of the regression module
 (`ldsc h2`, `ldsc rg`, `ldsc partitioned-h2`). **You do not need any of this for
@@ -20,6 +20,8 @@ Source of truth in code: `RegressionConfig` in `src/ldsc/config.py`,
 kernel in `src/ldsc/_kernel/regression.py`.
 
 Importing regression or munging workflows preserves the caller's NumPy floating-point error policy. The kernel uses local error contexts for its existing zero-SE fallback, invalid genetic-covariance weight handling, and ratio-jackknife zero-denominator errors; these contexts restore the caller's settings on both success and failure.
+
+Batch failure policy is separate from `RegressionConfig`: `partitioned-h2 --continue-on-query-error` or `RegressionRunner.estimate_partitioned_h2_batch(..., continue_on_query_error=True)` explicitly skips failed query regressions while publishing successful fits. The default is strict. Every attempted query has a diagnostic status, and singular delete-block solves retain block/rank/support context in the log. Filtering, weights, separators, and numerical solves are unchanged. See [query failure handling](partitioned-h2-results.md#query-failures-and-continuation).
 
 ---
 

@@ -1,6 +1,6 @@
 # Partitioned LDSC Result Columns
 
-Last updated on: 2026-09-10
+Last updated on: 2026-09-15
 
 TODO: add an example output file str.
 
@@ -103,6 +103,25 @@ Output directories follow the coherent artifact-family policy. The root
 checked together. `--output-dir` is required. Without overwrite, any existing
 owned sibling rejects the run. With overwrite, a successful baseline-only run
 removes a stale `diagnostics/query_annotations/` tree from an earlier query run.
+
+## Query failures and continuation
+
+There is one CLI flag and one equivalent Python argument:
+
+| CLI | Python batch argument | If a query raises an exception |
+| --- | --- | --- |
+| Flag omitted | `continue_on_query_error=False` (default) | Fail the run without publishing new scientific results. |
+| `--continue-on-query-error` | `continue_on_query_error=True` | Skip and mark that query; publish successful fits after the scan. |
+
+`--continue-on-query-error` is off by default. Strict query scans collect per-query preparation, estimator, and summary exceptions, write the attempted-query diagnostics, then fail without publishing new scientific results if any query failed. With the option enabled, the scan skips each failed query and publishes successful fits after completing the scan. Shared input loading, output staging/publication failures, `KeyboardInterrupt`, and `SystemExit` remain fatal; a scan with no successful queries also fails. Baseline-only regressions have no query to skip.
+
+Every completed query scan writes `diagnostics/query_status.tsv`, in requested query order, with columns `query_annotation`, `status`, `stage`, `error_type`, and `error_message`. Status is `success`, `unestimable` for singular jackknife deletions, or `failed` for other exceptions. Stage is `model_preparation`, `estimator`, `summary`, or `complete`. Failed queries appear only in this ledger and the log: they have no row in `partitioned_h2.tsv`, no coefficient or p-value, and no model directory. Successful manifest ordinals continue to follow the sorted scientific summary. Keep the full ledger when tracking the requested testing family.
+
+Successful result metadata records `query_error_policy` (`raise` or `continue`), `n_queries_requested`, `n_queries_successful`, and `n_queries_failed`, and links `files.query_status`. `RegressionRunner.estimate_partitioned_h2_batch(..., continue_on_query_error=True)` returns the same ledger as `PartitionedH2BatchResult.query_status`. A successful baseline-only overwrite removes stale query statuses and query model folders.
+
+The CLI installs `diagnostics/partitioned-h2.log`. Direct calls to the Python batch method use the configured LDSC logger without installing a file handler; they still write the status TSV. A shared loading/output failure or interrupt can stop execution before the scan's final status table is written. Gene-list resolution is an earlier LD-score-generation policy and is not changed by the continuation flag.
+
+The log records each failed query, stage, exception, and traceback, plus a final success/failure count. Singular jackknife diagnostics name every failed block (one-based display and zero-based index), its zero-based half-open retained-row interval, the normal-matrix numerical rank, parameter names, zero columns, and LD-score support counts before and after deletion. Genomic spans use canonical LD-score panel coordinates where available, including rsID-only traits. Filtering precedes block assignment. Nonzero columns can also become dependent after deletion; zero support is not the only possible cause. Normal-matrix ranks are diagnostic measurements after a failed solve, not a new condition-number threshold for accepting otherwise successful solves. No coefficients are imputed, no pseudoinverse is used, and the existing contiguous block rule is unchanged. See `LstsqJackknifeFast.block_values_to_delete_values()` and `_add_jackknife_model_context()`.
 
 ## `partitioned_h2_full.tsv`
 

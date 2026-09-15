@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -200,3 +200,7 @@ Last updated on: 2026-09-14
 ## Preflight must preserve every supported input route
 
 - Summary/root cause/correction: Staged preflight integration initially used unresolved munging state and assumed only the root fitted-model metadata layout; move consumers with their path dependencies, reuse existing scalar/group and model-layout policies, and test all supported entry routes before treating an early gate as equivalent to the content loader. Keep input validation separate from output authorization and retain collected repair records on early failures.
+
+## Full-data rank does not establish jackknife identifiability
+
+- Summary/root cause/correction: A partitioned-h2 query supported in one genomic block passes the full-data check but loses its coefficient when that block is deleted; independently constructed equal-row blocks reproduce this without batch sharing. Report failed solves with query/block/rank/support context and retain LD-score panel coordinates for rsID-only trait diagnostics; keep strict publication by default and allow explicit continuation with an attempted-query ledger. A pseudoinverse or automatic repartitioning does not establish valid uncertainty estimates.

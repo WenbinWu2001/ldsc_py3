@@ -1,6 +1,6 @@
 # Plotting LDSC Results
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-15
 
 The plotting command turns a completed LDSC result directory into one concise exploratory figure. It chooses the plot from the result metadata, so you provide the result root rather than a table or plot type.
 
@@ -49,7 +49,7 @@ The plot command never modifies `h2.tsv`, `rg.tsv`, `partitioned_h2.tsv`, `quant
 | Query/cell-type `ldsc partitioned-h2` | Aggregate root containing the query summary `partitioned_h2.tsv` | Query-annotation evidence scatter plot | Which separately fitted queries show stronger nominal evidence after conditioning on the same baseline annotations? |
 | `ldsc quantile-h2` | Root directory containing `quantile_h2.tsv` | Continuous-annotation quantile-enrichment bars | Does heritability enrichment change across increasing values of the target annotation? |
 
-Do not pass a cell-type result's internal `diagnostics/query_annotations/<query>/` directory. Each such folder is one baseline-plus-query fit. The plot requires the aggregate root that summarizes every query.
+Do not pass a cell-type result's internal `diagnostics/query_annotations/<query>/` directory. Each such folder is one baseline-plus-query fit. The plot requires the aggregate root that summarizes successful queries. If regression used `--continue-on-query-error`, skipped queries are absent from the plot and scientific summary; inspect `diagnostics/query_status.tsv` to account for the full attempted query set. Absence from the plot is not evidence of a null association. See [query failure handling](../docs/current/partitioned-h2-results.md#query-failures-and-continuation).
 
 ## Reading the plots
 

@@ -1,6 +1,6 @@
 # Partitioned LDSC Workflow: Technical Reference
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 This document describes the refactored workflow for computing LD scores and
 running h2, partitioned-h2, and rg regression from one canonical LD-score result
@@ -237,6 +237,8 @@ The `common_reference_snp_count` key is omitted when common-SNP counts are
 unavailable. Regression falls back to `all_reference_snp_count` in that case.
 
 ## 6. Regression Behavior
+
+Query scans retain strict publication by default. Explicit `--continue-on-query-error` skips per-query model preparation, fitting, and result calculation exceptions and publishes successful models; all attempted queries are recorded in `diagnostics/query_status.tsv`. The log contains each failure's query/stage/traceback and available jackknife block/rank/support/genomic diagnostics. Shared input/output failures and scans without successful fits remain fatal. The same rule applies to direct and indexed LD scores, with unchanged filtering, weighting, and contiguous block construction. See [query failure handling](partitioned-h2-results.md#query-failures-and-continuation) and `RegressionRunner.estimate_partitioned_h2_batch()`.
 
 For the tunable estimator parameters (intercept policy, two-step cutoff,
 `chisq_max`, jackknife blocks, counts) and the per-command defaults, see

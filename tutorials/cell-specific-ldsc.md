@@ -1,6 +1,6 @@
 # Cell-Specific LDSC
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 Goal: estimate cell-specific enrichment by running partitioned LDSC with one query annotation per cell type.
 
@@ -36,6 +36,8 @@ logic is public in Python as `infer_chr_pos_build()` and
 as `--genome-build auto` rather than a separate command.
 
 ## Python API
+
+Batch regression is strict by default: any per-query error prevents publication of new scientific results. To skip failed queries and publish successful fits, set `continue_on_query_error=True` in `estimate_partitioned_h2_batch()` below. The equivalent single CLI flag is `--continue-on-query-error`. Inspect `result.query_status` or `diagnostics/query_status.tsv` for `success`, `unestimable` (singular jackknife deletion), or `failed` statuses. Failed queries have no scientific result row or model folder. Shared loading/output failures, interrupts, and scans with no successful fits still fail. See [the failure contract](../docs/current/partitioned-h2-results.md#query-failures-and-continuation).
 
 The writing workflow returns an `LDScoreSource` with shared baseline values and saved query paths. Completed query tables are released after writing. Regression reads only the columns it needs, including selections spanning several saved query files.
 
@@ -125,7 +127,7 @@ For full column definitions, see
 [partitioned-h2-results.md](../docs/current/partitioned-h2-results.md).
 For query-annotation runs, the command writes by default
 `tutorial_outputs/cell_specific_ldsc/diagnostics/query_annotations/manifest.tsv` and one
-sanitized folder per cell-type query annotation. Each folder contains the
+sanitized folder per successfully fitted cell-type query annotation. Each folder contains the
 one-row query summary, the baseline-plus-query `partitioned_h2_full.tsv`,
 `coefficient_delete_values.parquet`, and `metadata.json` with the original annotation name.
 If the partitioned summary already exists, `ldsc partitioned-h2` fails before

@@ -1,6 +1,6 @@
 # Continuous annotations in partitioned LDSC
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 This page starts after the partitioned-LDSC steps in the [guided tutorial](guided-tutorial.md). The regression itself does not use quantile bins: fit the continuous annotation directly, then use `ldsc quantile-h2` to summarize how the complete fitted joint model distributes heritability from low to high target values.
 
@@ -17,13 +17,15 @@ The target score may be fitted or external. It only assigns SNPs to quantiles; h
 
 ## 1. Preserve one complete fitted model
 
-For a baseline-only partitioned model, use the `partitioned-h2` output root. Cell-type-specific runs write one result directory per query automatically; select one of those query directories:
+For a baseline-only partitioned model, use the `partitioned-h2` output root. Cell-type-specific runs write one result directory per successful query automatically; select one of those query directories:
 
 ```text
 partitioned-h2/<trait>/diagnostics/query_annotations/0001_<query>/
 ```
 
 Do not pass the aggregate multi-query root: its rows belong to different baseline-plus-one-query regressions.
+
+If regression used `--continue-on-query-error`, failed queries appear only in `diagnostics/query_status.tsv` and the regression log; they have no fitted model or uncertainty estimates to supply to `quantile-h2`. Select a successful query from `diagnostics/query_annotations/manifest.tsv`. Without this flag, any query error prevents new scientific publication. See [query failure handling](main-functionalities/partitioned-h2.md#choose-what-happens-when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py).
 
 ## 2. Prepare the resupplied sources
 

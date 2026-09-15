@@ -1,6 +1,6 @@
 # LDSC-SEG for Protein-Coding Gene Lists
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-15
 
 This tutorial tests whether one or more protein-coding gene lists are enriched for trait heritability. For each query gene list, LDSC3 fits the model
 
@@ -143,6 +143,8 @@ Because no control-gene file is supplied, `ldscore.baseline.parquet` contains on
 
 Use the LD-score directory produced by either direct or fast mode in Step 1.
 
+The command below uses strict error handling: if any query regression fails, no new scientific results are published. For a large scan where valid fits should survive query errors, add `--continue-on-query-error`. Failed queries are skipped and recorded in `diagnostics/query_status.tsv`; the CLI log records their names, stages, tracebacks, and available jackknife block/rank/support diagnostics. Shared input/output failures, interrupts, and scans with no successful fits remain fatal. This flag does not change the gene-resolution policy or jackknife block rule. See [query error handling](main-functionalities/partitioned-h2.md#choose-what-happens-when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py).
+
 ```bash
 PARTITIONED_H2_DIR="${RESULT_ROOT}/pldsc/regr/${TRAIT_NAME}"
 
@@ -177,6 +179,7 @@ regr/<trait>/
     diagnostics/
         metadata.json
         partitioned-h2.log
+        query_status.tsv
         query_annotations/
             manifest.tsv
             0001_<query-name>/
@@ -186,7 +189,7 @@ regr/<trait>/
                 metadata.json
 ```
 
-The root `partitioned_h2.tsv` contains one summary row per query gene list and omits baseline-category rows. Each query-specific `partitioned_h2_full.tsv` reports the complete fitted model:
+The root `partitioned_h2.tsv` contains one summary row per successfully fitted query gene list and omits baseline-category rows. Failed queries appear in `diagnostics/query_status.tsv` with `unestimable` or `failed` status and have no result folder. Each query-specific `partitioned_h2_full.tsv` reports the complete fitted model:
 
 `[query annotation, baseline annotations]`.
 

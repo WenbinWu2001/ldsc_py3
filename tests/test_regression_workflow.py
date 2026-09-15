@@ -1522,7 +1522,8 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertEqual(dataset.dropped_zero_variance_ld_columns, ["flat"])
         self.assertEqual(dataset.retained_ld_columns, ["base"])
-        self.assertTrue(any("flat" in message for message in captured.output))
+        self.assertTrue(any("Dropped 1 zero-variance" in message and "fitted-model metadata" in message for message in captured.output))
+        self.assertFalse(any("flat" in message for message in captured.output))
 
     def test_build_rg_dataset_drops_zero_variance_ld_columns_after_final_merge(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -2001,7 +2002,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(patched.call_count, 2)
         phase_lines = "\n".join(captured.output)
         self.assertEqual(phase_lines.count("Phase timing: shared regression preparation completed"), 1)
-        self.assertEqual(phase_lines.count("Phase timing: estimator execution completed"), 2)
+        self.assertNotIn("Phase timing: estimator execution completed", phase_lines)
         self.assertEqual(result.columns.tolist(), regression_runner.PARTITIONED_H2_COLUMNS)
         self.assertEqual(result["category"].tolist(), ["query1", "query2"])
         # Overlap-aware Prop._SNPs = M_query1 / M_tot on the common universe (18 / 45).

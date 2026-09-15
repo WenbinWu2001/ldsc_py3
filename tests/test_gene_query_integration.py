@@ -93,9 +93,11 @@ def test_direct_log_has_preparation_milestones_and_one_exclusion_summary(tmp_pat
     assert log.count("Reading annotation inputs:") == 1
     assert log.count("Checking SNP identities and preparing chromosome annotations.") == 1
     assert log.count("Annotation preparation complete:") == 1
-    assert log.count("contains CM/MAF") == 1
+    assert log.count("Annotation input metadata:") == 1
     assert log.count("intentionally excluded by region policy:") == 1
-    assert "source=focal.txt count=2 line:gene=[1:MHC1, 3:SECOND->MHC2]" in log
+    assert "role=focal; sources=1; input rows=2" in log
+    assert "diagnostics/gene_list_audit.tsv.gz" in log
+    assert "MHC1" not in log and "SECOND->MHC2" not in log
     assert result.query_columns == ["focal"]
     audit = pd.read_csv(tmp_path / "direct/diagnostics/gene_list_audit.tsv.gz", sep="\t")
     assert audit.disposition.tolist() == ["excluded", "excluded", "retained"]

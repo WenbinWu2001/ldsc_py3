@@ -45,7 +45,7 @@ def test_preparation_failure_does_not_log_completion(tmp_path, rows, reached_ide
     assert "Failed" in log and "Traceback" in log
 
 
-def test_metadata_notice_once_per_source_on_each_preparation(tmp_path, caplog):
+def test_metadata_notice_summarizes_sources_on_each_preparation(tmp_path, caplog):
     paths = [tmp_path / f"baseline.{chrom}.annot" for chrom in (1, 2)]
     for chrom, path in enumerate(paths, 1):
         path.write_text(f"CHR SNP POS CM MAF base\n{chrom} rs{chrom}a 1 0 .2 1\n{chrom} rs{chrom}b 2 0 .3 .5\n")
@@ -53,9 +53,9 @@ def test_metadata_notice_once_per_source_on_each_preparation(tmp_path, caplog):
         caplog.clear()
         with caplog.at_level("INFO", logger="LDSC"), AnnotationWorkspace(tmp_path / f"out{run}") as workspace:
             prepared = prepare_annotation_sources(workspace, paths, [], mode="rsid", chunk_rows=1)
-            notices = [record.getMessage() for record in caplog.records if "contains CM/MAF" in record.getMessage()]
-            assert len(notices) == 2
-            assert all(sum(str(path) in message for message in notices) == 1 for path in paths)
+            notices = [record.getMessage() for record in caplog.records if "Annotation input metadata:" in record.getMessage()]
+            assert len(notices) == 1 and "files=2" in notices[0]
+            assert all(str(path) not in notices[0] for path in paths)
             np.testing.assert_array_equal(prepared.shards["1"].read(columns=["base"]), [[1], [.5]])
             assert prepared.shards["1"].metadata().CM.isna().all()
 

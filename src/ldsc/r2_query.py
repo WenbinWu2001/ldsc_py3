@@ -665,6 +665,8 @@ def _write_query_r2_directory(args: argparse.Namespace, pairs: pd.DataFrame | No
             QueryR2OutputConfig(output_dir=output_dir, overwrite=args.overwrite),
             metadata=_query_r2_metadata(args, panel, result),
         )
+        LOGGER.info("R2 query complete: pairs=%d; status counts=%s. See query_r2.tsv and diagnostics/metadata.json.",
+                    len(result), result["status"].value_counts(dropna=False).to_dict())
         log_outputs(**written)
     return result
 

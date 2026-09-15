@@ -155,16 +155,16 @@ _REGRESSION_SCHEMA_DOC = "docs/troubleshooting.md#common-ldsc-artifact-schema-or
 
 
 @contextmanager
-def _log_phase_timing(phase: str):
+def _log_phase_timing(phase: str, *, level=logging.INFO):
     """Log elapsed wall time for one observable workflow phase."""
     started = time.perf_counter()
-    LOGGER.info("Phase start: %s.", phase)
+    LOGGER.log(level, "Phase start: %s.", phase)
     try:
         yield
     except Exception:
-        LOGGER.info("Phase timing: %s failed after %.3fs.", phase, time.perf_counter() - started)
+        LOGGER.log(level, "Phase timing: %s failed after %.3fs.", phase, time.perf_counter() - started)
         raise
-    LOGGER.info("Phase timing: %s completed in %.3fs.", phase, time.perf_counter() - started)
+    LOGGER.log(level, "Phase timing: %s completed in %.3fs.", phase, time.perf_counter() - started)
 
 
 @dataclass(frozen=True)
@@ -549,10 +549,10 @@ class RegressionRunner:
                 merged = merged.loc[:, [column for column in merged.columns if column not in dropped_ld_columns]]
                 if dropped_ld_columns:
                     LOGGER.warning(
-                        "Dropped %d zero-variance LD-score column(s) after merging with sumstats: %s. "
-                        "These annotations are constant on the regression SNP set and receive no coefficient.",
+                        "Dropped %d zero-variance LD-score column(s) after merging with sumstats. "
+                        "These annotations are constant on the regression SNP set and receive no coefficient; "
+                        "names are retained in fitted-model metadata (dropped_zero_variance_ld_columns).",
                         len(dropped_ld_columns),
-                        ", ".join(dropped_ld_columns),
                     )
             else:
                 raise LDSCInputError(
@@ -768,10 +768,10 @@ class RegressionRunner:
                 merged = merged.loc[:, [column for column in merged.columns if column not in dropped_ld_columns]]
                 if dropped_ld_columns:
                     LOGGER.warning(
-                        "Dropped %d zero-variance LD-score column(s) after merging with sumstats: %s. "
-                        "These annotations are constant on the regression SNP set and receive no coefficient.",
+                        "Dropped %d zero-variance LD-score column(s) after merging with sumstats. "
+                        "These annotations are constant on the regression SNP set and receive no coefficient; "
+                        "names are retained in fitted-model metadata (dropped_zero_variance_ld_columns).",
                         len(dropped_ld_columns),
-                        ", ".join(dropped_ld_columns),
                     )
             else:
                 raise LDSCInputError(
@@ -826,6 +826,7 @@ class RegressionRunner:
         self,
         dataset: RegressionDataset,
         config: RegressionConfig | None = None,
+        *, log_level=logging.INFO,
     ) -> _FitOutcome:
         """Fit h2 once and retain its exact SNP population and diagnostic bins."""
         config = config or self.regression_config
@@ -847,7 +848,7 @@ class RegressionRunner:
             x = np.asarray(merged[dataset.retained_ld_columns])
             chisq = np.asarray(merged["Z"] ** 2).reshape((n_snp, 1))
             if n_removed:
-                LOGGER.info(
+                LOGGER.log(log_level,
                     "Removed %d SNPs with chi^2 > %g (%d SNPs remain).",
                     n_removed,
                     chisq_max,
@@ -948,14 +949,14 @@ class RegressionRunner:
         """
         stage = "model_preparation"
         try:
-            with _log_phase_timing("query model preparation"):
+            with _log_phase_timing("query model preparation", level=logging.DEBUG):
                 dataset = self._dataset_from_query_values(prepared, [query], values, config=config)
             stage = "estimator"
-            with _log_phase_timing("estimator execution"):
-                outcome = self._fit_h2_dataset(dataset, config=config)
+            with _log_phase_timing("estimator execution", level=logging.DEBUG):
+                outcome = self._fit_h2_dataset(dataset, config=config, log_level=logging.DEBUG)
             hsq, dataset = outcome.estimator, outcome.dataset
             stage = "summary"
-            with _log_phase_timing("query summary"):
+            with _log_phase_timing("query summary", level=logging.DEBUG):
                 samp_prev, pop_prev = _config_prevalence(config)
                 focal = summarize_partitioned_h2(hsq, dataset, [query], samp_prev=samp_prev, pop_prev=pop_prev)
                 full = summarize_partitioned_h2(hsq, dataset, dataset.retained_ld_columns,
@@ -971,7 +972,7 @@ class RegressionRunner:
             error.add_note(f"partitioned-h2 query {query!r} failed at {stage}.")
             error.__traceback__ = error.__cause__ = error.__context__ = None
             return None, None, record, error
-        with _log_phase_timing("query output staging"):
+        with _log_phase_timing("query output staging", level=logging.DEBUG):
             artifacts = stage_partitioned_h2_fit(
                 directory, full, delete_values,
                 {"dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
@@ -1140,32 +1141,40 @@ class RegressionRunner:
                     workers = _QueryWorkers(workspace.path, models, self, config, worker_count)
             else:
                 workers = nullcontext(None)
-            with workers as pool:
+            from ._progress import PhaseProgress
+            total_batches = (len(queries) + query_batch_size - 1) // query_batch_size
+            with workers as pool, PhaseProgress(LOGGER, "computation", "query fitting", len(queries)) as progress:
                 for start in range(0, len(queries), query_batch_size):
-                    batch_columns = queries[start:start + query_batch_size]
-                    with _log_phase_timing("query batch loading"):
-                        batch = self._read_query_batch(prepared, batch_columns)
-                    if pool is None:
-                        outcomes = (self._fit_partitioned_query(
-                            models, query, batch, workspace.path / f"fit-{start + index}", config=config,
-                        ) for index, query in enumerate(batch_columns))
-                    else:
-                        with TemporaryDirectory(prefix="query-batch-", dir=workspace.path) as batch_root:
-                            with _log_phase_timing("query batch mapping"):
-                                mapped = _stage_query_batch(batch, Path(batch_root) / "values")
-                            batch = None
-                            tasks = [(query, mapped[query], workspace.path / f"fit-{start + index}")
-                                     for index, query in enumerate(batch_columns)]
-                            with _log_phase_timing("query batch execution"):
-                                outcomes = pool.map(tasks)
-                    for focal, artifacts, status, error in outcomes:
-                        statuses.append(status)
-                        if error is not None:
-                            first_error = first_error or error
+                    ordinal = start // query_batch_size + 1
+                    with PhaseProgress(LOGGER, "batch", f"query fitting {ordinal}/{total_batches}",
+                                       min(query_batch_size, len(queries) - start)) as batch_progress:
+                        batch_columns = queries[start:start + query_batch_size]
+                        with _log_phase_timing("query batch loading", level=logging.DEBUG):
+                            batch = self._read_query_batch(prepared, batch_columns)
+                        if pool is None:
+                            outcomes = (self._fit_partitioned_query(
+                                models, query, batch, workspace.path / f"fit-{start + index}", config=config,
+                            ) for index, query in enumerate(batch_columns))
                         else:
-                            rows.append(focal)
-                            private_artifacts[status["query_annotation"]] = artifacts
-                    del outcomes, batch
+                            with TemporaryDirectory(prefix="query-batch-", dir=workspace.path) as batch_root:
+                                with _log_phase_timing("query batch mapping", level=logging.DEBUG):
+                                    mapped = _stage_query_batch(batch, Path(batch_root) / "values")
+                                batch = None
+                                tasks = [(query, mapped[query], workspace.path / f"fit-{start + index}")
+                                         for index, query in enumerate(batch_columns)]
+                                with _log_phase_timing("query batch execution", level=logging.DEBUG):
+                                    outcomes = pool.map(tasks, progress=progress)
+                        for focal, artifacts, status, error in outcomes:
+                            if pool is None:
+                                progress.advance(outcome=status["status"])
+                            statuses.append(status)
+                            if error is not None:
+                                first_error = first_error or error
+                            else:
+                                rows.append(focal)
+                                private_artifacts[status["query_annotation"]] = artifacts
+                        del outcomes, batch
+                        batch_progress.completed = len(batch_columns)
             del models
             del prepared
             query_status = pd.DataFrame(statuses)
@@ -1324,46 +1333,52 @@ class RegressionRunner:
         prev = list(prevalences) if prevalences is not None else [(None, None)] * len(tables)
 
         h2_rows = []
-        for table, (samp_prev, pop_prev) in zip(tables, prev):
-            h2_dataset = self.build_dataset(table, ldscore_result, config=config)
-            outcome = self._fit_h2_dataset(h2_dataset, config=config)
-            hsq, h2_dataset = outcome.estimator, outcome.dataset
-            n_snps_used = outcome.n_snps
-            h2_rows.append(
-                summarize_total_h2(
-                    hsq, h2_dataset, trait_name=_trait_label(table), n_snps_used=n_snps_used,
-                    samp_prev=samp_prev, pop_prev=pop_prev,
+        from ._progress import PhaseProgress
+        with suppress_global_config_banner(), PhaseProgress(LOGGER, "computation", "per-trait h2", len(tables)) as progress:
+            for table, (samp_prev, pop_prev) in zip(tables, prev):
+                h2_dataset = self.build_dataset(table, ldscore_result, config=config)
+                outcome = self._fit_h2_dataset(h2_dataset, config=config, log_level=logging.DEBUG)
+                hsq, h2_dataset = outcome.estimator, outcome.dataset
+                n_snps_used = outcome.n_snps
+                h2_rows.append(
+                    summarize_total_h2(
+                        hsq, h2_dataset, trait_name=_trait_label(table), n_snps_used=n_snps_used,
+                        samp_prev=samp_prev, pop_prev=pop_prev,
+                    )
                 )
-            )
+                progress.advance()
         h2_per_trait = pd.concat(h2_rows, axis=0, ignore_index=True) if h2_rows else pd.DataFrame()
 
         rg_full_rows: list[dict[str, object]] = []
         rg_rows: list[dict[str, object]] = []
         per_pair_metadata: list[dict[str, object]] = []
         pair_kind = "anchor" if anchor_index is not None else "all_pairs"
-        for i, j in _iter_rg_pairs(len(tables), anchor_index):
-            trait_1 = _trait_label(tables[i])
-            trait_2 = _trait_label(tables[j])
-            try:
-                dataset = self.build_rg_dataset(tables[i], tables[j], ldscore_result, config=config)
-                outcome = self._fit_rg_dataset(dataset, config=config)
-                fitted, dataset = outcome.estimator, outcome.dataset
-                n_snps_used = outcome.n_snps
-                full_row = _summarize_rg_pair(
-                    fitted, dataset, trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind,
-                    n_snps_used=n_snps_used,
-                    samp_prev_1=prev[i][0], pop_prev_1=prev[i][1],
-                    samp_prev_2=prev[j][0], pop_prev_2=prev[j][1],
-                )
-                metadata = _rg_pair_metadata(tables[i], tables[j], outcome, full_row, config, pair_kind)
-            except Exception as exc:
-                error = _format_exception(exc)
-                LOGGER.warning(f"Failed rg for pair '{trait_1}' vs '{trait_2}': {error}", exc_info=True)
-                full_row = _failed_rg_full_row(trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind, error=error)
-                metadata = _failed_rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind)
-            rg_full_rows.append(full_row)
-            rg_rows.append(_concise_rg_row(full_row))
-            per_pair_metadata.append(metadata)
+        pair_count = len(tables) - 1 if anchor_index is not None else len(tables) * (len(tables) - 1) // 2
+        with suppress_global_config_banner(), PhaseProgress(LOGGER, "computation", "rg pairs", pair_count) as progress:
+            for i, j in _iter_rg_pairs(len(tables), anchor_index):
+                trait_1 = _trait_label(tables[i])
+                trait_2 = _trait_label(tables[j])
+                try:
+                    dataset = self.build_rg_dataset(tables[i], tables[j], ldscore_result, config=config)
+                    outcome = self._fit_rg_dataset(dataset, config=config)
+                    fitted, dataset = outcome.estimator, outcome.dataset
+                    n_snps_used = outcome.n_snps
+                    full_row = _summarize_rg_pair(
+                        fitted, dataset, trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind,
+                        n_snps_used=n_snps_used,
+                        samp_prev_1=prev[i][0], pop_prev_1=prev[i][1],
+                        samp_prev_2=prev[j][0], pop_prev_2=prev[j][1],
+                    )
+                    metadata = _rg_pair_metadata(tables[i], tables[j], outcome, full_row, config, pair_kind)
+                except Exception as exc:
+                    error = _format_exception(exc)
+                    LOGGER.warning(f"Failed rg for pair '{trait_1}' vs '{trait_2}': {error}", exc_info=True)
+                    full_row = _failed_rg_full_row(trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind, error=error)
+                    metadata = _failed_rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind)
+                rg_full_rows.append(full_row)
+                rg_rows.append(_concise_rg_row(full_row))
+                per_pair_metadata.append(metadata)
+                progress.advance(outcome=full_row["status"])
 
         rg_full = pd.DataFrame(rg_full_rows, columns=RG_FULL_COLUMNS)
         rg = pd.DataFrame(rg_rows, columns=RG_CONCISE_COLUMNS)
@@ -1423,14 +1438,14 @@ def _regression_genome_build(
                 "Re-munge it with the current `ldsc munge-sumstats` so it records its build, or liftover it to "
                 "match the LD-score panel, then re-run."
             ) from exc
-        LOGGER.info(f"Inferred genome build '{sumstats_build}' for sumstats '{context}'.")
+        LOGGER.debug(f"Inferred genome build '{sumstats_build}' for sumstats '{context}'.")
     if panel_build is not None and sumstats_build != panel_build:
         raise LDSCInputError(
             f"Regression genome-build mismatch: sumstats '{context}' is {sumstats_build!r} but the LD-score "
             f"panel is {panel_build!r}. Coordinate merges require the same build. Liftover the sumstats to "
             f"{panel_build!r} and re-run."
         )
-    LOGGER.info(f"Regression genome build for sumstats '{context}': {sumstats_build!r} (panel {panel_build!r}).")
+    LOGGER.debug(f"Regression genome build for sumstats '{context}': {sumstats_build!r} (panel {panel_build!r}).")
 
 
 def _snapshot_identity_mode(snapshot: GlobalConfig | None) -> str | None:
@@ -2550,12 +2565,12 @@ def _log_quantitative_annotation_interpretation(ldscore_result: LDScoreResult) -
     if not quantitative:
         return
     LOGGER.warning(
-        "Quantitative annotation(s) detected: %s. Numerical prop_snps, prop_h2, and enrichment summaries "
+        "Quantitative annotation(s) detected: count=%d; names are recorded in LD-score annotation_types metadata. Numerical prop_snps, prop_h2, and enrichment summaries "
         "remain visible for compatibility, but they are weighted summaries and do not have the ordinary "
         "binary-category interpretation. Interpret tau (`coefficient`), its SE, and its coefficient zero-test; "
         "use `ldsc quantile-h2` for post-fit quantile enrichment. To estimate distinct conditional coefficients "
         "for bins, construct binary quantile annotations and refit partitioned-h2.",
-        ", ".join(quantitative),
+        len(quantitative),
     )
 
 
@@ -2596,6 +2611,9 @@ def _log_effective_regression_identity(
         modes.append(mode)
         sources.append(source)
 
+    source_details = "; ".join(sources) if len(sources) <= 10 else f"{len(sources)} input artifacts; see input provenance and per-pair metadata"
+    if len(sources) > 10 and LOGGER.isEnabledFor(logging.DEBUG):
+        LOGGER.debug("Per-input SNP modes: %s", "; ".join(sources))
     effective = modes[0]
     downgrade = False
     try:
@@ -2612,7 +2630,7 @@ def _log_effective_regression_identity(
             "Regression SNP identifier could not be resolved: the inputs disagree. "
             "Per-input modes: %s. The GlobalConfig snp_identifier %r shown above is "
             "applied only to inputs that have no recorded provenance.",
-            "; ".join(sources),
+            source_details,
             default_mode,
         )
         return
@@ -2639,7 +2657,7 @@ def _log_effective_regression_identity(
         effective,
         downgrade_clause,
         default_clause,
-        "; ".join(sources),
+        source_details,
     )
 
 
@@ -3125,7 +3143,7 @@ def run_rg_from_args(args):
         runner, config = _runner_from_args(args)
         print_global_config_banner("run_rg_from_args", runner.global_config)
         log_inputs(
-            sumstats_sources=[str(path) for path in sumstats_paths],
+            sumstats_sources=f"{len(sumstats_paths)} files; source paths are recorded in diagnostics/metadata.json",
             anchor_trait=getattr(args, "anchor_trait", None) or "none",
             ldscore_dir=args.ldscore_dir,
             output_dir=output_dir,
@@ -3156,13 +3174,15 @@ def run_rg_from_args(args):
         )
         sumstats_tables = _disambiguate_trait_names(sumstats_tables)
         if prevalences is not None:
-            LOGGER.info(
-                "Liability-scale prevalences applied: "
-                + ", ".join(
-                    f"{_trait_label(table)}=(P={sp}, K={pp})"
-                    for table, (sp, pp) in zip(sumstats_tables, prevalences)
+            LOGGER.info("Liability-scale prevalences applied to %d traits; values are recorded in diagnostics/metadata.json.", len(sumstats_tables))
+            if LOGGER.isEnabledFor(logging.DEBUG):
+                LOGGER.debug(
+                    "Liability-scale prevalences applied: "
+                    + ", ".join(
+                        f"{_trait_label(table)}=(P={sp}, K={pp})"
+                        for table, (sp, pp) in zip(sumstats_tables, prevalences)
+                    )
                 )
-            )
         anchor_index = _resolve_anchor_index(getattr(args, "anchor_trait", None), sumstats_paths, sumstats_tables)
         ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
         legacy_drop_frames: list[pd.DataFrame] = []
@@ -3419,9 +3439,12 @@ def _disambiguate_trait_names(tables: Sequence[SumstatsTable]) -> list[SumstatsT
         seen[final] = 1
         unique.append(final)
 
+    renamed = sum(original != resolved for original, resolved in zip(labels, unique))
+    if renamed:
+        LOGGER.info("Renamed %d duplicate rg trait labels; resolved names and source paths are recorded in diagnostics/metadata.json.", renamed)
     for original, resolved in zip(labels, unique):
         if original != resolved:
-            LOGGER.info(f"Disambiguated duplicate rg trait name '{original}' as '{resolved}'.")
+            LOGGER.debug("Disambiguated duplicate rg trait name '%s' as '%s'.", original, resolved)
     return [replace(table, trait_name=label) for table, label in zip(tables, unique)]
 
 

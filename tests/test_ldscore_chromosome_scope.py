@@ -34,7 +34,7 @@ def test_exact_and_glob_scope_comes_from_contents(tmp_path):
 def test_scope_scan_logs_ignored_metadata_once_across_chunks(tmp_path, caplog):
     args = write_inputs(tmp_path)
     (tmp_path / "baseline.22.annot").write_text("CHR SNP POS MAF base\n" + "22 rs1 10 .2 1\n" * 65537)
-    with caplog.at_level("INFO", logger="LDSC"):
+    with caplog.at_level("DEBUG", logger="LDSC"):
         result = inspect_direct_inputs(args, GlobalConfig(snp_identifier="rsid"))
     assert result.issues.empty
     assert sum("contains CM/MAF" in record.getMessage() for record in caplog.records) == 1

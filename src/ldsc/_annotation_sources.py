@@ -18,7 +18,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ._progress import report_phase, advance
+from ._progress import report_phase, advance, PhaseProgress
 
 from ._annotation_identity import DiskIdentityIndex, IdentityDropSpool
 from ._annotation_parsing import normalize_annotation_chunk
@@ -61,8 +61,8 @@ def _chunk_size(width):
     return max(1, min(65536, (16 * 1024 * 1024) // (max(1, width) * 8)))
 
 
-@report_phase(LOGGER, 'validation/staging', 'annotation classification and metadata')
-def _scan(path, directory, mode, chunk_rows):
+@report_phase(LOGGER, 'validation/staging', 'annotation classification and metadata', level=logging.DEBUG)
+def _scan(path, directory, mode, chunk_rows, *, source_progress=None):
     advance(0, object=str(path), force=True)
     directory.mkdir(parents=True, exist_ok=True)
     spool = FrameSpool(directory / "metadata")
@@ -73,6 +73,8 @@ def _scan(path, directory, mode, chunk_rows):
         with pd.read_csv(path, sep=r"\s+", compression="infer", chunksize=chunk_rows) as reader:
             for chunk_index, chunk in enumerate(reader):
                 advance(len(chunk), object=str(path))
+                if source_progress is not None:
+                    source_progress.advance(0)
                 metadata, values = normalize_annotation_chunk(chunk, path, mode, log_ignored_metadata=chunk_index == 0,
                                                               value_dtype=None)
                 if metadata.empty:
@@ -246,27 +248,30 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     issues = list(input_issues)
     declared_chromosomes = declared_chromosomes or {}
     sources = []
-    for i, path in enumerate(paths):
-        declared = declared_chromosomes.get(str(path), '')
-        try:
-            scan_rows = chunk_rows
-            if scan_rows is None and header_widths is not None:
-                scan_rows = _chunk_size(header_widths[str(path)])
-            if scan_rows is None:
-                width = 1
-                try:
-                    width = len(pd.read_csv(path, sep=r"\s+", nrows=0).columns)
-                except (OSError, EOFError, ValueError, UnicodeError):
-                    pass  # The complete scan records the existing parse diagnostic.
-                scan_rows = _chunk_size(width)
-            source = _scan(path, workspace.path / f"source-{i}", mode, scan_rows)
-            if autosomes_only and not source.chromosomes.issubset(AUTOSOMES):
-                raise LDSCInputError('Annotation contents must identify an autosomal chromosome set.')
-            if declared and source.chromosomes != {declared}:
-                raise LDSCInputError(f'@ member for chromosome {declared} contains chromosomes {sorted(source.chromosomes)}.')
-            sources.append(source)
-        except (OSError, EOFError, ValueError, UnicodeError, LDSCUserError) as exc:
-            issues.append(input_issue('baseline' if i < len(baseline_files) else 'query', path, declared, 'invalid_required_input', exc))
+    LOGGER.info("Annotation input metadata: files=%d; any supplied CM/MAF columns are ignored (the reference panel is authoritative).", len(paths))
+    with PhaseProgress(LOGGER, "validation/staging", "annotation input files", len(paths)) as source_progress:
+        for i, path in enumerate(paths):
+            declared = declared_chromosomes.get(str(path), '')
+            try:
+                scan_rows = chunk_rows
+                if scan_rows is None and header_widths is not None:
+                    scan_rows = _chunk_size(header_widths[str(path)])
+                if scan_rows is None:
+                    width = 1
+                    try:
+                        width = len(pd.read_csv(path, sep=r"\s+", nrows=0).columns)
+                    except (OSError, EOFError, ValueError, UnicodeError):
+                        pass  # The complete scan records the existing parse diagnostic.
+                    scan_rows = _chunk_size(width)
+                source = _scan(path, workspace.path / f"source-{i}", mode, scan_rows, source_progress=source_progress)
+                if autosomes_only and not source.chromosomes.issubset(AUTOSOMES):
+                    raise LDSCInputError('Annotation contents must identify an autosomal chromosome set.')
+                if declared and source.chromosomes != {declared}:
+                    raise LDSCInputError(f'@ member for chromosome {declared} contains chromosomes {sorted(source.chromosomes)}.')
+                sources.append(source)
+            except (OSError, EOFError, ValueError, UnicodeError, LDSCUserError) as exc:
+                issues.append(input_issue('baseline' if i < len(baseline_files) else 'query', path, declared, 'invalid_required_input', exc))
+            source_progress.advance()
     if issues:
         error = LDSCInputError('Annotation input preflight failed: ' + '; '.join(f"{row['source']}: {row['details']}" for row in issues[:10]) + '. Complete diagnostics: diagnostics/input_issues.tsv. Other causes & fixes: docs/troubleshooting.md#annotate-input-preflight')
         error.input_issues = pd.DataFrame(issues, columns=INPUT_ISSUE_COLUMNS)
@@ -299,7 +304,7 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     with DiskIdentityIndex(workspace.path / "identity.sqlite", effective_mode) as identity:
         for group, rows in zip(groups, group_rows):
             for metadata in _aligned_metadata(group, mode, rows):
-                advance(len(metadata), object=','.join(str(source.path) for source in group))
+                advance(len(metadata), object=f'annotation group ({len(group)} files)')
                 identity.add(metadata)
         selections, counts = _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom)
     (workspace.path / "identity.sqlite").unlink()

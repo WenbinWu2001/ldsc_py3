@@ -20,6 +20,8 @@ counts, coordinate provenance and row-level liftover/identity audit records.
 No input configuration is mutated and no artifacts are written here.
 """
 import logging
+from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 
 import numpy as np
@@ -31,6 +33,7 @@ from .._coordinates import (
     positive_int_position_series,
 )
 from ..errors import LDSCInputError, LDSCInternalError
+from .._progress import report_phase, advance
 from . import regression as sumstats
 from .identifiers import (
     build_packed_chr_pos_series,
@@ -141,17 +144,41 @@ class _ParsedChunks:
 numeric_cols = ['P', 'N', 'N_CAS', 'N_CON', 'POS', 'Z', 'OR', 'BETA', 'LOG_ODDS', 'INFO', 'FRQ', 'SIGNED_SUMSTAT', 'NSTUDY']
 
 
-def filter_pvals(P):
+@contextmanager
+def _invalid_value_summary():
+    """Keep warning totals local to this parse, including a failed partial scan."""
+    counts = Counter()
+    try:
+        yield counts
+    finally:
+        if counts:
+            LOGGER.warning("Invalid-value totals observed: %s. Counts can overlap; these are not exclusive QC drop counts.",
+                           ", ".join(f"{column}={count}" for column, count in sorted(counts.items())))
+
+
+def _record_invalid_values(column, count, accepted, counts):
+    """Warn promptly on the first affected chunk and accumulate subsequent rows."""
+    if not count:
+        return
+    if counts is None:
+        LOGGER.warning("%d SNPs had %s outside of %s. The column may be mislabeled.", count, column, accepted)
+        return
+    if not counts[column]:
+        LOGGER.warning("Invalid %s values outside of %s detected; the column may be mislabeled. Existing QC rules still apply; totals follow after parsing.",
+                       column, accepted)
+    counts[column] += int(count)
+
+
+def filter_pvals(P, *, warning_counts=None):
     '''Remove out-of-bounds P-values'''
     ii = (P > 0) & (P <= 1)
     bad_p = (~ii).sum()
-    if bad_p > 0:
-        LOGGER.warning(f"WARNING: {bad_p} SNPs had P outside of (0,1]. The P column may be mislabeled.")
+    _record_invalid_values("P", bad_p, "(0,1]", warning_counts)
 
     return ii
 
 
-def filter_info(info, qc: MungeQC):
+def filter_info(info, qc: MungeQC, *, warning_counts=None):
     '''Remove INFO < qc.info_min (default 0.9) and complain about out-of-bounds INFO.'''
     if type(info) is pd.Series:  # one INFO column
         jj = ((info > 2.0) | (info < 0)) & info.notnull()
@@ -168,22 +195,18 @@ def filter_info(info, qc: MungeQC):
         )
 
     bad_info = jj.sum()
-    if bad_info > 0:
-        LOGGER.warning(
-            f"WARNING: {bad_info} SNPs had INFO outside of [0,1.5]. The INFO column may be mislabeled."
-        )
+    _record_invalid_values("INFO", bad_info, "[0,2]", warning_counts)
 
     return ii
 
 
-def filter_frq(frq, qc: MungeQC):
+def filter_frq(frq, qc: MungeQC, *, warning_counts=None):
     '''
     Filter on MAF. Remove MAF < qc.maf_min and out-of-bounds MAF.
     '''
     jj = (frq < 0) | (frq > 1)
     bad_frq = jj.sum()
-    if bad_frq > 0:
-        LOGGER.warning(f"WARNING: {bad_frq} SNPs had FRQ outside of [0,1]. The FRQ column may be mislabeled.")
+    _record_invalid_values("FRQ", bad_frq, "[0,1]", warning_counts)
 
     # Carve-out: sumstats A1 is the EFFECT allele, not the minor allele. The fold
     # below is a local mask for the --maf-min threshold only; never reorient
@@ -230,6 +253,7 @@ def _coerce_info_list_columns(dat, columns):
     return dat
 
 
+@report_phase(LOGGER, "preparation", "summary-statistic rows")
 def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
     """Parse chunks once, returning their retained rows and exclusive counts."""
     convert_colname = request.column_map
@@ -241,68 +265,70 @@ def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
     LOGGER.info(f"Reading sumstats from {request.source_path} into memory {request.chunk_size} SNPs at a time.")
     drops = dict.fromkeys(('NA', 'coordinates', 'INFO', 'FRQ', 'P', 'sumstats_snps', 'N', 'NSTUDY', 'liftover', 'identity'), 0)
     mode = request.snp_identifier
-    for dat in dat_gen:
-        tot_snps += len(dat)
-        old = len(dat)
-        required_raw_cols = [
-            raw_col for raw_col in dat.columns
-            if convert_colname[raw_col] not in {'INFO', 'CHR', 'POS', 'A1', 'A2'}
-        ]
-        dat = dat.dropna(axis=0, how="any", subset=required_raw_cols).reset_index(drop=True)
-        drops['NA'] += old - len(dat)
-        dat = _coerce_info_list_columns(dat, request.info_list_columns)
-        dat.columns = map(lambda x: convert_colname[x], dat.columns)
+    with _invalid_value_summary() as warning_counts:
+        for dat in dat_gen:
+            tot_snps += len(dat)
+            advance(len(dat))
+            old = len(dat)
+            required_raw_cols = [
+                raw_col for raw_col in dat.columns
+                if convert_colname[raw_col] not in {'INFO', 'CHR', 'POS', 'A1', 'A2'}
+            ]
+            dat = dat.dropna(axis=0, how="any", subset=required_raw_cols).reset_index(drop=True)
+            drops['NA'] += old - len(dat)
+            dat = _coerce_info_list_columns(dat, request.info_list_columns)
+            dat.columns = map(lambda x: convert_colname[x], dat.columns)
 
-        wrong_types = [
-            c for c in dat.columns
-            if c in numeric_cols and c != 'POS' and not np.issubdtype(dat[c].dtype, np.number)
-        ]
-        if len(wrong_types) > 0:
-            raise LDSCInputError(
-                f"munge-sumstats could not parse numeric column(s) {wrong_types} from '{request.source_path}'. "
-                "Most likely one of these columns contains text values or was mapped to the wrong header. "
-                "Check the raw header and pass the correct column hints or clean the non-numeric values."
-            )
+            wrong_types = [
+                c for c in dat.columns
+                if c in numeric_cols and c != 'POS' and not np.issubdtype(dat[c].dtype, np.number)
+            ]
+            if len(wrong_types) > 0:
+                raise LDSCInputError(
+                    f"munge-sumstats could not parse numeric column(s) {wrong_types} from '{request.source_path}'. "
+                    "Most likely one of these columns contains text values or was mapped to the wrong header. "
+                    "Check the raw header and pass the correct column hints or clean the non-numeric values."
+                )
 
-        if identity_mode_family(mode) == 'chr_pos':
-            dat = _normalize_chr_pos_chunk(dat, request, coordinate_counts)
-            if len(dat) == 0:
+            if identity_mode_family(mode) == 'chr_pos':
+                dat = _normalize_chr_pos_chunk(dat, request, coordinate_counts)
+                if len(dat) == 0:
+                    continue
+
+            ii = np.array([True for i in range(len(dat))])
+            if 'INFO' in dat.columns:
+                old = ii.sum()
+                ii &= filter_info(dat['INFO'], qc, warning_counts=warning_counts)
+                new = ii.sum()
+                drops['INFO'] += old - new
+                old = new
+
+            if 'FRQ' in dat.columns:
+                old = ii.sum()
+                ii &= filter_frq(dat['FRQ'], qc, warning_counts=warning_counts)
+                new = ii.sum()
+                drops['FRQ'] += old - new
+                old = new
+
+            old = ii.sum()
+            dat.drop(columns=['INFO'], errors='ignore', inplace=True)
+            ii &= filter_pvals(dat.P, warning_counts=warning_counts)
+            new = ii.sum()
+            drops['P'] += old - new
+            old = new
+            if is_allele_aware_mode(mode):
+                dat.A1 = dat.A1.astype("string").str.upper()
+                dat.A2 = dat.A2.astype("string").str.upper()
+
+            if ii.sum() == 0:
                 continue
 
-        ii = np.array([True for i in range(len(dat))])
-        if 'INFO' in dat.columns:
-            old = ii.sum()
-            ii &= filter_info(dat['INFO'], qc)
-            new = ii.sum()
-            drops['INFO'] += old - new
-            old = new
+            retained = dat[ii].reset_index(drop=True)
+            retained = _filter_sumstats_chunk_to_restriction(retained, restriction, request.source_path)
+            if len(retained) == 0:
+                continue
 
-        if 'FRQ' in dat.columns:
-            old = ii.sum()
-            ii &= filter_frq(dat['FRQ'], qc)
-            new = ii.sum()
-            drops['FRQ'] += old - new
-            old = new
-
-        old = ii.sum()
-        dat.drop(columns=['INFO'], errors='ignore', inplace=True)
-        ii &= filter_pvals(dat.P)
-        new = ii.sum()
-        drops['P'] += old - new
-        old = new
-        if is_allele_aware_mode(mode):
-            dat.A1 = dat.A1.astype("string").str.upper()
-            dat.A2 = dat.A2.astype("string").str.upper()
-
-        if ii.sum() == 0:
-            continue
-
-        retained = dat[ii].reset_index(drop=True)
-        retained = _filter_sumstats_chunk_to_restriction(retained, restriction, request.source_path)
-        if len(retained) == 0:
-            continue
-
-        dat_list.append(retained.reset_index(drop=True))
+            dat_list.append(retained.reset_index(drop=True))
 
     dat = pd.concat(dat_list, axis=0).reset_index(drop=True) if dat_list else pd.DataFrame()
     msg = (
@@ -559,7 +585,7 @@ def _log_coordinate_drop_summary(counts, source_path):
         f"invalid CHR={counts['n_invalid_chr']}, invalid POS={counts['n_invalid_pos']})."
     )
     if counts['examples']:
-        LOGGER.warning(
+        LOGGER.debug(
             f"Example rows dropped for invalid or missing CHR/POS in "
             f"{source_path}: {counts['examples']}"
         )

@@ -216,7 +216,7 @@ class _QueryWorkers:
             self.close(abort=True)
             raise
 
-    def map(self, tasks):
+    def map(self, tasks, *, progress=None):
         """Return compact outcomes in input order, replenishing ready workers."""
         pending = iter(enumerate(tasks))
         active, results = {}, {}
@@ -233,7 +233,7 @@ class _QueryWorkers:
                 submit(connection)
             sentinels = [process.sentinel for process in self.processes]
             while active:
-                ready = wait([*active, *sentinels])
+                ready = wait([*active, *sentinels], timeout=progress.interval if progress is not None else None)
                 for connection in list(active):
                     if connection not in ready:
                         continue
@@ -249,6 +249,10 @@ class _QueryWorkers:
                     results[index] = result
                     del active[connection]
                     submit(connection)
+                    if progress is not None:
+                        progress.advance(outcome=result[2]["status"])
+                if progress is not None:
+                    progress.advance(0)
                 if any(sentinel in ready for sentinel in sentinels):
                     raise LDSCInternalError("A partitioned-h2 worker exited unexpectedly.")
         except (EOFError, BrokenPipeError, ConnectionResetError, LDSCInternalError) as error:

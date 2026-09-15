@@ -533,14 +533,6 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 catalog = GeneCatalog.load(config.gene_coordinate_file, require_canonical=True)
             except GeneCatalogValidationError as exc:
                 issues_path = _write_gene_catalog_issues(index_path, exc.issues)
-                for row in exc.issues.itertuples(index=False):
-                    LOGGER.warning(
-                        "Gene-coordinate catalog defect: line=%s field=%s reason=%s observed=%r",
-                        row.catalog_line,
-                        row.field,
-                        row.reason,
-                        row.observed_value,
-                    )
                 LOGGER.error(
                     "Gene-coordinate catalog validation failed with %s defect(s); full repair audit: %s",
                     len(exc.issues),
@@ -2131,14 +2123,14 @@ def _run_indexed_ldscore_in_workspace(
         _gene_list_gate_a_message,
         _log_gene_list_rejections,
         _log_gene_list_snp_support,
+        _log_query_annotation_statuses,
     )
-
-    _log_gene_list_rejections(batch)
     if batch.has_fatal_gate_a_issues:
         LDScoreDirectoryWriter().write_gene_list_preflight(
             batch,
             LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
         )
+        _log_gene_list_rejections(batch)
         raise LDSCInputError(_gene_list_gate_a_message(batch))
     batch, coverage_errors = assess_gene_coverage(batch, index.chromosomes)
     scope = {"chromosomes": list(index.chromosomes), "analysis_chromosomes": list(index.chromosomes),
@@ -2152,7 +2144,6 @@ def _run_indexed_ldscore_in_workspace(
         LDScoreDirectoryWriter().write_query_diagnostics(diagnostic, LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite))
         raise LDSCInputError("; ".join(coverage_errors))
     batch = batch.with_snp_support(index.gene_support)
-    _log_gene_list_snp_support(batch)
     statuses = gene_query_statuses(batch)
     usable = [
         declaration
@@ -2171,6 +2162,9 @@ def _run_indexed_ldscore_in_workspace(
             diagnostic_result,
             LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
         )
+        _log_gene_list_rejections(batch)
+        _log_gene_list_snp_support(batch)
+        _log_query_annotation_statuses(statuses)
         raise LDSCInputError("; ".join(control_errors))
     if any(item["query"] == "gene_control" for item in usable):
         raise LDSCInputError("Focal query name 'gene_control' collides with the reserved fixed control column.")
@@ -2181,9 +2175,13 @@ def _run_indexed_ldscore_in_workspace(
 
     results = indexed_results(index, batch, usable, control_resolution, query_batch_size,
                               workspace.path, threads, statuses, scope)
-    return LDScoreDirectoryWriter().write_batches(
+    result = LDScoreDirectoryWriter().write_batches(
         results, LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
         query_status_order=[status.query for status in statuses])
+    _log_gene_list_rejections(result.gene_list_batch)
+    _log_gene_list_snp_support(result.gene_list_batch)
+    _log_query_annotation_statuses(result.query_statuses)
+    return result
 
 
 def _baseline_columns_from_rows(frame: pd.DataFrame) -> list[str]:

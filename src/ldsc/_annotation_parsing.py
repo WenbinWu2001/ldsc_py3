@@ -23,7 +23,7 @@ def normalize_annotation_chunk(df, path, snp_identifier, chrom=None, *, log_igno
     """Normalize aligned metadata and numeric values, ordinarily to float32.
 
     Source preparation enables ``log_ignored_metadata`` only on the first
-    classification chunk, so the CM/MAF notice appears once per source per
+    classification chunk, so the DEBUG CM/MAF notice appears once per source per
     preparation. The second, numeric-only pass does not call this normalizer.
     ``value_dtype=None`` preserves parsed precision for exact binary detection.
     """
@@ -66,7 +66,7 @@ def normalize_annotation_chunk(df, path, snp_identifier, chrom=None, *, log_igno
     # the column only to keep it out of the annotation value columns.
     maf_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["MAF"], context=context)
     if log_ignored_metadata and (cm_col is not None or maf_col is not None):
-        LOGGER.info(
+        LOGGER.debug(
             f"Annotation file '{path}' contains CM/MAF columns; these are ignored "
             "(the reference panel is authoritative for CM and MAF)."
         )

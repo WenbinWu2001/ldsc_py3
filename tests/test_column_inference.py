@@ -111,7 +111,7 @@ class ColumnInferenceTest(unittest.TestCase):
     def test_resolve_required_column_logs_when_alias_maps_to_canonical_field(self):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            with self.assertLogs("LDSC.columns", level="INFO") as captured:
+            with self.assertLogs("LDSC.columns", level="DEBUG") as captured:
                 column = resolve_required_column(
                     ["CHR", "BP", "SNP"],
                     POS_COLUMN_SPEC,
@@ -120,7 +120,7 @@ class ColumnInferenceTest(unittest.TestCase):
 
         self.assertEqual(column, "BP")
         self.assertEqual(caught, [])
-        self.assertTrue(all(record.levelname == "INFO" for record in captured.records))
+        self.assertTrue(all(record.levelname == "DEBUG" for record in captured.records))
         self.assertIn("canonical field 'POS'", captured.output[0])
         self.assertIn("input column 'BP'", captured.output[0])
 

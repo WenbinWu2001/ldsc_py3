@@ -8,7 +8,7 @@ from ldsc.gene_list_resolver import GeneCatalog
 
 
 @pytest.mark.parametrize("chunk_rows", [1, 3])
-def test_exclusion_log_summarizes_each_source_across_audit_chunks(tmp_path, caplog, chunk_rows):
+def test_exclusion_log_summarizes_roles_across_sources_and_audit_chunks(tmp_path, caplog, chunk_rows):
     from ldsc._gene_query_storage import resolve_gene_lists_staged
     from ldsc.query_annotations import _log_gene_list_rejections
 
@@ -31,12 +31,12 @@ def test_exclusion_log_summarizes_each_source_across_audit_chunks(tmp_path, capl
         messages = [record.getMessage() for record in caplog.records]
         exclusions = [message for message in messages if "intentionally excluded" in message]
         assert exclusions == [
-            "Genes intentionally excluded by region policy: role=focal source=focal.txt count=2 line:gene=[1:MHC1, 3:SECOND->MHC2]",
-            "Genes intentionally excluded by region policy: role=focal source=other.txt count=1 line:gene=[1:MHC2]",
-            "Genes intentionally excluded by region policy: role=control source=focal.txt count=2 line:gene=[1:MHC1, 3:SECOND->MHC2]",
+            "Genes intentionally excluded by region policy: role=focal; sources=2; input rows=3. See diagnostics/gene_list_audit.tsv.gz.",
+            "Genes intentionally excluded by region policy: role=control; sources=1; input rows=2. See diagnostics/gene_list_audit.tsv.gz.",
         ]
-        rejected = [message for message in messages if "Gene-list row rejected:" in message]
-        assert len(rejected) == 2 and all("line=5 input_gene='UNKNOWN'" in message for message in rejected)
+        rejected = [message for message in messages if "Gene-list rows rejected:" in message]
+        assert len(rejected) == 2 and all("input rows=1" in message for message in rejected)
+        assert all("UNKNOWN" not in message and "MHC1" not in message for message in messages)
         pd.testing.assert_frame_equal(pd.concat(batch.audit_frames(), ignore_index=True), before)
         assert batch.selection("focal", 1).canonical_gene_ids == ("G1",)
 

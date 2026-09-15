@@ -169,7 +169,7 @@ def test_parent_interrupt_reaps_workers_before_scratch_cleanup(tmp_path, monkeyp
     args, _ = cli_inputs(tmp_path)
     before = {child.pid for child in mp.active_children()}
 
-    def stop(*args):
+    def stop(*args, **kwargs):
         raise KeyboardInterrupt("parent interruption")
 
     monkeypatch.setattr(parallel, "wait", stop)

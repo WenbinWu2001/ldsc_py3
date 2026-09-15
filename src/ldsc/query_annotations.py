@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
-from itertools import groupby
+from collections import Counter
 from typing import Any, Sequence
 
 import numpy as np
@@ -265,38 +265,40 @@ def _select_chromosome_result_queries(
     return selected
 
 
+def _log_gene_catalog_issues(issues: pd.DataFrame) -> None:
+    """Summarize catalog defects after their complete diagnostic table is saved."""
+    if not issues.empty:
+        LOGGER.warning("Gene-coordinate catalog defects: records=%d. See diagnostics/gene_catalog_issues.tsv.", len(issues))
+
+
 def _log_gene_list_rejections(batch: Any) -> None:
-    """Log rejected rows and one intentional-exclusion summary per source."""
-    source_errors = batch.summary[batch.summary["source_status"].eq("error")]
-    for row in source_errors.itertuples(index=False):
-        LOGGER.warning(
-            "Gene-list source rejected: role=%s source=%s reason=%s",
-            row.input_role,
-            row.source,
-            row.source_reasons,
-        )
-    for frame in batch.audit_frames():
-        for row in frame.loc[frame.disposition.eq('rejected')].itertuples(index=False):
-            LOGGER.warning("Gene-list row rejected: role=%s source=%s line=%s input_gene=%r reason=%s",
-                row.input_role, row.source, row.line, row.input_gene, row.reason)
-    if LOGGER.isEnabledFor(logging.INFO):
-        excluded = (row for frame in batch.audit_frames()
-                    for row in frame.loc[frame.disposition.eq('excluded')].itertuples(index=False))
-        # Audit replay is source ordered; retain only one source's message across chunks.
-        for (role, _, source), rows in groupby(excluded, key=lambda row: (row.input_role, row.source_ordinal, row.source)):
-            entries = [f"{row.line}:{row.input_gene}" +
-                       (f"->{row.canonical_gene_id}" if row.input_gene != row.canonical_gene_id else "")
-                       for row in rows]
-            LOGGER.info("Genes intentionally excluded by region policy: role=%s source=%s count=%d line:gene=[%s]",
-                        role, source, len(entries), ", ".join(entries))
+    """Summarize source failures, rejected rows, and intentional exclusions by role.
+
+    Call after publishing diagnostics; physical rows and gene identities remain
+    in the complete gene-list audit rather than being replayed into INFO logs.
+    """
+    for role, rows in batch.summary.groupby("input_role", sort=False):
+        source_errors = int(rows.source_status.eq("error").sum())
+        if source_errors:
+            LOGGER.warning("Gene-list sources rejected: role=%s; sources=%d. See diagnostics/gene_list_resolution_summary.tsv.",
+                           role, source_errors)
+        rejected = rows.rejected_rows.fillna(0)
+        if rejected.sum():
+            LOGGER.warning("Gene-list rows rejected: role=%s; sources=%d; input rows=%d. See diagnostics/gene_list_audit.tsv.gz.",
+                           role, int(rejected.gt(0).sum()), int(rejected.sum()))
+        excluded = rows.excluded_genes.fillna(0)
+        if excluded.sum():
+            LOGGER.info("Genes intentionally excluded by region policy: role=%s; sources=%d; input rows=%d. See diagnostics/gene_list_audit.tsv.gz.",
+                        role, int(excluded.gt(0).sum()), int(excluded.sum()))
 
 
 def _log_gene_list_snp_support(batch: Any) -> None:
-    """Write every zero-support gene to the complete file log."""
-    for frame in batch.audit_frames():
-        for row in frame.loc[frame.disposition.eq('unsupported')].itertuples(index=False):
-            LOGGER.warning("Gene has zero retained reference-SNP support: role=%s source=%s line=%s input_gene=%r canonical_gene_id=%s",
-                row.input_role, row.source, row.line, row.input_gene, row.canonical_gene_id)
+    """Summarize unsupported gene selections after publishing their row audit."""
+    for role, rows in batch.summary.groupby("input_role", sort=False):
+        unsupported = pd.to_numeric(rows.zero_support_genes).fillna(0)
+        if unsupported.sum():
+            LOGGER.warning("Genes with zero retained SNP support: role=%s; sources=%d; gene selections=%d. See diagnostics/gene_list_audit.tsv.gz.",
+                           role, int(unsupported.gt(0).sum()), int(unsupported.sum()))
 
 
 def _gene_list_gate_a_message(batch: Any) -> str:
@@ -310,7 +312,7 @@ def _gene_list_gate_a_message(batch: Any) -> str:
     submitted = int(batch.summary["nonblank_input_rows"].fillna(0).sum())
     breakdown = "; ".join(
         f"{row.source}: {int(row.rejected_rows or 0)}/{int(row.nonblank_input_rows or 0)} rejected"
-        for row in batch.summary.itertuples(index=False)
+        for row in batch.summary.loc[batch.summary.rejected_rows.fillna(0).gt(0)].head(MAX_CONSOLE_GENE_ISSUES).itertuples(index=False)
         if pd.notna(row.nonblank_input_rows)
     )
     sample = "; ".join(
@@ -335,7 +337,7 @@ def _gene_list_gate_a_message(batch: Any) -> str:
             if row.input_role == "control"
             else f"query gene-list source {row.source!r}: {source_reason_text(row.source_reasons, row.source, row.input_role)}"
         )
-        for row in source_errors.itertuples(index=False)
+        for row in source_errors.head(MAX_CONSOLE_GENE_ISSUES).itertuples(index=False)
     )
     issue_text = "; ".join(value for value in (source_error_text, sample) if value)
     zero_usable_sources = batch.summary[
@@ -344,7 +346,7 @@ def _gene_list_gate_a_message(batch: Any) -> str:
     ]
     zero_usable_text = "; ".join(
         f"{row.input_role} source {row.source!r} has zero usable genes"
-        for row in zero_usable_sources.itertuples(index=False)
+        for row in zero_usable_sources.head(MAX_CONSOLE_GENE_ISSUES).itertuples(index=False)
     )
     issue_text = "; ".join(value for value in (issue_text, zero_usable_text) if value)
     if not rejected.empty:
@@ -371,31 +373,22 @@ def _gene_list_gate_a_message(batch: Any) -> str:
 
 
 def _log_query_annotation_statuses(statuses: Sequence[QueryAnnotationStatus]) -> None:
-    """Log every non-ok query and one compact batch-status summary."""
+    """Log whole-run counts and reason summaries after diagnostics are written."""
     if not statuses:
         return
-    counts: dict[str, int] = {"ok": 0, "warning": 0, "skipped": 0}
-    for status in statuses:
-        counts[status.status] = counts.get(status.status, 0) + 1
-        if status.status != "ok":
-            diagnostic = (
-                "diagnostics/gene_list_resolution_summary.tsv and diagnostics/gene_list_audit.tsv.gz"
-                if status.input_type == "gene_list"
-                else "diagnostics/query_annotation_status.tsv"
-            )
-            LOGGER.warning(
-                f"Query annotation '{status.query}' status={status.status}, reason={status.reason}; "
-                f"see {diagnostic}."
-            )
-    LOGGER.info(
-        "Query annotation status summary: "
-        f"ok={counts.get('ok', 0)}, warning={counts.get('warning', 0)}, skipped={counts.get('skipped', 0)}."
-    )
+    counts = Counter(status.status for status in statuses)
+    for (status, reason), count in Counter((item.status, item.reason) for item in statuses if item.status != "ok").items():
+        LOGGER.warning("Query annotation outcomes: status=%s; reason=%s; queries=%d. See diagnostics/query_annotation_status.tsv.",
+                       status, reason, count)
+    LOGGER.info("Query annotation status summary: total=%d, ok=%d, warning=%d, skipped=%d, error=%d.",
+                len(statuses), counts["ok"], counts["warning"], counts["skipped"], counts["error"])
 
 
 def _all_query_annotations_skipped_message(statuses: Sequence[QueryAnnotationStatus]) -> str:
     """Return the consolidated user-facing error for an unusable batch."""
-    reasons = ", ".join(f"{status.query}={status.reason}" for status in statuses)
+    reasons = ", ".join(f"{status.query}={status.reason}" for status in statuses[:MAX_CONSOLE_GENE_ISSUES])
+    if len(statuses) > MAX_CONSOLE_GENE_ISSUES:
+        reasons += f"; {len(statuses) - MAX_CONSOLE_GENE_ISSUES} more in the status table"
     return (
         f"ldscore could not continue because all {len(statuses)} requested query annotations were skipped "
         f"({reasons}). Check diagnostics/query_annotation_status.tsv for details, correct the inputs, "

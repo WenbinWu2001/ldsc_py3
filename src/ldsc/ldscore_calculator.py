@@ -39,7 +39,7 @@ import pandas as pd
 from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
 from ._parallelism import _parse_threads, _resolve_worker_count, _validate_threads
-from ._progress import report_phase
+from ._progress import report_phase, PhaseProgress
 from ._chr_sampler import sample_frame_from_chr_pattern
 from ._annotation_storage import TsvDiagnostics
 from .ldscore_source import LDScoreSource
@@ -323,6 +323,15 @@ class LDScoreResult:
         }
 
 
+def _log_annotation_classification(result):
+    """Report whole-run type counts; full fitted column identities stay in metadata."""
+    counts = pd.Series(list(result.annotation_types.values()), dtype="string").value_counts()
+    LOGGER.info("Annotation classification: binary=%d; quantitative=%d. Classification does not change fitted coefficients; see annotation_types in LD-score metadata.",
+                counts.get("binary", 0), counts.get("quantitative", 0))
+    if LOGGER.isEnabledFor(logging.DEBUG):
+        LOGGER.debug("Annotation types: %s", result.annotation_types)
+
+
 class LDScoreCalculator:
     """Orchestrate chromosome-wise LD-score calculation.
 
@@ -339,6 +348,7 @@ class LDScoreCalculator:
         """Initialize the calculator with the directory writer used for LD-score outputs."""
         self.output_writer = output_writer or LDScoreDirectoryWriter()
 
+    @report_phase(LOGGER, "computation", "LD-score calculation")
     def run(
         self, annotation_bundle, ref_panel, ldscore_config: LDScoreConfig,
         global_config: GlobalConfig, output_config: LDScoreOutputConfig | None = None,
@@ -396,11 +406,22 @@ class LDScoreCalculator:
         accumulation use float64; canonical output retains its usual precision.
         The calculator borrows inputs and never closes the caller's bundle.
         """
+        if ldscore_config.export_ref_metadata and output_config is None:
+            raise LDSCUsageError(
+                "LDScoreCalculator.run() requires output_config when export_ref_metadata=True. "
+                "Reference metadata is a filesystem artifact, so pass LDScoreOutputConfig(output_dir=...)."
+            )
+        LOGGER.info(_format_ldscore_start_message(annotation_bundle, len(annotation_bundle.chromosomes)))
+        cm_source, maf_source = _reference_metadata_sources(ref_panel)
+        LOGGER.info("Reference-panel CM source: %s; MAF source: %s (annotation CM/MAF are ignored).",
+                    cm_source, maf_source)
         kwargs = dict(ref_panel=ref_panel, ldscore_config=ldscore_config, global_config=global_config,
                       output_config=output_config, regression_snps=regression_snps,
                       regression_regions=regression_regions, config_snapshot=config_snapshot)
         if output_config is None:
-            return self._run_batch(annotation_bundle=annotation_bundle, **kwargs)
+            result = self._run_batch(annotation_bundle=annotation_bundle, **kwargs)
+            _log_annotation_classification(result)
+            return result
 
         width = ldscore_config.query_batch_size
         names = list(annotation_bundle.query_columns)
@@ -408,18 +429,22 @@ class LDScoreCalculator:
         def results():
             from ._annotation_queries import execution_query_bundle
             for ordinal, columns in enumerate(groups):
-                selected = set(columns)
-                statuses = tuple(status for status in annotation_bundle.query_statuses
-                                 if status.query in selected or (ordinal == 0 and status.status not in {"ok", "warning"}))
-                with execution_query_bundle(annotation_bundle, columns, statuses, output_config.output_dir) as active:
-                    result = self._run_batch(annotation_bundle=active, **kwargs)
-                    yield result
-                    del result
-                del active
-        return self.output_writer.write_batches(results(), output_config,
+                with PhaseProgress(LOGGER, "batch", f"LD-score calculation {ordinal + 1}/{len(groups)}", len(columns)) as progress:
+                    selected = set(columns)
+                    statuses = tuple(status for status in annotation_bundle.query_statuses
+                                     if status.query in selected or (ordinal == 0 and status.status not in {"ok", "warning"}))
+                    with execution_query_bundle(annotation_bundle, columns, statuses, output_config.output_dir) as active:
+                        result = self._run_batch(annotation_bundle=active, **kwargs)
+                        yield result
+                        del result
+                    del active
+                    progress.completed = len(columns)
+        result = self.output_writer.write_batches(results(), output_config,
             query_status_order=[status.query for status in annotation_bundle.query_statuses])
+        _log_annotation_classification(result)
+        return result
 
-    @report_phase(LOGGER, 'computation', 'LD-score chromosome batch')
+    @report_phase(LOGGER, 'computation', 'LD-score chromosome batch', level=logging.DEBUG)
     def _run_batch(
         self,
         annotation_bundle,
@@ -437,11 +462,6 @@ class LDScoreCalculator:
         and no-output paths. Diagnostics use RAM when output is omitted; the
         caller owns any writing-path workspace and final publication.
         """
-        if ldscore_config.export_ref_metadata and output_config is None:
-            raise LDSCUsageError(
-                "LDScoreCalculator.run() requires output_config when export_ref_metadata=True. "
-                "Reference metadata is a filesystem artifact, so pass LDScoreOutputConfig(output_dir=...)."
-            )
         if output_config is None:
             if len(annotation_bundle.query_columns) > ldscore_config.query_batch_size:
                 raise LDSCUsageError("Multiple query execution batches require output_config with an output directory. Use one batch for a small in-memory calculation.")
@@ -449,7 +469,6 @@ class LDScoreCalculator:
                     or (annotation_bundle.workspace is not None and not annotation_bundle.workspace._created)):
                 raise LDSCUsageError("In-memory LD-score calculation requires already-prepared annotations. Use AnnotationBundle.from_frames() to prepare without disk staging.")
             annotation_bundle = dataclass_replace(annotation_bundle, diagnostics_in_memory=True)
-        print_global_config_banner(type(self).__name__, global_config)
         if annotation_bundle.config_snapshot is not None:
             validate_config_compatibility(
                 annotation_bundle.config_snapshot,
@@ -457,13 +476,8 @@ class LDScoreCalculator:
                 context="AnnotationBundle and LDScoreCalculator runtime config",
             )
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
-        LOGGER.info(_format_ldscore_start_message(annotation_bundle, len(chromosomes)))
         worker_count = _resolve_worker_count(ldscore_config.threads, len(chromosomes))
         cm_source, maf_source = _reference_metadata_sources(ref_panel)
-        LOGGER.info(
-            f"Reference-panel CM source: {cm_source}; MAF source: {maf_source} "
-            "(annotation CM/MAF are ignored)."
-        )
         export_dir = None
         if output_config is not None and ldscore_config.export_ref_metadata and cm_source != "parquet_sidecar":
             export_dir = str(output_config.output_dir)
@@ -501,14 +515,6 @@ class LDScoreCalculator:
             global_config=global_config,
             count_config=_count_config_from_ldscore_config(ldscore_config),
         )
-        binary = [name for name, kind in result.annotation_types.items() if kind == "binary"]
-        quantitative = [name for name, kind in result.annotation_types.items() if kind == "quantitative"]
-        LOGGER.info(
-            "Annotation classification (advisory only): binary=%s; quantitative=%s. "
-            "Classification does not change LD scores or downstream fitted coefficients.",
-            ", ".join(binary) or "none",
-            ", ".join(quantitative) or "none",
-        )
         result = dataclass_replace(
             result,
             identity_drops_by_chrom={**source_drops, **result.identity_drops_by_chrom},
@@ -525,7 +531,7 @@ class LDScoreCalculator:
             result,
             tuple(getattr(annotation_bundle, "query_statuses", ())),
         )
-        LOGGER.info(
+        LOGGER.debug(
             f"Computed LD scores for {len(chromosome_results)} chromosomes "
             f"and {len(result.baseline_table)} retained SNP rows."
         )
@@ -597,6 +603,7 @@ class LDScoreCalculator:
                 chrom = next(remaining,None)
                 if chrom is None:
                     return
+                LOGGER.info("Starting chromosome %s LD-score computation.", chrom)
                 futures.add(pool.submit(_compute_one_chromosome,chrom,
                     _slice_annotation_bundle(annotation_bundle,chrom),ref_panel_spec,
                     ldscore_config,global_config,export_dir,chromosome_prefixes=chromosome_prefixes))
@@ -609,6 +616,7 @@ class LDScoreCalculator:
                         futures.remove(future)
                         outcome = future.result()
                         outcomes[outcome.chrom] = outcome
+                        LOGGER.info("Finished chromosome %s LD-score computation (%d/%d).", outcome.chrom, len(outcomes), len(chromosomes))
                         submit_next()
                     completed.clear()
             except mp.ProcessError as exc:  # BrokenProcessPool subclasses this
@@ -1379,17 +1387,16 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
             batch = catalog = None
             if _has_cli_tokens(getattr(args,"query_annot_gene_list_sources",None)):
                 catalog = GeneCatalog.load(args.gene_coordinate_file)
-                _log_live_gene_catalog_issues(catalog)
                 batch = resolve_gene_lists_staged(split_cli_path_tokens(args.query_annot_gene_list_sources),catalog,workspace,
                     control_path=getattr(args,"control_gene_list_file",None),
                     resolution_policy=getattr(args,"gene_list_resolution_policy","strict"),
                     gene_exclude_regions=getattr(args,"gene_exclude_regions","none"))
                 batch = validate_gene_query_names(batch, {column for path in declared_inputs.baseline
                     for column in declared_inputs.columns[path]})
-                _log_gene_list_rejections(batch)
                 if batch.has_fatal_gate_a_issues:
                     from .query_annotations import _gene_list_gate_a_message
                     LDScoreDirectoryWriter().write_gene_list_preflight(batch, output_config)
+                    _log_gene_list_rejections(batch)
                     raise LDSCInputError(_gene_list_gate_a_message(batch))
             if normalized_args is None:
                 normalized_args, global_config = _normalize_run_args(args,gene_catalog=catalog)
@@ -1430,17 +1437,21 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
             calculator = LDScoreCalculator()
             if annotation_bundle.gene_list_batch is not None:
                 annotation_bundle, gate_b_error = _apply_direct_gene_gate_b(annotation_bundle,ref_panel,ldscore_config,global_config)
-                _log_gene_list_snp_support(annotation_bundle.gene_list_batch)
                 if gate_b_error:
                     log_outputs(**calculator.output_writer.write_query_diagnostics(annotation_bundle,output_config))
+                    _log_gene_list_rejections(annotation_bundle.gene_list_batch)
+                    _log_gene_list_snp_support(annotation_bundle.gene_list_batch)
                     raise LDSCInputError(gate_b_error)
             statuses = annotation_bundle.query_statuses
             if statuses and not annotation_bundle.query_columns:
-                _log_query_annotation_statuses(statuses)
                 log_outputs(**calculator.output_writer.write_query_diagnostics(annotation_bundle,output_config))
+                _log_query_annotation_statuses(statuses)
                 raise LDSCInputError(_all_query_annotations_skipped_message(statuses))
             result = calculator.run(annotation_bundle,ref_panel,ldscore_config,global_config,
                 output_config=output_config,regression_snps=regression_snps,regression_regions=regression_regions)
+            if result.gene_list_batch is not None:
+                _log_gene_list_rejections(result.gene_list_batch)
+                _log_gene_list_snp_support(result.gene_list_batch)
             _log_query_annotation_statuses(result.query_statuses)
             log_outputs(**result.output_paths)
             if bool(getattr(args,"_emit_gene_console_notices",False)):
@@ -1651,19 +1662,6 @@ def _annotation_build_config_from_args(args: argparse.Namespace) -> AnnotationBu
         gene_exclude_regions=getattr(args, "gene_exclude_regions", "none"),
         padding_bp=getattr(args, "padding_bp", 0),
     )
-
-
-def _log_live_gene_catalog_issues(catalog: Any) -> None:
-    """Log every nonstructural catalog defect discovered in live mode."""
-    for row in catalog.issues.itertuples(index=False):
-        LOGGER.warning(
-            "Gene-coordinate catalog defect: source=%s line=%s field=%s reason=%s observed=%r",
-            row.source,
-            row.catalog_line,
-            row.field,
-            row.reason,
-            row.observed_value,
-        )
 
 
 def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config, global_config):

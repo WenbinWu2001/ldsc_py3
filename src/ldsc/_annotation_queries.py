@@ -42,7 +42,7 @@ def prepare_bed_queries(paths, workspace, *, chunk_rows=4096):
     """Parse each BED stream once, preserving header and line validation."""
     sources = []
     for ordinal, path in enumerate(map(Path, paths)):
-        advance(0, object=f'{ordinal + 1}/{len(paths)} {path}', force=True)
+        advance(0, object=f'{ordinal + 1}/{len(paths)} {path}')
         shards, chunk = {}, []
         def append(rows):
             advance(len(rows), object=str(path))

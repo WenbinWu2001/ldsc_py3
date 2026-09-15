@@ -756,7 +756,7 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
             inputs.n_excluded,
         )
         for row in quantile_result.itertuples(index=False):
-            LOGGER.info(
+            LOGGER.debug(
                 "Quantile %d: target [%g, %g], n_snps=%d.",
                 row.quantile,
                 row.target_value_lower,
@@ -776,6 +776,8 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
             QuantileH2OutputConfig(output_dir=output_dir, overwrite=True),
             metadata,
         )
+        LOGGER.info("Quantile summary: bins=%d; target-eligible SNPs=%d. See quantile_h2.tsv for bounds, counts, and estimates.",
+                    len(quantile_result), int(inputs.counts.sum()))
         log_outputs(**output_paths)
     return QuantileH2Result(quantile_result, standardized, str(issues_path), metadata, output_paths)
 

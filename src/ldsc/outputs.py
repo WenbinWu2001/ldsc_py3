@@ -616,6 +616,7 @@ class LDScoreDirectoryWriter:
             "input_issues": ("diagnostics/input_issues.tsv", getattr(result, "input_issues", None) is not None),
             "gene_list_audit": ("diagnostics/gene_list_audit.tsv.gz", batch is not None),
             "gene_list_resolution_summary": ("diagnostics/gene_list_resolution_summary.tsv", batch is not None),
+            "gene_catalog_issues": ("diagnostics/gene_catalog_issues.tsv", getattr(batch, "catalog", None) is not None and not batch.catalog.issues.empty),
         }
         if scientific:
             if len(query_batches) > 1:
@@ -747,7 +748,7 @@ class LDScoreDirectoryWriter:
         self._write_query_diagnostic_files(result, paths)
         metadata = self.build_metadata(
             result,
-            files=family.metadata_files(exclude=("query_status", "gene_list_audit", "gene_list_resolution_summary", "chromosome_scope", "input_issues")),
+            files=family.metadata_files(exclude=("query_status", "gene_list_audit", "gene_list_resolution_summary", "gene_catalog_issues", "chromosome_scope", "input_issues")),
             baseline_rg=baseline_rg,
             query_rg=query_rg,
         )
@@ -776,7 +777,7 @@ class LDScoreDirectoryWriter:
 
     @staticmethod
     def _write_gene_list_diagnostic_files(batch: Any, paths: dict[str, Path]) -> None:
-        """Serialize the approved row audit and per-source summary schemas."""
+        """Persist gene resolution and any latent catalog defects before logging."""
         paths["gene_list_audit"].parent.mkdir(parents=True, exist_ok=True)
         batch.write_audit(paths["gene_list_audit"])
         batch.summary.to_csv(
@@ -785,6 +786,11 @@ class LDScoreDirectoryWriter:
             index=False,
             na_rep="",
         )
+        if "gene_catalog_issues" in paths:
+            from .query_annotations import _log_gene_catalog_issues
+
+            batch.catalog.issues.to_csv(paths["gene_catalog_issues"], sep="\t", index=False, na_rep="")
+            _log_gene_catalog_issues(batch.catalog.issues)
 
     def build_metadata(
         self,
@@ -875,6 +881,9 @@ class LDScoreDirectoryWriter:
             payload.setdefault("query_diagnostics", {})["input_issues"] = "diagnostics/input_issues.tsv"
         if gene_list_batch is not None:
             payload["gene_list_resolution_policy"] = gene_list_batch.resolution_policy
+            catalog = getattr(gene_list_batch, "catalog", None)
+            if catalog is not None and not catalog.issues.empty:
+                payload.setdefault("query_diagnostics", {})["gene_catalog_issues"] = "diagnostics/gene_catalog_issues.tsv"
             payload["gene_list_resolution_counts"] = {
                 "nonblank_input_rows": int(gene_list_batch.summary["nonblank_input_rows"].fillna(0).sum()),
                 "rejected_rows": int(gene_list_batch.summary["rejected_rows"].fillna(0).sum()),

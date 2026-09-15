@@ -132,7 +132,9 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
     batch = catalog = bundle = None
     try:
         with workflow_logging('annotate', output/'diagnostics'/'annotate.log', log_level=config.log_level):
-            log_inputs(baseline_annot_sources=baseline, query_sources=genes or bed, padding_bp=spec.padding_bp, output_dir=str(output))
+            log_inputs(baseline_annot_sources=f"{len(baseline)} input declarations",
+                       query_sources=f"{len(genes or bed)} input declarations; see diagnostics/metadata.json for source provenance",
+                       padding_bp=spec.padding_bp, output_dir=str(output))
             from ._input_preflight import inspect_declared_inputs
             declared_inputs = inspect_declared_inputs(baseline=baseline,
                 files=[('BED', bed), ('gene lists', genes)], scalar_files=[('gene catalog', spec.gene_coordinate_file)],
@@ -146,6 +148,9 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
                     raise
                 batch = resolve_gene_lists_staged(genes, catalog, workspace, resolution_policy=spec.gene_list_resolution_policy, gene_exclude_regions=spec.gene_exclude_regions)
                 writer.write_diagnostics(output, batch=batch, catalog_issues=catalog.issues)
+                from .query_annotations import _log_gene_catalog_issues, _log_gene_list_rejections
+                _log_gene_catalog_issues(catalog.issues)
+                _log_gene_list_rejections(batch)
                 if batch.has_fatal_gate_a_issues:
                     raise _gate_a_error(batch)
             requested = genome_build if genome_build is not None else config.genome_build
@@ -202,6 +207,10 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
             bundle.source_summary = provenance
             writer.write(bundle, output, overwrite=overwrite, provenance=provenance, scope=scope,
                          catalog_issues=None if catalog is None else catalog.issues, preflighted=True)
+            from .query_annotations import _log_gene_list_snp_support, _log_query_annotation_statuses
+            if bundle.gene_list_batch is not None:
+                _log_gene_list_snp_support(bundle.gene_list_batch)
+            _log_query_annotation_statuses(bundle.query_statuses)
             log_outputs(**bundle.output_paths)
             from ._annotation_outputs import persistent_annotation_bundle
             return persistent_annotation_bundle(bundle, paths, output)

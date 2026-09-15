@@ -28,6 +28,7 @@ from functools import wraps
 import logging
 import os
 from pathlib import Path
+import re
 import shlex
 import sys
 import tempfile
@@ -303,9 +304,13 @@ def log_inputs(**items: Any) -> None:
 
 
 def log_outputs(**items: Any) -> None:
-    """Write a separated ``Outputs:`` audit section to the active log, if any."""
+    """List outputs, summarizing query batch files through their manifest."""
     context = _active_context()
     if context is not None:
+        batches = {key for key in items if re.fullmatch(r"query_batch\d+", key)}
+        if batches and items.get("metadata"):
+            items = {key: value for key, value in items.items() if key not in batches}
+            items["query_batches"] = f"{len(batches)} files; see {items['metadata']}"
         context.log_outputs(**items)
 
 
@@ -523,7 +528,11 @@ def _group_invocation_units(argv: list[str]) -> list[str]:
     idx = 1
     while idx < len(argv):
         token = str(argv[idx])
-        if token.startswith("-") and idx + 1 < len(argv) and not str(argv[idx + 1]).startswith("-"):
+        next_token = str(argv[idx + 1]) if idx + 1 < len(argv) else None
+        if token.startswith("-") and next_token is not None and (
+            not next_token.startswith("-")
+            or re.fullmatch(r"-(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", next_token)
+        ):
             units.append(shlex.join([token, str(argv[idx + 1])]))
             idx += 2
         else:

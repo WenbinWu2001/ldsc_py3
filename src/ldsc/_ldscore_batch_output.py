@@ -98,7 +98,7 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
                 overlap_to_long_frame(shared.overlap).to_parquet(paths["overlap"], index=False)
             writer._write_query_diagnostic_files(shared, paths)
             metadata = writer.build_metadata(shared,
-                files=staged_family.metadata_files(exclude=("query_status", "gene_list_audit", "gene_list_resolution_summary", "chromosome_scope", "input_issues")),
+                files=staged_family.metadata_files(exclude=("query_status", "gene_list_audit", "gene_list_resolution_summary", "gene_catalog_issues", "chromosome_scope", "input_issues")),
                 baseline_rg=baseline_rg,
                 query_rg=query_batches[0]["row_groups"] if len(query_batches) == 1 else None)
             paths["metadata"].write_text(json.dumps(_to_serializable(metadata), indent=2, sort_keys=True), encoding="utf-8")

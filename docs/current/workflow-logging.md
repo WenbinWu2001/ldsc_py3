@@ -18,7 +18,9 @@ Public workflow entry points share one logging policy:
   always appear in the file. Supported levels are `DEBUG`, `INFO`, `WARNING`, and
   `ERROR`.
 - Workflow result objects and `output_paths` mappings do not include log files.
-- LD-score BED/gene-list runs log the effective catalog projection build, one warning for every non-`ok` query, and a final query-status summary. Gene-list runs additionally log every rejected or zero-support row with role/source. Intentional MHC exclusions use one INFO line per gene-list source and role, listing the count and physical line–gene pairs in input order; a submitted alias includes its canonical gene ID only when different. Audit chunks do not create extra summary lines. The compressed audit remains the complete machine-readable row record.
+- INFO describes major phases, numbered batch start/completion, chromosome work, and aggregate outcomes. Successful query timings, source mappings, and full annotation lists belong at DEBUG.
+- Gene exclusions, rejected rows, unsupported genes, and non-OK query outcomes use counts by role/reason and pointers to complete diagnostics. Exclusion counts describe submitted input rows, including repeats across lists; they are not counts of distinct genes. Failure messages retain the affected query/pair, stage, and traceback.
+- A diagnostic pointer replaces detail only when the corresponding file is written. Warnings without an equivalent complete diagnostic, including raw summary-statistic QC warnings, remain self-contained.
 
 ## Console vs File Routing
 
@@ -99,14 +101,17 @@ Annotation preparation complete: chromosomes=22, retained SNPs=1,000,000, elapse
 
 The counts, bytes, and time above are illustrative. The first line precedes the validation/classification pass; the second precedes global identity validation, retained-row selection, and a second input pass that writes final compact stores directly. The storage line counts each supplied logical column once; bytes sum the completed NPY files across retained chromosomes, including headers but excluding Parquet metadata, identity/diagnostic scratch, and any subsequently generated queries. These are file sizes, not peak RSS. Completion appears only after usable annotation shards are ready, with the number of retained chromosomes, logical SNP rows after identity cleanup and any chromosome selection, and elapsed preparation time. Aligned baseline/query files describe the same logical rows and do not double the SNP count. For the gene-index builder these messages precede `Starting chromosome N`; preparation remains serial.
 
-These milestones accompany structured phase records from `_progress.PhaseProgress`: start, complete, failed, and progress at bounded chunk/object checkpoints after at least 30 seconds. Records name validation, staging, computation, or publication, the current source/chromosome, completed units, a total when known, and elapsed time. Unknown totals are explicit; row counts measure scanned or staged rows within the named phase, not unique genome-wide SNPs. A blocking library call cannot emit an intermediate record until control returns. A CM/MAF compatibility notice appears once per source during the first content pass; later chunks and the second numeric pass do not repeat it, and later preparation calls still receive it. At `WARNING` or `ERROR`, INFO milestones and notices are suppressed by the existing log-level policy. Preparation failures retain the last reached milestone and the workflow's existing `Failed` footer and traceback, without a preparation-complete message. Preparation completion does not mean the enclosing workflow or output publication has finished.
+These milestones accompany structured phase records from `_progress.PhaseProgress`: start, complete, failed, and time-throttled progress at bounded chunk/object checkpoints after at least 30 seconds. INFO reports the phase, completed units, known totals, and elapsed time. Individual source/query names remain in structured records and appear in text at DEBUG. Annotation scans share one INFO phase across the source collection; individual scans have DEBUG phases. File totals count completed sources, while row totals in staging phases count scanned/staged rows, not unique genome-wide SNPs. A blocking call cannot emit an intermediate record until control returns.
 
-Intentional gene exclusions use the following compact form:
+One collection-level notice explains that supplied annotation CM/MAF fields are ignored because the reference panel is authoritative; DEBUG retains file-specific notices and inferred column mappings. BED source preparation has time-throttled collection progress. Chromosome milestones remain at INFO. Preparation completion means usable annotation shards are ready; computation and publication can still fail later. WARNING/ERROR levels suppress INFO progress through the existing policy.
+
+Intentional gene exclusions use this form, after the audit is saved:
 
 ```text
-Genes intentionally excluded by region policy: role=focal source=pathway.txt count=2 line:gene=[31:ENSG00000196126, 33:ENSG00000196735]
+Genes intentionally excluded by region policy: role=focal; sources=5607; input rows=18432. See diagnostics/gene_list_audit.tsv.gz.
 ```
 
+The counts are illustrative. Rejection summaries point to the gene row audit or resolution summary, and query outcome summaries point to `diagnostics/query_annotation_status.tsv`. Live LD-score catalog defects also have a complete `diagnostics/gene_catalog_issues.tsv` table, using the existing catalog-issue schema shared with standalone `annotate`. This additive diagnostic is owned by the LD-score writer and linked from root metadata when present; scientific table schemas are unchanged.
 Mechanisms: [`_annotation_sources.py`](../../src/ldsc/_annotation_sources.py), `prepare_annotation_sources()`; [`_annotation_parsing.py`](../../src/ldsc/_annotation_parsing.py), `normalize_annotation_chunk()`; [`query_annotations.py`](../../src/ldsc/query_annotations.py), `_log_gene_list_rejections()`.
 
 ## LD-score chromosome diagnostics
@@ -158,8 +163,7 @@ ldsc munge-sumstats \
 ```
 
 `Inputs:` and `Outputs:` are audit sections, not machine-readable manifests.
-`Outputs:` is separated from preceding workflow records by a blank line so
-summary blocks such as `Metadata:` remain visually distinct.
+`Outputs:` is separated from preceding workflow records by a blank line so summary blocks such as `Metadata:` remain visually distinct. Numbered LD-score query files are represented by their file count and a pointer to the complete `metadata.json.query_batches` manifest. Diagnostic paths remain individually listed. Large annotate/rg input groups use counts and provenance pointers; the exact `Call:` is preserved.
 
 Liftover drop summaries in ordinary logs are count-only. Row-level drop audit
 records belong in the workflow's dropped-SNP sidecar, and example SNPs are
@@ -204,7 +208,7 @@ under that directory's `diagnostics/` tree.
 its destination from an existing h2 result. `plot` does the same for any
 supported result suite.
 
-LD-score logs list binary and quantitative fitted annotations. Partitioned-h2 logs repeat an actionable interpretation warning when quantitative annotations are present: legacy numerical proportion/enrichment summaries remain visible, but only coefficient-based fields retain their ordinary interpretation for those annotations. Quantile-h2 logs the selected fitted model, target, inherited common-MAF rule, common reference-SNP universe size, missing exclusions, and realized quantile bounds/counts. Row-addressable alignment issues are written to `snp_alignment_issues.tsv.gz` rather than expanded into the log.
+LD-score logs report binary and quantitative annotation counts; names remain in `metadata.json.annotation_types` and DEBUG output. Partitioned-h2 logs repeat an actionable interpretation warning when quantitative annotations are present: legacy numerical proportion/enrichment summaries remain visible, but only coefficient-based fields retain their ordinary interpretation for those annotations. Quantile-h2 logs the selected fitted model, target, inherited common-MAF rule, common reference-SNP universe size, missing exclusions, and realized bin counts; per-bin bounds/counts remain in `quantile_h2.tsv` and DEBUG output. Row-addressable alignment issues are written to `snp_alignment_issues.tsv.gz` rather than expanded into the log.
 
 ## Exact gene-index build log
 
@@ -258,6 +262,27 @@ Annotation, gene-resolution, direct chromosome-drop, and quantile alignment audi
 
 ### Partitioned query worker diagnostics
 
-The INFO record `Query workers: requested=..., effective=...` reports the resolved process count, numerical-thread policy, and loading-batch width. Effective-one and baseline-only runs stay inline. Timed phases cover input loading, shared preparation, worker preparation, query-batch loading/mapping/execution, per-query preparation/estimation/summaries/staging, and final publication. Worker records are forwarded to the parent logger; only the parent owns the CLI file handler. Records from concurrent fits may interleave, while the attempted-query status table and final sorted outputs remain deterministic. Summed worker phase times can exceed wall time, so use complete process runtime for end-to-end comparisons.
+The INFO record `Query workers: requested=..., effective=...` reports the resolved process count, numerical-thread policy, and loading-batch width. Effective-one and baseline-only runs stay inline. INFO phases cover input loading, shared preparation, worker preparation, overall query fitting, each numbered loading/fitting batch, and final publication. Query-batch internals and per-query preparation/estimation/summaries/staging timings are DEBUG records. Worker records are forwarded to the parent logger; only the parent owns the CLI file handler. Records from concurrent fits may interleave, while the attempted-query status table and final sorted outputs remain deterministic. Summed worker phase times can exceed wall time, so use complete process runtime for end-to-end comparisons.
 
 Ordinary query-model exceptions include the query name and stage. Process death, transport failures, worker initialization failures, interrupts, and output errors remain fatal under both strict and continue policies and can stop the scan before the final status table is written. The coordinator reports affected in-flight query identities and reaps workers before removing scratch. Sources: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py), `_WorkerLog` and `_QueryWorkers` in [_partitioned_h2_parallel.py](../../src/ldsc/_partitioned_h2_parallel.py), and [query-worker policy](regression-configuration.md#43-query-workers-and-memory).
+
+
+## Batch and collection progress
+
+Both LD-score backends report each batch start and completion. Direct mode names LD-score calculation batches and logs the chromosome computation inside each batch. Indexed mode logs chromosome computation first, then numbers genome-wide assembly batches; one chromosome computes all of its query batches before assembly. Batch completion describes completed private work, not a published or resumable result. Each backend reports one whole-run query-status total after finalization. Sources: `LDScoreCalculator.run()` in [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py) and `indexed_results()` in [_indexed_ldscore_batches.py](../../src/ldsc/_indexed_ldscore_batches.py).
+
+Partitioned regression reports actual completed query outcomes, with status counts, through the same parent-owned progress stream for inline and parallel execution. Parallel collection advances when each result arrives, and timed waits can report unchanged completed counts while workers compute. Serial fits report when control returns. Numbered batch boundaries appear even for fast batches; per-query successful phases require DEBUG. For example, omitting elapsed times:
+
+```text
+Phase start: computation; query fitting; completed=0/3000
+Phase start: batch; query fitting 1/3; completed=0/1000
+Phase progress: computation; query fitting; completed=240/3000; success=240
+Phase complete: batch; query fitting 1/3; completed=1000/1000
+Phase start: batch; query fitting 2/3; completed=0/1000
+...
+Phase complete: computation; query fitting; completed=3000/3000; success=3000
+```
+
+A completed scan can contain query failures; the status counts, final diagnostic summary, and existing strict/continue policy determine publication. Transport/process failures still terminate the phase with a failed event. `rg` similarly reports per-trait h2 and pair-fitting totals, retaining pair-specific failure diagnostics. Quantile and R² query workflows finish with result counts and table pointers.
+
+Munging emits one immediate warning per invalid P, INFO, or FRQ category within a parsing run, then reports accumulated category counts. Counts can overlap and are separate from exclusive QC removal counts. Subsequent API runs receive their own warnings. The INFO accepted-range message describes the existing [0,2] check; no filter cutoff changed. Complete raw QC row details are not all present in the dropped-SNP sidecar, so the warnings and final QC summary retain their own counts and meaning. Source: `parse_dat()` and `_invalid_value_summary()` in [_kernel/sumstats_munger.py](../../src/ldsc/_kernel/sumstats_munger.py).

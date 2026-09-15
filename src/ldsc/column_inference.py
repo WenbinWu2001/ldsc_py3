@@ -282,7 +282,7 @@ def _best_matches(columns: Iterable[str], spec: ColumnSpec) -> list[str]:
 
 
 def _log_if_inferred(canonical: str, actual: str, context: str | None) -> None:
-    """Emit a one-time info log when alias inference renames a source column."""
+    """Emit a one-time DEBUG record when alias inference renames a source column."""
     if actual == canonical:
         return
     key = (context or "", canonical, actual)
@@ -291,7 +291,7 @@ def _log_if_inferred(canonical: str, actual: str, context: str | None) -> None:
     _LOGGED_INFERENCES.add(key)
     suffix = "" if not context else f" in {context}"
     message = f"Inferred canonical field '{canonical}' from input column '{actual}'{suffix}."
-    LOGGER.info(message)
+    LOGGER.debug(message)
 
 
 def resolve_required_column(

@@ -23,7 +23,8 @@ when catalog line evidence shows that its upstream transformation is defective.
 | `diagnostics/query_annotation_status.tsv` | After Gate A succeeds and scientific viability is evaluated | Final outcome for each focal query. Controls are not query-status rows. |
 | `diagnostics/chromosome_scope.json` | After input-scope assessment, including failures | Effective validated input chromosomes, analysis scope, validation status, and glob-selection caveat or index identity. |
 | `diagnostics/input_issues.tsv` | Input-integrity or preparation failures | Consolidated required-artifact issues and repair guidance. |
-| `diagnostics/ldscore.log` | Every ordinary `ldscore` workflow | Complete unbounded warnings, including every rejected and zero-support gene. |
+| `diagnostics/ldscore.log` | Every ordinary `ldscore` workflow | Aggregate counts and diagnostic pointers, numbered batches and chromosome progress, plus specific failure details. Full successful query/source logging requires DEBUG. |
+| `diagnostics/gene_catalog_issues.tsv` | Direct gene-list LD scores with catalog defects, on successful publication or diagnostic-only gene gates | Complete latent catalog defects; the log summarizes their count. Uses the existing standalone annotate catalog-issue schema. |
 | `.<index-name>.build-state/gene_coordinate_catalog_issues.tsv.gz` | A gene-index build whose catalog is noncanonical | Every detected source-catalog defect. It is outside the unpublished index. |
 
 A structural catalog failure may prevent reliable gene-list matching, so it

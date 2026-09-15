@@ -214,3 +214,8 @@ Last updated on: 2026-09-15
 ## Native thread-limit tests must identify the actual backend
 
 - Summary/root cause/correction: A worker thread-limit assertion passed vacuously because `threadpoolctl` returned no libraries for Apple Accelerate; inspect NumPy's linked backend and verify Apple's runtime BLAS/LAPACK threading mode directly, using its macOS 15 setter or an inherited launch-time limit on older macOS.
+
+
+## Per-object summaries can still overwhelm batch logs
+
+- Summary/root cause/correction: Query phase boundaries, forced source updates, and one exclusion summary per gene list bypassed time throttling and grew with input count; move INFO progress to collection/batch owners, count actual outcomes, keep row detail in diagnostics, and test both many-small-input volume and inline/parallel results. Preserve explicit batch/chromosome boundaries and failure evidence.

@@ -1963,7 +1963,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
             log_text = (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8")
             self.assertIn("Gene-list catalog projection build: hg38", log_text)
-            self.assertIn("status=warning, reason=partial_gene_resolution", log_text)
+            self.assertIn("status=warning; reason=partial_gene_resolution", log_text)
 
     def test_strict_gene_gate_a_batches_focal_and_control_before_reference_load(self):
         with tempfile.TemporaryDirectory() as tmpdir:

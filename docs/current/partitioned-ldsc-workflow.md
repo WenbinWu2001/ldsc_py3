@@ -1,6 +1,6 @@
 # Partitioned LDSC Workflow: Technical Reference
 
-Last updated on: 2026-09-15
+Last updated on: 2026-09-16
 
 This document describes the refactored workflow for computing LD scores and
 running h2, partitioned-h2, and rg regression from one canonical LD-score result
@@ -304,10 +304,12 @@ category, prop_snps, prop_h2, prop_h2_se, enrichment, enrichment_se,
 enrichment_p, coefficient, coefficient_se, coefficient_z, coefficient_p,
 overlap_annot, total_h2_obs, total_h2_obs_se, total_h2_liab, total_h2_liab_se,
 category_h2_obs, category_h2_obs_se, category_h2_liab, category_h2_liab_se,
-samp_prev, pop_prev
+samp_prev, pop_prev, query_result_dir
 ```
 
 All columns are lowercase snake_case, consistent with `h2` and `rg`.
+
+The root TSV appends `query_result_dir`, the exact per-query folder relative to the output directory, while `category` preserves the original annotation name. Baseline-only runs write `NaN` for this column. Folder ordinals follow the saved summary order and can change between runs; the paths remain usable after re-sorting a saved table. In-memory Python summaries and per-query summary/full-model tables retain only the scientific columns. See [result columns](partitioned-h2-results.md#partitioned_h2tsv).
 
 Interpretation. `enrichment = prop_h2 / prop_snps` is the **marginal**
 heritability of the SNPs in a category (overlap-aware, baseline-confounded for a

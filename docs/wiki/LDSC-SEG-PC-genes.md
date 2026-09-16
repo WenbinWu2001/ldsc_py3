@@ -1,6 +1,6 @@
 # LDSC-SEG for Protein-Coding Gene Lists
 
-Last updated on: 2026-09-15
+Last updated on: 2026-09-16
 
 This tutorial tests whether one or more protein-coding gene lists are enriched for trait heritability. For each query gene list, LDSC3 fits the model
 
@@ -190,7 +190,7 @@ regr/<trait>/
                 metadata.json
 ```
 
-The root `partitioned_h2.tsv` contains one summary row per successfully fitted query gene list and omits baseline-category rows. Failed queries appear in `diagnostics/query_status.tsv` with `unestimable` or `failed` status and have no result folder. Each query-specific `partitioned_h2_full.tsv` reports the complete fitted model:
+The root `partitioned_h2.tsv` contains one summary row per successfully fitted query gene list and omits baseline-category rows. Failed queries appear in `diagnostics/query_status.tsv` with `unestimable` or `failed` status and have no result folder. Use `query_result_dir` in the root summary to locate each gene list's detailed results: resolve the path relative to the output directory. The original gene-list name remains in `category`, and the folder number reflects this run's sorted row order. Each query-specific `partitioned_h2_full.tsv` reports the complete fitted model:
 
 `[query annotation, baseline annotations]`.
 

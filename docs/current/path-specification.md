@@ -1,6 +1,6 @@
 # Input Path Specification
 
-Last updated on: 2026-09-14
+Last updated on: 2026-09-16
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -570,6 +570,7 @@ Output:
   `--write-per-query-results` flag is rejected. The tree contains
   `manifest.tsv` and one folder per query annotation, with per-query
   `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json`.
+  The root summary appends `query_result_dir`, relative to `output_dir`, matching each row to its exact folder. Baseline-only runs write `NaN`; per-query tables omit this navigation column.
   Existing final per-query output is refused unless `--overwrite` is supplied;
   baseline-only runs keep their complete fitted model at the result root and,
   with overwrite enabled, remove a stale `diagnostics/query_annotations/` tree.

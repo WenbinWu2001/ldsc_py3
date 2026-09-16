@@ -290,6 +290,9 @@ class PartitionedH2BatchResult:
 
     Category tables and coefficient delete values are written after each fit.
     Only the summary and path descriptors remain when the batch returns.
+    ``summary`` contains scientific columns only. The saved root TSV appends
+    ``query_result_dir`` relative to the output root, or ``NaN`` for a
+    baseline-only run; it does not change the original ``category`` labels.
     ``query_status`` contains one row per attempted query in input order, with
     status, failed stage, exception type, and message. Failed queries have no
     scientific summary or model artifacts. Baseline-only runs leave it empty.
@@ -1040,6 +1043,9 @@ class RegressionRunner:
         -------
         PartitionedH2BatchResult
             Summary and persistent detail paths after successful publication.
+            The in-memory summary retains scientific columns only; the saved
+            root TSV adds ``query_result_dir`` relative to ``output_dir``, or
+            ``NaN`` when no per-query folders are written.
             ``query_status`` records every attempted query in input order;
             scientific summaries and model artifacts include successful fits
             only. Strict runs publish diagnostics alone when any query fails.
@@ -3012,7 +3018,10 @@ def run_partitioned_h2_from_args(args):
     ``partitioned_h2.tsv``, ``diagnostics/query_annotations/``, and
     ``diagnostics/partitioned-h2.log`` before loading inputs. Query-annotation
     runs always write per-query results; baseline-only runs keep the complete
-    fitted-model artifacts at the result root. A successful overwrite removes
+    fitted-model artifacts at the result root. The saved root TSV appends
+    ``query_result_dir`` relative to ``args.output_dir`` (``NaN`` for baseline-only
+    runs); the returned DataFrame and per-query tables retain scientific columns
+    only. A successful overwrite removes
     the default plot root derived from the superseded result.
     ``args.continue_on_query_error`` explicitly permits query regression
     failures: successful models are published and every attempted query is

@@ -1,6 +1,6 @@
 # Partitioned heritability
 
-Last updated on: 2026-09-15
+Last updated on: 2026-09-16
 
 `ldsc partitioned-h2` reads a canonical LD-score directory and tests how its
 annotations contribute to SNP heritability.
@@ -53,6 +53,8 @@ ldsc partitioned-h2 \
 The command prepares shared trait/baseline alignment once and reads query columns in batches. Regression batch width is independent of generation batch width; one read can span several saved query files. Every pathway still fits its complete retained genome-wide SNP set with model-specific filtering, weights, and jackknife calculations. A smaller batch such as `--query-batch-size 100` reduces loaded query values and private mapping space, but also limits how many query workers can be active. Loading and mapping overhead can change with batch width; the best value depends on the workload. Sources: `RegressionRunner.estimate_partitioned_h2_batch` in [regression_runner.py](../../../src/ldsc/regression_runner.py) and `LDScoreSource.read_queries` in [ldscore_source.py](../../../src/ldsc/ldscore_source.py).
 
 The aggregate `partitioned_h2.tsv` keeps the requested final ordering. Per-query category tables, coefficient delete values, and metadata are written as fits finish, staged privately until successful sorted publication under `diagnostics/query_annotations/`. Python `estimate_partitioned_h2_batch(..., output_dir=...)` returns the aggregate summary and persistent `per_query_artifacts` paths, rather than every detailed table in memory.
+
+The saved root summary appends `query_result_dir`, the exact per-query folder relative to the output directory; `category` retains the original gene-set name. Use this path to find detailed results after re-sorting the table. Baseline-only summaries use `NaN` because no per-query folders exist. See [the output contract](../../current/partitioned-h2-results.md#partitioned_h2tsv).
 
 New temporary files stay below the selected output directory and are cleaned on handled completion or failure. Existing overwrite/failure-marker behavior is preserved. Released allocations can remain reserved by Python/NumPy, so RSS need not fall after every fit. See the [memory design](../../current/annotation-memory-design.md) for ownership, indexing, and exact-quantile details.
 

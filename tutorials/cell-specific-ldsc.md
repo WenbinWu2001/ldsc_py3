@@ -1,6 +1,6 @@
 # Cell-Specific LDSC
 
-Last updated on: 2026-09-15
+Last updated on: 2026-09-16
 
 Goal: estimate cell-specific enrichment by running partitioned LDSC with one query annotation per cell type.
 
@@ -76,7 +76,7 @@ print(result.per_query_artifacts)  # Persistent category/delete-value/metadata p
 
 Run `munge-sumstats` first if the trait is still in a raw format; see [heritability estimates](heritability-estimates.md). Current curated Parquet inputs carry identity/build provenance in their footer. The effective SNP key controls alignment; reference contributors and regression/output SNPs remain separate universes.
 
-For 1,000 pathways, each query still fits separately against shared baseline categories. During LD-score generation, the default `query_batch_size=1000` permits all 1,000 queries in one execution batch. Reducing the generation width bounds active query workspace and writes multiple numbered genome-wide query files, with an ordered `query_batches` manifest in root metadata. Direct calculation repeats reference/genotype work between batches; indexed calculation reuses one chromosome operator per worker through its batches. Direct and indexed `threads` default to 1 and are capped at the chromosome count. Freed pages can remain reserved by the allocator, so RSS need not immediately fall. See `LDScoreCalculator.run` and `LDScoreSource.read_queries` in the [memory design](../docs/current/annotation-memory-design.md).
+For 1,000 pathways, each query still fits separately against shared baseline categories. During LD-score generation, the default `query_batch_size=100` permits up to 100 queries per execution batch (ten batches for 1,000 queries). Reducing the generation width bounds active query workspace and writes multiple numbered genome-wide query files, with an ordered `query_batches` manifest in root metadata. Direct calculation repeats reference/genotype work between batches; indexed calculation reuses one chromosome operator per worker through its batches. Direct and indexed `threads` default to 1 and are capped at the chromosome count. Freed pages can remain reserved by the allocator, so RSS need not immediately fall. See `LDScoreCalculator.run` and `LDScoreSource.read_queries` in the [memory design](../docs/current/annotation-memory-design.md).
 
 Generation and regression batch widths are independent. To inspect values explicitly, call `source.read_queries(["query_name"])`; reads preserve requested column order and have no cache or width cap. Current readers require the `query_batches` manifest; regenerate older directories. For the small prepared-input Python route that writes nothing, see [LD-score calculation without writes](ld-score-calculation.md#small-python-calculations-without-writes).
 
@@ -132,6 +132,7 @@ the query files in its ordered `query_batches` manifest. One batch uses `ldscore
 `diagnostics/partitioned-h2.log` under the same directory. Its key columns are
 `category`, `prop_snps`, `prop_h2`, `enrichment`, `enrichment_p`,
 `coefficient`, and `coefficient_p`.
+The root table also includes `query_result_dir`: join this relative path to `tutorial_outputs/cell_specific_ldsc/` to open that row's detailed results. The path stays attached to its gene set if you re-sort the table; `category` keeps the original name.
 For full column definitions, see
 [partitioned-h2-results.md](../docs/current/partitioned-h2-results.md).
 For query-annotation runs, the command writes by default

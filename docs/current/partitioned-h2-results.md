@@ -1,6 +1,6 @@
 # Partitioned LDSC Result Columns
 
-Last updated on: 2026-09-15
+Last updated on: 2026-09-16
 
 TODO: add an example output file str.
 
@@ -64,9 +64,11 @@ regression outputs (so `total_h2_obs`/`samp_prev`/`*_se` match across commands).
 | `category_h2_liab_se` | Jackknife standard error for `category_h2_liab` (the observed SE scaled by the same `c`). |
 | `samp_prev` | Sample (case) prevalence applied for liability conversion, or `NaN` for an observed-scale run. |
 | `pop_prev` | Population prevalence applied for liability conversion, or `NaN`. |
+| `query_result_dir` | Per-query result directory relative to the output root, e.g. `diagnostics/query_annotations/0003_mygeneset`. `NaN` when no per-query tree is written, including baseline-only runs. |
 
-The same schema is used for each one-row
-`diagnostics/query_annotations/<folder>/partitioned_h2.tsv` file.
+The root summary appends `query_result_dir` to the scientific columns without changing `category`. Paths use the exact sanitized folders in `diagnostics/query_annotations/manifest.tsv`; resolve them relative to the directory containing the root `partitioned_h2.tsv`, even after re-sorting its rows. Folder numbers follow the saved summary order and are not stable gene-set identifiers across runs. This navigation column is added at publication; in-memory Python summaries retain the scientific columns.
+
+Each one-row `diagnostics/query_annotations/<folder>/partitioned_h2.tsv` file uses the scientific columns above, without `query_result_dir`.
 
 Current baseline-only outputs also store `diagnostics/coefficient_delete_values.parquet`. Each row is one delete-one-block coefficient vector; `delete_block` is followed by annotation columns in fitted order and preserved as float64. In the cell-type regime, each requested per-query directory stores its own `coefficient_delete_values.parquet` for that complete baseline-plus-query fit. These artifacts support post-fit transformations without combining coefficients across different regressions.
 
@@ -129,8 +131,8 @@ The log records each failed query, stage, exception, and traceback, plus a final
 
 In the cell-type regime, each query folder contains
 `partitioned_h2_full.tsv` by default. The retired
-`--write-per-query-results` flag is rejected. This table uses the **same**
-column schema as `partitioned_h2.tsv`, with one row for every retained category
+`--write-per-query-results` flag is rejected. This table uses the scientific
+columns of `partitioned_h2.tsv` (without `query_result_dir`), with one row for every retained category
 in that query's fitted `baseline + query` model (all baseline categories plus the
 query). Its baseline rows are the joint functional enrichments conditional on the
 added query.

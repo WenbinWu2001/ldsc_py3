@@ -236,13 +236,17 @@ def test_real_partitioned_command_preserves_sorted_artifacts_metadata_and_overwr
     result = cli.main([*args, "--summary-sort-by", sort_by])
     assert not marker.exists()
     written = pd.read_csv(output / "partitioned_h2.tsv", sep="\t")
-    pd.testing.assert_frame_equal(written, result, check_dtype=False)
+    pd.testing.assert_frame_equal(written.drop(columns="query_result_dir"), result, check_dtype=False)
     key = "coefficient_p" if sort_by == "auto" else workflow.PARTITIONED_H2_SUMMARY_SORT_COLUMNS[sort_by]
     ascending = sort_by in {"auto", "category", "enrichment-p", "coefficient-p"}
     assert written[key].tolist() == sorted(written[key], reverse=not ascending)
     manifest = pd.read_csv(output / "diagnostics/query_annotations/manifest.tsv", sep="\t")
     assert manifest.query_annotation.tolist() == written.category.tolist()
     assert manifest.folder.tolist() == [f"{i:04d}_{name}" for i, name in enumerate(written.category, 1)]
+    assert written.query_result_dir.tolist() == [f"diagnostics/query_annotations/{folder}" for folder in manifest.folder]
+    for row in written.itertuples():
+        query_summary = pd.read_csv(output / row.query_result_dir / "partitioned_h2.tsv", sep="\t")
+        assert query_summary.category.tolist() == [row.category]
     metadata = json.loads((output / "diagnostics/metadata.json").read_text())
     assert metadata["trait_name"] == "MDD"
     assert metadata["analysis_type"] == "cell_type_specific"

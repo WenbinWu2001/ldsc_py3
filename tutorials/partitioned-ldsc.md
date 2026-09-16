@@ -1,6 +1,6 @@
 # Partitioned LDSC
 
-Last updated on: 2026-09-15
+Last updated on: 2026-09-16
 
 Goal: run partitioned LDSC in the refactored package by building query annotations, computing baseline-plus-query LD scores, and fitting one partitioned model per query annotation.
 
@@ -105,7 +105,7 @@ Run `munge-sumstats` first if the trait is still in a raw format; see [heritabil
 
 The Python example above runs inline and is suitable for notebooks. Parallel API calls belong in a script with an `if __name__ == "__main__":` guard; use the CLI subprocess pattern in [the cell-specific notebook](cell-specific-ldsc.ipynb) for notebook-driven parallel runs.
 
-For 1,000 pathways, each query still fits separately against shared baseline categories. During LD-score generation, the default `query_batch_size=1000` permits all 1,000 queries in one execution batch. Reducing the generation width bounds active query workspace and writes multiple numbered genome-wide query files, with an ordered `query_batches` manifest in root metadata. Direct calculation repeats reference/genotype work between batches; indexed calculation reuses one chromosome operator per worker through its batches. Direct and indexed `threads` default to 1 and are capped at the chromosome count. Freed pages can remain reserved by the allocator, so RSS need not immediately fall. See `LDScoreCalculator.run` and `LDScoreSource.read_queries` in the [memory design](../docs/current/annotation-memory-design.md).
+For 1,000 pathways, each query still fits separately against shared baseline categories. During LD-score generation, the default `query_batch_size=100` permits up to 100 queries per execution batch (ten batches for 1,000 queries). Reducing the generation width bounds active query workspace and writes multiple numbered genome-wide query files, with an ordered `query_batches` manifest in root metadata. Direct calculation repeats reference/genotype work between batches; indexed calculation reuses one chromosome operator per worker through its batches. Direct and indexed `threads` default to 1 and are capped at the chromosome count. Freed pages can remain reserved by the allocator, so RSS need not immediately fall. See `LDScoreCalculator.run` and `LDScoreSource.read_queries` in the [memory design](../docs/current/annotation-memory-design.md).
 
 Generation and regression batch widths are independent. To inspect values explicitly, call `source.read_queries(["query_name"])`; reads preserve requested column order and have no cache or width cap. Current readers require the `query_batches` manifest; regenerate older directories. For the small prepared-input Python route that writes nothing, see [LD-score calculation without writes](ld-score-calculation.md#small-python-calculations-without-writes).
 
@@ -206,5 +206,6 @@ For query-annotation runs, the same command keeps the aggregate
 `diagnostics/query_annotations/0001_enhancer_a/`. Only successfully fitted queries have folders; `diagnostics/query_status.tsv` records both successful and failed queries. Each query folder contains its one-row
 `partitioned_h2.tsv`, the fitted baseline-plus-query `partitioned_h2_full.tsv`,
 `coefficient_delete_values.parquet`, and `metadata.json` with the original query annotation name.
+The root summary's `query_result_dir` gives each folder's path relative to `tutorial_outputs/partitioned_h2/`, so you can locate a query directly even after re-sorting the table. Baseline-only summaries use `NaN` for this column.
 The retired `--write-per-query-results` flag is rejected; omit it. Baseline-only runs do not create
 the per-query tree and keep their complete-model artifacts at the result root.

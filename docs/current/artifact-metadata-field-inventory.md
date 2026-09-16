@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-09-15
+Last updated on: 2026-09-16
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -329,6 +329,8 @@ partitioned-h2/
 The `diagnostics/query_annotations/` tree is present for every query-annotation
 run and absent for baseline-only runs. `--output-dir` is required; the retired
 `--write-per-query-results` flag is rejected.
+
+The root `partitioned_h2.tsv` includes `query_result_dir`, a path relative to the result root that matches the folder in `diagnostics/query_annotations/manifest.tsv`. Baseline-only summaries use `NaN`. The navigation column is absent from per-query tables and in-memory Python summaries.
 
 Root `diagnostics/metadata.json` and per-query `metadata.json` files are provenance only. The root file is self-describing about the analysis: `analysis_type` (`functional_category` | `cell_type_specific`), `headline_metric` (`enrichment` | `coefficient`), `enrichment_p_test` (`two_sided_t`), and `coefficient_p_test` (`one_sided_greater`).
 

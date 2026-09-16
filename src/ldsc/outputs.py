@@ -31,7 +31,8 @@ workflows do not retain a predicted stale list across computation.
 
 Partitioned-h2 regression summaries use the same directory-oriented output
 policy. ``PartitionedH2DirectoryWriter`` writes the aggregate ``partitioned_h2.tsv``
-(one ``PARTITIONED_H2_COLUMNS`` schema for both regimes) and can optionally stage a
+(the scientific ``PARTITIONED_H2_COLUMNS`` plus ``query_result_dir`` for both
+regimes) and can optionally stage a
 per-query ``diagnostics/query_annotations`` tree with ``manifest.tsv``, one-row
 ``partitioned_h2.tsv`` summaries, full ``partitioned_h2_full.tsv`` model
 tables, and ``metadata.json`` files before moving it into place. ``RgDirectoryWriter``
@@ -1164,8 +1165,10 @@ class PartitionedH2DirectoryWriter:
     """Write aggregate and optional per-query partitioned-h2 outputs.
 
     The writer owns the fixed regression summary layout:
-    ``partitioned_h2.tsv`` at the output root uses the compact public schema,
-    while optional diagnostic query folders contain the same one-row summary
+    ``partitioned_h2.tsv`` at the output root uses the compact scientific schema
+    plus ``query_result_dir``, relative to the output root and missing when no
+    per-query tree is written. Optional diagnostic query folders contain the
+    scientific columns as a one-row summary
     plus a full baseline-plus-query ``partitioned_h2_full.tsv`` table. The
     per-query tree
     is written to a temporary sibling directory before it is moved into the
@@ -1232,7 +1235,11 @@ class PartitionedH2DirectoryWriter:
         ----------
         summary : pandas.DataFrame
             Aggregate partitioned-h2 table with the compact public columns in
-            ``PARTITIONED_H2_COLUMNS``.
+            ``PARTITIONED_H2_COLUMNS``. The input is not modified. The saved
+            root TSV appends ``query_result_dir`` relative to the output root;
+            it is written as ``NaN`` when per-query output is disabled.
+            Per-query summaries and full model tables keep scientific columns
+            only. Folder ordinals follow the supplied summary row order.
         output_config : PartitionedH2OutputConfig
             Output directory, overwrite policy, and per-query mode.
         per_query_artifacts : dict of str to PartitionedH2FitArtifacts, optional
@@ -1267,6 +1274,8 @@ class PartitionedH2DirectoryWriter:
             If a final output path already exists and overwrite is disabled.
         """
         self._validate_summary(summary)
+        root_summary = _select_columns(summary, PARTITIONED_H2_COLUMNS, label="partitioned-h2 summary").copy()
+        root_summary["query_result_dir"] = pd.NA
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
         family = self.artifact_family(
             output_dir, write_per_query_results=output_config.write_per_query_results,
@@ -1292,7 +1301,7 @@ class PartitionedH2DirectoryWriter:
             self.write_query_status(output_dir, query_status)
         if not output_config.write_per_query_results:
             _atomic_write_dataframe(
-                _select_columns(summary, PARTITIONED_H2_COLUMNS, label="partitioned-h2 summary"),
+                root_summary,
                 summary_path,
                 na_rep="NaN",
             )
@@ -1306,6 +1315,9 @@ class PartitionedH2DirectoryWriter:
             return paths
 
         query_records = self._query_records(summary)
+        root_summary["query_result_dir"] = [
+            f"diagnostics/query_annotations/{record['folder']}" for record in query_records
+        ]
         staging_dir = Path(tempfile.mkdtemp(prefix=".query_annotations.tmp.", dir=str(diagnostics_dir)))
         backup_dir: Path | None = None
         try:
@@ -1318,7 +1330,7 @@ class PartitionedH2DirectoryWriter:
             )
             _atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv", na_rep="NaN")
             _atomic_write_dataframe(
-                _select_columns(summary, PARTITIONED_H2_COLUMNS, label="partitioned-h2 summary"),
+                root_summary,
                 summary_path,
                 na_rep="NaN",
             )

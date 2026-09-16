@@ -1,6 +1,6 @@
 # ldsc3_Jerry
 
-Last updated on: 2026-09-15
+Last updated on: 2026-09-16
 
 This repository is the active refactored LDSC package.
 
@@ -289,6 +289,8 @@ Regression diagnostics report the SNP population and jackknife block count actua
 At default INFO verbosity, workflow logs emphasize major phases, numbered batch start/completion, chromosome work, and aggregate query outcomes. Gene exclusions and audited warnings use counts and diagnostic-file pointers; DEBUG retains successful query timings and source detail. The exact invocation and specific failure evidence remain available. See [batch logging and diagnostic coverage](docs/current/workflow-logging.md#batch-and-collection-progress).
 
 For large query scans, `ldsc partitioned-h2 --continue-on-query-error` skips queries whose model preparation, regression, or result calculation raises an exception and publishes successful fits. Every attempted query is recorded in `diagnostics/query_status.tsv`; failed queries have no scientific results. The log includes query/stage tracebacks and available jackknife block diagnostics. The default remains strict: any query failure prevents publication. Shared input/output failures and scans with no successful queries still fail. See [query failure handling](docs/current/partitioned-h2-results.md#query-failures-and-continuation).
+
+The root `partitioned_h2.tsv` includes `query_result_dir`, the exact per-query folder relative to the output directory (for example, `diagnostics/query_annotations/0001_mygeneset`). Use it to locate detailed results while `category` retains the original annotation name. Baseline-only summaries write `NaN` in this column.
 
 `partitioned-h2 --threads N` fits independent whole-query models concurrently; the Python equivalent is `RegressionRunner.estimate_partitioned_h2_batch(..., threads=N)`. It shares parsing and worker-count resolution with `ldscore` and `build-gene-ldscore-index`: the default `1` runs inline, positive counts request that many workers, and negative values use available CPUs (`-1` for all, `-2` for all but one), preferring CPU affinity with a machine CPU-count fallback. All requests are capped by query count and `--query-batch-size`. Choose positive counts within your CPU allocation; these commands do not separately read `SLURM_CPUS_PER_TASK`. Each parallel worker uses one numerical-library thread, enforced with runtime controls for the numerical backend; inline execution keeps caller settings. Shared numeric baseline/trait arrays and the current query batch use read-only maps in private output scratch. Model filtering, weights, jackknife blocks, output ordering, and error policies are unchanged. See [query workers](docs/current/regression-configuration.md#43-query-workers-and-memory) for memory costs and Python process-launch requirements.
 

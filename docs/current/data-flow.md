@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-09-15
+Last updated on: 2026-09-16
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -564,6 +564,7 @@ the new summary is written. Query-mode `partitioned-h2` always writes its
 per-query tree; retired `--write-per-query-results` is rejected. The aggregate `partitioned_h2.tsv` remains the stable summary entry
 point. Baseline-only directories run the functional-category regime and keep
 complete-model artifacts at the result root.
+The output writer appends `query_result_dir` to the root TSV using the same folder records as the manifest. Paths are relative to the output directory and follow the sorted summary; baseline-only rows contain `NaN`. In-memory summaries and per-query tables retain their scientific schema.
 For rg, `--sumstats-sources` accepts two or more files; three or more files
 produce all unordered pairs unless `--anchor-trait` selects one trait label or
 source path for anchor-vs-rest estimation. `--write-per-pair-detail` adds the

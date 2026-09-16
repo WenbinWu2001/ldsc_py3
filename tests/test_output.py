@@ -844,7 +844,8 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
 
             self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
             summary = pd.read_csv(output_dir / "partitioned_h2.tsv", sep="\t")
-            self.assertEqual(summary.columns.tolist(), PARTITIONED_H2_COLUMNS)
+            self.assertEqual(summary.columns.tolist(), PARTITIONED_H2_COLUMNS + ["query_result_dir"])
+            self.assertTrue(summary["query_result_dir"].isna().all())
             self.assertFalse((output_dir / "query_annotations").exists())
             self.assertEqual(
                 paths,
@@ -900,6 +901,24 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
 
             query_root = output_dir / "diagnostics" / "query_annotations"
             manifest = pd.read_csv(query_root / "manifest.tsv", sep="\t")
+            summary = pd.read_csv(output_dir / "partitioned_h2.tsv", sep="\t")
+            self.assertEqual(summary.columns.tolist(), PARTITIONED_H2_COLUMNS + ["query_result_dir"])
+            self.assertEqual(summary["query_result_dir"].tolist(), [
+                "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark",
+                "diagnostics/query_annotations/0002_il_6_jak_stat_hallmark",
+            ])
+            pd.testing.assert_frame_equal(summary[PARTITIONED_H2_COLUMNS], self.make_summary()[PARTITIONED_H2_COLUMNS])
+            for row in summary.sort_values("category").itertuples(index=False):
+                query_dir = output_dir / row.query_result_dir
+                self.assertTrue(query_dir.is_dir())
+                self.assertEqual(
+                    pd.read_csv(query_dir / "partitioned_h2.tsv", sep="\t")["category"].tolist(),
+                    [row.category],
+                )
+            self.assertEqual(
+                summary["query_result_dir"].tolist(),
+                [str(Path(path).parent) for path in manifest["summary_path"]],
+            )
             self.assertEqual(manifest["ordinal"].tolist(), [1, 2])
             self.assertEqual(
                 manifest["query_annotation"].tolist(),

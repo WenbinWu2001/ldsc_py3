@@ -1,115 +1,190 @@
-> **Top priority:** Keep the user crystal clear about the work, why it is being done, and every procedural step. Never treat AI-generated work as a black box. This transparency overrides other rules and supports rigorous, valid, and tractable code and analysis.
+> **Top priority:** Keep the user crystal clear about the work they are doing, why it is being done, and every procedural step.
+> Never treat AI-generated content as a black box.
+> Preserve this transparency while following the user's instructions; it supports rigorous, valid, and tractable code and analysis.
 
 # LDSC Package Guidance
 
-Last updated on: 2026-09-11
+Last updated on: 2026-09-27
 
-`ldsc_py3_Jerry` is a refactored, distributable Python 3 LDSC package, not an analysis repository. Preserve its package layout, public interfaces, CLI contracts, canonical artifact formats, and compatibility boundaries.
+This repository, `ldsc_py3_restructured`, develops the distributable scientific Python package `ldsc` (distribution version `2.0b0`), with source under `src/ldsc/`.
+
+## User instructions and skill conflicts
+
+The user's instructions take precedence over guidelines provided in a skill. If explicit user instructions conflict with a skill's instructions, prioritize the user's instructions.
+
+If a skill causes you to ask for permission or confirmation, pause, leave requested work unfinished, or diverge from the user's intent, name and link to the exact SKILL.md file you read, quote the relevant instruction, and briefly explain how it applies. Distinguish explicit skill requirements from your interpretation of guidelines.
 
 ## Environment and verification
 
-From the repository root, create the development environment and install the editable package with development extras:
+Run from this repository root; environment creation and installation are setup commands, not prerequisites to repeat in an already configured environment:
 
 ```bash
 conda env create -f environment.yml -n ldsc3-dev
 conda activate ldsc3-dev
 python -m pip install -e ".[dev]"
-```
-
-Use the real entry points:
-
-```bash
 ldsc --help
 python -m ldsc --help
+# Focused package/CLI checks; select scientific tests for the affected workflow.
+pytest tests/test_package_layout.py tests/test_cli_help.py
+# Broader validation; run the two runners sequentially.
 pytest
 python -m unittest discover -s tests -p 'test*.py' -v
 ```
 
-`pytest` is the primary suite. The standard-library unittest command remains a compatibility check during the transition. `pyproject.toml` configures pytest with `tests` as the test path, `-ra`, and the `slow`, `statistical`, `io`, and `file_format_compat` markers. No separate formatter, linter, type checker, documentation builder, or build command is configured; do not invent one.
+- Python support is `>=3.11,<3.14`; dependency bounds live in `setup.py`, `requirements.txt`, and `environment.yml`.
+  Required dependencies are NumPy, pandas, SciPy, PyArrow, Matplotlib, and threadpoolctl.
+  Extras: `plink` (bitarray), `bed` (pybedtools plus external bedtools on PATH), `liftover` (pyliftover), `test` (pytest), `all` (workflow extras), and `dev` (all plus tests).
+- `pytest` is primary; `pyproject.toml` sets `testpaths = ["tests"]`, `-ra`, and markers `slow`, `statistical`, `io`, `file_format_compat`.
+  Tests require the editable installation and do not inject `src`; concurrent pytest/unittest can conflict through pybedtools cleanup.
+  Golden NPZs are immutable expectations: restore missing files from version control, never regenerate them as a test prerequisite.
+- Packaging uses setuptools in `setup.py` and `MANIFEST.in`; no dedicated build command, CI workflow, linter, formatter, type checker, or documentation builder is configured.
+  Do not invent mandatory commands or imply unrun checks passed.
+  Before claiming completion, run relevant focused tests, broader tests when warranted, CLI/artifact/notebook checks, or documentation validation and report actual results and omissions.
 
-The package supports Python 3.11 through 3.13. Required dependencies are NumPy, pandas, SciPy, PyArrow, and Matplotlib; extras provide PLINK (`bitarray`), BED (`pybedtools` plus external `bedtools` on `PATH`), liftover (`pyliftover`), and tests (`pytest`). Plotting is an explicit post-processing workflow and Matplotlib must remain lazily imported so ordinary package imports and numerical commands do not initialize the plotting runtime. Use the constraints in `setup.py`, `requirements.txt`, and `environment.yml` rather than broadening them casually.
+## Package boundaries and current interfaces
 
-## Package structure and public contracts
+- Import supported user-facing objects from `ldsc`; `src/ldsc/__init__.py` owns exports such as `AnnotationBuilder`, `LDScoreCalculator`, `RegressionRunner`, `SumstatsMunger`, `ReferencePanelBuilder`, `LDScoreSource`, configurations, writers, and convenience functions.
+  `src/ldsc/_kernel/` and other underscore-prefixed modules are private implementations, even when selected objects are re-exported publicly.
+- `ldsc=ldsc.cli:run_cli` and `python -m ldsc` expose one CLI: `annotate`, `ldscore`, `build-r2-panel`, `build-gene-ldscore-index`, `convert-ldsc2-ldscores`, `munge-sumstats`, `h2`, `partitioned-h2`, `quantile-h2`, `rg`, `query-r2`, `convert-h2-scale`, and `plot`.
+  Keep CLI code limited to parsing/dispatch; numerical and plotting logic belongs to its workflow or kernel.
+- Dependency direction is CLI → workflows → shared helpers/private kernels; workflows call output writers, and kernels must not import workflow orchestration or writers.
+  Runtime reference adapters currently live in `_kernel/ref_panel.py`; `RefPanel.prepare_chromosome()` owns panel preparation and reader lifetime.
+  Numerical projection consumes prepared, resolved inputs; do not add user-token discovery to numerical kernels or create circular imports.
+- Reuse `path_resolution.py` for path tokens/output preflight, `column_inference.py` for aliases/identifier normalization, and `genome_build_inference.py` for hg19/hg38 and coordinate-basis inference.
+  Exact paths, globs, and `@` suites are supported; PLINK additionally supports plain suite stems through its shared resolver.
+  The installed package must be self-sufficient, without sibling-repository imports or root wrappers.
+- Regression consumes aggregated LD-score artifacts without recomputing LD scores; plotting and scale conversion consume saved results without refitting.
+  Matplotlib is required but lazily imported only for figure-producing paths.
 
-- `src/ldsc/` is the supported public Python package surface. Import stable user-facing objects from `ldsc`; `src/ldsc/_kernel/` is private low-level numerical and file-format implementation code.
-- Keep one CLI surface: `ldsc` with `annotate`, `ldscore`, `build-r2-panel`, `build-gene-ldscore-index`, `convert-ldsc2-ldscores`, `munge-sumstats`, `h2`, `partitioned-h2`, `quantile-h2`, `rg`, `query-r2`, `convert-h2-scale`, and `plot`. `ldsc.cli` dispatches; it must not gain numerical or plotting logic.
-- Public workflow modules own user-facing path resolution, header inference, global configuration, genome-build inference, and output preflight. Kernel modules receive resolved primitive inputs and perform numerical work or low-level parsing. Keep dependencies unidirectional and avoid circular imports.
-- Keep alias and identifier normalization centralized in `column_inference.py`; keep hg19/hg38 and 0-based/1-based inference centralized in `genome_build_inference.py`. Prefer existing workflow objects, config dataclasses, path-resolution helpers, and column-inference registries over one-off parsing or normalization.
-- Treat public Python exports, CLI flags, package-written schemas, and legacy file formats as compatibility contracts. Public API or file-format changes require a deliberate compatibility decision, not mechanical cleanup.
-- The package must remain self-sufficient: do not import from sibling repositories or repository-root wrappers.
+## Design, implementation, and change discipline
 
-## Workflow and artifact invariants
+- Default against backward compatibility unless explicitly requested: remove obsolete interfaces and update callers, tests, examples, and documentation to the confirmed contract.
+  Do not add hypothetical aliases, adapters, migrations, fallback paths, or redundant validation; the established LDSC2 artifact exceptions below are deliberate requirements.
+- Choose the simplest readable, maintainable, modular implementation; avoid speculative abstractions, configuration, and indirection unless significant computational gains or technical necessity justify them.
+  Retain checks for scientific identity, alignment, convergence, and method assumptions; document non-obvious logic without restating code.
+  Build capabilities incrementally on working end-to-end behavior, make durable architectural choices, and avoid disposable stopgaps.
+- Prefer established libraries and proven patterns that reduce complexity; examine existing dependency documentation/types before assuming a capability is absent or adding a dependency.
+  Ask for guidance if correct library use cannot be established.
+- For changes beyond a several-line localized edit, discover repository facts and use `grilling`, `grill-me`, or `grill-with-docs` to resolve all non-trivial ambiguities before coding.
+  For significant work, list important decisions and design details and obtain explicit design confirmation before implementation, including public API/file-format changes.
+  Use `grill-me` for requests to keep asking; use `grill-with-docs` when authorized decision recording is wanted.
+- After design confirmation and implementation authorization, use `tdd` for observable behavior with a stable test seam.
+  Write the failing test first; numerical checks need known values, convergence properties, or reference implementations.
+  Documentation-only work, exploratory analysis, and tests without meaningful signal follow the skill's exclusions and require appropriate concrete verification instead.
+- Use `diagnosing-bugs` for concrete failures, establish the root cause before proposing repairs, and consult `lessons.md`.
+  Stop and ask for direction after three unsuccessful repair attempts.
+- Preserve unrelated user changes, source data, and generated artifacts.
+  Ask before destructive changes, external publication, replacing existing rule files, or downloading external links; read-only browsing is allowed.
+- Before structurally refactoring a file over 300 lines, remove dead properties, unused imports/exports, and debug logs and commit that cleanup separately.
+  After major changes, commit or suggest a Conventional Commit: `<type>(<scope>): <description>`, subject ≤50 characters and body lines ≤72, explaining what/why with issue or breaking-change footers when applicable.
+- After 10 or more messages or a gap, reread the request, confirmed decisions, active plan, `status.md` and `lessons.md` when present, and files to be edited.
+  Do not put AI tool names in code comments, commit messages, PR bodies, or authorship, or emojis in any agent-authored content.
 
-- Public LD-score output is a canonical directory written by `LDScoreDirectoryWriter`: `metadata.json`, `ldscore.baseline.parquet`, and optional `ldscore.query.parquet` and `ldscore.overlap.parquet`. Regression consumes this aggregated directory and must not recompute LD scores.
-- New core artifact-writing workflows use `--output-dir`, `--overwrite`, and `--log-level`, write headline outputs at the directory root, and write `diagnostics/metadata.json` plus `<command>.log` through `workflow_logging`. Derived workflows may use an approved fixed nested destination. Reuse the shared `*DirectoryWriter` classes in `outputs.py` with `ensure_output_directory` and `preflight_output_artifact_family`.
-- Public materializing workflows leave a `RUN_FAILED` marker after a failed authorized overwrite and remove the applicable marker after a successful retry. Marker handling must not add rollback, quarantine, restoration, or workflow action-order changes; markers are not scientific artifacts and never enter metadata.
-- Core materializing CLI subcommands require `--output-dir`; `munge-sumstats --infer-only` is the sole no-write mode but still requires that argument. The derived commands are deliberate exceptions: `plot` writes below `<result-dir>/plots/` and `convert-h2-scale` writes below `<h2-result-dir>/postprocessing/liability-scale/`, with no CLI output override.
-- Preserve the deliberate legacy interoperability boundaries: regression automatically accepts LDSC2 `.sumstats(.gz)` inputs with `SNP`, `A1`, `A2`, `Z`, and `N`; munging optionally writes `.sumstats.gz`; annotation workflows read `.annot(.gz)` and write `.annot.gz`, including annotations omitting both allele columns. Allele-free annotations match by base SNP identity even in allele-aware workflows.
-- Legacy LD-score suites enter only through explicit `convert-ldsc2-ldscores` conversion of complete chromosome 1-22 reference/weight families named `<prefix><chrom>.l2.ldscore(.gz)`, with required `.l2.M_5_50` and optional `.l2.M` under the documented count policy. Converted suites use allele-unaware `rsid` or `chr_pos` identity. The `.w.l2.ldscore(.gz)` suffix is unsupported. Regression reads canonical LD-score directories; private `_kernel` code owns no legacy sumstats, LD-score, count, or annotation-group output files. See `docs/current/legacy-sumstats-compatibility.md` and `docs/current/legacy-ldscore-conversion.md` for the full contracts.
-- Query annotations require explicit baseline annotations. The synthetic all-ones `base` annotation is only for ordinary unpartitioned LD-score generation.
-- Preserve the original LDSC regression default of using `.M_5_50`-style common-SNP counts when available.
-- Treat source data and packaged reference resources as immutable inputs unless the user explicitly authorizes changes. Preserve identifier mode, genome build, coordinate basis, allele conventions, provenance, schemas, random seeds, numerical tolerances, and scientific interpretation contracts relevant to the requested change.
+## Scientific and artifact contracts
 
-## Change discipline
+- Make assumptions explicit, support scientific decisions with evidence and empirical validation, preserve reproducibility, and document uncertainty/limitations.
+  Source data and packaged references are immutable unless changes are explicitly authorized; preserve relevant provenance, schemas, random seeds, numerical tolerances, and interpretation.
+- Identity modes are `rsid`, `rsid_allele_aware`, `chr_pos`, and default `chr_pos_allele_aware`; global build defaults to `auto`.
+  Preserve one-based canonical SNP positions, zero-based half-open BED intervals, allele orientation, duplicate-key policies, and hg19/hg38 inference boundaries.
+  Annotation rows/columns must align to retained reference identities; `A1` is the signed-statistic allele, not necessarily the genome reference allele.
+- Preserve reference-derived CM/MAF, the broad LD-contributor/count/overlap universe, and the separate filtered regression-row/weight universe.
+  Native common counts use the inclusive `common_maf_min` threshold (default 0.05); legacy conversion retains strict LDSC2 common-count semantics.
+  Regression defaults to common-SNP counts when available; do not silently substitute unavailable requested counts.
+- Public annotation reads and LD-score Parquet values are float32; numerical LD accumulation, annotation sums, and overlap products use float64.
+  Preserve Boolean interval unions, negative unbiased adjusted-r² values, one diagonal contribution, genomic ordering, and physical BIM/BED row mapping.
+  Regression matrices retain `X: (n,p)`, `y/w: (n,1)`, aligned jackknife blocks, and estimator-specific assumptions; current IRWLS uses two reweightings, not a tolerance-based convergence loop.
+  Preserve missingness semantics: zero is a valid annotation value, unknown support is not measured zero, and missing fields must not shift whitespace-parsed columns.
+- `LDScoreDirectoryWriter` owns `metadata.json`, `ldscore.baseline.parquet`, optional single `ldscore.query.parquet` or numbered `ldscore.query.batchNNNNN.parquet` files, and `ldscore.overlap.parquet` when required.
+  Query manifests record ordered files/columns/row groups; output tables span chromosomes, with chromosome row groups rather than public chromosome LD-score shards.
+  Writing workflows return `LDScoreSource`; selected reads are explicit and caller-owned.
+- Query annotations require explicit baseline annotations; no baseline and no query produces an all-ones `base` for ordinary unpartitioned generation.
+  Index construction requires a supplied one-based gene catalog, explicit hg19 and base `rsid|chr_pos`, and complete autosomes; indexed scoring inherits the complete immutable index and rejects live overrides or silent fallback.
+- Reuse `outputs.py` directory writers, their `artifact_family()` declarations, and `path_resolution.py` preflight helpers before owned writes, including logs.
+  Core materializing CLI commands require `--output-dir`; explicit `--overwrite` replaces only owned outputs and reconciles stale owned siblings, preserving unrelated files.
+  Derived CLI destinations are `<result-dir>/plots/` and `<h2-result-dir>/postprocessing/liability-scale/`, without CLI overrides.
+- Put headline results at the result root and diagnostics/logs under `diagnostics/`; LD-score root metadata is its separate artifact manifest.
+  Use Parquet for new internal artifacts and TSV for scientific result tables, with documented legacy/sidecar exceptions.
+  Logs and failure markers are not scientific outputs or entries in result `output_paths`.
+- Failed authorized overwrites leave `RUN_FAILED.txt` (or `RUN_FAILED.chr<chrom>.txt` for concrete panel shards); successful retries remove the applicable marker.
+  Markers add no rollback, quarantine, restoration, or action-order changes and do not enter metadata.
+  Help and `munge-sumstats --infer-only` create no directories/logs/artifacts/markers; infer-only still requires `--output-dir`.
+  Gene-index publication retains its existing complete atomic transaction, with open logs in hidden sibling build-state and closed successful logs moved into published diagnostics.
+- Preserve explicit LDSC2 interoperability: regression accepts `.sumstats(.gz)` with SNP/A1/A2/Z/N and validates allele orientation; munging may export `.sumstats.gz`.
+  Annotation workflows read `.annot(.gz)` and write `.annot.gz`; omitting both alleles permits base-identity matching even in allele-aware workflows, while supplying only one allele is invalid.
+- Legacy LD-score input requires `convert-ldsc2-ldscores` with complete chromosome 1–22 reference/weight `<prefix><chrom>.l2.ldscore(.gz)` families, required `.l2.M_5_50`, and optional `.l2.M` under the documented count policy.
+  Converted identity is allele-unaware; `.w.l2.ldscore(.gz)`, query/thin conversion suites, and direct regression consumption of fragments are unsupported.
+  Private kernels do not own legacy sumstats, LD-score, count, or annotation-group output files; full contracts live in `docs/current/legacy-sumstats-compatibility.md` and `docs/current/legacy-ldscore-conversion.md`.
+- Avoid routine provenance hashes; prefer schemas, source labels, declared metadata, and counts.
+  Retain hashes only for necessary semantic identity/integrity guarantees, documenting their purpose; existing sidecar binding and index identity exceptions are in `docs/current/sha256-usage-decisions.md`.
 
-- Keep code concise. Minimize unnecessary validation, guard clauses, and redundant design layers. Document non-obvious logic; do not add comments that merely restate code.
-- Assume users do not inspect file logs after a successful run, especially under batch schedulers such as SLURM. If an unrequested input-resolution, filtering, ambiguity, or compatibility condition can silently change the scientific analysis, fail before substantial computation with a nonzero, actionable error and machine-readable diagnostics. If it is unclear whether an operation warrants an error or warning, or whether it could affect the scientific analysis, ask the user to decide. Explicitly requested transformations may succeed when their effect is recorded in the result diagnostics and provenance.
-- Design batch validation around exhaustive, stage-specific gates. Before aborting, collect every safely discoverable issue at that gate across all focal inputs and controls and report them together; do not force users through repeated queue submissions merely to reveal one additional problem per run. Distinguish defects by current-run consequence: an unreadable structural contract may abort immediately, a referenced defect that changes the analysis must abort, and an unreferenced latent defect may be diagnosed without failing an otherwise correct run.
-- Avoid content hashes and checksums, including SHA-256, unless they are strictly necessary for artifact semantic identity or integrity validation. Do not add hashes to routine input provenance merely because hashing is possible; prefer explicit schemas, source labels, declared metadata, and validation counts. When a hash is necessary, document the exact identity or integrity guarantee it provides.
-- Preserve unrelated user changes and generated artifacts outside the requested scope. Ask before destructive changes, external publication, replacing an existing rule file, or downloading from an external link.
-- Before a structural refactor of a file over 300 lines, remove dead properties, unused imports or exports, and debug logs; keep that cleanup separate from the refactor.
-- When the same class of mistake occurs two or more times, or a non-obvious bug requires real investigation, append a one-line summary, root cause, and correction to root `lessons.md`. Skip one-off typos and trivial slips.
-- After 10 or more messages, or after resuming from a gap, reread the active plan in `docs/plans/`, `lessons.md` when present, and the source files to be edited.
-- After a major change, commit with a meaningful Conventional Commit message, or remind the user to commit: `<type>(<scope>): <description>`. Keep the subject at most 50 characters and body lines at most 72 characters; explain what and why, not how.
-- Do not use AI tool names in code comments, commit messages, PR bodies, or authorship. Do not use emojis in documentation, docstrings, Markdown files, reports, tutorials, or manuscripts.
-- Do not hard-wrap Markdown or LaTeX prose. Use `\(...\)` for inline math and `$$ ... $$` for displayed math in Markdown and notebook Markdown; use `$...$` for inline math in `.tex` sources.
+## Existing warning, error, and diagnostic policy
 
-## Coding style
-- Preserve the deliberate interoperability contracts above. Remove obsolete internal paths instead of adding speculative compatibility layers, fallbacks, or migrations; changes to supported public contracts require an explicit compatibility decision.
-- Choose the simplest implementation that fully meets the current requirements. Avoid speculative abstractions, configuration, and indirection.
-- Grow the system in layers. Start from the smallest version that works end to end, and add each new capability on top of a product that already works. Never trade a working product for unfinished complexity.
-- Keep components modular and concerns clearly separated.
-- Prefer established, well-maintained libraries when they reduce overall complexity or improve reliability. Do not reimplement common functionality without a clear reason.
-- Lean on the dependencies already in the project before writing your own implementation or adding packages. Do not assume a library lacks a capability without checking its documentation and types.
-- Make architectural decisions for the long term. Do not accept a stopgap that only works for now and is meant to be replaced later.
-- Study how established products solve the problem before designing a solution. Adopt their proven patterns and conventions rather than inventing an approach from scratch.
+- Preserve the repository's current policy; warning-visibility defaults from initialization skills/templates do not override it.
+  `src/ldsc/_logging.py` and `docs/current/workflow-logging.md` define file-authoritative workflow logs, CLI stderr errors only during logged workflows, and no package-installed Python API console handler.
+  CLI calls without a workflow log retain the existing verbosity fallback; do not introduce blanket warning-display or suppression changes.
+- Assume users do not inspect file logs after a successful run, especially under batch schedulers such as SLURM.
+  If an unrequested input-resolution, filtering, ambiguity, or compatibility condition can silently change the scientific analysis, fail before substantial computation with a nonzero, actionable error and machine-readable diagnostics.
+  If it is unclear whether an operation warrants an error or warning, or whether it could affect the scientific analysis, ask the user to decide.
+  Explicitly requested transformations may succeed when their effect is recorded in the result diagnostics and provenance.
+- Use exhaustive, stage-specific validation gates that collect every safely discoverable issue across focal/control inputs before aborting.
+  An unreadable structural contract may fail immediately, a referenced analysis-changing defect must fail, and an unreferenced latent defect may be diagnosed without failing a correct run.
+  Design diagnostics for concrete identification and repair; preserve explicit query-continuation policies and their attempted-query records, without introducing silent recovery.
+- Keep run-aborting messages self-contained; errors with three or more distinct causes also require the corresponding command section in `docs/troubleshooting.md` and synchronized in-code anchors.
+  Guide users toward their objective without requiring knowledge of internal implementation.
 
+## Requested code reviews
 
-## Workflow skills
+These rules apply only when a review is requested; they do not require an extra review after every change.
 
-- For work beyond a several-line localized edit, use `/grilling` or its appropriate route to resolve non-trivial ambiguities before coding; keep asking until they are resolved.
-- Route requests to “keep asking,” “resolve all ambiguities,” or “resolve before implementing” to `grill-me`. Use `grill-with-docs` when the user also asks to record decisions in repository documentation.
-- Use `to-spec` when the user asks to write a specification or capture an agreed design as documentation. Use `implementation-plan` when the user asks for an execution or implementation plan. Store their default artifacts at `docs/specs/YYYY-MM-DD_<topic>.md` and `docs/plans/YYYY-MM-DD_<topic>.md`.
-- For implementation with observable behavior and a stable test seam, use `tdd`: write the failing test first, then implement and refactor. Numerical tests must use known input/output values, convergence properties, or reference implementations—not only successful execution.
-- Use `diagnosing-bugs` for a concrete failure. Diagnose root cause before proposing a fix, check `lessons.md` for related failures, and stop for user direction after three unsuccessful repair attempts.
-- Use `two-axis-code-review` only when the user explicitly requests a fixed-diff review.
+- Establish and verify the supplied diff, commit range, branch/base or PR, including staged/unstaged/untracked scope for work in progress and the base/merge base for branches.
+  State assumptions, report empty diffs, and distinguish reviewed state from later edits.
+- Read applicable guidance, surrounding code, callers, and tests; assess concrete defects, regressions, scientific correctness, error handling, tests, and repository consistency alongside fulfillment of the request, missing requirements, unsupported assumptions, contract mismatches, and scope.
+  These are distinct questions, not mandated separate passes or a fixed format.
+- Ground requirement findings in precise quotations/references to user instructions, confirmed decisions, or governing records; identify uncertain or unavailable requirements rather than inventing them.
+  Distinguish defects from preferences and respect confirmed decisions, explaining evidence of contradictions.
+- Lead with actionable findings by severity, with file/line, evidence, impact, and remedy; identify open questions, unreviewed areas, and checks not run.
+  No findings does not establish correctness of untested paths; review-only authorization permits findings, not edits to code, issues, or PRs.
 
-## Documentation and verification
+## Documentation, recording permissions, and evidence
 
-- `docs/current/` is the active package design and navigation source. Treat its architecture, layer, data-flow, path, configuration, artifact, and workflow contracts as authoritative unless a user-approved change updates them.
-- After code or artifact-contract changes, update affected docstrings, relevant `docs/current/` documentation, README workflow/input/output descriptions, and applicable tutorials. Update papers or reports only when requested.
-- Every Markdown document created or edited by the agent includes `Last updated on: YYYY-MM-DD` near the top and updates it on later changes.
-- Use `scientific-python-docs` whenever a public Python function, class, or module header lacks a docstring or has incomplete or outdated documentation. Use `architecture-doc` when package structure changes significantly, a reusable module is added, or contributors need a refreshed overview.
-- For a run-aborting error with three or more distinct causes, keep the message self-contained and add or update the corresponding command section in `docs/troubleshooting.md`; keep any in-code anchor link synchronized.
-- Before claiming work is complete or fixed, run the relevant focused test, full suite, CLI command, artifact validation, or notebook check and report the actual result. When no automated check exists, say so and report the concrete checks performed.
+- Maintain affected docstrings, README workflow/input/output descriptions, current contracts, tutorials/wiki guidance, and validation artifacts within authorized change scope; update manuscripts/reports only when requested.
+  Core-function documentation should define inputs, outputs, defaults, and caveats; use `scientific-python-docs` for requested or change-affected scientific documentation, not unrelated missing-docstring cleanup.
+- Before changing responsibilities, public entry points, dependencies, main data flows, or scientific constraints, read relevant sections of [docs/current/architecture.md](docs/current/architecture.md).
+  Read the whole architecture for broad relational refactors; internal refactors leaving these facts unchanged require neither a full reread nor an architecture update.
+  Update descriptions made inaccurate within authorized scope using `architecture-doc`; preserve this established location and still-valid content.
+- Every edited/created Markdown document includes and refreshes `Last updated on: YYYY-MM-DD` near its top.
+  Put each Markdown/LaTeX prose sentence on its own source line, preserving required syntax, exact quotations, and protected originals; do not reformat unrelated files.
+  Markdown/Quarto/notebook math uses `$...$` inline and `$$...$$` display; LaTeX uses `$...$` inline and `\[...\]` display; chat uses `\(...\)` inline and `$$...$$` display.
+- Keep working rules here and records in their established destinations; update this documentation map with real paths when adding/moving design documents or tutorials.
 
-## Citations
+| Destination | Responsibility and recording boundary |
+| --- | --- |
+| `docs/current/code-structure.md`, `docs/current/architecture.md`, `docs/current/data-flow.md`, `docs/current/layer-structure.md` | Contributor navigation, execution/dependency architecture, artifact flows, and ownership; current contracts govern unless a confirmed change supersedes them. |
+| `docs/current/*-decisions.md`, `docs/specs/`, `docs/plans/` | Preserve existing decisions, agreed specifications, and plans; retain dated topic names and do not migrate or duplicate records. |
+| `docs/decisions/` | New authorized standalone `grill-with-docs` decision records with confirmed rationale; use existing topical records where appropriate, keep terminology in its established home, and use ADR format only under `domain-modeling` criteria. |
+| `status.md` | Authorized current work, constraints, blockers, next steps; refresh in place and link decisions/evidence. |
+| `history.md` | Authorized meaningful events, appended chronologically with dates; consult on demand, not automatically at startup. |
+| `lessons.md` | After a repeated mistake (two or more) or an investigated non-obvious bug, append summary/root cause/correction; create on the first qualifying entry, skipping trivial slips. |
+| `tutorials/`, `docs/wiki/`, `docs/troubleshooting.md` | User workflows, runnable Markdown/notebook examples, and command-specific remediation. |
+| `docs/audits/`, `docs/archive/` | Validation evidence and historical context respectively; not competing current contracts. |
 
-- When explaining a workflow, pipeline, interface, or mechanism, cite the source file and line number or function/class name.
-- When summarizing or quoting a repository document, tutorial, audit, plan, or specification, cite its section, table, figure, or appendix.
-- When comparing behavior with legacy LDSC, cite the relevant path and function in `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik` as well as the restructured implementation.
+- Use `project-state` only for useful, authorized status/history updates: these destinations do not authorize completion logs, writes during read-only work/side conversations, or empty-file creation.
+  `docs/decisions/`, `status.md`, and `history.md` are conventions, currently absent; their use does not bypass lessons or decision-recording rules.
+- Anchor substantive workflow/scientific explanations to code paths and lines or functions/classes, and document/paper claims to sections, tables, figures, or appendices.
+  Legacy comparisons must cite both implementations, using the legacy repository below.
 
 ## Resources
 
-- `README.md`: installation, package surface, output policy, and user-facing CLI overview.
-- `setup.py`, `pyproject.toml`, `requirements.txt`, and `environment.yml`: package metadata, Python/dependency constraints, extras, test configuration, and conda environment.
-- `src/ldsc/__init__.py`: supported public Python exports; `src/ldsc/cli.py`: unified CLI; `src/ldsc/_kernel/`: private numerical and file-format implementation.
-- `src/ldsc/data/`: packaged HM3 maps and hg19/hg38 region resources used by workflows.
-- `tests/`: primary behavioral, numerical, I/O, format-compatibility, and workflow suite; `tests/fixtures/` and `tests/fixtures/minimal_external_resources/`: documented deterministic fixture resources.
-- `tutorials/`: package-level Markdown and notebook usage examples.
-- `docs/current/`: active architecture, data-flow, configuration, schema, provenance, logging, and workflow-contract documentation.
-- `docs/specs/`: agreed design specifications; `docs/plans/`: implementation plans using the dated topic convention; `docs/archive/`: historical context only.
-- `docs/audits/legacy-equivalence/`: evidence and progress records for compatibility with the legacy implementation.
-- `docs/troubleshooting.md`: command-organized remediation reference; `docs/release.md`: release runbook for maintainers.
-- `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik`: legacy LDSC codebase used for numerical and compatibility comparisons.
-- `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/docs/ldsc_papers`: main text and supplements of relevant LD score analysis papers.
+- `README.md`, `setup.py`, `pyproject.toml`, `requirements.txt`, `environment.yml`, and `MANIFEST.in`: user surface, environment, package/test configuration, and distribution contents.
+- `src/ldsc/data/hm3_curated_map.tsv.gz`: packaged default HM3 restriction map; `src/ldsc/data/hm3_chr_pos_reference.tsv.gz`: compact inference/test reference; `src/ldsc/data/regions/`: hg19/hg38 MHC and centromere presets.
+  `src/ldsc/data/readme.txt` and `src/ldsc/data/ATTRIBUTION.txt` record resource roles and unresolved source/reuse questions; do not invent dataset releases or licenses.
+- `tests/fixtures/README.md`, `tests/fixtures/golden/`, and `tests/fixtures/minimal_external_resources/README.md`: immutable expectations and deterministic 32-SNP chromosome-22 1KG-30x subset.
+  The minimal fixture guide references optional external `resources/` (including a liftover chain), absent in this checkout; do not claim external-resource checks ran without those inputs.
+- `docs/current/column-schema.md`, `snp-identifier-genome-build-defaults.md`, `ldscore-snp-universe-contract.md`, and `regression-configuration.md`: schema, identity/build, SNP universes, and estimator contracts (all under `docs/current/`).
+- `docs/current/annotation-memory-design.md`, `gene-ldscore-index.md`, `gene-ldscore-index-mathematics.md`, `partitioned-h2-results.md`, and `continuous-annotation-quantile-h2.md`: memory ownership, exact indexes, result interpretation, and post-fit quantiles (all under `docs/current/`).
+- `docs/current/path-specification.md`, `workflow-logging.md`, and `cli-help-guidelines.md`: resolution, output/diagnostic lifecycle, and task-oriented CLI help (all under `docs/current/`).
+- `tutorials/ld-score-calculation.md`, `tutorials/partitioned-ldsc.md`, `tutorials/cell-specific-ldsc.md`, and `tutorials/convert-legacy-ldscores.md`: main worked workflows, complemented by notebooks and `docs/wiki/guided-tutorial.md`.
+- `docs/audits/legacy-equivalence/`: legacy comparison evidence; `docs/release.md`: maintainer release runbook, not authorization to release.
+  `LICENSE`, `NOTICE`, and `CITATION.cff` preserve licensing, attribution, and citation metadata; retain notices during refactors and packaged resource attribution.
+- `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik`: legacy numerical/format reference.
+- `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/docs/ldsc_papers`: LDSC papers and supplements.

@@ -24,7 +24,7 @@ serial execution; workers are reused across query batches.
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import ExitStack
 from tempfile import TemporaryDirectory
@@ -44,7 +44,7 @@ from ._serial_calculation import serial_calculation
 from ._ldscore_diagnostics import ldscore_logs, chromosome_log, report_chromosome_failure
 from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
-from ._parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _validate_workers
+from ._parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _run_chromosome_tasks, _validate_workers
 from ._progress import report_phase, PhaseProgress
 from ._chr_sampler import sample_frame_from_chr_pattern
 from ._annotation_storage import TsvDiagnostics
@@ -589,41 +589,24 @@ class LDScoreCalculator:
                     pool=executor, log_paths=log_paths, batch_label=batch_label)
         prefixes = ref_panel._resolved_prefixes() if isinstance(ref_panel, PlinkRefPanel) else None
         paths = log_paths or {}
-        outcomes, pending = {}, {}
-        remaining = iter(chromosomes)
-        def submit_next():
-            chrom = next(remaining, None)
-            if chrom is not None:
-                LOGGER.info("Starting chromosome %s LD-score computation; %s; log: %s.",
-                            chrom, batch_label, paths.get(chrom, "no file output"))
-                future = pool.submit(_compute_one_chromosome, chrom,
-                    _slice_annotation_bundle(annotation_bundle, chrom), ref_panel.spec,
-                    ldscore_config, global_config, export_dir, chromosome_prefixes=prefixes,
-                    log_path=paths.get(chrom), batch_label=batch_label)
-                pending[future] = chrom
-        failed_chrom = None
-        try:
-            for _ in range(worker_count):
-                submit_next()
-            while pending:
-                done, _ = wait(pending, return_when=FIRST_COMPLETED)
-                # Consume every ready result before submitting any replacement.
-                for future in done:
-                    failed_chrom = pending[future]
-                    outcome = future.result()
-                    outcomes[outcome.chrom] = outcome
-                    del pending[future]
-                    LOGGER.info("Finished chromosome %s LD-score computation (%d/%d); %s.",
-                                outcome.chrom, len(outcomes), len(chromosomes), batch_label)
-                failed_chrom = None
-                for _ in done:
-                    submit_next()
-        except Exception as error:
-            report_chromosome_failure(error, list(pending.values()) if isinstance(error, BrokenProcessPool)
-                                      else [failed_chrom] if failed_chrom is not None else list(pending.values()),
+        outcomes = {}
+        def submit(chrom):
+            LOGGER.info("Starting chromosome %s LD-score computation; %s; log: %s.",
+                        chrom, batch_label, paths.get(chrom, "no file output"))
+            return pool.submit(_compute_one_chromosome, chrom,
+                _slice_annotation_bundle(annotation_bundle, chrom), ref_panel.spec,
+                ldscore_config, global_config, export_dir, chromosome_prefixes=prefixes,
+                log_path=paths.get(chrom), batch_label=batch_label)
+
+        def collect(chrom, outcome):
+            outcomes[outcome.chrom] = outcome
+            LOGGER.info("Finished chromosome %s LD-score computation (%d/%d); %s.",
+                        outcome.chrom, len(outcomes), len(chromosomes), batch_label)
+
+        def on_failure(error, failed_chrom, outstanding):
+            report_chromosome_failure(error, outstanding if isinstance(error, BrokenProcessPool)
+                                      else [failed_chrom] if failed_chrom is not None else outstanding,
                                       paths, batch_label, LOGGER)
-            for future in pending:
-                future.cancel()
             # This is normal executor shutdown, before releasing staged inputs.
             pool.shutdown(wait=True)
             if isinstance(error, BrokenProcessPool):
@@ -632,7 +615,8 @@ class LDScoreCalculator:
                     "See the workflow log for affected in-flight chromosomes and their diagnostic paths. "
                     "Check memory limits or retry with fewer `--workers`."
                 ) from error
-            raise
+
+        _run_chromosome_tasks(chromosomes, worker_count, submit, collect, on_failure)
         return outcomes
 
     @serial_calculation

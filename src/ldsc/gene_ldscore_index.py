@@ -13,7 +13,7 @@ complete reload-validated transaction is published as an index.
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
+from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -41,7 +41,7 @@ from scipy import sparse
 from ._worker_runtime import initialize_worker, native_thread_state
 from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
-from ._parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _validate_workers
+from ._parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _run_chromosome_tasks, _validate_workers
 from ._progress import report_phase, advance
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel.gene_ldscore_index import (
@@ -786,43 +786,32 @@ def _run_gene_ldscore_index_build(
         max_workers = _resolve_worker_count(config.workers, len(chromosomes))
         with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp.get_context("spawn"),
                                  initializer=initialize_worker, initargs=(args.log_level,)) as pool:
-            remaining = iter(chromosomes)
-            pending, completed = {}, {}
-            def submit_next():
-                chrom = next(remaining, None)
-                if chrom is not None:
-                    LOGGER.info("Starting chromosome %s gene-index construction.", chrom)
-                    pending[pool.submit(_build_one_index_chromosome, *task_arguments(chrom))] = chrom
-            try:
-                for _ in range(max_workers):
-                    submit_next()
-                while pending:
-                    done, _ = wait(pending, return_when=FIRST_COMPLETED)
-                    for future in done:
-                        result = future.result()
-                        completed[result.chromosome] = result
-                        pending.pop(future)
-                        evidence = result.evidence
-                        LOGGER.info(
-                            "Finished chromosome %s: catalog genes=%s, retained-reference=%s, "
-                            "regression-rows=%s, atoms=%s, nonzero SNP–atom LD scores=%s, elapsed=%.3fs.",
-                            result.chromosome, evidence["catalog_genes"], evidence["retained_reference_rows"],
-                            evidence["regression_rows"], evidence["atom_count"], evidence["nnz_Y"],
-                            evidence["elapsed_seconds"],
-                        )
-                        runtime = result.evidence["worker_runtime"]
-                        LOGGER.log(logging.INFO if runtime["verified"] else logging.WARNING,
-                                   "Finished chromosome %s; native thread policy %s: %s",
-                                   result.chromosome, "verified" if runtime["verified"] else "unverified or unmet (continuing)",
-                                   runtime)
-                    for _ in done:
-                        submit_next()
-            except Exception:
-                for future in pending:
-                    future.cancel()
+            completed = {}
+            def submit(chrom):
+                LOGGER.info("Starting chromosome %s gene-index construction.", chrom)
+                return pool.submit(_build_one_index_chromosome, *task_arguments(chrom))
+
+            def collect(chrom, result):
+                completed[result.chromosome] = result
+                evidence = result.evidence
+                LOGGER.info(
+                    "Finished chromosome %s: catalog genes=%s, retained-reference=%s, "
+                    "regression-rows=%s, atoms=%s, nonzero SNP–atom LD scores=%s, elapsed=%.3fs.",
+                    result.chromosome, evidence["catalog_genes"], evidence["retained_reference_rows"],
+                    evidence["regression_rows"], evidence["atom_count"], evidence["nnz_Y"],
+                    evidence["elapsed_seconds"],
+                )
+                runtime = result.evidence["worker_runtime"]
+                LOGGER.log(logging.INFO if runtime["verified"] else logging.WARNING,
+                           "Finished chromosome %s; native thread policy %s: %s",
+                           result.chromosome, "verified" if runtime["verified"] else "unverified or unmet (continuing)",
+                           runtime)
+
+            def on_failure(error, failed_chrom, outstanding):
                 LOGGER.exception("Gene-index construction failed; affected in-flight chromosomes: %s.",
-                                 list(pending.values()))
-                raise
+                                 list(outstanding))
+
+            _run_chromosome_tasks(chromosomes, max_workers, submit, collect, on_failure)
 
     staged_chromosomes = {chrom: completed[chrom] for chrom in chromosomes}
     evidence_by_chrom = {

@@ -46,6 +46,14 @@ Direct LD keeps its pool across query batches, and regression keeps its pool acr
 There are no nested chromosome/model pools.
 The parent coordinates inputs, collection, aggregation, and publication.
 
+Direct scoring, indexed scoring, and index construction share the private `_run_chromosome_tasks()` function in [`_parallelism.py`](../../src/ldsc/_parallelism.py).
+It bounds outstanding futures by the resolved worker count, tracks their chromosomes, and collects each ready group before submitting replacements, using the same path for one or multiple workers.
+On an observed exception it attempts cancellation and passes the original error, current chromosome, and outstanding chromosomes to the workflow's failure callback.
+The workflow retains task preparation, result processing, progress and diagnostics, executor ownership, and all temporary-file and publication responsibilities.
+Direct LD explicitly waits for its persistent executor to shut down on failure before the current query-batch workspace closes; an outer pool context alone would close too late.
+Indexed scoring and index construction exit their executor contexts before their enclosing workspaces are cleaned up.
+Regression retains its separate process communication and memory-mapping implementation.
+
 BLAS and numerical OpenMP each target one thread throughout every worker's lifetime.
 Arrow's CPU and I/O pools are controlled independently and each use one thread per worker.
 Higher inherited numerical thread settings do not override this policy inside children.
@@ -94,7 +102,7 @@ Low-level `LDScoreCalculator.run(..., output_config=None)` remains a no-file-out
 
 Any required chromosome failure fails the run.
 Stop submitting tasks, attempt to cancel pending tasks, let running workers finish through normal executor shutdown, and then remove temporary outputs, including completed chromosome shards.
-Cancellation applies only to futures that have not started, following [Python's executor contract](https://docs.python.org/3.13/library/concurrent.futures.html#concurrent.futures.Executor.shutdown).
+Cancellation is best effort: `Future.cancel()` cannot stop work already marked running, which can include dispatched work, following [Python's executor contract](https://docs.python.org/3.13/library/concurrent.futures.html#concurrent.futures.Future.cancel).
 Logs and existing error diagnostics remain available.
 There is no partial-success, checkpoint, resume, or automatic retry workflow for chromosomes.
 All required chromosomes must succeed before cross-chromosome aggregation, and all batches must succeed before final scientific publication.

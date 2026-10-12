@@ -1,4 +1,4 @@
-"""Shared worker-count validation and resolution for LDSC workflows.
+"""Worker budgets and bounded chromosome scheduling for LDSC workflows.
 
 Requests use joblib.cpu_count() directly as the detected available CPU budget.
 Native numerical-library thread settings are owned by the workflow workers.
@@ -6,9 +6,51 @@ Native numerical-library thread settings are owned by the workflow workers.
 
 import logging
 import argparse
+from concurrent.futures import FIRST_COMPLETED, wait
 import joblib
 
 LOGGER = logging.getLogger("LDSC.parallelism")
+
+
+def _run_chromosome_tasks(chromosomes, workers, submit, collect, on_failure):
+    """Collect chromosome tasks with at most ``workers`` outstanding futures.
+
+    ``workers`` is the already-resolved positive count. ``submit(chrom)``
+    prepares/submits a task and returns its future; ``collect(chrom, result)``
+    processes each result. Drain each ready group before submitting more work.
+    On an ``Exception``, attempt cancellation, then call
+    ``on_failure(error, current_chrom, outstanding_chromosomes)`` and reraise.
+    The current chromosome identifies the operation that raised, not the cause
+    of a broken pool. The callback may translate the error with explicit cause.
+
+    The caller owns the executor, diagnostics, and scratch. Cancellation does
+    not stop dispatched/running work: the caller must finish normal executor
+    shutdown before releasing temporary inputs or outputs. BaseException
+    interruptions retain the caller's existing handling.
+    """
+    remaining, pending = iter(chromosomes), {}
+    current_chrom = None
+    try:
+        while True:
+            while len(pending) < workers:
+                current_chrom = next(remaining, None)
+                if current_chrom is None:
+                    break
+                pending[submit(current_chrom)] = current_chrom
+                current_chrom = None
+            if not pending:
+                return
+            ready, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in ready:
+                current_chrom = pending[future]
+                collect(current_chrom, future.result())
+                del pending[future]
+                current_chrom = None
+    except Exception as error:
+        for future in pending:
+            future.cancel()
+        on_failure(error, current_chrom, tuple(pending.values()))
+        raise
 
 
 def _validate_workers(workers: int, *, error_type: type[Exception] = ValueError) -> int:

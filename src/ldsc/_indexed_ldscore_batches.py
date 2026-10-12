@@ -5,7 +5,7 @@ run-owned scratch. The coordinator reads one genome-wide batch in chromosome
 order. These private fragments are never accepted as public input artifacts.
 """
 
-from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from concurrent.futures import ProcessPoolExecutor
 import logging
 import multiprocessing
 from pathlib import Path
@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from ._progress import PhaseProgress
+from ._parallelism import _run_chromosome_tasks
 from ._ldscore_diagnostics import chromosome_log, report_chromosome_failure
 from concurrent.futures.process import BrokenProcessPool
 
@@ -98,34 +99,19 @@ def _write_chromosomes(index, batch, declarations, control, width, root, workers
     with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"),
                              initializer=_init_worker,
                              initargs=(None, None, logging.getLogger("LDSC").getEffectiveLevel())) as executor:
-        remaining = iter(index.chromosomes)
         def submit(chrom):
             LOGGER.info("Starting chromosome %s indexed LD-score computation.", chrom)
             return executor.submit(_write_chromosome, *arguments(chrom))
-        pending = {}
-        failed_chrom = None
-        try:
-            for _ in range(workers):
-                chrom = next(remaining)
-                pending[submit(chrom)] = chrom
-            while pending:
-                done, _ = wait(pending, return_when=FIRST_COMPLETED)
-                for future in done:
-                    failed_chrom = pending[future]
-                    future.result()
-                    LOGGER.info("Finished chromosome %s indexed LD-score computation.", pending.pop(future))
-                failed_chrom = None
-                for _ in done:
-                    chrom = next(remaining, None)
-                    if chrom is not None:
-                        pending[submit(chrom)] = chrom
-        except Exception as error:
-            report_chromosome_failure(error, list(pending.values()) if isinstance(error, BrokenProcessPool)
-                                      else [failed_chrom] if failed_chrom is not None else list(pending.values()),
+
+        def collect(chrom, result):
+            LOGGER.info("Finished chromosome %s indexed LD-score computation.", chrom)
+
+        def on_failure(error, failed_chrom, outstanding):
+            report_chromosome_failure(error, outstanding if isinstance(error, BrokenProcessPool)
+                                      else [failed_chrom] if failed_chrom is not None else outstanding,
                                       log_paths or {}, "indexed query batches", LOGGER)
-            for future in pending:
-                future.cancel()
-            raise
+
+        _run_chromosome_tasks(index.chromosomes, workers, submit, collect, on_failure)
 
 
 def indexed_results(index, batch, declarations, control, width, root, workers, statuses, scope, log_paths=None):

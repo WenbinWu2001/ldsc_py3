@@ -62,12 +62,19 @@ def test_native_limits_are_set_in_child_without_changing_parent(monkeypatch):
 
 
 @pytest.mark.parametrize("workers", [1, 2])
-def test_direct_chromosome_logs_append_across_batches_and_reset_on_overwrite(tmp_path, workers):
+def test_direct_chromosome_logs_append_across_batches_and_reset_on_overwrite(tmp_path, workers, monkeypatch):
     import re
     from dataclasses import replace
     from ldsc import AnnotationBundle, LDScoreCalculator
     from ldsc.outputs import LDScoreOutputConfig
+    from ldsc import ldscore_calculator as direct
     from tests.test_ldscore_query_batches import prepared_case
+    pools = []
+    original_pool = direct.ProcessPoolExecutor
+    def pool(**kwargs):
+        pools.append(kwargs["max_workers"])
+        return original_pool(**kwargs)
+    monkeypatch.setattr(direct, "ProcessPoolExecutor", pool)
     metadata, baseline, queries, config, panel, numerical = prepared_case(tmp_path)
     bundle = AnnotationBundle.from_frames(metadata, baseline, queries, config_snapshot=config)
     destination = tmp_path / "out"
@@ -75,6 +82,7 @@ def test_direct_chromosome_logs_append_across_batches_and_reset_on_overwrite(tmp
         return LDScoreCalculator().run(bundle, panel, replace(numerical, workers=workers, query_batch_size=1),
                                        config, LDScoreOutputConfig(destination, overwrite=overwrite))
     run()
+    assert pools == [workers]  # One persistent pool serves all three batches.
     pids = set()
     for chrom in ("1", "2"):
         path = destination / "diagnostics/chromosome-logs" / f"chr{chrom}.log"
@@ -89,6 +97,7 @@ def test_direct_chromosome_logs_append_across_batches_and_reset_on_overwrite(tmp
     with pytest.raises(FileExistsError):
         run()
     run(overwrite=True)
+    assert pools == [workers, workers]
     assert (destination / "diagnostics/chromosome-logs/chr1.log").read_text().count("Starting chromosome 1; batch") == 3
 
 
@@ -150,6 +159,74 @@ def test_direct_failure_cancels_pending_without_submitting_more(monkeypatch):
     assert submitted == ["1", "2"]
     assert pending.cancelled()
     assert shutdown == [True]
+
+
+def test_direct_waits_for_running_worker_before_query_batch_cleanup(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    from dataclasses import replace
+    from threading import Event
+    from ldsc import AnnotationBundle, LDScoreCalculator, _annotation_queries
+    from ldsc import ldscore_calculator as direct
+    from ldsc.outputs import LDScoreOutputConfig
+    from tests.test_ldscore_query_batches import prepared_case
+
+    metadata, baseline, queries, config, panel, numerical = prepared_case(tmp_path)
+    bundle = AnnotationBundle.from_frames(metadata, baseline, queries, config_snapshot=config)
+    started, release, finished = Event(), Event(), Event()
+    events, scratch_paths = [], []
+    error = ValueError("first chromosome failed while another was running")
+    original_batch = _annotation_queries.execution_query_bundle
+
+    @contextmanager
+    def batch(*args, **kwargs):
+        with original_batch(*args, **kwargs) as active:
+            root = active.workspace.path
+            scratch_paths.append(root)
+            (root / "borrowed-input.txt").write_text("still needed")
+            try:
+                yield active
+            finally:
+                events.append("batch cleanup")
+                assert finished.is_set(), "batch cleanup preceded worker shutdown"
+                assert (root / "late-output.txt").read_text() == "still needed"
+
+    class Pool(ThreadPoolExecutor):
+        def __init__(self, *, max_workers, **kwargs):
+            super().__init__(max_workers=max_workers)
+
+        def shutdown(self, wait=True, **kwargs):
+            events.append("shutdown")
+            assert wait is True
+            release.set()
+            super().shutdown(wait=wait, **kwargs)
+            events.append("workers finished")
+
+    def task(chrom, active, *args, **kwargs):
+        if chrom == "1":
+            assert started.wait(timeout=10)
+            raise error
+        started.set()
+        assert release.wait(timeout=10)
+        root = active.workspace.path
+        (root / "late-output.txt").write_text((root / "borrowed-input.txt").read_text())
+        finished.set()
+        return direct._ChromOutcome(chrom, None, True, "test worker")
+
+    # Real futures/threads make cancellation fail for the running borrower.
+    # Scientific calculations and child runtime settings are tested separately.
+    monkeypatch.setattr(direct, "ProcessPoolExecutor", Pool)
+    monkeypatch.setattr(direct, "_compute_one_chromosome", task)
+    monkeypatch.setattr(_annotation_queries, "execution_query_bundle", batch)
+    with pytest.raises(ValueError) as raised:
+        LDScoreCalculator().run(bundle, panel, replace(numerical, workers=2, query_batch_size=1),
+                                config, LDScoreOutputConfig(tmp_path / "out"))
+    assert raised.value is error
+    assert events.index("workers finished") < events.index("batch cleanup")
+    assert len(scratch_paths) == 1
+    assert not scratch_paths[0].exists()
+    assert not (tmp_path / "out/metadata.json").exists()
+    assert (tmp_path / "out/diagnostics/ldscore.log").is_file()
 
 
 def _crash_direct_task(*args, **kwargs):

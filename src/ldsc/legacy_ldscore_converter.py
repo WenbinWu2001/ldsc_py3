@@ -19,6 +19,7 @@ import re
 import numpy as np
 import pandas as pd
 
+from ._serial_calculation import serial_calculation
 from ._cli_help import CLIHelpFormatter
 from ._logging import LOG_LEVEL_HELP
 from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
@@ -104,6 +105,7 @@ class LegacyLDScoreConverter:
     identity modes and fixes legacy common-count semantics at ``0.05``.
     """
 
+    @serial_calculation
     @materializing_overwrite_guard(
         lambda self, **kwargs: (
             (kwargs["output_dir"], kwargs.get("overwrite", False), "RUN_FAILED.txt")
@@ -125,6 +127,9 @@ class LegacyLDScoreConverter:
         log_level: str = "INFO",
     ) -> LegacyLDScoreConversionResult:
         """Convert one complete autosomal legacy suite.
+
+        Conversion runs in one managed child with 1 BLAS thread, including
+        annotation overlap reconstruction for baseline-partitioned suites.
 
         Parameters
         ----------

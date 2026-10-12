@@ -1,6 +1,6 @@
 # LD Score Calculation
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-12
 
 Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-built SNP-level annotations, or from raw BED/gene-list queries plus an explicit baseline.
 
@@ -35,7 +35,7 @@ Input-token rules used below:
 
 Output directories stay literal; only input fields are expanded.
 
-Live annotation preparation is serial for both whole-genome and chromosome-sharded inputs, before the chromosome workers selected by `--threads`. Two bounded input passes automatically classify supplied columns, then write packed binary and dense float32 values directly to private stores. Generated gene/BED annotations are packed during projection. Public reads retain float32 and input column order; no dtype option is needed. At INFO, `diagnostics/ldscore.log` reports input reading, SNP identity checks and chromosome preparation, storage column counts/file bytes, and completion with retained counts and elapsed preparation time. One CM/MAF compatibility notice covers each preparation run; intentional gene exclusions use counts by role and a diagnostic audit pointer. Each numbered LD-score batch logs start/completion, chromosome work remains visible, and the final query-status summary covers the complete run. Individual successful query/source details require DEBUG. See [annotation format policy](../docs/current/annotation-memory-design.md#annotation-format-policy) and [preparation logging](../docs/current/workflow-logging.md#annotation-preparation). LD-score computation and final output writing still follow.
+Live annotation preparation is serial for both whole-genome and chromosome-sharded inputs, before the chromosome workers selected by `--workers`. Two bounded input passes automatically classify supplied columns, then write packed binary and dense float32 values directly to private stores. Generated gene/BED annotations are packed during projection. Public reads retain float32 and input column order; no dtype option is needed. At INFO, `diagnostics/ldscore.log` reports input reading, SNP identity checks and chromosome preparation, storage column counts/file bytes, and completion with retained counts and elapsed preparation time. One CM/MAF compatibility notice covers each preparation run; intentional gene exclusions use counts by role and a diagnostic audit pointer. Each numbered LD-score batch logs start/completion, chromosome work remains visible, and the final query-status summary covers the complete run. Individual successful query/source details require DEBUG. See [annotation format policy](../docs/current/annotation-memory-design.md#annotation-format-policy) and [preparation logging](../docs/current/workflow-logging.md#annotation-preparation). LD-score computation and final output writing still follow.
 
 SNP restriction files used for the reference-panel or regression universes are
 identity-only filters. Duplicate restriction keys collapse to one retained key,
@@ -337,7 +337,13 @@ Metadata must contain `CHR`, 1-based integer `POS`, and `SNP` for an rsID identi
 
 This low-level calculator takes already-resolved `regression_snps` and `regression_regions` arguments. Omitting them selects all retained reference rows and applies no regression-region exclusions; it does not load `LDScoreConfig.regr_snps_file` or apply the high-level workflow's packaged HapMap3 and region defaults. Pass the same resolved restrictions when comparing with a writing workflow. Sources: `AnnotationBundle.from_frames` in [_annotation_bundle.py](../src/ldsc/_annotation_bundle.py) and `LDScoreCalculator.run` in [ldscore_calculator.py](../src/ldsc/ldscore_calculator.py).
 
-For writing workflows, `query_batch_size` defines sequential execution and output grouping. Direct mode repeats reference work between batches. Indexed mode reuses each worker's chromosome operator across its query batches. Both accept `threads=1`, positive worker counts, or negative CPU offsets such as `-1` and `-2`, capped at chromosome count. Index construction uses the same resolution. Negative requests prefer process CPU affinity, with a machine CPU-count fallback; an effective count of 1 always runs inline. Zero, booleans, and non-integer Python values are invalid. Completed files stay private until the complete run succeeds. Resuming from a completed batch is a possible future feature, currently unsupported.
+For writing workflows, `query_batch_size` defines sequential execution and saved-file grouping.
+Direct mode repeats reference work between batches while reusing its worker pool.
+Indexed mode keeps each chromosome operator through its query batches.
+Every worker uses 1 BLAS thread; serial calculation uses one managed child.
+Completed results and optional reference metadata stay private until computation succeeds.
+There is no checkpoint or resume workflow.
+See [the execution policy](../docs/current/parallel-execution.md) for CPU budgets, failure cleanup, and chromosome logs.
 
 ## Case 5: Reuse an Exact Gene LD-Score Index
 
@@ -406,7 +412,7 @@ the closed log moves to
 remain in hidden state and are archived on retry. This keeps the destination
 absent or empty until a complete index is published.
 
-This live build log contains the same annotation-preparation milestones before `Starting chromosome N`. Index annotation preparation remains serial; the preparation parallelism study is closed, and `--threads` continues to control only subsequent chromosome computation. See [the measured decision](../docs/audits/annotation-memory/preparation-parallelism.md#decision).
+This live build log contains the same annotation-preparation milestones before `Starting chromosome N`. Index annotation preparation remains serial; the preparation parallelism study is closed, and `--workers` continues to control only subsequent chromosome computation. See [the measured decision](../docs/audits/annotation-memory/preparation-parallelism.md#decision).
 
 Use an updated reader for newly built gene indexes: chromosome metadata now carries only the published-row fingerprint, which also covers the effective SNP key. Otherwise-valid existing indexes remain readable; the semantic `index_id` and six input fingerprints are unchanged. See the [artifact and identity contract](../docs/current/gene-ldscore-index.md#artifact-and-identity-contract).
 

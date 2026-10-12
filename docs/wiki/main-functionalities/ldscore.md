@@ -1,6 +1,6 @@
 # Calculate LD scores
 
-Last updated on: 2026-09-14
+Last updated on: 2026-10-12
 
 `ldsc ldscore` computes a reusable LD-score directory from PLINK genotypes or a precomputed R² panel. Regression consumes that directory. Ordinary unpartitioned scoring uses a synthetic all-ones `base` annotation:
 
@@ -19,6 +19,8 @@ The output root contains `metadata.json` and `ldscore.baseline.parquet`. One que
 
 Direct query scoring requires explicit `--baseline-annot-sources` plus one query route: `--query-annot-sources`, `--query-annot-bed-sources`, or `--query-annot-gene-list-sources`. See the [guided tutorial](../guided-tutorial.md#analysis-3-partition-heritability-with-functional-annotations-known-as-cell-type-specific-regression), [gene-list workflow](ldscore-from-gene-list.md), and [standalone annotation](../utility-functionalities/annotate.md). An exact gene index supplies its own configuration and baseline; omit live overrides in indexed mode.
 
+Baseline inputs are prebuilt annotation tables. To prepare binary baseline categories from BED files, follow [building baseline annotations with `annotate`](../utility-functionalities/annotate.md#build-baseline-annotations-from-bed-files), including target SNP-grid creation, category-specific interval boundaries, and the all-ones `base` column.
+
 ## Effective CM Coordinates and Metadata Export
 
 For PLINK input with `--ld-wind-cm`, LDSC interpolates CM from a matching explicit genetic map when supplied; otherwise BIM CM must be informative. `--genetic-map-hg19-sources` and `--genetic-map-hg38-sources` accept comma-separated exact paths, without `*` or `@` expansion. With R² input, CM comes from the authoritative metadata sidecar; map flags do not override it.
@@ -29,7 +31,13 @@ For PLINK input, `--export-ref-metadata` writes `ref_metadata/chrN_meta.tsv.gz` 
 
 Live annotation inputs are prepared serially before chromosome computation. Whole-genome and chromosome-sharded inputs use bounded chunks sized for aligned source groups; duplicate cleanup remains global, including rsIDs repeated across chromosomes. At INFO, `diagnostics/ldscore.log` marks input reading, SNP identity checks and chromosome preparation, and completion with retained counts and elapsed time. See [preparation logging](../../current/workflow-logging.md#annotation-preparation). The preparation milestone does not report completed LD-score calculation.
 
-Direct and indexed `ldscore --threads` control chromosome worker processes. The default is `1`; positive values request that many workers, `-1` uses available cores, and `-2` leaves one core free. The effective count is capped at the chromosome count, and `0` is invalid. Each concurrent chromosome increases memory use. `build-gene-ldscore-index --threads` controls its existing chromosome thread pool for index construction.
+`--workers` / `workers` defaults to one managed child process, including on HPC.
+Every worker uses **1 BLAS thread**, in serial and parallel execution.
+`joblib.cpu_count()` supplies the detected available CPU count; it does not measure idle CPUs or read the requested scheduler allocation.
+Positive requests above that count fail before capping by available tasks; negative `-k` uses `max(1, detected_count + 1 - k)`.
+LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
+Zero, Boolean, and non-integer Python requests are invalid.
+See [the execution policy](../../current/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
 
 This optimization targets workloads such as 1,000 pathways, each later tested separately against shared baseline categories. `--query-batch-size 1000` sets the maximum active query batch and defaults to 1000. Direct calculation prepares, computes, privately writes, and releases one batch before starting the next; smaller batches repeat reference/genotype work. Indexed calculation keeps one chromosome operator per worker through that chromosome's batches, writing and releasing each batch before advancing. The coordinator assembles one genome-wide batch at a time. Baseline values remain resident, but completed query LD tables do not accumulate in the returned result.
 

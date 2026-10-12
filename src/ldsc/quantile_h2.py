@@ -8,6 +8,7 @@ do not assign a coefficient to an external target annotation.
 from __future__ import annotations
 
 import argparse
+
 from dataclasses import dataclass
 import json
 import logging
@@ -18,6 +19,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from ._serial_calculation import serial_calculation
 from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
 from .errors import LDSCInputError
@@ -137,6 +139,7 @@ def assign_legacy_quantiles(values: Sequence[float] | np.ndarray, n_quantiles: i
     )
 
 
+@serial_calculation
 def compute_quantile_h2(
     *,
     annotation_sums: np.ndarray,
@@ -148,6 +151,9 @@ def compute_quantile_h2(
     liability_factor: float | None = None,
 ) -> pd.DataFrame:
     """Project one fitted joint model onto target-defined quantiles.
+
+    Standalone calls use a managed child with 1 BLAS thread; calls from an
+    existing calculation worker reuse that child without another pool.
 
     Parameters
     ----------
@@ -613,6 +619,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+@serial_calculation
 @materializing_overwrite_guard(
     lambda args: (
         (getattr(args, "output_dir"), getattr(args, "overwrite", False), "RUN_FAILED.txt")
@@ -623,6 +630,8 @@ def build_parser() -> argparse.ArgumentParser:
 )
 def run_quantile_h2_from_args(args) -> QuantileH2Result:
     """Run the verified post-fit continuous-annotation quantile workflow.
+
+    Preparation and projection share one managed child with 1 BLAS thread.
 
     The workflow reconstructs the fitted model's common reference-SNP
     universe from the original annotation sources and reference metadata,

@@ -13,7 +13,8 @@ complete reload-validated transaction is published as an index.
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
+import multiprocessing as mp
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -37,9 +38,10 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
+from ._worker_runtime import initialize_worker, native_thread_state
 from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
-from ._parallelism import _parse_threads, _resolve_worker_count, _validate_threads
+from ._parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _validate_workers
 from ._progress import report_phase, advance
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel.gene_ldscore_index import (
@@ -246,14 +248,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     runtime.add_argument(
-        '--threads', type=_parse_threads, default=1, metavar='N',
-        help=(
-            'Number of chromosomes built concurrently using a thread pool. Default: 1, sequential. Positive '
-            'N requests N threads; -1 uses available cores and -2 leaves one free; zero is invalid. '
-            'CPU discovery prefers affinity, with a machine CPU-count fallback. Capped at chromosome '
-            'count; one effective worker runs inline. More threads '
-            'use more memory. ldscore uses processes for the same flag.'
-        ),
+        '--workers', type=_parse_workers, default=1, metavar='N',
+        help='Maximum simultaneous chromosome builds. ' + WORKERS_HELP,
     )
     runtime.add_argument(
         '--snp-batch-size', type=int, default=128, metavar='N',
@@ -348,7 +344,7 @@ def build_gene_ldscore_index(
     are sets. PLINK supplies the published variant labels, coordinates, and
     alleles. Each chromosome worker
     atomically persists its completed shard in a private run stage before
-    releasing the in-memory record; ``threads`` therefore controls concurrent
+    releasing the in-memory record; ``workers`` therefore controls concurrent
     chromosome-local peak memory. A ``Finished chromosome N`` log record means
     that internal shard is durable, not that a partial public index exists. The
     destination remains missing, empty, or loadable at its prior version until
@@ -380,7 +376,7 @@ def build_gene_ldscore_index(
             _test_chromosomes=tuple(str(value) for value in range(1, 23)),
             snp_batch_size=config.snp_batch_size,
             atom_batch_size=config.atom_batch_size,
-            threads=config.threads,
+            workers=config.workers,
             overwrite=overwrite,
             log_level=log_level,
         )
@@ -480,7 +476,7 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
         regr_snps_exclude_regions=getattr(args, "regr_snps_exclude_regions", "mhc-and-centromeres"),
         snp_batch_size=args.snp_batch_size,
         atom_batch_size=args.atom_batch_size,
-        threads=args.threads,
+        workers=args.workers,
     )
 
     index_path = Path(config.output_dir)
@@ -514,7 +510,7 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 regr_snps_exclude_regions=config.regr_snps_exclude_regions,
                 snp_batch_size=config.snp_batch_size,
                 atom_batch_size=config.atom_batch_size,
-                threads=config.threads,
+                workers=config.workers,
                 effective_log_level=args.log_level,
                 process_id=os.getpid(),
                 hostname=socket.gethostname(),
@@ -561,6 +557,155 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 raise
         _finalize_gene_index_log(live_log_path, published_path)
         return published_path
+
+
+@report_phase(LOGGER, 'computation', 'gene-index chromosome')
+def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, chrom_catalog,
+                                config, chromosome_prefixes, genetic_map, regression_keys,
+                                regression_regions, staged_index):
+    """Read one staged chromosome and return only its persisted component metadata."""
+    chrom_started = time.perf_counter()
+    LOGGER.info(f"Starting chromosome {chrom}.")
+    phase = "baseline annotation resolution"
+    try:
+        metadata = shard.metadata()
+        baseline = pd.DataFrame(shard.read(columns=baseline_columns), columns=baseline_columns)
+        if metadata.empty:
+            raise LDSCInputError(f"No baseline annotation rows were found for chromosome {chrom}.")
+        kernel_args = argparse.Namespace(
+            bfile=chromosome_prefixes[chrom],
+            keep=config.keep_indivs_file,
+            maf_min=config.maf_min,
+            maf=None,
+            snp_identifier=config.snp_identifier,
+            genome_build=config.genome_build,
+            ld_wind_snps=None,
+            ld_wind_kb=None,
+            ld_wind_cm=config.ld_wind_cm,
+            yes_really=False,
+            snp_batch_size=config.snp_batch_size,
+            common_maf_min=config.common_maf_min,
+            genetic_map=genetic_map,
+        )
+        prefix = chromosome_prefixes[chrom]
+        bim_rows = _read_bim_identity(prefix)
+        phase = "baseline/PLINK identifier intersection"
+        intersection = intersect_baseline_plink_by_identifier(
+            metadata,
+            baseline,
+            bim_rows,
+            snp_identifier=config.snp_identifier,
+            chrom=chrom,
+        )
+        intersection.diagnostics["baseline_duplicate_rows_dropped"] += sum(
+            int(frame.reason.eq("duplicate_identity").sum()) for frame in baseline_drop.frames()
+        )
+        kernel_bundle = kernel_ldscore.AnnotationBundle(
+            metadata=intersection.metadata,
+            annotations=intersection.annotations,
+            baseline_columns=list(baseline_columns),
+            query_columns=[],
+        )
+        intervals = np.column_stack(
+            [
+                chrom_catalog["start"].to_numpy(dtype=np.int64) - 1,
+                chrom_catalog["end"].to_numpy(dtype=np.int64),
+            ]
+        )
+        included = chrom_catalog["included"].to_numpy(dtype=bool)
+        phase = "genotype QC and atomic LD-score construction"
+        record = build_plink_index_chromosome(
+            chrom,
+            kernel_bundle,
+            kernel_args,
+            chromosome_prefixes=chromosome_prefixes,
+            regression_keys=regression_keys,
+            regression_regions=regression_regions,
+            gene_intervals=intervals,
+            included=included,
+            padding_bp=config.padding_bp,
+            atom_batch_size=config.atom_batch_size,
+        )
+    except Exception as exc:
+        exc.add_note(f"Chromosome {chrom} failed during {phase}.")
+        LOGGER.error(
+            f"Chromosome {chrom} failed during {phase}: {type(exc).__name__}: {exc}"
+        )
+        raise
+    catalog_genes = int(included.sum())
+    genes_with_atoms = int(np.count_nonzero(np.diff(record.atom_model.gene_to_atom.indptr)))
+    rows_before_genotype_qc = int(record.reference_rows_before_genotype_qc or record.total_reference_snps_all)
+    genotype_qc_removed = int(record.genotype_qc_removed)
+    maf_removed = int(record.maf_removed)
+    evidence = {
+        "pre_qc_rows": int(len(bim_rows)),
+        **intersection.diagnostics,
+        "baseline_content_sha256": _retained_baseline_content_sha256(
+            intersection.metadata,
+            intersection.annotations,
+            config.snp_identifier,
+        ),
+        "reference_rows_before_genotype_qc": rows_before_genotype_qc,
+        "annotation_intersection_removed": int(len(bim_rows) - rows_before_genotype_qc),
+        "retained_reference_rows": int(record.total_reference_snps_all),
+        "retained_common_reference_rows": int(record.total_reference_snps_common),
+        "genotype_qc_removed": genotype_qc_removed,
+        "maf_removed": maf_removed,
+        "genotype_qc_or_maf_removed": genotype_qc_removed + maf_removed,
+        "regression_rows": int(len(record.baseline_rows)),
+        "baseline_plink_identity": f"inner_join_by_{config.snp_identifier}",
+        "catalog_genes": catalog_genes,
+        "genes_with_padded_atoms": genes_with_atoms,
+        "atom_count": int(record.atom_model.n_atoms),
+        "operator_nnz": int(record.operator.nnz),
+        "nnz_Y": int(record.operator.nnz),
+        "snp_batch_size": int(config.snp_batch_size),
+        "atom_batch_size": int(config.atom_batch_size),
+        "maf_filter_policy": "disabled" if config.maf_min is None else f">={config.maf_min}",
+        "cm_source": record.cm_source,
+    }
+    try:
+        component_metadata = _index_chromosome_metadata(
+            chrom,
+            record,
+            snp_identifier=config.snp_identifier,
+            genome_build=config.genome_build,
+        )
+        _stage_index_chromosome(staged_index, chrom, record)
+        dropped_path = (
+            staged_index / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
+        )
+        dropped_path.parent.mkdir(parents=True, exist_ok=True)
+        with gzip.open(dropped_path, "wt") as stream:
+            header = True
+            for frame in baseline_drop.frames():
+                frame.to_csv(stream, sep="\t", index=False, header=header, na_rep="")
+                header = False
+            intersection.dropped_rows.to_csv(stream, sep="\t", index=False, header=header, na_rep="")
+    except Exception as exc:
+        exc.add_note(f"Chromosome {chrom} failed during durable shard staging.")
+        LOGGER.error(
+            f"Chromosome {chrom} failed during durable shard staging: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        raise
+    evidence["elapsed_seconds"] = time.perf_counter() - chrom_started
+    LOGGER.info(
+        f"Finished chromosome {chrom}: catalog genes={catalog_genes}, "
+        f"retained-reference={evidence['retained_reference_rows']}, "
+        f"regression-rows={evidence['regression_rows']}, atoms={evidence['atom_count']}, "
+        f"nonzero SNP–atom LD scores={evidence['nnz_Y']}, elapsed={evidence['elapsed_seconds']:.3f}s."
+    )
+    if not len(record.baseline_rows):
+        LOGGER.warning(
+            f"Chromosome {chrom} has zero persisted regression SNP rows after restriction and region exclusion."
+        )
+    evidence["worker_runtime"] = native_thread_state()
+    return StagedIndexChromosome(
+        chromosome=chrom,
+        evidence=evidence,
+        component_metadata=component_metadata,
+    )
 
 
 @report_phase(LOGGER, 'workflow', 'gene-index build')
@@ -630,175 +775,54 @@ def _run_gene_ldscore_index_build(
                 if chrom in baseline_drops:
                     baseline_drops[chrom].append(records.assign(stage="gene_index_baseline_identity_cleanup"))
 
-        def build_one(chrom: str) -> StagedIndexChromosome:
-            chrom_started = time.perf_counter()
-            LOGGER.info(f"Starting chromosome {chrom}.")
-            phase = "baseline annotation resolution"
-            try:
-                shard = sources.shards[chrom]
-                metadata = shard.metadata()
-                baseline = pd.DataFrame(shard.read(columns=sources.baseline_columns), columns=sources.baseline_columns)
-                if metadata.empty:
-                    raise LDSCInputError(f"No baseline annotation rows were found for chromosome {chrom}.")
-                kernel_args = argparse.Namespace(
-                    bfile=chromosome_prefixes[chrom],
-                    keep=config.keep_indivs_file,
-                    maf_min=config.maf_min,
-                    maf=None,
-                    snp_identifier=config.snp_identifier,
-                    genome_build=config.genome_build,
-                    ld_wind_snps=None,
-                    ld_wind_kb=None,
-                    ld_wind_cm=config.ld_wind_cm,
-                    yes_really=False,
-                    snp_batch_size=config.snp_batch_size,
-                    common_maf_min=config.common_maf_min,
-                    genetic_map=genetic_map,
-                )
-                prefix = chromosome_prefixes[chrom]
-                bim_rows = _read_bim_identity(prefix)
-                phase = "baseline/PLINK identifier intersection"
-                intersection = intersect_baseline_plink_by_identifier(
-                    metadata,
-                    baseline,
-                    bim_rows,
-                    snp_identifier=config.snp_identifier,
-                    chrom=chrom,
-                )
-                intersection.diagnostics["baseline_duplicate_rows_dropped"] += sum(
-                    int(frame.reason.eq("duplicate_identity").sum()) for frame in baseline_drops[chrom].frames()
-                )
-                kernel_bundle = kernel_ldscore.AnnotationBundle(
-                    metadata=intersection.metadata,
-                    annotations=intersection.annotations,
-                    baseline_columns=list(sources.baseline_columns),
-                    query_columns=[],
-                )
-                chrom_catalog = embedded_catalog.loc[embedded_catalog["chrom"].astype(str) == chrom].sort_values(
-                    "chromosome_gene_row", kind="mergesort"
-                )
-                intervals = np.column_stack(
-                    [
-                        chrom_catalog["start"].to_numpy(dtype=np.int64) - 1,
-                        chrom_catalog["end"].to_numpy(dtype=np.int64),
-                    ]
-                )
-                included = chrom_catalog["included"].to_numpy(dtype=bool)
-                phase = "genotype QC and atomic LD-score construction"
-                record = build_plink_index_chromosome(
-                    chrom,
-                    kernel_bundle,
-                    kernel_args,
-                    chromosome_prefixes=chromosome_prefixes,
-                    regression_keys=regression_keys,
-                    regression_regions=regression_regions,
-                    gene_intervals=intervals,
-                    included=included,
-                    padding_bp=config.padding_bp,
-                    atom_batch_size=config.atom_batch_size,
-                )
-            except Exception as exc:
-                LOGGER.error(
-                    f"Chromosome {chrom} failed during {phase}: {type(exc).__name__}: {exc}"
-                )
-                raise
-            catalog_genes = int(included.sum())
-            genes_with_atoms = int(np.count_nonzero(np.diff(record.atom_model.gene_to_atom.indptr)))
-            rows_before_genotype_qc = int(record.reference_rows_before_genotype_qc or record.total_reference_snps_all)
-            genotype_qc_removed = int(record.genotype_qc_removed)
-            maf_removed = int(record.maf_removed)
-            evidence = {
-                "pre_qc_rows": int(len(bim_rows)),
-                **intersection.diagnostics,
-                "baseline_content_sha256": _retained_baseline_content_sha256(
-                    intersection.metadata,
-                    intersection.annotations,
-                    config.snp_identifier,
-                ),
-                "reference_rows_before_genotype_qc": rows_before_genotype_qc,
-                "annotation_intersection_removed": int(len(bim_rows) - rows_before_genotype_qc),
-                "retained_reference_rows": int(record.total_reference_snps_all),
-                "retained_common_reference_rows": int(record.total_reference_snps_common),
-                "genotype_qc_removed": genotype_qc_removed,
-                "maf_removed": maf_removed,
-                "genotype_qc_or_maf_removed": genotype_qc_removed + maf_removed,
-                "regression_rows": int(len(record.baseline_rows)),
-                "baseline_plink_identity": f"inner_join_by_{config.snp_identifier}",
-                "catalog_genes": catalog_genes,
-                "genes_with_padded_atoms": genes_with_atoms,
-                "atom_count": int(record.atom_model.n_atoms),
-                "operator_nnz": int(record.operator.nnz),
-                "nnz_Y": int(record.operator.nnz),
-                "snp_batch_size": int(config.snp_batch_size),
-                "atom_batch_size": int(config.atom_batch_size),
-                "maf_filter_policy": "disabled" if config.maf_min is None else f">={config.maf_min}",
-                "cm_source": record.cm_source,
-            }
-            try:
-                component_metadata = _index_chromosome_metadata(
-                    chrom,
-                    record,
-                    snp_identifier=config.snp_identifier,
-                    genome_build=config.genome_build,
-                )
-                _stage_index_chromosome(staged_index, chrom, record)
-                dropped_path = (
-                    staged_index / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
-                )
-                dropped_path.parent.mkdir(parents=True, exist_ok=True)
-                with gzip.open(dropped_path, "wt") as stream:
-                    header = True
-                    for frame in baseline_drops[chrom].frames():
-                        frame.to_csv(stream, sep="\t", index=False, header=header, na_rep="")
-                        header = False
-                    intersection.dropped_rows.to_csv(stream, sep="\t", index=False, header=header, na_rep="")
-            except Exception as exc:
-                LOGGER.error(
-                    f"Chromosome {chrom} failed during durable shard staging: "
-                    f"{type(exc).__name__}: {exc}"
-                )
-                raise
-            evidence["elapsed_seconds"] = time.perf_counter() - chrom_started
-            LOGGER.info(
-                f"Finished chromosome {chrom}: catalog genes={catalog_genes}, "
-                f"retained-reference={evidence['retained_reference_rows']}, "
-                f"regression-rows={evidence['regression_rows']}, atoms={evidence['atom_count']}, "
-                f"nonzero SNP–atom LD scores={evidence['nnz_Y']}, elapsed={evidence['elapsed_seconds']:.3f}s."
-            )
-            if not len(record.baseline_rows):
-                LOGGER.warning(
-                    f"Chromosome {chrom} has zero persisted regression SNP rows after restriction and region exclusion."
-                )
-            return StagedIndexChromosome(
-                chromosome=chrom,
-                evidence=evidence,
-                component_metadata=component_metadata,
-            )
+        def task_arguments(chrom):
+            chrom_catalog = embedded_catalog.loc[embedded_catalog["chrom"].astype(str) == chrom].sort_values(
+                "chromosome_gene_row", kind="mergesort")
+            return (chrom, sources.shards[chrom], sources.baseline_columns, baseline_drops[chrom],
+                    chrom_catalog, config, chromosome_prefixes, genetic_map, regression_keys,
+                    regression_regions, staged_index)
 
-        max_workers = _resolve_worker_count(config.threads, len(chromosomes))
-        if max_workers == 1:
-            completed = {chrom: build_one(chrom) for chrom in chromosomes}
-        else:
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                remaining = iter(chromosomes)
-                futures = {pool.submit(build_one, chrom) for chrom in
-                           [next(remaining) for _ in range(max_workers)]}
-                completed = {}
-                try:
-                    while futures:
-                        done, futures = wait(futures, return_when=FIRST_COMPLETED)
-                        while done:
-                            future = done.pop()
-                            result = future.result()
-                            completed[result.chromosome] = result
-                            del future
-                            chrom = next(remaining, None)
-                            if chrom is not None:
-                                futures.add(pool.submit(build_one, chrom))
-                except Exception:
-                    for future in futures:
-                        future.cancel()
-                    raise
+
+        max_workers = _resolve_worker_count(config.workers, len(chromosomes))
+        with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp.get_context("spawn"),
+                                 initializer=initialize_worker, initargs=(args.log_level,)) as pool:
+            remaining = iter(chromosomes)
+            pending, completed = {}, {}
+            def submit_next():
+                chrom = next(remaining, None)
+                if chrom is not None:
+                    LOGGER.info("Starting chromosome %s gene-index construction.", chrom)
+                    pending[pool.submit(_build_one_index_chromosome, *task_arguments(chrom))] = chrom
+            try:
+                for _ in range(max_workers):
+                    submit_next()
+                while pending:
+                    done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        result = future.result()
+                        completed[result.chromosome] = result
+                        pending.pop(future)
+                        evidence = result.evidence
+                        LOGGER.info(
+                            "Finished chromosome %s: catalog genes=%s, retained-reference=%s, "
+                            "regression-rows=%s, atoms=%s, nonzero SNP–atom LD scores=%s, elapsed=%.3fs.",
+                            result.chromosome, evidence["catalog_genes"], evidence["retained_reference_rows"],
+                            evidence["regression_rows"], evidence["atom_count"], evidence["nnz_Y"],
+                            evidence["elapsed_seconds"],
+                        )
+                        runtime = result.evidence["worker_runtime"]
+                        LOGGER.log(logging.INFO if runtime["verified"] else logging.WARNING,
+                                   "Finished chromosome %s; native thread policy %s: %s",
+                                   result.chromosome, "verified" if runtime["verified"] else "unverified or unmet (continuing)",
+                                   runtime)
+                    for _ in done:
+                        submit_next()
+            except Exception:
+                for future in pending:
+                    future.cancel()
+                LOGGER.exception("Gene-index construction failed; affected in-flight chromosomes: %s.",
+                                 list(pending.values()))
+                raise
 
     staged_chromosomes = {chrom: completed[chrom] for chrom in chromosomes}
     evidence_by_chrom = {
@@ -840,7 +864,7 @@ def _run_gene_ldscore_index_build(
         "peak_rss_bytes": peak_rss,
         "snp_batch_size": config.snp_batch_size,
         "atom_batch_size": config.atom_batch_size,
-        "threads": config.threads,
+        "workers": config.workers,
         "effective_log_level": args.log_level,
         "configuration": {
             "genome_build": config.genome_build,
@@ -1979,7 +2003,7 @@ def run_indexed_ldscore(
     control_gene_list_file: str | Path | None = None,
     gene_list_resolution_policy: str = "strict",
     query_batch_size: int = 1000,
-    threads: int = 1,
+    workers: int = 1,
     output_dir: str | Path,
     overwrite: bool = False,
     _allow_partial_for_tests: bool = False,
@@ -2009,12 +2033,17 @@ def run_indexed_ldscore(
         Positive maximum focal columns per operator multiplication, default 1000.
         Also bounds genome-wide result assembly and saved query-file width.
         Each pathway remains a separate annotation and regression model.
-    threads : int, optional
-        Chromosome workers, default 1. Positive values request workers; -1
-        uses available cores and -2 leaves one free. CPU discovery prefers
-        affinity, falling back to the machine CPU count. Zero, booleans, and
-        non-integers are invalid. The effective count is capped at the number
-        of index chromosomes; one effective worker runs inline.
+    workers : int, optional
+        Maximum concurrent task processes, default 1, including on HPC.
+        Use joblib.cpu_count() as the detected available CPU budget.
+        Positive requests above that budget fail before capping by task
+        count; negative -k uses max(1, budget + 1 - k). Zero, booleans,
+        and non-integers are invalid. One worker is a managed child.
+        Every worker uses 1 BLAS thread in serial and parallel execution.
+        Numerical OpenMP and Arrow CPU/I/O limits are also one; unsupported
+        numerical limits are logged as unverified and computation continues.
+        This does not detect idle CPUs, guarantee scheduler allocation
+        compliance, or ensure sufficient memory.
     output_dir : path-like
         Destination for the canonical self-contained LD-score directory.
         User and environment tokens are expanded for both scratch and results.
@@ -2053,7 +2082,7 @@ def run_indexed_ldscore(
     """
     if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
         raise ValueError("query_batch_size must be a positive integer.")
-    _validate_threads(threads)
+    _validate_workers(workers)
     output_dir = normalize_path_token(output_dir)
     from ._input_preflight import inspect_declared_inputs, inspect_index_paths
     from .outputs import LDScoreDirectoryWriter
@@ -2075,7 +2104,7 @@ def run_indexed_ldscore(
             index_dir, query_gene_list_sources=query_gene_list_sources,
             control_gene_list_file=control_gene_list_file,
             gene_list_resolution_policy=gene_list_resolution_policy,
-            query_batch_size=query_batch_size, threads=threads, output_dir=output_dir,
+            query_batch_size=query_batch_size, workers=workers, output_dir=output_dir,
             overwrite=overwrite, workspace=workspace,
             _allow_partial_for_tests=_allow_partial_for_tests,
         )
@@ -2083,7 +2112,7 @@ def run_indexed_ldscore(
 
 def _run_indexed_ldscore_in_workspace(
     index_dir, *, query_gene_list_sources, control_gene_list_file,
-    gene_list_resolution_policy, query_batch_size, threads, output_dir, overwrite,
+    gene_list_resolution_policy, query_batch_size, workers, output_dir, overwrite,
     workspace, _allow_partial_for_tests,
 ):
     """Own staged gene selections until the canonical result has been written."""
@@ -2173,15 +2202,18 @@ def _run_indexed_ldscore_in_workspace(
         raise LDSCInputError("Index supplied baseline columns contain reserved name 'gene_control'.")
     from ._indexed_ldscore_batches import indexed_results
 
-    results = indexed_results(index, batch, usable, control_resolution, query_batch_size,
-                              workspace.path, threads, statuses, scope)
-    result = LDScoreDirectoryWriter().write_batches(
-        results, LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
-        query_status_order=[status.query for status in statuses])
-    _log_gene_list_rejections(result.gene_list_batch)
-    _log_gene_list_snp_support(result.gene_list_batch)
-    _log_query_annotation_statuses(result.query_statuses)
-    return result
+    from ._ldscore_diagnostics import ldscore_logs
+    with ldscore_logs(output_dir, index.chromosomes, overwrite=overwrite,
+                      log_level=logging.getLevelName(LOGGER.getEffectiveLevel())) as log_paths:
+        results = indexed_results(index, batch, usable, control_resolution, query_batch_size,
+                                  workspace.path, workers, statuses, scope, log_paths)
+        result = LDScoreDirectoryWriter().write_batches(
+            results, LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
+            query_status_order=[status.query for status in statuses])
+        _log_gene_list_rejections(result.gene_list_batch)
+        _log_gene_list_snp_support(result.gene_list_batch)
+        _log_query_annotation_statuses(result.query_statuses)
+        return result
 
 
 def _baseline_columns_from_rows(frame: pd.DataFrame) -> list[str]:

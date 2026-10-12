@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-12
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -215,7 +215,7 @@ Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requi
 | `--export-ref-metadata` | output | no | opt-in reference-metadata sidecar | When set (PLINK backend), writes `ref_metadata/chrN_meta.tsv.gz` (`CHR POS SNP A1 A2 CM MAF`, matching the parquet panel sidecar) next to the LD-score output. Default `False`. Parquet panels already ship this sidecar. |
 | `--common-maf-min` | input metadata | no | common-SNP count threshold | Sets the MAF threshold for common-SNP count vectors and the common-universe overlap matrix; defaults to `0.05` and uses inclusive `MAF >= common_maf_min` (deviates from legacy LDSC's strict `0.05 < FRQ < 0.95`). |
 | `--snp-batch-size` | performance | no | LD-score SNP batch size | Genotype batch size for the PLINK reference-panel backend; defaults to `128`. The parquet-R2 backend streams stored pairs and ignores this value. |
-| `--threads` | performance | no | cross-chromosome parallelism | Worker processes for cross-chromosome parallelism (joblib `n_jobs` convention): defaults to `1` (sequential), `N`=`N` workers, `-1`=all cores, `-2`=all but one. Capped at chromosome count; available-core counts used by negative values respect CPU affinity. Direct and indexed scoring use worker processes. Each indexed worker retains one operator through its query batches, while direct workers prepare their chromosome panel within each batch. More workers need more memory. |
+| `--workers` | performance | no | cross-chromosome parallelism | Default 1, one managed child; every worker uses 1 BLAS thread. Use joblib.cpu_count() as the detected CPU budget; reject positive requests above it before capping by tasks (and regression query batch size). Negative -k uses max(1, budget + 1 - k); zero is invalid. See [execution policy](parallel-execution.md). |
 | `--yes-really` | safety override | no | whole-chromosome LD windows | Allows whole-chromosome LD windows; defaults to `False`, so such windows are rejected unless this flag is supplied. |
 
 Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--r2-sources`,
@@ -330,7 +330,7 @@ It is not a legacy compatibility command and performs no inference or liftover.
 | `--regr-snps-exclude-regions` | input transform | no | regression-region subtraction | `none`, `mhc`, `centromeres`, or `mhc-and-centromeres`; defaults to `mhc-and-centromeres`. The obsolete `--exclude-regions` alias is rejected. |
 | `--genetic-map-hg19-sources` | input | no | genetic map | Optional explicit hg19 map; accepts comma-separated exact paths, without `*` or `@` expansion. Defaults to omitted/`None`; hg38 maps are not a builder CLI input. |
 | `--snp-batch-size`, `--atom-batch-size` | performance | no | computation batches | Bounds SNP and disjoint-atom matrix work; `--snp-batch-size` defaults to `128`, and `--atom-batch-size` defaults to `64`. |
-| `--threads` | performance | no | chromosome workers | Gene-index thread-pool size; defaults to `1`. Positive N requests N workers; negative -k uses available CPUs + 1 - k, floored at one, preferring affinity with a machine CPU-count fallback. Cap by chromosome count; effective one runs inline. Zero is invalid. Shares parsing and resolution with direct/indexed `ldscore` and `partitioned-h2`, whose workers are processes. |
+| `--workers` | performance | no | chromosome workers | Default 1, one managed child; every worker uses 1 BLAS thread. Use joblib.cpu_count() as the detected CPU budget; reject positive requests above it before capping by tasks (and regression query batch size). Negative -k uses max(1, budget + 1 - k); zero is invalid. See [execution policy](parallel-execution.md). |
 | `--overwrite` | output mode | no | publication policy | Replaces only a complete valid owned index through staged publication; defaults to `False`. |
 | `--log-level` | logging | no | workflow log verbosity | Controls the persistent index build-state log; defaults to `INFO`. |
 
@@ -487,7 +487,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Requires an overlap artifact. With query columns, runs the cell-type regime (baseline plus one query per model); with no query columns, runs one functional-category model jointly over all baseline columns. This includes explicitly converted baseline-only LDSC2 suites. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. Accepts current Parquet or legacy LDSC2 text under the same projection rule as `h2`. |
 | `--trait-name` | input metadata | no | output trait label | Optional label override; defaults to omitted/`None`. If omitted, regression uses the sumstats parquet footer `ldsc:trait_name` when present, then the filename fallback. |
-| `--threads` | performance | no | complete-query worker processes | Default `1`, inline. Uses the same parsing and resolution as `ldscore` and `build-gene-ldscore-index`: positive N requests N workers; negative -k uses available CPUs + 1 - k, floored at one. Negative requests prefer CPU affinity with a machine CPU-count fallback. Cap all requests by query count and `--query-batch-size`; effective-one and baseline-only runs stay inline. Choose positive N within the job allocation; no separate SLURM environment cap. Each parallel worker uses one native numerical thread. |
+| `--workers` | performance | no | complete-query worker processes | Default 1, one managed child; every worker uses 1 BLAS thread. Use joblib.cpu_count() as the detected CPU budget; reject positive requests above it before capping by tasks (and regression query batch size). Negative -k uses max(1, budget + 1 - k); zero is invalid. See [execution policy](parallel-execution.md). |
 | `--query-batch-size` | config | no | active focal query columns | Positive integer, default `1000`; bounds query LD-score columns read together and caps active query workers. Each worker fits one separate complete model. Independent of generation batch width and the query error policy. |
 | `--output-dir` | output | yes | result output directory | Required destination for `partitioned_h2.tsv` and diagnostics. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
@@ -614,7 +614,7 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | `RefPanelConfig` | `maf_min` | input metadata | retained reference-panel MAF filter |
 | `LDScoreConfig` | `regr_snps_file` | input | regression SNP override; omitted uses the bundled HM3 map |
 | `LDScoreConfig` | `snp_batch_size` | performance | LD-score SNP batch size |
-| `LDScoreConfig` | `threads` | performance | cross-chromosome worker processes |
+| `LDScoreConfig` | `workers` | performance | cross-chromosome worker processes |
 | `LDScoreConfig` | `common_maf_min` | input metadata | common-SNP count threshold only |
 | `LDScoreOutputConfig` | `output_dir` | output | canonical LD-score result directory |
 | `LDScoreCalculator.run(...)` | `output_config` | output | optional for in-memory calculation; required when `LDScoreConfig.export_ref_metadata=True` |
@@ -638,7 +638,7 @@ LD-score `chunk_size`; `use_hm3_ref_panel_snps`, `use_hm3_regression_snps`,
 | `GeneLDScoreIndexBuildConfig` | `genome_build`, `snp_identifier` | config | required explicit `hg19` and base `rsid|chr_pos` semantic identity |
 | `GeneLDScoreIndexBuildConfig` | `padding_bp`, `gene_exclude_regions`, `ld_wind_cm` | model | closed index scientific identity; `padding_bp` defaults to `0` |
 | `GeneLDScoreIndexBuildConfig` | `regr_snps_file`, `regr_snps_exclude_regions` | input | regression row universe |
-| `GeneLDScoreIndexBuildConfig` | `snp_batch_size`, `atom_batch_size`, `threads` | performance | bounded index computation |
+| `GeneLDScoreIndexBuildConfig` | `snp_batch_size`, `atom_batch_size`, `workers` | performance | bounded index computation |
 | `build_gene_ldscore_index(config)` | `config` | input/output | staged build and publication workflow |
 
 ### LDSC2 LD-score conversion

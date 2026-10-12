@@ -1,6 +1,9 @@
 # Cross-Trait Genetic Correlation
 
-Last updated on: 2026-09-11
+Last updated on: 2026-10-12
+
+Genetic-correlation fitting runs serially in one managed child with **1 BLAS thread**.
+Python scripts must place workflow calls under `if __name__ == "__main__":`; see [parallel execution](../docs/current/parallel-execution.md).
 
 Munging uses the supplied trait label for data filenames (for example, `trait.parquet` and optional `trait.sumstats.gz`). Without a label, filenames are `sumstats.parquet` and `sumstats.gz`. Parquet remains the default; see [output naming](../docs/current/munge-sumstats.md#output-artifacts).
 

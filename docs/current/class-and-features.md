@@ -1,6 +1,6 @@
 # Classes And Features
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-12
 
 This document summarizes the public package surface. For workflow-level file streams, see [data-flow.md](data-flow.md).
 
@@ -73,9 +73,9 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 | `ReferencePanelBuilder` | emit standard parquet reference artifacts from PLINK |
 | `R2Panel` | open package-built index-format panels and query adjusted R2/sign for SNP pairs |
 | `RefPanelLoader` | load runtime PLINK or parquet reference-panel adapters |
-| `LDScoreCalculator` | run per-chromosome LD-score computation and aggregate outputs; cross-chromosome parallelism is controlled by a single `--threads` flag (joblib `n_jobs` convention: `1`=sequential default, `N`=N worker processes, `-1`=all cores, `-2`=all but one), core counts respect CPU affinity (SLURM/cgroup), capped at the chromosome count, with identical aggregated output regardless of the setting |
+| `LDScoreCalculator` | chromosome LD-score calculation and deterministic aggregation; `workers` selects managed processes, including one child by default, with 1 BLAS thread each; see [execution policy](parallel-execution.md) |
 | `SumstatsMunger` | normalize raw GWAS tables into curated LDSC-ready tables |
-| `RegressionRunner` | build regression datasets and run `h2`, partitioned `h2`, and `rg`; batch partitioned fitting accepts `threads` for complete-query processes, with shared worker resolution, query/batch caps, and default inline execution |
+| `RegressionRunner` | prepared datasets and h2, partitioned-h2, and rg fits; batch `workers` controls complete query-plus-baseline processes, including one child by default, with 1 BLAS thread each |
 | `LDScoreDirectoryWriter` | write canonical chromosome-aligned LD-score artifacts plus conditional query diagnostics and compact gene provenance |
 | `H2DirectoryWriter` | write unpartitioned h2 result tables and diagnostic metadata sidecars |
 | `PartitionedH2DirectoryWriter` | write compact and optional per-query partitioned-h2 result trees |

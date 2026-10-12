@@ -54,6 +54,11 @@ def _stub_h2_kernel(estimator):
 class RegressionWorkflowTest(unittest.TestCase):
     def setUp(self):
         reset_global_config()
+        # This class tests model selection/formatting with mocked estimators.
+        # Real process behavior is covered in test_partitioned_query_workers.
+        from tests.worker_fixtures import calculation_body, LocalQueryWorkers
+        self.enterContext(calculation_body())
+        self.enterContext(mock.patch("ldsc._partitioned_h2_parallel._QueryWorkers", LocalQueryWorkers))
 
     def tearDown(self):
         reset_global_config()

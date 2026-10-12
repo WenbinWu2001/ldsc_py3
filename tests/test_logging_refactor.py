@@ -71,13 +71,13 @@ class LoggingRefactorTest(unittest.TestCase):
         for value in ("-0.5", "-1e-3"):
             with self.subTest(value=value), tempfile.TemporaryDirectory() as tmpdir:
                 log_path = Path(tmpdir) / "workflow.log"
-                argv = ["ldsc", "partitioned-h2", "--threads", "-1",
+                argv = ["ldsc", "partitioned-h2", "--workers", "-1",
                         "--intercept-h2", value, "--overwrite", "--log-level", "INFO"]
                 with mock.patch.object(sys, "argv", argv):
                     with workflow_logging("unit", log_path, log_level="INFO"):
                         pass
                 text = log_path.read_text(encoding="utf-8")
-                self.assertIn("--threads -1", text)
+                self.assertIn("--workers -1", text)
                 self.assertIn(f"--intercept-h2 {value}", text)
                 self.assertIn("--log-level INFO", text)
                 self.assertNotIn("--overwrite --log-level", text)

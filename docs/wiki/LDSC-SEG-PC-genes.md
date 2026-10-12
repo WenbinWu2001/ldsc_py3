@@ -1,6 +1,6 @@
 # LDSC-SEG for Protein-Coding Gene Lists
 
-Last updated on: 2026-09-16
+Last updated on: 2026-10-12
 
 This tutorial tests whether one or more protein-coding gene lists are enriched for trait heritability. For each query gene list, LDSC3 fits the model
 
@@ -34,7 +34,7 @@ Choose either direct mode or fast mode. Both produce the same canonical LD-score
 
 Direct mode reads the baseline annotations and PLINK reference panel and projects gene intervals chromosome by chromosome. It writes private query matrices under the output directory while computing LD scores and counts; it does not publish reusable `.annot.gz` queries by default. Allow temporary disk space. Handled completion or failure cleans owned scratch; an interrupted process can leave private files. See [`build_query_shards`](../../src/ldsc/_annotation_queries.py) and the [memory design](../current/annotation-memory-design.md).
 
-Resource use depends on the reference panel, number of query lists, and concurrency. Start with `--threads 1`; lower `--query-batch-size` from its default 1000 to reduce active query workspace. Direct mode prepares, computes, writes, and releases one query batch before starting the next, repeating reference/genotype work across batches. In the [1,000-query chromosome-22 benchmark](../audits/annotation-memory/sequential-query-batches.md#resource-measurements-and-limits), width 100 used 82.2% less peak private scratch than width 1,000 and took 1.903 times as long, with essentially unchanged peak RAM. That pilot used 35-kb padding, unlike the 100-kb example below; the report's whole-genome estimates are conditional planning projections.
+Resource use depends on the reference panel, number of query lists, and concurrency. Start with `--workers 1`; lower `--query-batch-size` from its default 1000 to reduce active query workspace. Direct mode prepares, computes, writes, and releases one query batch before starting the next, repeating reference/genotype work across batches. In the [1,000-query chromosome-22 benchmark](../audits/annotation-memory/sequential-query-batches.md#resource-measurements-and-limits), width 100 used 82.2% less peak private scratch than width 1,000 and took 1.903 times as long, with essentially unchanged peak RAM. That pilot used 35-kb padding, unlike the 100-kb example below; the report's whole-genome estimates are conditional planning projections.
 
 ```bash
 RESULT_ROOT="${PROJECT_ROOT}/ldsc3/example_output/direct_mode"
@@ -83,7 +83,7 @@ Relevant flags omitted because their default values are used:
 
 Fast mode uses a precomputed exact gene LD-score index to assemble LD scores, annotation counts, and overlap statistics for the query gene lists. It does not reread the PLINK reference panel.
 
-Indexed assembly avoids rereading PLINK genotypes, but validation and chromosome-operator reads still incur I/O. Direct and indexed modes accept `--threads`: default 1, positive worker counts, `-1` for available cores, and `-2` to leave one core free, capped at the chromosome count. Each indexed worker owns one chromosome operator and writes/releases that chromosome's query batches before advancing. Profile the actual index and query batch; see the [index reuse memory guidance](utility-functionalities/build-gene-ldscore-index.md#memory-during-index-reuse).
+Indexed assembly avoids rereading PLINK genotypes, but validation and chromosome-operator reads still incur I/O. Direct and indexed modes accept `--workers`: default 1, positive worker counts, `-1` for detected available CPUs, and `-2` to leave one core free, capped at the chromosome count. Each indexed worker owns one chromosome operator and writes/releases that chromosome's query batches before advancing. Profile the actual index and query batch; see the [index reuse memory guidance](utility-functionalities/build-gene-ldscore-index.md#memory-during-index-reuse).
 - **Supported genome build:** hg19
 
 ```bash
@@ -142,7 +142,7 @@ Because no control-gene file is supplied, `ldscore.baseline.parquet` contains on
 
 Use the LD-score directory produced by either direct or fast mode in Step 1.
 
-The regression example runs inline by default. With four allocated CPUs, add `--threads 4 --query-batch-size 100` to fit up to four complete gene-set models concurrently while loading at most 100 queries. The worker-count convention matches `ldscore` and index construction; the work cap is query count/batch width. Each parallel worker uses one numerical thread and additional private model RAM. Baseline filtering, weights, SNP order, jackknife blocks, and final ordering stay the same. See [concurrent query fitting](main-functionalities/partitioned-h2.md#fit-queries-concurrently) for CPU discovery, memory measurements, and process-failure behavior.
+The regression example uses one managed child by default. With four allocated CPUs, add `--workers 4 --query-batch-size 100` to fit up to four complete gene-set models concurrently while loading at most 100 queries. The worker-count convention matches `ldscore` and index construction; the work cap is query count/batch width. Every worker uses 1 BLAS thread, including serial execution, and additional private model RAM. Baseline filtering, weights, SNP order, jackknife blocks, and final ordering stay the same. See [concurrent query fitting](main-functionalities/partitioned-h2.md#fit-queries-concurrently) for CPU discovery, memory measurements, and process-failure behavior.
 
 The command below uses strict error handling: if any query regression fails, no new scientific results are published. For a large scan where valid fits should survive query errors, add `--continue-on-query-error`. Failed queries are skipped and recorded in `diagnostics/query_status.tsv`; the CLI log records their names, stages, tracebacks, and available jackknife block/rank/support diagnostics. Shared input/output failures, interrupts, and scans with no successful fits remain fatal. This flag does not change the gene-resolution policy or jackknife block rule. See [query error handling](main-functionalities/partitioned-h2.md#choose-what-happens-when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py).
 

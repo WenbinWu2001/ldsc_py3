@@ -1,7 +1,13 @@
 # ldscore cross-chromosome parallelism — design
 
+Last updated on: 2026-10-12
+
 Date: 2026-06-05
-Status: approved (design); implementation plan to follow.
+Status: historical design, retained as implementation context.
+
+The [parallel-execution decision record](../decisions/2026-10-11-parallel-execution.md) governs the next migration, including `workers`, managed serial children, the fixed one-thread BLAS policy, and chromosome logs.
+The inline serial path, inherited BLAS overrides, and interface details below describe the older design rather than the new target.
+Performance projections below are historical estimates, not validated speedup guarantees.
 
 ## 1. Problem and goal
 

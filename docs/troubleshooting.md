@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-12
 
 This reference explains `ldsc` errors that can **abort a run** and have more than
 one likely cause. It is organized by command. Each entry lists the likely causes
@@ -722,9 +722,9 @@ Default strict mode collects per-query failures and publishes no new scientific 
 
 ### partitioned-h2: a query worker exits or cannot write
 
-With `--threads` greater than one, ordinary model exceptions still follow the query error policy above. An abruptly exited worker, broken pipe, or failed private output write aborts the run even with `--continue-on-query-error`. The log identifies the query or in-flight queries and includes any available worker traceback. The parent reaps children and removes owned scratch; successful publication remains coordinator-only.
+With `--workers` greater than one, ordinary model exceptions still follow the query error policy above. An abruptly exited worker, broken pipe, or failed private output write aborts the run even with `--continue-on-query-error`. The log identifies the query or in-flight queries and includes any available worker traceback. The parent reaps children and removes owned scratch; successful publication remains coordinator-only.
 
-Check the job's memory limit if a worker disappeared without a traceback. Reduce `--threads` to reduce simultaneous model workspaces and `--query-batch-size` to reduce loaded query values; `--threads 1` exercises the inline path. For a filesystem exception, inspect its recorded path and resolve disk-space or access problems before retrying. The scan has no automatic resume, and abrupt parent SIGKILL may leave private scratch. See [CPU and memory policy](current/regression-configuration.md#43-query-workers-and-memory).
+Check the job's memory limit if a worker disappeared without a traceback. Reduce `--workers` to reduce simultaneous model workspaces and `--query-batch-size` to reduce loaded query values; `--workers 1` exercises the inline path. For a filesystem exception, inspect its recorded path and resolve disk-space or access problems before retrying. The scan has no automatic resume, and abrupt parent SIGKILL may leave private scratch. See [CPU and memory policy](current/regression-configuration.md#43-query-workers-and-memory).
 
 ### partitioned-h2: missing overlap matrix
 

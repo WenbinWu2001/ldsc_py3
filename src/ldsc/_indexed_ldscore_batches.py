@@ -15,6 +15,8 @@ import numpy as np
 import pandas as pd
 
 from ._progress import PhaseProgress
+from ._ldscore_diagnostics import chromosome_log, report_chromosome_failure
+from concurrent.futures.process import BrokenProcessPool
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
@@ -29,7 +31,12 @@ def _read(path):
         return pickle.load(handle)
 
 
-def _write_chromosome(index, chrom, batch, declarations, control_resolution, width, root):
+def _write_chromosome(index, chrom, batch, declarations, control_resolution, width, root, log_path=None):
+    with chromosome_log(log_path, chrom, "indexed query batches"):
+        return _write_chromosome_batches(index, chrom, batch, declarations, control_resolution, width, root)
+
+
+def _write_chromosome_batches(index, chrom, batch, declarations, control_resolution, width, root):
     from . import gene_ldscore_index as core
 
     directory = Path(root) / f"chr{chrom}"
@@ -55,63 +62,73 @@ def _write_chromosome(index, chrom, batch, declarations, control_resolution, wid
     totals = np.array([record.total_reference_snps_all, record.total_reference_snps_common], dtype=np.float64)
     _save(directory / "baseline.pkl", (baseline, counts, blocks, totals))
     identity = baseline.loc[:, [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in baseline]]
-    for ordinal, start in enumerate(range(0, len(declarations), width)):
-        active = declarations[start:start + width]
-        selectors = [core._selector_for_resolution(
-            index.gene_catalog, record.atom_model, chrom,
-            batch.selection(item["input_role"], item["source_ordinal"])) for item in active]
-        scores = core.assemble_indexed_ld_scores(record.operator, np.column_stack(selectors))
-        query_counts = np.empty((2, len(active)), dtype=np.float64)
-        query_blocks = np.empty((2, n_baseline, len(active)), dtype=np.float64)
-        for offset, selector in enumerate(selectors):
-            selected = core.assemble_selected_atom_statistics(
-                record.atom_statistics, selector, control_selector=control_selector)
-            query_counts[:, offset] = [selected.count_all, selected.count_common]
-            query_blocks[:, :supplied, offset] = [selected.baseline_overlap_all, selected.baseline_overlap_common]
-            if control_selector is not None:
-                query_blocks[:, supplied, offset] = [selected.control_overlap_all, selected.control_overlap_common]
-        table = pd.concat([identity, pd.DataFrame(scores, columns=[item["query"] for item in active])], axis=1)
-        _save(directory / f"query-{ordinal}.pkl", (table, query_counts, query_blocks))
-        del table, scores, selectors, selector, selected, query_counts, query_blocks
+    try:
+        for ordinal, start in enumerate(range(0, len(declarations), width)):
+            LOGGER.info("Chromosome %s: indexed batch %d/%d.", chrom, ordinal + 1, (len(declarations) + width - 1) // width)
+            active = declarations[start:start + width]
+            selectors = [core._selector_for_resolution(
+                index.gene_catalog, record.atom_model, chrom,
+                batch.selection(item["input_role"], item["source_ordinal"])) for item in active]
+            scores = core.assemble_indexed_ld_scores(record.operator, np.column_stack(selectors))
+            query_counts = np.empty((2, len(active)), dtype=np.float64)
+            query_blocks = np.empty((2, n_baseline, len(active)), dtype=np.float64)
+            for offset, selector in enumerate(selectors):
+                selected = core.assemble_selected_atom_statistics(
+                    record.atom_statistics, selector, control_selector=control_selector)
+                query_counts[:, offset] = [selected.count_all, selected.count_common]
+                query_blocks[:, :supplied, offset] = [selected.baseline_overlap_all, selected.baseline_overlap_common]
+                if control_selector is not None:
+                    query_blocks[:, supplied, offset] = [selected.control_overlap_all, selected.control_overlap_common]
+            table = pd.concat([identity, pd.DataFrame(scores, columns=[item["query"] for item in active])], axis=1)
+            _save(directory / f"query-{ordinal}.pkl", (table, query_counts, query_blocks))
+            del table, scores, selectors, selector, selected, query_counts, query_blocks
+    except Exception as error:
+        stage = f"batch {ordinal + 1}/{(len(declarations) + width - 1) // width}"
+        error.add_note(f"Indexed LD-score chromosome {chrom}; {stage}.")
+        raise
 
 
-def _write_chromosomes(index, batch, declarations, control, width, root, threads):
+def _write_chromosomes(index, batch, declarations, control, width, root, workers, log_paths=None):
     from .ldscore_calculator import _init_worker
     from ._parallelism import _resolve_worker_count
 
-    workers = _resolve_worker_count(threads, len(index.chromosomes))
+    workers = _resolve_worker_count(workers, len(index.chromosomes))
     def arguments(chrom):
-        return index, chrom, batch, declarations, control, width, root
-    if workers == 1:
-        for chrom in index.chromosomes:
-            LOGGER.info("Starting chromosome %s indexed LD-score computation.", chrom)
-            _write_chromosome(*arguments(chrom))
-            LOGGER.info("Finished chromosome %s indexed LD-score computation.", chrom)
-        return
+        return index, chrom, batch, declarations, control, width, root, (log_paths or {}).get(chrom)
     with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"),
-                             initializer=_init_worker, initargs=(None,)) as executor:
+                             initializer=_init_worker,
+                             initargs=(None, None, logging.getLogger("LDSC").getEffectiveLevel())) as executor:
         remaining = iter(index.chromosomes)
         def submit(chrom):
             LOGGER.info("Starting chromosome %s indexed LD-score computation.", chrom)
             return executor.submit(_write_chromosome, *arguments(chrom))
-        pending = {submit(chrom): chrom for chrom in (next(remaining) for _ in range(workers))}
+        pending = {}
+        failed_chrom = None
         try:
+            for _ in range(workers):
+                chrom = next(remaining)
+                pending[submit(chrom)] = chrom
             while pending:
                 done, _ = wait(pending, return_when=FIRST_COMPLETED)
                 for future in done:
+                    failed_chrom = pending[future]
                     future.result()
                     LOGGER.info("Finished chromosome %s indexed LD-score computation.", pending.pop(future))
+                failed_chrom = None
                 for _ in done:
                     chrom = next(remaining, None)
                     if chrom is not None:
                         pending[submit(chrom)] = chrom
-        except BaseException:
+        except Exception as error:
+            report_chromosome_failure(error, list(pending.values()) if isinstance(error, BrokenProcessPool)
+                                      else [failed_chrom] if failed_chrom is not None else list(pending.values()),
+                                      log_paths or {}, "indexed query batches", LOGGER)
             for future in pending:
                 future.cancel()
             raise
 
 
-def indexed_results(index, batch, declarations, control, width, root, threads, statuses, scope):
+def indexed_results(index, batch, declarations, control, width, root, workers, statuses, scope, log_paths=None):
     """Yield finalized float64 genome-wide results one query batch at a time."""
     from .config import GlobalConfig
     from .ldscore_calculator import LDScoreResult
@@ -120,7 +137,7 @@ def indexed_results(index, batch, declarations, control, width, root, threads, s
 
     root = Path(root) / "indexed-batches"
     root.mkdir()
-    _write_chromosomes(index, batch, declarations, control, width, root, threads)
+    _write_chromosomes(index, batch, declarations, control, width, root, workers, log_paths)
     baselines = [_read(root / f"chr{chrom}" / "baseline.pkl") for chrom in index.chromosomes]
     baseline = pd.concat([item[0] for item in baselines], ignore_index=True)
     baseline_counts = sum((item[1] for item in baselines))

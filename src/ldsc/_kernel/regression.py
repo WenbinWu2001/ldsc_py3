@@ -22,6 +22,11 @@ from ._irwls import IRWLS
 from scipy.stats import t as tdist
 from collections import namedtuple
 
+# A module-level record can cross the managed serial worker boundary.
+_TwoStepJackknife = namedtuple("_TwoStepJackknife", [
+    "est", "jknife_se", "jknife_est", "jknife_var", "jknife_cov", "delete_values",
+])
+
 # Allele-matching helpers reused by the public regression and munging workflows.
 COMPLEMENT = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
 BASES = COMPLEMENT.keys()
@@ -458,9 +463,7 @@ class LD_Score_Regression(object):
             delete_values, est)
         jknife_est, jknife_var, jknife_se, jknife_cov = jk.Jackknife.jknife(
             pseudovalues)
-        jknife = namedtuple('jknife',
-                            ['est', 'jknife_se', 'jknife_est', 'jknife_var', 'jknife_cov', 'delete_values'])
-        return jknife(est, jknife_se, jknife_est, jknife_var, jknife_cov, delete_values)
+        return _TwoStepJackknife(est, jknife_se, jknife_est, jknife_var, jknife_cov, delete_values)
 
 
 class Hsq(LD_Score_Regression):

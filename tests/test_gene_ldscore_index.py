@@ -294,7 +294,7 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
         _test_chromosomes=("1", "2"),
         snp_batch_size=128,
         atom_batch_size=64,
-        threads=2,
+        workers=2,
         overwrite=False,
         log_level="INFO",
     )
@@ -906,7 +906,7 @@ def test_build_index_command_registers_explicit_base_identity(snp_identifier):
     assert args.gene_exclude_regions == "mhc"
     assert args.ld_wind_cm == 1.0
     assert args.common_maf_min == 0.05
-    assert args.threads == 1
+    assert args.workers == 1
     assert args.atom_batch_size > 0
     assert args.regr_snps_file is None
     assert args.regr_snps_exclude_regions == "mhc-and-centromeres"
@@ -977,6 +977,8 @@ def test_build_index_python_config_requires_identity_and_build():
 
 
 def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_path, monkeypatch):
+    from tests.worker_fixtures import local_task_pool
+    monkeypatch.setattr(gene_ldscore_index, "ProcessPoolExecutor", local_task_pool)
     chromosome, catalog, index_identity = _artifact_payload()
     identity_rows = chromosome.baseline_rows[["CHR", "POS", "SNP"]].copy()
     baseline_path = tmp_path / "baseline.22.annot.gz"
@@ -1045,7 +1047,7 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
         _test_chromosomes=("22",),
         snp_batch_size=128,
         atom_batch_size=64,
-        threads=1,
+        workers=1,
         overwrite=False,
         log_level="INFO",
     )
@@ -1092,6 +1094,8 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
 def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
     tmp_path, monkeypatch
 ):
+    from tests.worker_fixtures import local_task_pool
+    monkeypatch.setattr(gene_ldscore_index, "ProcessPoolExecutor", local_task_pool)
     chromosome, output, args = _configure_two_chromosome_builder(tmp_path, monkeypatch)
     first_started = threading.Event()
     release_first = threading.Event()
@@ -1171,6 +1175,8 @@ def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
 
 
 def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path, monkeypatch):
+    from tests.worker_fixtures import local_task_pool
+    monkeypatch.setattr(gene_ldscore_index, "ProcessPoolExecutor", local_task_pool)
     chromosome, catalog, index_identity = _artifact_payload()
     identity_rows = chromosome.baseline_rows[["CHR", "POS", "SNP"]].copy()
     baseline_path = tmp_path / "baseline.22.annot.gz"
@@ -1220,7 +1226,7 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
         _test_chromosomes=("22",),
         snp_batch_size=128,
         atom_batch_size=64,
-        threads=1,
+        workers=1,
         overwrite=False,
         log_level="INFO",
     )
@@ -1253,6 +1259,8 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
 
 
 def test_chromosome_failure_cleans_staged_shards_without_publication(tmp_path, monkeypatch):
+    from tests.worker_fixtures import local_task_pool
+    monkeypatch.setattr(gene_ldscore_index, "ProcessPoolExecutor", local_task_pool)
     chromosome, output, args = _configure_two_chromosome_builder(tmp_path, monkeypatch)
     first_durable = threading.Event()
 
@@ -1897,7 +1905,7 @@ def test_explicit_indexed_mode_dispatches_without_live_reference(monkeypatch, tm
         "control_gene_list_file": None,
         "gene_list_resolution_policy": "strict",
         "query_batch_size": 1000,
-        "threads": 1,
+        "workers": 1,
         "output_dir": str(tmp_path / "out"),
         "overwrite": True,
     }

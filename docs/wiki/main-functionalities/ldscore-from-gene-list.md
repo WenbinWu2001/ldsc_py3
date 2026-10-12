@@ -1,6 +1,6 @@
 # Calculate LD scores from gene lists
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-12
 
 Use gene-list mode to turn pathway, expression, proteomic, GO, or other gene
 sets into focal annotations for partitioned S-LDSC. LDSC resolves each list
@@ -91,7 +91,7 @@ ldsc ldscore \
 The index owns its catalog, baseline, panel, build, identity, padding, and
 exclusion policies. Do not pass live overrides. Production indexes always
 cover autosomes 1–22 and old indexes must be rebuilt for the current catalog
-schema. Runtime controls `--threads` and `--query-batch-size` are accepted in indexed mode; they do not override the stored scientific configuration.
+schema. Runtime controls `--workers` and `--query-batch-size` are accepted in indexed mode; they do not override the stored scientific configuration.
 
 ## Optional control genes
 
@@ -168,8 +168,14 @@ Regression is strict by default: any query error prevents publication of new sci
 
 ## Large pathway batches
 
-For 1,000 pathways, regression tests each pathway separately against the same baseline categories. `--query-batch-size` defaults to `1000` in direct/indexed `ldscore` and `partitioned-h2`; lower it to reduce active query workspace. Direct LD scoring writes and releases one query batch before preparing the next, repeating reference/genotype work across batches. Indexed assembly keeps one chromosome operator per worker, writes and releases that chromosome's query batches, then releases the operator. For LD-score generation, `--threads` defaults to 1, accepts positive counts, `-1` for available cores and `-2` to leave one core free, and is capped at the chromosome count.
+For 1,000 pathways, regression tests each pathway separately against the same baseline categories. `--query-batch-size` defaults to `1000` in direct/indexed `ldscore` and `partitioned-h2`; lower it to reduce active query workspace. Direct LD scoring writes and releases one query batch before preparing the next, repeating reference/genotype work across batches. Indexed assembly keeps one chromosome operator per worker, writes and releases that chromosome's query batches, then releases the operator. For LD-score generation, `--workers` defaults to 1, accepts positive counts, `-1` for detected available CPUs and `-2` to leave one core free, and is capped at the chromosome count.
 
-`partitioned-h2 --threads 4 --query-batch-size 100` instead fits up to four complete query models concurrently while loading at most 100 query columns. It shares the same parsing and worker-count resolver, with query count and batch width as the work caps. Choose positive N within the job's CPU allocation; negative requests use affinity with a machine CPU-count fallback. The default and every effective count of one run inline. Each parallel query worker uses one numerical thread and private model memory. See [concurrent query fitting](partitioned-h2.md#fit-queries-concurrently) for memory, runtime measurements, and worker-failure handling.
+`--workers` / `workers` defaults to one managed child process, including on HPC.
+Every worker uses **1 BLAS thread**, in serial and parallel execution.
+`joblib.cpu_count()` supplies the detected available CPU count; it does not measure idle CPUs or read the requested scheduler allocation.
+Positive requests above that count fail before capping by available tasks; negative `-k` uses `max(1, detected_count + 1 - k)`.
+LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
+Zero, Boolean, and non-integer Python requests are invalid.
+See [the execution policy](../../current/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
 
 The saved baseline and overlap artifacts are shared. One query batch writes `ldscore.query.parquet`; multiple batches write numbered `ldscore.query.batchNNNNN.parquet` files, each with the same genome-wide SNP rows. Root `metadata.json.query_batches` records the ordered files, columns, and chromosome row groups. Python writing workflows return `LDScoreSource`; explicit `read_queries(names)` calls load columns without caching them. Generation and regression batch widths may differ. See the [LD-score guide](ldscore.md#memory-for-many-pathways) for the implementation sources and the [batch regression guide](partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways) for result writing.

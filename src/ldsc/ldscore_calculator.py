@@ -14,16 +14,20 @@ continues through the same calculator and output writer used by partitioned
 runs. Query annotations remain partitioned-LDSC inputs: they are accepted only
 when explicit baseline annotations are supplied.
 
-Parsed workflow entry points write ``diagnostics/ldscore.log`` under
-``output_dir`` after preflighting the complete LD-score artifact family. Direct
-``LDScoreCalculator.run(...)`` calls remain data-oriented and do not create log
-files.
+Writing workflows create ``diagnostics/ldscore.log`` and detailed
+``diagnostics/chromosome-logs/chrN.log`` files after output preflight.
+``LDScoreCalculator.run(..., output_config=None)`` creates no files.
+Every chromosome executes in a managed child with one BLAS thread, including
+serial execution; workers are reused across query batches.
 """
 
 from __future__ import annotations
 
 import argparse
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from concurrent.futures.process import BrokenProcessPool
+from contextlib import ExitStack
+from tempfile import TemporaryDirectory
 from dataclasses import dataclass, field, replace as dataclass_replace
 import logging
 import multiprocessing as mp
@@ -36,9 +40,11 @@ import warnings
 import numpy as np
 import pandas as pd
 
+from ._serial_calculation import serial_calculation
+from ._ldscore_diagnostics import ldscore_logs, chromosome_log, report_chromosome_failure
 from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
-from ._parallelism import _parse_threads, _resolve_worker_count, _validate_threads
+from ._parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _validate_workers
 from ._progress import report_phase, PhaseProgress
 from ._chr_sampler import sample_frame_from_chr_pattern
 from ._annotation_storage import TsvDiagnostics
@@ -405,44 +411,66 @@ class LDScoreCalculator:
         scales with active batch width and chromosome workers. Counts and LD
         accumulation use float64; canonical output retains its usual precision.
         The calculator borrows inputs and never closes the caller's bundle.
+        Workers are managed child processes with 1 BLAS thread each, including
+        serial execution. Writing runs retain chromosome logs under
+        ``diagnostics/chromosome-logs``; no-output calls create no files.
         """
         if ldscore_config.export_ref_metadata and output_config is None:
             raise LDSCUsageError(
                 "LDScoreCalculator.run() requires output_config when export_ref_metadata=True. "
                 "Reference metadata is a filesystem artifact, so pass LDScoreOutputConfig(output_dir=...)."
             )
-        LOGGER.info(_format_ldscore_start_message(annotation_bundle, len(annotation_bundle.chromosomes)))
-        cm_source, maf_source = _reference_metadata_sources(ref_panel)
-        LOGGER.info("Reference-panel CM source: %s; MAF source: %s (annotation CM/MAF are ignored).",
-                    cm_source, maf_source)
-        kwargs = dict(ref_panel=ref_panel, ldscore_config=ldscore_config, global_config=global_config,
-                      output_config=output_config, regression_snps=regression_snps,
-                      regression_regions=regression_regions, config_snapshot=config_snapshot)
-        if output_config is None:
-            result = self._run_batch(annotation_bundle=annotation_bundle, **kwargs)
+        chromosomes = _chromosomes_from_bundle(annotation_bundle)
+        _validate_workers(ldscore_config.workers)
+        with ExitStack() as stack:
+            output_dir = None if output_config is None else output_config.output_dir
+            log_paths = stack.enter_context(ldscore_logs(
+                output_dir, chromosomes, overwrite=bool(output_config and output_config.overwrite),
+                log_level=global_config.log_level))
+            worker_count = _resolve_worker_count(ldscore_config.workers, len(chromosomes))
+            export_root = (stack.enter_context(TemporaryDirectory(prefix=".ldsc-ref-", dir=output_dir))
+                           if ldscore_config.export_ref_metadata else None)
+            pool = stack.enter_context(ProcessPoolExecutor(
+                max_workers=worker_count, mp_context=mp.get_context("spawn"), initializer=_init_worker,
+                initargs=(regression_snps, regression_regions, global_config.log_level)))
+            LOGGER.info(_format_ldscore_start_message(annotation_bundle, len(annotation_bundle.chromosomes)))
+            cm_source, maf_source = _reference_metadata_sources(ref_panel)
+            LOGGER.info("Reference-panel CM source: %s; MAF source: %s (annotation CM/MAF are ignored).",
+                        cm_source, maf_source)
+            kwargs = dict(ref_panel=ref_panel, ldscore_config=ldscore_config, global_config=global_config,
+                          output_config=output_config, regression_snps=regression_snps,
+                          regression_regions=regression_regions, config_snapshot=config_snapshot,
+                          pool=pool, log_paths=log_paths, export_root=export_root, worker_count=worker_count)
+            if output_config is None:
+                result = self._run_batch(annotation_bundle=annotation_bundle, **kwargs)
+                _log_annotation_classification(result)
+                return result
+
+            width = ldscore_config.query_batch_size
+            names = list(annotation_bundle.query_columns)
+            groups = [names[start:start + width] for start in range(0, len(names), width)] or [[]]
+            def results():
+                from ._annotation_queries import execution_query_bundle
+                for ordinal, columns in enumerate(groups):
+                    with PhaseProgress(LOGGER, "batch", f"LD-score calculation {ordinal + 1}/{len(groups)}", len(columns)) as progress:
+                        selected = set(columns)
+                        statuses = tuple(status for status in annotation_bundle.query_statuses
+                                         if status.query in selected or (ordinal == 0 and status.status not in {"ok", "warning"}))
+                        with execution_query_bundle(annotation_bundle, columns, statuses, output_config.output_dir) as active:
+                            result = self._run_batch(annotation_bundle=active, batch_label=f"batch {ordinal + 1}/{len(groups)}", **kwargs)
+                            yield result
+                            del result
+                        del active
+                        progress.completed = len(columns)
+            result = self.output_writer.write_batches(results(), output_config,
+                query_status_order=[status.query for status in annotation_bundle.query_statuses])
+            if export_root is not None:
+                for path in (Path(export_root) / "ref_metadata").glob("chr*_meta.tsv.gz"):
+                    destination = Path(output_config.output_dir) / "ref_metadata" / path.name
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(path, destination)
             _log_annotation_classification(result)
             return result
-
-        width = ldscore_config.query_batch_size
-        names = list(annotation_bundle.query_columns)
-        groups = [names[start:start + width] for start in range(0, len(names), width)] or [[]]
-        def results():
-            from ._annotation_queries import execution_query_bundle
-            for ordinal, columns in enumerate(groups):
-                with PhaseProgress(LOGGER, "batch", f"LD-score calculation {ordinal + 1}/{len(groups)}", len(columns)) as progress:
-                    selected = set(columns)
-                    statuses = tuple(status for status in annotation_bundle.query_statuses
-                                     if status.query in selected or (ordinal == 0 and status.status not in {"ok", "warning"}))
-                    with execution_query_bundle(annotation_bundle, columns, statuses, output_config.output_dir) as active:
-                        result = self._run_batch(annotation_bundle=active, **kwargs)
-                        yield result
-                        del result
-                    del active
-                    progress.completed = len(columns)
-        result = self.output_writer.write_batches(results(), output_config,
-            query_status_order=[status.query for status in annotation_bundle.query_statuses])
-        _log_annotation_classification(result)
-        return result
 
     @report_phase(LOGGER, 'computation', 'LD-score chromosome batch', level=logging.DEBUG)
     def _run_batch(
@@ -455,6 +483,7 @@ class LDScoreCalculator:
         regression_snps: set[str] | RestrictionIdentityKeys | None = None,
         regression_regions: kernel_regions.RegionIntervals | None = None,
         config_snapshot: dict[str, Any] | None = None,
+        pool=None, log_paths=None, batch_label="batch 1/1", export_root=None, worker_count=None,
     ) -> LDScoreResult:
         """Compute one materialized genome-wide batch using resolved inputs.
 
@@ -476,11 +505,12 @@ class LDScoreCalculator:
                 context="AnnotationBundle and LDScoreCalculator runtime config",
             )
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
-        worker_count = _resolve_worker_count(ldscore_config.threads, len(chromosomes))
+        if worker_count is None:
+            worker_count = _resolve_worker_count(ldscore_config.workers, len(chromosomes))
         cm_source, maf_source = _reference_metadata_sources(ref_panel)
         export_dir = None
         if output_config is not None and ldscore_config.export_ref_metadata and cm_source != "parquet_sidecar":
-            export_dir = str(output_config.output_dir)
+            export_dir = export_root
         source_drops = _partition_annotation_drops(annotation_bundle)
         annotation_bundle = dataclass_replace(annotation_bundle, chromosome_identity_drops=source_drops)
         outcomes = self._run_chromosomes(
@@ -492,7 +522,7 @@ class LDScoreCalculator:
             regression_snps=regression_snps,
             regression_regions=regression_regions,
             worker_count=worker_count,
-            export_dir=export_dir,
+            export_dir=export_dir, pool=pool, log_paths=log_paths, batch_label=batch_label,
         )
         chromosome_results: list[ChromLDScoreResult] = []
         for chrom in chromosomes:
@@ -538,96 +568,74 @@ class LDScoreCalculator:
         return result
 
     def _run_chromosomes(
-        self,
-        chromosomes,
-        annotation_bundle,
-        ref_panel,
-        ldscore_config: LDScoreConfig,
-        global_config: GlobalConfig,
-        regression_snps,
-        worker_count: int,
-        regression_regions: kernel_regions.RegionIntervals | None = None,
-        export_dir: str | None = None,
+        self, chromosomes, annotation_bundle, ref_panel, ldscore_config: LDScoreConfig,
+        global_config: GlobalConfig, regression_snps, worker_count: int,
+        regression_regions=None, export_dir=None, *, pool=None, log_paths=None, batch_label="batch 1/1",
     ) -> dict[str, _ChromOutcome]:
-        """Compute every chromosome, sequentially or via a spawn process pool.
+        """Dispatch one chromosome per child; return outcomes in a keyed mapping.
 
-        Returns outcomes keyed by chromosome. ``worker_count == 1`` runs inline
-        on this calculator and the passed ``ref_panel`` (the exact pre-parallel
-        path); larger counts fan out over a spawn ``ProcessPoolExecutor`` whose
-        workers rebuild the panel from ``ref_panel.spec`` and the resolved PLINK
-        chromosome mapping because a live reader
-        cannot cross the process boundary. Callers re-order by the original
-        chromosome list for deterministic aggregation, so completion order does
-        not matter.
+        The run owns a persistent spawn pool, including when its size is one.
+        Pending tasks are cancelled on failure; normal executor shutdown waits
+        for active borrowers before the caller releases annotation scratch.
         """
         from ._kernel.ref_panel import PlinkRefPanel
-
-        chromosome_prefixes = ref_panel._resolved_prefixes() if isinstance(ref_panel, PlinkRefPanel) else None
-        if worker_count == 1:
-            outcomes: dict[str, _ChromOutcome] = {}
-            for chrom in chromosomes:
-                chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
-                try:
-                    compute_kwargs = dict(
-                        chrom=chrom,
-                        annotation_bundle=chrom_bundle,
-                        ref_panel=ref_panel,
-                        ldscore_config=ldscore_config,
-                        global_config=global_config,
-                        regression_snps=regression_snps,
-                        export_dir=export_dir,
-                    )
-                    if regression_regions is not None:
-                        compute_kwargs["regression_regions"] = regression_regions
-                    result = self.compute_chromosome(**compute_kwargs)
-                except (ValueError, LDSCInputError) as exc:
-                    if _is_empty_intersection(exc, chrom):
-                        outcomes[chrom] = _ChromOutcome(chrom=chrom, result=None, skipped=True, skip_message=str(exc))
-                        continue
-                    raise
-                outcomes[chrom] = _ChromOutcome(chrom=chrom, result=result, skipped=False)
-            return outcomes
-
-        ref_panel_spec = ref_panel.spec
-        ctx = mp.get_context("spawn")
-        outcomes = {}
-        with ProcessPoolExecutor(
-            max_workers=worker_count,
-            mp_context=ctx,
-            initializer=_init_worker,
-            initargs=(regression_snps, regression_regions, global_config.log_level),
-        ) as pool:
-            remaining = iter(chromosomes)
-            futures = set()
-            def submit_next():
-                chrom = next(remaining,None)
-                if chrom is None:
-                    return
-                LOGGER.info("Starting chromosome %s LD-score computation.", chrom)
-                futures.add(pool.submit(_compute_one_chromosome,chrom,
-                    _slice_annotation_bundle(annotation_bundle,chrom),ref_panel_spec,
-                    ldscore_config,global_config,export_dir,chromosome_prefixes=chromosome_prefixes))
+        if pool is None:
+            with ProcessPoolExecutor(max_workers=worker_count, mp_context=mp.get_context("spawn"),
+                                     initializer=_init_worker,
+                                     initargs=(regression_snps, regression_regions, global_config.log_level)) as executor:
+                return self._run_chromosomes(
+                    chromosomes, annotation_bundle, ref_panel, ldscore_config, global_config,
+                    regression_snps, worker_count, regression_regions, export_dir,
+                    pool=executor, log_paths=log_paths, batch_label=batch_label)
+        prefixes = ref_panel._resolved_prefixes() if isinstance(ref_panel, PlinkRefPanel) else None
+        paths = log_paths or {}
+        outcomes, pending = {}, {}
+        remaining = iter(chromosomes)
+        def submit_next():
+            chrom = next(remaining, None)
+            if chrom is not None:
+                LOGGER.info("Starting chromosome %s LD-score computation; %s; log: %s.",
+                            chrom, batch_label, paths.get(chrom, "no file output"))
+                future = pool.submit(_compute_one_chromosome, chrom,
+                    _slice_annotation_bundle(annotation_bundle, chrom), ref_panel.spec,
+                    ldscore_config, global_config, export_dir, chromosome_prefixes=prefixes,
+                    log_path=paths.get(chrom), batch_label=batch_label)
+                pending[future] = chrom
+        failed_chrom = None
+        try:
             for _ in range(worker_count):
                 submit_next()
-            try:
-                while futures:
-                    completed, _ = wait(futures,return_when=FIRST_COMPLETED)
-                    for future in completed:
-                        futures.remove(future)
-                        outcome = future.result()
-                        outcomes[outcome.chrom] = outcome
-                        LOGGER.info("Finished chromosome %s LD-score computation (%d/%d).", outcome.chrom, len(outcomes), len(chromosomes))
-                        submit_next()
-                    completed.clear()
-            except mp.ProcessError as exc:  # BrokenProcessPool subclasses this
+            while pending:
+                done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                # Consume every ready result before submitting any replacement.
+                for future in done:
+                    failed_chrom = pending[future]
+                    outcome = future.result()
+                    outcomes[outcome.chrom] = outcome
+                    del pending[future]
+                    LOGGER.info("Finished chromosome %s LD-score computation (%d/%d); %s.",
+                                outcome.chrom, len(outcomes), len(chromosomes), batch_label)
+                failed_chrom = None
+                for _ in done:
+                    submit_next()
+        except Exception as error:
+            report_chromosome_failure(error, list(pending.values()) if isinstance(error, BrokenProcessPool)
+                                      else [failed_chrom] if failed_chrom is not None else list(pending.values()),
+                                      paths, batch_label, LOGGER)
+            for future in pending:
+                future.cancel()
+            # This is normal executor shutdown, before releasing staged inputs.
+            pool.shutdown(wait=True)
+            if isinstance(error, BrokenProcessPool):
                 raise LDSCInternalError(
-                    "ldscore parallel chromosome computation aborted: a worker process "
-                    "crashed (most likely out-of-memory or a native library fault). "
-                    "Re-run with a lower `--threads`, or `--threads 1` to isolate "
-                    "the failing chromosome."
-                ) from exc
+                    "ldscore chromosome computation aborted: a worker process terminated abnormally. "
+                    "See the workflow log for affected in-flight chromosomes and their diagnostic paths. "
+                    "Check memory limits or retry with fewer `--workers`."
+                ) from error
+            raise
         return outcomes
 
+    @serial_calculation
     def compute_chromosome(
         self,
         chrom: str,
@@ -647,6 +655,8 @@ class LDScoreCalculator:
         numerical projection, counts, overlap, and result provenance.
         ``regression_snps`` defines weight contributions and later restricts
         the normalized output rows.
+        Standalone calls use one child with 1 BLAS thread; calls inside an
+        existing calculation worker reuse that process.
         """
         backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
         legacy_bundle = _kernel_annotation_bundle(annotation_bundle,chrom)
@@ -1266,12 +1276,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     runtime.add_argument(
-        '--threads', default=1, type=_parse_threads, metavar='N',
-        help=(
-            'Number of chromosomes computed concurrently using worker processes. Default: 1, sequential. '
-            'Positive N requests N workers; -1 uses available cores and -2 leaves one free; zero is '
-            'invalid. Capped at chromosome count. Applies to direct and indexed modes.'
-        ),
+        '--workers', default=1, type=_parse_workers, metavar='N',
+        help='Maximum simultaneous chromosomes in direct or indexed mode. ' + WORKERS_HELP,
     )
     runtime.add_argument(
         '--query-batch-size', default=1000, type=int, metavar='N',
@@ -1342,7 +1348,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
         remain resident in the returned object. ``output_paths`` contains
         scientific artifacts only.
     """
-    _validate_threads(getattr(args, "threads", 1), error_type=LDSCConfigError)
+    _validate_workers(getattr(args, "workers", 1), error_type=LDSCConfigError)
     _validate_padding_usage(args)
     _validate_gene_list_mode_args(args)
     if getattr(args, "gene_ldscore_index_dir", None) is not None:
@@ -1366,7 +1372,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     output_config = _output_config_from_args(args)
     output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
     log_path = output_dir / "diagnostics" / "ldscore.log"
-    LDScoreDirectoryWriter.artifact_family(output_dir).preflight(
+    LDScoreDirectoryWriter.artifact_family(output_dir, include_logs=True).preflight(
         overwrite=output_config.overwrite, additional_paths=[log_path])
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with AnnotationWorkspace(output_dir) as workspace:
@@ -1548,7 +1554,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
     from .gene_ldscore_index import run_indexed_ldscore
     output_dir = Path(normalize_path_token(args.output_dir))
     log_path = output_dir / "diagnostics" / "ldscore.log"
-    LDScoreDirectoryWriter.artifact_family(output_dir).preflight(
+    LDScoreDirectoryWriter.artifact_family(output_dir, include_logs=True).preflight(
         overwrite=bool(getattr(args, "overwrite", False)), additional_paths=[log_path],
     )
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1570,7 +1576,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
             control_gene_list_file=getattr(args, "control_gene_list_file", None),
             gene_list_resolution_policy=getattr(args, "gene_list_resolution_policy", "strict"),
             query_batch_size=getattr(args, "query_batch_size", 1000),
-            threads=getattr(args, "threads", 1),
+            workers=getattr(args, "workers", 1),
             output_dir=str(output_dir),
             overwrite=bool(getattr(args, "overwrite", False)),
         )
@@ -1907,12 +1913,15 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
     Keyword arguments are interpreted as CLI-equivalent option names without
     leading ``--``; for example ``baseline_annot_sources``, ``query_annot_sources``,
     ``query_annot_bed_sources``, ``query_annot_gene_list_sources``, ``plink_prefix``, ``r2_dir``,
-    ``keep_indivs_file``, ``snp_batch_size``, ``common_maf_min``, ``threads``, and
+    ``keep_indivs_file``, ``snp_batch_size``, ``common_maf_min``, ``workers``, and
     ``output_dir``. Shared runtime assumptions such as ``snp_identifier`` and
     ``genome_build`` must be supplied through ``set_global_config(...)`` first,
     while per-run controls such as ``ref_panel_snps_file`` and
     ``regr_snps_file`` remain ordinary keyword arguments here. ``output_dir``
     is required because this public workflow always writes canonical artifacts.
+    ``workers`` defaults to one managed child; each worker uses 1 BLAS thread
+    in serial and parallel execution. Python scripts must launch workflow
+    calls under ``if __name__ == "__main__":``.
 
     When ``baseline_annot_sources`` and query inputs are omitted, the workflow
     builds a synthetic all-ones baseline column named ``base`` from retained
@@ -1978,7 +1987,7 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
             "chunk_size",
             "maf",
             "control_gene_list_source",
-            "workers",
+            "threads",
         }
         & set(kwargs)
     )
@@ -1988,7 +1997,7 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
             f"Python run_ldscore() cannot accept removed IO argument(s): {joined}. "
             "Most likely this call still uses legacy keyword names from the old LDSC API. "
             "Use CLI-style names such as `baseline_annot_sources`, `query_annot_sources`, "
-            "`plink_prefix`, `r2_dir`, `threads`, and `output_dir`."
+            "`plink_prefix`, `r2_dir`, `workers`, and `output_dir`."
         )
     if not kwargs.get("output_dir"):
         raise LDSCUsageError(
@@ -2352,7 +2361,7 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         common_maf_min=getattr(args, "common_maf_min", 0.05),
         whole_chromosome_ok=getattr(args, "yes_really", False),
         export_ref_metadata=getattr(args, "export_ref_metadata", False),
-        threads=getattr(args, "threads", 1),
+        workers=getattr(args, "workers", 1),
     )
 
 
@@ -2530,7 +2539,7 @@ def _warn_and_skip_empty_intersection(error: Exception, chrom: str) -> bool:
 
 # Worker state shared within a pool worker process. ``regression_snps`` is set
 # once by the pool initializer so a large SNP set is transferred per worker, not
-# per task; the inline (single-worker) caller passes it explicitly instead.
+# per task; direct task probes can pass it explicitly instead.
 _WORKER_UNSET = "__use_worker_global__"
 _WORKER_STATE: dict[str, Any] = {}
 
@@ -2555,58 +2564,53 @@ def _compute_one_chromosome(
     regression_snps=_WORKER_UNSET,
     regression_regions=_WORKER_UNSET,
     chromosome_prefixes=None,
+    log_path=None, batch_label="batch 1/1",
 ) -> _ChromOutcome:
     """Compute one chromosome end-to-end and return a tagged outcome.
 
     Rebuilds the reference-panel adapter locally from ``ref_panel_spec`` so no
     live reader/file handle crosses the process boundary. ``regression_snps``
-    defaults to the pool-initializer-provided global; the inline single-worker
-    caller passes it explicitly. Recoverable empty-intersection errors return a
+    defaults to the pool-initializer-provided global; direct task callers may
+    pass it explicitly. Recoverable empty-intersection errors return a
     skipped outcome rather than raising across the pool boundary.
     """
     from ._kernel.ref_panel import RefPanelLoader
 
-    if regression_snps == _WORKER_UNSET:
-        regression_snps = _WORKER_STATE.get("regression_snps")
-    if regression_regions == _WORKER_UNSET:
-        regression_regions = _WORKER_STATE.get("regression_regions")
-    prefixes = chromosome_prefixes
-    if prefixes is None:
-        prefixes = chrom_bundle.source_summary.get('chromosome_scope',{}).get('reference_prefixes_by_chrom')
-    if ref_panel_spec.backend == 'plink' and prefixes:
-        from ._kernel.ref_panel import PlinkRefPanel
-        ref_panel = PlinkRefPanel(global_config,ref_panel_spec,chromosome_prefixes=prefixes)
-    else:
-        ref_panel = RefPanelLoader(global_config).load(ref_panel_spec)
-    calculator = LDScoreCalculator()
-    try:
-        result = calculator.compute_chromosome(
-            chrom=chrom,
-            annotation_bundle=chrom_bundle,
-            ref_panel=ref_panel,
-            ldscore_config=ldscore_config,
-            global_config=global_config,
-            regression_snps=regression_snps,
-            regression_regions=regression_regions,
-            export_dir=export_dir,
-        )
-    except (ValueError, LDSCInputError) as exc:
-        if _is_empty_intersection(exc, chrom):
-            return _ChromOutcome(chrom=chrom, result=None, skipped=True, skip_message=str(exc))
-        raise
-    return _ChromOutcome(chrom=chrom, result=result, skipped=False)
+    with chromosome_log(log_path, chrom, batch_label):
+        if regression_snps == _WORKER_UNSET:
+            regression_snps = _WORKER_STATE.get("regression_snps")
+        if regression_regions == _WORKER_UNSET:
+            regression_regions = _WORKER_STATE.get("regression_regions")
+        prefixes = chromosome_prefixes
+        if prefixes is None:
+            prefixes = chrom_bundle.source_summary.get('chromosome_scope',{}).get('reference_prefixes_by_chrom')
+        if ref_panel_spec.backend == 'plink' and prefixes:
+            from ._kernel.ref_panel import PlinkRefPanel
+            ref_panel = PlinkRefPanel(global_config,ref_panel_spec,chromosome_prefixes=prefixes)
+        else:
+            ref_panel = RefPanelLoader(global_config).load(ref_panel_spec)
+        calculator = LDScoreCalculator()
+        try:
+            result = calculator.compute_chromosome(
+                chrom=chrom,
+                annotation_bundle=chrom_bundle,
+                ref_panel=ref_panel,
+                ldscore_config=ldscore_config,
+                global_config=global_config,
+                regression_snps=regression_snps,
+                regression_regions=regression_regions,
+                export_dir=export_dir,
+            )
+        except (ValueError, LDSCInputError) as exc:
+            if _is_empty_intersection(exc, chrom):
+                return _ChromOutcome(chrom=chrom, result=None, skipped=True, skip_message=str(exc))
+            raise
+        return _ChromOutcome(chrom=chrom, result=result, skipped=False)
 
 
 def _init_worker(regression_snps, regression_regions=None, log_level: str = "INFO") -> None:
-    """Initialize a pool worker: shared regression keys, logging, BLAS threads.
-
-    Pins BLAS thread counts to 1 unless the user already set them, so ``W``
-    worker processes do not oversubscribe ``W x BLAS_threads`` cores.
-    """
-    from ._logging import configure_package_logging
-
+    """Initialize shared keys and fixed, child-owned native thread limits."""
+    from ._worker_runtime import initialize_worker
     _WORKER_STATE["regression_snps"] = regression_snps
     _WORKER_STATE["regression_regions"] = regression_regions
-    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
-        os.environ.setdefault(var, "1")
-    configure_package_logging(log_level)
+    initialize_worker(log_level)

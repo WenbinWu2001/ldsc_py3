@@ -1,6 +1,9 @@
 # Convert a legacy LD-score suite
 
-Last updated on: 2026-09-11
+Last updated on: 2026-10-12
+
+Conversion runs in one managed child process with **1 BLAS thread**.
+Python scripts must place workflow calls under `if __name__ == "__main__":`; see [parallel execution](../docs/current/parallel-execution.md).
 
 Use `ldsc convert-ldsc2-ldscores` to import an existing LDSC2 reference/weight LD-score suite into a canonical LDSC3 directory. This reuses the supplied LD scores without recomputing them. Subsequent regression commands consume the converted directory through `--ldscore-dir`.
 

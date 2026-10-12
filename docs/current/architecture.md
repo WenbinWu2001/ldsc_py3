@@ -1,11 +1,12 @@
 # Architecture 
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-12
 
 `ldsc` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
 Start with [the contributor entry](code-structure.md) to locate a change; this document explains the execution architecture. Related domain references:
 
+- [parallel-execution.md](parallel-execution.md): worker budgets, one BLAS thread per worker, process ownership, and chromosome logs
 - [data-flow.md](data-flow.md): user-visible file streams and flowcharts
 - [class-and-features.md](class-and-features.md): public API surface and major types
 - [code-structure.md](code-structure.md): module map and change guide
@@ -166,7 +167,7 @@ This module is the public pair-query surface for package-built index-format R2 p
 
 ### `ldsc.ldscore_calculator`
 
-This module orchestrates chromosome-wise LD-score computation. It resolves annotation and reference-panel inputs, selects the gene-catalog projection build, synthesizes the all-ones `base` annotation when an unpartitioned run omits baseline/query inputs, builds per-chromosome runs, prunes zero-hit or zero-variance queries, aggregates them into `LDScoreResult`, routes artifact writing through `ldsc.outputs`, and writes `diagnostics/ldscore.log` for parsed workflow runs. Query-local BED/gene failures are status records; a run continues when at least one query is usable. Architecture invariant: computation stays chromosome-wise; the aggregate result is assembled only after all chromosome runs finish.
+This module orchestrates chromosome-wise LD-score computation. It resolves annotation and reference-panel inputs, selects the gene-catalog projection build, synthesizes the all-ones `base` annotation when an unpartitioned run omits baseline/query inputs, builds per-chromosome runs, prunes zero-hit or zero-variance queries, aggregates them into `LDScoreResult`, routes artifact writing through `ldsc.outputs`, and writes `diagnostics/ldscore.log` plus per-chromosome logs for writing workflows. Query-local BED/gene failures are status records; a run continues when at least one query is usable. Architecture invariant: computation stays chromosome-wise; the aggregate result is assembled only after all chromosome runs finish.
 
 ### `ldsc._kernel.ref_panel`, `ldsc._kernel.ldscore`
 
@@ -196,7 +197,22 @@ This module rebuilds an `LDScoreResult` from on-disk artifacts, projects legacy 
 
 Internal `_FitOutcome` values in `regression_runner.py` carry the estimator, fitted dataset, realized block count, effective cap, and optional single-annotation diagnostic bins. The h2, partitioned-h2, and rg reporting paths consume these values directly. Public estimator methods unwrap the estimator; output diagnostics remain owned by the workflow rather than being attached dynamically to numerical kernel objects.
 
-Optional partitioned query workers live in `_partitioned_h2_parallel.py`. The runner owns input preparation, batch reads, the shared `_fit_partitioned_query()` calculation, and final publication; the private module owns read-only numeric transport, spawned processes, bounded dispatch, log forwarding, and child cleanup. Workers borrow output-owned maps and stage unique complete-query results. The parent assembles outcomes in query order before stable summary sorting. `_parallelism` shares parsing, validation, and `_resolve_worker_count()` with chromosome workflows, using the bounded query count as the work limit. Tests in `test_regression_streaming.py`, `test_partitioned_query_failures.py`, `test_partitioned_query_workers.py`, and `test_worker_policy.py` cover numerical/artifact parity, CPU and memory ownership, strict/continue policies, and real process failures. See [query workers](regression-configuration.md#43-query-workers-and-memory).
+Managed partitioned query workers, including serial execution, live in `_partitioned_h2_parallel.py`. The runner owns input preparation, batch reads, the shared `_fit_partitioned_query()` calculation, and final publication; the private module owns read-only numeric transport, spawned processes, bounded dispatch, log forwarding, and child cleanup. Workers borrow output-owned maps and stage unique complete-query results. The parent assembles outcomes in query order before stable summary sorting. `_parallelism` shares parsing, validation, and `_resolve_worker_count()` with chromosome workflows, using the bounded query count as the work limit. Tests in `test_regression_streaming.py`, `test_partitioned_query_failures.py`, `test_partitioned_query_workers.py`, and `test_worker_policy.py` cover numerical/artifact parity, CPU and memory ownership, strict/continue policies, and real process failures. See [query workers](regression-configuration.md#43-query-workers-and-memory).
+
+### Managed numerical execution
+
+`_parallelism` validates `workers` against the detected available CPU count from `joblib.cpu_count()`, then caps concurrency by chromosomes or complete query-plus-baseline models.
+There is no custom CPU detector, Slurm parsing, CPU binding, or automatic memory budget.
+The default of one uses a managed child; direct LD reuses its pool across query batches, and regression reuses mapped-input workers across model batches.
+Gene-index construction now passes staged chromosome descriptors to spawned processes and collects compact persisted-component metadata.
+The [focused local transport probe](../audits/parallel-execution/index-transport.md) records the migration evidence and additional RSS cost.
+
+`_worker_runtime` configures and verifies 1 BLAS thread per worker for serial and parallel calculations, plus separate OpenMP and Arrow CPU/I/O limits of one.
+Unsupported numerical controls produce a clear unverified/unmet record and allow computation to continue.
+`_serial_calculation` puts standalone numerical entry points into a child and reuses the executing child for nested numerical calls, without creating nested task pools or changing the caller's global settings.
+`_ldscore_diagnostics` owns child-local chromosome file handlers; regression retains its existing pipe-based record forwarding.
+All required chromosome work must succeed before aggregation and publication; logs survive failure while temporary scientific results are removed after executor shutdown.
+See [parallel execution](parallel-execution.md) for the complete contract.
 
 ### `ldsc.outputs`
 

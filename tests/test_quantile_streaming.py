@@ -81,11 +81,11 @@ def test_high_offset_annotation_variance_is_stable(workflow):
     np.testing.assert_allclose(result.standardized_coefficients.annotation_sd, [0, np.std(frame.cont.to_numpy(dtype=np.float64))], rtol=1e-12)
 
 
-def test_bounded_reads_and_released_chromosome_arrays(workflow, monkeypatch):
+def _observe_quantile_reads(args):
+    from unittest.mock import patch
     from ldsc import _quantile_storage
     from ldsc._annotation_bundle import AnnotationBundle
 
-    monkeypatch.setattr(_quantile_storage, "ROW_CHUNK_SIZE", 1)
     original = AnnotationBundle.read
     previous, calls = [], []
 
@@ -98,11 +98,17 @@ def test_bounded_reads_and_released_chromosome_arrays(workflow, monkeypatch):
         calls.append(chrom)
         return values
 
-    monkeypatch.setattr(AnnotationBundle, "read", read)
-    result = run_quantile_h2_from_args(workflow.args)
+    with patch.object(_quantile_storage, "ROW_CHUNK_SIZE", 1), patch.object(AnnotationBundle, "read", read):
+        result = run_quantile_h2_from_args(args)
     assert calls == ["1", "1", "2", "2"] * 2
     assert all(value() is None for value in previous)
     np.testing.assert_allclose(result.quantile_h2.h2_obs, [.45, .35])
+
+
+def test_bounded_reads_and_released_chromosome_arrays(workflow):
+    from ldsc._serial_calculation import serial_calculation
+    # Keep the observer and every numerical phase in the same compute child.
+    serial_calculation(_observe_quantile_reads)(workflow.args)
 
 
 def test_omitted_alleles_require_globally_unique_reference_bases(workflow):

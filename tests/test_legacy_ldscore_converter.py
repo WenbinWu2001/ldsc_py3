@@ -321,6 +321,8 @@ def test_converter_records_filename_remedies_in_error_log_and_issue_table(
 def test_chr_pos_conversion_uses_reference_build_inference_and_normalizes_zero_based_positions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # This unit test replaces only build inference; conversion integration tests use children.
+    monkeypatch.setattr("ldsc._worker_runtime._INITIALIZED", True)
     reference = tmp_path / "reference"
     weights = tmp_path / "weights"
     output = tmp_path / "converted"

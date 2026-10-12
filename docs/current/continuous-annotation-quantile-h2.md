@@ -1,6 +1,9 @@
 # Continuous-Annotation Quantile Heritability: Technical Contract
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-12
+
+Quantile calculation runs in one managed child with **1 BLAS thread**, including input overlap products and post-fit projection.
+See [parallel execution](parallel-execution.md) for native-limit verification and Python process startup.
 
 `ldsc quantile-h2` is a post-fit projection workflow for interpreting a continuous target annotation. It consumes exactly one fitted joint `partitioned-h2` model, reconstructs that model's common reference-SNP universe, assigns eligible SNPs to target-value quantiles, and projects the saved whole-data and delete-one-block coefficient vectors onto those quantiles. It does not refit LDSC.
 

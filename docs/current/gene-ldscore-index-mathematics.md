@@ -1,6 +1,6 @@
 # Exact gene LD-score index: mathematical algorithm
 
-Last updated on: 2026-09-14
+Last updated on: 2026-10-12
 
 This document gives the input-to-output mathematical specification for the
 exact gene-list index used by `ldsc ldscore`. It describes the online indexed
@@ -371,7 +371,7 @@ After query-status validation, the ordinary LD-score writer publishes:
 | `metadata.json` | annotation counts, SNP-universe totals/policies, columns, ordered `query_batches`, `index_id`, and provenance |
 | `diagnostics/` | query resolution/status and workflow audit records |
 
-Execution groups the same matrix products into query batches. Each chromosome worker retains one operator, writes and releases that chromosome's query batches, then releases the operator. The coordinator combines float64 fragments in canonical chromosome order and writes one genome-wide batch at a time. `threads` controls chromosome workers and is capped at chromosome count; `query_batch_size` controls query width. These runtime choices do not change the matrices or scientific definitions above. One batch uses the single query filename; multiple batches use numbered files recorded in the required manifest. See `indexed_results` in [_indexed_ldscore_batches.py](../../src/ldsc/_indexed_ldscore_batches.py) and the [numerical verification](../audits/annotation-memory/sequential-query-batches.md).
+Execution groups the same matrix products into query batches. Each chromosome worker retains one operator, writes and releases that chromosome's query batches, then releases the operator. The coordinator combines float64 fragments in canonical chromosome order and writes one genome-wide batch at a time. `workers` controls chromosome workers and is capped at chromosome count; `query_batch_size` controls query width. These runtime choices do not change the matrices or scientific definitions above. One batch uses the single query filename; multiple batches use numbered files recorded in the required manifest. See `indexed_results` in [_indexed_ldscore_batches.py](../../src/ldsc/_indexed_ldscore_batches.py) and the [numerical verification](../audits/annotation-memory/sequential-query-batches.md).
 
 Scientific matrix products and stored operator values use float64. The canonical
 Parquet writer narrows LD-score columns to the public float32 storage dtype.

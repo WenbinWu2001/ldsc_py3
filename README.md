@@ -1,12 +1,20 @@
 # ldsc3_Jerry
 
-Last updated on: 2026-09-16
+Last updated on: 2026-10-12
 
 This repository is the active refactored LDSC package.
 
-Current flag names and retired options are documented in the [LDSC2-to-current CLI flag map](docs/current/legacy-cli-flag-map.md). Munging uses `--input-format` and automatically preserves input frequency as `FRQ`; both `ldscore` and `build-gene-ldscore-index` retain `--threads`. It controls chromosome worker processes for direct `ldscore` and a chromosome thread pool for index building; both default to `1` (sequential).
+Current flag names and retired options are documented in the [LDSC2-to-current CLI flag map](docs/current/legacy-cli-flag-map.md).
+Munging uses `--input-format` and automatically preserves input frequency as `FRQ`.
+Direct/indexed `ldscore`, index construction, and batch regression use `--workers` for task concurrency.
 
-Both commands and indexed LD scoring require nonzero integer worker requests. Negative requests use process CPU affinity when available, with a machine CPU-count fallback. All requests are capped at chromosome count; an effective count of 1 runs inline. Python booleans and non-integer values are rejected. See the [shared worker policy](docs/current/config-design.md).
+`--workers` / `workers` defaults to one managed child process, including on HPC.
+Every worker uses **1 BLAS thread**, in serial and parallel execution.
+`joblib.cpu_count()` supplies the detected available CPU count; it does not measure idle CPUs or read the requested scheduler allocation.
+Positive requests above that count fail before capping by available tasks; negative `-k` uses `max(1, detected_count + 1 - k)`.
+LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
+Zero, Boolean, and non-integer Python requests are invalid.
+See [the execution policy](docs/current/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
 
 Run `ldsc COMMAND --help` for options grouped by task, with required inputs first and descriptions of defaults, dependencies, and mode restrictions. Contributors should follow the [CLI help guidelines](docs/current/cli-help-guidelines.md).
 
@@ -52,7 +60,7 @@ These academic credit instructions are separate from the software license. Cite 
 
 ## Large pathway batches
 
-The annotation and regression workflows are designed for large pathway batches, such as **1,000 pathways in one run, each tested separately against shared baseline categories**. Whole-genome and chromosome-sharded annotation inputs are prepared in bounded chunks sized for the files processed together. Binary columns are detected automatically and stored as packed bits; continuous columns use dense float32. Two input passes validate/classify supplied values, then write retained values directly into private chromosome artifacts, with metadata kept separately for global identity cleanup. Public reads remain float32 in input column order, and no new option is needed. Chromosome working data are released between sequential runs, and parallel work is bounded by `--threads`; annotation preparation itself remains serial. `--query-batch-size` defaults to `1000` for direct/indexed `ldscore` and batch `partitioned-h2`; use a smaller positive value to reduce active query workspace. Final HM3 LD-score tables remain aggregate Parquet files, never public chromosome LD shards. See [annotation format policy](docs/current/annotation-memory-design.md#annotation-format-policy) for classification and measured storage sizes.
+The annotation and regression workflows are designed for large pathway batches, such as **1,000 pathways in one run, each tested separately against shared baseline categories**. Whole-genome and chromosome-sharded annotation inputs are prepared in bounded chunks sized for the files processed together. Binary columns are detected automatically and stored as packed bits; continuous columns use dense float32. Two input passes validate/classify supplied values, then write retained values directly into private chromosome artifacts, with metadata kept separately for global identity cleanup. Public reads remain float32 in input column order, and no new option is needed. Chromosome working data are released between sequential runs, and parallel work is bounded by `--workers`; annotation preparation itself remains serial. `--query-batch-size` defaults to `1000` for direct/indexed `ldscore` and batch `partitioned-h2`; use a smaller positive value to reduce active query workspace. Final HM3 LD-score tables remain aggregate Parquet files, never public chromosome LD shards. See [annotation format policy](docs/current/annotation-memory-design.md#annotation-format-policy) for classification and measured storage sizes.
 
 Standalone `annotate` accepts BED files or gene lists and writes reusable chromosome annotation shards incrementally. Source-backed Python preparation requires an output directory and explicit bundle ownership; new scratch stays under that destination, with the existing gene-index construction transaction as the exception. See the [developer memory design](docs/current/annotation-memory-design.md) and [pathway batch guide](docs/wiki/main-functionalities/partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways).
 
@@ -292,7 +300,12 @@ For large query scans, `ldsc partitioned-h2 --continue-on-query-error` skips que
 
 The root `partitioned_h2.tsv` includes `query_result_dir`, the exact per-query folder relative to the output directory (for example, `diagnostics/query_annotations/0001_mygeneset`). Use it to locate detailed results while `category` retains the original annotation name. Baseline-only summaries write `NaN` in this column.
 
-`partitioned-h2 --threads N` fits independent whole-query models concurrently; the Python equivalent is `RegressionRunner.estimate_partitioned_h2_batch(..., threads=N)`. It shares parsing and worker-count resolution with `ldscore` and `build-gene-ldscore-index`: the default `1` runs inline, positive counts request that many workers, and negative values use available CPUs (`-1` for all, `-2` for all but one), preferring CPU affinity with a machine CPU-count fallback. All requests are capped by query count and `--query-batch-size`. Choose positive counts within your CPU allocation; these commands do not separately read `SLURM_CPUS_PER_TASK`. Each parallel worker uses one numerical-library thread, enforced with runtime controls for the numerical backend; inline execution keeps caller settings. Shared numeric baseline/trait arrays and the current query batch use read-only maps in private output scratch. Model filtering, weights, jackknife blocks, output ordering, and error policies are unchanged. See [query workers](docs/current/regression-configuration.md#43-query-workers-and-memory) for memory costs and Python process-launch requirements.
+`partitioned-h2 --workers N` fits complete query-plus-baseline models concurrently.
+The Python equivalent is `RegressionRunner.estimate_partitioned_h2_batch(..., workers=N)`.
+The default is one managed child, and each worker uses 1 BLAS thread.
+Shared numerical inputs use read-only maps; private model matrices still consume memory.
+Query ordering, scientific schemas, and strict/continue policies are unchanged.
+See [query workers](docs/current/regression-configuration.md#43-query-workers-and-memory).
 
 Use this synthetic `base` directory for `ldsc h2` or `ldsc rg`. A baseline-only
 directory is also accepted by `ldsc partitioned-h2` in its functional-category
@@ -300,7 +313,7 @@ regime, although a single all-ones `base` column is a degenerate one-category
 fit rather than a meaningful partitioned analysis.
 
 Native LD-score runs classify fitted columns as binary or quantitative for interpretation only. Partitioned-h2 preserves numerical legacy enrichment summaries for quantitative columns but logs that those weighted values do not have the ordinary binary-category interpretation; coefficients remain interpretable. `ldsc quantile-h2` consumes one baseline-only or per-query fitted model plus resupplied annotation/reference sources and reports joint-model heritability by target quantile and standardized `tau_star`. Resupplied sources are checked for alignment and agreement with stored counts, annotation sums, and available overlap cross-products; passing these checks does not establish the original annotation value at every SNP. See [the technical contract](docs/current/continuous-annotation-quantile-h2.md) and [the concise workflow](docs/wiki/continuous-annotation-partitioned-ldsc.md).
-LD-score generation runs queries in sequential batches (`--query-batch-size`, default 1000). A single batch writes `ldscore.query.parquet`; multiple batches write `ldscore.query.batch00001.parquet` and subsequent ordinals. Every file spans the computed chromosomes with one row group per chromosome. Root `metadata.json.query_batches` records filenames, ordered query columns, and row groups; one shared baseline and overlap are written. Older LD-score directories without this manifest must be regenerated. Direct mode repeats reference work for each batch. Direct and indexed modes support `--threads`, capped at chromosome count.
+LD-score generation runs queries in sequential batches (`--query-batch-size`, default 1000). A single batch writes `ldscore.query.parquet`; multiple batches write `ldscore.query.batch00001.parquet` and subsequent ordinals. Every file spans the computed chromosomes with one row group per chromosome. Root `metadata.json.query_batches` records filenames, ordered query columns, and row groups; one shared baseline and overlap are written. Older LD-score directories without this manifest must be regenerated. Direct mode repeats reference work for each batch. Direct and indexed modes support `--workers`, capped at chromosome count.
 
 Writing Python workflows return `LDScoreSource`; use `result.read_queries(["pathway_a", "pathway_b"])` for explicit selections across files. These reads have no cache or width limit; the caller owns their RAM cost. For a small single-batch calculation with zero filesystem writes, prepare `AnnotationBundle.from_frames(...)` and call `LDScoreCalculator.run(..., output_config=None)` with a prepared reference adapter. An output directory is required for multiple batches. See the [memory contracts](docs/current/annotation-memory-design.md).
 

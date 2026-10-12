@@ -201,6 +201,8 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             )
 
     def test_reference_panel_builder_uses_registered_global_config_and_logs_once(self):
+        from tests.worker_fixtures import calculation_body
+        self.enterContext(calculation_body())
         set_global_config(GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
 
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-09-16
+Last updated on: 2026-10-12
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -340,9 +340,9 @@ Completed query scans write `diagnostics/query_status.tsv` in requested order, i
 
 | Field | Meaning |
 | --- | --- |
-| `query_workers_requested` | Original nonzero integer `threads` request, including a negative CPU offset if supplied. |
-| `query_workers_effective` | Resolved process count after the shared worker policy and query/batch work cap; 1 means inline execution. |
-| `query_worker_native_threads` | 1 for parallel workers; `null` when inline execution retains caller settings. |
+| `query_workers_requested` | Original nonzero integer `workers` request, including a negative CPU offset if supplied. |
+| `query_workers_effective` | Resolved process count after the shared worker policy and query/batch work cap; 1 means one managed child. |
+| `query_worker_native_threads` | The fixed target of 1 BLAS thread per worker, including serial execution; runtime logs separately report verification. |
 
 These fields describe execution, not scientific filtering or jackknife construction. Worker completion order does not change status order or the stable summary/manifest order. Source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py); see [query workers and memory](regression-configuration.md#43-query-workers-and-memory).
 

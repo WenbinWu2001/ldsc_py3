@@ -1,6 +1,6 @@
 # Partitioned LDSC Workflow: Technical Reference
 
-Last updated on: 2026-09-16
+Last updated on: 2026-10-12
 
 This document describes the refactored workflow for computing LD scores and
 running h2, partitioned-h2, and rg regression from one canonical LD-score result
@@ -238,7 +238,11 @@ unavailable. Regression falls back to `all_reference_snp_count` in that case.
 
 ## 6. Regression Behavior
 
-`partitioned-h2 --threads N` controls concurrent complete query models, with default 1 preserving inline execution. Parsing and resolution use the same helpers as `ldscore` and `build-gene-ldscore-index`: positive N requests N workers, while negative values use CPU affinity with a machine CPU-count fallback. All requests are capped by query count and `--query-batch-size`, which still bounds loading. Choose positive N within your CPU allocation. Parallel processes borrow immutable numeric maps and use one native numerical thread each. Shared preparation and final publication stay in the coordinator. Baseline-only behavior and model-specific filtering, weights, SNP order, and jackknife blocks are unchanged. See [the effective CPU and memory policy](regression-configuration.md#43-query-workers-and-memory) and `RegressionRunner._fit_partitioned_query()`.
+`partitioned-h2 --workers N` controls complete query-plus-baseline models, capped by model count and query batch width.
+The default uses one managed child, and every worker uses 1 BLAS thread.
+Positive requests above `joblib.cpu_count()` fail before the work cap; negative offsets follow [the shared execution policy](parallel-execution.md).
+Read-only maps preserve shared numerical inputs while private model arrays still consume memory.
+Filtering, weighting, SNP order, jackknife blocks, and output ordering are unchanged.
 
 Query scans retain strict publication by default. Explicit `--continue-on-query-error` skips per-query model preparation, fitting, and result calculation exceptions and publishes successful models; all attempted queries are recorded in `diagnostics/query_status.tsv`. The log contains each failure's query/stage/traceback and available jackknife block/rank/support/genomic diagnostics. Shared input/output failures and scans without successful fits remain fatal. The same rule applies to direct and indexed LD scores, with unchanged filtering, weighting, and contiguous block construction. See [query failure handling](partitioned-h2-results.md#query-failures-and-continuation) and `RegressionRunner.estimate_partitioned_h2_batch()`.
 
@@ -451,7 +455,7 @@ Writing LD-score workflows and `load_ldscore_from_dir` return `LDScoreSource`. I
 
 `LDScoreResult` remains the materialized object for one execution batch. The small prepared-input Python exception, `LDScoreCalculator.run(..., output_config=None)`, returns one such batch with complete in-memory diagnostics and creates no files. Prepare annotations with `AnnotationBundle.from_frames` and supply resolved restrictions explicitly. Multiple batches require output configuration. See the [zero-write example](../../tutorials/ld-score-calculation.md#small-python-calculations-without-writes).
 
-Generation `query_batch_size` bounds sequential output batches. Direct calculation repeats reference work across them; indexed calculation reuses one chromosome operator per worker through its batches. `threads` is capped at chromosome count. Regression chooses its own batch width independently and retains one complete genome-wide model per query. Sources: `LDScoreCalculator.run`, `run_indexed_ldscore`, and the [memory design](annotation-memory-design.md).
+Generation `query_batch_size` bounds sequential output batches. Direct calculation repeats reference work across them; indexed calculation reuses one chromosome operator per worker through its batches. `workers` is capped at chromosome count. Regression chooses its own batch width independently and retains one complete genome-wide model per query. Sources: `LDScoreCalculator.run`, `run_indexed_ldscore`, and the [memory design](annotation-memory-design.md).
 
 `output_paths` records scientific artifacts such as metadata, shared baseline/overlap files, and query batch files; workflow logs such as `diagnostics/ldscore.log` are audit files and are not included.
 `RgOutputConfig(write_per_pair_detail=True)` controls the optional per-pair

@@ -51,6 +51,37 @@ def test_validated_index_releases_operators_and_keeps_support(tmp_path, monkeypa
     assert not hasattr(index, "index_chromosomes")
 
 
+def _observed_index_task(*args, **kwargs):
+    import json
+    import os
+    from pathlib import Path
+    from ldsc import _indexed_ldscore_batches as batches
+    original_load = index_module._load_index_chromosome
+    original_assemble = index_module.assemble_indexed_ld_scores
+    loads, widths, live = [], [], []
+    def load(*values, **options):
+        assert all(ref() is None for ref in live)
+        record = original_load(*values, **options)
+        loads.append(values[1])
+        live.append(weakref.ref(record.operator))
+        return record
+    def assemble(operator, selectors):
+        if selectors.ndim == 2:
+            widths.append(selectors.shape[1])
+        return original_assemble(operator, selectors)
+    index_module._load_index_chromosome = load
+    index_module.assemble_indexed_ld_scores = assemble
+    try:
+        result = batches._write_chromosome(*args, **kwargs)
+        assert all(ref() is None for ref in live)
+        (Path(os.environ["LDSC_TEST_INDEX_EVENTS"]) / f"{args[1]}.json").write_text(
+            json.dumps({"loads": loads, "widths": widths}))
+        return result
+    finally:
+        index_module._load_index_chromosome = original_load
+        index_module.assemble_indexed_ld_scores = original_assemble
+
+
 @pytest.mark.parametrize("batch_size", [1, 2, 1000])
 def test_index_assembly_loads_each_operator_twice_and_batches_queries(tmp_path, monkeypatch, batch_size):
     path = two_chromosome_index(tmp_path)
@@ -61,26 +92,26 @@ def test_index_assembly_loads_each_operator_twice_and_batches_queries(tmp_path, 
         query.write_text(genes)
         queries.append(query)
     original_load = index_module._load_index_chromosome
-    original_assemble = index_module.assemble_indexed_ld_scores
-    loads, live, widths = [], [], []
-
+    loads, live = [], []
     def load(*args, **kwargs):
         assert all(ref() is None for ref in live)
         record = original_load(*args, **kwargs)
         live.append(weakref.ref(record.operator))
         loads.append(args[1])
         return record
-
-    def assemble(operator, selectors):
-        if selectors.ndim == 2:
-            widths.append(selectors.shape[1])
-        return original_assemble(operator, selectors)
-
+    from ldsc import _indexed_ldscore_batches as batches
+    events = tmp_path / "events"
+    events.mkdir()
+    monkeypatch.setenv("LDSC_TEST_INDEX_EVENTS", str(events))
     monkeypatch.setattr(index_module, "_load_index_chromosome", load)
-    monkeypatch.setattr(index_module, "assemble_indexed_ld_scores", assemble)
+    monkeypatch.setattr(batches, "_write_chromosome", _observed_index_task)
     result = run_indexed_ldscore(path, query_gene_list_sources=queries,
                                 output_dir=tmp_path / "out", query_batch_size=batch_size)
-    assert loads == ["21", "22", "21", "22"]
+    assert loads == ["21", "22"]
+    import json
+    observed = [json.loads((events / f"{chrom}.json").read_text()) for chrom in loads]
+    assert [item["loads"] for item in observed] == [["21"], ["22"]]
+    widths = [width for item in observed for width in item["widths"]]
     assert all(ref() is None for ref in live)
     assert max(widths) <= batch_size
     # Stored atoms: G1/G3 select atoms 0,1; G2/G4 select 1,2.
@@ -90,8 +121,9 @@ def test_index_assembly_loads_each_operator_twice_and_batches_queries(tmp_path, 
     assert result.gene_list_batch.audit_path.is_file()
 
 
-@pytest.mark.parametrize("threads", [1, 2, -1, -2, 10])
-def test_parallel_index_batches_preserve_union_scores_and_counts(tmp_path, threads):
+@pytest.mark.parametrize("workers", [1, 2, -1, -2, 10])
+def test_parallel_index_batches_preserve_union_scores_and_counts(tmp_path, workers, monkeypatch):
+    monkeypatch.setattr("joblib.cpu_count", lambda: 16)
     path = two_chromosome_index(tmp_path)
     queries = []
     for name, genes in [("first", "G1\nG3\n"), ("second", "G2\nG4\n"),
@@ -102,7 +134,7 @@ def test_parallel_index_batches_preserve_union_scores_and_counts(tmp_path, threa
     reference = run_indexed_ldscore(path, query_gene_list_sources=queries,
                                    output_dir=tmp_path / "reference", query_batch_size=1000)
     result = run_indexed_ldscore(path, query_gene_list_sources=queries,
-                                output_dir=tmp_path / "out", query_batch_size=1, threads=threads)
+                                output_dir=tmp_path / "out", query_batch_size=1, workers=workers)
     assert not hasattr(result, "query_table")
     assert len(result.query_batches) == 3
     columns = ["union", "second", "first"]

@@ -33,7 +33,7 @@ import warnings
 from ._kernel.snp_identity import identity_mode_family, normalize_snp_identifier_mode
 from .column_inference import normalize_genome_build
 from .errors import LDSCConfigError
-from ._parallelism import _validate_threads
+from ._parallelism import _validate_workers
 from .path_resolution import normalize_optional_path_token, normalize_path_token, normalize_path_tokens
 
 LOGGER = logging.getLogger("LDSC.config")
@@ -529,16 +529,17 @@ class LDScoreConfig:
         ``ref_metadata/`` in the output directory. Default is ``False``.
         Requires an output configuration and is not a zero-write option.
         Parquet R2 inputs already have authoritative metadata sidecars.
-    threads : int, optional
-        Number of worker processes for cross-chromosome parallelism on one
-        machine, using the scikit-learn/joblib ``n_jobs`` convention: ``1``
-        (default) runs sequentially in-process; ``-1`` uses all available cores;
-        ``-2`` uses all but one; any other negative ``-k`` uses
-        ``max(1, n_cpus + 1 - k)``. Available core counts prefer CPU affinity,
-        falling back to the machine CPU count. The effective count is capped at
-        the chromosome count; an effective count of one runs inline.
-        Zero, booleans, and non-integer values are rejected. Numerical results agree
-        within the existing tolerances regardless of this value.
+    workers : int, optional
+        Maximum concurrent task processes, default 1, including on HPC.
+        Use joblib.cpu_count() as the detected available CPU budget.
+        Positive requests above that budget fail before capping by task
+        count; negative -k uses max(1, budget + 1 - k). Zero, booleans,
+        and non-integers are invalid. One worker is a managed child.
+        Every worker uses 1 BLAS thread in serial and parallel execution.
+        Numerical OpenMP and Arrow CPU/I/O limits are also one; unsupported
+        numerical limits are logged as unverified and computation continues.
+        This does not detect idle CPUs, guarantee scheduler allocation
+        compliance, or ensure sufficient memory.
     """
     ld_wind_snps: int | None = None
     ld_wind_kb: float | None = None
@@ -549,7 +550,7 @@ class LDScoreConfig:
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
     export_ref_metadata: bool = False
-    threads: int = 1
+    workers: int = 1
 
     def __post_init__(self) -> None:
         """Validate LD-window settings and normalize optional SNP-list paths."""
@@ -568,7 +569,7 @@ class LDScoreConfig:
             raise LDSCConfigError("query_batch_size must be a positive integer.")
         if self.snp_batch_size <= 0:
             raise LDSCConfigError(_positive_number_message("LDScoreConfig", "snp_batch_size", self.snp_batch_size))
-        _validate_threads(self.threads, error_type=LDSCConfigError)
+        _validate_workers(self.workers, error_type=LDSCConfigError)
         object.__setattr__(self, "regr_snps_file", _normalize_optional_path(self.regr_snps_file))
 
 
@@ -624,13 +625,17 @@ class GeneLDScoreIndexBuildConfig:
         Positive PLINK genotype work batch size. Default is 128.
     atom_batch_size : int, optional
         Positive offline internal atom-column batch size. Default is 64.
-    threads : int, optional
-        Nonzero integer chromosome-worker request, default one; booleans and
-        non-integer values are invalid.
-        Negative -k uses available CPUs + 1 - k (minimum one), preferring
-        affinity with a machine CPU-count fallback. Capped at chromosome
-        count; an effective count of one runs inline. Additional threads can
-        multiply chromosome-local memory.
+    workers : int, optional
+        Maximum concurrent task processes, default 1, including on HPC.
+        Use joblib.cpu_count() as the detected available CPU budget.
+        Positive requests above that budget fail before capping by task
+        count; negative -k uses max(1, budget + 1 - k). Zero, booleans,
+        and non-integers are invalid. One worker is a managed child.
+        Every worker uses 1 BLAS thread in serial and parallel execution.
+        Numerical OpenMP and Arrow CPU/I/O limits are also one; unsupported
+        numerical limits are logged as unverified and computation continues.
+        This does not detect idle CPUs, guarantee scheduler allocation
+        compliance, or ensure sufficient memory.
 
     Raises
     ------
@@ -655,7 +660,7 @@ class GeneLDScoreIndexBuildConfig:
     regr_snps_exclude_regions: str = "mhc-and-centromeres"
     snp_batch_size: int = 128
     atom_batch_size: int = 64
-    threads: int = 1
+    workers: int = 1
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "baseline_annot_sources", _normalize_path_tuple(self.baseline_annot_sources))
@@ -685,7 +690,7 @@ class GeneLDScoreIndexBuildConfig:
             raise LDSCConfigError("maf_min must be in [0, 0.5].")
         if not 0 <= self.common_maf_min <= 0.5:
             raise LDSCConfigError("common_maf_min must be in [0, 0.5].")
-        _validate_threads(self.threads, error_type=LDSCConfigError)
+        _validate_workers(self.workers, error_type=LDSCConfigError)
 
 
 @dataclass(frozen=True)

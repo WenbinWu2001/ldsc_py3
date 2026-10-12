@@ -1,6 +1,9 @@
 # Build an R² Panel from PLINK
 
-Last updated on: 2026-09-14
+Last updated on: 2026-10-12
+
+The build processes chromosomes serially in one managed child, with **1 BLAS thread**.
+Python scripts must place workflow calls under `if __name__ == "__main__":`; see [parallel execution](../docs/current/parallel-execution.md).
 
 `ldsc build-r2-panel` computes pairwise, bias-adjusted R² from PLINK genotypes and writes reusable chromosome tables plus SNP metadata. Use these outputs with `ldsc ldscore` to aggregate LD scores, or with `ldsc query-r2` to inspect particular SNP pairs. The current command has no `build-ref-panel` alias.
 

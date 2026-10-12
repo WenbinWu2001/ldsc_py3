@@ -31,13 +31,13 @@ def write_inputs(root):
                                    "ENSG22\tG22\t22\t100\t400\thg19\n")
 
 
-def index_args(root, token, output):
+def index_args(root, token, output, *, workers=2):
     args = gene_ldscore_index.build_parser().parse_args([
         "--baseline-annot-sources", str(root / "baseline.annot"), "--plink-prefix", token,
         "--gene-coordinate-file", str(root / "genes.tsv"), "--genome-build", "hg19",
         "--snp-identifier", "chr_pos", "--ld-wind-cm", ".05", "--snp-batch-size", "1", "--padding-bp", "0",
         "--gene-exclude-regions", "none", "--regr-snps-exclude-regions", "none",
-        "--regr-snps-file", str(root / "regression.tsv"), "--threads", "2", "--output-dir", str(output),
+        "--regr-snps-file", str(root / "regression.tsv"), "--workers", str(workers), "--output-dir", str(output),
     ])
     args._test_chromosomes = ("21", "22")
     return args
@@ -71,7 +71,7 @@ def test_gene_index_and_ldscore_share_plink_resolution_and_scores(tmp_path, form
         "--query-annot-sources", str(tmp_path / "query.annot"),
         "--snp-identifier", "chr_pos", "--genome-build", "hg19", "--ld-wind-cm", ".05", "--snp-batch-size", "1",
         "--regr-snps-exclude-regions", "none", "--regr-snps-file", str(tmp_path / "regression.tsv"),
-        "--output-dir", str(tmp_path / "ldscore"), "--threads", "2",
+        "--output-dir", str(tmp_path / "ldscore"), "--workers", "2",
     ])
     marker = tmp_path / "ldscore/RUN_FAILED.txt"
     marker.parent.mkdir()

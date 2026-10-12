@@ -1,11 +1,12 @@
 # ldscore cross-chromosome parallelism — Implementation Plan
 
-> **Superseded note (final API):** this plan was executed, but the public knob
-> was simplified post-implementation to a single integer `LDScoreConfig.threads`
-> / `--threads` flag (joblib `n_jobs` convention: `1`=sequential default, `-1`=all
-> cores, `-2`=all but one), affinity-aware via `_available_cpu_count`. The earlier
-> `num_workers`/`parallel` two-knob design below is historical. See the design doc
-> §3.1 for the final semantics.
+Last updated on: 2026-10-12
+
+Status: executed historical plan, not the implementation plan for the next migration.
+
+The [parallel-execution decision record](../decisions/2026-10-11-parallel-execution.md) governs the new target: `workers`, managed serial children, the fixed one-thread BLAS policy, and chromosome logs.
+This plan's earlier `num_workers`/`parallel` design was simplified after implementation to the currently implemented `LDScoreConfig.threads` / `--threads` interface with affinity-aware negative requests.
+Both those historical interfaces and the inline serial path are superseded as migration targets; retained steps below do not override the new decisions.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

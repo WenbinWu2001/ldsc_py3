@@ -1,6 +1,6 @@
 # Annotation and workflow memory design
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-12
 
 The benchmark scripts were removed from the active tree on September 15, 2026. Script links below point to their archived Git revision; the recorded measurements remain historical evidence.
 
@@ -24,7 +24,7 @@ Aligned baseline/query column files are checked positionally before chromosome p
 
 After global indexing, selection writes retained metadata directly to its final Parquet file and records bounded source-row/chromosome locators in one append stream per aligned group. The retained counts size the final NumPy stores. [`_write_values()`](../../src/ldsc/_annotation_sources.py) rereads the original input at the aligned group's tile width and writes retained values directly into their final binary/continuous stores. There is no numeric `values.bin` spool, replacement numeric staging file, or conversion copy on disk. The repeated parsing/decompression is the accepted trade-off for this simpler preparation path. Inputs must remain unchanged between passes. Source metadata staging is removed after each source finishes; group selection locators are then removed. [`FrameSpool`](../../src/ldsc/_annotation_storage.py) uses one file of independently serialized frames per spool, including diagnostic spools; descriptors keep no open handles. Selection preserves source order within each chromosome and applies requested chromosome filtering only after global identity cleanup. Preparation remains serial before the gene-index builder starts chromosome workers. The [preparation benchmark report](../audits/annotation-memory/annotation-preparation.md) records the earlier dense implementation; its timing/RSS numbers are historical, not measurements of packed storage.
 
-The subsequent [parallelism evaluation](../audits/annotation-memory/preparation-parallelism.md#decision) tested chromosome selection and writing after committing the shared global identity index. Four process workers reduced local preparation time by 25.3% on 1.89 million real baseline rows, while increasing sampled process-tree RSS from 399 to 1,075 MiB. Threads regressed, and a synthetic 1,000-query workload had no worthwhile total gain. Numeric writing did not dominate either workload. The user chose to keep preparation serial because the gains do not justify the memory and implementation costs. The parallelism follow-up is closed, including further writer-only experiments. Production preparation does not consume `--threads`; existing chromosome computation parallelism is unchanged.
+The subsequent [parallelism evaluation](../audits/annotation-memory/preparation-parallelism.md#decision) tested chromosome selection and writing after committing the shared global identity index. Four process workers reduced local preparation time by 25.3% on 1.89 million real baseline rows, while increasing sampled process-tree RSS from 399 to 1,075 MiB. Threads regressed, and a synthetic 1,000-query workload had no worthwhile total gain. Numeric writing did not dominate either workload. The user chose to keep preparation serial because the gains do not justify the memory and implementation costs. The parallelism follow-up is closed, including further writer-only experiments. Production preparation does not consume `--workers`; existing chromosome computation parallelism is unchanged.
 
 ## Annotation format policy
 
@@ -95,7 +95,13 @@ Within each active direct query batch, each PLINK correlation block is generated
 
 ## Chromosome parallelism
 
-[`LDScoreCalculator`](../../src/ldsc/ldscore_calculator.py) uses `--threads` to choose chromosome worker **processes**: `1` is sequential, positive values request that many workers, and negative values follow the documented joblib convention. Positive requests are capped by the number of available chromosomes; negative requests derive their count from available CPUs and are then capped by chromosome count. Spawned workers set default native-library thread environment values; these are separate from the chromosome-worker count and do not guarantee runtime limits. `build-gene-ldscore-index --threads` uses a chromosome thread pool; both commands keep the same flag name and default to sequential execution.
+`--workers` / `workers` defaults to one managed child process, including on HPC.
+Every worker uses **1 BLAS thread**, in serial and parallel execution.
+`joblib.cpu_count()` supplies the detected available CPU count; it does not measure idle CPUs or read the requested scheduler allocation.
+Positive requests above that count fail before capping by available tasks; negative `-k` uses `max(1, detected_count + 1 - k)`.
+LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
+Zero, Boolean, and non-integer Python requests are invalid.
+See [the execution policy](parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
 
 The sequential lifecycle is `load chromosome → prepare → compute/write diagnostics → close → next chromosome`. Reference and annotation working arrays from the completed chromosome become available for reuse before the next preparation. Python/NumPy allocators may keep freed pages, so RSS need not fall immediately. A flat RSS trace alone is not evidence of retained chromosome objects; lifetime tests assert release directly.
 
@@ -105,13 +111,20 @@ Parallel submission keeps pending chromosome work bounded by the effective worke
 
 ## Immutable gene-index access
 
-[`LoadedGeneLDScoreIndex`](../../src/ldsc/gene_ldscore_index.py) retains catalog/settings metadata, chromosome component paths, and compact support summaries. Integrity validation loads and releases one chromosome at a time. Assembly uses `_indexed_ldscore_batches.py` and bounded chromosome workers. Each worker loads one operator, writes and releases every active query batch, then releases the operator before its next chromosome. The coordinator assembles private float64 fragments in deterministic chromosome order, one genome-wide query batch at a time. It does not reload the operator for every query batch. Canonical integrity checks remain intact. `threads`/`--threads` has the direct-mode convention: default 1, positive worker counts, -1 available cores, -2 leaves one free, zero invalid, capped at chromosome count.
+[`LoadedGeneLDScoreIndex`](../../src/ldsc/gene_ldscore_index.py) retains catalog/settings metadata, chromosome component paths, and compact support summaries. Integrity validation loads and releases one chromosome at a time. Assembly uses `_indexed_ldscore_batches.py` and bounded chromosome workers. Each worker loads one operator, writes and releases every active query batch, then releases the operator before its next chromosome. The coordinator assembles private float64 fragments in deterministic chromosome order, one genome-wide query batch at a time. It does not reload the operator for every query batch. Canonical integrity checks remain intact. `workers`/`--workers` has the direct-mode convention: default 1, positive worker counts, -1 detected available CPUs, -2 leaves one free, zero invalid, capped at chromosome count.
 
 The index builder uses the same bounded annotation preparation and chromosome scheduling. Shared baseline and regression-weight projection use one traversal; separate atom-batch traversals remain intentional. Stored operators and common payloads remain float64. Smaller query multiplications and separate validation/assembly passes can add overhead; performance claims require end-to-end measurements, not just a count of loaded operators.
 
 ## Batch regression and incremental result writing
 
-Query concurrency is optional: `threads=1` preserves inline execution, while `_partitioned_h2_parallel._QueryWorkers` runs bounded whole-query processes. The coordinator writes shared aligned numeric columns once in column-major, dtype-preserving raw maps. Nonnumeric/extension columns and model metadata use private snapshots loaded once per worker. Each loaded query batch gets temporary numeric maps; each task carries only its query name, one column descriptor, and a unique fit directory. Workers map that column read-only, prepare and fit a complete private model, stage results, and return a compact outcome. At most one task is in flight per process; one pool serves all batches, and each batch is removed before loading the next. Processes exit before shared scratch cleanup. This changes private regression transport only; annotation storage and canonical output schemas remain unchanged. See [Worker counts, ownership, and memory costs](regression-configuration.md#43-query-workers-and-memory).
+Query concurrency defaults to one managed child.
+`_partitioned_h2_parallel._QueryWorkers` reuses whole-model processes across loading batches, with 1 BLAS thread per worker.
+Shared numerical columns and each active query batch use dtype-preserving read-only maps.
+Nonnumeric columns and compact model metadata are loaded from private snapshots.
+Each task carries its query name, column descriptor, and a unique fit directory.
+Workers stage complete model results and return compact outcomes.
+At most one task is in flight per process; workers exit before scratch removal.
+See [query workers](regression-configuration.md#43-query-workers-and-memory).
 
 [`LDScoreSource`](../../src/ldsc/ldscore_source.py), returned by `load_ldscore_from_dir()`, reads shared baseline/identity metadata and validates schemas without retaining all query values. `read_queries(columns)` selects only requested Parquet columns and does not cache them. Writing workflows return `LDScoreSource` directly; `read_queries(columns)` may span files and exceed generation width, preserves requested order, and imposes no RAM cap. `LDScoreResult` remains the materialized object for one active batch or a small prepared no-output calculation. Downstream `h2`, `rg`, and partitioned workflows consume only the columns they need.
 

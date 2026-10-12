@@ -26,42 +26,52 @@ from tests.test_partitioned_query_failures import concentrate_queries
 def test_cli_thread_contract(inputs, capsys):
     inputs = [*inputs, "--output-dir", "out"]
     parser = cli.build_parser()
-    assert parser.parse_args(inputs).threads == 1
+    assert parser.parse_args(inputs).workers == 1
     for value in ("1", "4", "-1", "-2", "-20"):
-        assert parser.parse_args([*inputs, "--threads", value]).threads == int(value)
+        assert parser.parse_args([*inputs, "--workers", value]).workers == int(value)
     for value in ("0", "True", "False", "1.5", "1.0"):
         with pytest.raises(SystemExit) as error:
-            parser.parse_args([*inputs, "--threads", value])
+            parser.parse_args([*inputs, "--workers", value])
         assert error.value.code == 2
-        assert "argument --threads:" in capsys.readouterr().err
+        assert "argument --workers:" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("batch_size,expected", [(1000, 3), (2, 2), (1, 1)])
 def test_positive_query_workers_follow_existing_work_cap(tmp_path, monkeypatch, batch_size, expected):
-    monkeypatch.setattr(policy.os, "sched_getaffinity", lambda pid: {0}, raising=False)
+    monkeypatch.setattr(policy.joblib, "cpu_count", lambda: 8)
     monkeypatch.setenv("SLURM_CPUS_PER_TASK", "1")
     table, source = batch_inputs(tmp_path / "ld")
     RegressionRunner(source.config_snapshot, RegressionConfig(n_blocks=6)).estimate_partitioned_h2_batch(
-        table, source, output_dir=tmp_path / "out", threads=4, query_batch_size=batch_size,
+        table, source, output_dir=tmp_path / "out", workers=4, query_batch_size=batch_size,
     )
     metadata = json.loads((tmp_path / "out/diagnostics/metadata.json").read_text())
     assert metadata["query_workers_effective"] == expected
 
 
 @pytest.mark.parametrize("reason", ["requested_one", "one_query", "one_batch", "one_cpu", "baseline"])
-def test_effective_one_stays_inline_and_preserves_native_settings(tmp_path, monkeypatch, reason):
+def test_effective_one_uses_child_and_preserves_native_settings(tmp_path, monkeypatch, reason):
     from threadpoolctl import threadpool_info
 
     table, source = batch_inputs(tmp_path / "ld")
     before = threadpool_info()
-    monkeypatch.setattr(parallel, "_QueryWorkers", lambda *a, **k: pytest.fail("inline run spawned workers"))
-    monkeypatch.setattr(policy.os, "sched_getaffinity", lambda pid: {0}, raising=False)
-    threads = 1 if reason == "requested_one" else -1 if reason == "one_cpu" else 4
+    created = []
+    original = parallel._QueryWorkers
+    def observe(*args, **kwargs):
+        pool = original(*args, **kwargs)
+        created.extend(process.pid for process in pool.processes)
+        return pool
+    monkeypatch.setattr(parallel, "_QueryWorkers", observe)
+    monkeypatch.setattr(policy.joblib, "cpu_count", lambda: 8)
+    if reason == "one_cpu":
+        monkeypatch.setattr(policy.joblib, "cpu_count", lambda: 1)
+    workers = 1 if reason == "requested_one" else -1 if reason == "one_cpu" else 4
     result = RegressionRunner(source.config_snapshot, RegressionConfig(n_blocks=6)).estimate_partitioned_h2_batch(
-        table, source, output_dir=tmp_path / "out", threads=threads,
+        table, source, output_dir=tmp_path / "out", workers=workers,
         query_columns=[] if reason == "baseline" else ["first"] if reason == "one_query" else None,
         query_batch_size=1 if reason == "one_batch" else 1000,
     )
+    if reason != "baseline":
+        assert len(created) == 1 and created[0] != os.getpid()
     assert threadpool_info() == before
     assert len(result.summary) == (1 if reason in {"baseline", "one_query"} else 3)
     assert not list((tmp_path / "out").glob(".ldsc-annotation-*"))
@@ -90,8 +100,8 @@ def test_nonnumeric_query_keeps_per_query_preparation_failure_policy(tmp_path):
     query.to_parquet(path, index=False)
     runner = RegressionRunner(source.config_snapshot, RegressionConfig(n_blocks=6))
     expected, actual = [runner.estimate_partitioned_h2_batch(
-        table, source, output_dir=tmp_path / f"workers-{threads}", threads=threads, continue_on_query_error=True,
-    ) for threads in (1, 2)]
+        table, source, output_dir=tmp_path / f"workers-{workers}", workers=workers, continue_on_query_error=True,
+    ) for workers in (1, 2)]
     pd.testing.assert_frame_equal(actual.summary, expected.summary)
     pd.testing.assert_frame_equal(actual.query_status, expected.query_status)
     assert actual.query_status.status.tolist() == ["success", "failed", "success"]
@@ -117,6 +127,8 @@ def _fault_worker(connection, snapshot, inputs_path):
         if matrix.shape == (3, 3) and not matrix[1].any():
             if mode == "crash":
                 os._exit(17)
+            if mode == "exit":
+                raise SystemExit("worker exit")
             if mode == "interrupt":
                 raise KeyboardInterrupt("worker interruption")
             if mode == "exception":
@@ -144,7 +156,7 @@ def test_real_worker_failures_identify_query_and_reap_children(tmp_path, monkeyp
     monkeypatch.setenv("LDSC_TEST_WORKER_FAULT", mode)
     monkeypatch.setattr(parallel, "_query_worker", _fault_worker)
     before = {child.pid for child in mp.active_children()}
-    args.extend(["--threads", "2"])
+    args.extend(["--workers", "2"])
     if continue_errors:
         args.append("--continue-on-query-error")
     if mode == "exception" and continue_errors:
@@ -174,7 +186,7 @@ def test_parent_interrupt_reaps_workers_before_scratch_cleanup(tmp_path, monkeyp
 
     monkeypatch.setattr(parallel, "wait", stop)
     with pytest.raises(KeyboardInterrupt, match="parent interruption"):
-        cli.main([*args, "--threads", "2", "--continue-on-query-error"])
+        cli.main([*args, "--workers", "2", "--continue-on-query-error"])
     assert {child.pid for child in mp.active_children()} == before
     assert not list((tmp_path / "out").glob(".ldsc-annotation-*"))
     assert not (tmp_path / "out/partitioned_h2.tsv").exists()

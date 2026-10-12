@@ -11,6 +11,7 @@ INSTALL_REQUIRES = [
     "pyarrow>=21,<24",
     "matplotlib>=3.9,<4",
     "threadpoolctl>=3.6,<4",
+    "joblib>=1.5,<2",
 ]
 
 PLINK_REQUIRES = [

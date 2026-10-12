@@ -4,7 +4,7 @@
 
 # LDSC Package Guidance
 
-Last updated on: 2026-09-27
+Last updated on: 2026-10-12
 
 This repository, `ldsc_py3_restructured`, develops the distributable scientific Python package `ldsc` (distribution version `2.0b0`), with source under `src/ldsc/`.
 
@@ -32,7 +32,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
 ```
 
 - Python support is `>=3.11,<3.14`; dependency bounds live in `setup.py`, `requirements.txt`, and `environment.yml`.
-  Required dependencies are NumPy, pandas, SciPy, PyArrow, Matplotlib, and threadpoolctl.
+  Required dependencies are NumPy, pandas, SciPy, PyArrow, Matplotlib, threadpoolctl, and joblib.
   Extras: `plink` (bitarray), `bed` (pybedtools plus external bedtools on PATH), `liftover` (pyliftover), `test` (pytest), `all` (workflow extras), and `dev` (all plus tests).
 - `pytest` is primary; `pyproject.toml` sets `testpaths = ["tests"]`, `-ra`, and markers `slow`, `statistical`, `io`, `file_format_compat`.
   Tests require the editable installation and do not inject `src`; concurrent pytest/unittest can conflict through pybedtools cleanup.
@@ -162,6 +162,7 @@ These rules apply only when a review is requested; they do not require an extra 
 | `docs/current/code-structure.md`, `docs/current/architecture.md`, `docs/current/data-flow.md`, `docs/current/layer-structure.md` | Contributor navigation, execution/dependency architecture, artifact flows, and ownership; current contracts govern unless a confirmed change supersedes them. |
 | `docs/current/*-decisions.md`, `docs/specs/`, `docs/plans/` | Preserve existing decisions, agreed specifications, and plans; retain dated topic names and do not migrate or duplicate records. |
 | `docs/decisions/` | New authorized standalone `grill-with-docs` decision records with confirmed rationale; use existing topical records where appropriate, keep terminology in its established home, and use ADR format only under `domain-modeling` criteria. |
+| `docs/decisions/2026-10-11-parallel-execution.md` | Confirmed parallel-execution decisions; implemented runtime contract in `docs/current/parallel-execution.md`. |
 | `status.md` | Authorized current work, constraints, blockers, next steps; refresh in place and link decisions/evidence. |
 | `history.md` | Authorized meaningful events, appended chronologically with dates; consult on demand, not automatically at startup. |
 | `lessons.md` | After a repeated mistake (two or more) or an investigated non-obvious bug, append summary/root cause/correction; create on the first qualifying entry, skipping trivial slips. |
@@ -169,7 +170,8 @@ These rules apply only when a review is requested; they do not require an extra 
 | `docs/audits/`, `docs/archive/` | Validation evidence and historical context respectively; not competing current contracts. |
 
 - Use `project-state` only for useful, authorized status/history updates: these destinations do not authorize completion logs, writes during read-only work/side conversations, or empty-file creation.
-  `docs/decisions/`, `status.md`, and `history.md` are conventions, currently absent; their use does not bypass lessons or decision-recording rules.
+  `docs/decisions/` contains authorized decision records; `status.md` and `history.md` remain conventions, currently absent.
+  Their use does not bypass lessons or decision-recording rules.
 - Anchor substantive workflow/scientific explanations to code paths and lines or functions/classes, and document/paper claims to sections, tables, figures, or appendices.
   Legacy comparisons must cite both implementations, using the legacy repository below.
 
@@ -182,6 +184,7 @@ These rules apply only when a review is requested; they do not require an extra 
   The minimal fixture guide references optional external `resources/` (including a liftover chain), absent in this checkout; do not claim external-resource checks ran without those inputs.
 - `docs/current/column-schema.md`, `snp-identifier-genome-build-defaults.md`, `ldscore-snp-universe-contract.md`, and `regression-configuration.md`: schema, identity/build, SNP universes, and estimator contracts (all under `docs/current/`).
 - `docs/current/annotation-memory-design.md`, `gene-ldscore-index.md`, `gene-ldscore-index-mathematics.md`, `partitioned-h2-results.md`, and `continuous-annotation-quantile-h2.md`: memory ownership, exact indexes, result interpretation, and post-fit quantiles (all under `docs/current/`).
+- `docs/current/parallel-execution.md`: managed task workers, joblib CPU budgets, one BLAS thread per worker, and chromosome diagnostics.
 - `docs/current/path-specification.md`, `workflow-logging.md`, and `cli-help-guidelines.md`: resolution, output/diagnostic lifecycle, and task-oriented CLI help (all under `docs/current/`).
 - `tutorials/ld-score-calculation.md`, `tutorials/partitioned-ldsc.md`, `tutorials/cell-specific-ldsc.md`, and `tutorials/convert-legacy-ldscores.md`: main worked workflows, complemented by notebooks and `docs/wiki/guided-tutorial.md`.
 - `docs/audits/legacy-equivalence/`: legacy comparison evidence; `docs/release.md`: maintainer release runbook, not authorization to release.

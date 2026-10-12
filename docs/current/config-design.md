@@ -1,10 +1,18 @@
 # Config Design: Immutable Config + Provenance-Carrying Results
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-12
 
-Direct and indexed `ldscore` and `build-gene-ldscore-index` share the worker policy in [`_parallelism.py`](../../src/ldsc/_parallelism.py): `threads` must be a nonzero integer, excluding booleans and non-integer Python values. Positive requests are capped only by chromosome count. Negative `-k` requests use `max(1, available_cpus + 1 - k)`, preferring process CPU affinity and falling back to `os.cpu_count()` (or 1 if unknown), then apply the chromosome cap. Every effective count of 1 runs inline without constructing an executor. LD scoring uses processes; index building uses threads. Native BLAS/OpenMP settings remain separate and unchanged.
+`--workers` / `workers` defaults to one managed child process, including on HPC.
+Every worker uses **1 BLAS thread**, in serial and parallel execution.
+`joblib.cpu_count()` supplies the detected available CPU count; it does not measure idle CPUs or read the requested scheduler allocation.
+Positive requests above that count fail before capping by available tasks; negative `-k` uses `max(1, detected_count + 1 - k)`.
+LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
+Zero, Boolean, and non-integer Python requests are invalid.
+See [the execution policy](parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
 
-`partitioned-h2` uses the same `_parse_threads`, `_validate_threads`, and `_resolve_worker_count` helpers for its separate batch `threads` argument. Its work limit is the smaller of query count and loading-batch width. Positive requests are capped only by that work limit; negative requests use the same affinity/machine CPU discovery as chromosome workflows. None of these resolvers reads `SLURM_CPUS_PER_TASK` separately. Parallel query workers enforce one native numerical thread each; effective-one and baseline-only runs preserve inline execution. This setting belongs to the batch workflow, not `RegressionConfig`. See [query-worker policy](regression-configuration.md#43-query-workers-and-memory).
+`partitioned-h2` uses the same `_parse_workers`, `_validate_workers`, and `_resolve_worker_count` helpers.
+Its work limit is query count capped by loading-batch width.
+This concurrency option belongs to the batch workflow, not `RegressionConfig`.
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -40,7 +48,7 @@ Implementation details:
   catalog projection build stays separate from `GlobalConfig.genome_build` in
   rsID modes.
 
-Memory controls are separate from statistical settings. `LDScoreConfig.query_batch_size` and the batch regression API/CLI setting default to 1000 and require a positive integer. Generation uses this width for sequential execution and output query files; direct mode repeats reference traversal. `LDScoreConfig.threads` and indexed `threads` control bounded chromosome worker processes, capped at chromosome count; it does not change the number of pathways in a regression model. `AnnotationBuildConfig` describes source/projection settings, while the workflow's required output directory determines private storage ownership. The obsolete annotation-config output/compression/missing-query fields are removed. See the [memory design](annotation-memory-design.md) for lifetimes and output contracts.
+Memory controls are separate from statistical settings. `LDScoreConfig.query_batch_size` and the batch regression API/CLI setting default to 1000 and require a positive integer. Generation uses this width for sequential execution and output query files; direct mode repeats reference traversal. `LDScoreConfig.workers` and indexed `workers` control bounded chromosome worker processes, capped at chromosome count; it does not change the number of pathways in a regression model. `AnnotationBuildConfig` describes source/projection settings, while the workflow's required output directory determines private storage ownership. The obsolete annotation-config output/compression/missing-query fields are removed. See the [memory design](annotation-memory-design.md) for lifetimes and output contracts.
 
 ## The Problem This Design Solves
 

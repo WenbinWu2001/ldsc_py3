@@ -1,6 +1,6 @@
 # LDSC2 to Current CLI Flag Map
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-12
 
 This document maps changed LDSC2 flags to the supported `ldsc` commands and records the flag-cleanup decisions. “Removed” means the parser rejects the old option; there are no compatibility aliases. A retired option whose behavior is now automatic has that behavior described explicitly below. The [IO argument inventory](io-argument-inventory.md) lists the complete current surface, and [munge-sumstats](munge-sumstats.md) describes its input and artifact contracts.
 
@@ -21,9 +21,12 @@ Some replaced spellings came from earlier LDSC3 revisions rather than LDSC2. The
 | `ldsc.py --no-intercept` in partitioned `--h2` or `--h2-cts` runs | `partitioned-h2 --no-intercept` | `ldsc partitioned-h2 --intercept-h2 1` | Removed shortcut; explicitly fix the h2 intercept to 1 in each fitted model. Omit the replacement to estimate it using the existing defaults. |
 | `ldsc.py --no-intercept` with `--rg` | `rg --no-intercept` | `ldsc rg --intercept-h2 1 --intercept-gencov 0` | Removed shortcut; fix both traits' h2 intercepts to 1 in every pair and each genetic-covariance intercept to 0. Omit both replacements to estimate the intercepts using the existing defaults. |
 
-Both `ldscore` and `build-gene-ldscore-index` retain `--threads`; the proposed `--workers` rename was reverted. In direct `ldscore`, it controls chromosome worker processes. In `build-gene-ldscore-index`, it controls a chromosome thread pool. Both default to `1` (sequential); positive N requests N concurrent chromosomes, `-1` uses available cores, and `-2` leaves one core free, with effective concurrency capped at the chromosome count. Computation and concurrency policies are unchanged. BLAS thread limits are separate internal controls.
+Direct/indexed `ldscore`, `build-gene-ldscore-index`, and batch regression now use `--workers`.
+The former `--threads` spelling is retired without an alias.
+The default is one managed child; every worker uses 1 BLAS thread in serial and parallel execution.
+See [parallel execution](parallel-execution.md) for joblib CPU detection, validation, and task caps.
 
-Python counterparts also retain `LDScoreConfig.threads`, `run_ldscore(..., threads=...)`, and `GeneLDScoreIndexBuildConfig.threads`. `MungeConfig.keep_maf` is removed because preserving frequency is unconditional. The Python input-profile field remains `MungeConfig.sumstats_format`; its CLI spelling is now `--input-format`.
+Python counterparts also retain `LDScoreConfig.workers`, `run_ldscore(..., workers=...)`, and `GeneLDScoreIndexBuildConfig.workers`. `MungeConfig.keep_maf` is removed because preserving frequency is unconditional. The Python input-profile field remains `MungeConfig.sumstats_format`; its CLI spelling is now `--input-format`.
 
 Frequency preservation applies to the in-memory result and both output formats. Parquet retains numeric precision. Gzip TSV preserves the parsed frequency without the three-decimal rounding used for other floating columns; missing fields are written as `NA` so whitespace readers do not shift column positions. An explicitly ignored frequency column is not selected and therefore is absent from output. Multiple competing frequency columns still follow existing column-selection/ambiguity rules; this change does not choose among them silently.
 
@@ -92,4 +95,4 @@ Sources: LDSC2 [`ldsc.py`, parser](</Users/wenbinwu/Documents_local/Research/Sul
 
 ## Naming audit boundary
 
-Current README, `docs/current`, `docs/wiki`, troubleshooting guidance, tutorials, public configuration docstrings, code comments, tests, and the annotation-memory benchmark use the current names. The shared `--threads` spelling remains current for both LD-score computation and gene-index building. References to the abandoned `--workers` spelling are limited to this decision record, historical records, rejection tests, and the annotation-memory benchmark's independent orchestration option. Dated `docs/audits`, `docs/archive`, `docs/plans`, and `docs/specs` may retain historical names and are not the current CLI reference. The original [flag audit](../audits/flag-cleanup/README.md) is a snapshot of behavior before this cleanup.
+Current README, `docs/current`, `docs/wiki`, troubleshooting guidance, tutorials, public configuration docstrings, code comments, tests, and the annotation-memory benchmark use the current names. The shared `--workers` spelling remains current for both LD-score computation and gene-index building. References to the abandoned `--workers` spelling are limited to this decision record, historical records, rejection tests, and the annotation-memory benchmark's independent orchestration option. Dated `docs/audits`, `docs/archive`, `docs/plans`, and `docs/specs` may retain historical names and are not the current CLI reference. The original [flag audit](../audits/flag-cleanup/README.md) is a snapshot of behavior before this cleanup.

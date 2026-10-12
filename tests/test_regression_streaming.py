@@ -2,6 +2,7 @@
 
 import weakref
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -159,8 +160,8 @@ def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypa
 
 
 @pytest.mark.parametrize("generation_width", [1, 2])
-@pytest.mark.parametrize("threads", [1, 2])
-def test_regression_across_query_files_matches_single_file(tmp_path, generation_width, monkeypatch, threads):
+@pytest.mark.parametrize("workers", [1, 2])
+def test_regression_across_query_files_matches_single_file(tmp_path, generation_width, monkeypatch, workers):
     table, original = batch_inputs(tmp_path / "original")
     def batches():
         for start in range(0, len(original.query_columns), generation_width):
@@ -180,7 +181,7 @@ def test_regression_across_query_files_matches_single_file(tmp_path, generation_
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("LDSC_REGRESSION_OUT", str(tmp_path / "actual"))
     actual = runner.estimate_partitioned_h2_batch(table, saved, output_dir="$LDSC_REGRESSION_OUT",
-                                                 query_batch_size=2, summary_sort_by="category", threads=threads)
+                                                 query_batch_size=2, summary_sort_by="category", workers=workers)
     assert not (tmp_path / "$LDSC_REGRESSION_OUT").exists()
     pd.testing.assert_frame_equal(actual.summary, expected.summary, rtol=1e-10, atol=1e-12)
     for query, paths in actual.per_query_artifacts.items():
@@ -206,9 +207,9 @@ def test_parallel_queries_match_inline_models_and_artifact_order(tmp_path, batch
     table = workflow.replace(table, data=table.data.iloc[::-1].reset_index(drop=True))
     runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(n_blocks=6))
     results = [runner.estimate_partitioned_h2_batch(
-        table, source, output_dir=tmp_path / f"workers-{threads}", threads=threads,
+        table, source, output_dir=tmp_path / f"workers-{workers}", workers=workers,
         query_columns=["third", "first", "second"], query_batch_size=batch_size,
-    ) for threads in (1, 2)]
+    ) for workers in (1, 2)]
     expected, actual = results
     pd.testing.assert_frame_equal(actual.summary, expected.summary, rtol=1e-10, atol=1e-12)
     pd.testing.assert_frame_equal(actual.query_status, expected.query_status)
@@ -222,8 +223,8 @@ def test_parallel_queries_match_inline_models_and_artifact_order(tmp_path, batch
                                       rtol=1e-10, atol=1e-12)
         for field in ("n_snps", "n_blocks_used", "effective_chisq_max", "retained_ld_columns", "ordinal", "folder"):
             assert json.loads(paths.metadata.read_text())[field] == json.loads(reference.metadata.read_text())[field]
-    for threads in (1, 2):
-        assert not list((tmp_path / f"workers-{threads}").glob(".ldsc-annotation-*"))
+    for workers in (1, 2):
+        assert not list((tmp_path / f"workers-{workers}").glob(".ldsc-annotation-*"))
 
 
 @pytest.mark.parametrize("sort_by", ["auto", *workflow.PARTITIONED_H2_SUMMARY_SORT_COLUMNS])
@@ -295,24 +296,20 @@ def test_functional_command_keeps_complete_model_at_root(tmp_path):
     assert not (tmp_path / "out/diagnostics/query_annotations").exists()
 
 
-@pytest.mark.parametrize("failure", ["fit", "publication"])
-def test_late_failures_clean_private_details_and_preserve_existing_failure_contract(tmp_path, monkeypatch, failure):
-    from ldsc import outputs
-
-    args, _ = cli_inputs(tmp_path)
-    cli.main(args)
-    output = tmp_path / "out"
-    prior_manifest = (output / "diagnostics/query_annotations/manifest.tsv").read_bytes()
+def _observe_staged_fit_worker(*args):
+    import os
+    from ldsc._partitioned_h2_parallel import _query_worker
     staged = []
     original_stage = workflow.stage_partitioned_h2_fit
 
     def stage(*args, **kwargs):
         artifact = original_stage(*args, **kwargs)
         staged.append(artifact)
+        Path(os.environ["LDSC_TEST_STAGED_FITS"]).write_text(json.dumps([str(item.full) for item in staged]))
         return artifact
 
-    monkeypatch.setattr(workflow, "stage_partitioned_h2_fit", stage)
-    if failure == "fit":
+    workflow.stage_partitioned_h2_fit = stage
+    if os.environ["LDSC_TEST_LATE_FAILURE"] == "fit":
         original_fit = workflow.RegressionRunner._fit_h2_dataset
 
         def fit(*args, **kwargs):
@@ -321,8 +318,23 @@ def test_late_failures_clean_private_details_and_preserve_existing_failure_contr
                 raise RuntimeError("late fitting failure")
             return original_fit(*args, **kwargs)
 
-        monkeypatch.setattr(workflow.RegressionRunner, "_fit_h2_dataset", fit)
-    else:
+        workflow.RegressionRunner._fit_h2_dataset = fit
+    _query_worker(*args)
+
+
+@pytest.mark.parametrize("failure", ["fit", "publication"])
+def test_late_failures_clean_private_details_and_preserve_existing_failure_contract(tmp_path, monkeypatch, failure):
+    from ldsc import outputs, _partitioned_h2_parallel as parallel
+
+    args, _ = cli_inputs(tmp_path)
+    cli.main(args)
+    output = tmp_path / "out"
+    prior_manifest = (output / "diagnostics/query_annotations/manifest.tsv").read_bytes()
+    events = tmp_path / "staged-fits.json"
+    monkeypatch.setenv("LDSC_TEST_STAGED_FITS", str(events))
+    monkeypatch.setenv("LDSC_TEST_LATE_FAILURE", failure)
+    monkeypatch.setattr(parallel, "_query_worker", _observe_staged_fit_worker)
+    if failure == "publication":
         original_replace = outputs.os.replace
 
         def replace(source, destination):
@@ -333,8 +345,9 @@ def test_late_failures_clean_private_details_and_preserve_existing_failure_contr
         monkeypatch.setattr(outputs.os, "replace", replace)
     with pytest.raises(RuntimeError, match="failure"):
         cli.main([*args, "--overwrite"])
+    staged = json.loads(events.read_text())
     assert staged
-    assert all(not artifact.full.exists() for artifact in staged)
+    assert all(not Path(path).exists() for path in staged)
     assert (output / "RUN_FAILED.txt").is_file()
     assert (output / "diagnostics/query_annotations/manifest.tsv").read_bytes() == prior_manifest
     assert not list(output.glob(".ldsc-annotation-*"))

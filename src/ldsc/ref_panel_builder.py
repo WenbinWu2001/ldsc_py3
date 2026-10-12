@@ -37,6 +37,7 @@ import logging
 import os
 import re
 import tempfile
+
 from dataclasses import asdict, dataclass, field, replace as dataclass_replace
 from pathlib import Path
 from typing import Any, Sequence
@@ -44,6 +45,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
+from ._serial_calculation import serial_calculation
 from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
 from .column_inference import (
@@ -369,6 +371,9 @@ class ReferencePanelBuilder:
     def run(self, config: ReferencePanelBuildConfig) -> ReferencePanelBuildResult:
         """Build fixed-name parquet reference artifacts for every chromosome.
 
+        Chromosomes run serially in one managed child with 1 BLAS thread.
+        The caller's numerical-library settings remain unchanged.
+
         Parameters
         ----------
         config : ReferencePanelBuildConfig
@@ -403,6 +408,7 @@ class ReferencePanelBuilder:
         """
         return self._run(config, workflow_log_path=self._workflow_log_path)
 
+    @serial_calculation
     def _run(
         self,
         config: ReferencePanelBuildConfig,

@@ -1,8 +1,14 @@
 # Exact gene LD-score indexes
 
-Last updated on: 2026-09-14
+Last updated on: 2026-10-12
 
-Direct and indexed `ldscore` and `build-gene-ldscore-index` share the worker policy in [`_parallelism.py`](../../src/ldsc/_parallelism.py): `threads` must be a nonzero integer, excluding booleans and non-integer Python values. Positive requests are capped only by chromosome count. Negative `-k` requests use `max(1, available_cpus + 1 - k)`, preferring process CPU affinity and falling back to `os.cpu_count()` (or 1 if unknown), then apply the chromosome cap. Every effective count of 1 runs inline without constructing an executor. LD scoring uses processes; index building uses threads. Native BLAS/OpenMP settings remain separate and unchanged.
+`--workers` / `workers` defaults to one managed child process, including on HPC.
+Every worker uses **1 BLAS thread**, in serial and parallel execution.
+`joblib.cpu_count()` supplies the detected available CPU count; it does not measure idle CPUs or read the requested scheduler allocation.
+Positive requests above that count fail before capping by available tasks; negative `-k` uses `max(1, detected_count + 1 - k)`.
+LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
+Zero, Boolean, and non-integer Python requests are invalid.
+See [the execution policy](parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
 
 An exact gene LD-score index moves the repeated PLINK calculation for one
 baseline, reference panel, regression-row policy, and gene projection offline.
@@ -16,7 +22,9 @@ online matrix products, annotation counts, and overlap sufficient statistics—s
 
 ## Build one complete index
 
-`--threads` controls a chromosome thread pool during index building; `--threads 1` (the default) runs sequentially. The same flag on direct and indexed `ldscore` controls chromosome worker processes, capped at chromosome count. Both settings increase chromosome concurrency and memory use. See [`build_gene_ldscore_index`](../../src/ldsc/gene_ldscore_index.py) and [`LDScoreCalculator`](../../src/ldsc/ldscore_calculator.py).
+`--workers` controls a reusable chromosome process pool during index building.
+The default of one still uses a managed child; every worker uses 1 BLAS thread.
+The [focused transport probe](../audits/parallel-execution/index-transport.md) measured the additional process memory and verified compact task transport before migration.
 
 ```bash
 ldsc build-gene-ldscore-index \
@@ -136,7 +144,7 @@ the supplied baseline matrix or its LD-reference universe.
 The builder consumes annotation values and reconstructs the numerical baseline
 payload; it does not import the suite's precomputed LD-score or count files.
 
-Before launching chromosome workers, [`_run_gene_ldscore_index_build()`](../../src/ldsc/gene_ldscore_index.py) calls shared [`prepare_annotation_sources()`](../../src/ldsc/_annotation_sources.py). This serial phase scans and validates the complete baseline suite, applies global duplicate cleanup using metadata alone, and copies retained values into private NumPy/Parquet shards inside the existing build transaction. Automatic tiles use each aligned group's width, so unrelated chromosome shards do not shrink them. `--threads` controls the subsequent chromosome calculations. The [parallelism evaluation](../audits/annotation-memory/preparation-parallelism.md#decision) is complete: preparation remains serial because the measured speed gains did not justify the memory and implementation costs. See the [storage design](annotation-memory-design.md#bounded-source-preparation) and [local preparation measurements](../audits/annotation-memory/annotation-preparation.md).
+Before launching chromosome workers, [`_run_gene_ldscore_index_build()`](../../src/ldsc/gene_ldscore_index.py) calls shared [`prepare_annotation_sources()`](../../src/ldsc/_annotation_sources.py). This serial phase scans and validates the complete baseline suite, applies global duplicate cleanup using metadata alone, and copies retained values into private NumPy/Parquet shards inside the existing build transaction. Automatic tiles use each aligned group's width, so unrelated chromosome shards do not shrink them. `--workers` controls the subsequent chromosome calculations. The [parallelism evaluation](../audits/annotation-memory/preparation-parallelism.md#decision) is complete: preparation remains serial because the measured speed gains did not justify the memory and implementation costs. See the [storage design](annotation-memory-design.md#bounded-source-preparation) and [local preparation measurements](../audits/annotation-memory/annotation-preparation.md).
 
 At INFO, the live build log marks annotation input reading, SNP identity checking and chromosome preparation, and completion with retained counts and elapsed preparation time. These milestones precede `Starting chromosome N`; preparation completion means annotation shards are ready, while computation and index publication still follow. The CM/MAF notice appears once per source file read. See [annotation preparation logging](workflow-logging.md#annotation-preparation) for the exact messages and failure interpretation.
 
@@ -298,4 +306,12 @@ The build lifecycle retains preceding/current lock coordination in `_gene_index_
 
 ## Bounded validation and query assembly
 
-`LoadedGeneLDScoreIndex` holds shared catalog/settings, chromosome component paths, and compact support counts. Validation loads/releases one chromosome at a time. Assembly uses one chromosome operator per active worker; that worker writes and releases each query batch before advancing and releases its operator before its next chromosome. `run_indexed_ldscore(..., query_batch_size=1000, threads=1)` and the corresponding CLI flags bound focal multiplications and chromosome workers; query width must be positive and does not combine separate pathway models. Construction retains its existing sibling staging/lock/publication transaction and float64 payloads. The coordinator assembles float64 fragments in chromosome order into one genome-wide query batch at a time. Files publish only after complete success, with metadata last. One batch uses `ldscore.query.parquet`; multiple batches use numbered files in `metadata.json.query_batches`. Saved calls return `LDScoreSource`, with explicit uncached `read_queries(names)` reads. Worker settings match direct mode: 1 by default, positive N, -1 available cores, -2 leaves one free, zero invalid, capped at chromosome count. Resuming completed query batches is a potential future feature, currently unsupported. See [the memory design](annotation-memory-design.md#immutable-gene-index-access) for ownership and runtime trade-offs.
+`LoadedGeneLDScoreIndex` holds shared catalog/settings, chromosome component paths, and compact support counts.
+Validation releases each chromosome before loading the next.
+Each assembly worker retains one operator through its query batches, then releases it before its next task.
+`run_indexed_ldscore(..., query_batch_size=1000, workers=1)` bounds result width and concurrent chromosomes.
+The parent assembles float64 fragments in chromosome order and publishes only after all required calculations succeed.
+One batch uses `ldscore.query.parquet`; multiple batches use the ordered `metadata.json.query_batches` manifest.
+Saved calls return `LDScoreSource` with explicit uncached `read_queries(names)` reads.
+Every worker uses 1 BLAS thread.
+See [parallel execution](parallel-execution.md); no checkpoint or resume workflow is provided.

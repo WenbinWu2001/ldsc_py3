@@ -1,6 +1,10 @@
 # Heritability Estimates
 
-Last updated on: 2026-09-14
+Last updated on: 2026-10-12
+
+LD scoring defaults to `workers=1`, and single-trait fitting uses one managed child.
+Each computational worker uses **1 BLAS thread**.
+Python scripts must place workflow calls under `if __name__ == "__main__":`; see [parallel execution](../docs/current/parallel-execution.md).
 
 Munging uses the supplied trait label for data filenames (for example, `trait.parquet` and optional `trait.sumstats.gz`). Without a label, filenames are `sumstats.parquet` and `sumstats.gz`. Parquet remains the default; see [output naming](../docs/current/munge-sumstats.md#output-artifacts).
 
@@ -175,7 +179,7 @@ ldsc ldscore \
   --genome-build auto \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0 \
-  --threads -1   # -1 = all cores; default is 1 (sequential). Output is identical.
+  --workers -1   # -1 = detected CPU budget; default is 1 (sequential). Output is identical.
 
 ldsc h2 \
   --sumstats-file tutorial_outputs/trait/trait.parquet \

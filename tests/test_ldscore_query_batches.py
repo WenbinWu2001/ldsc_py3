@@ -40,7 +40,7 @@ def test_prepared_single_batch_python_calculation_writes_nothing(tmp_path, monke
     metadata, baseline, queries, config, panel, numerical = prepared_case(tmp_path)
     real_open, real_os_open = builtins.open, os.open
     def open_read_only(file, mode="r", *args, **kwargs):
-        assert not any(flag in mode for flag in "wax+"), f"unexpected write: {file}"
+        assert isinstance(file, int) or not any(flag in mode for flag in "wax+"), f"unexpected write: {file}"
         return real_open(file, mode, *args, **kwargs)
     def os_open_read_only(file, flags, *args, **kwargs):
         assert not flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC), f"unexpected write: {file}"
@@ -69,7 +69,7 @@ def test_direct_batches_match_single_calculation(tmp_path, width, workers):
     bundle = AnnotationBundle.from_frames(metadata, baseline, queries, config_snapshot=config)
     calculator = LDScoreCalculator()
     expected = calculator.run(bundle, panel, numerical, config)
-    saved = calculator.run(bundle, panel, replace(numerical, query_batch_size=width, threads=workers), config,
+    saved = calculator.run(bundle, panel, replace(numerical, query_batch_size=width, workers=workers), config,
                            output_config=LDScoreOutputConfig(tmp_path / "out"))
     assert not hasattr(saved, "query_table")
     np.testing.assert_allclose(saved.read_queries(list(queries))[queries.columns],

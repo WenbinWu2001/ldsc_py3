@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ldsc._serial_calculation import serial_calculation
 from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, fixture_ids, replace_fixture_queries
 
 from tests.ref_panel_helpers import compute_plink, write_tiny_plink
@@ -1869,6 +1870,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertIn("empty_input", (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8"))
 
     def test_run_ldscore_from_args_gene_list_writes_query_and_resolution_diagnostics(self):
+        # Output ownership is tested here with a deliberately mocked calculator.
+        from tests.worker_fixtures import calculation_body, local_task_pool
+        self.enterContext(calculation_body())
+        self.enterContext(mock.patch.object(ldscore_workflow, "ProcessPoolExecutor", local_task_pool))
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             output_dir = tmpdir / "ldscore_result"
@@ -2199,6 +2204,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertFalse((output_dir / "diagnostics" / "ldscore.log").exists())
 
     def test_run_ldscore_from_args_ignores_legacy_root_log_without_overwrite(self):
+        # Output ownership is tested here with a deliberately mocked calculator.
+        from tests.worker_fixtures import calculation_body, local_task_pool
+        self.enterContext(calculation_body())
+        self.enterContext(mock.patch.object(ldscore_workflow, "ProcessPoolExecutor", local_task_pool))
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             output_dir = tmpdir / "ldscore_result"
@@ -2251,6 +2260,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertTrue((output_dir / "diagnostics" / "ldscore.log").exists())
 
     def test_run_ldscore_from_args_overwrite_removes_stale_query_parquet(self):
+        # Output ownership is tested here with a deliberately mocked calculator.
+        from tests.worker_fixtures import calculation_body, local_task_pool
+        self.enterContext(calculation_body())
+        self.enterContext(mock.patch.object(ldscore_workflow, "ProcessPoolExecutor", local_task_pool))
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             output_dir = tmpdir / "ldscore_result"
@@ -2304,6 +2317,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertNotIn("query", result.output_paths)
 
     def test_run_ldscore_from_args_overwrite_preserves_current_overlap_artifact(self):
+        # Output ownership is tested here with a deliberately mocked calculator.
+        from tests.worker_fixtures import calculation_body, local_task_pool
+        self.enterContext(calculation_body())
+        self.enterContext(mock.patch.object(ldscore_workflow, "ProcessPoolExecutor", local_task_pool))
         from ldsc._kernel.overlap import OverlapContribution
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3526,6 +3543,7 @@ def test_require_reference_maf_passes_with_any_value():
     kernel_ldscore.require_reference_maf(pd.DataFrame({"MAF": [0.1, np.nan]}), chrom="1")  # no raise
 
 
+@serial_calculation
 def test_public_plink_calculation_prepares_genotypes_once():
     pytest.importorskip("bitarray")
     metadata = pd.read_csv(

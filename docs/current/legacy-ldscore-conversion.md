@@ -1,6 +1,9 @@
 # Legacy LDSC2 LD-Score Suite Conversion
 
-Last updated on: 2026-09-11
+Last updated on: 2026-10-12
+
+Conversion runs serially in one managed child with **1 BLAS thread**, including reconstructed annotation overlap products.
+See [parallel execution](parallel-execution.md) for native-limit verification and Python process startup.
 
 This document defines the interoperability boundary for explicitly converting
 selected reusable LDSC2 LD-score suites into the canonical LDSC3 LD-score

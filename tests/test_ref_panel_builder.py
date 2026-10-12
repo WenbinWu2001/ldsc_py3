@@ -1119,6 +1119,12 @@ class DuplicatePositionDropAllTest(unittest.TestCase):
 
 
 class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
+    def setUp(self):
+        # Exercise orchestration with local fake readers and liftover objects.
+        # SourceOnlySmokeTest and ParityTest retain the real child boundary.
+        from tests.worker_fixtures import calculation_body
+        self.enterContext(calculation_body())
+
     DROPPED_SNP_DTYPES = {
         "CHR": "string",
         "SNP": "string",
@@ -2818,6 +2824,9 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             self.assertTrue(Path(build_result.output_paths["r2_hg38"][0]).exists())
 
     def test_each_genome_build_releases_prior_bed_before_loading_next(self):
+        # Inspect reader lifetime in the calculation body, independent of transport.
+        from tests.worker_fixtures import calculation_body
+        self.enterContext(calculation_body())
         resources = _find_resources_root()
         if resources is None:
             self.skipTest("resources directory is not available from this workspace")

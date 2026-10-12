@@ -13,17 +13,16 @@ import logging
 import mmap
 import multiprocessing as mp
 from multiprocessing.connection import wait
-import os
 from pathlib import Path
 import pickle
 import signal
-import sys
 import traceback
 
 import numpy as np
 import pandas as pd
 
-from .errors import LDSCInternalError, LDSCUsageError
+from .errors import LDSCInternalError
+from ._worker_runtime import initialize_worker, log_native_thread_state
 
 
 @dataclass(frozen=True)
@@ -117,59 +116,30 @@ class _WorkerLog(logging.Handler):
         self.records.append((record.name, record.levelno, self.format(record)))
 
 
-def _set_worker_accelerate_threads():
-    """Use Apple's per-thread BLAS/LAPACK control, absent from threadpoolctl.
-
-    Called only in a child before its first model. macOS 15 added the public
-    BLASSetThreading API; older systems need the environment limit at launch.
-    """
-    if sys.platform != "darwin":
-        return
-    import ctypes
-
-    library = ctypes.CDLL("/System/Library/Frameworks/Accelerate.framework/Accelerate")
-    setter = getattr(library, "BLASSetThreading", None)
-    if setter is None:
-        if os.environ.get("VECLIB_MAXIMUM_THREADS") != "1":
-            raise LDSCUsageError(
-                "Parallel query workers on macOS before 15 require VECLIB_MAXIMUM_THREADS=1 "
-                "before starting Python. Set it when launching ldsc, or use --threads 1."
-            )
-        return
-    setter.argtypes, setter.restype = [ctypes.c_uint], ctypes.c_int
-    # BLAS_THREADING_SINGLE_THREADED = 1 in Accelerate's public thread_api.h.
-    if setter(1) != 0:
-        raise LDSCUsageError("Accelerate could not enable single-threaded BLAS/LAPACK; use --threads 1.")
-
-
 def _query_worker(connection, snapshot, inputs_path):
     """Own one complete model at a time; let the parent handle interrupts."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     logs = _WorkerLog()
     try:
-        from threadpoolctl import threadpool_limits
-        import pyarrow as pa
         from .regression_runner import RegressionRunner
 
-        _set_worker_accelerate_threads()
-        for key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
-                    "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS", "BLIS_NUM_THREADS"):
-            os.environ[key] = "1"
-        pa.set_cpu_count(1)
-        pa.set_io_thread_count(1)
         with inputs_path.open("rb") as stream:
             inputs, global_config, config, log_level = pickle.load(stream)
         logger = logging.getLogger("LDSC")
         logger.handlers = [logs]
         logger.setLevel(log_level)
         logger.propagate = False
-        # Apply after NumPy/SciPy imports: environment settings alone are too late.
-        with threadpool_limits(limits=1), snapshot.open() as frame:
+        initialize_worker(log_level)
+        with snapshot.open() as frame:
             inputs = replace(inputs, dataset=replace(inputs.dataset, merged=frame))
             runner = RegressionRunner(global_config, config)
+            first_task = True
             while (task := connection.recv()) is not None:
                 query, column, directory = task
                 logs.records.clear()
+                if first_task:
+                    log_native_thread_state(logger)
+                    first_task = False
                 with column.open() as values:
                     result = runner._fit_partitioned_query(
                         inputs, query, pd.DataFrame({query: values}, copy=False), directory, config=config,
@@ -260,7 +230,7 @@ class _QueryWorkers:
             queries = [query for _, query in active.values()]
             raise LDSCInternalError(
                 f"partitioned-h2 worker communication failed for in-flight queries {queries!r}: {error} "
-                "Check memory limits or retry with fewer --threads. No results published."
+                "Check memory limits or retry with fewer --workers. No results published."
             ) from error
         except BaseException as error:
             # Reap borrowers before the caller unwinds its batch-directory owner.

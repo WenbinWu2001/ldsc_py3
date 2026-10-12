@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-12
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -219,3 +219,22 @@ Last updated on: 2026-09-15
 ## Per-object summaries can still overwhelm batch logs
 
 - Summary/root cause/correction: Query phase boundaries, forced source updates, and one exclusion summary per gene list bypassed time throttling and grew with input count; move INFO progress to collection/batch owners, count actual outcomes, keep row detail in diagnostics, and test both many-small-input volume and inline/parallel results. Preserve explicit batch/chromosome boundaries and failure evidence.
+
+## Process-pool crash tests must use the executor's exception hierarchy
+
+- Summary/root cause/correction: Direct LD scoring caught `multiprocessing.ProcessError` for worker crashes, and its test raised the same unrelated exception, so both missed real `concurrent.futures.process.BrokenProcessPool` failures; catch the executor's actual exception, include initial task submission in the handler's scope, and verify submission/result failures preserve the original cause in the workflow error.
+
+## Serial child execution requires serializable fitted results
+
+- Summary/root cause/correction: The two-step regression path constructed its jackknife namedtuple inside the fit method, so a real serial child could compute the correct result but could not return it through process transport.
+  Define the unchanged record schema at module scope and test a complete serial baseline fit across the process boundary; numerical equivalence alone does not test transport.
+
+## Spawned-worker probes belong inside the child
+
+- Summary/root cause/correction: Parent-only mocks stopped observing calculation after serial work moved into spawned children.
+  Exercise mocked algorithm bodies through explicit local unit-test seams, and install importable child probes for resource, failure, and transport integration checks.
+
+## Compare canonical paths when recognizing owned log handlers
+
+- Summary/root cause/correction: On macOS, temporary paths spelled with `/var` and `/private/var` referred to the same open LD-score log but compared unequal.
+  Resolve both handler and requested paths before deciding whether a workflow already owns the log; this avoids incorrectly rejecting the current run during nested output preflight.

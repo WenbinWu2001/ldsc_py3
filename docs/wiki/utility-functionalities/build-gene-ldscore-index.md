@@ -1,6 +1,6 @@
 # Build an exact gene LD-score index
 
-Last updated on: 2026-09-14
+Last updated on: 2026-10-12
 
 For the mathematical construction of the disjoint atoms, stored operator, and
 sufficient statistics—and the full downstream indexed-assembly derivation—see
@@ -8,7 +8,10 @@ sufficient statistics—and the full downstream indexed-assembly derivation—se
 
 ## Goal
 
-`--threads` controls a chromosome thread pool for index construction and defaults to `1` (sequential). Annotation preparation before these workers remains serial: the completed [parallelism evaluation](../../audits/annotation-memory/preparation-parallelism.md#decision) did not justify its additional memory and implementation costs. Direct and indexed `ldscore` use the same flag name for chromosome worker processes when generating scores.
+`--workers` controls a chromosome process pool and defaults to one managed child.
+Every worker uses 1 BLAS thread, whether serial or parallel.
+Annotation preparation remains serial, preserving the conclusion of the [preparation evaluation](../../audits/annotation-memory/preparation-parallelism.md#decision).
+See [the execution policy](../../current/parallel-execution.md) and [index transport probe](../../audits/parallel-execution/index-transport.md).
 
 Build one complete reusable index that contains the fixed baseline LD scores,
 an embedded caller-supplied gene catalog, exact disjoint-gene atoms, and the sparse
@@ -147,7 +150,7 @@ ldsc build-gene-ldscore-index \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
   --regr-snps-exclude-regions mhc-and-centromeres \
-  --threads 1
+  --workers 1
 ```
 
 This command explicitly requests non-default 100 kb padding. Omit
@@ -185,7 +188,7 @@ Duplicate keys collapse; ordering and nonidentity columns do not affect the
 scientific selection. Use `--regr-snps-exclude-regions none` only when intentionally
 retaining all candidate rows.
 
-Keep `--threads 1` until the target system has been profiled because each
+Keep `--workers 1` until the target system has been profiled because each
 chromosome worker can multiply peak memory. Use `--keep-indivs-file` for a
 one-IID-per-row sample restriction, and `--genetic-map-hg19-sources` when BIM
 cM values are uninformative.
@@ -285,6 +288,6 @@ Pass the same directory to `ldsc ldscore --gene-ldscore-index-dir`; see
 
 ## Memory during index reuse
 
-Opening an index validates and releases chromosome payloads one at a time. The returned object holds shared metadata, support summaries, and component paths. Indexed `ldscore` uses `--threads` for chromosome worker processes: default 1, positive counts, `-1` for available cores, and `-2` to leave one core free, capped at the chromosome count. Each worker loads one chromosome operator, writes and releases each query batch, then releases that operator. `--query-batch-size` defaults to 1000. The coordinator assembles and saves one genome-wide batch at a time; multiple batches produce numbered query Parquet files with an ordered `query_batches` manifest. More workers retain more operators concurrently.
+Opening an index validates and releases chromosome payloads one at a time. The returned object holds shared metadata, support summaries, and component paths. Indexed `ldscore` uses `--workers` for chromosome worker processes: default 1, positive counts, `-1` for detected available CPUs, and `-2` to leave one core free, capped at the chromosome count. Each worker loads one chromosome operator, writes and releases each query batch, then releases that operator. `--query-batch-size` defaults to 1000. The coordinator assembles and saves one genome-wide batch at a time; multiple batches produce numbered query Parquet files with an ordered `query_batches` manifest. More workers retain more operators concurrently.
 
 Validation and computation remain separate passes and can add I/O, especially for small inputs. Gene-index construction retains its existing sibling staging/lock/publication mechanism; score-generation scratch stays under the user output directory. Query batches are not resumable checkpoints. See [the implemented memory design](../../current/annotation-memory-design.md) and `indexed_results` in [_indexed_ldscore_batches.py](../../../src/ldsc/_indexed_ldscore_batches.py).

@@ -1,6 +1,9 @@
 # Build an R² Panel
 
-Last updated on: 2026-09-11
+Last updated on: 2026-10-12
+
+This serial workflow reuses one managed child across chromosomes, with **1 BLAS thread**.
+For Python scripts, place workflow calls under `if __name__ == "__main__":`; see [the execution policy](../../current/parallel-execution.md).
 
 `ldsc build-r2-panel` turns PLINK reference genotypes into reusable pairwise R² tables. These describe LD in the reference individuals; they are inputs to [LD-score calculation](ldscore.md) and [pair queries](../utility-functionalities/query-r2.md).
 

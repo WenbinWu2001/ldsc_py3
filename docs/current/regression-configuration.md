@@ -1,6 +1,6 @@
 # Regression Configuration Reference (Advanced)
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-12
 
 This document describes the tunable configuration of the regression module
 (`ldsc h2`, `ldsc rg`, `ldsc partitioned-h2`). **You do not need any of this for
@@ -201,34 +201,35 @@ per query, headline metric `coefficient` (the conditional `τ`).
 
 ### 4.3 Query workers and memory
 
-Concurrency is a batch-workflow option, separate from the statistical `RegressionConfig`. Use `ldsc partitioned-h2 --threads 4 --query-batch-size 100` or `runner.estimate_partitioned_h2_batch(..., threads=4, query_batch_size=100)`.
+Concurrency is a batch-workflow option, separate from `RegressionConfig`.
+Use `ldsc partitioned-h2 --workers 4 --query-batch-size 100` or `runner.estimate_partitioned_h2_batch(..., workers=4, query_batch_size=100)`.
 
-| Setting | Effective policy |
-| --- | --- |
-| `threads=1` (default) | Inline execution; preserve the caller's native numerical thread settings. |
-| Positive `threads=N` | Request N whole-query worker processes, capped only by the work limit below. |
-| Negative `threads=-k` | Request `available_cpus + 1 - k`, floored at one. Thus -1 uses available CPUs; -2 leaves one CPU free. Apply the same work limit. |
-| Available CPUs | Prefer process CPU affinity, falling back to `os.cpu_count()` (or 1 if unknown). This discovery applies to negative requests. |
-| Work limit | Cap workers by query count and `query_batch_size`; an effective count of one runs inline. Baseline-only input always runs inline. |
-| Native threads | Each parallel process uses `threadpoolctl` to limit supported loaded BLAS/OpenMP libraries to one thread, overriding inherited numerical thread settings within workers. On macOS 15+, Apple's `BLASSetThreading` separately sets Accelerate BLAS/LAPACK to single-threaded operation. Worker Arrow CPU/I/O pools and numerical environment defaults are also set to one. |
+`--workers` / `workers` defaults to one managed child process, including on HPC.
+Every worker uses **1 BLAS thread**, in serial and parallel execution.
+`joblib.cpu_count()` supplies the detected available CPU count; it does not measure idle CPUs or read the requested scheduler allocation.
+Positive requests above that count fail before capping by available tasks; negative `-k` uses `max(1, detected_count + 1 - k)`.
+LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
+Zero, Boolean, and non-integer Python requests are invalid.
+See [the execution policy](parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
 
-Zero, booleans and non-integer Python requests are invalid. Parsing, validation, and resolution use the same helpers as `ldscore` and `build-gene-ldscore-index`; the work limit counts available queries instead of chromosomes. Scheduler allocations are respected through process CPU affinity for negative requests. These commands do not read `SLURM_CPUS_PER_TASK` separately or impose a CPU cap on positive requests. Choose a positive N within the job's CPU allocation, especially when affinity does not reflect that allocation. Each parallel query worker uses one native numerical thread.
+A task fits one complete query-plus-baseline model across all selected chromosomes, including model preparation, weighting, jackknife, summaries, and result staging.
+SNP ordering and block boundaries remain unchanged.
+The parent stages shared numerical columns once as dtype-preserving read-only maps and dispatches one active task per worker.
+Query-column maps are removed between batches; the persistent pool exits before shared scratch cleanup.
+Each model still needs private filtered matrices and estimator workspace, so worker count does not guarantee memory safety.
 
-A batch width of one prevents concurrency. Smaller batches reduce loaded query values and private disk use; more workers increase the number of private model matrices and estimator workspaces in RAM. Worker count does not reserve memory: choose it together with batch width and the job's RAM allocation.
+The existing strict and explicit continuation policies are unchanged.
+Worker death, transport errors, and output errors remain run failures.
+Existing regression interruption handling still reaps children before scratch cleanup; forced parent termination can leave files that are never reused as checkpoints.
 
-Each process performs the complete query model: variance/count selection, chi-square filtering, weighting, regression, jackknife, summaries, and private result staging. The SNP order and contiguous jackknife blocks are the same as inline execution. The coordinator retains shared baseline/trait preparation, loads one bounded query batch, writes dtype-preserving read-only numeric maps, and dispatches at most one task per worker. Numeric input values are staged once, not serialized with every task. Row labels and compact model/count/overlap metadata are loaded once per worker. Each task opens only its query column and returns compact summary/status data plus staged file paths.
+Workers use `spawn`; Python scripts must guard workflow calls with `if __name__ == "__main__":`, including serial calls.
+Unsupported native controls no longer fail initialization solely for that reason: continue and record the limit as unverified or unmet.
+The log reports detected CPU budget, requested/resolved concurrency, backend settings, and existing phase timings.
+Per-query times summed across workers can exceed elapsed wall time.
+`query_worker_native_threads` records the fixed target of 1, not proof of backend verification; runtime logs carry verification details.
 
-All maps and staged fits belong to a unique `.ldsc-annotation-*` workspace below the output directory. Query maps are removed between batches; shared maps survive until workers exit. On handled failure or interruption the parent terminates/reaps workers before removing their scratch. Abrupt parent termination (for example SIGKILL) cannot guarantee cleanup or resume; abandoned scratch is not reused. Use an output filesystem with enough free space and suitable local I/O performance. Mapping avoids repeated transport copies, but private model arrays, pandas copies, page cache, and retained allocator pages still consume memory.
-
-Workers use the `spawn` start method. Python scripts requesting multiple workers must launch the batch call under `if __name__ == "__main__":`; use a script or the CLI rather than an interactive session that cannot spawn importable child processes. No global multiprocessing start method or parent thread settings are changed.
-
-On macOS before 15, Accelerate lacks that runtime control API. Launch Python or the CLI with `VECLIB_MAXIMUM_THREADS=1` so spawned children inherit the limit before importing numerical libraries; otherwise parallel initialization fails with an actionable message. Inline execution needs no new setting. `threadpoolctl` alone does not cover Accelerate. The runtime setter applies to the worker's main thread, where all model BLAS/LAPACK calls execute; see [Apple's API contract](https://developer.apple.com/documentation/accelerate/blassetthreading(_:)).
-
-The log reports requested/effective workers and timings for loading, shared preparation, mapping, per-query preparation/estimation/summaries/staging, and final publication. Parallel per-query times are summed worker time and can exceed wall time. Successful query metadata adds `query_workers_requested`, `query_workers_effective`, and `query_worker_native_threads` (1 for parallel; null for caller-controlled inline execution). Scientific table schemas are unchanged. Strict/continue behavior and baseline-only results follow the [existing output contract](partitioned-h2-results.md#query-failures-and-continuation).
-
-Mechanisms: `RegressionRunner.estimate_partitioned_h2_batch()` and `_fit_partitioned_query()` in [`regression_runner.py`](../../src/ldsc/regression_runner.py), `_QueryWorkers` in [`_partitioned_h2_parallel.py`](../../src/ldsc/_partitioned_h2_parallel.py), and the shared `_resolve_worker_count()` in [`_parallelism.py`](../../src/ldsc/_parallelism.py). The process/limit APIs follow [Python multiprocessing](https://docs.python.org/3/library/multiprocessing.html) and [threadpoolctl](https://github.com/joblib/threadpoolctl).
-
-The [local benchmark and verification report](../audits/2026-09-15_partitioned-query-workers.md) records end-to-end 1/2/4-worker timings, process-tree memory, numerical comparisons, and limitations.
+Mechanisms: [`RegressionRunner`](../../src/ldsc/regression_runner.py), [`_QueryWorkers`](../../src/ldsc/_partitioned_h2_parallel.py), and [`_worker_runtime`](../../src/ldsc/_worker_runtime.py).
+The earlier [query-worker benchmark](../audits/2026-09-15_partitioned-query-workers.md) remains historical evidence; it does not define the current serial policy.
 
 ### Defaults (both regimes)
 

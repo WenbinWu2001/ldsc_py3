@@ -1,6 +1,6 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-09-16
+Last updated on: 2026-10-12
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
@@ -51,7 +51,7 @@ OUTPUT_ROOT="${INPUT_ROOT}/tutorial_output"
 4. `ldsc ldscore` excludes the extended MHC and centromere regions by default.
 5. Be careful about the genome build of your input file. Although the package runs a guardrail check on the genome build, it is not comprehensive.
 6. To inspect what happened under the hood, check the log file in the `diagnostics/` directory inside each command's output directory.
-7. Resource use depends on SNP, sample, annotation, and worker counts. Start with `--threads 1`, allow temporary disk space under the output directory, and lower `--query-batch-size` to reduce active query workspace. Direct mode repeats reference work across batches; indexed mode keeps one chromosome operator per worker while writing that chromosome's batches. In the [1,000-query chromosome-22 benchmark](../audits/annotation-memory/sequential-query-batches.md#resource-measurements-and-limits), width 100 used 82.2% less peak private scratch than width 1,000 and took 1.903 times as long, with essentially unchanged peak RAM. The report separates measured results from conditional whole-genome projections. The [earlier local benchmark](../audits/annotation-memory/results.md) predates sequential output batching.
+7. Resource use depends on SNP, sample, annotation, and worker counts. Start with `--workers 1`, allow temporary disk space under the output directory, and lower `--query-batch-size` to reduce active query workspace. Direct mode repeats reference work across batches; indexed mode keeps one chromosome operator per worker while writing that chromosome's batches. In the [1,000-query chromosome-22 benchmark](../audits/annotation-memory/sequential-query-batches.md#resource-measurements-and-limits), width 100 used 82.2% less peak private scratch than width 1,000 and took 1.903 times as long, with essentially unchanged peak RAM. The report separates measured results from conditional whole-genome projections. The [earlier local benchmark](../audits/annotation-memory/results.md) predates sequential output batching.
 
 ## Config you should follow across all steps
 
@@ -297,7 +297,7 @@ RAW_QUERY_BED_SOURCES="$INPUT_ROOT/resources/example_raw_annot/*.bed"  # put all
 BASELINE_ANNOT_SOURCES="${INPUT_ROOT}/resources/1000G_EUR_Phase3_baseline/baseline.@.annot.gz"
 ```
 
-Place your raw query files in the same directory and use a quoted glob to select them together. Direct LDSC prepares, computes, writes, and releases one query batch before starting the next, repeating reference work across batches. The saved baseline artifact is shared. Chromosome concurrency is controlled separately by `--threads`, which defaults to 1 and is capped at the chromosome count in both direct and indexed calculation. See [LD-score memory controls](main-functionalities/ldscore.md#memory-for-many-pathways) for the implementation sources and tradeoffs.
+Place your raw query files in the same directory and use a quoted glob to select them together. Direct LDSC prepares, computes, writes, and releases one query batch before starting the next, repeating reference work across batches. The saved baseline artifact is shared. Chromosome concurrency is controlled separately by `--workers`, which defaults to 1 and is capped at the chromosome count in both direct and indexed calculation. See [LD-score memory controls](main-functionalities/ldscore.md#memory-for-many-pathways) for the implementation sources and tradeoffs.
 
 ```bash
 PARTITIONED_LDSCORE_OUTPUT_DIR="${OUTPUT_ROOT}/partitioned_ldscore"
@@ -384,7 +384,10 @@ ldsc partitioned-h2 \
 2. Query-annotation runs automatically save each successful query's complete baseline-plus-query fit under `diagnostics/query_annotations/`; `--write-per-query-results` has been removed and must be omitted.
 3. Error handling is strict by default: any query error prevents publication of new scientific results. Add `--continue-on-query-error` to skip failed query fits and publish successful ones. Check `diagnostics/query_status.tsv` for every attempted query and `diagnostics/partitioned-h2.log` for tracebacks and available block diagnostics. Shared input/output failures, interrupts, and all-query-failed scans still stop. See [query error handling](main-functionalities/partitioned-h2.md#choose-what-happens-when-a-query-fails), implemented by `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py).
 
-4. The command above uses the default inline fit. With four allocated CPUs, add `--threads 4` to fit the four query models concurrently; each process fits one complete model. For larger scans, `--query-batch-size 100` limits loaded query columns and caps concurrency. Parsing and worker-count resolution match `ldscore` and index construction, with queries/batch width replacing the chromosome work cap. See [concurrent query fitting](main-functionalities/partitioned-h2.md#fit-queries-concurrently) for negative counts, numerical-thread limits, memory costs, and failure behavior.
+4. The command above uses one managed child with 1 BLAS thread.
+   With four CPUs available and allocated, add `--workers 4` to fit four complete query-plus-baseline models concurrently.
+   `--query-batch-size 100` bounds loaded query columns and caps concurrency.
+   See [concurrent query fitting](main-functionalities/partitioned-h2.md#fit-queries-concurrently).
 
 **Outputs:**
 

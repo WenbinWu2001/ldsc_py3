@@ -1,60 +1,74 @@
 """Shared worker-count validation and resolution for LDSC workflows.
 
-Negative requests use process CPU affinity with a machine CPU-count fallback.
+Requests use joblib.cpu_count() directly as the detected available CPU budget.
 Native numerical-library thread settings are owned by the workflow workers.
 """
 
-import os
+import logging
+import argparse
+import joblib
+
+LOGGER = logging.getLogger("LDSC.parallelism")
 
 
-def _validate_threads(threads: int, *, error_type: type[Exception] = ValueError) -> int:
+def _validate_workers(workers: int, *, error_type: type[Exception] = ValueError) -> int:
     """Require a nonzero Python integer, excluding booleans, without coercion."""
-    if isinstance(threads, bool) or not isinstance(threads, int) or threads == 0:
-        raise error_type("threads must be a nonzero integer (1, positive workers, or a negative CPU offset).")
-    return threads
+    if isinstance(workers, bool) or not isinstance(workers, int) or workers == 0:
+        raise error_type("workers must be a nonzero integer (1, positive workers, or a negative CPU offset).")
+    budget = joblib.cpu_count()
+    if workers > budget:
+        raise error_type(
+            f"Requested workers={workers} exceeds the detected available CPU count={budget} "
+            "from joblib.cpu_count(). Choose --workers at or below that count and your job allocation."
+        )
+    return workers
 
 
-def _parse_threads(value: str) -> int:
+def _parse_workers(value: str) -> int:
     """Parse CLI integer syntax and apply the shared worker-request validator."""
-    return _validate_threads(int(value))
+    try:
+        return _validate_workers(int(value))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
 
 
 def _available_cpu_count() -> int:
-    """Return the number of CPUs available to this process.
+    """Return joblib's detected available CPU count, not idle or allocated CPUs."""
+    return joblib.cpu_count()
 
-    Prefer CPU affinity when supported; otherwise use ``os.cpu_count()``.
-    Scheduler allocations are respected when reflected in process affinity.
+
+def _resolve_worker_count(workers: int, task_count: int, *, task_unit: str = "chromosome",
+                          batch_size: int | None = None) -> int:
+    """Validate and report task concurrency, capped by work after the CPU check.
+
+    Negative ``-k`` requests use ``max(1, joblib.cpu_count() + 1 - k)``.
+    An explicit positive request above detected availability is an error even
+    when fewer tasks exist. One task uses one managed child, not inline BLAS.
+    Scheduler allocations not reflected in supported process restrictions
+    remain the user's responsibility; this does not measure idle CPUs.
     """
-    getaffinity = getattr(os, "sched_getaffinity", None)
-    if getaffinity is not None:
-        try:
-            return len(getaffinity(0)) or 1
-        except OSError:
-            pass
-    return os.cpu_count() or 1
-
-
-def _resolve_worker_count(threads: int, n_chromosomes: int) -> int:
-    """Resolve the effective worker count from the ``threads`` setting.
-
-    Uses the joblib ``n_jobs`` convention: ``1`` is sequential, a positive ``N``
-    requests ``N`` workers, ``-1`` requests all available cores, ``-2`` all but
-    one, and any negative ``-k`` requests ``n_cpus + 1 - k``. Core counts respect
-    CPU affinity (see :func:`_available_cpu_count`). The result is capped at
-    ``n_chromosomes`` and floored at ``1`` so a single work item never spawns a
-    pool. Query workflows pass their bounded query count as the work limit.
-    Positive requests are capped only by work; scheduler allocations influence
-    negative requests when reflected in CPU affinity.
-
-    For example, eight available CPUs and three work items resolve requests
-    ``4`` and ``-1`` to three workers; ``-7`` resolves to two. A positive request
-    is not capped by CPU count, and ``SLURM_CPUS_PER_TASK`` is not read here.
-    """
-    _validate_threads(threads)
-    if n_chromosomes <= 0:
-        return 1
-    if threads < 0:
-        resolved = _available_cpu_count() + 1 + threads
+    _validate_workers(workers)
+    budget = _available_cpu_count()
+    if workers < 0:
+        resolved = budget + 1 + workers
     else:
-        resolved = threads
-    return max(1, min(resolved, n_chromosomes))
+        resolved = workers
+    available_tasks = min(task_count, batch_size) if batch_size is not None else task_count
+    resolved = max(1, min(resolved, available_tasks))
+    LOGGER.info(
+        "Compute workers: requested=%d; detected available CPU count=%d (joblib.cpu_count()); "
+        "task unit=%s; task count=%d; batch cap=%s; worker count=%d. "
+        "Each worker uses 1 BLAS thread; worker count is not total software threads or guaranteed CPU utilization.",
+        workers, budget, task_unit, task_count, batch_size, resolved,
+    )
+    return resolved
+
+
+WORKERS_HELP = (
+    "Default: 1, one managed child process. Positive N requests at most N workers; "
+    "-1 uses the detected available CPU count from joblib.cpu_count(); -2 uses one fewer "
+    "(minimum one). Reject zero and positive requests above the detected count, then cap "
+    "by available tasks. Each worker uses 1 BLAS thread, in serial and parallel execution. "
+    "Detection does not measure idle CPUs or read your scheduler allocation; choose a value "
+    "consistent with that allocation. More workers can use more memory."
+)

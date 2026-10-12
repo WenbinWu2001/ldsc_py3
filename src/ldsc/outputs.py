@@ -595,7 +595,8 @@ class LDScoreDirectoryWriter:
     """
 
     @staticmethod
-    def artifact_family(output_dir, result=None, *, diagnostics_only=False, gene_list_batch=None) -> ArtifactFamily:
+    def artifact_family(output_dir, result=None, *, diagnostics_only=False, gene_list_batch=None,
+                        include_logs=False) -> ArtifactFamily:
         """Describe all owned LD-score artifacts and the outputs selected by a result.
 
         With no result, describe ownership for early collision checks without
@@ -627,7 +628,11 @@ class LDScoreDirectoryWriter:
                 entries[f"dropped_snps_chr{chrom}"] = (f"diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz", True)
         return _declare_artifacts(
             output_dir, entries, label="LD-score output artifact",
-            extra_owned=[*sorted((output_dir / "diagnostics/dropped_snps").glob("chr*_dropped.tsv.gz")),
+            extra_owned=[*([output_dir / "diagnostics/ldscore.log",
+                            *sorted((output_dir / "diagnostics/chromosome-logs").glob("chr*.log"))]
+                           if include_logs else []),
+                         *sorted((output_dir / "ref_metadata").glob("chr*_meta.tsv.gz")),
+                         *sorted((output_dir / "diagnostics/dropped_snps").glob("chr*_dropped.tsv.gz")),
                          *sorted(path for path in output_dir.glob("ldscore.query.batch*.parquet")
                                  if path.name.removeprefix("ldscore.query.batch").removesuffix(".parquet").isdigit())],
         )

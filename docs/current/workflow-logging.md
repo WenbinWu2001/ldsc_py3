@@ -1,6 +1,6 @@
 # Workflow Logging
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-12
 
 Public workflow entry points share one logging policy:
 
@@ -262,7 +262,11 @@ Annotation, gene-resolution, direct chromosome-drop, and quantile alignment audi
 
 ### Partitioned query worker diagnostics
 
-The INFO record `Query workers: requested=..., effective=...` reports the resolved process count, numerical-thread policy, and loading-batch width. Effective-one and baseline-only runs stay inline. INFO phases cover input loading, shared preparation, worker preparation, overall query fitting, each numbered loading/fitting batch, and final publication. Query-batch internals and per-query preparation/estimation/summaries/staging timings are DEBUG records. Worker records are forwarded to the parent logger; only the parent owns the CLI file handler. Records from concurrent fits may interleave, while the attempted-query status table and final sorted outputs remain deterministic. Summed worker phase times can exceed wall time, so use complete process runtime for end-to-end comparisons.
+The INFO execution summary reports the requested concurrency, detected available CPU count from `joblib.cpu_count()`, task count, batch cap, and actual worker count.
+Every worker targets 1 BLAS thread, including serial execution; worker records describe observed backends and verification status.
+Regression forwards its per-model log records to the parent workflow log as before.
+Existing phase timings, deterministic status order, and final sorting remain unchanged.
+Summed worker timings can exceed elapsed wall time.
 
 Ordinary query-model exceptions include the query name and stage. Process death, transport failures, worker initialization failures, interrupts, and output errors remain fatal under both strict and continue policies and can stop the scan before the final status table is written. The coordinator reports affected in-flight query identities and reaps workers before removing scratch. Sources: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py), `_WorkerLog` and `_QueryWorkers` in [_partitioned_h2_parallel.py](../../src/ldsc/_partitioned_h2_parallel.py), and [query-worker policy](regression-configuration.md#43-query-workers-and-memory).
 
@@ -271,7 +275,7 @@ Ordinary query-model exceptions include the query name and stage. Process death,
 
 Both LD-score backends report each batch start and completion. Direct mode names LD-score calculation batches and logs the chromosome computation inside each batch. Indexed mode logs chromosome computation first, then numbers genome-wide assembly batches; one chromosome computes all of its query batches before assembly. Batch completion describes completed private work, not a published or resumable result. Each backend reports one whole-run query-status total after finalization. Sources: `LDScoreCalculator.run()` in [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py) and `indexed_results()` in [_indexed_ldscore_batches.py](../../src/ldsc/_indexed_ldscore_batches.py).
 
-Partitioned regression reports actual completed query outcomes, with status counts, through the same parent-owned progress stream for inline and parallel execution. Parallel collection advances when each result arrives, and timed waits can report unchanged completed counts while workers compute. Serial fits report when control returns. Numbered batch boundaries appear even for fast batches; per-query successful phases require DEBUG. For example, omitting elapsed times:
+Partitioned regression reports actual completed query outcomes, with status counts, through the same parent-owned progress stream for serial and parallel execution. Parallel collection advances when each result arrives, and timed waits can report unchanged completed counts while workers compute. Serial fits report when control returns. Numbered batch boundaries appear even for fast batches; per-query successful phases require DEBUG. For example, omitting elapsed times:
 
 ```text
 Phase start: computation; query fitting; completed=0/3000
@@ -286,3 +290,15 @@ Phase complete: computation; query fitting; completed=3000/3000; success=3000
 A completed scan can contain query failures; the status counts, final diagnostic summary, and existing strict/continue policy determine publication. Transport/process failures still terminate the phase with a failed event. `rg` similarly reports per-trait h2 and pair-fitting totals, retaining pair-specific failure diagnostics. Quantile and R² query workflows finish with result counts and table pointers.
 
 Munging emits one immediate warning per invalid P, INFO, or FRQ category within a parsing run, then reports accumulated category counts. Counts can overlap and are separate from exclusive QC removal counts. Subsequent API runs receive their own warnings. The INFO accepted-range message describes the existing [0,2] check; no filter cutoff changed. Complete raw QC row details are not all present in the dropped-SNP sidecar, so the warnings and final QC summary retain their own counts and meaning. Source: `parse_dat()` and `_invalid_value_summary()` in [_kernel/sumstats_munger.py](../../src/ldsc/_kernel/sumstats_munger.py).
+
+## LD-score chromosome logs
+
+Direct and indexed writing workflows create `diagnostics/ldscore.log` and `diagnostics/chromosome-logs/chrN.log`, including for one worker.
+The main log lists all chromosome log paths and overall progress.
+Children append detailed records and Python exception tracebacks to their own chromosome files across query batches within the run.
+Numerical backend verification and independent Arrow CPU/I/O counts are recorded at the task boundary.
+A handled chromosome failure retains logs, reports the chromosome and batch in the main log, cancels pending tasks where possible, and removes temporary results after normal worker shutdown.
+A broken pool reports affected in-flight tasks and their paths without claiming a confirmed crash source.
+Reruns follow `--overwrite`, resetting owned logs rather than appending an unrelated run.
+`LDScoreCalculator.run(..., output_config=None)` retains its no-file-output contract.
+See [parallel execution](parallel-execution.md) and [`_ldscore_diagnostics`](../../src/ldsc/_ldscore_diagnostics.py).

@@ -471,7 +471,8 @@ class _WorkflowLoggingContext:
             seconds = 0
         self._write_line("")
         self._write_line(f"{status} {end_dt}")
-        self._write_line(f"Elapsed time: {float(minutes):.1f}min:{seconds}s")
+        duration = f"{elapsed:.2f}s" if elapsed < 60 else f"{float(minutes):.1f}min:{seconds}s"
+        self._write_line(f"Elapsed time: {duration}")
         if exc_type is not None:
             self._write_line("")
             formatted = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))

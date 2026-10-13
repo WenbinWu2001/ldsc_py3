@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-13
 
 This reference explains `ldsc` errors that can **abort a run** and have more than
 one likely cause. It is organized by command. Each entry lists the likely causes
@@ -16,13 +16,19 @@ that slug is a heading below — jump to it.
 
 | Cause | Check and repair |
 | --- | --- |
-| Missing path or PLINK companion | Read every `source` and `chrom` in `input_issues.tsv`; restore each selected BED/BIM/FAM trio. Quote globs and preserve dotted prefixes. |
+| Missing path or PLINK companion | A path-resolution failure means no file matched on the executing node; verify the filename, location, and visibility there. Read every `source` and `chrom` in `input_issues.tsv`; restore each selected BED/BIM/FAM trio. Quote globs and preserve dotted prefixes. |
+| Unreadable input | Use the exception type and operating-system error number in `details` to check the named path and access permissions on the executing node. |
 | Wrong header, delimiter, or compressed/Parquet file | Inspect the named file's header and format; restore canonical fields and readable compression. Annotation checks use the existing alias and identity rules. |
 | Missing or incompatible index component | Restore the complete immutable index with matching chromosome/root metadata; never combine components from separate indexes. |
 | Declared chromosome coverage differs from content | Use matching annotation/reference suites and a covered catalog selection. An explicit `@` requires the workflow's documented chromosome suite; a glob selects actual matches. |
 | Later alignment, identity, or support failure | These checks need scanned rows or filtered intersections. Use the existing chromosome-scope, gene-list, and SNP-drop audits; passing the earlier path gate cannot establish them. |
 
 Writing workflows retain the six fields `input_role`, `source`, `chrom`, `reason`, `details`, and `repair` in `diagnostics/input_issues.tsv`; gene-index construction uses `.<index>.build-state/input_issues.tsv`. Python exceptions also expose the repair frame as `input_issues`. Existing specialized diagnostics remain authoritative for gene rows, PLINK contents, and alignment. Correct all reported defects at the current gate before rerunning; later content gates may expose defects that could not be established from headers.
+
+For `munge-sumstats`, a missing `--raw-sumstats-file` match is recorded as `missing_required_input` before summary-statistic reading begins.
+The message gives a path-specific repair rather than suggesting column or delimiter changes for this failure.
+Captured input exceptions remain chained in the workflow log, including all captured causes when multiple inputs fail.
+Failed declaration-validation phases report the number of distinct inputs with issues, while unknown phase totals are omitted from progress denominators.
 
 Output collisions are a separate error: passing `--overwrite` authorizes owned output replacement but never bypasses input validation. Early input failures preserve existing scientific files and retain the established authorized-overwrite `RUN_FAILED.txt` contract. INFO phase records distinguish validation, staging, computation, and publication; periodic progress occurs when bounded chunks return, not during a blocking third-party call.
 

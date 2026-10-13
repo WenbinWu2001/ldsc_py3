@@ -22,6 +22,16 @@ from ldsc.path_resolution import (
 from ldsc.errors import LDSCInputError
 
 
+@pytest.mark.parametrize("name", ["missing.tsv.gz", "missing*.tsv.gz", "missing.@.tsv.gz"])
+def test_missing_group_input_has_actionable_error_and_original_cause(tmp_path, name):
+    token = str(tmp_path / name)
+    with pytest.raises(LDSCInputError) as failure:
+        resolve_file_group(token, label="raw summary statistics", allow_chromosome_suite=True)
+    assert "matched 0 files" in str(failure.value)
+    assert token in str(failure.value)
+    assert isinstance(failure.value.__cause__, FileNotFoundError)
+
+
 class PathResolutionTest(unittest.TestCase):
     def test_requested_directory_creation_is_information(self):
         with tempfile.TemporaryDirectory() as tmpdir:

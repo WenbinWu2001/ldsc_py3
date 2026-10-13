@@ -14,6 +14,116 @@ def forbid_work(*args, **kwargs):
     pytest.fail("expensive work ran before the input gate completed")
 
 
+def test_missing_sumstats_reports_path_check_repair_and_original_cause(tmp_path):
+    from ldsc._input_preflight import inspect_declared_inputs
+    from ldsc._annotation_preflight import INPUT_ISSUE_COLUMNS
+
+    missing = tmp_path / "missing.tsv.gz"
+    diagnostics = tmp_path / "diagnostics/input_issues.tsv"
+    with pytest.raises(LDSCInputError) as failure:
+        inspect_declared_inputs(files=[("raw summary statistics", missing)], issues_path=diagnostics)
+    error = failure.value
+    message = str(error)
+    assert "--raw-sumstats-file" in message
+    assert "path resolution" in message and "no matching file" in message
+    assert "compute node" in message
+    assert "Summary-statistic reading has not started" in message
+    assert message.count(str(missing)) == 1
+    assert isinstance(error.__cause__, LDSCInputError)
+    assert isinstance(error.__cause__.__cause__, FileNotFoundError)
+    issues = pd.read_csv(diagnostics, sep="\t", keep_default_na=False)
+    assert list(issues.columns) == INPUT_ISSUE_COLUMNS
+    assert issues.loc[0, "reason"] == "missing_required_input"
+    assert "FileNotFoundError" in issues.loc[0, "details"]
+    assert "--raw-sumstats-file" in issues.loc[0, "repair"]
+
+
+def test_multiple_input_failures_keep_each_original_cause(tmp_path):
+    from ldsc._input_preflight import inspect_declared_inputs
+
+    with pytest.raises(LDSCInputError) as failure:
+        inspect_declared_inputs(files=[("raw summary statistics", tmp_path / "missing.tsv"),
+                                       ("SNP restriction", tmp_path / "missing.snps")])
+    assert "2 input issues" in str(failure.value)
+    assert len(failure.value.input_issues) == 2
+    cause = failure.value.__cause__
+    assert isinstance(cause, ExceptionGroup)
+    assert len(cause.exceptions) == 2
+    assert all(isinstance(error.__cause__, FileNotFoundError) for error in cause.exceptions)
+
+
+def test_permission_failure_reports_errno_and_preserves_exception(tmp_path):
+    from ldsc._input_preflight import InputGate
+
+    path = tmp_path / "synthetic.tsv"
+    denied = PermissionError(13, "Permission denied", str(path))
+
+    def reject_access():
+        raise denied
+
+    gate = InputGate("Input validation")
+    gate.check("raw summary statistics", path, reject_access)
+    with pytest.raises(LDSCInputError) as failure:
+        gate.finish()
+    assert failure.value.__cause__ is denied
+    assert "PermissionError (errno 13)" in str(failure.value)
+    assert str(failure.value).count(str(path)) == 1
+    assert gate.issues[0]["reason"] == "unreadable_required_input"
+
+
+def test_missing_file_during_open_is_not_mislabeled_as_path_resolution(tmp_path):
+    from ldsc._input_preflight import InputGate
+
+    missing = tmp_path / "missing.snps"
+    gate = InputGate("Input validation")
+    gate.check("SNP restriction", missing, missing.read_bytes)
+    with pytest.raises(LDSCInputError) as failure:
+        gate.finish()
+    assert "missing or not visible" in str(failure.value)
+    assert "path resolution" not in str(failure.value)
+    assert isinstance(failure.value.__cause__, FileNotFoundError)
+
+
+def test_failed_input_phase_reports_failures_without_unknown_total(tmp_path, caplog):
+    import logging
+    from ldsc._input_preflight import inspect_declared_inputs
+
+    restriction = tmp_path / "synthetic.snps"
+    restriction.write_text("SNP\nsynthetic\n")
+    with caplog.at_level(logging.INFO, logger="LDSC"), pytest.raises(LDSCInputError):
+        inspect_declared_inputs(files=[("raw summary statistics", tmp_path / "missing.tsv"),
+                                       ("SNP restriction", restriction)])
+    record = next(record for record in caplog.records if getattr(record, "phase_event", None) == "failed")
+    assert "failed_inputs=1" in record.getMessage()
+    assert "unknown" not in record.getMessage()
+    assert record.outcomes["failed_inputs"] == 1
+
+
+def test_missing_sumstats_cli_keeps_concise_error_and_chained_file_log(tmp_path, monkeypatch, capsys):
+    import re
+    import sys
+    from ldsc.cli import run_cli
+
+    missing = tmp_path / "synthetic_missing.tsv.gz"
+    output = tmp_path / "output"
+    monkeypatch.setattr(sys, "argv", [
+        "ldsc", "munge-sumstats", "--raw-sumstats-file", str(missing),
+        "--source-genome-build", "hg19", "--output-genome-build", "hg19",
+        "--output-dir", str(output), "--no-snp-restriction",
+    ])
+    assert run_cli() == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert len(captured.err.strip().splitlines()) == 1
+    assert captured.err.count(str(missing)) == 1
+    assert "--raw-sumstats-file" in captured.err and "no matching file" in captured.err
+    log = (output / "diagnostics/sumstats.log").read_text()
+    assert "FileNotFoundError" in log and "direct cause" in log
+    assert "failed_inputs=1" in log and "unknown" not in log
+    assert re.search(r"Elapsed time: \d+\.\d{2}s", log)
+    assert not list(output.glob("*.parquet"))
+
+
 def test_direct_reports_late_reference_and_annotation_defects_before_staging(tmp_path, monkeypatch):
     from ldsc import _annotation_sources
     write_inputs(tmp_path)

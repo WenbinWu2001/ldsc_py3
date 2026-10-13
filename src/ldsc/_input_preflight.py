@@ -24,25 +24,47 @@ INPUT_ERRORS = (OSError, EOFError, ValueError, UnicodeError, LDSCUserError)
 
 @dataclass
 class InputGate:
-    """Collect independent failures and retain one machine-readable repair table."""
+    """Collect independent input failures with diagnostic rows and original causes."""
 
     name: str
     issues_path: Path | None = None
     issues: list = field(default_factory=list)
+    causes: list[Exception] = field(default_factory=list, repr=False)
 
     def check(self, role, source, operation, *, chrom=''):
-        """Run an independent check, retaining its value or recording its error."""
+        """Retain a check's value or record its typed error, repair, and original cause."""
         try:
             return operation()
         except INPUT_ERRORS as exc:
+            self.causes.append(exc)
             nested = getattr(exc, 'input_issues', None)
-            self.issues.extend(nested.to_dict('records') if nested is not None else
-                               [dict(input_issue(role, source, chrom, 'invalid_required_input', exc),
-                                     repair='Correct the listed path, required companions, or schema; preserve the requested scope. See docs/troubleshooting.md#staged-input-validation.')])
+            if nested is not None:
+                self.issues.extend(nested.to_dict('records'))
+            else:
+                cause = exc.__cause__ or exc
+                reason = 'invalid_required_input'
+                details = f'{type(exc).__name__}: {exc}'
+                repair = 'Correct the listed path, required companions, or schema; preserve the requested scope.'
+                if isinstance(cause, FileNotFoundError):
+                    reason = 'missing_required_input'
+                    kind = 'FileNotFoundError' + (f' (errno {cause.errno})' if cause.errno is not None else '')
+                    details = (f'{kind}: path resolution found no matching file on this node.'
+                               if isinstance(exc, LDSCInputError) else
+                               f'{kind}: the named input is missing or not visible on this node.')
+                    repair = 'Verify the filename, location, and visibility from the compute node.'
+                    if role == 'raw summary statistics':
+                        if isinstance(exc, LDSCInputError):
+                            details += ' Summary-statistic reading has not started.'
+                        repair = 'Set --raw-sumstats-file to an existing file. ' + repair
+                elif isinstance(cause, OSError) and cause.errno is not None:
+                    reason = 'unreadable_required_input'
+                    details = f'{type(cause).__name__} (errno {cause.errno}): {cause.strerror}'
+                    repair = 'Check the named input and its access permissions from the compute node.'
+                self.issues.append(dict(input_issue(role, source, chrom, reason, details), repair=repair))
             return None
 
     def finish(self):
-        """Replace this gate's repair status, without changing science files."""
+        """Publish repair status and raise with all captured original causes."""
         if not self.issues:
             if self.issues_path is not None:
                 self.issues_path.unlink(missing_ok=True)
@@ -53,10 +75,21 @@ class InputGate:
             self.issues_path.parent.mkdir(parents=True, exist_ok=True)
             frame.to_csv(self.issues_path, sep='\t', index=False)
             location = f' Complete diagnostics: {self.issues_path}.'
-        details = '; '.join(f"{r['input_role']} {r['source']} {r['chrom']}: {r['details']}" for r in self.issues)
-        error = LDSCInputError(f'{self.name} failed: {details}.{location} Repair the listed inputs and rerun. '
+        details = '; '.join(
+            f"{r['input_role']} {r['source']}"
+            f"{(' (chromosome ' + str(r['chrom']) + ')') if r['chrom'] else ''}: "
+            f"{r['details'].rstrip('.')}. Repair: {r['repair'].rstrip('.')}"
+            for r in self.issues
+        )
+        count = len(self.issues)
+        error = LDSCInputError(f"{self.name} failed: {count} input issue{'s' if count != 1 else ''}. "
+                               f'{details}.{location} '
                                'Other causes & fixes: docs/troubleshooting.md#staged-input-validation')
         error.input_issues = frame
+        if len(self.causes) == 1:
+            raise error from self.causes[0]
+        if self.causes:
+            raise error from ExceptionGroup('Input validation failures', self.causes)
         raise error
 
 
@@ -158,6 +191,10 @@ def inspect_declared_inputs(*, baseline=(), query=(), files=(), scalar_files=(),
             progress.advance(object='PLINK companion files')
         for role, source, operation in checks:
             resolved[role] = gate.check(role, source, operation)
+        if gate.issues:
+            progress.outcomes['failed_inputs'] = len({
+                (issue['input_role'], issue['source'], issue['chrom']) for issue in gate.issues
+            })
         gate.finish()
     return SimpleNamespace(baseline=resolved['baseline'], query=resolved['query'],
                            declarations=declarations, widths=widths, columns=columns, files=resolved)

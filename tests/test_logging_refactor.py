@@ -96,6 +96,19 @@ class LoggingRefactorTest(unittest.TestCase):
 
         self.assertIn("Mean chi^2 = 2.009\n\nOutputs:", text)
 
+    def test_workflow_logging_preserves_subsecond_elapsed_time_on_failure(self):
+        from ldsc._logging import workflow_logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "workflow.log"
+            with mock.patch("ldsc._logging.time.monotonic", side_effect=[100.0, 100.16]):
+                with self.assertRaisesRegex(RuntimeError, "synthetic failure"):
+                    with workflow_logging("unit", log_path, log_level="INFO"):
+                        raise RuntimeError("synthetic failure")
+            text = log_path.read_text(encoding="utf-8")
+        self.assertIn("Elapsed time: 0.16s", text)
+        self.assertIn("RuntimeError: synthetic failure", text)
+
     def test_workflow_logging_formats_elapsed_time_with_units(self):
         from ldsc._logging import workflow_logging
 

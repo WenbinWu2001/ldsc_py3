@@ -1,6 +1,6 @@
 # Workflow Logging
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-13
 
 Public workflow entry points share one logging policy:
 
@@ -21,6 +21,15 @@ Public workflow entry points share one logging policy:
 - INFO describes major phases, numbered batch start/completion, chromosome work, and aggregate outcomes. Successful query timings, source mappings, and full annotation lists belong at DEBUG.
 - Gene exclusions, rejected rows, unsupported genes, and non-OK query outcomes use counts by role/reason and pointers to complete diagnostics. Exclusion counts describe submitted input rows, including repeats across lists; they are not counts of distinct genes. Failure messages retain the affected query/pair, stage, and traceback.
 - A diagnostic pointer replaces detail only when the corresponding file is written. Warnings without an equivalent complete diagnostic, including raw summary-statistic QC warnings, remain self-contained.
+
+Input-preflight errors name the failed input, report the issue count and an actionable repair, and point to the written `diagnostics/input_issues.tsv`.
+A missing raw-summary-statistic path identifies `--raw-sumstats-file`, reports that path resolution found no matching file, and states that summary-statistic reading has not started.
+The primary message shows that pathname once; the chained developer traceback retains the original exception and its full context.
+The diagnostic table retains its six-column schema and preserves specialized nested diagnostics.
+Other captured operation errors distinguish missing and unreadable inputs and record exception types and operating-system error numbers when available.
+One captured failure becomes the error's direct cause; multiple captured failures remain available through an `ExceptionGroup` cause.
+The declaration-validation phase reports `failed_inputs` as the number of distinct role/source/chromosome combinations with issues.
+When a phase total is unknown, progress reports `completed=N` without an unknown denominator.
 
 ## Console vs File Routing
 
@@ -175,6 +184,9 @@ The footer records final status and elapsed time with explicit units:
 Finished 2026-05-02 22:07:50
 Elapsed time: 2.0min:12s
 ```
+
+Runs shorter than one minute use seconds with two decimal places, for example `Elapsed time: 0.16s`.
+Longer runs retain the minutes-and-seconds format shown above.
 
 The `Started` timestamp and elapsed timer are captured as one paired timepoint
 when the workflow context is entered. The `Finished` or `Failed` timestamp and

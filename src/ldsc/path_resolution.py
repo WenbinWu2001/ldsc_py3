@@ -115,7 +115,7 @@ def _format_input_path_resolution_message(
     )
 
 
-def _raise_missing_input_path(label: str, token: str) -> None:
+def _raise_missing_input_path(label: str, token: str, *, cause: Exception | None = None) -> None:
     """Raise the shared no-match input-path error."""
     raise LDSCInputError(
         _format_input_path_resolution_message(
@@ -125,7 +125,7 @@ def _raise_missing_input_path(label: str, token: str) -> None:
             likely="the path is misspelled, relative to the wrong working directory, or missing a required suffix",
             fix="Pass an existing path, an exact-one glob, or an explicit @ chromosome pattern.",
         )
-    )
+    ) from cause
 
 
 def _raise_ambiguous_input_path(label: str, token: str, match_count: int) -> None:
@@ -175,10 +175,7 @@ def resolve_scalar_path(
     try:
         matches = _resolve_direct_token(normalized_token, suffixes=suffixes)
     except FileNotFoundError as exc:
-        try:
-            _raise_missing_input_path(label, normalized_token)
-        except LDSCInputError as wrapped:
-            raise wrapped from exc
+        _raise_missing_input_path(label, normalized_token, cause=exc)
     if len(matches) != 1:
         _raise_ambiguous_input_path(label, normalized_token, len(matches))
     return matches[0]
@@ -254,12 +251,12 @@ def resolve_file_group(
     for token in normalized:
         try:
             matches = _resolve_direct_token(token, suffixes=suffixes)
-        except FileNotFoundError:
-            if not allow_chromosome_suite:
-                _raise_missing_input_path(label, token)
+        except FileNotFoundError as exc:
+            if not allow_chromosome_suite or "@" not in token:
+                _raise_missing_input_path(label, token, cause=exc)
             matches = _resolve_suite_token(token, suffixes=suffixes, chromosomes=chromosomes)
             if not matches:
-                _raise_missing_input_path(label, token)
+                _raise_missing_input_path(label, token, cause=exc)
         resolved.extend(matches)
     resolved = _dedupe_preserving_order(resolved)
     if not resolved:

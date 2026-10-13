@@ -23,8 +23,9 @@ class PhaseProgress:
         self.outcomes = Counter()
 
     def _log(self, event):
-        counts = (f'; completed={self.completed}/{self.total if self.total is not None else "unknown"}'
-                  if self.completed or self.total is not None else '')
+        counts = f'; completed={self.completed}' if self.completed or self.total is not None else ''
+        if self.total is not None:
+            counts += f'/{self.total}'
         outcomes = ''.join(f'; {name}={count}' for name, count in sorted(self.outcomes.items()))
         current = f'; object={self.object}' if self.object and self.logger.isEnabledFor(logging.DEBUG) else ''
         self.logger.log(self.level, 'Phase %s: %s; %s%s%s%s; elapsed=%.2fs.',

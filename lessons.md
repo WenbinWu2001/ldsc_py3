@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-13
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -238,3 +238,8 @@ Last updated on: 2026-10-12
 
 - Summary/root cause/correction: On macOS, temporary paths spelled with `/var` and `/private/var` referred to the same open LD-score log but compared unequal.
   Resolve both handler and requested paths before deciding whether a workflow already owns the log; this avoids incorrectly rejecting the current run during nested output preflight.
+
+## Input errors must retain their failed check and original causes
+
+- Summary/root cause/correction: A missing literal sumstats path fell through chromosome-suite expansion and became a bare pathname, while the input gate discarded the original exception; guard suite expansion by an explicit `@`, retain captured causes, and report the failed path check and repair without duplicating its pathname.
+  Verify the CLI, diagnostic table, and chained file traceback with synthetic inputs, and preserve failure counts and subsecond elapsed time in short runs.

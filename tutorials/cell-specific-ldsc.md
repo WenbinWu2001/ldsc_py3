@@ -56,7 +56,7 @@ source = run_ldscore(
     query_annot_bed_sources="annotations/cell_type_beds/*.bed",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg19",
     ld_wind_cm=1.0,
-    query_batch_size=1000,
+    query_batch_size=100,
     workers=1,
     output_dir=ldscore_dir,
 )
@@ -66,7 +66,7 @@ runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=Regress
 result = runner.estimate_partitioned_h2_batch(
     sumstats, source,
     workers=1,
-    query_batch_size=1000,
+    query_batch_size=100,
     output_dir="tutorial_outputs/cell_specific_h2",
     metadata={"ldscore_dir": ldscore_dir, "trait_name": "trait"},
 )
@@ -136,7 +136,7 @@ ldsc partitioned-h2 \
 
 The regression reads query annotation columns from
 `tutorial_outputs/cell_specific_ldscores/metadata.json` and
-the query files in its ordered `query_batches` manifest. One batch uses `ldscore.query.parquet`; multiple batches use numbered query files. Each file has chromosome-aligned row groups. `ldscore --query-batch-size` controls generation width, while `partitioned-h2 --query-batch-size` independently controls read width; both default to 1000. Each pathway remains a separate regression model. The output file is
+the query files in its ordered `query_batches` manifest. One batch uses `ldscore.query.parquet`; multiple batches use numbered query files. Each file has chromosome-aligned row groups. `ldscore --query-batch-size` controls generation width, while `partitioned-h2 --query-batch-size` independently controls read width; both default to 100. Each pathway remains a separate regression model. The output file is
 `tutorial_outputs/cell_specific_ldsc/partitioned_h2.tsv`, with
 `diagnostics/partitioned-h2.log` under the same directory. Its key columns are
 `category`, `prop_snps`, `prop_h2`, `enrichment`, `enrichment_p`,

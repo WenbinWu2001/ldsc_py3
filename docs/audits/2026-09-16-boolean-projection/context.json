@@ -1,0 +1,150 @@
+{
+  "bim_path": "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/resources/example_1kg_phase3_PLINK/1000G.EUR.QC.22.bim",
+  "bim_rows": 141123,
+  "cm_non_decreasing": true,
+  "window_cm": 1,
+  "snp_batch_size": 128,
+  "rounded_left_window_rows_quantiles": {
+    "min": 0.0,
+    "median": 2048.0,
+    "p90": 4992.0,
+    "p95": 6272.0,
+    "p99": 7552.0,
+    "max": 8192.0
+  },
+  "warning": "BIM-only proxy before annotation/MAF/output filtering, not a full workflow profile.",
+  "budgets": {
+    "1": {
+      "tile_rows": 2097152,
+      "full_float64_tile_bytes": 16777216,
+      "full_bool_tile_bytes": 2097152,
+      "plink_forward_operand_bytes": 1024,
+      "reverse_tiles_per_window_quantiles": [
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "54": {
+      "tile_rows": 38836,
+      "full_float64_tile_bytes": 16777152,
+      "full_bool_tile_bytes": 2097144,
+      "plink_forward_operand_bytes": 55296,
+      "reverse_tiles_per_window_quantiles": [
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "100": {
+      "tile_rows": 20971,
+      "full_float64_tile_bytes": 16776800,
+      "full_bool_tile_bytes": 2097100,
+      "plink_forward_operand_bytes": 102400,
+      "reverse_tiles_per_window_quantiles": [
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "1000": {
+      "tile_rows": 2097,
+      "full_float64_tile_bytes": 16776000,
+      "full_bool_tile_bytes": 2097000,
+      "plink_forward_operand_bytes": 1024000,
+      "reverse_tiles_per_window_quantiles": [
+        0.0,
+        1.0,
+        3.0,
+        3.0,
+        4.0,
+        4.0
+      ]
+    }
+  },
+  "dtype_promotions": [
+    {
+      "operator": "float32",
+      "annotations": "bool",
+      "csr": false,
+      "result": "float32"
+    },
+    {
+      "operator": "float32",
+      "annotations": "bool",
+      "csr": true,
+      "result": "float32"
+    },
+    {
+      "operator": "float32",
+      "annotations": "float32",
+      "csr": false,
+      "result": "float32"
+    },
+    {
+      "operator": "float32",
+      "annotations": "float32",
+      "csr": true,
+      "result": "float32"
+    },
+    {
+      "operator": "float32",
+      "annotations": "float64",
+      "csr": false,
+      "result": "float64"
+    },
+    {
+      "operator": "float32",
+      "annotations": "float64",
+      "csr": true,
+      "result": "float64"
+    },
+    {
+      "operator": "float64",
+      "annotations": "bool",
+      "csr": false,
+      "result": "float64"
+    },
+    {
+      "operator": "float64",
+      "annotations": "bool",
+      "csr": true,
+      "result": "float64"
+    },
+    {
+      "operator": "float64",
+      "annotations": "float32",
+      "csr": false,
+      "result": "float64"
+    },
+    {
+      "operator": "float64",
+      "annotations": "float32",
+      "csr": true,
+      "result": "float64"
+    },
+    {
+      "operator": "float64",
+      "annotations": "float64",
+      "csr": false,
+      "result": "float64"
+    },
+    {
+      "operator": "float64",
+      "annotations": "float64",
+      "csr": true,
+      "result": "float64"
+    }
+  ],
+  "chr22_accumulator_1000_queries_53_baselines_weight_bytes": 146548160,
+  "all_output_accumulator_1000_queries_53_baselines_weight_bytes": 9565859472
+}

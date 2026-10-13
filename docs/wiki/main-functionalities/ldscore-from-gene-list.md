@@ -168,7 +168,7 @@ Regression is strict by default: any query error prevents publication of new sci
 
 ## Large pathway batches
 
-For 1,000 pathways, regression tests each pathway separately against the same baseline categories. `--query-batch-size` defaults to `1000` in direct/indexed `ldscore` and `partitioned-h2`; lower it to reduce active query workspace. Direct LD scoring writes and releases one query batch before preparing the next, repeating reference/genotype work across batches. Indexed assembly keeps one chromosome operator per worker, writes and releases that chromosome's query batches, then releases the operator. For LD-score generation, `--workers` defaults to 1, accepts positive counts, `-1` for detected available CPUs and `-2` to leave one core free, and is capped at the chromosome count.
+For 1,000 pathways, regression tests each pathway separately against the same baseline categories. `--query-batch-size` defaults to `100` in direct/indexed `ldscore` and `partitioned-h2`; lower it to reduce active query workspace. Direct LD scoring writes and releases one query batch before preparing the next, repeating reference/genotype work across batches. Indexed assembly keeps one chromosome operator per worker, writes and releases that chromosome's query batches, then releases the operator. For LD-score generation, `--workers` defaults to 1, accepts positive counts, `-1` for detected available CPUs and `-2` to leave one core free, and is capped at the chromosome count.
 
 `--workers` / `workers` defaults to one managed child process, including on HPC.
 Every worker uses **1 BLAS thread**, in serial and parallel execution.

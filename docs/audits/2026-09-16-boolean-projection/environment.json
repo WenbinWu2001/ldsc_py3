@@ -1,0 +1,32 @@
+{
+  "python": "3.13.13 | packaged by conda-forge | (main, Apr  8 2026, 02:29:07) [Clang 19.1.7 ]",
+  "numpy": "2.4.5",
+  "scipy": "1.17.1",
+  "platform": "macOS-15.3.2-arm64-arm-64bit-Mach-O",
+  "processor": "Hardware model query unavailable in sandbox; Apple arm64, Accelerate backend verified",
+  "git_head": "0984a2b05734806923565adcd54db00ab0688cd0",
+  "matmul_signatures": [
+    "??->?",
+    "bb->b",
+    "BB->B",
+    "hh->h",
+    "HH->H",
+    "ii->i",
+    "II->I",
+    "ll->l",
+    "LL->L",
+    "qq->q",
+    "QQ->Q",
+    "ee->e",
+    "ff->f",
+    "dd->d",
+    "gg->g",
+    "FF->F",
+    "DD->D",
+    "GG->G",
+    "OO->O"
+  ],
+  "numpy_config": "{\n  \"Compilers\": {\n    \"c\": {\n      \"name\": \"clang\",\n      \"linker\": \"ld64\",\n      \"version\": \"15.0.0\",\n      \"commands\": \"cc\"\n    },\n    \"cython\": {\n      \"name\": \"cython\",\n      \"linker\": \"cython\",\n      \"version\": \"3.2.4\",\n      \"commands\": \"cython\"\n    },\n    \"c++\": {\n      \"name\": \"clang\",\n      \"linker\": \"ld64\",\n      \"version\": \"15.0.0\",\n      \"commands\": \"c++\"\n    }\n  },\n  \"Machine Information\": {\n    \"host\": {\n      \"cpu\": \"aarch64\",\n      \"family\": \"aarch64\",\n      \"endian\": \"little\",\n      \"system\": \"darwin\"\n    },\n    \"build\": {\n      \"cpu\": \"aarch64\",\n      \"family\": \"aarch64\",\n      \"endian\": \"little\",\n      \"system\": \"darwin\"\n    }\n  },\n  \"Build Dependencies\": {\n    \"blas\": {\n      \"name\": \"accelerate\",\n      \"found\": true,\n      \"version\": \"unknown\",\n      \"detection method\": \"system\",\n      \"include directory\": \"unknown\",\n      \"lib directory\": \"unknown\",\n      \"openblas configuration\": \"unknown\",\n      \"pc file directory\": \"unknown\"\n    },\n    \"lapack\": {\n      \"name\": \"accelerate\",\n      \"found\": true,\n      \"version\": \"unknown\",\n      \"detection method\": \"system\",\n      \"include directory\": \"unknown\",\n      \"lib directory\": \"unknown\",\n      \"openblas configuration\": \"unknown\",\n      \"pc file directory\": \"unknown\"\n    }\n  },\n  \"Python Information\": {\n    \"path\": \"/private/var/folders/k4/_09nqs851t35bpkk8lr_p43c0000gn/T/build-env-l0tlj4z_/bin/python\",\n    \"version\": \"3.13\"\n  },\n  \"SIMD Extensions\": {\n    \"baseline\": [\n      \"NEON\",\n      \"NEON_FP16\",\n      \"NEON_VFPV4\",\n      \"ASIMD\"\n    ],\n    \"found\": [\n      \"ASIMDHP\",\n      \"ASIMDDP\"\n    ],\n    \"not found\": [\n      \"ASIMDFHM\"\n    ]\n  }\n}\n",
+  "csr_multivector": "    def _matmul_multivector(self, other):\n        M, N = self._shape_as_2d\n        n_vecs = other.shape[-1]  # number of column vectors\n\n        result = np.zeros((M, n_vecs),\n                          dtype=upcast_char(self.dtype.char, other.dtype.char))\n\n        # csr_matvecs or csc_matvecs\n        fn = getattr(_sparsetools, self.format + '_matvecs')\n        fn(M, N, n_vecs, self.indptr, self.indices, self.data,\n           other.ravel(), result.ravel())\n\n        if self.ndim == 1:\n            return result.reshape((n_vecs,))\n        return result\n",
+  "csr_vector": "    def _matmul_vector(self, other):\n        M, N = self._shape_as_2d\n\n        # output array\n        result = np.zeros(M, dtype=upcast_char(self.dtype.char, other.dtype.char))\n\n        # csr_matvec or csc_matvec\n        fn = getattr(_sparsetools, self.format + '_matvec')\n        fn(M, N, self.indptr, self.indices, self.data, other, result)\n\n        return result[0] if self.ndim == 1 else result\n"
+}

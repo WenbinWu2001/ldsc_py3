@@ -91,7 +91,7 @@ class __GenotypeArrayInMemory__(object):
         raise NotImplementedError
 
     def ldScoreVarBlocks(self, block_left, c, annot=None, *, output_rows=None,
-                         n_baseline=None, query_batch_size=1000, weight_mask=None):
+                         n_baseline=None, query_batch_size=100, weight_mask=None):
         """Project shared and batched annotations in one genotype traversal.
 
         ``annot`` is a selected-read source or a caller-owned numerical array.
@@ -117,7 +117,7 @@ class __GenotypeArrayInMemory__(object):
         return sq - (1 - sq) / denom
 
     def __corSumVarBlocks__(self, block_left, c, func, snp_getter, annot=None, *,
-                            output_rows=None, n_baseline=None, query_batch_size=1000,
+                            output_rows=None, n_baseline=None, query_batch_size=100,
                             weight_mask=None):
         """Accumulate transformed correlation sums over LDSC-style LD blocks."""
         m, n = self.m, self.n

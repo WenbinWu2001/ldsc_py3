@@ -48,7 +48,7 @@ Implementation details:
   catalog projection build stays separate from `GlobalConfig.genome_build` in
   rsID modes.
 
-Memory controls are separate from statistical settings. `LDScoreConfig.query_batch_size` and the batch regression API/CLI setting default to 1000 and require a positive integer. Generation uses this width for sequential execution and output query files; direct mode repeats reference traversal. `LDScoreConfig.workers` and indexed `workers` control bounded chromosome worker processes, capped at chromosome count; it does not change the number of pathways in a regression model. `AnnotationBuildConfig` describes source/projection settings, while the workflow's required output directory determines private storage ownership. The obsolete annotation-config output/compression/missing-query fields are removed. See the [memory design](annotation-memory-design.md) for lifetimes and output contracts.
+Memory controls are separate from statistical settings. `LDScoreConfig.query_batch_size` and the batch regression API/CLI setting default to 100 and require a positive integer. Generation uses this width for sequential execution and output query files; direct mode repeats reference traversal. `LDScoreConfig.workers` and indexed `workers` control bounded chromosome worker processes, capped at chromosome count; it does not change the number of pathways in a regression model. `AnnotationBuildConfig` describes source/projection settings, while the workflow's required output directory determines private storage ownership. The obsolete annotation-config output/compression/missing-query fields are removed. See the [memory design](annotation-memory-design.md) for lifetimes and output contracts.
 
 ## The Problem This Design Solves
 

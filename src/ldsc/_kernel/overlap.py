@@ -90,7 +90,7 @@ def sum_overlap_contributions(contributions: list[OverlapContribution]) -> Overl
     )
 
 
-def annotation_statistics(metadata, annotations, n_baseline, *, query_batch_size=1000,
+def annotation_statistics(metadata, annotations, n_baseline, *, query_batch_size=100,
                           common_maf_min=0.05, read_budget_bytes=16*1024*1024):
     """Accumulate counts, overlap blocks, and classifications in bounded tiles.
 

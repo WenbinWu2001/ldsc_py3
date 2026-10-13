@@ -38,7 +38,7 @@ The root `partitioned_h2.tsv` reports one row per baseline category. For binary 
 
 The memory optimization is designed for testing many pathways at once—for example, 1,000 pathways in one run, with each pathway tested separately against the same baseline categories. Put one pathway in each gene-list or BED source, or one pathway in each prebuilt query annotation column.
 
-`ldscore --query-batch-size 1000` bounds the active query calculation batch and defaults to 1000. Completed batches are written and their LD tables released. Multiple batches produce numbered query Parquet files, each covering the full regression SNP universe; root `metadata.json.query_batches` records their columns and chromosome row groups. Direct and indexed `--workers` control chromosome workers, default to 1, and are capped at the chromosome count. Larger worker counts need more memory. See [LD-score memory controls](ldscore.md#memory-for-many-pathways).
+`ldscore --query-batch-size 100` bounds the active query calculation batch and defaults to 100. Completed batches are written and their LD tables released. Multiple batches produce numbered query Parquet files, each covering the full regression SNP universe; root `metadata.json.query_batches` records their columns and chromosome row groups. Direct and indexed `--workers` control chromosome workers, default to 1, and are capped at the chromosome count. Larger worker counts need more memory. See [LD-score memory controls](ldscore.md#memory-for-many-pathways).
 
 After LD scoring, fit the pathways with:
 
@@ -46,7 +46,7 @@ After LD scoring, fit the pathways with:
 ldsc partitioned-h2 \
   --ldscore-dir results/pathway_ldscores \
   --sumstats-file results/trait/sumstats.parquet \
-  --query-batch-size 1000 \
+  --query-batch-size 100 \
   --output-dir results/pathway_enrichment
 ```
 

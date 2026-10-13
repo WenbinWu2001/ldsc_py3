@@ -1,0 +1,11 @@
+{
+  "compiled_scripts": 5,
+  "markdown_documents_and_local_links": "passed",
+  "measurements": 510,
+  "summary_groups": 170,
+  "replicates_per_group": 3,
+  "native_cases_bit_identical": 243,
+  "split_failed_processes": 3,
+  "preexisting_status_entries_preserved": 28,
+  "new_work_confined_to": "docs/audits/2026-09-16-boolean-projection"
+}

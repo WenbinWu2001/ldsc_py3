@@ -53,7 +53,7 @@ class MappedAnnotations:
 class ProjectionAccumulator:
     """Own float64 output-SNP-by-annotation scores and bounded read workspace."""
 
-    def __init__(self, annotations, *, n_baseline, output_rows=None, weight_mask=None, query_batch_size=1000, read_budget_bytes=16*1024*1024):
+    def __init__(self, annotations, *, n_baseline, output_rows=None, weight_mask=None, query_batch_size=100, read_budget_bytes=16*1024*1024):
         if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, (int, np.integer)) or query_batch_size < 1:
             raise ValueError('query_batch_size must be a positive integer.')
         self.annotations = annotations

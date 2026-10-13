@@ -1,0 +1,34 @@
+Traceback (most recent call last):
+  File "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/docs/audits/2026-09-16-boolean-projection/benchmark.py", line 351, in <module>
+    if __name__=="__main__": main()
+                             ~~~~^^
+  File "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/docs/audits/2026-09-16-boolean-projection/benchmark.py", line 330, in main
+    print(json.dumps(kernel(case) if case["suite"]=="kernel" else projection(case)));return
+                                                                  ~~~~~~~~~~^^^^^^
+  File "/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/docs/audits/2026-09-16-boolean-projection/benchmark.py", line 226, in projection
+    np.testing.assert_allclose(acc.values[outputs], expected, rtol=1e-14, atol=1e-14)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wenbinwu/miniforge3/envs/ldsc3-dev/lib/python3.13/site-packages/numpy/testing/_private/utils.py", line 1768, in assert_allclose
+    assert_array_compare(compare, actual, desired, err_msg=str(err_msg),
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                         verbose=verbose, header=header, equal_nan=equal_nan,
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                         strict=strict)
+                         ^^^^^^^^^^^^^^
+  File "/Users/wenbinwu/miniforge3/envs/ldsc3-dev/lib/python3.13/site-packages/numpy/testing/_private/utils.py", line 983, in assert_array_compare
+    raise AssertionError(msg)
+AssertionError: 
+Not equal to tolerance rtol=1e-14, atol=1e-14
+
+Mismatched elements: 2 / 17380000 (1.15e-05%)
+Mismatch at indices:
+ [8026, 373]: -0.09883879136141616 (ACTUAL), -0.09883879136140461 (DESIRED)
+ [13215, 191]: -0.0038905939117981347 (ACTUAL), -0.0038905939118125676 (DESIRED)
+Max absolute difference among violations: 1.44328993e-14
+Max relative difference among violations: 3.70969051e-12
+ ACTUAL: array([[-1.731157e+00,  1.108885e+00,  1.036017e+00, ...,  8.007822e-02,
+         1.688192e+00, -4.402751e+00],
+       [-6.048291e+00,  1.724982e-01,  5.604656e-01, ...,  1.169345e+00,...
+ DESIRED: array([[-1.731157e+00,  1.108885e+00,  1.036017e+00, ...,  8.007822e-02,
+         1.688192e+00, -4.402751e+00],
+       [-6.048291e+00,  1.724982e-01,  5.604656e-01, ...,  1.169345e+00,...

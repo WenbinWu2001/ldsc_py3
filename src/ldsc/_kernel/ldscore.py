@@ -1228,7 +1228,7 @@ def ld_score_streaming_from_r2_reader(
     annot,
     block_reader: SortedR2BlockReader,
     chunk_pairs: int = _CSR_CHUNK_PAIRS,
-    *, output_rows=None, n_baseline=None, query_batch_size=1000, weight_mask=None,
+    *, output_rows=None, n_baseline=None, query_batch_size=100, weight_mask=None,
 ) -> np.ndarray:
     """Project selected annotation batches through each stored R² chunk once.
 
@@ -1324,7 +1324,7 @@ def regression_mask_from_keys(
 
 def compute_chromosome(
     chrom: str, prepared: PreparedChromosome, *, snp_identifier: str,
-    snp_batch_size: int, common_maf_min: float = 0.05, query_batch_size: int = 1000,
+    snp_batch_size: int, common_maf_min: float = 0.05, query_batch_size: int = 100,
     regression_keys: set[str] | RestrictionIdentityKeys | None = None,
     regression_regions: RegionIntervals | None = None,
 ) -> ChromComputationResult:

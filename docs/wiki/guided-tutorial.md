@@ -359,7 +359,7 @@ partitioned_ldscore/
         ldscore.log
 ```
 
-The example's four queries fit in one batch and therefore share `ldscore.query.parquet`. When the query count exceeds `--query-batch-size` (default 1000), the directory instead contains `ldscore.query.batch00001.parquet`, `ldscore.query.batch00002.parquet`, and so on. Each covers the same genome-wide SNP rows. The required `metadata.json.query_batches` manifest records file membership and chromosome row groups. Current readers require this manifest; regenerate older LD-score directories. Regression can select columns across these files with a different batch width.
+The example's four queries fit in one batch and therefore share `ldscore.query.parquet`. When the query count exceeds `--query-batch-size` (default 100), the directory instead contains `ldscore.query.batch00001.parquet`, `ldscore.query.batch00002.parquet`, and so on. Each covers the same genome-wide SNP rows. The required `metadata.json.query_batches` manifest records file membership and chromosome row groups. Current readers require this manifest; regenerate older LD-score directories. Regression can select columns across these files with a different batch width.
 
 ### Step 2: estimate each query annotation's heritability contribution with `ldsc partitioned-h2`
 

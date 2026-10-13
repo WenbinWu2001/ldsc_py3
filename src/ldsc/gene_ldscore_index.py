@@ -1991,7 +1991,7 @@ def run_indexed_ldscore(
     query_gene_list_sources: Sequence[str | Path],
     control_gene_list_file: str | Path | None = None,
     gene_list_resolution_policy: str = "strict",
-    query_batch_size: int = 1000,
+    query_batch_size: int = 100,
     workers: int = 1,
     output_dir: str | Path,
     overwrite: bool = False,
@@ -2019,7 +2019,7 @@ def run_indexed_ldscore(
         omit ``--allow-unresolved-genes`` for strict resolution or supply that
         value-free flag for ``"resolved-only"``.
     query_batch_size : int, optional
-        Positive maximum focal columns per operator multiplication, default 1000.
+        Positive maximum focal columns per operator multiplication, default 100.
         Also bounds genome-wide result assembly and saved query-file width.
         Each pathway remains a separate annotation and regression model.
     workers : int, optional

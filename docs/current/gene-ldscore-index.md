@@ -309,7 +309,7 @@ The build lifecycle retains preceding/current lock coordination in `_gene_index_
 `LoadedGeneLDScoreIndex` holds shared catalog/settings, chromosome component paths, and compact support counts.
 Validation releases each chromosome before loading the next.
 Each assembly worker retains one operator through its query batches, then releases it before its next task.
-`run_indexed_ldscore(..., query_batch_size=1000, workers=1)` bounds result width and concurrent chromosomes.
+`run_indexed_ldscore(..., query_batch_size=100, workers=1)` bounds result width and concurrent chromosomes.
 The parent assembles float64 fragments in chromosome order and publishes only after all required calculations succeed.
 One batch uses `ldscore.query.parquet`; multiple batches use the ordered `metadata.json.query_batches` manifest.
 Saved calls return `LDScoreSource` with explicit uncached `read_queries(names)` reads.

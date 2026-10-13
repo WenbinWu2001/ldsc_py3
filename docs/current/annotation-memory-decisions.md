@@ -4,6 +4,10 @@ Last updated on: 2026-10-12
 
 Current status: the user confirmed the complete annotation-storage design and authorized implementation on September 15. Packed binary storage, exact automatic classification, two input content passes without numeric staging, and explicit private column selection are implemented. Public float32 reads, logical input order, and LD-score output behavior are preserved. The full suite passed 1,812 tests and 132 subtests, with one skip; an independent chromosome-22 baseline comparison verified every decoded value. See the [implemented format policy and measured file sizes](annotation-memory-design.md#annotation-format-policy). These decisions supersede the September 14 choice to retain dense annotation storage, while preserving the approved execution batching.
 
+## Query batch default update (2026-09-16)
+
+The user selected a default query batch size of **100** for direct/indexed `ldscore` and batch `partitioned-h2`, including their Python APIs. This supersedes the default width of 1,000 recorded in the earlier decisions below; explicit batch-size overrides and scientific behavior are unchanged.
+
 ## Confirmed annotation storage scope (2026-09-15)
 
 ### Scope and scientific types

@@ -1007,7 +1007,7 @@ class RegressionRunner:
 
     def estimate_partitioned_h2_batch(
         self, sumstats_table, ldscore_result, *, output_dir, query_columns=None,
-        config=None, query_batch_size=1000, overwrite=False, summary_sort_by="auto", metadata=None,
+        config=None, query_batch_size=100, overwrite=False, summary_sort_by="auto", metadata=None,
         continue_on_query_error=False, workers=1,
     ) -> PartitionedH2BatchResult:
         """Fit and write separate pathway models using shared SNP preparation.
@@ -1028,7 +1028,7 @@ class RegressionRunner:
             Statistical settings. Model-dependent filtering and weights are
             recomputed for every fit over the complete aligned genome.
         query_batch_size : int, optional
-            Maximum query columns loaded at once, default 1000. Pathways in a
+            Maximum query columns loaded at once, default 100. Pathways in a
             batch are still fitted separately against baseline categories.
             Also caps concurrent query workers; a width of one allows one managed child.
             Independent of the batch width used to generate the LD scores.
@@ -2844,10 +2844,10 @@ def add_partitioned_h2_arguments(parser) -> None:
         help='Maximum complete query-plus-baseline models running simultaneously; also capped by query batch size. ' + WORKERS_HELP,
     )
     runtime.add_argument(
-        '--query-batch-size', type=int, default=1000, metavar='N',
+        '--query-batch-size', type=int, default=100, metavar='N',
         help=(
             'Maximum number of query annotations loaded at once; each query is fitted separately with the '
-            'shared baseline. Default: 1000; a smaller positive value reduces memory and caps active query workers.'
+            'shared baseline. Default: 100; a smaller positive value reduces memory and caps active query workers.'
         ),
     )
     runtime.add_argument(
@@ -3037,7 +3037,7 @@ def run_partitioned_h2_from_args(args):
     and phase timings are recorded in the workflow log.
     """
     _validate_workers(getattr(args, "workers", 1))
-    query_batch_size = getattr(args, "query_batch_size", 1000)
+    query_batch_size = getattr(args, "query_batch_size", 100)
     if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
         raise ValueError("query_batch_size must be a positive integer.")
     output_dir, log_path = _preflight_regression_outputs(args, "partitioned-h2", PartitionedH2DirectoryWriter)
@@ -3069,7 +3069,7 @@ def run_partitioned_h2_from_args(args):
         with suppress_global_config_banner():
             result = runner.estimate_partitioned_h2_batch(
                 sumstats_table, ldscore_result, config=config, output_dir=output_dir,
-                query_batch_size=getattr(args, "query_batch_size", 1000),
+                query_batch_size=getattr(args, "query_batch_size", 100),
                 workers=getattr(args, "workers", 1),
                 continue_on_query_error=getattr(args, "continue_on_query_error", False),
                 overwrite=getattr(args, "overwrite", False),

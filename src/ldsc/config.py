@@ -511,7 +511,7 @@ class LDScoreConfig:
         ``128``.
     query_batch_size : int, optional
         Positive maximum number of focal query columns prepared, computed,
-        and written as one execution batch; default ``1000``. Multiple batches
+        and written as one execution batch; default ``100``. Multiple batches
         require an output directory and produce numbered query Parquet files.
         Direct calculation repeats reference work across batches. This does
         not change the scientific model or the total set of query columns.
@@ -546,7 +546,7 @@ class LDScoreConfig:
     ld_wind_cm: float | None = None
     regr_snps_file: str | PathLike[str] | None = None
     snp_batch_size: int = 128
-    query_batch_size: int = 1000
+    query_batch_size: int = 100
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
     export_ref_metadata: bool = False

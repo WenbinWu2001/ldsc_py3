@@ -75,7 +75,7 @@ source = run_ldscore(
     query_annot_bed_sources="beds/*.bed",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg19",
     ld_wind_cm=1.0,
-    query_batch_size=1000,
+    query_batch_size=100,
     workers=1,
     output_dir=ldscore_dir,
 )
@@ -85,7 +85,7 @@ runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=Regress
 result = runner.estimate_partitioned_h2_batch(
     sumstats, source,
     workers=1,
-    query_batch_size=1000,
+    query_batch_size=100,
     output_dir="tutorial_outputs/partitioned_h2",
     metadata={"ldscore_dir": ldscore_dir, "trait_name": "trait"},
 )

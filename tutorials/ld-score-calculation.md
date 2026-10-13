@@ -327,7 +327,7 @@ with AnnotationBundle.from_frames(
     metadata, baseline_values, query_values, config_snapshot=config,
 ) as annotations:
     result = LDScoreCalculator().run(
-        annotations, ref_panel, LDScoreConfig(ld_wind_cm=1, query_batch_size=1000),
+        annotations, ref_panel, LDScoreConfig(ld_wind_cm=1, query_batch_size=100),
         config, output_config=None,
     )
 # result.query_table and in-memory diagnostics remain available after closure.

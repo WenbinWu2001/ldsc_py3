@@ -1904,7 +1904,7 @@ def test_explicit_indexed_mode_dispatches_without_live_reference(monkeypatch, tm
         "query_gene_list_sources": ("immune.txt", "brain.txt"),
         "control_gene_list_file": None,
         "gene_list_resolution_policy": "strict",
-        "query_batch_size": 1000,
+        "query_batch_size": 100,
         "workers": 1,
         "output_dir": str(tmp_path / "out"),
         "overwrite": True,

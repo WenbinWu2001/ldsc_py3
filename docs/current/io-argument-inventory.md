@@ -184,7 +184,7 @@ Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requi
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--query-batch-size` | config | no | active focal query columns | Positive integer, default `1000`; bounds query preparation, computation, and output-file grouping. Direct mode repeats reference work between batches; indexed mode reuses each worker's chromosome operator through its batches. Independent of regression read width. |
+| `--query-batch-size` | config | no | active focal query columns | Positive integer, default `100`; bounds query preparation, computation, and output-file grouping. Direct mode repeats reference work between batches; indexed mode reuses each worker's chromosome operator through its batches. Independent of regression read width. |
 | `--output-dir` | output | yes | canonical LD-score result directory | Writes root scientific artifacts and `diagnostics/ldscore.log`; evaluated BED/gene runs add `query_annotation_status.tsv`, and gene runs add `gene_list_audit.tsv.gz` plus `gene_list_resolution_summary.tsv`. Parquet row groups are chromosome-aligned. |
 | `--gene-ldscore-index-dir` | input | no | exact gene LD-score index | Selects indexed gene-list assembly instead of live baseline/reference-panel computation; defaults to omitted/`None`. Requires `--query-annot-gene-list-sources`; scientific settings are inherited from the immutable index, so live inputs and non-default overrides are rejected, and explicit padding is always rejected. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed LD-score files and `diagnostics/ldscore.log` may be replaced; defaults to `False`, so any existing owned LD-score artifact in `output_dir` is refused. Successful overwrites remove stale owned single/numbered query files not produced by the current run. |
@@ -488,7 +488,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. Accepts current Parquet or legacy LDSC2 text under the same projection rule as `h2`. |
 | `--trait-name` | input metadata | no | output trait label | Optional label override; defaults to omitted/`None`. If omitted, regression uses the sumstats parquet footer `ldsc:trait_name` when present, then the filename fallback. |
 | `--workers` | performance | no | complete-query worker processes | Default 1, one managed child; every worker uses 1 BLAS thread. Use joblib.cpu_count() as the detected CPU budget; reject positive requests above it before capping by tasks (and regression query batch size). Negative -k uses max(1, budget + 1 - k); zero is invalid. See [execution policy](parallel-execution.md). |
-| `--query-batch-size` | config | no | active focal query columns | Positive integer, default `1000`; bounds query LD-score columns read together and caps active query workers. Each worker fits one separate complete model. Independent of generation batch width and the query error policy. |
+| `--query-batch-size` | config | no | active focal query columns | Positive integer, default `100`; bounds query LD-score columns read together and caps active query workers. Each worker fits one separate complete model. Independent of generation batch width and the query error policy. |
 | `--output-dir` | output | yes | result output directory | Required destination for `partitioned_h2.tsv` and diagnostics. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--n-blocks` | model | no | block jackknife partitions | Number of jackknife blocks used by the regression estimator; defaults to `200`. |
@@ -710,7 +710,7 @@ Removed Python names: legacy separate source-path object field,
 | Object/function | Argument | Direction | Object |
 |---|---:|---:|---|
 | `RegressionRunner.estimate_partitioned_h2_batch(...)` | `output_dir`, `overwrite` | output | required persistent destination and explicit collision policy; returns `PartitionedH2BatchResult` with summary and detail paths |
-| `RegressionRunner.estimate_partitioned_h2_batch(...)` | `query_columns`, `query_batch_size` | model selection / memory | explicit focal names or all declared queries; positive maximum active query count, default 1000; each query fits separately |
+| `RegressionRunner.estimate_partitioned_h2_batch(...)` | `query_columns`, `query_batch_size` | model selection / memory | explicit focal names or all declared queries; positive maximum active query count, default 100; each query fits separately |
 | `load_ldscore_from_dir(...)` | `ldscore_dir` | input | returns `LDScoreSource` with shared baseline/schema metadata and selected query-column reads |
 | `PartitionedH2OutputConfig` | `write_per_query_results` | low-level output mode | remains an explicit Python writer control; CLI query workflows set it automatically |
 | `run_h2_from_args(args)` | `ldscore_dir` | input | LD-score result directory |

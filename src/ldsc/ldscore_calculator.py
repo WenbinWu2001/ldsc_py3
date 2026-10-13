@@ -1264,9 +1264,9 @@ def build_parser() -> argparse.ArgumentParser:
         help='Maximum simultaneous chromosomes in direct or indexed mode. ' + WORKERS_HELP,
     )
     runtime.add_argument(
-        '--query-batch-size', default=1000, type=int, metavar='N',
+        '--query-batch-size', default=100, type=int, metavar='N',
         help=(
-            'Maximum number of query annotations processed at once. Default: 1000; use a smaller positive '
+            'Maximum number of query annotations processed at once. Default: 100; use a smaller positive '
             'value to reduce memory. Each completed batch has its own query file; direct mode repeats reference traversal.'
         ),
     )
@@ -1559,7 +1559,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
             query_gene_list_sources=tuple(gene_lists),
             control_gene_list_file=getattr(args, "control_gene_list_file", None),
             gene_list_resolution_policy=getattr(args, "gene_list_resolution_policy", "strict"),
-            query_batch_size=getattr(args, "query_batch_size", 1000),
+            query_batch_size=getattr(args, "query_batch_size", 100),
             workers=getattr(args, "workers", 1),
             output_dir=str(output_dir),
             overwrite=bool(getattr(args, "overwrite", False)),
@@ -2341,7 +2341,7 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         ld_wind_cm=getattr(args, "ld_wind_cm", None),
         regr_snps_file=getattr(args, "regr_snps_file", None),
         snp_batch_size=getattr(args, "snp_batch_size", 128),
-        query_batch_size=getattr(args, "query_batch_size", 1000),
+        query_batch_size=getattr(args, "query_batch_size", 100),
         common_maf_min=getattr(args, "common_maf_min", 0.05),
         whole_chromosome_ok=getattr(args, "yes_really", False),
         export_ref_metadata=getattr(args, "export_ref_metadata", False),

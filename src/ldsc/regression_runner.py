@@ -1920,7 +1920,11 @@ def _count_totals_for_columns(count_records: Sequence[dict[str, Any]], columns: 
     if all(value is not None and pd.notna(value) for value in all_values):
         all_counts = np.asarray([float(value) for value in all_values], dtype=np.float64)
         if not np.isfinite(all_counts).all():
-            raise LDSCInputError("Regression found non-finite all-SNP count metadata in the LD-score directory.")
+            raise LDSCInputError(
+                "Regression found non-finite all-SNP count metadata in the LD-score directory."
+                " Restore consistent finite count metadata from the same LD-score run, or regenerate the "
+                "LD-score directory. Do not replace missing or invalid counts with zero."
+            )
         count_totals[ALL_COUNT_KEY] = all_counts
     if all("common_reference_snp_count" in records_by_column[column] for column in columns):
         common_values = [records_by_column[column].get("common_reference_snp_count") for column in columns]
@@ -1931,7 +1935,11 @@ def _count_totals_for_columns(count_records: Sequence[dict[str, Any]], columns: 
             )
         common_counts = np.asarray([float(value) for value in common_values], dtype=np.float64)
         if not np.isfinite(common_counts).all():
-            raise LDSCInputError("Regression found non-finite common-SNP count metadata in the LD-score directory.")
+            raise LDSCInputError(
+                "Regression found non-finite common-SNP count metadata in the LD-score directory."
+                " Restore consistent finite count metadata from the same LD-score run, or regenerate the "
+                "LD-score directory. Do not replace missing or invalid counts with zero."
+            )
         count_totals[COMMON_COUNT_KEY] = common_counts
     return count_totals
 

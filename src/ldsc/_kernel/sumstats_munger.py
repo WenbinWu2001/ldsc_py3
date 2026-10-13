@@ -152,7 +152,8 @@ def _invalid_value_summary():
         yield counts
     finally:
         if counts:
-            LOGGER.warning("Invalid-value totals observed: %s. Counts can overlap; these are not exclusive QC drop counts.",
+            LOGGER.warning("Invalid-value totals observed: %s. Each count is SNP rows with an invalid value in that column. "
+                           "Counts can overlap; these are not exclusive QC drop counts.",
                            ", ".join(f"{column}={count}" for column, count in sorted(counts.items())))
 
 
@@ -161,11 +162,19 @@ def _record_invalid_values(column, count, accepted, counts):
     if not count:
         return
     if counts is None:
-        LOGGER.warning("%d SNPs had %s outside of %s. The column may be mislabeled.", count, column, accepted)
+        LOGGER.warning(
+            "%d SNP rows had %s outside of %s. The column may be mislabeled. "
+            "Check the column mapping and original source values; column-specific QC still applies.",
+            count, column, accepted,
+        )
         return
     if not counts[column]:
-        LOGGER.warning("Invalid %s values outside of %s detected; the column may be mislabeled. Existing QC rules still apply; totals follow after parsing.",
-                       column, accepted)
+        LOGGER.warning(
+            "Invalid %s values outside of %s detected; the column may be mislabeled. "
+            "Check the column mapping and original source values. Existing QC rules still apply; "
+            "totals follow after parsing.",
+            column, accepted,
+        )
     counts[column] += int(count)
 
 
@@ -189,9 +198,9 @@ def filter_info(info, qc: MungeQC, *, warning_counts=None):
         ii = (info.sum(axis=1) >= qc.info_min * (len(info.columns)))
     else:
         raise LDSCInternalError(
-            "munge-sumstats received an invalid INFO object inside _kernel.sumstats_munger.filter_info(); "
-            "expected a pandas Series or DataFrame. Most likely an internal parser contract changed. "
-            "Re-run with --debug and report the traceback."
+            "munge-sumstats stopped unexpectedly while checking imputation-quality (INFO) values: "
+            "the parser supplied an unsupported data object instead of a column or table. "
+            "Report the command, LDSC version, and saved traceback; --log-level DEBUG adds troubleshooting detail."
         )
 
     bad_info = jj.sum()
@@ -238,9 +247,10 @@ def _mean_info_list_value(value, column):
             numeric.append(float(token))
         except ValueError as exc:
             raise LDSCInputError(
-                f"munge-sumstats could not parse INFO-list column '{column}' in _kernel.sumstats_munger._mean_info_list_value(): "
-                f"token {token!r} is not numeric or NA. Most likely --info-list was pointed at a non-INFO column. "
-                f"Use --ignore {column} to skip it, or pass --info-list {column} only for numeric/NA per-study INFO lists."
+                f"munge-sumstats could not parse INFO-list column '{column}': "
+                f"token {token!r} is not numeric or a supported missing value. "
+                f"Correct the value or map --info-list to the intended comma-separated per-study INFO column. "
+                f"Use --ignore {column} only if omitting this quality field is intended for the analysis."
             ) from exc
     if not numeric:
         return np.nan
@@ -332,7 +342,7 @@ def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
 
     dat = pd.concat(dat_list, axis=0).reset_index(drop=True) if dat_list else pd.DataFrame()
     msg = (
-        f"Read {tot_snps} SNPs from --sumstats file.\n"
+        f"Read {tot_snps} input SNP rows from --raw-sumstats-file.\n"
         f"Removed {drops['NA']} SNPs with missing values.\n"
         f"Removed {drops['INFO']} SNPs with INFO < {qc.info_min}.\n"
         f"Removed {drops['FRQ']} SNPs with MAF < {qc.maf_min}.\n"
@@ -519,7 +529,8 @@ def _raise_sumstats_restriction_empty(restriction, *, input_rows=None, usable_ro
     raise LDSCInputError(
         "munge-sumstats no SNPs remain after SNP keep-list restriction. "
         "Most likely the input and keep-list have no matching identifiers or use different genome builds. "
-        "Check the list and source build. To process all SNPs subject to QC, use --no-snp-restriction. "
+        "Check that the list and input use compatible identifiers and the same coordinate build when applicable. "
+        "Use --no-snp-restriction only if analyzing the broader QC-passing SNP population is intended. "
         f"Keep-list file: {restriction.path}. snp_identifier={restriction.mode}; genome_build={build_label}; "
         f"input rows before filtering={input_rows}; usable row identifiers={usable_rows}; "
         f"keep-list identifiers={len(restriction.identifiers)}.{drop_details} "
@@ -624,9 +635,9 @@ def process_n(dat, qc: MungeQC):
             LOGGER.info(f"Using N_cas = {qc.N_cas}; N_con = {qc.N_con}")
         else:
             raise LDSCInternalError(
-                "munge-sumstats could not derive a sample size (N) and reached a state that should be unreachable. "
-                "Most likely an earlier input validation step failed to stop a missing-N file. "
-                "Re-run with --debug and report the traceback."
+                "munge-sumstats could not derive a sample size (N) after input validation; this is an unexpected internal state. "
+                "Report the command, LDSC version, and saved traceback. "
+                "--log-level DEBUG adds troubleshooting detail."
             )
 
     return dat
@@ -700,9 +711,13 @@ def munge_sumstats(request: ResolvedMungeInput) -> MungeResult:
         parsed = parse_dat(dat_gen, request)
     dat = parsed.data
     if len(dat) == 0:
+        removed = ", ".join(f"{reason}={int(count)}" for reason, count in parsed.drop_counts.items() if count) or "none recorded"
         raise LDSCInputError(
-            "munge-sumstats removed every SNP during quality filtering. Most likely --info-min/--maf-min "
-            "are too strict for this file. Relax the thresholds and check the dropped-SNP sidecar. "
+            f"munge-sumstats retained 0 of {parsed.n_input_rows} input rows after QC and SNP restriction. "
+            f"Recorded removal counts: {removed}. "
+            "Check the mapped input columns, --info-min/--maf-min, the reported QC counts, and the selected SNP restriction. "
+            "Correct unintended settings; changing an intended threshold or restriction changes the analysis. "
+            "Earlier QC and restriction removals are not individual rows in the dropped-SNP sidecar. "
             "Other causes & fixes: docs/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering"
         )
 
@@ -740,7 +755,7 @@ def munge_sumstats(request: ResolvedMungeInput) -> MungeResult:
         coordinate_metadata['genome_build'] = liftover_report['target_build']
 
     LOGGER.info(
-        f"Prepared summary statistics for {len(dat)} SNPs ({dat.N.notnull().sum()} with nonmissing beta)."
+        f"Prepared summary statistics for {len(dat)} SNPs ({dat.N.notnull().sum()} with nonmissing sample size N)."
     )
 
     LOGGER.info('\nMetadata:')
@@ -748,7 +763,11 @@ def munge_sumstats(request: ResolvedMungeInput) -> MungeResult:
     mean_chisq = CHISQ.mean()
     LOGGER.info(f"Mean chi^2 = {round(mean_chisq, 3)}")
     if mean_chisq < 1.02:
-        LOGGER.warning("WARNING: mean chi^2 may be too small.")
+        LOGGER.warning(
+            "Mean chi^2 is %.3f, below 1.02. Munging continues; review the input p-values, "
+            "sample-size mapping, and GWAS QC before interpreting regression results. "
+            "This value alone does not establish an input error.", mean_chisq
+        )
 
     LOGGER.info(f"Lambda GC = {round(CHISQ.median() / 0.4549, 3)}")
     LOGGER.info(f"Max chi^2 = {round(CHISQ.max(), 3)}")

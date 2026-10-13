@@ -178,8 +178,9 @@ class R2Panel:
 
         if panel_dir is None:
             raise LDSCUsageError(
-                "R2Panel.open requires `panel_dir`. Most likely it was omitted. Pass a "
-                "build-r2-panel output directory containing canonical R2 parquet files."
+                "Opening an R2 reference panel requires a panel directory. "
+                "Set --panel-dir (panel_dir in Python) to a build-r2-panel output directory "
+                "containing canonical R2 Parquet files."
             )
 
         paths: dict[str, tuple[str, str]] = {}
@@ -197,9 +198,10 @@ class R2Panel:
 
         if not paths:
             raise LDSCInputError(
-                "R2Panel.open found no `chr*_r2.parquet` files. Most likely `panel_dir` is "
-                "not a build-r2-panel output directory or the wrong genome-build sub-dir "
-                "was selected. Pass the directory containing canonical R2 parquet files."
+                f"Could not open R2 reference panel '{panel_dir}': no chr*_r2.parquet files were found. "
+                "The directory may not contain build-r2-panel outputs, or the selected genome-build "
+                "subdirectory may be wrong. Set --panel-dir to the matching panel output directory "
+                "and check --genome-build."
             )
 
         if snp_identifier is None:
@@ -244,8 +246,10 @@ class R2Panel:
             return self._state[chrom]
         if chrom not in self._paths:
             raise LDSCInputError(
-                f"R2Panel has no chromosome {chrom}. Available: {self.chromosomes}. Most "
-                "likely the query references a chromosome not built into this panel."
+                f"The R2 reference panel has no chromosome {chrom}; available chromosomes: {self.chromosomes}. "
+                "The query requests a chromosome absent from this panel. "
+                "Check the selected panel directory and genome build, or use a panel covering "
+                "the intended query chromosome."
             )
         meta_path, r2_path = self._paths[chrom]
         import pyarrow as pa
@@ -432,17 +436,18 @@ class R2Panel:
         n_samples = self.n_samples
         if n_samples is None:
             LOGGER.warning(
-                "query-r2 cannot compute signed r: the panel metadata has no "
-                "`ldsc:n_samples`, so r is emitted as all-NaN. Most likely a legacy panel "
-                "was used; rebuild with the current build-r2-panel to record n_samples."
+                "query-r2 cannot compute signed r because the panel metadata omits the sample size "
+                "(ldsc:n_samples). The query continues and returns R2, but all r values are unavailable (NaN). "
+                "Restore the original sample-size metadata from the matching panel build, or rebuild "
+                "with the current build-r2-panel; do not guess a sample size."
             )
             return np.full(len(r2), np.nan, dtype=np.float64)
         sign_float = sign_col.to_numpy(dtype="float64", na_value=np.nan)
         if not is_allele_aware_mode(self._mode):
             LOGGER.warning(
-                "query-r2 in base mode produces an all-NaN r column because base "
-                "modes carry no sign_r. Select an allele-aware --snp-identifier "
-                "and provide A1/A2 for both query endpoints to obtain signed r."
+                "query-r2 returns R2 but all signed r values are unavailable (NaN) because the selected "
+                "SNP identifier mode omits allele orientation. To obtain signed r, select an allele-aware "
+                "--snp-identifier matching the panel and provide A1/A2 for both query endpoints."
             )
         return unbiased_r2_to_pearson_r(r2.astype(np.float64), n_samples, sign=sign_float)
 

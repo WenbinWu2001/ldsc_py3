@@ -268,7 +268,13 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             with mock.patch("pyarrow.parquet.ParquetFile", FakePF):
                 with self.assertLogs("LDSC.ldscore", level="WARNING") as log_ctx:
                     self._reader(r2, self._reader_meta(["rs1", "rs2"], [100, 120]))
-            self.assertTrue(any("row group" in msg.lower() for msg in log_ctx.output))
+            message = "\n".join(log_ctx.output)
+            self.assertIn(str(r2), message)
+            self.assertIn("600000", message)
+            self.assertIn("SNP-pair rows", message)
+            self.assertIn("slower", message)
+            self.assertIn("memory", message)
+            self.assertIn("ldsc build-r2-panel", message)
 
     def test_index_init_hard_fails_on_multiple_paths(self):
         with tempfile.TemporaryDirectory() as tmpdir:

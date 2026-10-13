@@ -566,7 +566,10 @@ class LDScoreConfig:
         if not 0 <= self.common_maf_min <= 0.5:
             raise LDSCConfigError(_range_message("LDScoreConfig", "common_maf_min", self.common_maf_min, "[0, 0.5]"))
         if isinstance(self.query_batch_size, bool) or not isinstance(self.query_batch_size, int) or self.query_batch_size < 1:
-            raise LDSCConfigError("query_batch_size must be a positive integer.")
+            raise LDSCConfigError(
+                f"Cannot configure LD-score query batches: query_batch_size={self.query_batch_size!r} must be a positive integer. "
+                "Set --query-batch-size (query_batch_size in Python) to 1 or a larger integer."
+            )
         if self.snp_batch_size <= 0:
             raise LDSCConfigError(_positive_number_message("LDScoreConfig", "snp_batch_size", self.snp_batch_size))
         _validate_workers(self.workers, error_type=LDSCConfigError)
@@ -670,26 +673,48 @@ class GeneLDScoreIndexBuildConfig:
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         object.__setattr__(self, "regr_snps_file", _normalize_optional_path(self.regr_snps_file))
         if not self.baseline_annot_sources:
-            raise LDSCConfigError("GeneLDScoreIndexBuildConfig requires baseline_annot_sources.")
+            raise LDSCConfigError(
+                "Cannot build a gene LD-score index without baseline annotations. "
+                "Supply --baseline-annot-sources (baseline_annot_sources in Python) covering autosomes 1 through 22."
+            )
         if self.genome_build != "hg19" or self.snp_identifier not in {"rsid", "chr_pos"}:
             raise LDSCConfigError(
-                "GeneLDScoreIndexBuildConfig requires genome_build='hg19' and "
-                "snp_identifier equal to 'rsid' or 'chr_pos'."
+                f"Cannot build a gene LD-score index with genome_build={self.genome_build!r} and "
+                f"snp_identifier={self.snp_identifier!r}. Index construction requires explicit hg19 coordinates "
+                "and rsid or chr_pos identifiers. Supply --genome-build hg19 and the matching --snp-identifier; "
+                "no build inference or liftover is performed by index construction."
             )
         if self.gene_exclude_regions not in {"none", "mhc"}:
-            raise LDSCConfigError("gene_exclude_regions must be 'none' or 'mhc'.")
+            raise LDSCConfigError(
+                f"Cannot configure gene exclusions: gene_exclude_regions={self.gene_exclude_regions!r}. "
+                "Choose --gene-exclude-regions none or mhc to match the intended analysis."
+            )
         if self.regr_snps_exclude_regions not in {"none", "mhc", "centromeres", "mhc-and-centromeres"}:
             raise LDSCConfigError(
-                "regr_snps_exclude_regions must be 'none', 'mhc', 'centromeres', or 'mhc-and-centromeres'."
+                f"Cannot configure regression-SNP exclusions: regr_snps_exclude_regions={self.regr_snps_exclude_regions!r}. "
+                "Choose none, mhc, centromeres, or mhc-and-centromeres for --regr-snps-exclude-regions."
             )
         if self.padding_bp < 0:
-            raise LDSCConfigError("padding_bp must be nonnegative.")
+            raise LDSCConfigError(
+                f"Cannot extend gene intervals by padding_bp={self.padding_bp!r}: padding must be nonnegative. "
+                "Set --padding-bp to 0 for gene bodies or a positive number of base pairs."
+            )
         if self.ld_wind_cm <= 0 or self.snp_batch_size <= 0 or self.atom_batch_size <= 0:
-            raise LDSCConfigError("LD window and construction batch sizes must be positive.")
+            raise LDSCConfigError(
+                f"Cannot configure gene-index construction: ld_wind_cm={self.ld_wind_cm!r}, "
+                f"snp_batch_size={self.snp_batch_size!r}, atom_batch_size={self.atom_batch_size!r}. "
+                "Set --ld-wind-cm to a positive cM distance and both --snp-batch-size and --atom-batch-size to positive values."
+            )
         if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
-            raise LDSCConfigError("maf_min must be in [0, 0.5].")
+            raise LDSCConfigError(
+                f"Cannot configure reference-SNP MAF filtering: maf_min={self.maf_min!r} is outside [0, 0.5]. "
+                "Set --maf-min to the intended minor-allele-frequency threshold within this range, or omit it."
+            )
         if not 0 <= self.common_maf_min <= 0.5:
-            raise LDSCConfigError("common_maf_min must be in [0, 0.5].")
+            raise LDSCConfigError(
+                f"Cannot configure common-SNP counts: common_maf_min={self.common_maf_min!r} is outside [0, 0.5]. "
+                "Set --common-maf-min to the intended minor-allele-frequency threshold within this range."
+            )
         _validate_workers(self.workers, error_type=LDSCConfigError)
 
 

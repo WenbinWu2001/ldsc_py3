@@ -347,7 +347,11 @@ def _log_internal_error(exc: BaseException) -> None:
     """Emit a concise internal-error line; full traceback is in the run log file."""
     log_path = last_workflow_log_path()
     pointer = f" See {log_path} for the full traceback." if log_path else ""
-    LOGGER.error(f"Internal error while running ldsc: {exc}.{pointer}")
+    LOGGER.error(
+        f"Internal error while running ldsc: {exc}.{pointer} "
+        "Report the command and package version with this error and any saved traceback. "
+        "--log-level DEBUG adds developer context if the run needs to be reproduced."
+    )
 
 
 def _run_annotate(args: argparse.Namespace):

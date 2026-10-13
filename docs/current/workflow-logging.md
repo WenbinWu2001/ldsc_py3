@@ -2,6 +2,140 @@
 
 Last updated on: 2026-10-13
 
+## Audience and authority
+
+This is the authoritative, live contract for LDSC logging formats, message-writing rules, and diagnostic routing.
+The writing rules guide new messages and the audit of existing messages; they do not imply that every current message already meets the standard.
+The command-specific sections below describe current runtime behavior.
+
+The default level, `INFO`, serves users who know what LDSC can do but need not understand its modules, architecture, or numerical implementation.
+Messages should explain the task being performed, its outcome, and any action the user needs to take.
+Familiar method terms such as SNP, LD score, genome build, and heritability are appropriate; explain specialized terms when their meaning is needed to understand a failure or remedy.
+
+`DEBUG` adds evidence for advanced users and developers: source mappings, per-query timings, implementation stages, numerical checks, and worker/backend details.
+Technical detail supplements the ordinary explanation rather than replacing it.
+Errors and warnings must remain understandable at the default level.
+Failure tracebacks belong in the saved logs even when `DEBUG` was not selected.
+
+## Message-writing rules
+
+- Describe user-visible operations and inputs.
+  Prefer “checking the summary-statistics file” to an unexplained gate name or private function name.
+  If an implementation term is necessary to interpret a diagnostic, explain its meaning first.
+- Use concrete verbs and consistent terms.
+  Distinguish a missing file, an unreadable file, invalid contents, incompatible inputs, and a failed calculation instead of calling all of them “invalid input.”
+- Identify the relevant command, input role, filename, option, query, trait pair, or chromosome when it helps the user find the problem.
+  Name options and diagnostic fields exactly so the user can locate them in help or the saved table.
+  Avoid repeating the same pathname in the primary explanation.
+- Give counts with their unit and scope.
+  State whether a count refers to input rows, distinct genes, SNPs, queries, chromosomes, or failed inputs.
+  Distinguish the reference SNPs contributing to LD scores from the SNPs used for regression when that distinction explains the result.
+  Include expected and observed values, accepted formats, or units when they clarify a failed check.
+- Keep routine progress concise and aggregate repeated events.
+  Report meaningful phase, batch, and chromosome boundaries; place successful per-object details at `DEBUG`.
+  Use counts and bounded examples for large collections only when complete detail is retained in a diagnostic or metadata file.
+  Preserve the exact `Call:` block.
+- Report the actual outcome.
+  A completed validation, batch, or chromosome does not mean the full run succeeded or final results were written.
+  Distinguish requested exclusions, skipped queries, failed queries, and a failed run.
+  Do not imply that an unknown cause was established or that a partial result is complete.
+- Let the shared formatter supply severity prefixes.
+  Avoid embedding `WARNING:` or `[ERROR]` in message bodies that already use those logging levels.
+  Keep the primary explanation short enough to scan, but do not sacrifice the failure, cause, or remedy to a fixed sentence limit.
+
+### Levels and audiences
+
+Keep levels in the order `DEBUG`, `INFO`, `WARNING`, `ERROR` in help, docstrings, and documentation.
+Each level includes more severe records.
+
+| Level | Intended content |
+| --- | --- |
+| `DEBUG` | Detailed troubleshooting evidence, including per-source/query records, module or function context, numerical diagnostics, and backend observations. |
+| `INFO` | A clear run narrative: important settings, major phases, batch/chromosome progress, counts, and aggregate outcomes. |
+| `WARNING` | A condition allowed by the workflow's existing policy that needs attention; explain its consequence and any required action. |
+| `ERROR` | An operation that failed; identify the affected task/input, the observed problem, and the next useful action. |
+
+Changing the log level changes detail, not scientific validation or the workflow's failure policy.
+Run headers, final status, elapsed time, and captured failure tracebacks remain in an opened workflow log at every level.
+The explicit CLI notices and munging summary described below also retain their current visibility.
+
+## User-facing errors and warnings
+
+A user-facing error must stand on its own in the terminal message or Python exception.
+The reader should not need to open source code, enable `DEBUG`, or read a traceback to understand a known input or configuration failure.
+Use the following content in a natural order; this is a writing standard, not a mandatory rigid template:
+
+1. State what failed and identify the affected input, setting, or calculation.
+2. State the observed problem or failed requirement, with useful expected/observed values.
+3. Give the established cause when the check proves it.
+   Otherwise label the best-supported explanation as a likely or possible cause and give a concrete way to check it.
+4. Give the most useful actionable repair, and explain any consequence for the run or results that affects the user's next decision.
+   Add a pointer to written diagnostics when they provide additional evidence or repairs.
+
+A remedy should name the file, option, schema requirement, or compatibility check the user can act on.
+“Check your input,” “invalid configuration,” and “rerun with DEBUG” alone are insufficient for a known user error.
+For a path-resolution failure, suggest checking the filename and its visibility on the machine running LDSC; do not suggest column or delimiter changes before file reading has begun.
+For an output collision, offer a fresh output directory, or `--overwrite` only when the user intends to replace previous outputs.
+Do not recommend dropping inputs, relaxing filters, or enabling query continuation as a generic repair without explaining how that would change the requested analysis.
+
+The following is an illustrative wording example, not a claim that every current error uses these exact lines.
+The diagnostic pointer applies only after that table has been written:
+
+```text
+munge-sumstats could not find the raw summary-statistics file '/path/raw.tsv.gz'.
+No file matched this path; summary-statistic reading has not started.
+Check the filename and its visibility on the machine running LDSC, then set --raw-sumstats-file to an existing readable file.
+Input issues and repairs: /path/results/diagnostics/input_issues.tsv.
+```
+
+For an unexpected internal failure, describe the interrupted user task and identify any known chromosome, batch, or query.
+Do not attribute an unverified internal failure to bad user data.
+Give the saved log location when available and ask for the command, package version, and relevant developer evidence if the user needs to report the problem.
+If the cause is unknown, say so; do not invent a scientific repair.
+An abnormal worker termination may leave no child traceback, so affected in-flight tasks are evidence of interrupted work rather than proof of the task that caused the termination.
+
+Warnings explain what happened, whether processing continues, and how the condition affects the requested analysis or outputs.
+An explicitly requested exclusion can be summarized with its reason, count, and saved audit.
+A skip or omission must be explained in words; a status code such as `zero_variance_ld_scores` is not a sufficient explanation by itself.
+The existing scientific-error and query-continuation policies decide whether processing may continue.
+Unrequested input-resolution, filtering, ambiguity, or compatibility conditions that can silently change the analysis must fail before substantial computation; message cleanup must not turn them into successful-run warnings.
+
+### Diagnostics and troubleshooting
+
+Keep the common explanation and top remedy in the primary message.
+A diagnostic pointer supplements that explanation and may replace exhaustive row or object lists only when the corresponding file was written and contains the relevant detail.
+Name the actual path and tell the user what evidence or repairs to inspect there.
+If failure occurred before a log or table was created, do not imply that it exists.
+Warnings without complete row-level diagnostics, including raw summary-statistic QC warnings, remain self-contained.
+
+For multiple input failures, summarize issue counts and affected input roles, retain enough representative context to identify the failed check, and point to the complete repair table.
+Distinguish issue counts from counts of distinct failed inputs.
+Bound the primary list when a complete table is available; do not replace specific failures with an unexplained “validation failed.”
+The shared staged input gate shows at most 10 representative issues after writing the complete repair table.
+When no complete table was written, it retains every issue in the primary error.
+
+Use the existing [troubleshooting reference](../troubleshooting.md) for run-aborting errors with at least three distinct plausible causes.
+Organize entries by the command the user runs, using `Common` for failures shared across commands and plain-language headings.
+Rank causes by available evidence and pair each with a concrete check and remedy.
+Simple one- or two-cause errors should be explained in the message without creating a separate reference entry.
+Keep every in-code heading link synchronized with its target.
+Human-readable messages do not require a new error-ID scheme; existing machine-readable reason codes remain in their diagnostics.
+
+### Developer evidence and error boundaries
+
+Preserve the original exception chain when a translation adds useful user context.
+Keep exception types, operating-system error numbers, module/function details, numerical evidence, and tracebacks in developer logs or structured diagnostics where they help establish the cause.
+The ordinary error should explain the failure in user terms without requiring the reader to interpret those details.
+Full tracebacks for captured workflow or task failures do not depend on selecting `DEBUG`.
+
+Reusable APIs raise to their caller.
+The CLI boundary owns the final terminal error report; avoid logging the same error at every layer and then reporting it again.
+Task-specific tracebacks and query-failure diagnostics may still be recorded at their existing boundaries.
+A single concise terminal report and richer file evidence serve different purposes.
+Cleanup, wrapping, or continuation must not hide the original failure or misreport success.
+
+## Workflow log lifecycle
+
 Public workflow entry points share one logging policy:
 
 - Per-run file handlers attach to the `LDSC` logger, so workflow and kernel
@@ -10,9 +144,8 @@ Public workflow entry points share one logging policy:
   is opened. For workflows with coherent output families, this preflight covers
   owned siblings that are not produced by the current run. If preflight fails,
   no new log file is created.
-- If execution fails after preflight, the log is kept and ends with a `Failed`
-  footer, the full Python traceback, and elapsed time, so failures are
-  diagnosable from the log file alone.
+- If an exception escapes an opened workflow logging context, the log is kept with a `Failed` footer, the full Python traceback, and elapsed time.
+  Abrupt process termination can interrupt logging before a footer or traceback is written.
 - `--log-level` controls module-record verbosity. With an output directory, those
   records go to the workflow log file (see routing below); lifecycle audit lines
   always appear in the file. Supported levels are `DEBUG`, `INFO`, `WARNING`, and
@@ -22,38 +155,36 @@ Public workflow entry points share one logging policy:
 - Gene exclusions, rejected rows, unsupported genes, and non-OK query outcomes use counts by role/reason and pointers to complete diagnostics. Exclusion counts describe submitted input rows, including repeats across lists; they are not counts of distinct genes. Failure messages retain the affected query/pair, stage, and traceback.
 - A diagnostic pointer replaces detail only when the corresponding file is written. Warnings without an equivalent complete diagnostic, including raw summary-statistic QC warnings, remain self-contained.
 
-Input-preflight errors name the failed input, report the issue count and an actionable repair, and point to the written `diagnostics/input_issues.tsv`.
-A missing raw-summary-statistic path identifies `--raw-sumstats-file`, reports that path resolution found no matching file, and states that summary-statistic reading has not started.
-The primary message shows that pathname once; the chained developer traceback retains the original exception and its full context.
-The diagnostic table retains its six-column schema and preserves specialized nested diagnostics.
-Other captured operation errors distinguish missing and unreadable inputs and record exception types and operating-system error numbers when available.
-One captured failure becomes the error's direct cause; multiple captured failures remain available through an `ExceptionGroup` cause.
-The declaration-validation phase reports `failed_inputs` as the number of distinct role/source/chromosome combinations with issues.
-When a phase total is unknown, progress reports `completed=N` without an unknown denominator.
+Nested workflow logging contexts retain the active outer log rather than opening a second file or replacing its settings.
+The owning context restores the previous logger level and removes its own handler on exit.
 
 ## Console vs File Routing
 
-All command help pages reuse `LOG_LEVEL_HELP` from [`ldsc._logging`](../../src/ldsc/_logging.py). The default is `INFO`: progress and summaries. `DEBUG` adds troubleshooting details; `WARNING` records warnings and errors; `ERROR` records errors only. Each level includes more severe records. Run headers and completion status remain in the file at every level. This help wording describes the workflow log; it does not promise terminal progress at `INFO` or `DEBUG`.
+All command help pages reuse `LOG_LEVEL_HELP` from [`ldsc._logging`](../../src/ldsc/_logging.py).
+The default is `INFO`: progress and summaries.
+This help wording describes the workflow log; it does not promise terminal progress at `INFO` or `DEBUG`.
 
-The per-run `.log` file is the authoritative sink. Console output (stderr) is a
-CLI-only concern, installed by `ldsc.cli.run_cli`; `stdout` is reserved for
-explicit report output such as `munge-sumstats --infer-only` and the successful munging summary, so log records
-never go to `stdout`. The Python API never writes to the console.
+The per-run `.log` file is the authoritative workflow record.
+The CLI installs its console handler on stderr; stdout is reserved for explicit reports such as `munge-sumstats --infer-only` and the successful munging summary.
+Package-installed logging handlers do not send records to stdout.
+Python APIs do not install a package console handler, but an application may configure its own handlers.
 
 | Context | Output dir | Module records (INFO/DEBUG) | Errors |
 | --- | --- | --- | --- |
-| CLI | provided | `.log` file only | full traceback to `.log`; concise line + logfile pointer to console |
-| CLI | derived | `plot` and `convert-h2-scale` write below their source result; other materializing commands require `--output-dir` | full traceback to the derived workflow log; concise line + logfile pointer to console |
-| Python API | provided | `.log` file only | full traceback to `.log`; exception propagates to caller |
-| Python API | none | nowhere | exception propagates to caller |
+| CLI, workflow log opened | provided | `.log` file | captured failure traceback to `.log`; concise terminal error, with a diagnostic/log pointer when supplied by the error message |
+| CLI, workflow log opened | derived | `plot` and `convert-h2-scale` write below their source result; other materializing commands require `--output-dir` | same error routing as other logged CLI workflows |
+| Python API, workflow log opened | provided | `.log` file; application handlers may also receive records | captured failure traceback to `.log`; exception propagates to caller |
+| Python API, no workflow log | depends on API | no workflow file handler; application logging configuration controls other destinations | exception propagates to caller |
 
-Mechanism: `run_cli` installs one stderr `StreamHandler` on the `LDSC` logger at
-`ERROR` level for the duration of the command. With a workflow log it stays at
-`ERROR`, so ordinary records go to the file and only errors echo to the console.
-Low-level Python calls that intentionally omit a log do not install a console
-handler. The `LDSC`
-logger keeps `propagate = True` and the root logger is never given a handler, so
-nothing is duplicated to the console and `caplog`-based tests keep working.
+During a normal CLI invocation, `run_cli` installs one stderr `StreamHandler` on the `LDSC` logger at `ERROR` level for the duration of the command.
+With a workflow log it stays at `ERROR`, so ordinary records go to the file and errors can reach the terminal.
+CLI entry points that activate logging without a workflow file retain their existing verbosity fallback.
+Errors before a workflow log opens cannot provide a traceback from that unopened file.
+Current internal-error reports add the saved logfile pointer when available; expected user-error reports use the context and pointers supplied by their exception message.
+
+The package does not install a root logger handler, and LDSC records may propagate to handlers installed by an application.
+Claims of “file only” above describe the package's own routing, not suppression of application logging.
+Calling `run_cli(argv=...)` programmatically does not install the CLI console handler.
 
 Gene-list `ldscore` adds two deliberately bounded, direct stderr notices after a
 successful CLI run: one when `--allow-unresolved-genes` selected `resolved-only` and omitted rows, and one when Gate B
@@ -62,6 +193,12 @@ the ordinary logger threshold so a successful SLURM job cannot hide a
 science-relevant subset/skip in a log that users may never open. They name the
 diagnostic paths and cap affected outcomes at 10. Python entry points do not
 emit these console notices; callers inspect the returned statuses and paths.
+
+The successful gene-list notice distinguishes unsupported gene-list rows from queries skipped after LD-score computation.
+It reports an unsupported-row count only when that count is positive, explains each SNP-support or zero-variance outcome in words, and states that skipped queries are omitted from LD-score outputs.
+For example, a notice can report three queries skipped because their LD scores are constant on regression SNP rows (`zero_variance_ld_scores`), even when every evaluated gene has retained reference-SNP support.
+SNP support is measured on the retained reference-SNP universe; LD-score variation is evaluated on regression SNP rows.
+The reason codes, diagnostic schemas, query-selection policy, and console/file routing remain unchanged.
 
 After a successful `munge-sumstats` CLI run, stdout displays a `Munge-sumstats summary:` block with the selected restriction, liftover method, mapping/drop counts and reasons, and whole-run row accounting. The workflow writes the identical block to `diagnostics/sumstats.log` through `log_summary`, which bypasses the module-record threshold like lifecycle audit lines. This summary remains visible at every `--log-level`; Python API runs write it only to the log. See [liftover rules and count interpretation](munge-sumstats.md#liftover-rules).
 
@@ -92,6 +229,15 @@ Annotation, munging, and reference-panel build workflows retain their local owne
 Output ownership and input validity are separate gates. Existing artifact-family checks authorize logs/diagnostics and prevent replacement without overwrite. Input gates do not authorize scientific output replacement, remove stale science files, or imply that publication succeeded. R2 builds derive their chromosome-specific output family from validated PLINK contents; their early discovery repair table can therefore precede the full output-family check, as the previous PLINK repair table did.
 
 [`_input_preflight.InputGate`](../../src/ldsc/_input_preflight.py) collects independent input errors across objects at a stage and retains `input_issues` on the exception. Writing workflows persist the existing six-column `input_issues.tsv` repair table under diagnostics; gene-index builds use the sibling `.<index>.build-state/` directory. Existing PLINK and gene-specific audits remain available. The table is a diagnostic, not a new scientific artifact or resumable checkpoint.
+
+Input-preflight errors name the failed input, report the issue count and an actionable repair, and point to the written `diagnostics/input_issues.tsv`.
+A missing raw-summary-statistic path identifies `--raw-sumstats-file`, reports that path resolution found no matching file, and states that summary-statistic reading has not started.
+The primary message shows that pathname once; the chained developer traceback retains the original exception and its full context.
+The diagnostic table retains its six-column schema and preserves specialized nested diagnostics.
+Other captured operation errors distinguish missing and unreadable inputs and record exception types and operating-system error numbers when available.
+One captured failure becomes the error's direct cause; multiple captured failures remain available through an `ExceptionGroup` cause.
+The declaration-validation phase reports `failed_inputs` as the number of distinct role/source/chromosome combinations with issues.
+When a phase total is unknown, progress omits the denominator; any reported completed count uses `completed=N`.
 
 Direct LD scores check declarations and annotation headers, resolve gene-list controls, and validate reference content before annotation staging. PLINK companion mappings and reference scope evidence are reused; annotation headers supply the source scan widths. Gene-index and R2 construction check baseline/auxiliary declarations and PLINK companions together. Index consumers check every component path, small chromosome identity metadata, and Parquet header before opening the first numerical operator. See the [verified call-order audit](../audits/2026-09-14-staged-input-preflight.md).
 
@@ -158,6 +304,11 @@ CLI help and `munge-sumstats --infer-only` bypass the marker lifecycle entirely.
 
 ## Log Layout
 
+In the main workflow log, `INFO` records are plain message text.
+The shared formatter prefixes other severities with `[LEVEL]`, for example `[DEBUG]`, `[WARNING]`, or `[ERROR]`.
+Lifecycle audit sections bypass that formatter.
+LD-score chromosome logs use timestamps and severity labels for detailed task records, as described under [LD-score chromosome logs](#ld-score-chromosome-logs).
+
 Workflow logs begin with a lifecycle banner, then a multi-line `Call:` block.
 The executable is written first and each following option/value pair is written
 on its own continuation line where possible:
@@ -170,6 +321,9 @@ ldsc munge-sumstats \
   --source-genome-build auto \
   --output-genome-build hg38
 ```
+
+Arguments are shell-quoted where necessary, and negative numeric option values remain paired with their option.
+Do not abbreviate the recorded invocation when compacting long input or output summaries.
 
 `Inputs:` and `Outputs:` are audit sections, not machine-readable manifests.
 `Outputs:` is separated from preceding workflow records by a blank line so summary blocks such as `Metadata:` remain visually distinct. Numbered LD-score query files are represented by their file count and a pointer to the complete `metadata.json.query_batches` manifest. Diagnostic paths remain individually listed. Large annotate/rg input groups use counts and provenance pointers; the exact `Call:` is preserved.
@@ -187,6 +341,10 @@ Elapsed time: 2.0min:12s
 
 Runs shorter than one minute use seconds with two decimal places, for example `Elapsed time: 0.16s`.
 Longer runs retain the minutes-and-seconds format shown above.
+
+Counts should remain exact, and measurements should include units and enough precision to interpret the check or outcome.
+The shared `format_float()` helper uses four significant digits when called; it is for log text and does not globally reformat every number in a message.
+Logging refinements must not change scientific result-table precision or formats.
 
 The `Started` timestamp and elapsed timer are captured as one paired timepoint
 when the workflow context is entered. The `Finished` or `Failed` timestamp and
@@ -248,14 +406,14 @@ written.
 ## API Boundary
 
 Python convenience wrappers that delegate through parsed workflow functions may
-create logs because they use the same output-directory contract as the CLI. The
-console handler is installed only by `run_cli`, so direct API use never emits
-console output: records go to the workflow log file when one is created, and
-otherwise nowhere, while exceptions propagate to the caller unchanged. Direct
-computational class APIs remain data-oriented:
+create logs because they use the same output-directory contract as the CLI.
+The package console handler is installed only by a normal CLI invocation of `run_cli`.
+Python APIs retain application logging configuration and propagate exceptions to their caller.
+Log creation depends on the API's output contract:
 
 - `AnnotationBuilder.run(..., output_dir=...)` requires an output parent for private preparation but does not install a workflow log. `run_annotate(...)` owns standalone output preflight, writing, and `diagnostics/annotate.log`.
-- `LDScoreCalculator.run(...)` does not create `diagnostics/ldscore.log`.
+- `LDScoreCalculator.run(..., output_config=...)` creates `diagnostics/ldscore.log` and chromosome logs for writing runs.
+  `LDScoreCalculator.run(..., output_config=None)` creates no files.
 - `ReferencePanelBuilder.run(...)` does not create a build-r2-panel workflow log.
 - `RegressionRunner.estimate_*` methods do not create regression logs.
 
@@ -263,10 +421,8 @@ computational class APIs remain data-oriented:
 `diagnostics/sumstats.log`. `MungeRunSummary.output_paths` excludes the log
 path but includes data artifacts such as the dropped-SNP audit sidecar.
 
-For the implementation rationale, see
-`docs/specs/2026-05-02-logging-harmonization-design.md` and the
-console/file routing change in
-`docs/plans/2026-06-04-logging-console-file-routing-plan.md`.
+For historical implementation rationale, see the [logging harmonization design](../specs/2026-05-02-logging-harmonization-design.md) and the [console/file routing plan](../plans/2026-06-04-logging-console-file-routing-plan.md).
+The current behavior above supersedes their earlier assumptions.
 
 ## Streaming memory-workflow diagnostics
 
@@ -314,3 +470,25 @@ A broken pool reports affected in-flight tasks and their paths without claiming 
 Reruns follow `--overwrite`, resetting owned logs rather than appending an unrelated run.
 `LDScoreCalculator.run(..., output_config=None)` retains its no-file-output contract.
 See [parallel execution](parallel-execution.md) and [`_ldscore_diagnostics`](../../src/ldsc/_ldscore_diagnostics.py).
+
+## Maintaining this contract
+
+Use this page for current rules rather than copying dated implementation instructions.
+The [May harmonization design](../specs/2026-05-02-logging-harmonization-design.md) remains useful for the shared workflow context, exact invocation, input/output sections, and separation of logs from scientific outputs.
+Its message-only formatter, console-verbosity rules, regression calls without output directories, direct LD-score API log exclusion, and failure footer without exception details are superseded.
+The current command is `build-r2-panel`, and short-run elapsed times use seconds as specified above.
+
+The [June refinement plan](../plans/2026-06-04-logging-refinement-plan.md) contributes self-contained errors, command-oriented troubleshooting, original exception context, and synchronized reference links.
+Its source counts, line numbers, command map, companion-document paths, and batch/commit instructions describe that historical implementation effort.
+They are not current message-writing requirements.
+Mandatory conversion of every logging call to f-strings, a fixed two-sentence cap, and logging every otherwise silent public I/O function are not standing rules.
+Use the existing interpolation convention and log meaningful operational events.
+Expected input/configuration failures should use the appropriate existing [user-error subclass](../../src/ldsc/errors.py); do not classify an unexpected internal exception as a user mistake solely because its type is `ValueError`.
+
+An audit must check each message at its actual command/API boundary, including the default-level output, available diagnostics, and failure stage.
+Separate confirmed failure evidence from suggested causes and wording.
+Record any mismatch between the writing standard and current messages as work to be implemented, rather than claiming documentation changes repaired runtime output.
+Message edits must preserve scientific meaning, counts, result formats, and established continuation policies.
+Changing exception classes or chaining, exit status, warning visibility, handler routing, or control flow requires explicit behavioral scope and appropriate validation.
+When runtime changes are authorized, test the meaningful contract: exit status, error context, preserved causes, diagnostic availability, and bounded output.
+Avoid tests of logging-library internals or exact incidental prose unless the rendered format itself is a contract.

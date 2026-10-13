@@ -70,7 +70,12 @@ def target_chunks(paths, target_annotation, missing_token):
                     metadata["target_excluded"] = excluded.to_numpy(dtype=bool)
                     yield metadata
         except (pd.errors.ParserError, UnicodeDecodeError, ValueError) as exc:
-            raise LDSCInputError(f"quantile-h2 could not parse target annotation '{path}': {exc}") from exc
+            raise LDSCInputError(
+                f"quantile-h2 could not parse target annotation '{path}': {exc}. "
+                "Check its text encoding, table columns, CHR labels, and numeric POS coordinates; "
+                "supply the intended table with --target-annot-sources. "
+                "See docs/troubleshooting.md#quantile-h2-target-values-are-invalid-or-quantiles-are-empty."
+            ) from exc
 
 
 def reference_chunks(paths):
@@ -82,7 +87,12 @@ def reference_chunks(paths):
         normalized = [aliases.get(name, name) for name in header]
         missing = [name for name in ("CHR", "POS", "SNP", "MAF") if name not in normalized]
         if missing:
-            raise LDSCInputError(f"Reference metadata '{path}' is missing required column(s) {missing}. Expected CHR, POS (or BP), SNP, and MAF.")
+            raise LDSCInputError(
+                f"Reference metadata '{path}' is missing required column(s) {missing}. "
+                "Expected CHR, POS (or BP), SNP, and MAF. Set --ref-metadata-sources to the "
+                "SNP metadata from the same reference panel used for the fitted LD scores; "
+                "do not fill missing frequencies with invented values."
+            )
         keep = [name for name in header if aliases.get(name, name) in {"CHR", "POS", "SNP", "MAF", "A1", "A2"}]
         with pd.read_csv(path, sep=r"\s+", usecols=keep, chunksize=ROW_CHUNK_SIZE) as reader:
             for frame in reader:

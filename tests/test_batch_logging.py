@@ -79,6 +79,43 @@ def test_ldscore_batches_log_boundaries_and_one_global_status(tmp_path, inputs, 
     assert result.query_columns == ["first", "second", "third"]
 
 
+@pytest.mark.parametrize("n_queries", [3, 13])
+def test_constant_gene_query_notice_explains_skips_without_claiming_zero_snp_support(
+    tmp_path, capsys, n_queries
+):
+    from types import SimpleNamespace
+    from ldsc._logging import workflow_logging
+    from ldsc.ldscore_calculator import _emit_gene_gate_b_notice
+    from ldsc.query_annotations import QueryAnnotationStatus
+
+    batch = SimpleNamespace(audit_frames=lambda: iter([
+        pd.DataFrame({"disposition": ["selected"]})
+    ]))
+    statuses = tuple(
+        QueryAnnotationStatus(f"query-{i}", f"query-{i}.txt", "gene_list", "skipped",
+                              "zero_variance_ld_scores", 4.0)
+        for i in range(n_queries)
+    )
+    logfile = tmp_path / "ldscore.log"
+    with workflow_logging("ldscore", logfile):
+        _emit_gene_gate_b_notice(statuses, batch)
+
+    console = capsys.readouterr()
+    notice = console.err
+    assert console.out == ""
+    assert f"{n_queries} query annotation(s) skipped" in notice
+    assert "LD scores are constant on regression SNP rows (zero_variance_ld_scores)" in notice
+    assert "Skipped queries are omitted from LD-score outputs." in notice
+    assert "zero retained-SNP support for 0" not in notice
+    assert "preflight" not in notice
+    assert "diagnostics/query_annotation_status.tsv" in notice
+    assert notice.removeprefix("WARNING: ").strip() in logfile.read_text()
+    if n_queries == 13:
+        assert "query-9=zero_variance_ld_scores" in notice
+        assert "query-10=" not in notice
+        assert "plus 3 more affected query(s)" in notice
+
+
 def test_many_annotation_and_bed_sources_have_collection_progress(tmp_path, caplog):
     from ldsc._annotation_sources import prepare_annotation_sources
     from ldsc._annotation_queries import prepare_bed_queries

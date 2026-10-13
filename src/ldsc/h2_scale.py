@@ -159,6 +159,8 @@ def convert_h2_scale(
         raise LDSCInputError(
             "convert-h2-scale requires a canonical h2 result with "
             f"artifact_type='h2_result'; got {source_metadata.get('artifact_type')!r}."
+            " Set --h2-result-dir to a saved ldsc h2 result, not a partitioned-h2, rg, or converted-scale "
+            "output."
         )
     summary_path = declared_result_file(source_dir, source_metadata, "summary", context="Canonical h2 metadata")
     source_row = _read_observed_h2(summary_path)
@@ -335,19 +337,34 @@ def run_convert_h2_scale_from_args(args: argparse.Namespace) -> H2ScaleConversio
 def _require_directory(path: str | os.PathLike[str], *, label: str) -> Path:
     result = Path(normalize_path_token(path))
     if not result.is_dir():
-        raise LDSCInputError(f"{label} does not exist or is not a directory: '{result}'.")
+        raise LDSCInputError(
+            f"{label} does not exist or is not a directory: '{result}'."
+            " Set --h2-result-dir to the existing source h2 result directory."
+        )
     return result.resolve()
 
 
 def _read_json(path: Path) -> dict:
     if not path.is_file():
-        raise LDSCInputError(f"Required canonical metadata file is missing: '{path}'.")
+        raise LDSCInputError(
+            f"Required canonical metadata file is missing: '{path}'."
+            " Restore the original h2 metadata and summary table from the same run, or regenerate the source "
+            "result with ldsc h2."
+        )
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise LDSCInputError(f"Could not read canonical metadata JSON at '{path}': {exc}.") from exc
+        raise LDSCInputError(
+            f"Could not read canonical metadata JSON at '{path}': {exc}."
+            " Restore the original h2 metadata and summary table from the same run, or regenerate the source "
+            "result with ldsc h2."
+        ) from exc
     if not isinstance(value, dict):
-        raise LDSCInputError(f"Canonical metadata at '{path}' must contain a JSON object.")
+        raise LDSCInputError(
+            f"Canonical metadata at '{path}' must contain a JSON object."
+            " Restore the original h2 metadata and summary table from the same run, or regenerate the source "
+            "result with ldsc h2."
+        )
     return value
 
 
@@ -357,18 +374,34 @@ def _read_observed_h2(path: Path) -> dict[str, object]:
     try:
         table = pd.read_csv(path, sep="\t")
     except (OSError, pd.errors.ParserError) as exc:
-        raise LDSCInputError(f"Could not read h2 summary '{path}': {exc}.") from exc
+        raise LDSCInputError(
+            f"Could not read h2 summary '{path}': {exc}."
+            " Restore the original h2 summary from the same run, or regenerate it with ldsc h2; do not "
+            "substitute fitted values or uncertainties from another analysis."
+        ) from exc
     required = {"trait_name", "total_h2_obs", "total_h2_obs_se"}
     missing = sorted(required.difference(table.columns))
     if missing:
-        raise LDSCInputError(f"H2 summary '{path}' is missing required columns: {', '.join(missing)}.")
+        raise LDSCInputError(
+            f"H2 summary '{path}' is missing required columns: {', '.join(missing)}."
+            " Restore the original h2 summary from the same run, or regenerate it with ldsc h2; do not "
+            "substitute fitted values or uncertainties from another analysis."
+        )
     if len(table) != 1:
-        raise LDSCInputError(f"H2 summary '{path}' must contain exactly one row; found {len(table)}.")
+        raise LDSCInputError(
+            f"H2 summary '{path}' must contain exactly one row; found {len(table)}."
+            " Restore the original h2 summary from the same run, or regenerate it with ldsc h2; do not "
+            "substitute fitted values or uncertainties from another analysis."
+        )
     row = table.iloc[0]
     estimate = _finite_float(row["total_h2_obs"], "total_h2_obs")
     standard_error = _finite_float(row["total_h2_obs_se"], "total_h2_obs_se")
     if standard_error < 0:
-        raise LDSCInputError("total_h2_obs_se must be non-negative.")
+        raise LDSCInputError(
+            "total_h2_obs_se must be non-negative."
+            " Restore the original h2 summary from the same run, or regenerate it with ldsc h2; do not "
+            "substitute fitted values or uncertainties from another analysis."
+        )
     return {
         "trait_name": str(row["trait_name"]),
         "total_h2_obs": estimate,
@@ -393,20 +426,32 @@ def _population_prevalence_grid(
     num_points: int,
 ) -> tuple[np.ndarray, str]:
     if (pop_prev is None) == (pop_prev_range is None):
-        raise LDSCUsageError("Specify exactly one of pop_prev or pop_prev_range.")
+        raise LDSCUsageError(
+            "convert-h2-scale needs exactly one population-prevalence choice. "
+            "Supply --pop-prev for one probability or --pop-prev-range for a lower/upper range, not both."
+        )
     if pop_prev is not None:
         value = _finite_float(pop_prev, "pop_prev")
         liability_conversion_factor(0.5, value)
         return np.asarray([value], dtype=np.float64), "exact"
     if len(pop_prev_range) != 2:
-        raise LDSCUsageError("pop_prev_range must contain exactly two endpoints.")
+        raise LDSCUsageError(
+            "convert-h2-scale cannot read the population-prevalence range: exactly two endpoints are required. "
+            "Supply the lower and upper probabilities with --pop-prev-range."
+        )
     lower = _finite_float(pop_prev_range[0], "pop_prev_range lower endpoint")
     upper = _finite_float(pop_prev_range[1], "pop_prev_range upper endpoint")
     liability_conversion_factor(0.5, np.asarray([lower, upper]))
     if lower >= upper:
-        raise LDSCUsageError("pop_prev_range must be strictly increasing.")
+        raise LDSCUsageError(
+            f"convert-h2-scale population-prevalence range must be strictly increasing; got {lower} to {upper}. "
+            "Set --pop-prev-range to a lower probability followed by a larger upper probability."
+        )
     if isinstance(num_points, bool) or not isinstance(num_points, int) or num_points < 2:
-        raise LDSCUsageError("num_points must be an integer of at least 2 for a prevalence range.")
+        raise LDSCUsageError(
+            f"convert-h2-scale cannot sample a prevalence range with num_points={num_points!r}. "
+            "Set --num-points (num_points in Python) to an integer of at least 2 to include both endpoints."
+        )
     return np.linspace(lower, upper, num_points, dtype=np.float64), "sensitivity"
 
 

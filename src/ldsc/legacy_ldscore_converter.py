@@ -261,7 +261,10 @@ class LegacyLDScoreConverter:
         first_reference = _read_ldscore_table(reference_family.paths[1], "reference", 1)
         reference_columns = _scientific_columns(first_reference)
         if not reference_columns:
-            raise LDSCInputError("Legacy reference LD-score table has no numeric scientific LD-score column.")
+            raise LDSCInputError(
+                f"Legacy reference LD-score table '{reference_family.paths[1]}' has no numeric scientific LD-score column. "
+                "Supply the original .l2.ldscore(.gz) reference tables containing LD scores, rather than SNP metadata or weight-only files."
+            )
         if present_annotations:
             profile = "baseline_partitioned"
             if frequency_root is None:
@@ -349,7 +352,11 @@ class LegacyLDScoreConverter:
 
         baseline = pd.concat(frames, ignore_index=True)
         if baseline.empty:
-            raise LDSCInputError("Legacy reference and weight suites have an empty genome-wide rsID intersection.")
+            raise LDSCInputError(
+                "Legacy reference and weight suites have an empty genome-wide rsID intersection. "
+                "Check --legacy-reference-dir and --legacy-weight-dir: use matching suites from the same "
+                "reference SNP population and confirm their SNP columns use the same rsID identifiers."
+            )
         _validate_global_output_identity(baseline, mode)
         baseline, effective_build, coordinate_provenance = _resolve_output_coordinates(
             baseline, mode, build_hint, context="legacy reference LD-score suite"
@@ -588,7 +595,11 @@ class LegacyLDScoreConverter:
 
         baseline = pd.concat(frames, ignore_index=True)
         if baseline.empty:
-            raise LDSCInputError("Legacy reference and weight suites have an empty genome-wide rsID intersection.")
+            raise LDSCInputError(
+                "Legacy reference and weight suites have an empty genome-wide rsID intersection. "
+                "Check --legacy-reference-dir and --legacy-weight-dir: use matching suites from the same "
+                "reference SNP population and confirm their SNP columns use the same rsID identifiers."
+            )
         _validate_global_output_identity(baseline, mode)
         baseline, effective_build, coordinate_provenance = _resolve_output_coordinates(
             baseline, mode, build_hint, context="legacy baseline reference LD-score suite"
@@ -991,7 +1002,10 @@ def _read_ldscore_table(path: Path, role: str, chrom: int) -> pd.DataFrame:
         return pd.read_csv(path, sep=r"\s+", compression="infer")
     except Exception as exc:
         raise LDSCInputError(
-            f"Could not parse legacy {role} LD-score table '{path}' for chromosome {chrom}: {exc}"
+            f"Could not parse legacy {role} LD-score table '{path}' for chromosome {chrom}: {exc}. "
+            "Check the named file's readability, compression integrity, and whitespace-delimited header; "
+            "restore the original table from the selected LDSC2 suite. "
+            "See docs/troubleshooting.md#conversion-rejected-the-legacy-suite."
         ) from exc
 
 
@@ -999,7 +1013,12 @@ def _read_whitespace_table(path: Path, role: str, chrom: int) -> pd.DataFrame:
     try:
         return pd.read_csv(path, sep=r"\s+", compression="infer")
     except Exception as exc:
-        raise LDSCInputError(f"Could not parse legacy {role} table '{path}' for chromosome {chrom}: {exc}") from exc
+        raise LDSCInputError(
+            f"Could not parse legacy {role} table '{path}' for chromosome {chrom}: {exc}. "
+            "Check the named file's readability, compression integrity, and whitespace-delimited header; "
+            "restore the original table from the selected LDSC2 suite. "
+            "See docs/troubleshooting.md#conversion-rejected-the-legacy-suite."
+        ) from exc
 
 
 def _scientific_columns(frame: pd.DataFrame) -> list[str]:
@@ -1010,7 +1029,9 @@ def _require_columns(frame: pd.DataFrame, required: set[str], role: str, path: P
     missing = sorted(required - set(frame.columns))
     if missing:
         raise LDSCInputError(
-            f"Legacy {role} table '{path}' on chromosome {chrom} is missing required columns {missing}."
+            f"Legacy {role} table '{path}' on chromosome {chrom} is missing required columns {missing}. "
+            "Restore the original table with its header from the selected LDSC2 suite, or export it again "
+            "from the source dataset; do not add placeholder scientific columns."
         )
 
 
@@ -1025,7 +1046,9 @@ def _validate_ldscore_rows(
     if duplicate.any():
         sample = frame.loc[duplicate, "SNP"].astype(str).head(10).tolist()
         raise LDSCInputError(
-            f"Legacy {role} table '{path}' on chromosome {chrom} has duplicate rsIDs; cause SNPs: {sample}."
+            f"Legacy {role} table '{path}' on chromosome {chrom} has duplicate rsIDs; example SNPs: {sample}. "
+            "Use the original table with unique rsIDs from the selected LDSC2 suite; check whether rows "
+            "from different releases or chromosomes were combined."
         )
     for column in scientific:
         values = pd.to_numeric(frame[column], errors="coerce")
@@ -1034,7 +1057,8 @@ def _validate_ldscore_rows(
             sample = frame.loc[bad, "SNP"].astype(str).head(10).tolist()
             raise LDSCInputError(
                 f"Legacy {role} table '{path}' on chromosome {chrom} has non-finite values in '{column}'; "
-                f"cause SNPs: {sample}."
+                f"example SNPs: {sample}. Restore the original finite LD-score values from the selected "
+                "LDSC2 suite, or regenerate the source scores; do not replace missing values with zero."
             )
         frame[column] = values.astype(float)
     frame["BP"] = pd.to_numeric(frame["BP"], errors="coerce")
@@ -1042,7 +1066,9 @@ def _validate_ldscore_rows(
     if bad_bp.any():
         sample = frame.loc[bad_bp, "SNP"].astype(str).head(10).tolist()
         raise LDSCInputError(
-            f"Legacy {role} table '{path}' on chromosome {chrom} has invalid BP values; cause SNPs: {sample}."
+            f"Legacy {role} table '{path}' on chromosome {chrom} has invalid BP values; example SNPs: {sample}. "
+            "Restore numeric, nonnegative BP coordinates from the original matching reference table; "
+            "do not infer a different genome build by renaming files."
         )
 
 
@@ -1057,14 +1083,17 @@ def _resolve_annotation_mapping(reference_columns: list[str], annotation_columns
         candidates = list(dict.fromkeys(candidates))
         if len(candidates) != 1:
             raise LDSCInputError(
-                f"Cannot map legacy LD-score column '{column}' bijectively to a full annotation column; "
-                f"candidates are {candidates}, annotation columns are {annotation_columns}."
+                f"Cannot match legacy LD-score column '{column}' to exactly one full annotation column; "
+                f"candidates are {candidates}, annotation columns are {annotation_columns}. "
+                "Supply the full annotation tables used to calculate this LD-score suite, "
+                "with their original corresponding headers."
             )
         mapping[column] = candidates[0]
     if len(set(mapping.values())) != len(annotation_columns) or set(mapping.values()) != set(annotation_columns):
         raise LDSCInputError(
             "Legacy baseline LD-score and annotation columns do not form a complete one-to-one mapping: "
-            f"LD-score columns {reference_columns}, annotation columns {annotation_columns}, mapping {mapping}."
+            f"LD-score columns {reference_columns}, annotation columns {annotation_columns}, mapping {mapping}. "
+            "Supply full LD-score and annotation suites from the same reference release with corresponding columns."
         )
     return mapping
 
@@ -1074,7 +1103,8 @@ def _validate_annotation_rows(frame: pd.DataFrame, columns: list[str], path: Pat
     if duplicate.any():
         sample = frame.loc[duplicate, "SNP"].astype(str).head(10).tolist()
         raise LDSCInputError(
-            f"Legacy annotation table '{path}' on chromosome {chrom} has duplicate rsIDs; cause SNPs: {sample}."
+            f"Legacy annotation table '{path}' on chromosome {chrom} has duplicate rsIDs; example SNPs: {sample}. "
+            "Restore the original annotation table with unique rsIDs that matches the selected reference LD scores."
         )
     for column in columns:
         values = pd.to_numeric(frame[column], errors="coerce")
@@ -1083,7 +1113,8 @@ def _validate_annotation_rows(frame: pd.DataFrame, columns: list[str], path: Pat
             sample = frame.loc[bad, "SNP"].astype(str).head(10).tolist()
             raise LDSCInputError(
                 f"Legacy annotation table '{path}' on chromosome {chrom} has non-finite values in '{column}'; "
-                f"cause SNPs: {sample}."
+                f"example SNPs: {sample}. Restore the original finite annotation values used for the selected "
+                "LD scores; do not replace unknown annotation values with zero."
             )
         frame[column] = values.astype(float)
 
@@ -1100,7 +1131,8 @@ def _validate_global_source_ids(
     if repeated:
         raise LDSCInputError(
             f"Legacy {role} family repeats rsIDs across chromosome shards at '{path}' chromosome {chrom}; "
-            f"cause SNPs: {repeated[:10]}."
+            f"example SNPs: {repeated[:10]}. Restore a coherent chromosome suite from one reference "
+            "release and check whether a chromosome file was copied under the wrong name."
         )
     seen.update(current)
 
@@ -1142,10 +1174,14 @@ def _frequency_column(frame: pd.DataFrame, path: Path, chrom: int) -> str:
     if len(candidates) != 1:
         raise LDSCInputError(
             f"Legacy frequency table '{path}' on chromosome {chrom} must contain exactly one MAF or FRQ column; "
-            f"found {candidates}."
+            f"found {candidates}. Supply the original frequency table for this reference chromosome "
+            "with one clearly identified frequency column; do not invent frequencies."
         )
     if "SNP" not in frame.columns:
-        raise LDSCInputError(f"Legacy frequency table '{path}' on chromosome {chrom} is missing required SNP column.")
+        raise LDSCInputError(
+            f"Legacy frequency table '{path}' on chromosome {chrom} is missing required SNP column. "
+            "Supply the original frequency table with rsID identifiers matching the selected reference LD scores."
+        )
     return candidates[0]
 
 
@@ -1154,7 +1190,8 @@ def _validate_frequency_rows(frame: pd.DataFrame, column: str, path: Path, chrom
     if duplicate.any():
         sample = frame.loc[duplicate, "SNP"].astype(str).head(10).tolist()
         raise LDSCInputError(
-            f"Legacy frequency table '{path}' on chromosome {chrom} has duplicate rsIDs; cause SNPs: {sample}."
+            f"Legacy frequency table '{path}' on chromosome {chrom} has duplicate rsIDs; example SNPs: {sample}. "
+            "Restore the original per-chromosome frequency table with unique rsIDs from this reference release."
         )
     values = pd.to_numeric(frame[column], errors="coerce")
     upper = 0.5 if column.upper() == "MAF" else 1.0
@@ -1268,13 +1305,21 @@ def _validate_global_output_identity(frame: pd.DataFrame, mode: str) -> None:
     duplicate_rsid = frame["SNP"].astype("string").duplicated(keep=False)
     if duplicate_rsid.any():
         sample = frame.loc[duplicate_rsid, "SNP"].astype(str).head(10).tolist()
-        raise LDSCInputError(f"Converted suite has duplicate genome-wide rsIDs; cause SNPs: {sample}.")
+        raise LDSCInputError(
+            f"Converted suite has duplicate genome-wide rsIDs; cause SNPs: {sample}."
+            " Supply a coherent complete legacy suite without repeated SNP identities; restore original "
+            "matching shards rather than mixing source releases."
+        )
     if mode == "chr_pos":
         keys = frame["CHR"].astype(str) + ":" + frame["POS"].astype(str)
         duplicate_pos = keys.duplicated(keep=False)
         if duplicate_pos.any():
             sample = frame.loc[duplicate_pos, "SNP"].astype(str).head(10).tolist()
-            raise LDSCInputError(f"Converted chr_pos suite has duplicate coordinates; cause SNPs: {sample}.")
+            raise LDSCInputError(
+                f"Converted chr_pos suite has duplicate coordinates; cause SNPs: {sample}."
+                " Supply a coherent complete legacy suite without repeated SNP identities; restore original "
+                "matching shards rather than mixing source releases."
+            )
 
 
 def _resolve_output_coordinates(

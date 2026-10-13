@@ -82,7 +82,12 @@ def _alignment(args, bundle, metadata, store, diagnostics, reference_paths, targ
                            issue="missing_maf", action="fatal", details="MAF must be finite for every intersected reference SNP")
         store.append("reference", frame)
     if invalid_maf:
-        raise LDSCInputError("quantile-h2 reference metadata contains missing or nonfinite MAF values.")
+        raise LDSCInputError(
+            f"quantile-h2 reference metadata contains missing or nonfinite MAF values in {invalid_maf} SNP rows. "
+            "Restore the original SNP frequencies from the panel used for the fit and set "
+            "--ref-metadata-sources to that matching metadata; do not replace unknown frequencies with zero. "
+            f"See {diagnostics.path} for the affected SNP rows."
+        )
     for frame in store.frames("SELECT * FROM reference ORDER BY ordinal"):
         keys = effective_merge_key_series(frame, mode, context="reference metadata").astype(str)
         bases = effective_merge_key_series(frame, identity_base_mode(mode), context="reference metadata base identity").astype(str)
@@ -90,7 +95,13 @@ def _alignment(args, bundle, metadata, store, diagnostics, reference_paths, targ
                              zip(keys, bases, map(int, frame.ordinal)))
     store.db.commit()
     if store.duplicates(diagnostics, "reference", reference_source):
-        raise LDSCInputError("quantile-h2 reference metadata has duplicate effective SNP identities.")
+        raise LDSCInputError(
+            "quantile-h2 reference metadata has duplicate effective SNP identities."
+            " The selected SNP identifier mode cannot distinguish these rows. Set --ref-metadata-sources "
+            "to the unique SNP metadata from the original fitted panel; do not remove ambiguous rows "
+            "just to bypass this check. "
+            f"See {diagnostics.path} for the duplicate identities."
+        )
     for chrom in bundle.chromosomes:
         frame = bundle.metadata_for_chromosome(chrom)
         frame["effective_snp_id"] = _infer_keys(store, frame, mode, "fitted annotations", diagnostics, reference_source)
@@ -107,7 +118,13 @@ def _alignment(args, bundle, metadata, store, diagnostics, reference_paths, targ
     threshold = float((metadata.get("count_config") or {}).get("common_reference_snp_maf_min", .05))
     operator = str((metadata.get("count_config") or {}).get("common_reference_snp_maf_operator", ">="))
     if operator != ">=":
-        raise LDSCInputError(f"quantile-h2 does not support inherited common-MAF operator {operator!r}.")
+        raise LDSCInputError(
+            f"quantile-h2 does not support inherited common-MAF operator {operator!r}."
+            " This workflow requires the native inclusive MAF threshold (>=). Use a fitted result "
+            "with that count policy; changing the SNP population requires regenerating LD scores "
+            "and refitting partitioned-h2, not editing the saved operator. See "
+            "docs/troubleshooting.md#quantile-h2-fitted-model-or-resupplied-sources-do-not-verify."
+        )
     intersection = "EXISTS (SELECT 1 FROM fitted f WHERE f.effective_snp_id=r.effective_snp_id)"
     n_all = store.scalar(f"SELECT count(*) FROM reference r WHERE {intersection}")
     _validate_universe(metadata, "all", n_all)
@@ -115,7 +132,13 @@ def _alignment(args, bundle, metadata, store, diagnostics, reference_paths, targ
         frame["effective_snp_id"] = _infer_keys(store, frame, mode, "target annotation", diagnostics, reference_source)
         store.append("target", frame)
     if store.duplicates(diagnostics, "target", target_source):
-        raise LDSCInputError("quantile-h2 target annotation has duplicate effective SNP identities.")
+        raise LDSCInputError(
+            "quantile-h2 target annotation has duplicate effective SNP identities."
+            " The selected SNP identifier mode cannot distinguish these rows. Supply the intended target "
+            "source with one value for each fitted SNP identity, matching the original panel's allele "
+            "orientation where required. "
+            f"See {diagnostics.path} for the duplicate identities."
+        )
     store.issues(diagnostics, "target", "NOT EXISTS (SELECT 1 FROM reference s WHERE s.effective_snp_id=r.effective_snp_id)",
                  role="target_annotation", source=target_source, issue="missing_reference_metadata",
                  action="excluded", details="target SNP is absent from reference metadata")
@@ -124,7 +147,15 @@ def _alignment(args, bundle, metadata, store, diagnostics, reference_paths, targ
                           params=(threshold,), role="target_annotation", source=target_source, issue="missing_target_annotation",
                           action="fatal", details="common reference-SNP universe member is absent from target source")
     if missing:
-        raise LDSCInputError("quantile-h2 target annotation does not cover the common reference-SNP universe.")
+        raise LDSCInputError(
+            "quantile-h2 target annotation does not cover the common reference-SNP universe; "
+            f"missing SNP rows={missing}. "
+            "Supply target values for the full common-SNP population used for this fit and check SNP "
+            "identifiers and allele orientation; do not fill absent SNP values with zero. "
+            f"See {diagnostics.path} for the missing SNP identities. "
+            "Other causes & fixes: "
+            "docs/troubleshooting.md#quantile-h2-fitted-model-or-resupplied-sources-do-not-verify."
+        )
     n_common = store.scalar(f"SELECT count(*) FROM reference r WHERE MAF>=? AND {intersection}", (threshold,))
     _validate_universe(metadata, "common", n_common)
     return threshold, n_common

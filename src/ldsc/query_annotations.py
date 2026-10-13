@@ -22,6 +22,14 @@ from .errors import LDSCInternalError
 
 LOGGER = logging.getLogger("LDSC.query_annotations")
 MAX_CONSOLE_GENE_ISSUES = 10
+_QUERY_REASON_EXPLANATIONS = {
+    "empty_gene_list": "the supplied gene list is empty",
+    "zero_resolved_genes": "no gene identifiers resolved to usable catalog entries",
+    "unresolved_genes": "some gene identifiers could not be resolved",
+    "partial_snp_support": "some selected genes have no retained reference-SNP support",
+    "zero_annotation_snps": "the query covers no SNP rows in the evaluated annotation/reference set",
+    "zero_variance_ld_scores": "the LD scores are constant on the SNP rows used for regression",
+}
 
 
 @dataclass(frozen=True)
@@ -378,19 +386,30 @@ def _log_query_annotation_statuses(statuses: Sequence[QueryAnnotationStatus]) ->
         return
     counts = Counter(status.status for status in statuses)
     for (status, reason), count in Counter((item.status, item.reason) for item in statuses if item.status != "ok").items():
-        LOGGER.warning("Query annotation outcomes: status=%s; reason=%s; queries=%d. See diagnostics/query_annotation_status.tsv.",
-                       status, reason, count)
+        consequence = (" These queries are omitted from outputs." if status == "skipped" else
+                       " These queries remain in the outputs; review the recorded limitation." if status == "warning" else
+                       " These queries cannot be used; correct the affected inputs.")
+        LOGGER.warning(
+            "Query annotation outcomes: status=%s; reason=%s; queries=%d; %s.%s "
+            "See diagnostics/query_annotation_status.tsv for affected queries and reasons.",
+            status, reason, count, _QUERY_REASON_EXPLANATIONS.get(reason, "the recorded query check did not pass"), consequence,
+        )
     LOGGER.info("Query annotation status summary: total=%d, ok=%d, warning=%d, skipped=%d, error=%d.",
                 len(statuses), counts["ok"], counts["warning"], counts["skipped"], counts["error"])
 
 
 def _all_query_annotations_skipped_message(statuses: Sequence[QueryAnnotationStatus]) -> str:
     """Return the consolidated user-facing error for an unusable batch."""
-    reasons = ", ".join(f"{status.query}={status.reason}" for status in statuses[:MAX_CONSOLE_GENE_ISSUES])
+    reasons = "; ".join(
+        f"{status.query}: {_QUERY_REASON_EXPLANATIONS.get(status.reason, 'the recorded query check did not pass')} "
+        f"({status.reason})"
+        for status in statuses[:MAX_CONSOLE_GENE_ISSUES]
+    )
     if len(statuses) > MAX_CONSOLE_GENE_ISSUES:
         reasons += f"; {len(statuses) - MAX_CONSOLE_GENE_ISSUES} more in the status table"
     return (
         f"ldscore could not continue because all {len(statuses)} requested query annotations were skipped "
-        f"({reasons}). Check diagnostics/query_annotation_status.tsv for details, correct the inputs, "
-        "and rerun with --overwrite when reusing this output directory."
+        f"({reasons}). Check diagnostics/query_annotation_status.tsv for each query's gene resolution, "
+        "retained SNP support, and LD-score variation. Correct unintended input problems before rerunning. "
+        "Use a fresh output directory, or --overwrite if replacing this run's owned outputs is intended."
     )

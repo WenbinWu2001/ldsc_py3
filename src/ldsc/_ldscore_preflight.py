@@ -72,7 +72,11 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
             root = _resolve_r2_build_dir(r2_dir, global_config.genome_build)
             members = sorted({path.name.split("_")[0][3:] for pattern in ("chr*_r2.parquet", "chr*_meta.tsv.gz") for path in root.glob(pattern)}, key=lambda value: (len(value), value))
             if not members:
-                raise LDSCInputError("No R2/sidecar chromosome artifacts found.")
+                raise LDSCInputError(
+                    f"R2 reference-panel directory '{root}' contains no chromosome R2 files or SNP sidecars. "
+                    "Set --r2-dir to the matching build-r2-panel output directory and check --genome-build; "
+                    "restore or rebuild the complete panel if its files are missing."
+                )
         except (OSError, EOFError, ValueError, LDSCUserError) as exc:
             issue("reference", r2_dir, "", "invalid_required_input", exc)
             members = []
@@ -82,7 +86,12 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
                 path = root / f"chr{chrom}_meta.tsv.gz"
                 metadata = _read_metadata_table(path, None, global_config)
                 if set(metadata.CHR.astype(str)) != {chrom} or (require_autosomes and chrom not in AUTOSOMES):
-                    raise LDSCInputError("R2 sidecar contents disagree with their chromosome member.")
+                    raise LDSCInputError(
+                        f"R2 reference-panel SNP sidecar '{path}' does not contain the expected chromosome {chrom}"
+                        f"{' within autosomes 1 through 22' if require_autosomes else ''}. "
+                        "Restore the sidecar and R2 file from the same chromosome and panel build; "
+                        "renaming the sidecar does not repair its SNP identities."
+                    )
                 reader = panel.build_reader(chrom, metadata=metadata)
                 try:
                     if require_autosomes:
@@ -159,9 +168,17 @@ def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_s
                             metadata, _ = normalize_annotation_chunk(chunk,path,global_config.snp_identifier, log_ignored_metadata=chunk_index == 0)
                             chroms.update(metadata.CHR.astype(str))
                     if not chroms or not chroms <= set(AUTOSOMES):
-                        raise LDSCInputError("Annotation contents must identify a nonempty autosomal chromosome set.")
+                        raise LDSCInputError(
+                            f"Annotation file '{path}' does not identify a nonempty set of autosomes 1 through 22. "
+                            "Supply an annotation file with valid CHR values for the requested autosomal analysis."
+                        )
                     if declared_chrom and chroms != {declared_chrom}:
-                        raise LDSCInputError(f"@ member for chromosome {declared_chrom} contains chromosomes {sorted(chroms, key=int)}.")
+                        raise LDSCInputError(
+                            f"Annotation file '{path}' selected by @ for chromosome {declared_chrom} "
+                            f"contains chromosomes {sorted(chroms, key=int)}. "
+                            "Restore the matching chromosome file or correct the path template; "
+                            "renaming a file does not change its SNP coordinates."
+                        )
                     if role == "baseline":
                         sets[role].update(chroms)
                     else:

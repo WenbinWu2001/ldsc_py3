@@ -748,9 +748,10 @@ class LDScoreCalculator:
         """
         if not chromosome_results:
             raise LDSCInternalError(
-                "LD-score aggregation failed in LDScoreCalculator._aggregate_chromosome_results(): "
-                "no chromosome results were supplied. Most likely all chromosomes were skipped "
-                "before aggregation. Re-run with DEBUG logging and report the traceback."
+                "LD-score calculation could not assemble its chromosome results because none were returned. "
+                "This is an unexpected internal state; its cause has not been established. "
+                "Report the command, package version, and saved traceback. "
+                "--log-level DEBUG adds developer context if the run needs to be reproduced."
             )
         snapshots = [result.config_snapshot for result in chromosome_results if result.config_snapshot is not None]
         if snapshots:
@@ -1753,12 +1754,26 @@ def _emit_gene_gate_b_notice(
     displayed = affected[:MAX_CONSOLE_GENE_ISSUES]
     outcomes = ", ".join(f"{status.query}={status.reason}" for status in displayed)
     extra = max(0, len(affected) - MAX_CONSOLE_GENE_ISSUES)
+    summaries = []
+    if unsupported_rows:
+        summaries.append(f"{unsupported_rows} gene-list row(s) have no retained reference-SNP support")
+    for reason, explanation in (
+        ("partial_snp_support", "retained despite some genes having no retained reference-SNP support"),
+        ("zero_annotation_snps", "skipped because they overlap no retained reference SNPs"),
+        ("zero_variance_ld_scores", "skipped because LD scores are constant on regression SNP rows"),
+    ):
+        count = sum(status.reason == reason for status in affected)
+        if count:
+            summaries.append(f"{count} query annotation(s) {explanation} ({reason})")
     message = (
-        f"WARNING: Gene-list SNP-universe preflight found zero retained-SNP support for "
-        f"{unsupported_rows} gene-list row(s)"
-        + (f"; affected query outcomes: {outcomes}" if outcomes else "")
+        "WARNING: Gene-list SNP-support and LD-score checks"
+        + (": " + "; ".join(summaries) if summaries else "")
+        + "."
+        + (" Skipped queries are omitted from LD-score outputs." if any(status.status == "skipped" for status in affected) else "")
+        + (f" Affected queries: {outcomes}" if outcomes else "")
         + (f", plus {extra} more affected query(s)" if extra else "")
-        + ". See diagnostics/query_annotation_status.tsv, diagnostics/gene_list_resolution_summary.tsv, "
+        + ("." if outcomes else "")
+        + " See diagnostics/query_annotation_status.tsv, diagnostics/gene_list_resolution_summary.tsv, "
         "and diagnostics/gene_list_audit.tsv.gz."
     )
     LOGGER.warning(message.removeprefix("WARNING: "))

@@ -1107,8 +1107,11 @@ class SortedR2BlockReader:
             avg = meta.num_rows / meta.num_row_groups
             if avg > 500_000:
                 LOGGER.warning(
-                    f"'{path}' has {meta.num_row_groups} row group(s) (avg {avg:.0f} rows/group); "
-                    "query performance will be degraded. Regenerate with row_group_size=50000."
+                    f"R2 reference panel '{path}' stores {meta.num_rows} SNP-pair rows in "
+                    f"{meta.num_row_groups} large file blocks (average {avg:.0f} rows per block). "
+                    "Reading continues, but queries may be slower and require more memory. "
+                    "For repeated use, rebuild the panel with the current ldsc build-r2-panel, "
+                    "which writes smaller file blocks by default."
                 )
 
     def _resolve_r2_scale(self, schema_meta: dict, path: str) -> float | None:
@@ -1126,7 +1129,10 @@ class SortedR2BlockReader:
         scale_raw = schema_meta.get(b"ldsc:r2_scale")
         if scale_raw is None:
             LOGGER.warning(
-                f"'{path}' has an integer R2 column but no ldsc:r2_scale; defaulting to 32767."
+                f"R2 reference panel '{path}' stores integer-encoded R2 values but omits their "
+                "scale (ldsc:r2_scale). Reading continues with scale 32767; a different original "
+                "encoding would produce incorrect LD scores. Verify the producer's scale and "
+                "restore the original metadata or rebuild the panel before interpreting results."
             )
             return 32767.0
         return float(scale_raw.decode("utf-8"))

@@ -405,10 +405,20 @@ def load_fitted_partitioned_model(result_dir: str | Path) -> FittedPartitionedMo
             "with the current LDSC3 package; LD scores do not need to be recomputed."
         )
     if not summary_path.is_file():
-        raise LDSCInputError(f"quantile-h2 fitted model is missing summary table '{summary_path}'.")
+        raise LDSCInputError(
+            f"quantile-h2 fitted model is missing summary table '{summary_path}'."
+            " Restore the original fitted summary, coefficient-delete table, and metadata from the same "
+            "partitioned-h2 fit, or rerun that fit. LD scores do not need to be recomputed solely to "
+            "regenerate fitted-result files."
+        )
     delete_frame = pd.read_parquet(delete_path)
     if "delete_block" not in delete_frame.columns:
-        raise LDSCInputError("quantile-h2 coefficient delete artifact lacks the required delete_block column.")
+        raise LDSCInputError(
+            "quantile-h2 coefficient delete artifact lacks the required delete_block column."
+            " Restore the original fitted summary, coefficient-delete table, and metadata from the same "
+            "partitioned-h2 fit, or rerun that fit. LD scores do not need to be recomputed solely to "
+            "regenerate fitted-result files."
+        )
     annotation_names = [str(column) for column in delete_frame.columns if column != "delete_block"]
     retained = [str(name) for name in metadata.get("retained_ld_columns", annotation_names)]
     if retained != annotation_names:
@@ -420,11 +430,21 @@ def load_fitted_partitioned_model(result_dir: str | Path) -> FittedPartitionedMo
     indexed = summary.set_index(summary["category"].astype(str))
     missing = [name for name in annotation_names if name not in indexed.index]
     if missing:
-        raise LDSCInputError(f"quantile-h2 fitted summary is missing retained annotation row(s): {missing}.")
+        raise LDSCInputError(
+            f"quantile-h2 fitted summary is missing retained annotation row(s): {missing}."
+            " Restore the original fitted summary, coefficient-delete table, and metadata from the same "
+            "partitioned-h2 fit, or rerun that fit. LD scores do not need to be recomputed solely to "
+            "regenerate fitted-result files."
+        )
     ordered = indexed.loc[annotation_names].reset_index(drop=True)
     ldscore_value = metadata.get("ldscore_dir")
     if not ldscore_value:
-        raise LDSCInputError("quantile-h2 fitted-model metadata is missing ldscore_dir provenance.")
+        raise LDSCInputError(
+            "quantile-h2 fitted-model metadata is missing ldscore_dir provenance."
+            " Restore the original fitted summary, coefficient-delete table, and metadata from the same "
+            "partitioned-h2 fit, or rerun that fit. LD scores do not need to be recomputed solely to "
+            "regenerate fitted-result files."
+        )
     ldscore_dir = Path(str(ldscore_value))
     if not ldscore_dir.is_dir():
         candidate = (root / ldscore_dir).resolve()

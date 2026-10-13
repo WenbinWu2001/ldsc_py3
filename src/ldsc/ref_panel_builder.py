@@ -482,7 +482,8 @@ class ReferencePanelBuilder:
                     "build-r2-panel produced no chromosome artifacts from the supplied PLINK inputs. "
                     "Most likely every chromosome was removed by the SNP restriction, identity cleanup, "
                     "liftover, duplicate-coordinate filtering, MAF filtering, or missing chromosome data. "
-                    "Check the dropped-SNP sidecars and relax or rebuild the restriction/reference inputs. "
+                    "Inspect the error/log counts and any written dropped-SNP reports to identify the failing stage. "
+                    "Correct mismatched inputs or unintended settings; changing an intended restriction or filter changes the reference panel. "
                     f"Other causes & fixes: {_BUILD_REF_PANEL_EMPTY_DOC}"
                 )
 
@@ -654,7 +655,9 @@ class ReferencePanelBuilder:
             ):
                 LOGGER.warning(
                     f"No {target_build} genetic map was provided; "
-                    f"{target_build} metadata CM values will be written as NA."
+                    f"{target_build} metadata CM values will be written as NA. "
+                    "These missing genetic distances cannot support later cM-window LD-score calculation. "
+                    f"Supply --genetic-map-{target_build}-sources when building a panel intended for cM windows."
                 )
         elif matching_chain is None:
             if nonmatching_chain is not None:
@@ -684,7 +687,9 @@ class ReferencePanelBuilder:
         ):
             LOGGER.warning(
                 f"No {source_build} genetic map was provided; "
-                f"{source_build} metadata CM values will be written as NA."
+                f"{source_build} metadata CM values will be written as NA. "
+                "These missing genetic distances cannot support later cM-window LD-score calculation. "
+                f"Supply --genetic-map-{source_build}-sources when building a panel intended for cM windows."
             )
         return _BuildState(
             genetic_map_hg19=None if hg19_files is None else kernel_builder.load_genetic_map_group(hg19_files),

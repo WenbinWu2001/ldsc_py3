@@ -2086,7 +2086,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     gated.gene_list_batch,
                 )
             notice = stream.getvalue()
-            self.assertIn("zero retained-SNP support for 2 gene-list row(s)", notice)
+            self.assertIn("2 gene-list row(s) have no retained reference-SNP support", notice)
+            self.assertIn("1 query annotation(s) retained despite some genes having no retained reference-SNP support (partial_snp_support)", notice)
+            self.assertIn("1 query annotation(s) skipped because they overlap no retained reference SNPs (zero_annotation_snps)", notice)
+            self.assertIn("Skipped queries are omitted from LD-score outputs.", notice)
             self.assertIn("mixed=partial_snp_support", notice)
             self.assertIn("unsupported=zero_annotation_snps", notice)
             self.assertIn("diagnostics/query_annotation_status.tsv", notice)

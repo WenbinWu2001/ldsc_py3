@@ -70,7 +70,8 @@ class __GenotypeArrayInMemory__(object):
             raise EmptyReferenceSNPs(
                 "PLINK BED loading retained no SNPs after SNP/MAF filtering. Most likely "
                 "the SNP restriction, chromosome selection, or MAF threshold removed every "
-                "variant. Relax the filters or use a matching PLINK reference panel."
+                "variant. Check the selected SNP list, MAF threshold, and reference panel for a usable intersection. "
+                "Change intended filters only if the resulting SNP population is appropriate for the analysis."
             )
         self.df = self.df[self.kept_snps, :]
         self.maf = np.minimum(self.freq, np.ones(self.m) - self.freq)

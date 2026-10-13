@@ -514,19 +514,37 @@ def inspect_plink_inputs(
                 bim, fam = parse.PlinkBIMFile(prefix + ".bim"), parse.PlinkFAMFile(prefix + ".fam")
                 chroms = {normalize_chromosome(value, context=prefix + ".bim") for value in bim.df.CHR.unique()}
                 if not chroms or len(fam.IDList) == 0:
-                    raise LDSCInputError("PLINK contents must identify SNPs and at least one sample.")
+                    raise LDSCInputError(
+                        f"PLINK input '{prefix}' has no SNP chromosome identities or no samples. "
+                        "Supply a complete BED/BIM/FAM trio containing the SNPs and samples intended for this panel."
+                    )
                 if declared and (len(declared) != 1 or chroms != declared):
-                    raise LDSCInputError(f"@ PLINK member declared for chromosomes {sorted(declared, key=chrom_sort_key)} "
-                                         f"contains chromosomes {sorted(chroms, key=chrom_sort_key)}.")
+                    raise LDSCInputError(
+                        f"PLINK input '{prefix}' selected by @ for chromosomes {sorted(declared, key=chrom_sort_key)} "
+                        f"contains chromosomes {sorted(chroms, key=chrom_sort_key)}. "
+                        "Restore the matching chromosome trio or correct the prefix template; "
+                        "renaming files does not change their SNP coordinates."
+                    )
                 positions = pd.to_numeric(bim.df.BP, errors="raise")
                 if positions.isna().any() or (positions <= 0).any():
-                    raise LDSCInputError("PLINK positions must be positive.")
+                    raise LDSCInputError(
+                        f"PLINK SNP table '{prefix}.bim' contains missing or nonpositive BP positions. "
+                        "Use a BIM table with valid genomic positions from the same dataset as its BED/FAM files."
+                    )
                 with open(prefix + ".bed", "rb") as bed:
                     if bed.read(3) != b"\x6c\x1b\x01":
-                        raise LDSCInputError("Invalid PLINK BED magic number or unsupported non-SNP-major format.")
+                        raise LDSCInputError(
+                            f"PLINK genotype file '{prefix}.bed' has an invalid header or uses unsupported "
+                            "non-SNP-major storage. Restore the original file if damaged, or export a "
+                            "SNP-major binary BED/BIM/FAM trio from the source dataset."
+                        )
                     bed.seek(0, 2)
                     if bed.tell() != 3 + len(bim.IDList) * ((len(fam.IDList) + 3) // 4):
-                        raise LDSCInputError("PLINK BED size disagrees with BIM/FAM; truncated or mismatched trio.")
+                        raise LDSCInputError(
+                            f"PLINK genotype file '{prefix}.bed' has a size inconsistent with its SNP (.bim) "
+                            "and sample (.fam) tables; the trio may be truncated or mixed from different datasets. "
+                            "Restore all three matching files or export a new complete trio from the source dataset."
+                        )
                 for chrom in sorted(chroms, key=chrom_sort_key):
                     if chrom in mapping and mapping[chrom] != prefix:
                         issues.append(_plink_issue(prefix, chrom, "ambiguous_chromosome_input",

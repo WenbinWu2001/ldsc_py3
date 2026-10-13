@@ -75,13 +75,17 @@ class InputGate:
             self.issues_path.parent.mkdir(parents=True, exist_ok=True)
             frame.to_csv(self.issues_path, sep='\t', index=False)
             location = f' Complete diagnostics: {self.issues_path}.'
+        displayed = self.issues[:10] if location else self.issues
         details = '; '.join(
             f"{r['input_role']} {r['source']}"
             f"{(' (chromosome ' + str(r['chrom']) + ')') if r['chrom'] else ''}: "
             f"{r['details'].rstrip('.')}. Repair: {r['repair'].rstrip('.')}"
-            for r in self.issues
+            for r in displayed
         )
         count = len(self.issues)
+        omitted = count - len(displayed)
+        if omitted:
+            details += f'. {omitted} more input issues are listed in the complete repair table'
         error = LDSCInputError(f"{self.name} failed: {count} input issue{'s' if count != 1 else ''}. "
                                f'{details}.{location} '
                                'Other causes & fixes: docs/troubleshooting.md#staged-input-validation')
@@ -148,7 +152,12 @@ def inspect_declared_inputs(*, baseline=(), query=(), files=(), scalar_files=(),
                     metadata, values = normalize_annotation_chunk(frame, path, mode, log_ignored_metadata=False)
                     member = declarations.get(path)
                     if member and set(metadata.CHR.astype(str)) != {member}:
-                        raise LDSCInputError(f'@ member for chromosome {member} starts with a different chromosome.')
+                        raise LDSCInputError(
+                            f"Annotation file '{path}' selected by @ for chromosome {member} starts with "
+                            f"chromosome {metadata.CHR.iloc[0]}. "
+                            "Restore the matching chromosome file or correct the path template; "
+                            "renaming a file does not change its SNP coordinates."
+                        )
                     columns[str(path)] = tuple(values.columns)
                     return len(frame.columns)
                 width = gate.check(role, path, header, chrom=declarations.get(path, ''))
@@ -227,7 +236,11 @@ def inspect_index_paths(directory, *, metadata=None):
         metadata = _read_json(root/'metadata.json', 'root')
     chromosomes = metadata.get('chromosomes', [])
     if not isinstance(chromosomes, (list, tuple)) or not chromosomes or any(str(chrom) not in tuple(map(str, range(1, 23))) for chrom in chromosomes):
-        raise LDSCInputError('Gene LD-score index chromosome coverage is invalid.')
+        raise LDSCInputError(
+            'Gene LD-score index chromosome coverage is invalid.'
+            " Restore a complete gene LD-score index covering chromosomes 1 through 22, or rebuild it with "
+            "ldsc build-gene-ldscore-index. Do not combine components from different builds."
+        )
     gate = InputGate('Index component declarations')
     paths = [('gene_catalog.parquet', '')]
     files = ('metadata.json', 'baseline_rows.parquet', 'baseline_statistics.npz', 'atoms.parquet',
@@ -257,7 +270,11 @@ def inspect_artifact_paths(directory, *, metadata_file="metadata.json"):
     with (root/metadata_file).open() as stream:
         metadata = json.load(stream)
     if not isinstance(metadata, dict) or not isinstance(metadata.get('files', {}), dict):
-        raise LDSCInputError(f'Saved artifact metadata must contain an object with a files mapping: {root/metadata_file}')
+        raise LDSCInputError(
+            f'Saved artifact metadata must contain an object with a files mapping: {root/metadata_file}'
+            " Restore this saved artifact directory with its original metadata and data from the same run, or "
+            "regenerate the upstream artifact."
+        )
     gate = InputGate('Saved artifact declarations')
     for role, member in metadata.get('files', {}).items():
         for name in ([member] if isinstance(member, str) else member if isinstance(member, list) else []):

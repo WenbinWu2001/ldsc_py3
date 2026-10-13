@@ -105,7 +105,12 @@ def _read_r2_schema_meta(path: str) -> _R2SchemaMeta:
     r2_bias = bias_raw.decode("utf-8") if bias_raw is not None else None
 
     if n_samples is not None and r2_bias is None:
-        LOGGER.warning(f"'{path}' has ldsc:n_samples but no ldsc:r2_bias; treating as 'raw'.")
+        LOGGER.warning(
+            f"R2 reference panel '{path}' records a sample size (ldsc:n_samples) but not whether "
+            "its R2 values were bias-corrected (ldsc:r2_bias). The existing metadata fallback "
+            "treats them as raw, uncorrected values. Verify how this panel was produced and "
+            "restore its original bias metadata or rebuild the panel before interpreting results."
+        )
         r2_bias = "raw"
 
     return _R2SchemaMeta(n_samples=n_samples, r2_bias=r2_bias)
@@ -191,7 +196,12 @@ def _resolve_r2_bias_from_meta(
     stored_n = float(meta.n_samples) if meta.n_samples is not None else None
 
     if stored_bias is None and stored_n is not None:
-        LOGGER.warning("R2 schema metadata has ldsc:n_samples but no ldsc:r2_bias; treating as 'raw'.")
+        LOGGER.warning(
+            "The R2 reference panel records a sample size (ldsc:n_samples) but not whether its "
+            "R2 values were bias-corrected (ldsc:r2_bias). The existing metadata fallback treats "
+            "them as raw, uncorrected values. Verify how the panel was produced and restore "
+            "its original bias metadata or rebuild the panel before interpreting results."
+        )
         stored_bias = "raw"
 
     effective_bias = r2_bias_mode if r2_bias_mode is not None else (stored_bias or "unbiased")
@@ -199,8 +209,9 @@ def _resolve_r2_bias_from_meta(
     if effective_bias == "unbiased":
         if r2_sample_size is not None:
             LOGGER.warning(
-                "r2_sample_size is ignored because R2 values are already unbiased "
-                "(ldsc:r2_bias=unbiased in parquet schema metadata)."
+                "The supplied R2 sample size is ignored because this panel is being read as "
+                "already bias-corrected (unbiased R2); no additional sample-size correction is applied. "
+                "Verify that the selected bias mode and ldsc:r2_bias metadata match how the panel was produced."
             )
         return "unbiased", None
 
@@ -296,7 +307,12 @@ class RefPanel(ABC):
         if maf_min is None or len(metadata) == 0:
             return metadata.reset_index(drop=True)
         if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
-            LOGGER.warning(f"Cannot apply --maf-min on chromosome {chrom} because MAF metadata is unavailable.")
+            LOGGER.warning(
+                f"Cannot apply --maf-min={maf_min} on chromosome {chrom} because MAF metadata is unavailable. "
+                f"Processing continues with all {len(metadata)} reference-SNP rows at this stage, without "
+                "the requested MAF filter. Restore the matching original SNP frequency metadata or rebuild "
+                "the panel before relying on this threshold in the analysis."
+            )
             return metadata.reset_index(drop=True)
         keep = metadata["MAF"] >= maf_min
         removed = int((~keep).sum())

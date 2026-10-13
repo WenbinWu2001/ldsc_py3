@@ -474,7 +474,8 @@ def read_coordinate_evidence(source_path, cname_translation, *, compression, met
         raise LDSCInputError(
             f"munge-sumstats could not infer genome_build='auto' for '{source_path}' "
             "because no CHR/POS column pair was mapped. Most likely the coordinate columns use unrecognized names. "
-            "Pass --chr/--pos column hints, or pass --source-genome-build hg19 or hg38 explicitly."
+            "Map the existing coordinates with --chr/--pos or supply an input with both columns. "
+            "Declaring --source-genome-build does not supply missing chromosome/position values."
         )
     raw_columns = [raw_chr[0], raw_pos[0]]
     reader = pd.read_csv(

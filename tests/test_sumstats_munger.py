@@ -1406,7 +1406,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ldsc.LDSCInternalError,
-            "munge-sumstats could not derive a sample size \\(N\\).*unreachable.*--debug",
+            "munge-sumstats could not derive a sample size \\(N\\).*Report.*--log-level DEBUG",
         ):
             kernel_munge.process_n(pd.DataFrame({"P": [0.05]}), args)
 
@@ -2297,7 +2297,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
 
-    def test_run_invalid_comma_separated_impinfo_suggests_ignore_or_info_list(self):
+    def test_run_invalid_comma_separated_impinfo_identifies_value_and_filtering_consequence(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
@@ -2307,12 +2307,19 @@ class SumstatsMungerTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(ldsc.LDSCInputError, "--ignore IMPINFO.*--info-list IMPINFO"):
+            with self.assertRaises(ldsc.LDSCInputError) as failure:
                 SumstatsMunger().run(
                     MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(no_snp_restriction=True, output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
                     GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 )
+            message = str(failure.exception)
+            self.assertIn("IMPINFO", message)
+            self.assertIn("LOW", message)
+            self.assertIn("--info-list", message)
+            self.assertIn("--ignore IMPINFO", message)
+            self.assertIn("omitting this quality field", message)
+            self.assertIsInstance(failure.exception.__cause__, ValueError)
 
     def test_run_skips_leading_double_hash_sumstats_metadata_lines(self):
         with tempfile.TemporaryDirectory() as tmpdir:

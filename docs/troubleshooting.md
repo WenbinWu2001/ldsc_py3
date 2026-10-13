@@ -2,17 +2,30 @@
 
 Last updated on: 2026-10-13
 
-This reference explains `ldsc` errors that can **abort a run** and have more than
-one likely cause. It is organized by command. Each entry lists the likely causes
-(ranked most-probable first), how to confirm each, and how to fix it.
+This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](current/workflow-logging.md#diagnostics-and-troubleshooting).
+It also retains guidance for failed-run artifacts, documented query omissions, and cleanup warnings that users need to interpret.
+Simple validation errors should explain their cause and repair in the primary message rather than require a separate reference entry.
+Entries are organized by the command you run.
 
-Most errors are self-explanatory from their terminal message alone and are not
-repeated here. When a message says `... see docs/troubleshooting.md#<section>`,
-that slug is a heading below — jump to it.
+Start with the symptom, the affected input or query, and any counts in the actual error.
+The listed causes are alternatives to check, not a diagnosis of your run.
+Choose a repair supported by that evidence; do not assume that the first listed cause applies.
+Module names and exception types appear in supplementary developer references after the user guidance.
+
+If the error names a diagnostic table, inspect its reported inputs, reasons, and repairs.
+A file may not exist when failure occurs before that diagnostic or workflow log is written; an older file in the same directory may describe a different run.
+Use the available error message first rather than assume every failure produced all the files mentioned here.
+Known input problems should be understandable without selecting `DEBUG`; saved tracebacks and additional `DEBUG` detail support investigation of unexpected failures.
+
+Use a fresh output directory for an independent retry.
+Use `--overwrite` only when replacing existing owned outputs is intended.
+Changing SNP restrictions, filters, model inputs, or query-continuation settings can change the analysis or the set of published results; review that consequence before treating such a change as a repair.
+
+When a message includes `docs/troubleshooting.md#<section>`, its fragment identifies a heading below.
 
 ## Staged input validation
 
-**Raised by:** `_input_preflight.InputGate` and workflow content gates. **Symptom:** a combined error lists multiple input objects or chromosomes before staging or numerical work proceeds.
+**Symptom:** a combined error lists multiple input objects or chromosomes before staging or numerical work proceeds.
 
 | Cause | Check and repair |
 | --- | --- |
@@ -32,6 +45,8 @@ Failed declaration-validation phases report the number of distinct inputs with i
 
 Output collisions are a separate error: passing `--overwrite` authorizes owned output replacement but never bypasses input validation. Early input failures preserve existing scientific files and retain the established authorized-overwrite `RUN_FAILED.txt` contract. INFO phase records distinguish validation, staging, computation, and publication; periodic progress occurs when bounded chunks return, not during a blocking third-party call.
 
+**Developer reference:** `_input_preflight.InputGate` and workflow content gates.
+
 ## Common
 
 ### Common: `RUN_FAILED` is present in an output directory
@@ -48,8 +63,6 @@ Markers, logs, audits, and scientific outputs use the same expanded destination.
 
 ### Common: input path did not resolve to one file
 
-**Raised by:** `path_resolution.resolve_scalar_path()` and group/path-prefix resolvers
-· **Exception:** `LDSCInputError`
 **Symptom:** `Could not resolve <label> path from token '<token>': matched 0 files` / `matched N files`
 
 **Likely causes & how to check** (most probable first):
@@ -57,7 +70,7 @@ Markers, logs, audits, and scientific outputs use the same expanded destination.
 | # | Likely cause | How to check |
 |---|--------------|--------------|
 | 1 | The path is misspelled or relative to a different working directory | `pwd`; then `ls <path>` from the same shell |
-| 2 | A glob is too broad for an input that must be one file | `python -c "import glob; print(glob.glob('<pattern>'))"` |
+| 2 | A glob is too broad for an input that must be one file | `python3 -c "import glob; print(glob.glob('<pattern>'))"` |
 | 3 | An ordinary file input uses an unsupported bare prefix (PLINK prefixes are supported) | Check whether the token looks like `chr@` / `.@.` rather than a bare prefix |
 | 4 | The file exists only with a suffix LDSC does not infer | `ls <prefix>*`; pass the full filename including suffix |
 | 5 | A PLINK prefix is incomplete | Confirm all three files exist: `<prefix>.bed`, `<prefix>.bim`, `<prefix>.fam` |
@@ -70,10 +83,10 @@ Markers, logs, audits, and scientific outputs use the same expanded destination.
 
 **PLINK resolution (`ldscore`, `build-gene-ldscore-index`, `build-r2-panel`):** A plain stem such as `1000G.EUR.QC.` is supported and preserves numeric suffixes such as `.22`. These commands share `path_resolution.inspect_plink_inputs()`. If `Could not resolve PLINK inputs` appears, read every listed issue: restore each missing BED/BIM/FAM member, replace malformed or truncated trios, verify BIM chromosome contents against any explicit `@` declaration, and narrow inputs when multiple trios contain the same chromosome. Renaming a file does not change its chromosome assignment. Gene-index construction requires chromosomes 1-22 even without `@`; direct query LD-score full-suite declarations also retain their coverage checks. Direct LD-score issues appear in its input diagnostics; gene-index issues are retained in `.<output-name>.build-state/plink_input_issues.tsv`; R²-builder issues appear in `diagnostics/plink_input_issues.tsv`. See the [shared resolution contract](current/path-specification.md#plink-prefix-resolution).
 
+**Developer reference:** `path_resolution.resolve_scalar_path()` and group/path-prefix resolvers · **Exception:** `LDSCInputError`
+
 ### Common: output artifact already exists
 
-**Raised by:** `path_resolution.ensure_output_paths_available()` and
-`path_resolution.preflight_output_artifact_family()` · **Exception:** `FileExistsError`
 **Symptom:** `Cannot write <artifact>: existing output artifact already exists at ...`
 
 **Likely causes & how to check** (most probable first):
@@ -93,10 +106,10 @@ Markers, logs, audits, and scientific outputs use the same expanded destination.
 3. Do not share one output directory across concurrent runs unless the workflow
    explicitly supports chromosome-sharded output ownership.
 
+**Developer reference:** `path_resolution.ensure_output_paths_available()` and `path_resolution.preflight_output_artifact_family()` · **Exception:** `FileExistsError`
+
 ### Common: genome build could not be inferred
 
-**Raised by:** `genome_build_inference.resolve_genome_build()` and
-`genome_build_inference.resolve_chr_pos_table()` · **Exception:** `LDSCInputError`
 **Symptom:** `Could not infer genome build for <context>...`
 
 **Likely causes & how to check** (most probable first):
@@ -110,14 +123,16 @@ Markers, logs, audits, and scientific outputs use the same expanded destination.
 
 **Remedies:**
 
-1. Pass an explicit build: `--genome-build hg19` or `--genome-build hg38`.
-2. Fix column mapping or delimiter issues before using `--genome-build auto`.
+1. If the input build is known, declare it with the option for that command.
+   Use `--source-genome-build hg19` or `hg38` for coordinate-based `munge-sumstats` inputs and `build-r2-panel` source panels; use `--genome-build hg19` or `hg38` for `annotate` and direct `ldscore`.
+   Do not guess a build solely to pass validation.
+2. Fix column mapping or delimiter issues before retrying automatic inference.
 3. Rebuild the input so all CHR/POS rows use one genome build and one coordinate basis.
+
+**Developer reference:** `genome_build_inference.resolve_genome_build()` and `genome_build_inference.resolve_chr_pos_table()` · **Exception:** `LDSCInputError`
 
 ### Common: LDSC artifact schema or provenance is incompatible
 
-**Raised by:** `_kernel.snp_identity.validate_identity_artifact_metadata()` and
-artifact reload guards · **Exception:** `LDSCInputError`
 **Symptom:** `Could not read LDSC <artifact> artifact metadata...`
 
 **Likely causes & how to check** (most probable first):
@@ -135,36 +150,38 @@ artifact reload guards · **Exception:** `LDSCInputError`
 2. Keep LDSC-generated data files and their sidecars together; do not hand-edit them.
 3. If you need a different `snp_identifier` or `genome_build`, regenerate from the upstream input.
 
+**Developer reference:** `_kernel.snp_identity.validate_identity_artifact_metadata()` and artifact reload guards · **Exception:** `LDSCInputError`
+
 ## munge-sumstats
 
 ### munge-sumstats: could not map a required column
 
-**Raised by:** `_kernel/sumstats_munger` column resolution · `SumstatsTable.validate()`
-· **Exception:** `LDSCInputError`
 **Symptom:** `munge-sumstats could not map the required column '<field>' from the header...`
 
 **Likely causes & how to check** (most probable first):
 
 | # | Likely cause | How to check |
 |---|--------------|--------------|
-| 1 | The header uses a name the auto-mapper doesn't recognize | `zcat <file> \| head -1` (or `head -1`); compare against the recognized aliases in `column_inference.py` |
+| 1 | The header uses a name LDSC does not recognize | Read the decompressed header and compare it with the field named in the error; `ldsc munge-sumstats --help` lists column-hint options |
 | 2 | The column exists under a synonym you must declare | Re-run with an explicit hint, e.g. `--snp MarkerName --a1 Allele1` |
-| 3 | Wrong delimiter, so the whole header parsed as one column | `head -1 <file> \| cat -A` — look for one field with embedded tabs/commas |
+| 3 | Wrong delimiter, so the whole header parsed as one column | Inspect the decompressed header; check whether column names are separated as the selected input format expects |
 | 4 | Wrong `--input-format`, so expected columns differ | Confirm `--input-format` matches the file; `auto` and an explicit profile share aliases, optional-field rules, and validation |
 
 **Remedies:**
 
-1. Pass explicit column hints for the unmapped field(s): `--<field>-col <name>`.
-2. Rename the columns to recognized names, or add the alias to `column_inference.py`
-   if broadly useful.
-3. Verify the delimiter is whitespace/tab as expected for `.sumstats`/`.txt` inputs.
+1. Map the missing field to its actual header name, for example `--snp MarkerName`, `--chr CHROM`, `--pos BP`, `--a1 Allele1`, `--a2 Allele2`, or `--p PVAL`.
+   Sample-size columns use `--N-col` or the paired `--N-cas-col` / `--N-con-col` options; signed statistics use `--signed-sumstats COLUMN,NULL`.
+2. Check the same command's mapping with `--infer-only`, which requires `--raw-sumstats-file` and `--output-dir` but creates no outputs.
+   Coordinate-based modes also require `--output-genome-build`.
+   See [input inspection](current/munge-sumstats.md#--infer-only).
+3. If the header or delimiter is malformed, prepare a corrected input copy and select the appropriate `--input-format`.
+   Explicit hints cannot repair a file whose fields were not parsed into separate columns.
+
+**Developer reference:** `_kernel/sumstats_munger` column resolution · `SumstatsTable.validate()` · **Exception:** `LDSCInputError`
 
 ### munge-sumstats: multiple or conflicting sample-size column strategies
 
-**Raised by:** `_kernel/sumstats_munger` sample-size column resolution
-· **Exception:** `LDSCInputError` or `LDSCUsageError`
-**Symptom:** `munge-sumstats found multiple sample-size strategies...`, an
-incomplete `--N-cas-col`/`--N-con-col` pair, or a conflict with `--N-col`.
+**Symptom:** `munge-sumstats found multiple sample-size strategies...`, an incomplete `--N-cas-col`/`--N-con-col` pair, or a conflict with `--N-col`.
 
 **Likely causes & how to check:**
 
@@ -185,13 +202,19 @@ incomplete `--N-cas-col`/`--N-con-col` pair, or a conflict with `--N-col`.
    `--N-col NEFF` when those exact effective-N values are intended; no
    `--ignore` flag is required.
 
+**Developer reference:** `_kernel/sumstats_munger` sample-size column resolution · **Exception:** `LDSCInputError` or `LDSCUsageError`
+
 ### munge-sumstats: no SNPs remain after filtering
 
-**Raised by:** `_kernel/sumstats_munger` (post-filter and keep-list paths)
-· **Exception:** `LDSCInputError`
 **Symptom:** `munge-sumstats removed every SNP...` / `...no SNPs remain after SNP keep-list restriction`
 
-Munging now restricts to packaged HM3 by default. To process all input SNPs subject to ordinary QC, use `--no-snp-restriction`; to replace HM3 with a custom list, use `--sumstats-snps-file FILE`. For cross-build output, both override modes require `--liftover-chain-file`; default HM3 uses automatic quick liftover unless a chain is supplied. Source-build inference failure requires an explicit `--source-genome-build`; output builds always require an explicit choice.
+Munging restricts to packaged HM3 by default.
+First use the error and log counts to identify whether QC, the SNP restriction, or a later stage removed the rows.
+To intentionally process all input SNPs subject to ordinary QC, use `--no-snp-restriction`; to intentionally replace HM3 with a custom list, use `--sumstats-snps-file FILE`.
+Both choices change the requested SNP population.
+For cross-build output, either override requires `--liftover-chain-file`; default HM3 uses automatic quick liftover unless a chain is supplied.
+Coordinate-based identity requires an explicit `--output-genome-build`; if source-build inference fails, declare the known input build with `--source-genome-build`.
+Concrete source/output build options do not apply to rsID-family munging.
 
 **Likely causes & how to check** (most probable first):
 
@@ -199,21 +222,23 @@ Munging now restricts to packaged HM3 by default. To process all input SNPs subj
 |---|--------------|--------------|
 | 1 | The input has no overlap with the default HM3 set, or a custom keep-list uses a different SNP-id space (rsID vs chr:pos) | Compare the first IDs of each file; confirm both use `snp_identifier=<mode>` |
 | 2 | Keep-list and sumstats are on different genome builds | Compare the `genome_build` in the error line against the keep-list build |
-| 3 | INFO / MAF / N thresholds removed every row | Inspect filter counts in the error/log and verify the column meanings and intended thresholds; earlier QC removals are not in the dropped-SNP sidecar |
+| 3 | Imputation-quality (INFO), minor-allele-frequency (MAF), or sample-size (N) filters removed every row | Inspect filter counts in the error/log and verify the column meanings and intended thresholds; earlier QC removals are not in the dropped-SNP sidecar |
 | 4 | Input is effectively empty after a delimiter/format mis-parse | `zcat <file> \| wc -l` |
 
 **Remedies:**
 
 1. Regenerate the keep-list in the same `snp_identifier` mode and build as the sumstats.
-2. Relax quality filters and re-run; review the dropped-SNP audit sidecar to see
-   which filter removed the rows.
+2. For QC removals, inspect the error/log counts and confirm the mapped quality, frequency, and sample-size columns.
+   Correct a mistaken mapping or threshold; change an intended QC threshold only after deciding that the new criterion is appropriate for the analysis.
+3. Earlier QC and SNP-restriction removals have counts rather than individual rows in the dropped-SNP sidecar.
+   Use `diagnostics/dropped_snps/dropped.tsv.gz` for liftover or final identity-cleanup removals only when that file was written.
+   See [whole-run row accounting](current/munge-sumstats.md#preparation-and-run-accounting).
+
+**Developer reference:** `_kernel/sumstats_munger` (post-filter and keep-list paths) · **Exception:** `LDSCInputError`
 
 ### munge-sumstats: curated artifact is malformed or outdated
 
-**Raised by:** `sumstats_munger.load_sumstats()` and its metadata helpers
-· **Exception:** `LDSCInputError`
-**Symptom:** `Cannot load curated sumstats at '<path>': ...` (old schema /
-bad provenance / missing A1-A2 / duplicate identity rows)
+**Symptom:** `Cannot load curated sumstats at '<path>': ...` (old schema / bad provenance / missing A1-A2 / duplicate identity rows)
 
 **Likely causes & how to check** (most probable first):
 
@@ -222,7 +247,7 @@ bad provenance / missing A1-A2 / duplicate identity rows)
 | 1 | Artifact predates the current self-describing parquet schema | Inspect the parquet footer for `ldsc:artifact_type`, `ldsc:snp_identifier`, and `ldsc:genome_build` |
 | 2 | The artifact is footerless Parquet | Re-munge from the raw GWAS input to produce self-describing `sumstats.parquet`; footerless Parquet is not an LDSC2 compatibility format |
 | 3 | Identity provenance in the parquet footer is invalid/corrupt | Inspect the footer identity fields against the current contract |
-| 4 | An allele-aware `snp_identifier` artifact lacks A1/A2 columns | `python -c "import pandas; print(pandas.read_parquet('<f>').columns)"` |
+| 4 | An allele-aware `snp_identifier` artifact lacks A1/A2 columns | `python3 -c "import pandas; print(pandas.read_parquet('<f>').columns)"` |
 | 5 | Duplicate/invalid SNP-identity rows survived in the artifact | Re-munge from raw input; the loader reports the dropped-row reasons |
 
 **Remedies:**
@@ -234,10 +259,10 @@ bad provenance / missing A1-A2 / duplicate identity rows)
    see `docs/current/legacy-sumstats-compatibility.md`.
 3. Do not hand-edit curated `.sumstats`/`.parquet` artifacts; treat them as outputs.
 
+**Developer reference:** `sumstats_munger.load_sumstats()` and its metadata helpers · **Exception:** `LDSCInputError`
+
 ### munge-sumstats: liftover dropped all rows
 
-**Raised by:** `_kernel.liftover.apply_sumstats_liftover()`
-· **Exception:** `LDSCInputError`
 **Symptom:** `Summary-statistics liftover from <source> to <target> using <method> dropped all rows...`
 
 **Likely causes & how to check** (most probable first):
@@ -258,6 +283,8 @@ bad provenance / missing A1-A2 / duplicate identity rows)
 
 Successful runs report the method and counts in stdout and `diagnostics/sumstats.log`, including at `--log-level ERROR`; failed runs retain the error and available counts in the log and do not print a success summary. An all-dropped liftover fails before writing the dropped-SNP sidecar, so inspect its count-bearing error first. Mapping input is measured after earlier QC and keep-list filtering. See the [liftover behavior table](current/munge-sumstats.md#liftover-rules).
 
+**Developer reference:** `_kernel.liftover.apply_sumstats_liftover()` · **Exception:** `LDSCInputError`
+
 ## annotate
 
 ### annotate: input preflight
@@ -274,9 +301,6 @@ An authorized overwrite can leave `RUN_FAILED.txt` after failure. Inspect diagno
 
 ### annotate: no annotation SNP rows remain
 
-**Raised by:** `annotation_builder.AnnotationBuilder._run_single_universe()`,
-`annotation_builder.AnnotationBuilder._run_sharded_inputs()`, and
-`annotation_builder.AnnotationBuilder._apply_identity_cleanup()` · **Exception:** `LDSCInputError`
 **Symptom:** `annotate loaded no SNP rows...` / `...no annotation rows remain after SNP identity cleanup...`
 
 **Likely causes & how to check** (most probable first):
@@ -292,10 +316,13 @@ An authorized overwrite can leave `RUN_FAILED.txt` after failure. Inspect diagno
 **Remedies:**
 
 1. Use baseline and query annotation inputs that cover the same chromosome shards.
-2. Regenerate annotation files with `CHR`, `POS`, `SNP`, `CM`, and at least one annotation column.
+2. Regenerate nonempty annotation files with the identity columns required by the selected mode and at least one numeric annotation column.
+   See [annotation column requirements](current/column-schema.md); reference-panel CM/MAF, rather than supplied annotation CM/MAF, governs LD-score calculation.
 3. Match `--snp-identifier` and `--genome-build` to the annotation identity columns, then rerun.
 
-## ldscore
+**Developer reference:** `annotation_builder.AnnotationBuilder._run_single_universe()`, `annotation_builder.AnnotationBuilder._run_sharded_inputs()`, and `annotation_builder.AnnotationBuilder._apply_identity_cleanup()` · **Exception:** `LDSCInputError`
+
+## build-gene-ldscore-index
 
 ### build-gene-ldscore-index: output directory is nonempty but invalid
 
@@ -363,9 +390,25 @@ to `.<index-name>.build-state/`, and the obsolete standalone lock participates
 in that transition run before it is removed. Unrecognized files are preserved
 and reported rather than deleted.
 
+### build-gene-ldscore-index: required identity or build option is missing
+
+**Symptom:** parsing stops with `--snp-identifier is required; choose rsid or
+chr_pos.` or `--genome-build is required; choose hg19.`
+
+New construction has no default or inference for either decision. Pass exactly
+one of `--snp-identifier rsid` or `--snp-identifier chr_pos`, plus
+`--genome-build hg19`. Do not use `auto`, hg38, or an allele-aware mode. These
+options belong only to Stage 1 construction. Remove both options from Stage 2
+`ldsc ldscore --gene-ldscore-index-dir ...`, which inherits them from the index.
+
+## ldscore
+
 ### ldscore: an explicit gene index is missing, corrupt, or incompatible
 
-**Symptom:** indexed mode rejects metadata IDs, mode/build agreement, the ordered published-row metadata digest, chromosome coverage, duplicate effective identities, Parquet rows, NPZ members, CSR structure/dtypes, or dimensions.
+**Symptom:** indexed LD-score calculation stops because the requested index is missing, unreadable, or incompatible with the command or current reader.
+
+Start with the named file or failed requirement in the error.
+Restore missing components from the same complete index rather than combining files from different builds.
 
 Pass the one complete index directory containing root `metadata.json` and
 `chromosomes/`. Do not add
@@ -380,41 +423,32 @@ LD-score directories already produced from them are unaffected.
 
 The retired `effective_identity_sha256` field alone does not require rebuilding: otherwise-valid existing indexes still load. New indexes omit this redundant field and require an updated reader; upgrade the reader if an older installation reports a missing effective-identity digest. The retained `published_row_metadata_sha256`, semantic `index_id`, and input fingerprints remain required under their existing contracts.
 
-### build-gene-ldscore-index: required identity or build option is missing
-
-**Symptom:** parsing stops with `--snp-identifier is required; choose rsid or
-chr_pos.` or `--genome-build is required; choose hg19.`
-
-New construction has no default or inference for either decision. Pass exactly
-one of `--snp-identifier rsid` or `--snp-identifier chr_pos`, plus
-`--genome-build hg19`. Do not use `auto`, hg38, or an allele-aware mode. These
-options belong only to Stage 1 construction. Remove both options from Stage 2
-`ldsc ldscore --gene-ldscore-index-dir ...`, which inherits them from the index.
+**Developer reference:** integrity checks include metadata IDs, mode/build agreement, the ordered published-row metadata digest, chromosome coverage, duplicate effective identities, Parquet rows, NPZ members, CSR structure/dtypes, and dimensions.
 
 ### ldscore: gene-list preflight stopped or a focal query is missing
 
-**Raised by:** query annotation status handling · **Symptom:** one requested
-query is absent from `ldscore.query.parquet` or downstream partitioned-h2 rows,
-or the run reports that every query was skipped.
+**Symptom:** a requested gene-list query is absent from LD-score outputs or downstream partitioned-h2 rows, or the run reports that every query was skipped.
 
 Strict gene-list resolution stops before LD-score work if any focal/control row
 cannot resolve uniquely. Start with
 `diagnostics/gene_list_resolution_summary.tsv`, then filter
 `diagnostics/gene_list_audit.tsv.gz` by the affected `source` and
-`disposition == 'rejected'`. After Gate A succeeds,
-`diagnostics/query_annotation_status.tsv` distinguishes empty/zero-resolved,
-zero-annotation-SNP, and zero-variance focal queries. Usable sibling queries
-continue; a requested control never disappears silently. Correct the list or
-catalog evidence and rerun with `--overwrite` because diagnostics are owned
-artifacts. When all focal queries are skipped, no root scientific result is
-written.
+`disposition == 'rejected'`.
+After gene-list validation succeeds, `diagnostics/query_annotation_status.tsv` distinguishes empty lists, lists with no resolved genes, queries with no SNP support, and queries whose LD scores are constant on the SNP rows used for regression.
+Support on retained reference SNPs and variation on regression SNP rows are different checks: a fully supported query can still have constant LD scores on regression rows.
+Skipped queries are omitted from LD-score outputs; usable sibling queries continue, and a requested control never disappears silently.
+Use the diagnostic reason and affected source to correct the list, catalog, or incompatible input.
+Then choose a fresh output directory or `--overwrite` when replacing the failed run's owned diagnostics is intended.
+When all focal queries are skipped, no root scientific result is written.
 
 For the complete reason vocabulary, column definitions, filters, and prioritized
 repair steps, see [Gene-list diagnostics and repair](current/gene-list-diagnostics-and-repair.md).
 
+**Developer reference:** query annotation status handling
+
 ### ldscore: chromosome coverage preflight
 
-**Raised by:** direct input/coverage validation or immutable index validation. **Symptom:** the batch fails before publishing scientific outputs.
+**Symptom:** the batch fails before publishing scientific outputs.
 
 Read `diagnostics/input_issues.tsv` and `diagnostics/chromosome_scope.json`. For gene lists, inspect `coverage_status`, `selected_genes`, `covered_genes`, `missing_chromosomes`, and `uncovered_gene_ids` in `gene_list_resolution_summary.tsv`; audit rows with `coverage_status == 'uncovered'` identify affected input lines. Fix every reported issue before rerunning with `--overwrite`.
 
@@ -430,10 +464,10 @@ Replacing `@` with `*` changes file selection only; it does not remove genes out
 
 For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set it to 0 when your BED files already contain the intended padded regions, to avoid double padding.
 
+**Developer reference:** direct input/coverage validation or immutable index validation.
+
 ### ldscore: annotation values are malformed
 
-**Raised by:** `_kernel.annotation._validate_annotation_values()` through the
-annotation and LD-score loaders · **Exception:** `LDSCInputError`
 **Symptom:** `Could not parse annotation file ... annotation value columns must be numeric and non-missing`
 
 **Likely causes & how to check** (most probable first):
@@ -451,11 +485,10 @@ annotation and LD-score loaders · **Exception:** `LDSCInputError`
 2. Use `NA` for missing metadata such as `CM`, never an empty field or a numeric sentinel.
 3. Supply numeric, non-missing values in every annotation column, then rerun.
 
+**Developer reference:** `_kernel.annotation._validate_annotation_values()` through the annotation and LD-score loaders · **Exception:** `LDSCInputError`
+
 ### ldscore: no annotation SNPs remain after reference-panel intersection
 
-**Raised by:** `ldscore_calculator._align_annotation_bundle_to_ref_panel()`,
-`_kernel.ldscore.compute_chrom_from_parquet()`, and
-`_kernel.ldscore.compute_chrom_from_plink()` · **Exception:** `LDSCInputError`
 **Symptom:** `ldscore retained no annotation SNPs on chromosome <chrom> after ... intersection`
 
 **Likely causes & how to check** (most probable first):
@@ -465,7 +498,7 @@ annotation and LD-score loaders · **Exception:** `LDSCInputError`
 | 1 | Annotation SNP identifiers use a different identity space than the reference panel | Compare a few annotation SNP IDs against reference-panel metadata; confirm both use the same `--snp-identifier` |
 | 2 | Annotation coordinates and reference-panel coordinates are on different genome builds | Check `--genome-build` and the build recorded in R2 parquet or reference-panel metadata |
 | 3 | Allele-aware mode was requested but annotation/reference alleles do not match | Inspect A1/A2 columns in annotation and reference metadata for a few expected overlapping SNPs |
-| 4 | A reference-panel SNP restriction removed all overlapping annotation SNPs | Re-run without `--ref-panel-snps-file` / HM3 restriction to confirm overlap returns |
+| 4 | A reference-panel SNP restriction removed all overlapping annotation SNPs | Compare the restriction's IDs/build with the annotation and reference inputs; inspect available restriction/drop counts |
 | 5 | Chromosome labels or chromosome-sharded path tokens resolved to mismatched chromosomes | Print CHR values from the annotation and reference metadata for the failing chromosome |
 
 **Remedies:**
@@ -474,13 +507,13 @@ annotation and LD-score loaders · **Exception:** `LDSCInputError`
    `--snp-identifier` and `--genome-build`.
 2. Use an allele-aware SNP identifier only when both annotation and reference
    metadata carry matching A1/A2 columns.
-3. Relax or rebuild the reference-panel SNP restriction so it overlaps the
-   annotation SNP universe.
+3. Correct a restriction prepared from mismatched inputs.
+   Broaden or remove an intentional restriction only if the resulting reference SNP population is appropriate for the analysis.
+
+**Developer reference:** `ldscore_calculator._align_annotation_bundle_to_ref_panel()`, `_kernel.ldscore.compute_chrom_from_parquet()`, and `_kernel.ldscore.compute_chrom_from_plink()` · **Exception:** `LDSCInputError`
 
 ### ldscore: parquet R2 input is incompatible
 
-**Raised by:** `_kernel.ldscore.SortedR2BlockReader`, sidecar-binding guards,
-and parquet row decoders · **Exception:** `LDSCInputError`
 **Symptom:** `ldscore could not use R2 parquet ...` / `... sidecar ... missing`
 
 **Likely causes & how to check** (most probable first):
@@ -500,10 +533,10 @@ and parquet row decoders · **Exception:** `LDSCInputError`
    not hand-edit or independently copy sidecars.
 3. Use one consistent R2 directory per genome build and reference-panel run.
 
+**Developer reference:** `_kernel.ldscore.SortedR2BlockReader`, sidecar-binding guards, and parquet row decoders · **Exception:** `LDSCInputError`
+
 ### ldscore: genome build could not be resolved consistently
 
-**Raised by:** `ldscore_calculator._resolve_ldscore_chr_pos_genome_build()` and
-`ldscore_calculator._infer_r2_dir_genome_build()` · **Exception:** `LDSCInputError`
 **Symptom:** `ldscore could not infer the genome build...` / `ldscore found conflicting genome-build evidence...`
 
 **Likely causes & how to check** (most probable first):
@@ -521,7 +554,9 @@ and parquet row decoders · **Exception:** `LDSCInputError`
 2. Regenerate annotation and R2 reference-panel artifacts on the same genome build.
 3. Keep only one build's R2 parquet files in a given `--r2-dir`.
 
-### ldscore: unusable CM for `--ld-wind-cm`
+**Developer reference:** `ldscore_calculator._resolve_ldscore_chr_pos_genome_build()` and `ldscore_calculator._infer_r2_dir_genome_build()` · **Exception:** `LDSCInputError`
+
+### ldscore: unusable CM for ld-wind-cm
 
 `--ld-wind-cm` needs a genetic-map coordinate (`CM`) that orders SNPs along a
 chromosome. The run aborts when the reference panel's `CM` is all zero, constant,
@@ -550,8 +585,6 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
 
 ### build-r2-panel: no reference-panel artifacts were produced
 
-**Raised by:** `ref_panel_builder.ReferencePanelBuilder.run()` and reference-panel
-metadata cleanup paths · **Exception:** `LDSCInputError`
 **Symptom:** `build-r2-panel produced no chromosome artifacts...` / `...retained no parquet metadata rows...`
 
 **Likely causes & how to check** (most probable first):
@@ -562,19 +595,19 @@ metadata cleanup paths · **Exception:** `LDSCInputError`
 | 2 | The restriction or PLINK panel is on the wrong genome build | Check `--source-genome-build` and any build-specific restriction position columns |
 | 3 | Identity cleanup dropped all rows because identifiers are missing or duplicated | Inspect `diagnostics/dropped_snps/chr*_dropped.tsv.gz` for `reason` values |
 | 4 | Liftover or duplicate-position filtering removed every retained SNP | Inspect the dropped-SNP sidecar for `unmapped_liftover`, `source_duplicate`, or `target_collision` |
-| 5 | MAF or individual filtering removed all SNPs before artifact writing | Relax `--maf-min` or check the keep-individual file against the `.fam` file |
+| 5 | MAF or individual filtering removed all SNPs before artifact writing | Check the logged counts, `--maf-min`, and the keep-individual file against the `.fam` file |
 
 **Remedies:**
 
 1. Build the SNP restriction from the same PLINK source build and SNP identifier mode.
-2. Review `diagnostics/dropped_snps/` to identify the first filter that removed rows.
-3. Relax filters or regenerate the PLINK/reference inputs so at least one SNP remains
-   per chromosome.
+2. Use the error/log counts to identify the failing stage; inspect a named dropped-SNP sidecar when it was written and covers that stage.
+3. Correct an unintended threshold, restriction, or individual selection, or regenerate compatible PLINK/reference inputs.
+   If the intended filters legitimately retain no usable SNPs, do not weaken them solely to make the command finish; any revised filter changes the panel being constructed.
+
+**Developer reference:** `ref_panel_builder.ReferencePanelBuilder.run()` and reference-panel metadata cleanup paths · **Exception:** `LDSCInputError`
 
 ### build-r2-panel: liftover or genetic-map configuration is incomplete
 
-**Raised by:** `ref_panel_builder.ReferencePanelBuilder._prepare_build_state()`,
-chromosome liftover setup, and genetic-map interpolation helpers · **Exception:** `LDSCUsageError` / `LDSCInputError`
 **Symptom:** `build-r2-panel cannot emit <build>...` / `...genetic map...`
 
 **Likely causes & how to check** (most probable first):
@@ -594,10 +627,10 @@ chromosome liftover setup, and genetic-map interpolation helpers · **Exception:
 3. Use liftover chains only in chr_pos-family modes and make the chain direction
    match the source and target builds.
 
+**Developer reference:** `ref_panel_builder.ReferencePanelBuilder._prepare_build_state()`, chromosome liftover setup, and genetic-map interpolation helpers · **Exception:** `LDSCUsageError` / `LDSCInputError`
+
 ### build-r2-panel: SNP restriction does not match the source panel
 
-**Raised by:** `ref_panel_builder._read_ref_panel_snp_restriction()` and
-restriction build/column readers · **Exception:** `LDSCInputError`
 **Symptom:** `build-r2-panel SNP restriction does not match the source panel build...`
 
 **Likely causes & how to check** (most probable first):
@@ -616,10 +649,10 @@ restriction build/column readers · **Exception:** `LDSCInputError`
 2. Prefer source-build-specific position columns such as `hg19_POS` or `hg38_POS`.
 3. Fix ragged rows or delimiter/header issues before rerunning.
 
+**Developer reference:** `ref_panel_builder._read_ref_panel_snp_restriction()` and restriction build/column readers · **Exception:** `LDSCInputError`
+
 ### build-r2-panel: reference-panel artifact is incompatible
 
-**Raised by:** `_kernel.ref_panel.ParquetR2RefPanel` and metadata sidecar readers
-· **Exception:** `LDSCInputError`
 **Symptom:** `Reference-panel metadata sidecar is missing...` / `...required identity/provenance keys are missing...`
 
 **Likely causes & how to check** (most probable first):
@@ -637,6 +670,8 @@ restriction build/column readers · **Exception:** `LDSCInputError`
 1. Keep R2 parquet files and metadata sidecars together as one artifact family.
 2. Regenerate the reference panel with the current `ldsc build-r2-panel`.
 3. Pass a concrete build-specific R2 directory or set the matching genome build.
+
+**Developer reference:** `_kernel.ref_panel.ParquetR2RefPanel` and metadata sidecar readers · **Exception:** `LDSCInputError`
 
 ## convert-ldsc2-ldscores
 
@@ -664,9 +699,6 @@ Both reference and weight suites require `<prefix><chrom>.l2.ldscore(.gz)` names
 
 ### conversion rejected the legacy suite
 
-**Raised by:** `legacy_ldscore_converter.LegacyLDScoreConverter`
-· **Exception:** `LDSCInputError`
-
 Inspect `diagnostics/conversion_issues.tsv.gz`; conversion failures intentionally
 leave diagnostics but no canonical `metadata.json` or Parquet result.
 
@@ -685,12 +717,12 @@ an explicit build only when it is known; an explicit declaration that conflicts
 with decisive evidence is rejected. See
 `docs/current/legacy-ldscore-conversion.md` for the complete contract.
 
+**Developer reference:** `legacy_ldscore_converter.LegacyLDScoreConverter` · **Exception:** `LDSCInputError`
+
 ## regression
 
 ### regression: no SNPs remain after merging regression inputs
 
-**Raised by:** `regression_runner.RegressionRunner.build_dataset()` and
-`regression_runner.RegressionRunner.build_rg_dataset()` · **Exception:** `LDSCInputError`
 **Symptom:** `h2 regression retained no overlapping...` / `rg regression retained no overlapping...`
 
 **Likely causes & how to check** (most probable first):
@@ -705,18 +737,22 @@ with decisive evidence is rejected. See
 
 **Remedies:**
 
-1. Regenerate sumstats and LD scores with the same `--snp-identifier` and
-   `--genome-build`.
+1. Regenerate sumstats and LD scores with compatible `--snp-identifier` settings.
+   For coordinate-based identity, the munged `--output-genome-build` must match the LD-score build selected with `--genome-build`; the raw-input `--source-genome-build` can differ when liftover was requested.
 2. Use `--allow-identity-downgrade` only for same-family allele-aware/base mixes
    when duplicate base identities have been cleaned.
-3. Broaden or rebuild the regression SNP universe so the traits and LD-score
-   directory share retained SNPs.
+3. Check whether intended SNP selection leaves a usable intersection before changing it.
+   Rebuild mismatched inputs; broaden an intended SNP selection only if that change is justified for the analysis.
+
+**Developer reference:** `regression_runner.RegressionRunner.build_dataset()` and `regression_runner.RegressionRunner.build_rg_dataset()` · **Exception:** `LDSCInputError`
 
 ### partitioned-h2: a query regression fails
 
-**Raised by:** `RegressionRunner.estimate_partitioned_h2_batch()` and `LstsqJackknifeFast.block_values_to_delete_values()`. Singular deletions raise `JackknifeIdentifiabilityError`, a NumPy `LinAlgError` subclass; other per-query errors retain their original exception type.
+**Symptom:** one or more query models could not be fitted or summarized, or their jackknife uncertainty could not be estimated.
 
-Inspect `diagnostics/query_status.tsv` for all attempted queries and `diagnostics/partitioned-h2.log` for query names, failed stages, and tracebacks. For singular deletions, the log includes block numbers and zero-based retained-row intervals, available LD-score panel genomic spans, normal-matrix ranks, and support counts before/after deletion.
+Inspect `diagnostics/query_status.tsv` for attempted-query outcomes when it was written, and the saved `diagnostics/partitioned-h2.log` for the affected query and failed stage.
+For a failed jackknife calculation, removing one SNP block can leave too little information to estimate all coefficients even when the full-data model can be fitted.
+The log retains the failed block, SNP support counts, numerical ranks, and traceback for deeper investigation.
 
 | Cause | Interpretation and action |
 | --- | --- |
@@ -724,18 +760,36 @@ Inspect `diagnostics/query_status.tsv` for all attempted queries and `diagnostic
 | Remaining columns become dependent | Deletion can make baseline/query columns dependent even when every column remains nonzero. Inspect the conditional model and the failed block. |
 | Other query preparation, estimator, or summary exception | Use the logged stage, exception type, and full traceback to investigate the specific error. |
 
-Default strict mode collects per-query failures and publishes no new scientific results if any fail. Add `--continue-on-query-error` to publish successful query models and retain failed queries in the diagnostic ledger. Shared input/output errors, process interruption, and all-query-failed scans still fail. Do not substitute a pseudoinverse, fabricate uncertainty, or automatically move block boundaries. See [the result contract](current/partitioned-h2-results.md#query-failures-and-continuation).
+Default strict mode collects per-query failures and publishes no new scientific results if any fail.
+If retaining only the successful query models is acceptable for the intended analysis, explicitly select `--continue-on-query-error`; failed queries remain in the diagnostic ledger and are not valid fitted results.
+Shared input/output errors, process interruption, and all-query-failed scans still fail.
+Do not substitute a pseudoinverse, fabricate uncertainty, or automatically move block boundaries.
+See [the result contract](current/partitioned-h2-results.md#query-failures-and-continuation).
+
+**Developer reference:** `RegressionRunner.estimate_partitioned_h2_batch()` and `LstsqJackknifeFast.block_values_to_delete_values()`.
+Singular deletions raise `JackknifeIdentifiabilityError`, a NumPy `LinAlgError` subclass; other per-query errors retain their original exception type.
 
 ### partitioned-h2: a query worker exits or cannot write
 
-With `--workers` greater than one, ordinary model exceptions still follow the query error policy above. An abruptly exited worker, broken pipe, or failed private output write aborts the run even with `--continue-on-query-error`. The log identifies the query or in-flight queries and includes any available worker traceback. The parent reaps children and removes owned scratch; successful publication remains coordinator-only.
+**Symptom:** query fitting stopped because a worker process exited, communication failed, or a temporary result could not be written.
 
-Check the job's memory limit if a worker disappeared without a traceback. Reduce `--workers` to reduce simultaneous model workspaces and `--query-batch-size` to reduce loaded query values; `--workers 1` exercises the inline path. For a filesystem exception, inspect its recorded path and resolve disk-space or access problems before retrying. The scan has no automatic resume, and abrupt parent SIGKILL may leave private scratch. See [CPU and memory policy](current/regression-configuration.md#43-query-workers-and-memory).
+This policy applies at every worker count, including `--workers 1`.
+Ordinary model exceptions follow the query error policy above; worker, communication, and output failures abort the run even with `--continue-on-query-error`.
+Inspect the main log for the affected query or in-flight queries and any available worker traceback.
+An in-flight query identifies interrupted work, not necessarily the query that caused process termination.
+The final query-status table may not have been written.
+
+For a filesystem exception, inspect the recorded path and resolve disk-space or access problems before retrying.
+For an unexplained worker exit, check scheduler/job termination messages and memory-limit evidence rather than assume that missing traceback means out-of-memory.
+Reducing `--workers` reduces simultaneous model workspaces; reducing `--query-batch-size` reduces loaded query values.
+`--workers 1` still uses one managed child process, not in-process execution.
+Python scripts must guard workflow calls with `if __name__ == "__main__":`, including one-worker calls.
+The parent reaps workers before removing owned scratch during handled failure; forced parent termination may leave temporary files.
+The scan has no automatic resume.
+See [CPU and memory policy](current/regression-configuration.md#43-query-workers-and-memory).
 
 ### partitioned-h2: missing overlap matrix
 
-**Raised by:** `regression_runner.estimate_partitioned_h2_batch()` /
-`summarize_partitioned_h2()` · **Exception:** `LDSCInputError`
 **Symptom:** `partitioned-h2 needs the annotation overlap matrix, but the LD-score directory has no ldscore.overlap.parquet...`
 
 Overlap-aware partitioned heritability (both the functional and cell-type
@@ -768,11 +822,13 @@ such a directory cannot be partitioned.
    guard uses it only when present), so they run on unpartitioned or older
    directories.
 
+**Developer reference:** `regression_runner.estimate_partitioned_h2_batch()` / `summarize_partitioned_h2()` · **Exception:** `LDSCInputError`
+
 ## quantile-h2
 
 ### quantile-h2: fitted model or resupplied sources do not verify
 
-**Raised by:** `quantile_h2.load_fitted_partitioned_model()` / `quantile_h2._prepare_quantile_inputs()` · **Exception:** `LDSCInputError`
+**Symptom:** `quantile-h2` cannot verify that the saved fit, annotation inputs, and reference metadata describe the same fitted model.
 
 **Likely causes & how to check** (most probable first):
 
@@ -784,19 +840,37 @@ such a directory cannot be partitioned.
 | 4 | Reference metadata or annotations come from a different panel/release | Inspect SNP-universe size, annotation-sum, or overlap mismatch text. |
 | 5 | Effective SNP identities are duplicated or target coverage is incomplete | Inspect `diagnostics/snp_alignment_issues.tsv.gz`. |
 
-Resupply the exact original annotation sources and matching reference metadata. Parquet-R2 users can use the existing `chr*_meta.tsv.gz` sidecars; PLINK users should regenerate LD scores with `--export-ref-metadata`. Do not concatenate coefficient tables from different query directories.
+Resupply the exact original annotation sources and matching reference metadata.
+Parquet-R2 users can use the existing `chr*_meta.tsv.gz` sidecars; PLINK users should regenerate LD scores with `--export-ref-metadata`.
+Do not concatenate coefficient tables from different query directories.
+
+`quantile-h2` requires an inclusive common-SNP MAF threshold (`>=`).
+If the saved fit records a different comparison, use a compatible fitted result.
+Changing this SNP-count policy requires regenerating LD scores and refitting `partitioned-h2`; it changes the fitted SNP population and must be intentional.
+Keep the saved comparison metadata faithful to the fit that produced it.
+
+**Developer reference:** `quantile_h2.load_fitted_partitioned_model()` / `quantile_h2._prepare_quantile_inputs()` · **Exception:** `LDSCInputError`
 
 ### quantile-h2: target values are invalid or quantiles are empty
 
-**Raised by:** `quantile_h2._read_target_annotation()` / `quantile_h2.assign_legacy_quantiles()` · **Exception:** `LDSCInputError`
+**Symptom:** the target annotation contains an invalid value, or the requested quantile split leaves an empty group.
 
-By default, every target value must be numeric and finite. If exactly one token denotes missingness, pass it with `--target-missing-value`; zero is retained unless explicitly selected. If boundary ties produce an empty quantile, reduce `--num-quantiles` or use a less discrete target. Ties are intentionally kept in the lower-valued quantile for LDSC2 compatibility.
+If the target table cannot be parsed, check its text encoding, whitespace-delimited header, chromosome labels, and numeric base-pair positions.
+Confirm that `--target-annot-sources` selects the intended annotation table and `--target-annotation` names its intended value column.
+Restore or correct the source table before retrying; changing its filename does not change its coordinates or values.
+
+By default, every target value must be numeric and finite.
+If exactly one token denotes missingness, pass it with `--target-missing-value`; zero is retained unless explicitly selected.
+If boundary ties produce an empty quantile, reduce `--num-quantiles` or use a less discrete target, recognizing that this changes the requested grouping.
+Ties are intentionally kept in the lower-valued quantile for LDSC2 compatibility.
+
+**Developer reference:** `quantile_h2._read_target_annotation()` / `quantile_h2.assign_legacy_quantiles()` · **Exception:** `LDSCInputError`
 
 ## plot
 
 ### plot: result directory is unsupported or incomplete
 
-**Raised by:** `plotting.plot_result()` · **Exception:** `LDSCInputError`
+**Symptom:** `plot` cannot recognize the result directory or find the saved artifacts required for its plots.
 
 | # | Likely cause | How to check |
 |---|---|---|
@@ -810,9 +884,11 @@ diagnostics. Matplotlib is a required package dependency. If an existing
 environment reports that it is unavailable, repair that environment with
 `python -m pip install "matplotlib>=3.9,<4"` and rerun the command.
 
+**Developer reference:** `plotting.plot_result()` · **Exception:** `LDSCInputError`
+
 ### plot: rg heritability source is invalid
 
-**Raised by:** `plotting.plot_result()` and `plotting._builders._trait_h2_labels()` · **Exception:** `LDSCInputError`
+**Symptom:** `plot` cannot read or validate the declared per-trait heritability table for an `rg` result.
 
 | Likely cause | How to check and fix |
 |---|---|
@@ -822,3 +898,5 @@ environment reports that it is unavailable, repair that environment with
 | The metadata path is absolute, escapes the result root, or points to a directory | Use a relative path to a regular file inside the same result directory. Symlinks must also resolve inside that root. |
 
 Missing declarations/files or absent trait rows are allowed and display `failed`. Missing, nonfinite, or nonnumeric h2/SE values and negative SEs also display `failed`; these do not abort plotting. Restore valid saved inputs and rerun `ldsc plot --result-dir RESULT_DIR --overwrite` to refresh existing figures. See [heritability annotation behavior](current/plotting-module.md#heritability-annotations-in-rg-plots).
+
+**Developer reference:** `plotting.plot_result()` and `plotting._builders._trait_h2_labels()` · **Exception:** `LDSCInputError`

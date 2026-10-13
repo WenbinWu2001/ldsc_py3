@@ -32,19 +32,31 @@ def load_query_manifest(root, metadata, baseline_columns, baseline_schema):
             raise LDSCInputError("LD-score query_batches must declare canonical ordered filenames and chromosome row_groups. Regenerate the complete directory.")
         path = root / entry["file"]
         if path in paths:
-            raise LDSCInputError(f"LD-score query_batches repeats file {entry['file']!r}.")
+            raise LDSCInputError(
+                f"LD-score query_batches repeats file {entry['file']!r}."
+                " Restore the complete LD-score directory with metadata and query files from the same run, or "
+                "regenerate it with ldsc ldscore. Do not mix query batches from different runs."
+            )
         paths.add(path)
         schema = pq.read_schema(path).names
         parquet_metadata = pq.read_metadata(path)
         offset = 0
         if len(entry["row_groups"]) != parquet_metadata.num_row_groups:
-            raise LDSCInputError(f"LD-score query batch {entry['file']} has inconsistent row-group metadata.")
+            raise LDSCInputError(
+                f"LD-score query batch {entry['file']} has inconsistent row-group metadata."
+                " Restore the complete LD-score directory with metadata and query files from the same run, or "
+                "regenerate it with ldsc ldscore. Do not mix query batches from different runs."
+            )
         for group_index, group in enumerate(entry["row_groups"]):
             n_rows = parquet_metadata.row_group(group_index).num_rows
             if (not isinstance(group, dict) or group.get("row_group_index") != group_index
                     or group.get("row_offset") != offset or group.get("n_rows") != n_rows
                     or not isinstance(group.get("chrom"), str)):
-                raise LDSCInputError(f"LD-score query batch {entry['file']} has inconsistent row-group metadata.")
+                raise LDSCInputError(
+                    f"LD-score query batch {entry['file']} has inconsistent row-group metadata."
+                    " Restore the complete LD-score directory with metadata and query files from the same run, "
+                    "or regenerate it with ldsc ldscore. Do not mix query batches from different runs."
+                )
             offset += n_rows
         validate_ldscore_schemas(baseline_columns, entry["query_columns"], baseline_schema, schema)
         columns.extend(entry["query_columns"])
@@ -166,10 +178,18 @@ class LDScoreSource:
         columns = list(columns)
         missing = set(columns).difference(self.query_columns)
         if missing:
-            raise LDSCInputError(f"Unknown query LD-score columns: {sorted(missing)}.")
+            raise LDSCInputError(
+                f"Unknown query LD-score columns: {sorted(missing)}."
+                " Select query names recorded in metadata.json query_columns. If query annotations were not "
+                "generated, rerun ldsc ldscore with the intended baseline and query inputs."
+            )
         if not self.query_batches:
             if columns:
-                raise LDSCInputError("LD-score directory has no query table.")
+                raise LDSCInputError(
+                    "LD-score directory has no query table."
+                    " Select query names recorded in metadata.json query_columns. If query annotations were "
+                    "not generated, rerun ldsc ldscore with the intended baseline and query inputs."
+                )
             return None
         metadata = None
         values = []

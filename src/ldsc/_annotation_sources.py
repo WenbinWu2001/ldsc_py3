@@ -237,7 +237,11 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     workspace.require_open()
     paths = [*baseline_files, *query_files]
     if not baseline_files and not input_issues:
-        raise LDSCInputError("Annotation preparation requires baseline annotation sources.")
+        raise LDSCInputError(
+            "Annotation preparation requires baseline annotation sources."
+            " Supply --baseline-annot-sources containing at least one baseline annotation column "
+            "for the requested SNP set."
+        )
     if header_widths is None:
         from ._input_preflight import inspect_declared_inputs
         declared_inputs = inspect_declared_inputs(baseline=baseline_files, query=query_files,
@@ -265,9 +269,18 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
                     scan_rows = _chunk_size(width)
                 source = _scan(path, workspace.path / f"source-{i}", mode, scan_rows, source_progress=source_progress)
                 if autosomes_only and not source.chromosomes.issubset(AUTOSOMES):
-                    raise LDSCInputError('Annotation contents must identify an autosomal chromosome set.')
+                    raise LDSCInputError(
+                        f"Annotation file '{path}' contains chromosomes outside autosomes 1 through 22: "
+                        f"{sorted(source.chromosomes.difference(AUTOSOMES))}. "
+                        "Supply annotations for the autosomal chromosomes intended for this analysis."
+                    )
                 if declared and source.chromosomes != {declared}:
-                    raise LDSCInputError(f'@ member for chromosome {declared} contains chromosomes {sorted(source.chromosomes)}.')
+                    raise LDSCInputError(
+                        f"Annotation file '{path}' selected by @ for chromosome {declared} "
+                        f"contains chromosomes {sorted(source.chromosomes)}. "
+                        "Restore the matching chromosome file or correct the path template; "
+                        "renaming a file does not change its SNP coordinates."
+                    )
                 sources.append(source)
             except (OSError, EOFError, ValueError, UnicodeError, LDSCUserError) as exc:
                 issues.append(input_issue('baseline' if i < len(baseline_files) else 'query', path, declared, 'invalid_required_input', exc))
@@ -289,7 +302,11 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
             raise LDSCInputError("Annotation columns differ across chromosomes. Make every chromosome shard use the same annotation header.")
     else:
         if queries and query_layout is not None:
-            raise LDSCInputError("Whole-genome baseline annotations require aligned whole-genome query inputs.")
+            raise LDSCInputError(
+                "Whole-genome baseline annotations require aligned whole-genome query inputs."
+                " Supply whole-genome query tables with the same SNP rows and order as the baseline, "
+                "or regenerate both baseline and query sources as matching chromosome files."
+            )
         groups = [sources]
         baseline_columns = tuple(c for s in baselines for c in s.columns)
         query_columns = tuple(c for s in queries for c in s.columns)

@@ -395,15 +395,27 @@ def _parse_chromosomes(value: str | Sequence[str]) -> tuple[str, ...]:
             try:
                 start, end = (int(part) for part in parts)
             except ValueError as exc:
-                raise LDSCInputError(f"Invalid chromosome range {token!r}.") from exc
+                raise LDSCInputError(
+                    f"Invalid chromosome range {token!r}."
+                    " Select autosomal chromosome numbers 1 through 22 with valid ranges; production gene "
+                    "indexes require all 22 autosomes."
+                ) from exc
             selected.update(range(start, end + 1))
         else:
             try:
                 selected.add(int(token))
             except ValueError as exc:
-                raise LDSCInputError(f"Invalid chromosome token {token!r}.") from exc
+                raise LDSCInputError(
+                    f"Invalid chromosome token {token!r}."
+                    " Select autosomal chromosome numbers 1 through 22 with valid ranges; production gene "
+                    "indexes require all 22 autosomes."
+                ) from exc
     if not selected or min(selected) < 1 or max(selected) > 22:
-        raise LDSCInputError("Gene LD-score index chromosomes must be autosomes 1 through 22.")
+        raise LDSCInputError(
+            "Gene LD-score index chromosomes must be autosomes 1 through 22."
+            " Select autosomal chromosome numbers 1 through 22 with valid ranges; production gene indexes "
+            "require all 22 autosomes."
+        )
     return tuple(str(chrom) for chrom in sorted(selected))
 
 
@@ -698,7 +710,10 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
     )
     if not len(record.baseline_rows):
         LOGGER.warning(
-            f"Chromosome {chrom} has zero persisted regression SNP rows after restriction and region exclusion."
+            f"Chromosome {chrom} has zero persisted regression SNP rows after restriction and region exclusion. "
+            "Index construction continues, but this chromosome supplies no regression SNP rows for indexed scoring. "
+            "Check the requested regression-SNP restriction and region exclusions; correct unintended settings "
+            "before using the index."
         )
     evidence["worker_runtime"] = native_thread_state()
     return StagedIndexChromosome(
@@ -1396,7 +1411,11 @@ def _load_builder_genetic_map(args):
     hg19 = getattr(args, "genetic_map_hg19_sources", None)
     hg38 = getattr(args, "genetic_map_hg38_sources", None)
     if hg38:
-        raise LDSCInputError("The hg19 v1 index builder cannot use --genetic-map-hg38-sources.")
+        raise LDSCInputError(
+            "The hg19 v1 index builder cannot use --genetic-map-hg38-sources."
+            " Supply --genetic-map-hg19-sources for this hg19 index build; no coordinate conversion is "
+            "performed by index construction."
+        )
     if not hg19:
         return None
     from ._kernel.ref_panel_builder import load_genetic_map_group
@@ -1856,30 +1875,68 @@ def _load_gene_ldscore_index(
     index_path = Path(index_dir)
     root = _read_json(index_path / "metadata.json", "root")
     if root.get("artifact_type") != "gene_ldscore_index":
-        raise LDSCInputError("Gene LD-score index root has the wrong artifact_type.")
+        raise LDSCInputError(
+            "Gene LD-score index root has the wrong artifact_type."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+        )
     index_identity = root.get("index_identity")
     index_id = root.get("index_id")
     if not isinstance(index_identity, dict) or index_id != calculate_index_id(index_identity):
-        raise LDSCInputError("Gene LD-score index semantic identity is invalid.")
+        raise LDSCInputError(
+            "Gene LD-score index semantic identity is invalid."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+        )
     try:
         snp_identifier = normalize_snp_identifier_mode(str(index_identity.get("snp_identifier")))
     except Exception as exc:
-        raise LDSCInputError("Gene LD-score index SNP identity metadata is invalid.") from exc
+        raise LDSCInputError(
+            "Gene LD-score index SNP identity metadata is invalid."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+        ) from exc
     if snp_identifier not in {"rsid", "chr_pos"}:
-        raise LDSCInputError("Gene LD-score index supports only rsid or chr_pos identity metadata.")
+        raise LDSCInputError(
+            "Gene LD-score index supports only rsid or chr_pos identity metadata."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+        )
     genome_build = index_identity.get("genome_build")
     if genome_build != "hg19":
-        raise LDSCInputError("Gene LD-score index genome-build metadata must be explicit hg19.")
+        raise LDSCInputError(
+            "Gene LD-score index genome-build metadata must be explicit hg19."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+        )
     if root.get("snp_identifier") != snp_identifier or root.get("genome_build") != genome_build:
-        raise LDSCInputError("Gene LD-score index root identity metadata disagrees with index_identity.")
+        raise LDSCInputError(
+            "Gene LD-score index root identity metadata disagrees with index_identity."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+        )
     chromosomes = tuple(str(chrom) for chrom in root.get("chromosomes", ()))
     expected_coverage = tuple(str(chrom) for chrom in index_identity.get("chromosomes", ()))
     if not chromosomes or chromosomes != expected_coverage:
-        raise LDSCInputError("Gene LD-score index chromosome coverage is invalid.")
+        raise LDSCInputError(
+            "Gene LD-score index chromosome coverage is invalid."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+        )
     full_coverage = tuple(str(value) for value in range(1, 23))
     if not _allow_partial_for_tests and chromosomes != full_coverage:
         raise LDSCInputError(
             "Gene LD-score index must cover autosomes 1 through 22; partial production indexes are unsupported."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
         )
     from ._input_preflight import inspect_index_paths
     advance(0, total=len(chromosomes))
@@ -1891,17 +1948,35 @@ def _load_gene_ldscore_index(
         "catalog_line", "source", "included", "exclusion_reason", "chromosome_gene_row",
     ]
     if list(catalog.columns) != required_catalog:
-        raise LDSCInputError("Gene LD-score index catalog schema is invalid.")
+        raise LDSCInputError(
+            "Gene LD-score index catalog schema is invalid."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+        )
     expected_gene_indices = np.arange(len(catalog), dtype=np.int64)
     if not np.array_equal(catalog["gene_index"].to_numpy(), expected_gene_indices):
-        raise LDSCInputError("Gene LD-score index catalog gene_index ordering is invalid.")
+        raise LDSCInputError(
+            "Gene LD-score index catalog gene_index ordering is invalid."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+        )
     catalog_authority = GeneCatalog.from_embedded_frame(catalog)
     if index_identity.get("catalog") != _catalog_identity_records(catalog):
         raise LDSCInputError(
             "Gene LD-score index embedded catalog disagrees with its semantic identity."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
         )
     if catalog["included"].dtype != np.bool_:
-        raise LDSCInputError("Gene LD-score index catalog included flags must use Boolean dtype.")
+        raise LDSCInputError(
+            "Gene LD-score index catalog included flags must use Boolean dtype."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+        )
     source_values = catalog["source"].fillna("").astype(str)
     if (
         source_values.eq("").any()
@@ -1910,10 +1985,18 @@ def _load_gene_ldscore_index(
     ):
         raise LDSCInputError(
             "Gene LD-score index catalog source must be one nonempty source basename."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
         )
     gene_policy = index_identity.get("gene_exclude_regions")
     if gene_policy not in {"none", "mhc"}:
-        raise LDSCInputError("Gene LD-score index gene-exclusion policy is invalid.")
+        raise LDSCInputError(
+            "Gene LD-score index gene-exclusion policy is invalid."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+        )
     eligible = select_index_eligible_gene_indices(
         catalog_authority,
         gene_exclude_regions=str(gene_policy),
@@ -1923,10 +2006,16 @@ def _load_gene_ldscore_index(
     if not np.array_equal(catalog["included"].to_numpy(dtype=bool), expected_included):
         raise LDSCInputError(
             "Gene LD-score index catalog inclusion policy disagrees with its coordinates and metadata."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
         )
     if not np.array_equal(catalog["exclusion_reason"].fillna("").astype(str), expected_reasons):
         raise LDSCInputError(
             "Gene LD-score index catalog exclusion reasons disagree with its inclusion policy."
+            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+            "build-gene-ldscore-index. See "
+            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
         )
     chromosome_paths = {}
     baseline_columns = None
@@ -1943,6 +2032,9 @@ def _load_gene_ldscore_index(
             ):
                 raise LDSCInputError(
                     f"Gene LD-score index catalog chromosome_gene_row ordering is invalid for chromosome {chrom}."
+                    " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+                    "build-gene-ldscore-index. See "
+                    "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
                 )
             record = _load_index_chromosome(
                 index_path,
@@ -1954,7 +2046,12 @@ def _load_gene_ldscore_index(
             )
             columns = tuple(_baseline_columns_from_rows(record.baseline_rows))
             if baseline_columns is not None and columns != baseline_columns:
-                raise LDSCInputError("Gene LD-score index baseline columns disagree across chromosomes.")
+                raise LDSCInputError(
+                    "Gene LD-score index baseline columns disagree across chromosomes."
+                    " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
+                    "build-gene-ldscore-index. See "
+                    "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+                )
             baseline_columns = columns
             counts = record.atom_model.gene_to_atom.astype(np.int64) @ record.atom_statistics.atom_count_all
             support.loc[chromosome_catalog["gene_index"].astype(int)] = np.asarray(counts).reshape(-1)
@@ -2185,10 +2282,16 @@ def _run_indexed_ldscore_in_workspace(
         _log_query_annotation_statuses(statuses)
         raise LDSCInputError("; ".join(control_errors))
     if any(item["query"] == "gene_control" for item in usable):
-        raise LDSCInputError("Focal query name 'gene_control' collides with the reserved fixed control column.")
+        raise LDSCInputError(
+            "Focal query name 'gene_control' collides with the reserved fixed control column. "
+            "Rename the focal gene-list file so its query name differs from gene_control."
+        )
 
     if "gene_control" in index.baseline_columns:
-        raise LDSCInputError("Index supplied baseline columns contain reserved name 'gene_control'.")
+        raise LDSCInputError(
+            "Index supplied baseline columns contain reserved name 'gene_control'. "
+            "Rebuild the index with a distinct baseline annotation name; gene_control is reserved for the requested gene control."
+        )
     from ._indexed_ldscore_batches import indexed_results
 
     from ._ldscore_diagnostics import ldscore_logs
@@ -2389,10 +2492,15 @@ def intersect_baseline_plink_by_identifier(
 ) -> BaselinePlinkIntersection:
     """Drop ambiguous source groups and inner-join by one base identity mode."""
     if snp_identifier not in {"rsid", "chr_pos"}:
-        raise LDSCInputError("Gene LD-score index matching supports only rsid or chr_pos identity.")
+        raise LDSCInputError(
+            f"Gene LD-score index matching does not support snp_identifier={snp_identifier!r}. "
+            "Use --snp-identifier rsid or chr_pos for index construction, matching the supplied baseline and PLINK panel."
+        )
     if len(baseline_rows) != len(baseline_annotations):
         raise LDSCInputError(
-            "Baseline metadata and annotation row counts differ before PLINK intersection."
+            f"Baseline SNP metadata has {len(baseline_rows)} rows but its annotations have "
+            f"{len(baseline_annotations)} rows before matching the PLINK panel. "
+            "Supply baseline values and SNP metadata with one corresponding row per SNP in the same order."
         )
     baseline = _normalize_identity_rows(
         baseline_rows.assign(_source_row=np.arange(len(baseline_rows), dtype=np.int64)),
@@ -2425,7 +2533,9 @@ def intersect_baseline_plink_by_identifier(
     if baseline.empty or plink.empty:
         raise LDSCInputError(
             f"Gene LD-score index baseline/PLINK {snp_identifier} intersection is empty on chromosome {chrom} "
-            "after duplicate identity cleanup."
+            "after duplicate identity cleanup. Check whether the baseline annotations and PLINK panel "
+            "use the intended SNP identifiers and matching hg19 coordinates, and check both inputs for "
+            "duplicate identities. Restore compatible inputs rather than dropping ambiguous SNPs to bypass this check."
         )
     baseline["_identity_key"] = effective_merge_key_series(
         baseline, snp_identifier, context=f"gene-index baseline chromosome {chrom}"
@@ -2438,7 +2548,9 @@ def intersect_baseline_plink_by_identifier(
     matched = plink["_identity_key"].isin(baseline_keys)
     if not matched.any():
         raise LDSCInputError(
-            f"Gene LD-score index baseline/PLINK {snp_identifier} intersection is empty on chromosome {chrom}."
+            f"Gene LD-score index baseline/PLINK {snp_identifier} intersection is empty on chromosome {chrom}. "
+            "Check that baseline annotations and the PLINK panel describe the same SNP population, "
+            "use compatible identifiers, and have matching hg19 coordinates; supply compatible inputs."
         )
     matched_plink = (
         plink.loc[matched]
@@ -2458,7 +2570,10 @@ def intersect_baseline_plink_by_identifier(
     if coordinate_discordant:
         LOGGER.warning(
             f"Baseline/PLINK rsid intersection on chromosome {chrom} has "
-            f"{coordinate_discordant} coordinate disagreement row(s); PLINK coordinates are authoritative."
+            f"{coordinate_discordant} coordinate disagreement row(s); PLINK coordinates are authoritative. "
+            "Index construction continues using PLINK coordinates for SNPs matched by rsID. "
+            "Check that baseline annotations and the PLINK panel describe compatible hg19 references, "
+            "and correct unintended coordinate differences before using the index."
         )
     snp_label_discordant = 0
     if snp_identifier == "chr_pos" and "SNP" in matched_baseline.columns:
@@ -2528,15 +2643,26 @@ def _read_json(path: Path, label: str) -> dict:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise LDSCInputError(f"Gene LD-score index {label} metadata is missing or unreadable: {path}") from exc
+        raise LDSCInputError(
+            f"Gene LD-score index {label} metadata is missing or unreadable: {path}"
+            " Check the named metadata file and restore it from the same complete index build; regenerate the "
+            "index if the original files are unavailable."
+        ) from exc
     if not isinstance(payload, dict):
-        raise LDSCInputError(f"Gene LD-score index {label} metadata must be a JSON object.")
+        raise LDSCInputError(
+            f"Gene LD-score index {label} metadata must be a JSON object."
+            " Check the named metadata file and restore it from the same complete index build; regenerate the "
+            "index if the original files are unavailable."
+        )
     return payload
 
 
 def _validate_metadata_identity(metadata: dict, *, index_id: str) -> None:
     if metadata.get("artifact_type") != "gene_ldscore_index" or metadata.get("index_id") != index_id:
-        raise LDSCInputError("Gene LD-score index component identity is invalid.")
+        raise LDSCInputError(
+            "Gene LD-score index component identity is invalid."
+            " Restore components from the same complete index build as its root metadata."
+        )
 
 
 def _cast_index_baseline_rows(frame: pd.DataFrame) -> pd.DataFrame:
@@ -2754,10 +2880,16 @@ def _load_npz_members(path: Path, required: set[str]) -> dict[str, np.ndarray]:
                 raise LDSCInputError(
                     f"Gene LD-score index payload {path.name} has required members {sorted(required)}, "
                     f"found {sorted(archive.files)}."
+                    " Restore this saved component from the same index build, or rebuild the complete index; "
+                    "do not replace array members independently."
                 )
             return {name: archive[name] for name in archive.files}
     except (OSError, ValueError) as exc:
-        raise LDSCInputError(f"Gene LD-score index payload is unreadable: {path}") from exc
+        raise LDSCInputError(
+            f"Gene LD-score index payload is unreadable: {path}"
+            " Restore this saved component from the same index build, or rebuild the complete index; do not "
+            "replace array members independently."
+        ) from exc
 
 
 def _validate_chromosome_metadata(component_meta, *, chrom, index_id, snp_identifier, genome_build):
@@ -2767,9 +2899,17 @@ def _validate_chromosome_metadata(component_meta, *, chrom, index_id, snp_identi
         component_meta.get("snp_identifier") != snp_identifier
         or component_meta.get("genome_build") != genome_build
     ):
-        raise LDSCInputError("Gene LD-score index component identity metadata disagrees with the root.")
+        raise LDSCInputError(
+            "Gene LD-score index component identity metadata disagrees with the root."
+            " Restore chromosome metadata from the same index build as the root metadata, or rebuild the "
+            "complete index."
+        )
     if component_meta.get("chromosome") != str(chrom):
-        raise LDSCInputError("Gene LD-score index component chromosome identity is invalid.")
+        raise LDSCInputError(
+            "Gene LD-score index component chromosome identity is invalid."
+            " Restore chromosome metadata from the same index build as the root metadata, or rebuild the "
+            "complete index."
+        )
 
 
 def _load_index_chromosome(
@@ -2787,31 +2927,67 @@ def _load_index_chromosome(
                                  snp_identifier=snp_identifier, genome_build=genome_build)
     baseline_rows = pd.read_parquet(component_path / "baseline_rows.parquet")
     if len(baseline_rows) != int(component_meta.get("n_rows", -1)):
-        raise LDSCInputError("Gene LD-score index baseline row count disagrees with component metadata.")
+        raise LDSCInputError(
+            "Gene LD-score index baseline row count disagrees with component metadata."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     baseline_columns = list(component_meta.get("baseline_columns", ()))
     allele_columns = [column for column in ("A1", "A2") if column in baseline_rows.columns]
     if allele_columns != ["A1", "A2"]:
-        raise LDSCInputError("Gene LD-score index baseline rows require both PLINK allele columns A1 and A2.")
+        raise LDSCInputError(
+            "Gene LD-score index baseline rows require both PLINK allele columns A1 and A2."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     required_baseline = [
         "CHR", "SNP", "POS", *allele_columns, "regression_ld_scores", *baseline_columns
     ]
     if list(baseline_rows.columns) != required_baseline:
-        raise LDSCInputError("Gene LD-score index baseline rows have an invalid schema.")
+        raise LDSCInputError(
+            "Gene LD-score index baseline rows have an invalid schema."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     if any(baseline_rows[column].dtype != np.float32 for column in ["regression_ld_scores", *baseline_columns]):
-        raise LDSCInputError("Gene LD-score index baseline LD-score columns must use float32 dtype.")
+        raise LDSCInputError(
+            "Gene LD-score index baseline LD-score columns must use float32 dtype."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     if baseline_rows["CHR"].astype(str).ne(str(chrom)).any():
-        raise LDSCInputError("Gene LD-score index baseline rows contain the wrong chromosome.")
+        raise LDSCInputError(
+            "Gene LD-score index baseline rows contain the wrong chromosome."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     if baseline_rows["POS"].dtype != np.int64:
-        raise LDSCInputError("Gene LD-score index baseline POS must use int64 dtype.")
+        raise LDSCInputError(
+            "Gene LD-score index baseline POS must use int64 dtype."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     effective_columns = ["SNP"] if snp_identifier == "rsid" else ["CHR", "POS"]
     if baseline_rows.duplicated(effective_columns, keep=False).any():
-        raise LDSCInputError("Gene LD-score index baseline rows contain duplicate effective identities.")
+        raise LDSCInputError(
+            "Gene LD-score index baseline rows contain duplicate effective identities."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     canonical_rows = baseline_rows.sort_values(["POS", "SNP"], kind="mergesort").reset_index(drop=True)
     if not baseline_rows.reset_index(drop=True).equals(canonical_rows):
-        raise LDSCInputError("Gene LD-score index baseline rows are not in canonical genomic order.")
+        raise LDSCInputError(
+            "Gene LD-score index baseline rows are not in canonical genomic order."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     published_digest = _published_row_metadata_sha256(baseline_rows)
     if component_meta.get("published_row_metadata_sha256") != published_digest:
-        raise LDSCInputError("Gene LD-score index published row metadata digest is invalid.")
+        raise LDSCInputError(
+            "Gene LD-score index published row metadata digest is invalid."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     stats = _load_npz_members(
         component_path / "baseline_statistics.npz",
         {
@@ -2822,24 +2998,54 @@ def _load_index_chromosome(
     b = int(component_meta.get("n_baseline", -1))
     for name in ("baseline_count_all", "baseline_count_common"):
         if stats[name].shape != (b,) or stats[name].dtype != np.float64 or not np.isfinite(stats[name]).all():
-            raise LDSCInputError(f"Gene LD-score index {name} has invalid shape, dtype, or values.")
+            raise LDSCInputError(
+                f"Gene LD-score index {name} has invalid shape, dtype, or values."
+                " Restore this chromosome component together with its matching root index; do not mix or "
+                "hand-edit index components. Rebuild the complete index if the original valid files are "
+                "unavailable."
+            )
     for name in ("baseline_overlap_all", "baseline_overlap_common"):
         if stats[name].shape != (b, b) or stats[name].dtype != np.float64 or not np.isfinite(stats[name]).all():
-            raise LDSCInputError(f"Gene LD-score index {name} has invalid shape, dtype, or values.")
+            raise LDSCInputError(
+                f"Gene LD-score index {name} has invalid shape, dtype, or values."
+                " Restore this chromosome component together with its matching root index; do not mix or "
+                "hand-edit index components. Rebuild the complete index if the original valid files are "
+                "unavailable."
+            )
     atoms = pd.read_parquet(component_path / "atoms.parquet")
     if list(atoms.columns) != ["atom_id", "CHR", "start0", "end"]:
-        raise LDSCInputError("Gene LD-score index atoms.parquet schema is invalid.")
+        raise LDSCInputError(
+            "Gene LD-score index atoms.parquet schema is invalid."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     if any(atoms[column].dtype != np.int64 for column in ("atom_id", "start0", "end")):
-        raise LDSCInputError("Gene LD-score index atom identifiers and coordinates must use int64 dtype.")
+        raise LDSCInputError(
+            "Gene LD-score index atom identifiers and coordinates must use int64 dtype."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     if atoms["CHR"].astype(str).ne(str(chrom)).any():
-        raise LDSCInputError("Gene LD-score index atoms contain the wrong chromosome.")
+        raise LDSCInputError(
+            "Gene LD-score index atoms contain the wrong chromosome."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     if not np.array_equal(atoms["atom_id"].to_numpy(), np.arange(len(atoms), dtype=np.int64)):
-        raise LDSCInputError("Gene LD-score index atom_id ordering is invalid.")
+        raise LDSCInputError(
+            "Gene LD-score index atom_id ordering is invalid."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     try:
         gene_to_atom = sparse.load_npz(component_path / "gene_to_atom.npz").tocsr()
         operator = sparse.load_npz(component_path / "ldscore_operator.npz").tocsr()
     except (OSError, ValueError) as exc:
-        raise LDSCInputError("Gene LD-score index sparse payload is unreadable.") from exc
+        raise LDSCInputError(
+            "Gene LD-score index sparse payload is unreadable."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        ) from exc
     model = ChromosomeAtomModel(
         chromosome=str(chrom),
         starts=atoms["start0"].to_numpy(dtype=np.int64),
@@ -2853,27 +3059,54 @@ def _load_index_chromosome(
         or model.gene_to_atom.shape[0] != int(component_meta.get("n_genes", -1))
         or model.gene_to_atom.shape[0] != expected_gene_rows
     ):
-        raise LDSCInputError("Gene LD-score index atom dimensions disagree with metadata.")
+        raise LDSCInputError(
+            "Gene LD-score index atom dimensions disagree with metadata."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     if n_rows != len(baseline_rows):
-        raise LDSCInputError("Gene LD-score index operator row count disagrees with baseline rows.")
+        raise LDSCInputError(
+            "Gene LD-score index operator row count disagrees with baseline rows."
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     try:
         model.validate()
         validate_ldscore_operator(operator, n_rows=n_rows, n_atoms=n_atoms)
     except LDSCInternalError as exc:
-        raise LDSCInputError(f"Gene LD-score index sparse structure is invalid: {exc}") from exc
+        raise LDSCInputError(
+            f"Gene LD-score index sparse structure is invalid: {exc}"
+            " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
+            "index components. Rebuild the complete index if the original valid files are unavailable."
+        ) from exc
     atom_stats = _load_npz_members(
         component_path / "atom_statistics.npz",
         {"atom_count_all", "atom_count_common", "baseline_atom_overlap_all", "baseline_atom_overlap_common"},
     )
     for name in ("atom_count_all", "atom_count_common"):
         if atom_stats[name].shape != (n_atoms,) or atom_stats[name].dtype != np.int64:
-            raise LDSCInputError(f"Gene LD-score index {name} has invalid shape or dtype.")
+            raise LDSCInputError(
+                f"Gene LD-score index {name} has invalid shape or dtype."
+                " Restore this chromosome component together with its matching root index; do not mix or "
+                "hand-edit index components. Rebuild the complete index if the original valid files are "
+                "unavailable."
+            )
     for name in ("baseline_atom_overlap_all", "baseline_atom_overlap_common"):
         if atom_stats[name].shape != (b, n_atoms) or atom_stats[name].dtype != np.float64 or not np.isfinite(atom_stats[name]).all():
-            raise LDSCInputError(f"Gene LD-score index {name} has invalid shape, dtype, or values.")
+            raise LDSCInputError(
+                f"Gene LD-score index {name} has invalid shape, dtype, or values."
+                " Restore this chromosome component together with its matching root index; do not mix or "
+                "hand-edit index components. Rebuild the complete index if the original valid files are "
+                "unavailable."
+            )
     for name in ("total_reference_snps_all", "total_reference_snps_common"):
         if stats[name].shape != () or stats[name].dtype != np.int64:
-            raise LDSCInputError(f"Gene LD-score index {name} must be a scalar int64 value.")
+            raise LDSCInputError(
+                f"Gene LD-score index {name} must be a scalar int64 value."
+                " Restore this chromosome component together with its matching root index; do not mix or "
+                "hand-edit index components. Rebuild the complete index if the original valid files are "
+                "unavailable."
+            )
     return IndexChromosomeData(
         baseline_rows=baseline_rows,
         baseline_count_all=stats["baseline_count_all"],

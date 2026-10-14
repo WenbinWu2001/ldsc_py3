@@ -1,6 +1,6 @@
 # Parallel execution
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-14
 
 Use `workers` in Python or `--workers` in the CLI to choose task concurrency.
 The default is one worker on both laptops and HPC systems.
@@ -12,7 +12,7 @@ The retired `threads` / `--threads` spelling is not accepted.
 | Workflow | One task | Concurrency limit |
 | --- | --- | --- |
 | Direct LD scoring | One chromosome in the active query batch | Requested chromosomes |
-| Indexed LD scoring | One chromosome through its query batches | Index chromosomes |
+| Indexed LD scoring | One chromosome in the active query batch | Index chromosomes |
 | Gene-index construction | One chromosome | Requested build chromosomes |
 | Batch regression | One complete query-plus-baseline model across all chromosomes | Query count and `query_batch_size` |
 
@@ -42,7 +42,7 @@ See [`_parallelism.py`](../../src/ldsc/_parallelism.py).
 
 All task workflows use reusable managed child processes, including one persistent child for serial execution.
 A ready worker receives the next task; chromosomes and models do not permanently own processes.
-Direct LD keeps its pool across query batches, and regression keeps its pool across query-loading batches.
+Direct and indexed LD keep their pools across query batches, and regression keeps its pool across query-loading batches.
 There are no nested chromosome/model pools.
 The parent coordinates inputs, collection, aggregation, and publication.
 
@@ -50,8 +50,8 @@ Direct scoring, indexed scoring, and index construction share the private `_run_
 It bounds outstanding futures by the resolved worker count, tracks their chromosomes, and collects each ready group before submitting replacements, using the same path for one or multiple workers.
 On an observed exception it attempts cancellation and passes the original error, current chromosome, and outstanding chromosomes to the workflow's failure callback.
 The workflow retains task preparation, result processing, progress and diagnostics, executor ownership, and all temporary-file and publication responsibilities.
-Direct LD explicitly waits for its persistent executor to shut down on failure before the current query-batch workspace closes; an outer pool context alone would close too late.
-Indexed scoring and index construction exit their executor contexts before their enclosing workspaces are cleaned up.
+Direct and indexed LD explicitly wait for their persistent executors to shut down on failure before the current query-batch workspace closes; an outer pool context alone would close too late.
+Index construction exits its executor context before its enclosing workspace is cleaned up.
 Regression retains its separate process communication and memory-mapping implementation.
 
 BLAS and numerical OpenMP each target one thread throughout every worker's lifetime.
@@ -74,6 +74,9 @@ Separate native and Arrow pools do not establish a whole-job CPU ceiling.
 
 Regression shares suitable numerical inputs through read-only maps and stages each model separately.
 LD and index-building tasks use chromosome-specific staged inputs and outputs; index construction returns compact component metadata rather than retaining completed operators in the parent.
+Indexed scoring reloads operators for each batch, stages lossless float64 Parquet fragments, and returns only compact counts, overlaps, and variation summaries.
+The parent consumes one chromosome fragment at a time in index order and removes the active batch before submitting another.
+Raw query scratch therefore scales with batch width rather than the total number of queries; privately staged final output files still grow with the run's total output.
 More workers require more private model/chromosome memory.
 The package does not select workers from an automatic memory estimate.
 The [focused index transport probe](../audits/parallel-execution/index-transport.md) supports the process migration but does not establish full-genome memory needs or HPC scaling.

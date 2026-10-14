@@ -276,16 +276,16 @@ def test_abnormal_ld_termination_reports_unconfirmed_source_and_retains_logs(tmp
 
 def _fail_indexed_second_batch(*args, **kwargs):
     from ldsc import _indexed_ldscore_batches as indexed
-    original = indexed._save
-    def save(path, value):
-        if path.name == "query-1.pkl":
+    original = indexed.pq.write_table
+    def save(table, path, **options):
+        if args[5] == 1 and path.name == "query.parquet":
             raise OSError("indexed batch failure")
-        return original(path, value)
-    indexed._save = save
+        return original(table, path, **options)
+    indexed.pq.write_table = save
     try:
         return indexed._write_chromosome(*args, **kwargs)
     finally:
-        indexed._save = original
+        indexed.pq.write_table = original
 
 
 def test_indexed_python_failure_reports_batch_and_full_chromosome_traceback(tmp_path, monkeypatch):

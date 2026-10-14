@@ -74,7 +74,7 @@ def _observed_index_task(*args, **kwargs):
     try:
         result = batches._write_chromosome(*args, **kwargs)
         assert all(ref() is None for ref in live)
-        (Path(os.environ["LDSC_TEST_INDEX_EVENTS"]) / f"{args[1]}.json").write_text(
+        (Path(os.environ["LDSC_TEST_INDEX_EVENTS"]) / f"{args[1]}-{args[5]}.json").write_text(
             json.dumps({"loads": loads, "widths": widths}))
         return result
     finally:
@@ -83,7 +83,7 @@ def _observed_index_task(*args, **kwargs):
 
 
 @pytest.mark.parametrize("batch_size", [1, 2, 1000])
-def test_index_assembly_loads_each_operator_twice_and_batches_queries(tmp_path, monkeypatch, batch_size):
+def test_index_assembly_reloads_and_releases_each_operator_per_batch(tmp_path, monkeypatch, batch_size):
     path = two_chromosome_index(tmp_path)
     queries = []
     for name, genes in [("first", "G1\nG3\n"), ("second", "G2\nG4\n"),
@@ -109,8 +109,10 @@ def test_index_assembly_loads_each_operator_twice_and_batches_queries(tmp_path, 
                                 output_dir=tmp_path / "out", query_batch_size=batch_size)
     assert loads == ["21", "22"]
     import json
-    observed = [json.loads((events / f"{chrom}.json").read_text()) for chrom in loads]
-    assert [item["loads"] for item in observed] == [["21"], ["22"]]
+    total_batches = (len(queries) + batch_size - 1) // batch_size
+    observed = [json.loads((events / f"{chrom}-{ordinal}.json").read_text())
+                for ordinal in range(total_batches) for chrom in loads]
+    assert [item["loads"] for item in observed] == [["21"], ["22"]] * total_batches
     widths = [width for item in observed for width in item["widths"]]
     assert all(ref() is None for ref in live)
     assert max(widths) <= batch_size

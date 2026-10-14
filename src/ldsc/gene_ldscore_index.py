@@ -1654,8 +1654,9 @@ class LoadedGeneLDScoreIndex:
     def load_chromosome(self, chrom: str) -> IndexChromosomeData:
         """Load one owned chromosome payload; callers release it after use.
 
-        The immutable component is checked again when opened. Keep its operator
-        through every query batch on this chromosome, then discard the record.
+        The immutable component is checked again when opened. Indexed scoring
+        reloads it for each active query batch and releases it before the next
+        chromosome task; operators are not cached between tasks.
         """
         path = self.chromosome_paths[str(chrom)]
         return _load_index_chromosome(
@@ -2117,7 +2118,10 @@ def run_indexed_ldscore(
         value-free flag for ``"resolved-only"``.
     query_batch_size : int, optional
         Positive maximum focal columns per operator multiplication, default 100.
-        Also bounds genome-wide result assembly and saved query-file width.
+        Bounds outstanding chromosome fragments and saved query-file width.
+        One batch is consumed before the next is computed; the parent writes
+        one chromosome at a time without a genome-wide query array.
+        Chromosome operators are reloaded for each batch in a persistent pool.
         Each pathway remains a separate annotation and regression model.
     workers : int, optional
         Maximum concurrent task processes, default 1, including on HPC.

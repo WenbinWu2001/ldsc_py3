@@ -1,6 +1,6 @@
 # Exact gene LD-score indexes
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-14
 
 `--workers` / `workers` defaults to one managed child process, including on HPC.
 Every worker uses **1 BLAS thread**, in serial and parallel execution.
@@ -308,9 +308,12 @@ The build lifecycle retains preceding/current lock coordination in `_gene_index_
 
 `LoadedGeneLDScoreIndex` holds shared catalog/settings, chromosome component paths, and compact support counts.
 Validation releases each chromosome before loading the next.
-Each assembly worker retains one operator through its query batches, then releases it before its next task.
-`run_indexed_ldscore(..., query_batch_size=100, workers=1)` bounds result width and concurrent chromosomes.
-The parent assembles float64 fragments in chromosome order and publishes only after all required calculations succeed.
+Each assembly worker loads one operator for the active query batch, writes a lossless float64 Parquet fragment, and releases the operator before its next task.
+`run_indexed_ldscore(..., query_batch_size=100, workers=1)` bounds outstanding raw query fragments and concurrent chromosomes; the worker pool persists across batches.
+The parent combines compact counts, overlaps, and exact float64 variation summaries in chromosome order, then validates and writes one chromosome row group at a time without concatenating genome-wide query values.
+Constant-query filtering precedes float32 output conversion, including queries that vary across chromosomes or only below float32 precision.
+The active batch's scratch is removed before the next batch starts; privately staged final Parquet files accumulate until all required calculations succeed and publication begins.
+Repeated index reads are the trade-off for the bounded batch lifecycle and must be included in end-to-end performance measurements.
 One batch uses `ldscore.query.parquet`; multiple batches use the ordered `metadata.json.query_batches` manifest.
 Saved calls return `LDScoreSource` with explicit uncached `read_queries(names)` reads.
 Every worker uses 1 BLAS thread.

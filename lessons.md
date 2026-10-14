@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-10-13
+Last updated on: 2026-10-14
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -243,3 +243,11 @@ Last updated on: 2026-10-13
 
 - Summary/root cause/correction: A missing literal sumstats path fell through chromosome-suite expansion and became a bare pathname, while the input gate discarded the original exception; guard suite expansion by an explicit `@`, retain captured causes, and report the failed path check and repair without duplicating its pathname.
   Verify the CLI, diagnostic table, and chained file traceback with synthetic inputs, and preserve failure counts and subsecond elapsed time in short runs.
+
+## Batch width does not bound fragments produced before consumption
+
+- Summary/root cause/correction: Indexed chromosome tasks wrote every query batch before parent assembly began, so temporary float64 scores scaled with all requested queries and assembly retained genome-wide copies.
+  Schedule one batch at a time through a persistent pool, stage lossless float64 chromosome Parquet, and consume/delete each fragment before advancing.
+  Combine exact float64 variation summaries before pruning and public float32 conversion, and wait for running workers before batch cleanup.
+  Tests must measure outstanding fragments and object lifetimes, not just multiplication width or a falling RSS trace.
+  File-cache dominance in historical Slurm peaks remains unproven without anonymous/file-cache measurements.

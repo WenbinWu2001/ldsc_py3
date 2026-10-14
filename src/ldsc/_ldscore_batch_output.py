@@ -23,6 +23,8 @@ from .query_annotations import gene_viability_errors
 
 def write_ldscore_batches(writer, results, output_config, query_status_order=()):
     """Consume one result at a time, then publish the complete artifact family."""
+    from ._ldscore_fragments import StagedLDScoreBatch, validate_fragment_baseline, write_query_fragments
+
     root = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
     writer.artifact_family(root).preflight(overwrite=output_config.overwrite)
     compression = None if output_config.parquet_compression in {None, "none"} else output_config.parquet_compression
@@ -35,10 +37,16 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
         stage = Path(temporary)
         try:
             for result in results:
-                writer._validate_tables(result)
+                streamed = isinstance(result, StagedLDScoreBatch)
+                if streamed:
+                    validate_fragment_baseline(writer, result)
+                else:
+                    writer._validate_tables(result)
                 if shared is None:
                     shared = SimpleNamespace(**vars(result))
                     shared.query_table = None
+                    if streamed:
+                        shared.query_fragments = ()
                     shared.chromosome_results = []
                     shared.query_columns = []
                     shared.count_records = [record for record in result.count_records if record["group"] == "baseline"]
@@ -57,9 +65,10 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
                 shared.count_records.extend(record for record in result.count_records if record["group"] == "query")
                 shared.annotation_types.update(result.annotation_types)
                 statuses.extend(result.query_statuses)
-                if result.query_table is not None:
+                if result.query_columns:
                     filename = f"query-{len(query_batches) + 1}.parquet"
-                    groups = _write_chromosome_aligned_parquet(result.query_table, stage / filename, compression)
+                    groups = (write_query_fragments(writer, result, stage / filename, compression) if streamed else
+                              _write_chromosome_aligned_parquet(result.query_table, stage / filename, compression))
                     query_batches.append({"file": filename, "query_columns": list(result.query_columns), "row_groups": groups})
                 if result.overlap is not None:
                     overlaps.append(result.overlap)

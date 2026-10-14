@@ -1,6 +1,6 @@
 # Annotation and workflow memory design
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-14
 
 The benchmark scripts were removed from the active tree on September 15, 2026. Script links below point to their archived Git revision; the recorded measurements remain historical evidence.
 
@@ -111,7 +111,18 @@ Parallel submission keeps pending chromosome work bounded by the effective worke
 
 ## Immutable gene-index access
 
-[`LoadedGeneLDScoreIndex`](../../src/ldsc/gene_ldscore_index.py) retains catalog/settings metadata, chromosome component paths, and compact support summaries. Integrity validation loads and releases one chromosome at a time. Assembly uses `_indexed_ldscore_batches.py` and bounded chromosome workers. Each worker loads one operator, writes and releases every active query batch, then releases the operator before its next chromosome. The coordinator assembles private float64 fragments in deterministic chromosome order, one genome-wide query batch at a time. It does not reload the operator for every query batch. Canonical integrity checks remain intact. `workers`/`--workers` has the direct-mode convention: default 1, positive worker counts, -1 detected available CPUs, -2 leaves one free, zero invalid, capped at chromosome count.
+[`LoadedGeneLDScoreIndex`](../../src/ldsc/gene_ldscore_index.py) retains catalog/settings metadata, chromosome component paths, and compact support summaries.
+Integrity validation loads and releases one chromosome at a time.
+Assembly uses `_indexed_ldscore_batches.py` with one active query batch and a persistent chromosome-worker pool.
+Each task reloads its chromosome operator, writes lossless float64 Parquet for that batch, and returns only compact counts, overlap blocks, and exact variation summaries.
+The coordinator reduces those summaries in index order and applies the shared query-status policy before narrowing values.
+[`_ldscore_fragments.write_query_fragments`](../../src/ldsc/_ldscore_fragments.py) validates, converts, and writes one chromosome at a time, deleting each consumed fragment.
+There is no genome-wide query concatenation or retained-column copy in this path.
+All active-batch scratch is removed before another batch is submitted, including when every query in a batch is skipped.
+The score payload bound is proportional to output SNP rows times batch width, while each live query array is chromosome-sized.
+Shared baseline values, compact metadata, and privately staged final outputs have separate lifetimes; the total job memory and scratch footprint is not just the raw score payload bound.
+Canonical integrity checks remain intact, including validation when each operator is reopened.
+`workers`/`--workers` has the direct-mode convention: default 1, positive worker counts, -1 detected available CPUs, -2 leaves one free, zero invalid, capped at chromosome count.
 
 The index builder uses the same bounded annotation preparation and chromosome scheduling. Shared baseline and regression-weight projection use one traversal; separate atom-batch traversals remain intentional. Stored operators and common payloads remain float64. Smaller query multiplications and separate validation/assembly passes can add overhead; performance claims require end-to-end measurements, not just a count of loaded operators.
 

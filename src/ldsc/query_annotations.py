@@ -139,25 +139,21 @@ def gene_viability_errors(batch, statuses, result=None):
     return errors
 
 
-def finalize_query_statuses(
-    result: Any,
-    statuses: Sequence[QueryAnnotationStatus],
-) -> Any:
-    """Attach final counts and prune zero-hit or constant query LD scores."""
-    if not statuses:
-        return result
-    count_by_column = {
-        str(record["column"]): float(record["all_reference_snp_count"])
-        for record in result.count_records
-        if record.get("group") == "query"
-    }
+def finalize_query_measurements(statuses, count_by_column, varying):
+    """Finalize statuses from counts and exact pre-publication variation.
+
+    ``varying[name]`` is true iff the complete regression-row column
+    contains more than one distinct value, treating NaNs as one value just as
+    ``Series.nunique(dropna=False)`` does. Indexed scoring combines float64
+    chromosome summaries; direct scoring inspects its materialized columns.
+    """
     finalized: list[QueryAnnotationStatus] = []
     retained_queries: list[str] = []
     for status in statuses:
         if status.status not in {"ok", "warning"}:
             finalized.append(status)
             continue
-        if status.query not in count_by_column or result.query_table is None:
+        if status.query not in count_by_column or status.query not in varying:
             raise LDSCInternalError(
                 "LD-score query-status finalization could not find the scientific column for "
                 f"usable query {status.query!r}. Re-run with DEBUG logging and report the traceback."
@@ -173,8 +169,7 @@ def finalize_query_statuses(
                 )
             )
             continue
-        values = pd.to_numeric(result.query_table[status.query], errors="coerce")
-        if values.nunique(dropna=False) <= 1:
+        if not varying[status.query]:
             finalized.append(
                 status.updated(
                     status="skipped",
@@ -186,6 +181,27 @@ def finalize_query_statuses(
             continue
         finalized.append(status.updated(n_annotation_snps=count))
         retained_queries.append(status.query)
+    return tuple(finalized), retained_queries
+
+
+def finalize_query_statuses(
+    result: Any,
+    statuses: Sequence[QueryAnnotationStatus],
+) -> Any:
+    """Attach final counts and prune zero-hit or constant query LD scores."""
+    if not statuses:
+        return result
+    count_by_column = {
+        str(record["column"]): float(record["all_reference_snp_count"])
+        for record in result.count_records
+        if record.get("group") == "query"
+    }
+    varying = {} if result.query_table is None else {
+        status.query: (count_by_column[status.query] > 0 and
+                       pd.to_numeric(result.query_table[status.query], errors="coerce").nunique(dropna=False) > 1)
+        for status in statuses if status.status in {"ok", "warning"} and status.query in count_by_column
+    }
+    finalized, retained_queries = finalize_query_measurements(statuses, count_by_column, varying)
 
     original_queries = list(result.query_columns)
     query_table = None

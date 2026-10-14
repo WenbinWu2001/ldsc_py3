@@ -1,6 +1,6 @@
 # Architecture 
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-14
 
 `ldsc` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
@@ -203,7 +203,7 @@ Managed partitioned query workers, including serial execution, live in `_partiti
 
 `_parallelism` validates `workers` against the detected available CPU count from `joblib.cpu_count()`, then caps concurrency by chromosomes or complete query-plus-baseline models.
 There is no custom CPU detector, Slurm parsing, CPU binding, or automatic memory budget.
-The default of one uses a managed child; direct LD reuses its pool across query batches, and regression reuses mapped-input workers across model batches.
+The default of one uses a managed child; direct and indexed LD reuse their pools across query batches, and regression reuses mapped-input workers across model batches.
 Gene-index construction now passes staged chromosome descriptors to spawned processes and collects compact persisted-component metadata.
 The [focused local transport probe](../audits/parallel-execution/index-transport.md) records the migration evidence and additional RSS cost.
 
@@ -239,11 +239,19 @@ Each directory writer exposes `artifact_family()` as the single declaration of i
 | `_annotation_memory.bundle_from_frames` | Small prepared annotations and complete diagnostics in RAM, without filesystem staging |
 | `_annotation_queries.execution_query_bundle` | Project and release the active direct BED/gene batch while sharing baseline/control and global preflight state |
 | `LDScoreCalculator.run` | Outer direct query loop with bounded chromosome workers inside each batch |
-| `_indexed_ldscore_batches.indexed_results` | One operator per chromosome worker; private float64 query fragments; deterministic genome-wide batch assembly |
+| `_indexed_ldscore_batches.indexed_results` | Persistent pool with one active batch; reload/release chromosome operators per task; reduce compact float64 statistics in index order |
+| `_ldscore_fragments.StagedLDScoreBatch`, `write_query_fragments` | Private batch descriptor and chromosome-by-chromosome validation/publication from lossless float64 fragments; no genome-wide query array |
 | `_ldscore_batch_output.write_ldscore_batches` | Write/release batches, combine compact metadata, publish canonical artifacts after success, and clean owned scratch on handled failure |
 | `LDScoreSource.read_queries` | Explicit selected-query reads across manifest files in requested order, without caching or a width cap |
 
-`tests/test_ldscore_query_batches.py` verifies numerical precision, zero writes for prepared single-batch calculation, batch lifetimes, publication, and overwrite cleanup. `tests/test_gene_index_streaming.py` covers operator ownership, known union scores, and serial/parallel agreement. `tests/test_annotation_format.py` and `tests/test_annotation_storage.py` cover automatic exact binary classification, packed storage, bounded decoding, and logical column order. Public annotation reads and final Parquet LD values stay float32; LD accumulation, annotation sums, and overlap products use float64. Scientific SNP universes and fit-time validation are unchanged. See [annotation format policy](annotation-memory-design.md#annotation-format-policy).
+`tests/test_ldscore_query_batches.py` verifies numerical precision, zero writes for prepared single-batch calculation, batch lifetimes, publication, and overwrite cleanup.
+`tests/test_gene_index_streaming.py` covers operator ownership, known union scores, and serial/parallel agreement.
+`tests/test_indexed_batch_staging.py` covers the outstanding-fragment bound, persistent pool, parent-frame lifetimes, exact pre-narrowing variation, skipped batches, and cleanup after worker or row-validation failure.
+`query_annotations.finalize_query_measurements` shares count/variation decisions between materialized direct results and indexed summaries.
+`tests/test_annotation_format.py` and `tests/test_annotation_storage.py` cover automatic exact binary classification, packed storage, bounded decoding, and logical column order.
+Public annotation reads and final Parquet LD values stay float32; LD accumulation, annotation sums, and overlap products use float64.
+Scientific SNP universes and fit-time validation are unchanged.
+See [annotation format policy](annotation-memory-design.md#annotation-format-policy).
 
 ### `ldsc._kernel.*`
 

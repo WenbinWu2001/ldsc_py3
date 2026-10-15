@@ -287,7 +287,12 @@ class LD_Score_Regression(object):
         initial_w = self._update_weights(
             x_tot, w, N, M_tot, tot_agg, intercept)
         Nbar = np.mean(N)  # keep condition number low
-        x = np.multiply(N, x) / Nbar
+        # Multiplication owns this buffer; division must still promote integers.
+        x = np.multiply(N, x)
+        if np.issubdtype(x.dtype, np.inexact):
+            np.divide(x, Nbar, out=x)
+        else:
+            x = x / Nbar
         if not self.constrain_intercept:
             x, x_tot = append_intercept(x), append_intercept(x_tot)
             yp = y
@@ -333,7 +338,8 @@ class LD_Score_Regression(object):
                 step1_jknife, step2_jknife, M_tot, c, Nbar)
         elif old_weights:
             initial_w = np.sqrt(initial_w)
-            x = IRWLS._weight(x, initial_w)
+            # Reuse only when float64 weights will not be narrowed into float32.
+            x = IRWLS._weight(x, initial_w, out=x if np.result_type(x, initial_w) == x.dtype else None)
             y = IRWLS._weight(yp, initial_w)
             jknife = jk.LstsqJackknifeFast(x, y, n_blocks)
         else:

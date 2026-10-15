@@ -21,6 +21,15 @@ class TestIRWLS2D(unittest.TestCase):
         x = np.ones((4, 2))
         assert_array_almost_equal(IRWLS._weight(x, self.w), np.hstack([self.w, self.w]))
 
+    def test_weight_can_reuse_an_owned_float64_destination(self):
+        x = np.arange(8., dtype=np.float64).reshape((4, 2))
+        weights = np.array([[1.], [2.], [3.], [4.]])
+        expected = x * (weights / 10.)
+        actual = IRWLS._weight(x, weights, out=x)
+        self.assertIs(actual, x)
+        assert_array_equal(actual, expected)
+        assert_array_equal(weights, [[1.], [2.], [3.], [4.]])
+
     def test_wls_2d(self):
         z = IRWLS.wls(self.x, self.y, self.w)
         assert_array_almost_equal(z[0], np.ones((2, 1)))

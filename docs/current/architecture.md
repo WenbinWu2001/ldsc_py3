@@ -1,6 +1,6 @@
 # Architecture 
 
-Last updated on: 2026-10-14
+Last updated on: 2026-10-15
 
 `ldsc` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
@@ -201,6 +201,10 @@ Managed partitioned query workers, including serial execution, live in `_partiti
 
 ### Managed numerical execution
 
+Regression model preparation borrows aligned read-only columns through `RegressionRunner._dataset_from_query_values()`.
+`_fit_h2_dataset()` applies the model's SNP filter before materializing its design, and the kernel reuses owned work buffers when dtype promotion permits.
+`tests/test_regression_memory.py` covers shared-input immutability, repeated fits, and independent weighted least-squares agreement.
+
 `_parallelism` validates `workers` against the detected available CPU count from `joblib.cpu_count()`, then caps concurrency by chromosomes or complete query-plus-baseline models.
 There is no custom CPU detector, Slurm parsing, CPU binding, or automatic memory budget.
 The default of one uses a managed child; direct and indexed LD reuse their pools across query batches, and regression reuses mapped-input workers across model batches.
@@ -233,6 +237,11 @@ prefixes.
 Each directory writer exposes `artifact_family()` as the single declaration of its named outputs, conditional siblings, and derived roots. Workflows use it for early collision checks; writers use the final declaration for writing, metadata `files`, and stale cleanup. `ArtifactFamily` describes paths and delegates collision checks to `path_resolution`; it does not introduce a publication transaction. LD-score preparation no longer predicts a cleanup list that survives computation. See [workflow-logging.md, Output-Family Preflight](workflow-logging.md#output-family-preflight) and `tests/test_artifact_declarations.py` for the lifecycle contract and overwrite/reload checks.
 
 ### Query execution and result ownership
+
+`stage_partitioned_h2_fit()` marks private regression files as owned so `PartitionedH2DirectoryWriter` can move them into its sorted publication tree.
+Persistent `PartitionedH2FitArtifacts` default to copying.
+The writer stores run metadata once, and `quantile_h2.load_fitted_partitioned_model()` resolves the query's relative `global_metadata` reference before applying model-specific fields.
+`tests/test_partitioned_publication.py` and `tests/test_quantile_streaming.py` cover this writer-to-reader contract, relocation, and publication failure cleanup.
 
 | Module and symbol | Responsibility |
 | --- | --- |

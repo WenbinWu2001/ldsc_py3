@@ -1,6 +1,6 @@
 # Regression Configuration Reference (Advanced)
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 This document describes the tunable configuration of the regression module
 (`ldsc h2`, `ldsc rg`, `ldsc partitioned-h2`). **You do not need any of this for
@@ -216,6 +216,9 @@ A task fits one complete query-plus-baseline model across all selected chromosom
 SNP ordering and block boundaries remain unchanged.
 The parent stages shared numerical columns once as dtype-preserving read-only maps and dispatches one active task per worker.
 Query-column maps are removed between batches; the persistent pool exits before shared scratch cleanup.
+Model preparation borrows aligned columns instead of concatenating and copying the shared baseline for each query.
+Chi-square filtering slices the frame only if rows are removed, and the numerical design is materialized after that decision.
+Sample-size normalization and fixed-weight fitting reuse owned work arrays when NumPy's dtype promotion permits it; shared inputs remain unmodified and float64 calculations retain their precision.
 Each model still needs private filtered matrices and estimator workspace, so worker count does not guarantee memory safety.
 
 The existing strict and explicit continuation policies are unchanged.

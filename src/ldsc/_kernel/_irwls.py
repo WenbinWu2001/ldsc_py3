@@ -186,21 +186,27 @@ class IRWLS(object):
         return coef
 
     @classmethod
-    def _weight(cls, x, w):
+    def _weight(cls, x, w, *, out=None):
         '''
         Weight x by w.
 
         Parameters
         ----------
-        x : np.matrix with shape (n, p)
+        x : ndarray with shape (n, p)
             Rows are observations.
-        w : np.matrix with shape (n, 1)
+        w : ndarray with shape (n, 1)
             Regression weights (1 / sqrt(CVF) scale).
+        out : ndarray with shape (n, p), optional
+            Owned writable destination for the weighted values. May be ``x``
+            only when the caller owns that buffer; shared inputs must not be
+            overwritten. Its dtype must preserve NumPy's promoted result dtype.
+            Omit to allocate a new array.
 
         Returns
         -------
-        x_new : np.matrix with shape (n, p)
+        x_new : ndarray with shape (n, p)
             x_new[i,j] = x[i,j] * w'[i], where w' is w normalized to have sum 1.
+            This is ``out`` when supplied. The weights are not modified.
 
         Raises
         ------
@@ -223,5 +229,5 @@ class IRWLS(object):
             )
 
         w = w / float(np.sum(w))
-        x_new = np.multiply(x, w)
+        x_new = np.multiply(x, w, out=out)
         return x_new

@@ -1,6 +1,6 @@
 # ldsc3_Jerry
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 This repository is the active refactored LDSC package.
 
@@ -300,10 +300,13 @@ For large query scans, `ldsc partitioned-h2 --continue-on-query-error` skips que
 
 The root `partitioned_h2.tsv` includes `query_result_dir`, the exact per-query folder relative to the output directory (for example, `diagnostics/query_annotations/0001_mygeneset`). Use it to locate detailed results while `category` retains the original annotation name. Baseline-only summaries write `NaN` in this column.
 
+Per-query metadata references shared provenance in `diagnostics/metadata.json` through `global_metadata: "../../metadata.json"`.
+Copy the complete regression result directory when relocating or sharing fitted queries; `quantile-h2` resolves the shared metadata automatically.
+
 `partitioned-h2 --workers N` fits complete query-plus-baseline models concurrently.
 The Python equivalent is `RegressionRunner.estimate_partitioned_h2_batch(..., workers=N)`.
 The default is one managed child, and each worker uses 1 BLAS thread.
-Shared numerical inputs use read-only maps; private model matrices still consume memory.
+Model preparation borrows shared read-only columns, then materializes its design after filtering; private fitted-model matrices still consume memory.
 Query ordering, scientific schemas, and strict/continue policies are unchanged.
 See [query workers](docs/current/regression-configuration.md#43-query-workers-and-memory).
 

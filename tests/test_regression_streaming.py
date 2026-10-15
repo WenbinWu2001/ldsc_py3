@@ -153,6 +153,7 @@ def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypa
     assert all(ref() is None for ref in live)
     pd.testing.assert_frame_equal(result.summary, pd.concat([expected[q][0] for q in sorted(expected)], ignore_index=True))
     for query, paths in result.per_query_artifacts.items():
+        assert not paths.owned
         pd.testing.assert_frame_equal(pd.read_csv(paths.full, sep="\t"), expected[query][1], check_dtype=False)
         pd.testing.assert_frame_equal(pd.read_parquet(paths.delete_values), expected[query][2])
         assert json.loads(paths.metadata.read_text())["n_snps"] == 58

@@ -1,6 +1,6 @@
 # Continuous-Annotation Quantile Heritability: Technical Contract
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 Quantile calculation runs in one managed child with **1 BLAS thread**, including input overlap products and post-fit projection.
 See [parallel execution](parallel-execution.md) for native-limit verification and Python process startup.
@@ -31,6 +31,11 @@ where `SD(a_c)` uses `ddof=0`, and both `h2_g` and `M` use the complete common r
 - one `diagnostics/query_annotations/<query>/` directory containing a baseline-plus-one-query fit.
 
 An aggregate cell-type root is rejected because its rows came from separate regressions. Raw LDSC2 prefixes are not accepted. Current `partitioned-h2` writes float64 delete-one-block coefficients to `diagnostics/coefficient_delete_values.parquet` for a baseline-only model and to `coefficient_delete_values.parquet` inside each per-query directory.
+
+Per-query metadata uses `global_metadata: "../../metadata.json"` to reference the enclosing result's shared provenance.
+The fitted-model loader combines it with model-specific metadata before reconstructing annotations and counts; model-specific fields take precedence.
+Copy the complete regression result directory, including `diagnostics/metadata.json`, when relocating a fitted query.
+Missing or invalid shared references fail with a repair message.
 
 ## Required resupplied data
 

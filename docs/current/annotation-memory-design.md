@@ -1,6 +1,6 @@
 # Annotation and workflow memory design
 
-Last updated on: 2026-10-14
+Last updated on: 2026-10-15
 
 The benchmark scripts were removed from the active tree on September 15, 2026. Script links below point to their archived Git revision; the recorded measurements remain historical evidence.
 
@@ -141,7 +141,19 @@ See [query workers](regression-configuration.md#43-query-workers-and-memory).
 
 [`PreparedRegressionInputs`](../../src/ldsc/regression_runner.py) shares trait alignment, baseline LD scores, row mappings, and count lookup across a batch. Each query batch is loaded/aligned once. Each model still fits its complete retained genome-wide SNP set; variance filtering, outlier filtering, counts, regression weights, and jackknife work remain model-specific. No chromosome-wise regression estimates are substituted for the genome-wide model.
 
+`_dataset_from_query_values()` builds each model frame from borrowed aligned columns without concatenating or resetting copies of the baseline.
+Zero-variance column removal preserves those shared values.
+`_fit_h2_dataset()` slices only when the chi-square filter removes rows, then materializes the numerical design once.
+The kernel reuses its own normalized/weighted design buffers only when the result dtype is preserved, including promotion from float32 inputs to float64 weights.
+Shared inputs remain read-only throughout fitting.
+
 `estimate_partitioned_h2_batch(..., output_dir=..., query_batch_size=100)` writes each completed fit's category table, float64 coefficient delete values, and metadata privately through [`stage_partitioned_h2_fit()`](../../src/ldsc/outputs.py), then releases estimator details. After final stable summary sorting, the existing writer assigns canonical folders and publishes the complete query tree. The returned `PartitionedH2BatchResult` contains the aggregate summary, output paths, and `per_query_artifacts` referencing persistent files. It does not contain dictionaries of all detailed DataFrames. Baseline-only input remains one joint functional-category fit.
+
+The writer moves explicitly owned staged scientific files into publication staging instead of copying them; persistent descriptors remain copy-only.
+Run metadata is written once, while query metadata stores model fields and a relative reference to `diagnostics/metadata.json`.
+The [result contract](partitioned-h2-results.md) defines the ownership and complete-directory copying requirements.
+[`test_regression_memory.py`](../../tests/test_regression_memory.py) checks shared-input lifetime, filtering, and independent weighted least-squares agreement.
+[`test_partitioned_publication.py`](../../tests/test_partitioned_publication.py) checks exact file reuse, persistent-input preservation, metadata recovery after relocation, and failure cleanup.
 
 Explicit `continue_on_query_error=True` permits failed query regressions while preserving private staging until the scan finishes. Successful model artifacts publish with a compact attempted-query status ledger; strict mode remains the default and publishes diagnostics alone if any query fails. Failed exception tracebacks are logged and detached from the retained first exception so model arrays do not accumulate through traceback references. Panel coordinates retained with shared preparation allow post-filter block diagnostics even for rsID-only traits. See [query failure handling](partitioned-h2-results.md#query-failures-and-continuation).
 

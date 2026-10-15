@@ -1,6 +1,6 @@
 # Partitioned LDSC Result Columns
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 TODO: add an example output file str.
 
@@ -167,4 +167,21 @@ sanitized folder name, and the relative path columns `summary_path`,
 `partitioned_h2_full_path`, and `metadata_path`. It is not a scientific result
 table.
 
-`RegressionRunner.estimate_partitioned_h2_batch(..., output_dir=..., query_batch_size=100)` shares trait/baseline preparation, fits each query separately, and stages completed details immediately. After stable summary sorting, the writer publishes the canonical per-query tree. The returned `PartitionedH2BatchResult` contains `summary`, `output_paths`, and persistent `per_query_artifacts` paths. The old annotation-bundle argument, retained-detail dictionaries, and `include_full_partitioned_h2` option are removed. Low-level writer callers pass `PartitionedH2FitArtifacts` through `per_query_artifacts`; `PartitionedH2OutputConfig.write_per_query_results` remains its publication control. Individual estimator methods retain their text `summary()` interface.
+`RegressionRunner.estimate_partitioned_h2_batch(..., output_dir=..., query_batch_size=100)` shares trait/baseline preparation, fits each query separately, and stages completed details immediately.
+After stable summary sorting, the writer publishes the canonical per-query tree.
+The returned `PartitionedH2BatchResult` contains `summary`, `output_paths`, and persistent `per_query_artifacts` paths.
+The old annotation-bundle argument, retained-detail dictionaries, and `include_full_partitioned_h2` option are removed.
+Low-level writer callers pass `PartitionedH2FitArtifacts` through `per_query_artifacts`; `PartitionedH2OutputConfig.write_per_query_results` remains its publication control.
+Individual estimator methods retain their text `summary()` interface.
+
+Run-level provenance, including the annotation-type dictionary, is stored once in `diagnostics/metadata.json`.
+Each query's `metadata.json` stores model-specific fields and `global_metadata: "../../metadata.json"`, resolved relative to that query directory.
+`load_fitted_partitioned_model()` merges shared and model metadata, with model fields taking precedence, including the retained columns and actual SNP/block counts.
+Keep the complete result directory when copying fitted queries; a query folder alone is incomplete for `quantile-h2`.
+Manifest paths and each query metadata's `files` paths remain relative to the aggregate result root.
+
+`stage_partitioned_h2_fit()` returns `PartitionedH2FitArtifacts(owned=True)` for disposable staging on the output filesystem.
+Publication moves its full table and float64 coefficient-delete file into the sorted private tree without loading or rewriting them.
+These source files can be consumed even if later publication fails; the workflow owns scratch cleanup, and the final query tree is published only after successful staging.
+The default descriptor has `owned=False`, so saved input artifacts are copied and remain reusable.
+Descriptors returned in `PartitionedH2BatchResult.per_query_artifacts` refer to persistent files and retain this default.

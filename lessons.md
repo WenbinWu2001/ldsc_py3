@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-10-14
+Last updated on: 2026-10-15
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -251,3 +251,9 @@ Last updated on: 2026-10-14
   Combine exact float64 variation summaries before pruning and public float32 conversion, and wait for running workers before batch cleanup.
   Tests must measure outstanding fragments and object lifetimes, not just multiplication width or a falling RSS trace.
   File-cache dominance in historical Slurm peaks remains unproven without anonymous/file-cache measurements.
+
+## Reader fixtures must include the writer's real manifest
+
+- Summary/root cause/correction: Quantile tests supplied hand-built query metadata without `files`, hiding a preflight path error.
+  The real partitioned writer records file paths relative to the aggregate result root, but the reader prepended the nested query directory again and rejected valid files.
+  Resolve those manifest paths from the aggregate root and test annotation, BED, and gene-list quantile reconstruction from actual writer-produced artifacts, including shared metadata.

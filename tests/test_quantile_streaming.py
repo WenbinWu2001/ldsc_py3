@@ -148,6 +148,11 @@ def test_global_ties_and_sharded_baselines(workflow):
 
 @pytest.mark.parametrize("route", ["annot", "bed", "gene"])
 def test_single_query_model_reconstructs_each_query_route(workflow, route):
+    from ldsc.outputs import (
+        PARTITIONED_H2_COLUMNS, PartitionedH2DirectoryWriter, PartitionedH2OutputConfig,
+        stage_partitioned_h2_fit,
+    )
+
     path = workflow.root / "annotations.tsv"
     frame = pd.read_csv(path, sep="\t")
     frame.drop(columns="cont").to_csv(path, sep="\t", index=False)
@@ -161,12 +166,18 @@ def test_single_query_model_reconstructs_each_query_route(workflow, route):
     overlap["overlap_all_snps"] = overlap["overlap_common_snps"] = [4., 2., 2., 2.]
     overlap = overlap.loc[~(overlap.row_annotation.eq("cont") & overlap.col_annotation.eq("base"))]
     overlap.to_parquet(overlap_path, index=False)
-    model_dir = workflow.root / "single_query"
-    model_dir.mkdir()
     fitted = workflow.root / "fitted"
-    (model_dir / "metadata.json").write_text((fitted / "diagnostics/metadata.json").read_text())
-    (model_dir / "partitioned_h2_full.tsv").write_bytes((fitted / "partitioned_h2.tsv").read_bytes())
-    (model_dir / "coefficient_delete_values.parquet").write_bytes((fitted / "diagnostics/coefficient_delete_values.parquet").read_bytes())
+    full = pd.read_csv(fitted / "partitioned_h2.tsv", sep="\t").reindex(columns=PARTITIONED_H2_COLUMNS)
+    deletes = pd.read_parquet(fitted / "diagnostics/coefficient_delete_values.parquet")
+    artifacts = stage_partitioned_h2_fit(workflow.root / "private_fit", full, deletes, {"n_snps": 4})
+    shared_metadata = json.loads((fitted / "diagnostics/metadata.json").read_text())
+    shared_metadata["analysis_type"] = "cell_type_specific"
+    published = workflow.root / "published"
+    PartitionedH2DirectoryWriter().write(
+        full.iloc[[1]], PartitionedH2OutputConfig(published, write_per_query_results=True),
+        {"cont": artifacts}, shared_metadata,
+    )
+    model_dir = published / "diagnostics/query_annotations/0001_cont"
     workflow.args.partitioned_h2_result_dir = str(model_dir)
     if route == "annot":
         query = frame.drop(columns="base")

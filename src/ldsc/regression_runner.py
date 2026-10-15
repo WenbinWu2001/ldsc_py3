@@ -303,7 +303,7 @@ class PartitionedH2BatchResult:
     query scans also persist this table as ``diagnostics/query_status.tsv``.
     Worker completion order does not affect status order, stable summary
     sorting, or the final per-query folder order. Worker-count provenance is
-    recorded in root and successful per-query metadata, not scientific tables.
+    recorded once in root metadata and referenced by successful query metadata.
     """
 
     summary: pd.DataFrame
@@ -524,6 +524,8 @@ class RegressionRunner:
 
         Query identities are validated when this fit selects query columns.
         Shared preparation never decides model-dependent filters or weights.
+        The returned frame borrows aligned columns from ``prepared`` and the
+        selected query batch. Treat these inputs as read-only during fitting.
         """
         selected = list(query_columns or [])
         values = self._read_query_batch(prepared, selected) if selected else None
@@ -540,13 +542,20 @@ class RegressionRunner:
         return frame.loc[:, columns].iloc[prepared.source_rows].reset_index(drop=True)
 
     def _dataset_from_query_values(self, prepared, selected, query_values, *, config=None):
-        """Form one model from already aligned, bounded query values."""
+        """Borrow aligned columns for one model without copying the baseline.
+
+        Preparation and query loading already provide matching RangeIndexes.
+        Borrowed columns must remain unmodified; numerical fitting allocates its
+        own design array after the model's chi-square filter has selected rows.
+        """
         config = config or self.regression_config
         ref_ld_columns = list(prepared.dataset.ref_ld_columns) + list(selected)
         merged = prepared.dataset.merged
         if selected:
             weight_position = merged.columns.get_loc(prepared.dataset.weight_column)
-            merged = pd.concat([merged.iloc[:, :weight_position], query_values.loc[:, selected], merged.iloc[:, weight_position:]], axis=1)
+            order = [*merged.columns[:weight_position], *selected, *merged.columns[weight_position:]]
+            merged = pd.DataFrame({name: (query_values if name in selected else merged)[name].to_numpy(copy=False)
+                                   for name in order}, copy=False)
         retained_ld_columns = list(ref_ld_columns)
         dropped_ld_columns: list[str] = []
         if retained_ld_columns:
@@ -554,8 +563,9 @@ class RegressionRunner:
             dropped_ld_columns = variances.index[variances == 0].tolist()
             retained_ld_columns = [column for column in retained_ld_columns if column not in dropped_ld_columns]
             if retained_ld_columns:
-                merged = merged.loc[:, [column for column in merged.columns if column not in dropped_ld_columns]]
                 if dropped_ld_columns:
+                    merged = pd.DataFrame({name: merged[name].to_numpy(copy=False) for name in merged
+                                           if name not in dropped_ld_columns}, copy=False)
                     LOGGER.warning(
                         "Dropped %d zero-variance LD-score column(s) after merging with sumstats. "
                         "These annotations are constant on the regression SNP set and receive no coefficient; "
@@ -582,7 +592,7 @@ class RegressionRunner:
                 count_totals[key] = np.asarray(values)[keep_index]
 
         dataset = replace(
-            prepared.dataset, merged=merged.reset_index(drop=True), ref_ld_columns=ref_ld_columns,
+            prepared.dataset, merged=merged, ref_ld_columns=ref_ld_columns,
             reference_snp_count_totals=count_totals, count_key_used_for_regression=count_key,
             retained_ld_columns=retained_ld_columns, dropped_zero_variance_ld_columns=dropped_ld_columns,
         )
@@ -837,12 +847,16 @@ class RegressionRunner:
         config: RegressionConfig | None = None,
         *, log_level=logging.INFO,
     ) -> _FitOutcome:
-        """Fit h2 once and retain its exact SNP population and diagnostic bins."""
+        """Fit h2 once and retain its exact SNP population and diagnostic bins.
+
+        The aligned frame can borrow read-only worker maps. Slice it only when
+        the chi-square filter removes rows, then materialize the design once.
+        The estimator never modifies the borrowed input columns.
+        """
         config = config or self.regression_config
         merged = dataset.merged
         n_snp = len(merged)
         n_blocks = min(n_snp, config.n_blocks)
-        x = np.asarray(merged[dataset.retained_ld_columns])
         chisq = np.asarray(merged["Z"] ** 2).reshape((n_snp, 1))
         # N.max() is read pre-filter so the partitioned default cap matches legacy.
         chisq_max = _resolve_default_chisq_max(
@@ -851,18 +865,19 @@ class RegressionRunner:
         if chisq_max is not None:
             keep = np.ravel(chisq <= chisq_max)
             n_removed = n_snp - int(keep.sum())
-            merged = merged.loc[keep].reset_index(drop=True)
-            n_snp = len(merged)
-            n_blocks = min(n_snp, config.n_blocks)
-            x = np.asarray(merged[dataset.retained_ld_columns])
-            chisq = np.asarray(merged["Z"] ** 2).reshape((n_snp, 1))
             if n_removed:
+                merged = merged.loc[keep]
+                merged.index = pd.RangeIndex(len(merged))
+                n_snp = len(merged)
+                n_blocks = min(n_snp, config.n_blocks)
+                chisq = chisq[keep]
                 LOGGER.log(log_level,
                     "Removed %d SNPs with chi^2 > %g (%d SNPs remain).",
                     n_removed,
                     chisq_max,
                     n_snp,
                 )
+        x = np.asarray(merged[dataset.retained_ld_columns])
         intercept = None
         if not config.use_intercept:
             intercept = 1
@@ -1048,7 +1063,8 @@ class RegressionRunner:
         summary_sort_by : str, optional
             Final summary ordering; auto uses coefficient-p for focal models.
         metadata : dict, optional
-            Additional diagnostic provenance copied into each model's metadata.
+            Additional diagnostic provenance stored once in the root metadata
+            and referenced by each model's metadata.
         continue_on_query_error : bool, optional
             Default False: any query regression error prevents publication.
             If True, catch ordinary exceptions during per-query preparation,

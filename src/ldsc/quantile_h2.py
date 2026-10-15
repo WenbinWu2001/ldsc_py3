@@ -359,7 +359,9 @@ def load_fitted_partitioned_model(result_dir: str | Path) -> FittedPartitionedMo
     ----------
     result_dir : str or pathlib.Path
         Baseline-only partitioned-h2 output root or one
-        ``diagnostics/query_annotations/<query>`` directory.
+        ``diagnostics/query_annotations/<query>`` directory. Query results with
+        shared provenance require the enclosing ``diagnostics/metadata.json``;
+        copy the complete result tree when relocating them.
 
     Returns
     -------
@@ -394,6 +396,22 @@ def load_fitted_partitioned_model(result_dir: str | Path) -> FittedPartitionedMo
             "Raw LDSC2 regression prefixes are not accepted."
         )
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if "global_metadata" in metadata:
+        if metadata["global_metadata"] != "../../metadata.json":
+            raise LDSCInputError(
+                f"quantile-h2 found an invalid global_metadata reference in '{metadata_path}'. "
+                "Restore the query metadata and enclosing diagnostics/metadata.json from the same fit; "
+                "the shared reference must be '../../metadata.json'."
+            )
+        shared_path = metadata_path.parent / metadata["global_metadata"]
+        if not shared_path.is_file():
+            raise LDSCInputError(
+                f"quantile-h2 fitted query is missing shared metadata '{shared_path}'. "
+                "Restore the enclosing diagnostics/metadata.json from the same fit and keep the "
+                "complete result directory when copying results."
+            )
+        shared = json.loads(shared_path.read_text(encoding="utf-8"))
+        metadata = {**shared, **metadata}
     if model_type == "baseline_only" and metadata.get("analysis_type") == "cell_type_specific":
         raise LDSCInputError(
             "quantile-h2 cannot consume an aggregate multi-query partitioned-h2 root because its rows come from "
@@ -695,10 +713,15 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
     issues_path = diagnostics_dir / "snp_alignment_issues.tsv.gz"
     with workflow_logging("quantile-h2", log_path, log_level=args.log_level):
         from ._input_preflight import inspect_declared_inputs, inspect_artifact_paths
+        fitted_dir = Path(args.partitioned_h2_result_dir).resolve()
+        query_metadata = fitted_dir / "metadata.json"
+        # Per-query manifests keep file paths relative to the aggregate result root.
+        artifact_root = fitted_dir.parents[2] if query_metadata.is_file() else fitted_dir
+        metadata_file = query_metadata if query_metadata.is_file() else "diagnostics/metadata.json"
         inspect_declared_inputs(files=[(name, getattr(args, name, None)) for name in (
             'baseline_annot_sources', 'query_annot_sources', 'query_annot_bed_sources', 'ref_metadata_sources')],
             checks=[('fitted model', args.partitioned_h2_result_dir,
-                     lambda: inspect_artifact_paths(args.partitioned_h2_result_dir, metadata_file=('metadata.json' if (Path(args.partitioned_h2_result_dir)/'metadata.json').is_file() else 'diagnostics/metadata.json')))],
+                     lambda: inspect_artifact_paths(artifact_root, metadata_file=metadata_file))],
             issues_path=diagnostics_dir/'input_issues.tsv')
         log_inputs(
             partitioned_h2_result_dir=args.partitioned_h2_result_dir,

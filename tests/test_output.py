@@ -946,7 +946,9 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             query_summary = pd.read_csv(query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2.tsv", sep="\t")
             categories = pd.read_csv(query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2_full.tsv", sep="\t")
             self.assertEqual(metadata["query_annotation"], "IL-6/JAK STAT (Hallmark)")
-            self.assertEqual(metadata["trait_name"], "trait")
+            self.assertNotIn("trait_name", metadata)
+            shared_path = query_root / "0001_il-6_jak_stat_hallmark" / metadata["global_metadata"]
+            self.assertEqual(json.loads(shared_path.read_text())["trait_name"], "trait")
             self.assertEqual(metadata["artifact_type"], "partitioned_h2_query_result")
             self.assertEqual(
                 metadata["files"],

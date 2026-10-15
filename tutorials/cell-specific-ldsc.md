@@ -1,6 +1,6 @@
 # Cell-Specific LDSC
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 Goal: estimate cell-specific enrichment by running partitioned LDSC with one query annotation per cell type.
 
@@ -149,6 +149,8 @@ For query-annotation runs, the command writes by default
 sanitized folder per successfully fitted cell-type query annotation. Each folder contains the
 one-row query summary, the baseline-plus-query `partitioned_h2_full.tsv`,
 `coefficient_delete_values.parquet`, and `metadata.json` with the original annotation name.
+The query metadata references shared provenance in the enclosing `diagnostics/metadata.json`.
+Copy the complete result directory when moving or sharing fitted queries; `quantile-h2` needs that shared metadata.
 If the partitioned summary already exists, `ldsc partitioned-h2` fails before
 writing; the same is true for `diagnostics/partitioned-h2.log` and any stale
 `diagnostics/query_annotations/` tree. Add `--overwrite` only when replacing it is

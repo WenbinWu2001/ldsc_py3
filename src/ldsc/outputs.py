@@ -1136,19 +1136,27 @@ class PartitionedH2OutputConfig:
 
 @dataclass(frozen=True)
 class PartitionedH2FitArtifacts:
-    """Paths to one complete fitted model, owned by its containing directory."""
+    """Paths to one complete fitted model and its publication ownership.
+
+    ``owned=False`` preserves persistent files by copying them at publication.
+    ``owned=True`` transfers the full table and delete values from disposable
+    staging on the output filesystem; those source paths are consumed even if
+    later publication fails. The caller remains responsible for scratch cleanup.
+    """
 
     full: Path
     delete_values: Path
     metadata: Path
+    owned: bool = False
 
 
 def stage_partitioned_h2_fit(directory, category_table, delete_values, metadata):
     """Write one fit privately before releasing its estimator and matrices.
 
     The caller supplies a unique directory inside its owned output workspace.
-    Returned paths remain private until the final summary determines folder
-    ordering and the directory writer publishes the complete query tree.
+    Returned artifacts have ``owned=True`` and remain private until the final
+    summary determines folder ordering. The directory writer moves their full
+    table and delete values into the complete query tree without rewriting them.
     Concurrent query workers receive distinct ordinal directories from the
     coordinator. Only the coordinator assigns public folder names and publishes
     results, after applying the run's query-error policy.
@@ -1157,7 +1165,7 @@ def stage_partitioned_h2_fit(directory, category_table, delete_values, metadata)
     directory.mkdir(parents=True, exist_ok=False)
     artifacts = PartitionedH2FitArtifacts(directory / "partitioned_h2_full.tsv",
                                          directory / "coefficient_delete_values.parquet",
-                                         directory / "metadata.json")
+                                         directory / "metadata.json", owned=True)
     _atomic_write_dataframe(_select_columns(category_table, PARTITIONED_H2_COLUMNS, label="full partitioned-h2 summary"),
                             artifacts.full, na_rep="NaN")
     delete_values.to_parquet(artifacts.delete_values, index=False)
@@ -1249,12 +1257,16 @@ class PartitionedH2DirectoryWriter:
             Output directory, overwrite policy, and per-query mode.
         per_query_artifacts : dict of str to PartitionedH2FitArtifacts, optional
             Completed private or persistent fits keyed by original query name.
-            Files are copied into the sorted publication tree without loading
-            category tables or delete-value matrices. Workers may stage fits
+            Owned files are moved into the sorted publication tree; persistent
+            files are copied. Neither loads category tables or delete-value
+            matrices. Owned staging must share the output filesystem and may be
+            consumed on failure. Workers may stage fits
             concurrently; the coordinator calls this writer after fitting and
             decides which successful artifacts may be published.
         metadata : dict, optional
-            Run-level metadata copied into every per-query ``metadata.json``.
+            Run-level metadata stored once in ``diagnostics/metadata.json``.
+            Each query's metadata references it via ``global_metadata`` relative
+            to the query directory; model-specific fields take precedence.
         coefficient_delete_values : pandas.DataFrame, optional
             Baseline-only fitted model's delete-one-block coefficient vectors.
             The first column is ``delete_block`` and remaining columns retain
@@ -1331,7 +1343,6 @@ class PartitionedH2DirectoryWriter:
                 query_records,
                 summary,
                 per_query_artifacts or {},
-                metadata_payload,
             )
             _atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv", na_rep="NaN")
             _atomic_write_dataframe(
@@ -1395,7 +1406,6 @@ class PartitionedH2DirectoryWriter:
         query_records: list[dict[str, object]],
         summary: pd.DataFrame,
         per_query_artifacts: dict[str, PartitionedH2FitArtifacts],
-        metadata: dict[str, object],
     ) -> list[dict[str, object]]:
         """Populate the staged per-query result tree and return manifest rows."""
         manifest_rows: list[dict[str, object]] = []
@@ -1420,12 +1430,13 @@ class PartitionedH2DirectoryWriter:
                     f"partitioned-h2 output writer is missing coefficient delete values for query {query_name!r}. "
                     "Most likely the fitted result family was assembled incompletely."
                 )
-            shutil.copyfile(artifacts.delete_values, query_dir / "coefficient_delete_values.parquet")
-            shutil.copyfile(artifacts.full, query_dir / "partitioned_h2_full.tsv")
+            transfer = os.replace if artifacts.owned else shutil.copyfile
+            transfer(artifacts.delete_values, query_dir / "coefficient_delete_values.parquet")
+            transfer(artifacts.full, query_dir / "partitioned_h2_full.tsv")
             fit_metadata = json.loads(artifacts.metadata.read_text(encoding="utf-8"))
             payload = {
-                **metadata,
                 **fit_metadata,
+                "global_metadata": "../../metadata.json",
                 "artifact_type": "partitioned_h2_query_result",
                 "files": {"summary": summary_rel, "full": full_rel, "coefficient_delete_values": delete_rel},
                 "ordinal": record["ordinal"],

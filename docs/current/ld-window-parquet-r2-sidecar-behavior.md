@@ -1,6 +1,6 @@
 # LD Window Behavior for Parquet R2 Panels
 
-Last updated on: 2026-09-11
+Last updated on: 2026-10-15
 
 This document records how `ldsc ldscore` interprets LD-window flags when the
 reference panel backend is the canonical index-format parquet R2 pair.
@@ -102,7 +102,12 @@ Unrestricted builds stream genotypes from disk. With `--ref-panel-snps-file`, th
 
 ### Read side (`ldscore`)
 
-The LD-score reader streams every stored pair once and accumulates LD scores using bounded chunks of sparse matrix multiplication. Memory includes the float64 accumulator (`m · n_a · 8` bytes), a bounded pair/CSR chunk, one decoded row group, and workflow overhead. The read-time LD window filters contributions without allocating a dense window matrix. Cross-chromosome workers each need their own working set. See the [read-side memory model](parquet-r2-format-and-read-pipeline.md#36-read-side-memory-streaming).
+The LD-score reader streams every stored pair once per execution batch and projects bounded pair chunks through float64 sparse products.
+The main score array covers selected output rows and active annotation columns, including shared baseline and weight columns.
+Other allocations include a bounded decoded Arrow batch, pair buffers and CSR construction, annotation/product tiles, sidecar mappings, and output conversion.
+The read-time window filters contributions before sparse construction without allocating a dense window matrix; it can affect both work and the retained sparse operator.
+Each chromosome worker needs its own working set.
+See the [read-side memory model](parquet-r2-format-and-read-pipeline.md#36-read-side-memory-streaming) and the [package resource design](annotation-memory-design.md).
 
 ## Practical contract
 

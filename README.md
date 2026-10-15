@@ -70,7 +70,8 @@ See [direct assembly measurements and their limits](docs/wiki/main-functionaliti
 
 Standalone `annotate` accepts BED files or gene lists and writes reusable chromosome annotation shards incrementally.
 Source-backed Python preparation requires an output directory and explicit bundle ownership; new scratch stays under that destination, with the existing gene-index construction transaction as the exception.
-See the [developer memory design](docs/current/annotation-memory-design.md) and [pathway batch guide](docs/wiki/main-functionalities/partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways).
+See the [memory and CPU efficiency design guide](docs/current/annotation-memory-design.md) for the package-wide mechanisms, precision contracts, tradeoffs, remaining allocations, and validation evidence.
+The [pathway batch guide](docs/wiki/main-functionalities/partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways) explains user settings and measured workloads.
 
 ## Install
 

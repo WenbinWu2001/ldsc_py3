@@ -92,6 +92,17 @@ The earlier log entry's direct-streaming exclusion records the prior regression-
 
 Sources: [direct fragment staging](../../src/ldsc/_direct_ldscore_batches.py), [shared variation](../../src/ldsc/_query_variation.py), [shared fragment writer](../../src/ldsc/_ldscore_fragments.py), the [local validation audit](../audits/2026-10-15_direct-streaming.md), and the frozen workspace [replay report](../../../diagnostics/20261015_direct_streaming_scale/report.md).
 
+## 2026-10-15 update | consolidated efficiency design guide
+
+Reason: document the package's implemented memory and CPU optimizations beyond the recent indexed, regression, and direct-streaming changes.
+Expanded the existing [developer design guide](../current/annotation-memory-design.md) in place and linked it from user and contributor entry points.
+It covers lossless annotation packing, bounded preparation, genotype and pair streaming, compact statistics, index reuse, shared regression transport and buffers, exact quantiles, and resource-validation limits.
+Updated the LD-score and R²-panel pages to distinguish lossless packing from lossy R² quantization and to link the wider design context.
+Corrected current R² contracts to describe selected-output accumulators, bounded Arrow batches, and rectangular sparse projection; historical specifications remain unchanged.
+These are documentation and docstring updates, with no new performance measurements or numerical implementation changes.
+
+Sources: [projection code](../../src/ldsc/_kernel/ldscore_projection.py), [R² read pipeline](../current/parquet-r2-format-and-read-pipeline.md), [accumulation mathematics](../current/ldscore-parquet-accumulation.md), and the implementation/test/evidence catalog in the consolidated guide.
+
 Validation: the full pytest suite passed 1,991 tests and 133 subtests, with one skip; the separate unittest compatibility run passed 1,003 tests, with one skip.
 Real small-kernel tests cover score/statistic/metadata parity, filtering edges, multiple batches, fragment lifetimes, failure cleanup, and no incomplete publication.
 Documentation checks validate local links, heading anchors, CLI examples, and dates.

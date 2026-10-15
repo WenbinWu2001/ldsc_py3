@@ -389,7 +389,14 @@ class LstsqJackknifeFast(Jackknife):
     '''
 
     def __init__(self, x, y, n_blocks=None, separators=None):
-        """Run the fast block jackknife using blockwise `X^T X` and `X^T y` summaries."""
+        """Fit from blockwise ``X.T @ X`` and ``X.T @ y`` summaries.
+
+        Delete-block estimates subtract each block from the total summaries,
+        avoiding a separate SNP-by-predictor data copy for every refit.
+        For ``J`` blocks and ``p`` predictors, block summaries occupy
+        ``O(J * p**2)`` values. Each refit still solves its own system and
+        preserves the existing block order and singular-design errors.
+        """
         Jackknife.__init__(self, x, y, n_blocks, separators)
         xty, xtx = self.block_values(x, y, self.separators)
         self.est = self.block_values_to_est(xty, xtx)

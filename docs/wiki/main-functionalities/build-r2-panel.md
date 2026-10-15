@@ -1,6 +1,6 @@
 # Build an R² Panel
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 This serial workflow reuses one managed child across chromosomes, with **1 BLAS thread**.
 For Python scripts, place workflow calls under `if __name__ == "__main__":`; see [the execution policy](../../current/parallel-execution.md).
@@ -35,6 +35,10 @@ This writes hg38 only, with missing genetic-map CM values unless a matching map 
 
 A suite invocation writes one pair of scientific files per chromosome and uses unscoped `diagnostics/metadata.json` and `diagnostics/build-r2-panel.log`. `--log-level` controls log-file detail. Existing owned outputs require `--overwrite`.
 
+The int16 R² encoding is lossy, unlike exact bit-packing of binary annotations.
+Float64 LD-score accumulation preserves calculation precision for the decoded values; it cannot recover precision removed by panel quantization.
+The aggregate difference depends on pair count and annotation weights, so it has no universal per-SNP error bound.
+
 ## Controls and caveats
 
 - `--ref-panel-snps-file`, `--keep-indivs-file`, and `--maf-min` explicitly restrict SNPs, individuals, or MAF. Match the reference individuals to the population whose LD you need.
@@ -47,3 +51,5 @@ A suite invocation writes one pair of scientific files per chromosome and uses u
 For every flag, a runnable fixture example, and Python usage, see the [build tutorial](../../../tutorials/build-parquet-reference-panel-from-plink.md) and [argument inventory](../../current/io-argument-inventory.md). The [storage specification](../../current/parquet-r2-format-and-read-pipeline.md) defines types, quantization, and binding.
 
 Source: [`ReferencePanelBuilder.run` and command arguments](../../../src/ldsc/ref_panel_builder.py), and [`write_r2_parquet`](../../../src/ldsc/_kernel/ref_panel_builder.py).
+
+Developers can find the genotype-reader, columnar pair-emission, storage, and sparse-projection tradeoffs in the [memory and CPU efficiency design guide](../../current/annotation-memory-design.md#genotype-access-and-r2-panel-construction).

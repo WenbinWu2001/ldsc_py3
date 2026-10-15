@@ -1,8 +1,11 @@
 # Code Structure
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 This is the authoritative contributor entry for the `ldsc` package. Start here to locate a change. [Architecture](architecture.md) explains execution boundaries, [data flow](data-flow.md) explains artifact streams, and [layer structure](layer-structure.md) supplies the detailed ownership matrix. These domain references supplement this entry rather than defining competing navigation maps.
+
+For resource-sensitive changes, start with the [memory and CPU efficiency design guide](annotation-memory-design.md).
+It catalogs implemented storage, streaming, reuse, and numerical-buffer designs, with owners, precision/lifetime invariants, tradeoffs, tests, and remaining large allocations.
 
 ## Repository Map
 
@@ -76,7 +79,7 @@ ldsc_py3_restructured/
 | `tools/hm3/build_hm3_chr_pos_reference.py` | maintenance tool (outside the package) that rebuilds the compact HM3 coordinate reference used by genome-build inference |
 | `ldsc._kernel.liftover` | shared hg19/hg38 liftover helpers, chain-file translation, curated HM3 dual-build coordinate conversion, drop-all coordinate collision helpers, and readable drop reports |
 | `ldsc._kernel.regions` | packaged and user BED interval loading plus region-exclusion masks |
-| `ldsc._kernel.plink_bed` | PLINK genotype reader (`PlinkBEDFile` and its `__GenotypeArrayInMemory__` base, incl. the in-class LD-score block sums): lazy header read, per-SNP selective decode with fused individual filter, and opt-in disk streaming for unrestricted builds; never materializes the whole-chromosome bitarray |
+| `ldsc._kernel.plink_bed` | PLINK genotype reader (`PlinkBEDFile` and its `__GenotypeArrayInMemory__` base, including LD-score block sums): selective SNP reads with fused individual filtering retain only selected packed genotypes; unrestricted panel builds opt into disk streaming instead |
 | `ldsc.annotation_builder` | public annotation builder and general standalone parser/API dispatch seam |
 | `ldsc.annotation_semantics` | global annotation-name uniqueness and advisory binary/quantitative classification |
 | `ldsc._annotation_bundle`, `ldsc._annotation_storage` | explicit dataset ownership, chromosome descriptors, detached selected reads, and output-contained scratch |

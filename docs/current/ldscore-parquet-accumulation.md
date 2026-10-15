@@ -1,12 +1,11 @@
 # LD-score Computation from R² Parquets — Mathematical Specification
 
-Last updated on: 2026-09-11
+Last updated on: 2026-10-15
 
 This document defines, in math, **how LD scores are computed from a parquet R²
 reference panel** by the streaming accumulator. It is the conceptual companion to
-`docs/current/parquet-r2-format-and-read-pipeline.md` (the artifact format and the
-read pipeline) and the design spec
-`docs/specs/2026-06-06-ldscore-parquet-pair-streaming-design.md`.
+[the artifact format and read pipeline](parquet-r2-format-and-read-pipeline.md).
+The [original pair-streaming specification](../specs/2026-06-06-ldscore-parquet-pair-streaming-design.md) records the earlier full-reference CSR design; the current selected-output realization is described below.
 
 Every symbol is defined in §1 before it is used. Read §1 first.
 
@@ -26,10 +25,10 @@ SNPs after intersection/restriction), in **genomic (position-sorted) order**.
 | $A$ | matrix $\mathbb{R}^{m\times n_a}$ | annotation matrix; $A_{l,a}$ = value of annotation $a$ at SNP $l$ |
 | $A_{l,\cdot}$ | row vector $\mathbb{R}^{1\times n_a}$ | the whole annotation row for SNP $l$ |
 | $r^2(k,l)$ | scalar in $(-\,\cdot,1]$ | **unbiased** squared correlation between SNPs $k$ and $l$ (may be slightly negative; see §6.4) |
-| $\mathrm{win}(k)$ | set $\subseteq\{0,\dots,m-1\}$ | the LD-window neighbours of SNP $k$ (SNPs within the configured window of $k$) |
+| $\mathrm{win}(k)$ | set $\subseteq\{0,\dots,m-1\}$ | the other SNPs within the configured LD window of $k$, excluding $k$ itself |
 | $R$ | matrix $\mathbb{R}^{m\times m}$ | symmetric within-window LD matrix (defined in §3); **never materialized** as a dense matrix |
 | $U$ | sparse matrix $\mathbb{R}^{m\times m}$ | strict upper triangle of the stored pairs: $U_{ij}=v_{ij}$ for $(i,j)\in P$, $0$ elsewhere; gives $R=I+U+U^{\top}$ (§5) |
-| $C$ | matrix $\mathbb{R}^{m\times n_a}$ | the accumulator (`cor_sum` in code); on completion $C=RA$ |
+| $C$ | matrix $\mathbb{R}^{m\times n_a}$ | conceptual full-reference result $C=RA$; production retains only selected output rows |
 | $\ell_{k,a}$ | scalar | the LD score of SNP $k$ for annotation $a$ (an entry of $C$) |
 | $\mathrm{block\_left}[j]$ | index | smallest retained index inside the LD window of SNP $j$ (the window's left edge) |
 | $P$ | set of triples | the stored, decoded, window-filtered pair set (defined in §4) |
@@ -39,7 +38,9 @@ SNPs after intersection/restriction), in **genomic (position-sorted) order**.
 | $q$ | on-disk int16 | the quantized R² of a pair as stored on disk |
 | $s$ | scalar | dequantization scale, $s=32767$ (`ldsc:r2_scale`) |
 | $N$ | scalar | reference sample size (only used for the *raw*→unbiased correction of external panels; §6.4) |
-| $K$ | scalar | CSR chunk size: target number of pairs buffered before one SpMM step (§5) |
+| $K$ | scalar | maximum decoded pairs buffered before projection (§5) |
+| $O$ | ordered retained-row indices | output SNP rows, a subset of the contributor universe |
+| $C_{\mathrm{out}}$ | matrix $\mathbb{R}^{\lvert O\rvert\times n_a}$ | production float64 accumulator, equal to $(RA)[O,:]$ |
 
 Convention: $\mathrel{+}=$ means "add into" (accumulate); $\leftarrow$ means
 assignment; $\mathbf{v}\odot M$ is the row-wise scaling of matrix $M$ by vector
@@ -155,8 +156,8 @@ the regression weight is just one more column of $A$.
 
 ### Sparse realization (chunked CSR)
 
-Steps 1–3 are computed with two sparse matrix–dense matrix products (SpMM) instead
-of element-wise scatter-adds. With $R=I+U+U^{\top}$ (§1),
+The conceptual full product can be expressed as two sparse matrix–dense products (SpMM) instead of element-wise scatter-adds.
+With $R=I+U+U^{\top}$ (§1),
 
 $$
 C \;=\; RA \;=\; \underbrace{A}_{\text{diagonal}} \;+\; \underbrace{U A}_{i\text{-side}} \;+\; \underbrace{U^{\top}A}_{j\text{-side}}.
@@ -166,7 +167,7 @@ $U$ is stored in **compressed sparse row (CSR)** form: a `data` array of nonzero
 values (row by row), an `indices` array of their column indices, and an `indptr`
 array of length $m{+}1$ where row $k$'s entries are `data[indptr[k]:indptr[k+1]]`.
 
-**Numeric example** (the §3 panel: $m=4$, pairs $(0,1){=}0.4,\ (0,2){=}0.2,\
+**Numeric example** (a panel with $m=4$, pairs $(0,1){=}0.4,\ (0,2){=}0.2,\
 (1,2){=}0.6,\ (2,3){=}0.5$, single all-ones annotation $A=[1,1,1,1]^{\top}$):
 
 $$
@@ -185,8 +186,8 @@ U^{\top}A=\begin{bmatrix}0\\0.4\\0.8\\0.5\end{bmatrix}\!\text{(col sums)},\quad
 C=A+UA+U^{\top}A=\begin{bmatrix}1.6\\2.0\\2.3\\1.5\end{bmatrix}.
 $$
 
-$U^{\top}$ is a no-copy transpose (the CSR of $U$ is the CSC of $U^{\top}$, sharing
-the same three arrays), so the $j$-side is a second SpMM with no extra storage.
+This upper-triangle representation explains the two directed contributions.
+Production combines the required orientations into a rectangular selected-output operator, described below; it does not allocate the full $U$ for this example as a separate workflow step.
 
 #### Chunking
 
@@ -198,7 +199,7 @@ $$
 C \;\leftarrow\; A \;+\; \sum_c\bigl(U_c A + U_c^{\top}A\bigr).
 $$
 
-This is **exact** by linearity of the matrix product,
+This identity holds in exact arithmetic by linearity of the matrix product,
 $\bigl(\sum_c U_c\bigr)A=\sum_c U_c A$: no pair is dropped or double-counted because
 each $(i,j)$ lands in exactly one chunk. Splitting the example after the first two
 pairs:
@@ -215,18 +216,32 @@ U_2 A=\begin{bmatrix}0\\0.6\\0.5\\0\end{bmatrix},\quad
 U_1 A+U_2 A=\begin{bmatrix}0.6\\0.6\\0.5\\0\end{bmatrix}=UA.
 $$
 
-$K$ (the chunk's target pair count) is a fixed memory-budget constant, **independent
-of** the PLINK `snp_batch_size` and the parquet `row_group_size`: chunks are formed
-by accumulating whole decoded row groups until $\sim K$ pairs are buffered. $K$ is
-bounded **below** by $m$ (so the size-$(m{+}1)$ `indptr` rebuilt per chunk is
-amortized) and **above** by the per-chunk RAM budget ($\approx 28K$ bytes — buffered
-pairs $12K$ + CSR $12K$ with float64 `data` + sort workspace). The package fixes
-$K = 1.6\times10^{7}$ pairs, so the chunk's footprint is $\approx 0.45$ GiB and the
-scatter never dominates peak RSS. The SpMMs are computed in **float64** ($U$'s
-`data` and $A$ cast to float64); a float32 SpMM accumulates each row sum in float32
-and loses ~3e-3 (above the quantization floor — see §6.5). Note this caps the *scatter* memory only; the
-window-independent fixed term ($C$, the annotation matrix, the $UA$ SpMM output, the
-sidecar) scales with $m\,n_a$, not $K$ (§7).
+#### Current selected-output implementation
+
+The workflow needs $C_{\mathrm{out}}=(RA)[O,:]$, not every row of $C$.
+Each output still sums over all retained reference contributors.
+For chunk $c$, let $W_c=(U_c+U_c^\top)[O,:]$; then
+
+$$
+C_{\mathrm{out}} = A[O,:] + \sum_c W_c A.
+$$
+
+[`ProjectionAccumulator.add_pairs()`](../../src/ldsc/_kernel/ldscore_projection.py) builds the needed directed edges only for output targets, compacts the involved target/contributor indices, and uses a rectangular float64 CSR for $W_c$.
+If $O=[0,2]$ in the example, the selected scores are $[1.6,2.3]^\top$.
+SNPs 1 and 3 still contribute; dropping them before multiplication would give the wrong answer.
+The diagonal is seeded once on output rows by `add_diagonal()`.
+
+[`ld_score_streaming_from_r2_reader()`](../../src/ldsc/_kernel/ldscore.py) splits decoded record batches so at most $K=16{,}000{,}000$ pairs are buffered before projection, with a final partial chunk.
+$K$ is independent of Parquet row-group size and PLINK `snp_batch_size`; it is not clamped below by $m$.
+The pair buffer, concatenated arrays, two-direction expansion, CSR and sorting workspace can coexist, so $K$ is not a byte/RSS cap.
+The reader uses record batches of at most 65,536 rows even for oversized row groups.
+
+`ProjectionAccumulator._accumulate()` tiles annotation columns and contributor/output rows.
+It reads a float64 contributor tile once and reuses it across output blocks.
+The default 16 MiB read budget targets one operand tile, with at least one row, rather than the complete working set.
+Sparse slices, gathered accumulator entries, products, metadata, and conversion buffers have separate lifetimes.
+The main score array spans output rows and the workflow's active annotation batch, including shared baseline and weight columns.
+Each later execution batch traverses the reference again.
 
 ---
 
@@ -234,7 +249,9 @@ sidecar) scales with $m\,n_a$, not $K$ (§7).
 
 ### 6.1 Symmetry is handled by the two updates
 Each unordered pair is stored once but corresponds to two equal entries $R_{ij}=R_{ji}$.
-Step 2's two scatter-adds place both. No pair is double-counted because $P$ holds
+Step 2's two updates place both contributions in the conceptual full result.
+Production retains the orientations whose target is in $O$.
+No pair is double-counted because $P$ holds
 each unordered pair exactly once (parquet pair-uniqueness + injective remap; see the
 format doc §2.2/§3.1).
 
@@ -258,34 +275,32 @@ no correction is applied. The raw→unbiased map
 $v_{ij}\leftarrow v_{ij}-\tfrac{1-v_{ij}}{N-2}$ is applied **only** for external
 *raw*-R² panels (those declaring `ldsc:r2_bias=raw` with `ldsc:n_samples=N` in
 parquet schema metadata), once per pair at decode.
-Either way the $v_{ij}$ entering §5 is the final R². Possible small negative
-$v_{ij}$ (≈15% of pairs) are preserved, not floored.
+Either way the $v_{ij}$ entering §5 is the final R². Negative decoded $v_{ij}$ values are preserved, not floored.
 
 ### 6.5 Numerical precision
-$C$ and the two SpMMs run in **float64** ($U$'s `data` and $A$ are cast to float64).
-This matters: scipy's CSR·dense product accumulates each row sum in the *operand*
-dtype, so a float32 SpMM sums hundreds of within-window terms in float32 and loses
-~3e-3 — above the int16 quantization floor. In float64 the result matches an exact
-float64 reference, and chunking only **reorders an exact sum** (§5 linearity), so
-different $K$ agree to ~1e-12 — no pair is dropped, quantized, or thresholded.
-Results are *not bit-identical* to the legacy genotype-block path (that path used
-float32 GEMM), but differ only at float rounding (~5e-4), well below the int16
-quantization floor (≤~2e-3).
+The score accumulator, sparse operator values, and annotation operands are float64.
+This avoids accumulating many contributions in float32; public LD-score values are narrowed only at the established output boundary.
+Annotation bit-packing is lossless, while source continuous annotations and decoded R² retain their existing float32 precision before promotion.
+Int16 panel quantization is a separate lossy operation; promoting decoded values cannot restore the lost information.
+
+Linearity proves the mathematical result, not bitwise equality between floating-point evaluation orders.
+Changing $K$, tile layout, query width, or backend can reorder sums and alter roundoff.
+Validate against independent float64 expectations with the established numerical tolerances, and compare transport-only changes at matched layouts.
+There is no universal per-SNP LD-score error bound independent of pair count and annotation weights.
+See [`test_ldscore_projection.py`](../../tests/test_ldscore_projection.py), [`test_ldscore_streaming.py`](../../tests/test_ldscore_streaming.py), and the [transport parity audit](../audits/2026-10-15_direct-streaming.md).
 
 ---
 
 ## 7. Complexity
 
-Let $\mathrm{nnz}=|P|$ be the number of consumed pairs.
+Let $\mathrm{nnz}=|P|$ be the number of consumed pairs and $n_a$ the active annotation width including the optional weight.
+The leading multiplication work is $O(\mathrm{nnz}\,n_a)$, with fewer directed updates when only some targets are output rows.
+Reading, remapping, filtering, sorting/CSR construction, compression, and repeated execution batches add costs outside that arithmetic expression.
 
-$$
-\text{time} = O(\mathrm{nnz}\cdot n_a)\quad(\text{each pair touched once per annotation}),
-\qquad
-\text{memory} = \underbrace{O(m\,n_a)}_{C} + \underbrace{O(K)}_{\text{one chunk + its CSR}}.
-$$
-
-This is the optimal arithmetic for $C=RA$ given $R$ as an edge list. With chunked
-CSR the peak memory is bounded by the chunk size $K$ — independent of **both** the
-LD window width (which only filters $P$) **and** the chromosome's total pair count
-$\mathrm{nnz}$. There is no block tiling, no dense $R$ tile, and no
-decoded-row-group cache.
+The main score payload is $8\,|O|\,n_a$ bytes.
+Pair/operator workspace scales with the chunk bound $K$, and sidecars/maps with retained SNP count; annotation and output tiles introduce additional allocations.
+There is no dense chromosome-wide $R$ or decoded-row-group cache.
+This bounds particular components independently of total stored pair count, but it is not a formula for total process or job RSS.
+The read-time window can change the retained sparse operator even though every stored pair is scanned.
+Worker concurrency, genotype/index state, filesystem cache, and staged final outputs must be accounted for separately.
+See [memory and CPU efficiency design](annotation-memory-design.md#precision-universes-and-resource-accounting).

@@ -2162,9 +2162,11 @@ def run_indexed_ldscore(
     Notes
     -----
     Overlapping, nested, duplicated, and alias-selected genes are combined by
-    Boolean union. Each worker retains one chromosome operator while writing
-    and releasing its query batches. Private fragments preserve float64 until
-    deterministic chromosome-order assembly and canonical Parquet narrowing.
+    Boolean union. A persistent worker pool processes one active query batch;
+    each chromosome task reloads its operator and releases it after projection.
+    Private fragments preserve float64 through global query-status checks.
+    Assembly reads one chromosome at a time in index order, narrows to the
+    public float32 format, and removes consumed fragments before the next batch.
     Completed batches remain private until the complete run succeeds.
     One query file is named ``ldscore.query.parquet``; multiple files use
     numbered names in the required ``query_batches`` manifest. This API writes
@@ -2355,6 +2357,12 @@ def build_plink_index_chromosome(
     resolving ``args.bfile`` again; direct callers may omit it to use the same
     content validation lazily through ``PlinkRefPanel``. Genotype alignment,
     windowing, regression rows, and atom projection are unchanged.
+
+    Baseline and regression-weight scores share one traversal. Each atom batch
+    repeats genotype traversal, bounding the active dense atom projection.
+    Sparse float64 operator blocks remain live until horizontal assembly, so
+    ``atom_batch_size`` does not bound the final operator or assembly copies.
+    The chromosome baseline matrix is also explicitly materialized in float64.
     """
     from .config import LDScoreConfig, RefPanelConfig
     from ._kernel.ref_panel import PlinkRefPanel

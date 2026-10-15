@@ -18,7 +18,7 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 - [partitioned-h2-results.md](partitioned-h2-results.md): partitioned-h2 result columns and interpretation
 - [continuous-annotation-quantile-h2.md](continuous-annotation-quantile-h2.md): continuous-annotation post-fit contracts
 - [layer-structure.md](layer-structure.md): layer-by-function object matrix
-- [annotation-memory-design.md](annotation-memory-design.md): implemented storage, ownership, chromosome workers, query batching, regression writing, and exact quantile accumulation
+- [annotation-memory-design.md](annotation-memory-design.md): consolidated memory and CPU efficiency designs, including bit-packing, genotype/R² streaming, sparse projection, index reuse, workers, regression copies/artifacts, exact quantiles, and evidence limits
 
 ![Package overview](../assets/ldsc-package-overview.png)
 

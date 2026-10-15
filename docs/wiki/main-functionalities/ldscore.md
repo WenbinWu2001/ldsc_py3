@@ -99,7 +99,8 @@ Private scratch stays below the output directory and is cleaned on handled succe
 Metadata is published after all batches succeed.
 Resuming from a completed batch is a possible future feature and is not supported.
 Freed memory can remain reserved by the allocator, so RSS need not drop immediately.
-See the [memory design](../../current/annotation-memory-design.md), [direct integration validation](../../audits/2026-10-15_direct-streaming.md), and [batch regression guide](partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways).
+See the [memory and CPU efficiency design guide](../../current/annotation-memory-design.md) for bit-packing, genotype/R² access, query streaming, index reuse, worker costs, and the allocations that remain.
+The [direct integration validation](../../audits/2026-10-15_direct-streaming.md) and [batch regression guide](partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways) describe correctness checks and measured workflows.
 Sources: `LDScoreCalculator.run`, `LDScoreSource.read_queries`, [direct fragment staging](../../../src/ldsc/_direct_ldscore_batches.py), and `indexed_results` in [_indexed_ldscore_batches.py](../../../src/ldsc/_indexed_ldscore_batches.py).
 
 ## Direct assembly measurements

@@ -51,7 +51,23 @@ class MappedAnnotations:
 
 
 class ProjectionAccumulator:
-    """Own float64 output-SNP-by-annotation scores and bounded read workspace."""
+    """Accumulate selected output rows while preserving all contributors.
+
+    ``annotations`` is a borrowed chromosome accessor with shape
+    ``(n_reference_rows, n_annotation_columns)`` and ordered ``columns``.
+    ``output_rows`` selects accumulator rows only; it never filters the
+    annotation contributors. ``values`` owns a float64 array with shape
+    ``(len(output_rows), n_annotation_columns + (weight_mask is not None))``.
+
+    Shared baseline columns and the optional weight are projected together;
+    ``query_batch_size`` limits focal columns per operand read, not the total
+    width of ``values``. The workflow supplies only its active query batch.
+    Each float64 contributor tile is reused across output blocks.
+    ``read_budget_bytes`` targets one operand tile (at least one row), not
+    total RAM: sparse operators, slices, gathers, and products also allocate.
+    The caller retains ownership of the accessor and controls public output
+    conversion after float64 accumulation.
+    """
 
     def __init__(self, annotations, *, n_baseline, output_rows=None, weight_mask=None, query_batch_size=100, read_budget_bytes=16*1024*1024):
         if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, (int, np.integer)) or query_batch_size < 1:

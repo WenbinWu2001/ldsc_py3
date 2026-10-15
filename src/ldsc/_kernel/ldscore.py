@@ -98,7 +98,7 @@ _LDSCORE_INTERSECTION_DOC = (
     "docs/troubleshooting.md#ldscore-no-annotation-snps-remain-after-reference-panel-intersection"
 )
 _LDSCORE_PARQUET_DOC = "docs/troubleshooting.md#ldscore-parquet-r2-input-is-incompatible"
-# K: stored R2 pairs buffered before one float64 CSR SpMM step (~0.45 GiB/chunk).
+# K bounds buffered pairs; CSR construction and projection add working arrays.
 _CSR_CHUNK_PAIRS = 16_000_000
 REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP")
 ANNOT_META_COLUMNS = ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF")

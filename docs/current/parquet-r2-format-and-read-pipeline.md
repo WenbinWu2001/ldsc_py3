@@ -1,6 +1,6 @@
 # Parquet R2 Table: Format Specification and Read Pipeline
 
-Last updated on: 2026-09-11
+Last updated on: 2026-10-15
 
 This document defines the canonical **index** format for parquet-backed pairwise
 R² reference panels and describes how the read pipeline validates, binds, and
@@ -29,7 +29,7 @@ Removing that expansion/collapse round-trip:
 - lets a **single** parquet serve all four SNP identifier modes.
 
 A `SIGN_R` bit (sign of the Pearson correlation r) is preserved for downstream
-consumers, though LD-score regression — which uses unsigned R² — ignores it.
+consumers, though LD-score calculation uses the bias-adjusted R² values and ignores this sign bit.
 
 ---
 
@@ -57,10 +57,11 @@ the sidecar's A1/A2 alleles.
   `(IDX_1, IDX_2)` row is unique — the builder never emits a pair twice. This is
   an index-level (identifier-mode-independent) property: `IDX_k` are sidecar row
   numbers, so pair identity does not depend on `snp_identifier`. This is
-  **guaranteed by construction** (builder + the §4 SHA-256 sidecar binding, which
-  fixes the exact `(IDX_1, IDX_2)` set), so the read path **trusts it and does
-  not scan the parquet for duplicate rows** — there is no per-window and no
-  whole-file deduplication. The only uniqueness enforcement at read time is the
+  **guaranteed by the package builder**; the §4 SHA-256 binding separately
+  fixes the sidecar identity/order but does not authenticate or deduplicate pair rows.
+  The read path trusts the builder contract and does not scan the parquet for duplicate rows.
+  There is no per-window or whole-file deduplication.
+  The only uniqueness enforcement at read time is the
   up-front, mode-aware collapse rejection at remap time (§3.1), which guards the
   one case that *can* induce a duplicate in the retained matrix: two distinct
   panel SNPs sharing an identity key under the active mode.
@@ -78,9 +79,9 @@ queries.
 
 ### 2.3 Row Group Size, Compression, and Column Encodings
 
-Default: **50 000 rows per row group**, tuned so most 1 Mb window queries touch
-1–2 row groups. Recommended range 25 000–200 000. Column chunks are compressed
-with **zstd level 9** when available (snappy fallback, with a `UserWarning`).
+The default is **50,000 rows per row group**.
+Row-group granularity affects pair-query pruning and read overhead; the groups touched depend on pair density and the requested endpoints.
+Column chunks use **zstd level 9** when available, with a snappy fallback and a `UserWarning`.
 Compression is recorded per column-chunk in the footer and auto-detected on read.
 
 **Per-column Parquet encodings** are set explicitly to match each column's
@@ -88,17 +89,19 @@ structure:
 
 | Column | Encoding | Rationale |
 |---|---|---|
-| `IDX_1` | `RLE_DICTIONARY` (PyArrow default) | Long constant runs (each left SNP appears ~3k times at 1cM/1KG density); dictionary + RLE reduces to ≈0.05 bits/pair. |
-| `IDX_2` | **`DELTA_BINARY_PACKED`** | Within each `IDX_1` run, right-neighbor indices are sorted with a median forward-gap of 1. DELTA stores successive differences, collapsing ~650 MB to ~6 MB vs the default dictionary path. `use_dictionary` is restricted to `IDX_1` only so PyArrow cannot override this encoding. |
-| `R2` | **`int16` quantization + `BYTE_STREAM_SPLIT`** | R² is stored as symmetric int16 (`round(R²·32767)`, clipped `[-32767, 32767]`) instead of float32. `BYTE_STREAM_SPLIT` separates the two int16 byte planes so zstd compresses the low-entropy high byte (R² clusters near 0) apart from the noisy low byte. Genome-wide this cuts the R² column ~63% vs float32 PLAIN. Lossy but effectively lossless for LD scores: per-pair `|error| ≤ 1.5e-5` (½ step, ~20× below the `1/N` unbiased-correction floor), per-SNP LD-score delta `≤ ~2e-3`. |
+| `IDX_1` | `RLE_DICTIONARY` (PyArrow default) | Repeated left endpoints form constant runs suitable for dictionary and run-length encoding. |
+| `IDX_2` | **`DELTA_BINARY_PACKED`** | Sorted right endpoints within each left-endpoint run have small differences suited to delta encoding. `use_dictionary` is restricted to `IDX_1` so it does not override this choice. |
+| `R2` | **`int16` quantization + `BYTE_STREAM_SPLIT`** | Symmetric int16 (`round(R²·32767)`, clipped `[-32767, 32767]`) replaces float32; byte-stream splitting compresses the two byte planes separately. Quantization is lossy; error and storage ratios depend on inputs and downstream weighted sums. |
 | `SIGN_R` | `RLE` + bit-packing (PyArrow bool default) | Arrow `bool` is natively bit-packed at 1 bit/value; RLE handles the encoding automatically. |
 
-**R² quantization (lossy) — endpoint-exact.** The scale `32767` is the int16
-maximum, so the maximum R² round-trips exactly: the writer upper-clips the
-unbiased estimate at `1.0`, `round(1.0·32767) = 32767`, and the reader decodes
-`32767 / 32767 = 1.0` exactly. Negative unbiased values (~15% of pairs) are
-preserved, not floored. The `[-32767, 32767]` clip is defensive — with the `≤1.0`
-clip and `|negatives| ~ 1/N` it never fires on real data.
+**R² quantization (lossy) — endpoint-exact.**
+The scale `32767` is the int16 maximum, so the value `1.0` round-trips exactly.
+The writer upper-clips the unbiased estimate at `1.0`, encodes it as `32767`, and the reader decodes `32767 / 32767 = 1.0`.
+Negative unbiased values are preserved within the encoding's range, not floored at zero.
+For values within the clipping range, ideal rounding contributes at most half a step, $1/(2\cdot32767)$, plus float32 decoding roundoff.
+Clipping outside that range has additional error.
+An LD-score sum combines many such errors with annotation weights, so historical per-SNP differences are workload measurements, not universal bounds or an assertion of losslessness.
+This differs from [binary annotation packing](annotation-memory-design.md#annotation-format-policy), which preserves exact 0/1 values.
 
 All encodings are recorded in the parquet footer and PyArrow auto-decodes them.
 The int16→float32 **dequantization is a reader-side step** (divide by
@@ -227,9 +230,11 @@ does not change any filtering/restriction/intersection step. It then:
    (`iter_all_pairs`, §3.3). The coarse-row-group startup warning from the parquet
    footer statistics is retained.
 
-### 3.2 Decode (`_decode_index_row_group`)
+<a id="32-decode-_decode_index_row_group"></a>
 
-Per row group, the reader reads only `IDX_1, IDX_2, R2` and gathers:
+### 3.2 Decode (`_decode_index_batch`)
+
+Per bounded Arrow record batch, the reader reads only `IDX_1, IDX_2, R2` and gathers:
 
 ```python
 i = remap[IDX_1]; j = remap[IDX_2]
@@ -241,51 +246,44 @@ column is an integer dtype (quantized panels), the reader **dequantizes**
 (`r2 = int16_values / ldsc:r2_scale`, scale resolved once at open in
 `_resolve_r2_scale`) to `float32` before the optional raw→unbiased R² correction
 (`_transform_r2`); a float32 R² column (legacy) skips dequant. `SIGN_R` is not read
-(unused by LD-score computation). Each decoded group is a numeric
+(unused by LD-score computation).
+Each decoded batch is a numeric
 `(i:int32, j:int32, r2:float32)` triple of retained-matrix index pairs.
 
 The public chromosome workflow calls `ParquetR2RefPanel.prepare_chromosome`, which aligns annotation rows to the filtered sidecar, takes authoritative CM/MAF from that sidecar, validates LD windows, and calls `build_reader`. That single reader factory uses `_resolve_r2_bias_from_meta` to resolve `ldsc:r2_bias` and `ldsc:n_samples`; production and adapter tests share the same path. The numerical kernel receives this prepared state, and its context manager closes the reader after success or failure. External raw R² values receive the existing sample-size correction in both ordinary and regression-weight LD scores; package-built unbiased panels receive no second correction.
 
 ### 3.3 Pair streaming (`iter_all_pairs`)
 
-LD-score computation does **not** query windows or tile the panel into blocks. The
-reader exposes `iter_all_pairs()`, which decodes **every row group exactly once**
-in `IDX_1` order and yields its `(i, j, r2)` arrays. There is no row-group pruning,
-no decoded-row-group cache, and no dense block matrix: each stored pair is produced
-a single time and consumed immediately (§3.4). Read-side peak RSS is therefore
-bounded by the accumulator (§3.6), not by the LD window.
+`iter_all_pairs()` visits every row group once in `IDX_1` order and calls `iter_batches` with a maximum of 65,536 rows.
+Large stored row groups are decoded in bounded record batches rather than materialized whole.
+There is no row-group pruning, decoded-row-group cache, or dense LD-window matrix.
+The driver consumes these arrays into a separate bounded pair buffer (§3.4).
+This avoids retaining every pair in a chromosome, but it is not a total RSS bound (§3.6).
 
 ### 3.4 LD-score accumulation (`ld_score_streaming_from_r2_reader`)
 
-The LD score is `cor_sum = R · annot`, where `R` is the `m×m` symmetric
-within-window R² matrix with unit diagonal. The streaming driver computes it
-directly from the stored pairs:
+Conceptually, the full LD-score matrix is $C=RA$, where $R$ is symmetric with unit diagonal and $A$ contains annotations plus the optional regression-weight column.
+Production retains only requested output rows $O$, computing $C_{\mathrm{out}}=(RA)[O,:]$ while preserving all retained reference contributors.
+The corresponding pair updates are:
 
-```
-cor_sum[k]  ← annot[k]                         # diagonal R²(k,k) = 1, every SNP
+```text
+cor_sum[k] ← annot[k]                         # diagonal once, k in output rows
 for each stored pair (i, j, r2) with i < j and i ≥ block_left[j]:
-    cor_sum[i] ← cor_sum[i] + r2 · annot[j]    # off-diagonal, both orientations
-    cor_sum[j] ← cor_sum[j] + r2 · annot[i]
+    if i is an output row: cor_sum[i] += r2 · annot[j]
+    if j is an output row: cor_sum[j] += r2 · annot[i]
 ```
 
-`block_left[j]` applies the ldscore LD window (`--ld-wind-*`), which may be
-narrower than the panel's build window: a stored pair contributes iff
-`i ≥ block_left[j]`. The accumulation is realized as `cor_sum = annot + U·annot +
-Uᵀ·annot`, where `U` is the strict-upper-triangular CSR of the streamed pairs, built
-and multiplied in **chunks** of ~`K` pairs to bound memory (chunked CSR SpMM, not
-element-wise scatter). The SpMMs run in **float64** (`U.data` and `annot` cast to
-float64); a float32 SpMM accumulates row sums in float32 and loses ~3e-3. Cost is `O(nnz · n_a)` — each stored pair is touched once per
-annotation. `annot` carries the partitioned annotation columns plus the
-regression-weight column, so a single pass yields both the reference and
-regression-universe LD scores.
+`block_left[j]` applies the read-time LD window, which may be narrower than the build window.
+The driver splits decoded batches to buffer at most `_CSR_CHUNK_PAIRS` pairs, currently 16 million, before projection.
+[`ProjectionAccumulator.add_pairs()`](../../src/ldsc/_kernel/ldscore_projection.py) filters the window and output targets, expands the required pair orientations, and constructs a rectangular CSR over the chunk's involved outputs and contributors.
+It multiplies in float64 using selected annotation tiles, reusing each contributor tile across output blocks.
+Shared baseline columns and weights are projected together, followed by focal column tiles for the active execution batch.
+The next execution batch repeats traversal.
+The production path does not require a full `m×m` upper-triangular CSR or a complete dense annotation matrix.
 
-`cor_sum` and the SpMMs run in `float64`, so the result matches a float64 reference;
-it is *not bit-identical* to the legacy genotype-block path (which used float32
-GEMM), differing only by ~5e-4 (float rounding), well below the int16 quantization
-floor.
-
-The full step-by-step math, with a glossary defining every symbol, is in
-`docs/current/ldscore-parquet-accumulation.md`.
+Scores are accumulated in float64 and published in the existing float32 format.
+Changes in tile or pair grouping can reorder floating-point sums; numerical tolerances must be verified against independent expectations, not inferred from algebra alone.
+The [mathematical specification](ldscore-parquet-accumulation.md) distinguishes the conceptual full product from the selected-output implementation.
 
 ### 3.5 Mode-agnosticism
 
@@ -295,26 +293,19 @@ builds one index parquet and asserts identical LD scores in all four modes.
 
 ### 3.6 Read-side memory (streaming)
 
-The streaming reader holds no decoded-row-group cache and no dense block matrices.
-Peak reader RSS is bounded by the accumulator plus one CSR chunk (~`K` pairs and its
-sparse matrix), and the workflow/import floor:
+The main float64 score array has payload $8\,|O|\,n_a$ bytes, where $n_a$ includes only the active execution batch, baseline columns, and optional weight.
+Other live allocations include the decoded record batch, buffered/concatenated pairs, remap arrays and sidecar, bidirectional pair expansion, CSR construction/sorting, annotation tiles, sparse slices, gathered outputs, products, and public-format conversion.
+The default 16 MiB projection read budget targets one numerical operand tile; it does not cover those other allocations.
+Likewise, 16 million buffered pairs is a count limit, not a 0.45 GiB RSS guarantee.
 
-```
-RSS ≈ m · n_a · 8 bytes  (cor_sum, float64)  +  ~28·K bytes  (one chunk + its float64 CSR)  +  fixed floor
-```
+There is no dense window matrix or all-chromosome pair cache.
+A wider or denser panel therefore increases streamed work without requiring all its pairs to be resident simultaneously.
+The read-time window still filters pairs before sparse construction, so it can change the working set and arithmetic even though all stored pairs are read.
+Each chromosome worker adds its own working set, while staged output and file cache have separate lifetimes.
+See the [package resource model](annotation-memory-design.md#precision-universes-and-resource-accounting).
 
-For chr6 (`m ≈ 664k`, `n_a ≈ 57`): `cor_sum ≈ 303 MiB`; one chunk at the fixed
-`K = 16M` adds ~0.45 GiB. The chunk size `K` (not the chromosome's total pair count)
-caps the chunk term, so the scatter footprint stays bounded regardless of how dense
-or wide the chromosome is. Two consequences vs. the prior block reader:
-
-- **`--ld-wind-*` is not a read-side peak-RSS lever.** The window only filters
-  which streamed pairs contribute (`i ≥ block_left[j]`); it does not change
-  resident memory.
-- **Dense wide-window regions (the chr6 MHC) no longer set a memory high-water
-  mark** — they add pairs to stream, not memory to hold.
-
-The builder has a different working set: its genotype batches include window-spanning carry-over columns, and explicitly restricted builds keep selected genotypes in RAM. Its memory is not guaranteed to be flat in window size; see [build-side memory](ld-window-parquet-r2-sidecar-behavior.md#build-side-build-r2-panel). Under read-side chromosome parallelism each worker holds its own accumulator and pair chunk, so aggregate memory grows with worker count.
+The builder has a different working set: its genotype batches include window-spanning carry-over columns, and explicitly restricted builds keep selected genotypes in RAM.
+See [build-side memory](ld-window-parquet-r2-sidecar-behavior.md#build-side-build-r2-panel).
 
 ---
 
@@ -364,8 +355,9 @@ canonical index format offline. Existing 10-column panels must be regenerated.
 |---|---|
 | `_kernel/ref_panel_builder.py` | `write_r2_parquet`: 4-column index schema, sort assertion on `IDX_1`, binding metadata; `sidecar_identity_sha256` (re-exported from `snp_identity`). Pairs flow as columnar `PairColumns` `(i, j, r2, sign)` batches from `yield_pairwise_r2_rows` straight into the writer — no per-pair dict — and int16 quantization/encodings are applied at table build; the writer emits the current `SIGN_R` schema. |
 | `_kernel/snp_identity.py` | `sidecar_identity_sha256` binding hash |
-| `_kernel/plink_bed.py` | `PlinkBEDFile` genotype source for the build: selective per-SNP read (restricted) or disk streaming (unrestricted), feeding standardized columns to pairwise-R2 emission without loading the whole chromosome |
+| `_kernel/plink_bed.py` | `PlinkBEDFile` genotype source for the build: selective reads retain the selected packed payload; unrestricted panel builds opt into disk streaming. Both decode bounded standardized blocks |
 | `ref_panel_builder.py` | build loop: sidecar built first, hash + `n_snps` passed to the writer |
 | `_kernel/ldscore.py` | `SortedR2BlockReader` index path: full-sidecar load, binding validation, `build_index_remap`, gather decode, `iter_all_pairs` streaming; `ld_score_streaming_from_r2_reader` pair accumulation; raw/legacy and block/query/cache paths removed |
+| `_kernel/ldscore_projection.py` | `ProjectionAccumulator`: selected-output float64 scores, rectangular sparse pair operators, bounded annotation operands, and shared weight projection |
 | `_kernel/ref_panel.py` | mandatory sidecar loading; shared `prepare_chromosome` alignment/window policy and `build_reader` bias resolution |
 | `tests/` | index writer/reader/binding/remap tests; cross-mode parity gate; build→read parity |

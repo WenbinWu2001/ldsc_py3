@@ -131,15 +131,6 @@ def _range_message(config_name: str, field_name: str, value, allowed_range: str)
     )
 
 
-def _mutually_exclusive_message(config_name: str, left: str, right: str) -> str:
-    """Return a self-contained message for mutually exclusive config options."""
-    return (
-        f"Could not construct {config_name}: {left} and {right} are mutually exclusive. "
-        "Most likely both a custom file and packaged shortcut were selected for the same input. "
-        f"Set only one of {left} or {right}."
-    )
-
-
 def _one_ld_window_message(config_name: str) -> str:
     """Return a self-contained message for LD-window selector validation."""
     return (

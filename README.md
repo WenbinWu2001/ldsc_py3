@@ -159,17 +159,14 @@ conda env update -f environment.yml -n ldsc3-dev --prune
 python -m pip install -e ".[dev]"
 ```
 
-The package supports Python 3.11 through 3.13. The base install includes
-NumPy, pandas, SciPy, PyArrow, Matplotlib, and threadpoolctl. The last dependency limits supported native numerical libraries inside parallel query workers; see [query-worker runtime controls](docs/current/regression-configuration.md#43-query-workers-and-memory). Optional extras are split by workflow:
-`.[plink]` installs `bitarray` for PLINK-backed LD computation, `.[bed]`
-installs `pybedtools` for BED projection, and `.[liftover]` installs
-`pyliftover` for chain-file liftover in sumstats munging and cross-build
-reference-panel output. Matplotlib is installed by default, but plotting is
-never automatic and is imported only by figure-producing paths. `.[dev]`
-installs the PLINK, BED, and liftover extras plus pytest. BED-based annotation projection also requires the
-external `bedtools` executable, which `environment.yml` installs from bioconda.
-For non-conda installs, make sure `bedtools` is available on `PATH` before
-running BED annotation workflows.
+The package supports Python 3.11 through 3.13.
+The base install includes NumPy, pandas, SciPy, PyArrow, Matplotlib, threadpoolctl, and joblib.
+Threadpoolctl limits supported native numerical libraries inside workers; joblib supplies the detected CPU budget.
+See [query-worker runtime controls](docs/current/regression-configuration.md#43-query-workers-and-memory).
+Optional extras are split by workflow: `.[plink]` installs `bitarray` for PLINK-backed LD computation, and `.[liftover]` installs `pyliftover` for chain-file liftover in sumstats munging and cross-build reference-panel output.
+Matplotlib is installed by default, but plotting is never automatic and is imported only by figure-producing paths.
+`.[dev]` installs the PLINK and liftover extras plus pytest.
+BED and gene interval projection use the base package's NumPy implementation; no `bed` extra or external BED executable is needed.
 
 ## CLI
 
@@ -456,7 +453,10 @@ At the default INFO level, workflow logs mark validation, staging, computation, 
 
 ## Verification
 
-Use the editable development installation described above and run these commands from the repository root. Tests do not inject `src` into Python paths. Run pytest and unittest sequentially because pybedtools cleanup can affect another runner’s temporary files. Goldens are immutable expectations; restore missing NPZs from version control rather than regenerating them during tests.
+Use the editable development installation described above and run these commands from the repository root.
+Tests do not inject `src` into Python paths.
+Run pytest and unittest sequentially.
+Goldens are immutable expectations; restore missing NPZs from version control rather than regenerating them during tests.
 
 ```bash
 pytest

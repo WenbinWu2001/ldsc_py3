@@ -24,11 +24,11 @@ from ._annotation_identity import DiskIdentityIndex, IdentityDropSpool
 from ._annotation_parsing import normalize_annotation_chunk
 from ._annotation_preflight import AUTOSOMES, INPUT_ISSUE_COLUMNS, input_issue
 from ._annotation_storage import AnnotationShard, ColumnStore, FrameSpool
-from ._kernel.annotation import _chrom_sort_key, _annotation_parse_error_message, _validate_annotation_values
+from ._kernel.annotation import _annotation_parse_error_message, _validate_annotation_values
 from ._kernel.snp_identity import identity_base_mode, is_allele_aware_mode
 from ._row_alignment import assert_same_snp_rows
 from .annotation_semantics import require_unique_annotation_names
-from .chromosome_inference import normalize_chromosome
+from .chromosome_inference import chrom_sort_key, normalize_chromosome
 from .errors import LDSCInputError, LDSCUserError
 
 LOGGER = logging.getLogger("LDSC.annotation")
@@ -216,7 +216,7 @@ def _write_values(groups, selections, group_rows, counts, workspace, columns):
         if selection.n_rows:
             shutil.rmtree(selection.path)
     return {label: AnnotationShard(workspace.path / f"chrom-{label}" / "metadata.parquet", tuple(stores[label].values()), counts[label])
-            for label in sorted(stores, key=_chrom_sort_key)}
+            for label in sorted(stores, key=chrom_sort_key)}
 
 
 @report_phase(LOGGER, 'preparation', 'annotation alignment and identity validation')
@@ -295,7 +295,7 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     if baseline_layout is not None:
         if queries and (query_layout is None or set(query_layout) != set(baseline_layout)):
             raise LDSCInputError("Query annotation shards do not match baseline chromosome shards exactly. Supply matching shards.")
-        groups = [[baseline_layout[c]] + ([query_layout[c]] if queries else []) for c in sorted(baseline_layout, key=_chrom_sort_key)]
+        groups = [[baseline_layout[c]] + ([query_layout[c]] if queries else []) for c in sorted(baseline_layout, key=chrom_sort_key)]
         baseline_columns = baselines[0].columns
         query_columns = queries[0].columns if queries else ()
         if any(s.columns != baseline_columns for s in baselines) or any(s.columns != query_columns for s in queries):
@@ -330,7 +330,7 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
         error = LDSCInputError("annotate retained no annotation rows after SNP identity cleanup. Supply valid, unique SNP identities. Other causes & fixes: docs/troubleshooting.md#annotate-no-annotation-snp-rows-remain")
         error.annotation_drops = drops
         raise error
-    scope = tuple(sorted(set().union(*(s.chromosomes for s in baselines)), key=_chrom_sort_key))
+    scope = tuple(sorted(set().union(*(s.chromosomes for s in baselines)), key=chrom_sort_key))
     prepared = PreparedAnnotationSources(shards, baseline_columns, query_columns, drops, scope,
         tuple((str(s.path), "baseline" if s in baselines else "query", tuple(s.chromosomes)) for s in sources))
     binary_count = sum(len(store.columns) for store in next(iter(shards.values())).stores if store.bitorder)

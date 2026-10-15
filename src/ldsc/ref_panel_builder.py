@@ -1425,12 +1425,6 @@ def _read_source_build_chr_pos_restriction_frame(
     return frame, has_allele_columns
 
 
-def _read_source_build_chr_pos_restriction(path: Path, source_genome_build: str) -> set[str]:
-    """Read a CHR/POS restriction file that must align to the source build."""
-    frame, _has_allele_columns = _read_source_build_chr_pos_restriction_frame(path, source_genome_build)
-    return kernel_identifiers._finalize_chr_pos_restriction_frame(frame, path=path, logger=LOGGER)
-
-
 def _position_lookup_for_build(
     genome_build: str,
     *,

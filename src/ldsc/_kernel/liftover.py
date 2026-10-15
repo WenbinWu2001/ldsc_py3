@@ -907,21 +907,3 @@ def _apply_chain_liftover(
     if not lifted_parts:
         return frame.iloc[0:0].copy(), unmapped_count, cross_chrom_count, _concat_liftover_drop_frames(drop_frames)
     return pd.concat(lifted_parts, axis=0), unmapped_count, cross_chrom_count, _concat_liftover_drop_frames(drop_frames)
-
-
-def _log_drop_examples(
-    original: pd.DataFrame,
-    retained_index: pd.Index,
-    category: str,
-    logger: logging.Logger,
-) -> None:
-    """Log up to five dropped rows for one category at DEBUG verbosity."""
-    dropped = original.loc[~original.index.isin(retained_index)]
-    if dropped.empty:
-        return
-    columns = [column for column in ("SNP", "CHR", "POS") if column in dropped.columns]
-    examples = dropped.loc[:, columns].head(5).to_dict("records")
-    logger.debug(
-        f"Dropped {len(dropped)} rows for {category} during summary-statistics liftover. "
-        f"Examples: {examples}"
-    )

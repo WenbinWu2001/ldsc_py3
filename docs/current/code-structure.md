@@ -114,12 +114,12 @@ ldsc_py3_restructured/
 | `ldsc.overlap_matrix` | public-layer overlap container (`LDScoreOverlap`), long-form parquet (de)serialization, per-model overlap assembly, the overlap-aware category table (ported `_overlap_output` + augmentation), and the collinearity hard-error check (`model_collinearity_error`) |
 | `ldsc.outputs` | per-writer `artifact_family()` declarations shared by workflow preflight, final writes, metadata file entries, and cleanup; artifact naming, LD-score parquet and query-diagnostic layout, partitioned-h2 per-query layout, rg result-family layout, metadata JSON payloads, and serialization |
 | `ldsc._kernel.overlap` | low-level annotation overlap-block computation (`OverlapContribution`, `compute_overlap`, `sum_overlap_contributions`) |
-| `ldsc._kernel.annotation` | low-level annotation table reading and BED intersection helpers |
+| `ldsc._kernel.annotation` | concrete annotation table reading and numeric-value validation |
+| `ldsc._annotation_projection` | `ChromosomeProjector` maps BED/gene interval unions to chromosome SNP positions; called by `_annotation_queries.build_query_shards()` after shared BED parsing |
 | `ldsc._kernel.ref_panel_builder` | optional genetic-map parsing, optional liftover, parquet schemas, pairwise LD emission |
 | `ldsc._kernel.ref_panel` | runtime PLINK/parquet adapters; `RefPanel.prepare_chromosome` owns reference filtering, annotation alignment, window/bias policy, and reader lifetime |
 | `ldsc._kernel.r2_query` | low-level index-format parquet pair lookup used by `ldsc.r2_query` |
 | `ldsc._kernel.ldscore` | `PreparedChromosome` data contract, LD-score projection from prepared state, streaming R2 reader, annotation/window/count primitives; no LDSC2 artifact emitters |
-| `ldsc._kernel.sumstats_munger` | legacy-compatible raw summary-statistics QC, normalization, and optional coordinate liftover; returns `MungeResult` with tables, counts and provenance and owns no output files |
 | `ldsc._kernel.regression` | LDSC estimators for `Hsq` and `RG` |
 | `ldsc._kernel._jackknife`, `ldsc._kernel._irwls` | supporting numerical routines used by regression |
 | `ldsc._kernel.formats`, `ldsc._kernel.identifiers` | retained PLINK/list primitives and SNP identifier helpers; obsolete legacy regression-artifact readers are removed |
@@ -135,7 +135,8 @@ ldsc_py3_restructured/
 | change workflow log files, lifecycle lines, or log-level handling | `src/ldsc/_logging.py`, then the workflow orchestration function that owns the output directory |
 | change header aliases or identifier/build normalization | `src/ldsc/column_inference.py` |
 | change automatic `chr_pos` genome-build inference | `src/ldsc/genome_build_inference.py` |
-| change annotation loading, `ldsc annotate` behavior, or BED projection | `src/ldsc/annotation_builder.py`, then `src/ldsc/_kernel/annotation.py` |
+| change annotation loading or `ldsc annotate` behavior | `src/ldsc/annotation_builder.py`, then `src/ldsc/_annotation_sources.py` and `src/ldsc/annotate_workflow.py` |
+| change BED parsing or interval projection | `src/ldsc/_kernel/regions.py:iter_bed_rows`, then `src/ldsc/_annotation_queries.py` and `src/ldsc/_annotation_projection.py:ChromosomeProjector` |
 | change gene catalog validation, identifier resolution, or list naming | `src/ldsc/gene_list_resolver.py`, then `src/ldsc/annotation_builder.py` |
 | change BED/gene partial-success statuses or diagnostic schemas | `src/ldsc/query_annotations.py`, `src/ldsc/ldscore_calculator.py`, `src/ldsc/outputs.py` |
 | change parquet reference-panel build logic | `src/ldsc/ref_panel_builder.py`, then `src/ldsc/_kernel/ref_panel_builder.py` |
@@ -217,7 +218,7 @@ ldsc_py3_restructured/
 
 | Change | Current contract | Main owner |
 | --- | --- | --- |
-| annotations and interval projection | [BED input](bed-input-format.md), [gene lists](gene-list-input-format.md), [query repair](gene-list-diagnostics-and-repair.md) | `annotation_builder.AnnotationBuilder`; `_kernel.annotation` projects resolved intervals |
+| annotations and interval projection | [BED input](bed-input-format.md), [gene lists](gene-list-input-format.md), [query repair](gene-list-diagnostics-and-repair.md) | `annotation_builder.AnnotationBuilder`; `_annotation_queries.build_query_shards`; `_annotation_projection.ChromosomeProjector` |
 | panel preparation, CM/MAF and traversal | [R2 pipeline](parquet-r2-format-and-read-pipeline.md), [pair accumulation](ldscore-parquet-accumulation.md), [window behavior](ld-window-parquet-r2-sidecar-behavior.md) | `_kernel.ref_panel.RefPanel.prepare_chromosome`; `_kernel.ldscore.compute_chromosome` |
 | regression rows and region masks | [SNP universe](ldscore-snp-universe-contract.md), [region exclusions](region-exclusion-presets.md) | `ldscore_calculator._regression_region_intervals`; `_kernel.ldscore.regression_mask_from_keys`; `gene_ldscore_index` resolves indexed policy |
 | reference construction and pair queries | [pair query](ref-panel-r2-query.md), [path contract](path-specification.md) | `ref_panel_builder.ReferencePanelBuilder`; `r2_query.R2Panel`; `outputs.QueryR2DirectoryWriter` |

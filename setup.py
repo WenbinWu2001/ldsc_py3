@@ -18,10 +18,6 @@ PLINK_REQUIRES = [
     "bitarray>=3.0,<4",
 ]
 
-BED_REQUIRES = [
-    "pybedtools>=0.12,<0.13",
-]
-
 LIFTOVER_REQUIRES = [
     "pyliftover>=0.4.1,<0.5",
 ]
@@ -30,7 +26,7 @@ TEST_REQUIRES = [
     "pytest>=8,<10",
 ]
 
-ALL_REQUIRES = PLINK_REQUIRES + BED_REQUIRES + LIFTOVER_REQUIRES
+ALL_REQUIRES = PLINK_REQUIRES + LIFTOVER_REQUIRES
 
 
 setup(
@@ -65,7 +61,6 @@ setup(
     install_requires=INSTALL_REQUIRES,
     extras_require={
         "all": ALL_REQUIRES,
-        "bed": BED_REQUIRES,
         "dev": ALL_REQUIRES + TEST_REQUIRES,
         "liftover": LIFTOVER_REQUIRES,
         "plink": PLINK_REQUIRES,

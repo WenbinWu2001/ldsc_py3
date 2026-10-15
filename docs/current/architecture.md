@@ -54,7 +54,7 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 ## File Tree
 
 ```text
-ldsc_py3_Jerry/
+ldsc_py3_restructured/
 ├── docs/
 │   ├── current/
 │   │   ├── architecture.md      # package-level architecture
@@ -76,9 +76,12 @@ ldsc_py3_Jerry/
 │   ├── gene_ldscore_index.py
 │   ├── query_annotations.py
 │   ├── annotation_builder.py
+│   ├── _annotation_queries.py    # bounded BED/gene query preparation
+│   ├── _annotation_projection.py # interval membership on chromosome SNP grids
 │   ├── ref_panel_builder.py
 │   ├── r2_query.py
 │   ├── ldscore_calculator.py
+│   ├── ldscore_source.py     # saved LD-score handle and selected query reads
 │   ├── sumstats_munger.py
 │   ├── _sumstats_input.py   # resolved raw schema and source-build preparation
 │   ├── regression_runner.py
@@ -88,7 +91,7 @@ ldsc_py3_Jerry/
 │   ├── outputs.py           # LD-score and partitioned-h2 artifact writers
 │   └── _kernel/
 │       ├── overlap.py       # low-level annotation overlap-block computation
-│       ├── annotation.py    # low-level annotation table/BED helpers
+│       ├── annotation.py    # concrete annotation table reading and validation
 │       ├── ref_panel_builder.py
 │       ├── ref_panel.py
 │       ├── r2_query.py
@@ -153,6 +156,9 @@ For rg, the dispatcher loads the correlation table and optional metadata-declare
 
 This is the public annotation API and CLI dispatch seam: `AnnotationBuilder`, `AnnotationBundle`, `run_annotate()`, `parse_annotate_args()`, `run_annotate_from_args()`, and `main()`. `AnnotationBuilder.run(..., output_dir=...)` prepares a chromosome-backed dataset with explicit ownership. `annotate_workflow` owns standalone BED/gene validation and incremental canonical output. Shared `_annotation_*` modules own bounded discovery, identity cleanup, separate metadata/value artifacts, projection, and storage lifetime; `_direct_annotation` integrates them with direct LD-score scope and support gates. The complete module and ownership map is in [annotation-memory-design.md](annotation-memory-design.md).
 
+For interval projection, `_annotation_queries.prepare_bed_queries()` streams validated BED rows from `_kernel.regions.iter_bed_rows()` into chromosome spools.
+`_annotation_queries.build_query_shards()` uses `_annotation_projection.ChromosomeProjector` for both BED and gene intervals, preserving zero-based half-open membership against one-based SNP positions.
+
 ### `ldsc.gene_list_resolver`, `ldsc.query_annotations`
 
 These internal helpers validate the user-supplied or index-embedded catalog, resolve exact identifiers, and apply ordered query-status rules. `_gene_query_storage` shares catalog lookups, stages per-source selections and complete audits, and returns compact summaries. Catalog-build selection, scientific-query pruning, and final diagnostic publication remain with the consuming workflow.
@@ -200,7 +206,18 @@ This module wraps the historical munging behavior in typed public objects such a
 
 ### `ldsc.regression_runner`
 
-This module rebuilds an `LDScoreResult` from on-disk artifacts, projects legacy LDSC2 sumstats by rsID onto that canonical panel with allele validation, orientation, and a stable drop audit, then merges current or projected sumstats, drops zero-variance LD-score columns, requires `output_dir`, writes per-command logs under `diagnostics/`, and dispatches to the regression kernel for `h2`, partitioned `h2`, and `rg`. Regression merges by the effective key for the active mode: `SNP` in `rsid`, `SNP:<allele_set>` in `rsid_allele_aware`, `CHR:POS` in `chr_pos`, and `CHR:POS:<allele_set>` in `chr_pos_allele_aware`. Regression labels traits from explicit CLI overrides, then the sumstats parquet footer `ldsc:trait_name`, then filenames; rg anchor selection uses `--anchor-trait`, matching trait labels before source paths. Partitioned-h2 produces overlap-aware category summaries (legacy `--overlap-annot` math) and auto-detects two regimes from the LD-score directory: a functional-category joint baseline fit when there are no query columns, and a cell-type-specific baseline-plus-query model per query when there are. Query runs always write the per-query result tree; the retired `--write-per-query-results` flag is rejected. It requires `ldscore.overlap.parquet` (assembled per model from the stored overlap matrix via `ldsc.overlap_matrix`); both regimes share one public schema. It also restores legacy's regression-time collinearity guard as a hard error (`LDSCInputError` when the LD-score design matrix's condition number exceeds 1e5), and logs a WARNING naming any zero-variance LD-score columns it drops before fitting. `--allow-identity-downgrade` is regression-only and permits same-family allele-aware/base mixes to run under the base mode; rsID-family and coordinate-family modes never mix. Architecture invariant: regression only consumes aggregated LD-score artifacts; it does not recompute LD scores.
+`load_ldscore_from_dir()` currently lives in this workflow module and opens an `LDScoreSource`, retaining baseline values, identities, counts, and overlap while leaving query LD-score values on disk.
+It delegates manifest/schema checks to `ldscore_source.py`; `LDScoreSource.read_queries()` returns explicit, uncached selections.
+The batch output writer also calls this loader to reopen published artifacts, so saved-source loading currently depends on the regression workflow.
+`RegressionRunner` accepts saved sources or prepared `LDScoreResult` values, projects legacy LDSC2 sumstats by rsID onto the canonical panel with allele validation, orientation, and a stable drop audit, then merges current or projected sumstats, drops zero-variance LD-score columns, requires `output_dir` for writing workflows, writes per-command logs under `diagnostics/`, and dispatches to the regression kernel for `h2`, partitioned `h2`, and `rg`.
+Regression merges by the effective key for the active mode: `SNP` in `rsid`, `SNP:<allele_set>` in `rsid_allele_aware`, `CHR:POS` in `chr_pos`, and `CHR:POS:<allele_set>` in `chr_pos_allele_aware`.
+Regression labels traits from explicit CLI overrides, then the sumstats parquet footer `ldsc:trait_name`, then filenames; rg anchor selection uses `--anchor-trait`, matching trait labels before source paths.
+Partitioned-h2 produces overlap-aware category summaries (legacy `--overlap-annot` math) and auto-detects two regimes from the LD-score directory: a functional-category joint baseline fit when there are no query columns, and a cell-type-specific baseline-plus-query model per query when there are.
+Query runs always write the per-query result tree; the retired `--write-per-query-results` flag is rejected.
+It requires `ldscore.overlap.parquet` (assembled per model from the stored overlap matrix via `ldsc.overlap_matrix`); both regimes share one public schema.
+It also restores legacy's regression-time collinearity guard as a hard error (`LDSCInputError` when the LD-score design matrix's condition number exceeds 1e5), and logs a WARNING naming any zero-variance LD-score columns it drops before fitting.
+`--allow-identity-downgrade` is regression-only and permits same-family allele-aware/base mixes to run under the base mode; rsID-family and coordinate-family modes never mix.
+Architecture invariant: regression only consumes aggregated LD-score artifacts; it does not recompute LD scores.
 
 Internal `_FitOutcome` values in `regression_runner.py` carry the estimator, fitted dataset, realized block count, effective cap, and optional single-annotation diagnostic bins. The h2, partitioned-h2, and rg reporting paths consume these values directly. Public estimator methods unwrap the estimator; output diagnostics remain owned by the workflow rather than being attached dynamically to numerical kernel objects.
 
@@ -274,12 +291,15 @@ See [annotation format policy](annotation-memory-design.md#annotation-format-pol
 
 ### `ldsc._kernel.*`
 
-The kernel layer contains the actual numerical methods and low-level readers. It includes annotation table/BED primitives, PLINK/parquet reference-panel access, LD-score math, legacy-compatible summary-statistics munging, and regression estimators. Private boundary: `_kernel` is not the supported import surface and should receive only resolved primitive inputs.
+The kernel layer contains the actual numerical methods and low-level readers.
+It includes annotation table validation and BED parsing, PLINK/parquet reference-panel access, LD-score math, legacy-compatible summary-statistics munging, and regression estimators.
+Live interval projection resides in `_annotation_projection`, called by `_annotation_queries`.
+Private boundary: `_kernel` is not the supported import surface; numerical computation receives prepared inputs, while `_kernel.ref_panel` adapters still resolve panel-specific sources before preparation.
 
 ## Cross-Cutting Concerns
 
-- **Input token language**: public inputs accept exact paths, globs, and `@`
-  chromosome suites. Bare prefixes without `@` are intentionally unsupported.
+- **Input token language**: public inputs accept exact paths, globs, and `@` chromosome suites.
+  PLINK inputs additionally accept plain suite stems through `path_resolution.resolve_plink_prefix_group()`; this exception does not apply to other input families.
   Output paths are normalized but remain literal destinations.
 - **Column and identifier normalization**: `column_inference.py` is the single source of truth for raw-input aliases, including `#CHROM`/`CHROM` as `CHR`, internal artifact headers, SNP identifier modes, and genome-build aliases. The sumstats workflow owns higher-level raw-format inference and conservative repair suggestions before the kernel runs. `A1` means the allele that the signed statistic is relative to, not necessarily the genome reference allele; `NEFF` is not inferred as `N`. `genome_build_inference.py` owns automatic hg19/hg38 and 0-based/1-based inference for `chr_pos` tables.
 - **SNP identity policy**: public `snp_identifier` values are exactly `rsid`, `rsid_allele_aware`, `chr_pos`, and `chr_pos_allele_aware`; the default is `chr_pos_allele_aware`. Mode names are exact, while column aliases such as `RSID`, `BP`, and `POSITION` apply only to input headers. Base modes are fully allele-blind: `rsid` uses only `SNP`, and `chr_pos` uses only `CHR:POS`; allele columns may be preserved as passive data but never affect base-mode identity, duplicate filtering, retention, or drop reasons. Allele-free munging is selected through a base identifier mode, not through a separate skip flag. Allele-aware modes require usable `A1/A2` for sumstats, the reference-panel sidecar, and LD-score artifacts; they drop missing, invalid/non-SNP, identical, strand-ambiguous allele pairs, package-wide multi-allelic base-key clusters, and duplicate effective-key clusters. For artifact-like tables, the duplicate policy is always compute the active effective merge key, then drop all rows in duplicate-key clusters.
@@ -310,18 +330,16 @@ The kernel layer contains the actual numerical methods and low-level readers. It
   its open handler outside the replaceable tree, moves the closed successful
   log into the published diagnostics, and treats cleanup after destination
   reload validation as warning-only garbage collection.
-- **Dependency split**: base package dependencies cover core pandas/numpy/SciPy
-  workflows and parquet I/O. PLINK-backed LD computation requires the
-  `plink` extra (`bitarray`), BED projection requires the `bed` extra
-  (`pybedtools` plus the external `bedtools` executable), and cross-build
-  reference-panel output requires the `liftover` extra (`pyliftover`).
+- **Dependency split**: base package dependencies cover core pandas/numpy/SciPy workflows and parquet I/O.
+  PLINK-backed LD computation requires the `plink` extra (`bitarray`), and cross-build reference-panel output requires the `liftover` extra (`pyliftover`).
+  BED/gene interval projection uses NumPy through `ChromosomeProjector` and requires only the base package.
 - **Chromosome ordering**: chromosome-sharded inputs are validated and reassembled in stable genomic order by the workflow layer.
 - **Testing approach**: tests under `tests/` cover file contracts, workflow behavior, and legacy compatibility expectations.
 
 ## Architectural Invariants
 
 - Import from `ldsc`, not from `ldsc._kernel`, for supported public use.
-- Kernel code must not resolve globs, `@` suites, or other user-facing path tokens.
+- Numerical projection must consume resolved, prepared inputs; user-token resolution belongs to workflows/shared helpers and the existing runtime adapters in `_kernel.ref_panel`.
 - `column_inference.py` owns alias families and internal artifact header strictness.
 - LD-score computation remains chromosome-wise; regression consumes only the aggregated artifacts.
 - Public LD-score output layout is fixed by `LDScoreDirectoryWriter`;

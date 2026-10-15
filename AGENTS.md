@@ -4,7 +4,7 @@
 
 # LDSC Package Guidance
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 This repository, `ldsc_py3_restructured`, develops the distributable scientific Python package `ldsc` (distribution version `2.0b0`), with source under `src/ldsc/`.
 
@@ -33,9 +33,10 @@ python -m unittest discover -s tests -p 'test*.py' -v
 
 - Python support is `>=3.11,<3.14`; dependency bounds live in `setup.py`, `requirements.txt`, and `environment.yml`.
   Required dependencies are NumPy, pandas, SciPy, PyArrow, Matplotlib, threadpoolctl, and joblib.
-  Extras: `plink` (bitarray), `bed` (pybedtools plus external bedtools on PATH), `liftover` (pyliftover), `test` (pytest), `all` (workflow extras), and `dev` (all plus tests).
+  Extras: `plink` (bitarray), `liftover` (pyliftover), `test` (pytest), `all` (workflow extras), and `dev` (all plus tests).
 - `pytest` is primary; `pyproject.toml` sets `testpaths = ["tests"]`, `-ra`, and markers `slow`, `statistical`, `io`, `file_format_compat`.
-  Tests require the editable installation and do not inject `src`; concurrent pytest/unittest can conflict through pybedtools cleanup.
+  Tests require the editable installation and do not inject `src`; run pytest and unittest sequentially.
+  BED/gene interval projection uses NumPy from the base install, without an optional BED backend.
   Golden NPZs are immutable expectations: restore missing files from version control, never regenerate them as a test prerequisite.
 - Packaging uses setuptools in `setup.py` and `MANIFEST.in`; no dedicated build command, CI workflow, linter, formatter, type checker, or documentation builder is configured.
   Do not invent mandatory commands or imply unrun checks passed.

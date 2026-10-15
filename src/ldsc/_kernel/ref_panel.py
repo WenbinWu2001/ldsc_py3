@@ -367,7 +367,7 @@ class PlinkRefPanel(RefPanel):
 
     def available_chromosomes(self) -> list[str]:
         """List normalized chromosomes present in the resolved PLINK inputs."""
-        return sorted(self._resolved_prefixes(), key=_chrom_sort_key)
+        return sorted(self._resolved_prefixes(), key=chrom_sort_key)
 
     def _resolved_prefixes(self):
         """Cache workflow resolution once for direct Python panel use."""
@@ -526,7 +526,7 @@ class ParquetR2RefPanel(RefPanel):
     def available_chromosomes(self) -> list[str]:
         """List chromosomes from explicit config, panel directory, sidecars, or R2 files."""
         if self.spec.chromosomes is not None:
-            return sorted(set(self.spec.chromosomes), key=_chrom_sort_key)
+            return sorted(set(self.spec.chromosomes), key=chrom_sort_key)
 
         if self.spec.r2_dir is not None:
             paths = _r2_dir_r2_paths(
@@ -540,7 +540,7 @@ class ParquetR2RefPanel(RefPanel):
                 if (chrom := _chromosome_from_ref_panel_r2_path(Path(path))) is not None
             }
             if chromosomes:
-                return sorted(chromosomes, key=_chrom_sort_key)
+                return sorted(chromosomes, key=chrom_sort_key)
             raise LDSCInputError(
                 f"Reference-panel loading found no `chr*_r2.parquet` files in R2 "
                 f"directory '{self.spec.r2_dir}'. Most likely the directory is not an "
@@ -777,7 +777,7 @@ def _r2_dir_r2_paths(r2_dir: str | Path, *, genome_build: str | None, chrom: str
         return [str(path)]
     paths = sorted(
         build_dir.glob("chr*_r2.parquet"),
-        key=lambda path: _chrom_sort_key(_chromosome_from_ref_panel_r2_path(path) or path.name),
+        key=lambda path: chrom_sort_key(_chromosome_from_ref_panel_r2_path(path) or path.name),
     )
     return [str(path) for path in paths]
 
@@ -928,11 +928,6 @@ def _infer_plink_ref_panel_build(ref_panel_spec: RefPanelConfig) -> str | None:
         return None
     sample = pd.concat(frames, ignore_index=True)
     return resolve_genome_build("auto", "chr_pos", sample, context="reference-panel SNP restriction", logger=LOGGER)
-
-
-def _chrom_sort_key(chrom: str) -> tuple[int, str]:
-    """Return a stable chromosome sort key matching the package-wide ordering."""
-    return chrom_sort_key(chrom)
 
 
 def _read_metadata_sidecar_identity(path: str | Path) -> dict[str, object] | None:

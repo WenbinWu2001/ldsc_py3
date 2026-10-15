@@ -121,6 +121,13 @@ def test_load_bed_intervals_malformed_row_raises(tmp_path):
         regions.load_bed_intervals([str(bed)])
 
 
+def test_load_bed_intervals_rejects_non_integer_coordinates(tmp_path):
+    bed = tmp_path / "bad_coordinates.bed"
+    bed.write_text("chr1\tstart\tend\tfeature\n", encoding="utf-8")
+    with pytest.raises(LDSCInputError, match="start/end are not integer coordinates"):
+        regions.load_bed_intervals([str(bed)])
+
+
 def test_load_bed_intervals_rejects_header_after_data(tmp_path):
     bed = tmp_path / "bad_header.bed"
     bed.write_text("chr1\t100\t200\nchrom\tstart\tend\n", encoding="utf-8")

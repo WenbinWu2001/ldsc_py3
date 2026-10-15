@@ -718,119 +718,6 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(fixture_metadata(bundle)["SNP"].tolist(), ["rs3"])
             self.assertEqual(fixture_values(bundle, 'query')[bed.stem].tolist(), [1.0])
 
-    def test_bed_normalization_expands_intervals_by_padding_bp(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            bed = tmpdir / "query.bed"
-            normalized = tmpdir / "query.normalized.bed"
-            bed.write_text(
-                "\n# comment line\n1\t50\t75\tgene_a\t0.1\nchr2\t5\t20\tgene_b\t0.2\n",
-                encoding="utf-8",
-            )
-
-            kernel_annotation._write_normalized_bed(bed, normalized, padding_bp=25)
-
-            self.assertEqual(
-                normalized.read_text(encoding="utf-8"),
-                "chr1\t25\t100\tgene_a\t0.1\nchr2\t0\t45\tgene_b\t0.2\n",
-            )
-
-    def test_bed_normalization_skips_non_interval_lines_and_standard_header(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            bed = tmpdir / "query.bed"
-            normalized = tmpdir / "query.normalized.bed"
-            bed.write_text(
-                "\n# comment line\ntrack name=\"enhancers\"\nbrowser position chr1:1-1000\n"
-                "chrom\tstart\tend\tname\n1\t50\t75\tgene_a\n",
-                encoding="utf-8",
-            )
-
-            kernel_annotation._write_normalized_bed(bed, normalized)
-
-            self.assertEqual(normalized.read_text(encoding="utf-8"), "chr1\t50\t75\tgene_a\n")
-
-    def test_bed_normalization_skips_chrom_start_end_header_variant(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            bed = tmpdir / "query.bed"
-            normalized = tmpdir / "query.normalized.bed"
-            bed.write_text("chrom\tchromStart\tchromEnd\nchr2\t5\t20\n", encoding="utf-8")
-
-            kernel_annotation._write_normalized_bed(bed, normalized)
-
-            self.assertEqual(normalized.read_text(encoding="utf-8"), "chr2\t5\t20\n")
-
-    def test_bed_normalization_rejects_header_after_data(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            bed = tmpdir / "query.bed"
-            normalized = tmpdir / "query.normalized.bed"
-            bed.write_text("chr1\t50\t75\nchrom\tstart\tend\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(LDSCInputError, "header"):
-                kernel_annotation._write_normalized_bed(bed, normalized)
-
-    def test_bed_normalization_rejects_invalid_standard_bed_bounds(self):
-        cases = {
-            "negative_start.bed": "chr1\t-1\t75\n",
-            "zero_length.bed": "chr1\t75\t75\n",
-            "reversed.bed": "chr1\t75\t50\n",
-        }
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            for filename, content in cases.items():
-                with self.subTest(filename=filename):
-                    bed = tmpdir / filename
-                    normalized = tmpdir / f"{filename}.normalized"
-                    bed.write_text(content, encoding="utf-8")
-
-                    with self.assertRaisesRegex(LDSCInputError, "start"):
-                        kernel_annotation._write_normalized_bed(bed, normalized)
-
-    def test_bed_normalization_accepts_gzip_bed(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            bed = tmpdir / "query.bed.gz"
-            normalized = tmpdir / "query.normalized.bed"
-            with gzip.open(bed, "wt", encoding="utf-8") as handle:
-                handle.write("chrom\tstart\tend\nchr1\t50\t75\n")
-
-            kernel_annotation._write_normalized_bed(bed, normalized)
-
-            self.assertEqual(normalized.read_text(encoding="utf-8"), "chr1\t50\t75\n")
-
-    def test_bed_normalization_preserves_intervals_without_padding(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            bed = tmpdir / "query.bed"
-            normalized = tmpdir / "query.normalized.bed"
-            bed.write_text("1\t50\t75\tgene_a\n", encoding="utf-8")
-
-            kernel_annotation._write_normalized_bed(bed, normalized)
-
-            self.assertEqual(normalized.read_text(encoding="utf-8"), "chr1\t50\t75\tgene_a\n")
-
-    def test_bed_normalization_rejects_rows_with_too_few_columns(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            bed = tmpdir / "query.bed"
-            normalized = tmpdir / "query.normalized.bed"
-            bed.write_text("chr1\t50\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(LDSCInputError, "fewer than three columns"):
-                kernel_annotation._write_normalized_bed(bed, normalized)
-
-    def test_bed_normalization_rejects_non_integer_coordinates(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            bed = tmpdir / "query.bed"
-            normalized = tmpdir / "query.normalized.bed"
-            bed.write_text("chr1\tstart\tend\tname\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(LDSCInputError, "start/end are not integer coordinates"):
-                kernel_annotation._write_normalized_bed(bed, normalized)
-
     def test_identity_cleanup_raises_when_all_rows_drop(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -1132,18 +1019,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 },
             )()
 
-            class _FakeBedTool:
-                def __init__(self, path: str):
-                    self.path = path
-
-            fake_pybedtools = mock.Mock()
-            fake_pybedtools.BedTool = _FakeBedTool
-            with mock.patch.object(kernel_annotation, "_get_pybedtools", return_value=fake_pybedtools), mock.patch.object(
-                kernel_annotation,
-                "_compute_bed_overlap_mask",
-                return_value=[True, False],
-            ):
-                bundle = annotation_builder.run_annotate_from_args(args)
+            bundle = annotation_builder.run_annotate_from_args(args)
 
             self.assertEqual(bundle.query_columns, ["query"])
             self.assertTrue((output_dir / "query.1.annot.gz").exists())

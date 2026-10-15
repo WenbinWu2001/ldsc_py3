@@ -2565,14 +2565,6 @@ def _is_empty_intersection(error: Exception, chrom: str) -> bool:
     return True
 
 
-def _warn_and_skip_empty_intersection(error: Exception, chrom: str) -> bool:
-    """Warn and signal skip when a chromosome loses all SNPs after reference intersection."""
-    if not _is_empty_intersection(error, chrom):
-        return False
-    warnings.warn(f"Skipping chromosome {chrom}: {error}", UserWarning, stacklevel=3)
-    return True
-
-
 # Worker state shared within a pool worker process. ``regression_snps`` is set
 # once by the pool initializer so a large SNP set is transferred per worker, not
 # per task; direct task probes can pass it explicitly instead.

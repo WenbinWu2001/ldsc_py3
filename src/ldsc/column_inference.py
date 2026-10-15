@@ -80,34 +80,7 @@ def _canonical_only_spec(canonical: str, label: str) -> ColumnSpec:
     return ColumnSpec(canonical, (canonical,), label, allow_suffix_match=False)
 
 
-def _index_spec(base_aliases: Sequence[str], index: int, canonical: str, label: str) -> ColumnSpec:
-    """Build a numbered column spec such as ``rsID_1`` or ``rsID_2``."""
-    values: list[str] = []
-    for alias in base_aliases:
-        values.extend((f"{alias}_{index}", f"{alias}{index}"))
-    return ColumnSpec(canonical, tuple(values), label)
-
-
 _POS_TOKEN_ALIASES = ("pos", "bp", "position", "base_pair", "basepair")
-_UNIQ_ID_TOKEN_ALIASES = ("uniq_id", "uniqid", "unique_id", "uniqueid")
-
-
-def _build_position_aliases(build_aliases: Sequence[str], index: int) -> tuple[str, ...]:
-    """Build numbered position aliases for one genome-build family."""
-    values: list[str] = []
-    for build in build_aliases:
-        for pos in _POS_TOKEN_ALIASES:
-            values.extend((f"{build}_{pos}_{index}", f"{build}_{pos}{index}"))
-    return tuple(values)
-
-
-def _build_uniq_id_aliases(build_aliases: Sequence[str], index: int) -> tuple[str, ...]:
-    """Build numbered unique-ID aliases for one genome-build family."""
-    values: list[str] = []
-    for build in build_aliases:
-        for token in _UNIQ_ID_TOKEN_ALIASES:
-            values.extend((f"{build}_{token}_{index}", f"{build}_{token}{index}"))
-    return tuple(values)
 
 
 # Shared external column families.

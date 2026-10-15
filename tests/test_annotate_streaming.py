@@ -1,5 +1,7 @@
 """Standalone annotation expectations independent of the projection code."""
 
+import builtins
+import gzip
 import json
 import pandas as pd
 import pytest
@@ -60,6 +62,42 @@ def test_gene_input_requires_explicit_padding(tmp_path):
     with pytest.raises(LDSCInputError, match='padding-bp'):
         run_annotate(baseline_annot_sources=baseline, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
                      genome_build='hg19', global_config=GlobalConfig(snp_identifier='rsid'), output_dir=tmp_path/'out')
+
+
+@pytest.mark.parametrize('compressed', [False, True])
+@pytest.mark.parametrize('padding,expected', [
+    (0, {'1': [0, 0, 0, 0, 1, 0, 0], '2': [0, 0, 0]}),
+    (25, {'1': [0, 0, 1, 1, 1, 1, 0], '2': [1, 1, 0]}),
+])
+def test_bed_projection_padding_and_headers_without_optional_backend(tmp_path, monkeypatch, compressed, padding, expected):
+    from ldsc import run_annotate
+
+    original_import = builtins.__import__
+
+    def import_without_bedtools(name, *args, **kwargs):
+        if name == 'pybedtools' or name.startswith('pybedtools.'):
+            raise ImportError('BED projection must work with the base package')
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, '__import__', import_without_bedtools)
+    baseline = tmp_path / 'baseline.annot'
+    pd.DataFrame({
+        'CHR': ['1'] * 7 + ['2'] * 3,
+        'POS': [1, 25, 26, 50, 75, 100, 101, 1, 45, 46],
+        'SNP': [f'rs{i}' for i in range(10)], 'base': 1,
+    }).to_csv(baseline, sep='\t', index=False)
+    bed = tmp_path / ('query.bed.gz' if compressed else 'query.bed')
+    opener = gzip.open if compressed else open
+    with opener(bed, 'wt') as stream:
+        stream.write('# intervals\ntrack name=features\nbrowser position chr1:1-101\n'
+                     'chrom\tchromStart\tchromEnd\tname\n1\t50\t75\ta\nchr2\t5\t20\tb\n')
+    # POS is one-based: padded BED [25,100) selects POS 26 through 100.
+    # The second interval pads to [0,45), selecting POS 1 through 45.
+    with run_annotate(baseline_annot_sources=[baseline], query_annot_bed_sources=[bed],
+                      padding_bp=padding, global_config=GlobalConfig(snp_identifier='rsid'),
+                      output_dir=tmp_path/'out') as bundle:
+        for chrom, values in expected.items():
+            assert bundle.read(chrom, columns=bundle.query_columns)[:, 0].tolist() == values
 
 
 def test_returned_annotation_uses_persistent_outputs_after_build_scratch_is_released(tmp_path):

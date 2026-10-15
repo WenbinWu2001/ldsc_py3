@@ -972,7 +972,3 @@ def _sort_catalog_issues(issues: pd.DataFrame) -> pd.DataFrame:
     ordered = issues.loc[:, CATALOG_ISSUE_COLUMNS].copy()
     ordered["_line"] = pd.to_numeric(ordered["catalog_line"], errors="coerce").fillna(-1)
     return ordered.sort_values(["_line", "field", "reason"], kind="stable").drop(columns="_line").reset_index(drop=True)
-
-
-def _combine_reasons(left: str, right: str) -> str:
-    return ",".join(sorted(set(filter(None, [*left.split(","), right]))))

@@ -78,16 +78,6 @@ def _read_non_comment_lines(path: str | PathLike[str], limit: int = 5) -> list[s
     return lines
 
 
-def _normalize_map_chromosome(value: object) -> str:
-    """Normalize one genetic-map chromosome label to the package canon."""
-    return normalize_chromosome(value)
-
-
-def _chrom_sort_key(chrom: object) -> tuple[int, object]:
-    """Return the stable chromosome sort key used for map-like inputs."""
-    return chrom_sort_key(chrom)
-
-
 def load_genetic_map(path: str | PathLike[str]) -> pd.DataFrame:
     """Load one genetic map table into canonical `CHR/POS/CM` columns."""
 
@@ -113,7 +103,7 @@ def load_genetic_map(path: str | PathLike[str]) -> pd.DataFrame:
             f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
         )
 
-    chrom_order = out["CHR"].map(_chrom_sort_key)
+    chrom_order = out["CHR"].map(chrom_sort_key)
     if not chrom_order.equals(chrom_order.sort_values(ignore_index=True)):
         raise LDSCInputError(
             f"build-r2-panel could not load genetic map '{path}': rows are not sorted "
@@ -143,7 +133,7 @@ def load_genetic_map_group(paths: Sequence[str | PathLike[str]]) -> pd.DataFrame
         )
     frames = [load_genetic_map(path) for path in paths]
     combined = pd.concat(frames, axis=0, ignore_index=True)
-    combined = combined.sort_values(by=["CHR", "POS"], key=lambda col: col.map(_chrom_sort_key) if col.name == "CHR" else col, kind="mergesort")
+    combined = combined.sort_values(by=["CHR", "POS"], key=lambda col: col.map(chrom_sort_key) if col.name == "CHR" else col, kind="mergesort")
     duplicated = combined.duplicated(subset=["CHR", "POS"], keep=False)
     if duplicated.any():
         raise LDSCInputError(
@@ -162,7 +152,7 @@ def interpolate_genetic_map_cm(
 ) -> np.ndarray:
     """Interpolate cumulative cM values for `positions` on one chromosome."""
 
-    chrom = _normalize_map_chromosome(chrom)
+    chrom = normalize_chromosome(chrom)
     chrom_map = genetic_map.loc[genetic_map["CHR"] == chrom, ["POS", "CM"]].reset_index(drop=True)
     if len(chrom_map) == 0:
         raise LDSCInputError(
@@ -280,7 +270,7 @@ def build_plink_metadata_frame(
     canonical_a2 = np.where(flip, a1, a2)
     out = pd.DataFrame(
         {
-            "CHR": kept["CHR"].map(_normalize_map_chromosome),
+            "CHR": kept["CHR"].map(normalize_chromosome),
             "SNP": kept["SNP"].astype(str),
             "CM": pd.to_numeric(kept["CM"], errors="coerce"),
             "POS": pd.to_numeric(kept["BP"], errors="raise").astype(np.int64),
@@ -632,7 +622,7 @@ def build_runtime_metadata_table(
     )
 
     values = {
-        "CHR": metadata["CHR"].map(_normalize_map_chromosome).astype(str),
+        "CHR": metadata["CHR"].map(normalize_chromosome).astype(str),
         "POS": np.asarray(positions, dtype=np.int64),
         "SNP": metadata["SNP"].astype(str),
         "A1": metadata["A1"].astype(str),

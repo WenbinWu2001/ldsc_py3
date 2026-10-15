@@ -4,6 +4,25 @@ Last updated on: 2026-10-15
 
 Current status: the user confirmed the complete annotation-storage design and authorized implementation on September 15. Packed binary storage, exact automatic classification, two input content passes without numeric staging, and explicit private column selection are implemented. Public float32 reads, logical input order, and LD-score output behavior are preserved. The full suite passed 1,812 tests and 132 subtests, with one skip; an independent chromosome-22 baseline comparison verified every decoded value. See the [implemented format policy and measured file sizes](annotation-memory-design.md#annotation-format-policy). These decisions supersede the September 14 choice to retain dense annotation storage, while preserving the approved execution batching.
 
+## Direct file-writing assembly update (2026-10-15)
+
+The user subsequently approved direct LD-score streaming assembly after the [full-row assembly replays](../wiki/main-functionalities/ldscore.md#direct-assembly-measurements).
+This supersedes the earlier exclusion of direct streaming from the regression optimization scope below.
+Direct workers compute real chromosomes as before, stage their existing post-kernel float32 query scores privately, and return baseline data with scientific statistics, variation summaries, and diagnostic descriptors.
+The parent combines counts, overlaps, and exact global variation without materializing a genome-wide query matrix.
+Direct and indexed writing reuse `StagedLDScoreBatch`, `write_query_fragments()`, and `write_ldscore_batches()`; only variation-summary logic is shared between their separate numerical computations.
+Indexed fragments remain float64 through filtering, and all numerical accumulation, counts, and overlaps retain their float64 contracts.
+Reference contributors remain distinct from regression/output rows.
+
+Keep one active query batch, the persistent worker pool, ordered chromosome row groups, and metadata-last publication after complete success.
+Consumed fragments are deleted, and failure shuts workers down before removing their borrowed workspace.
+Preserve gene-list audits, identity drops, chromosome scope, SNP-universe policy, annotation types, and configuration/export provenance.
+The prepared no-output Python API remains materialized; no CLI option or output-format change is introduced.
+Munging remains excluded.
+The supplied replay evidence is preserved; it does not establish production memory savings or justify a smaller Slurm allocation.
+A real two-batch HPC comparison requires separate approval and the specified restricted-input exception.
+See [the implemented memory design](annotation-memory-design.md#direct-ld-score-computation) and [local integration validation](../audits/2026-10-15_direct-streaming.md).
+
 ## Execution and regression update (2026-10-15)
 
 The subsequently approved indexed design, implemented in `659738a`, supersedes the chromosome-outer lifecycle recorded under [Indexed generation](#indexed-generation) below.
@@ -13,7 +32,7 @@ The earlier operator-retention decision remains below as historical context.
 
 The approved regression changes, implemented in `7a478e6`, reduce model-array copying, store run-wide metadata once, and reuse disposable staged detail files during publication.
 They apply to regression over both direct and indexed LD scores; copying a fitted query now requires its enclosing shared metadata.
-Munging and direct-LD streaming are excluded from this optimization work.
+That regression integration excluded munging and direct-LD streaming; the subsequent direct assembly scope is recorded above.
 See the [implemented memory design](annotation-memory-design.md), [fitted-result contract](partitioned-h2-results.md), and [measured regression phase improvements](../wiki/main-functionalities/partitioned-h2.md#memory-and-runtime-measurements).
 
 ## Query batch default update (2026-09-16)

@@ -453,12 +453,18 @@ RgDirectoryWriter().write(
 
 Writing LD-score workflows and `load_ldscore_from_dir` return `LDScoreSource`. It retains shared `baseline_table`, counts, overlap statistics, SNP metadata, provenance, and `output_paths`, with no query LD-score tables or chromosome result tables. Explicit `read_queries(names)` calls preserve requested column order and can span saved files. They do not cache values or enforce a read-width limit; the caller owns the RAM for those selections.
 
-`LDScoreResult` remains the materialized object for one execution batch. The small prepared-input Python exception, `LDScoreCalculator.run(..., output_config=None)`, returns one such batch with complete in-memory diagnostics and creates no files. Prepare annotations with `AnnotationBundle.from_frames` and supply resolved restrictions explicitly. Multiple batches require output configuration. See the [zero-write example](../../tutorials/ld-score-calculation.md#small-python-calculations-without-writes).
+`LDScoreResult` remains the explicitly materialized object for a small prepared-input calculation.
+`LDScoreCalculator.run(..., output_config=None)` returns one such batch with complete in-memory diagnostics and creates no files.
+Prepare annotations with `AnnotationBundle.from_frames` and supply resolved restrictions explicitly.
+Multiple batches require output configuration.
+See the [zero-write example](../../tutorials/ld-score-calculation.md#small-python-calculations-without-writes).
 
 Generation `query_batch_size` bounds sequential output batches.
 Direct calculation repeats reference work across them.
-Indexed calculation reuses a worker pool, reloads chromosome operators for each active query batch, and streams chromosome fragments into staged output before removing that batch's fragments.
-Its raw-fragment scratch scales with batch width, while final staged output grows with the full query count.
+Indexed calculation reloads chromosome operators for each active query batch.
+Both writing routes reuse a worker pool and stream chromosome fragments into staged output before removing that batch's fragments.
+Direct fragments preserve post-kernel float32 values; indexed fragments retain float64 through filtering.
+Raw-fragment scratch scales with batch width, while final staged output grows with the full query count.
 `workers` is capped at chromosome count.
 Regression chooses its own batch width independently and fits each query over its complete retained genome-wide SNP set, borrowing shared columns and reducing intermediate copies.
 It stores run-wide provenance once in `diagnostics/metadata.json`, referenced by each query's metadata; keep the complete result directory when copying fitted queries.

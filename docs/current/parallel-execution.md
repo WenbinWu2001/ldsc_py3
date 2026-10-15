@@ -1,6 +1,6 @@
 # Parallel execution
 
-Last updated on: 2026-10-14
+Last updated on: 2026-10-15
 
 Use `workers` in Python or `--workers` in the CLI to choose task concurrency.
 The default is one worker on both laptops and HPC systems.
@@ -74,9 +74,12 @@ Separate native and Arrow pools do not establish a whole-job CPU ceiling.
 
 Regression shares suitable numerical inputs through read-only maps and stages each model separately.
 LD and index-building tasks use chromosome-specific staged inputs and outputs; index construction returns compact component metadata rather than retaining completed operators in the parent.
+Direct writing workers stage post-kernel float32 query scores and return baseline data, scientific statistics, variation summaries, and diagnostic descriptors.
 Indexed scoring reloads operators for each batch, stages lossless float64 Parquet fragments, and returns only compact counts, overlaps, and variation summaries.
-The parent consumes one chromosome fragment at a time in index order and removes the active batch before submitting another.
+Both scoring workflows keep their worker pool alive across batches and final publication.
+The shared writer consumes one chromosome fragment at a time in the producer's chromosome order and removes the active batch before submitting another.
 Raw query scratch therefore scales with batch width rather than the total number of queries; privately staged final output files still grow with the run's total output.
+The direct no-output API retains its materialized result path.
 More workers require more private model/chromosome memory.
 The package does not select workers from an automatic memory estimate.
 The [focused index transport probe](../audits/parallel-execution/index-transport.md) supports the process migration but does not establish full-genome memory needs or HPC scaling.

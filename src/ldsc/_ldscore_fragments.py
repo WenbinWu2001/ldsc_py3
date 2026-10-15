@@ -1,4 +1,4 @@
-"""Write an indexed batch from owned float64 chromosome fragments.
+"""Write a direct or indexed batch from owned chromosome fragments.
 
 The producer owns the fragment directory until the writer finishes the batch.
 Only one chromosome query frame is read, validated, and narrowed at a time;
@@ -23,11 +23,12 @@ from .outputs import _cast_parquet_floats
 
 @dataclass(frozen=True)
 class StagedLDScoreBatch:
-    """Metadata and ordered query paths for one private indexed batch.
+    """Metadata and ordered query paths for one private LD-score batch.
 
-    ``query_fragments`` contain float64 scores before public narrowing, in
-    chromosome/SNP order. ``query_columns`` are finalized using float64
-    variation summaries; fragment reads select only these retained columns.
+    ``query_fragments`` retain direct post-kernel float32 scores or indexed
+    float64 scores before public narrowing, in chromosome/SNP order.
+    ``query_columns`` are finalized using variation summaries in the respective
+    producer precision; reads select only these retained columns.
     This internal descriptor is neither a materialized ``LDScoreResult`` nor
     a persistent ``LDScoreSource`` and must not escape its producer lifetime.
     """
@@ -46,6 +47,7 @@ class StagedLDScoreBatch:
     index_provenance: dict
     annotation_types: dict = field(default_factory=dict)
     identity_drops_by_chrom: dict = field(default_factory=dict)
+    snp_universe_policy: dict | None = None
 
 
 def validate_fragment_baseline(writer, result):
@@ -72,11 +74,11 @@ def write_query_fragments(writer, result, path, compression):
             writer._validate_tables(part)
             validate_ldscore_schemas(result.baseline_columns, result.query_columns,
                                     baseline.columns, frame.columns)
-            assert_same_snp_rows(baseline, frame, context="indexed query rows must match baseline rows on CHR/SNP/POS",
+            assert_same_snp_rows(baseline, frame, context="query fragment rows must match baseline rows on CHR/SNP/POS",
                                 snp_identifier=result.config_snapshot.snp_identifier)
             if not frame.empty:
                 if frame.CHR.astype(str).nunique() != 1:
-                    raise LDSCInternalError("An indexed query fragment must contain exactly one chromosome.")
+                    raise LDSCInternalError("A query fragment must contain exactly one chromosome.")
                 narrowed = _cast_parquet_floats(frame)
                 table = pa.Table.from_pandas(narrowed, preserve_index=False)
                 if parquet_writer is None:
@@ -89,5 +91,5 @@ def write_query_fragments(writer, result, path, compression):
             del part, baseline, frame
             fragment.unlink()
     if offset != len(result.baseline_table):
-        raise LDSCInternalError("Indexed query fragments do not cover every baseline SNP row.")
+        raise LDSCInternalError("Query fragments do not cover every baseline SNP row.")
     return row_groups

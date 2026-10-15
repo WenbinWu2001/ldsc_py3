@@ -22,6 +22,7 @@ import pyarrow.parquet as pq
 from ._progress import PhaseProgress
 from ._parallelism import _resolve_worker_count, _run_chromosome_tasks
 from ._ldscore_diagnostics import chromosome_log, report_chromosome_failure
+from ._query_variation import ScoreVariation, summarize_variation, combine_variation
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
@@ -32,21 +33,8 @@ class _ChromosomeBatchSummary:
 
     counts: np.ndarray
     blocks: np.ndarray
-    first: np.ndarray | None
-    varying: np.ndarray
+    variation: ScoreVariation
     baseline_statistics: tuple | None
-
-
-def _score_variation(scores):
-    """Summarize exact column variation, with NaNs counted as one value."""
-    if not len(scores):
-        return None, np.zeros(scores.shape[1], dtype=bool)
-    first = scores[0].copy()
-    varying = np.array([
-        not np.all((column == value) | (np.isnan(column) & np.isnan(value)))
-        for column, value in zip(scores.T, first, strict=True)
-    ], dtype=bool)
-    return first, varying
 
 
 def _write_baseline(record, control_selector, directory):
@@ -101,7 +89,7 @@ def _write_chromosome(index, chrom, batch, declarations, control_resolution, ord
                 query_blocks[:, supplied, offset] = [selected.control_overlap_all, selected.control_overlap_common]
         scores = core.assemble_indexed_ld_scores(record.operator, np.column_stack(selectors))
         del selectors, selector, selected
-        first, varying = _score_variation(scores)
+        variation = summarize_variation(scores.T)
         metadata = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in record.baseline_rows]
         identity = pa.Table.from_pandas(record.baseline_rows.loc[:, metadata], preserve_index=False)
         table = pa.Table.from_arrays([*identity.columns, *[pa.array(column) for column in scores.T]],
@@ -110,7 +98,7 @@ def _write_chromosome(index, chrom, batch, declarations, control_resolution, ord
         # or the original row-major score matrix alongside its column buffers.
         del scores, identity, record, control_selector
         pq.write_table(table, directory / "query.parquet", compression="zstd", use_dictionary=False)
-        return _ChromosomeBatchSummary(query_counts, query_blocks, first, varying, baseline_statistics)
+        return _ChromosomeBatchSummary(query_counts, query_blocks, variation, baseline_statistics)
 
 
 def _write_chromosomes(executor, index, batch, declarations, control, ordinal, total_batches, root, workers, log_paths):
@@ -134,20 +122,6 @@ def _write_chromosomes(executor, index, batch, declarations, control, ordinal, t
 
     _run_chromosome_tasks(index.chromosomes, workers, submit, collect, on_failure)
     return [summaries[chrom] for chrom in index.chromosomes]
-
-
-def _combined_variation(summaries, width):
-    """Combine chromosome summaries before float32 publication or pruning."""
-    first = None
-    varying = np.zeros(width, dtype=bool)
-    for summary in summaries:
-        if summary.first is None:
-            continue
-        if first is None:
-            first = summary.first
-        same = (summary.first == first) | (np.isnan(summary.first) & np.isnan(first))
-        varying |= summary.varying | ~same
-    return varying
 
 
 def indexed_results(index, batch, declarations, control, width, root, workers, statuses, scope, log_paths=None):
@@ -194,7 +168,8 @@ def indexed_results(index, batch, declarations, control, width, root, workers, s
                     query_columns = [item["query"] for item in active]
                     query_counts = sum(item.counts for item in summaries)
                     query_blocks = sum(item.blocks for item in summaries)
-                    varying = dict(zip(query_columns, _combined_variation(summaries, len(active)), strict=True))
+                    varying = dict(zip(query_columns, combine_variation(
+                        (item.variation for item in summaries), len(active)), strict=True))
                     active_statuses = tuple(status for status in statuses if status.query in varying or (
                         ordinal == 0 and status.status not in {"ok", "warning"}))
                     finalized, retained = finalize_query_measurements(

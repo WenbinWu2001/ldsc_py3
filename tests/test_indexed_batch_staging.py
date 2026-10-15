@@ -2,7 +2,6 @@
 
 from pathlib import Path
 from dataclasses import replace
-from types import SimpleNamespace
 import weakref
 
 import numpy as np
@@ -11,6 +10,7 @@ import pytest
 from scipy import sparse
 
 from ldsc import _indexed_ldscore_batches as batches
+from ldsc._query_variation import summarize_variation, combine_variation
 from tests.test_gene_index_streaming import two_chromosome_index
 from tests.test_gene_ldscore_index import run_indexed_ldscore
 
@@ -106,16 +106,16 @@ def test_indexed_staging_holds_one_batch_and_reuses_pool(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("split", [0, 1, 3, 4])
-def test_variation_summaries_preserve_global_float64_and_nan_semantics(split):
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_variation_summaries_preserve_producer_precision_and_nan_semantics(split, dtype):
     values = np.array([[1., 1., np.nan, np.nan, 0., np.inf],
                        [1., 1., np.nan, np.nan, -0., np.inf],
                        [2., 1. + 2.**-30, np.nan, 0., 0., np.inf],
-                       [2., 1. + 2.**-30, np.nan, 0., -0., np.inf]])
-    summaries = [SimpleNamespace(first=first, varying=varying)
-                 for first, varying in (batches._score_variation(part)
-                                        for part in (values[:split], values[split:]))]
-    np.testing.assert_array_equal(batches._combined_variation(summaries, values.shape[1]),
-                                  [True, True, False, True, False, False])
+                       [2., 1. + 2.**-30, np.nan, 0., -0., np.inf]], dtype=dtype)
+    summaries = [summarize_variation(part.T) for part in (values[:split], values[split:])]
+    assert all(summary.first is None or summary.first.dtype == dtype for summary in summaries)
+    np.testing.assert_array_equal(combine_variation(summaries, values.shape[1]),
+                                  [True, dtype == np.float64, False, True, False, False])
 
 
 @pytest.mark.parametrize("width", [1, 2])

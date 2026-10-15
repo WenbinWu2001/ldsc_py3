@@ -111,8 +111,10 @@ For 1,000 pathways, each query still fits separately against shared baseline cat
 During LD-score generation, the default `query_batch_size=100` permits up to 100 queries per execution batch (ten batches for 1,000 queries).
 Reducing the generation width bounds active query workspace and writes multiple numbered genome-wide query files, with an ordered `query_batches` manifest in root metadata.
 Direct calculation repeats reference/genotype work between batches.
-Indexed calculation uses a persistent worker pool for one active query batch, reloads chromosome operators per batch, and streams chromosome fragments into staged output before removing the batch's fragments.
-Smaller indexed batches reduce raw-fragment scratch but add operator-read overhead; final staged output still grows with the full query count.
+Direct workers now stage their existing post-kernel float32 query scores, so parent assembly avoids a genome-wide query matrix.
+Indexed calculation reloads chromosome operators per batch and retains float64 scores through filtering.
+Both writing routes use a persistent worker pool, stream one chromosome fragment at a time, and remove each batch's fragments before advancing.
+Smaller batches reduce raw-fragment scratch but add repeated reference work or operator reads; final staged output still grows with the full query count.
 Direct and indexed `workers` default to 1 and are capped at the chromosome count.
 Freed pages can remain reserved by the allocator, so RSS need not immediately fall.
 See `LDScoreCalculator.run`, `indexed_results`, and `LDScoreSource.read_queries` in the [memory design](../docs/current/annotation-memory-design.md).

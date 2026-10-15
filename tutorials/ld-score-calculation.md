@@ -340,12 +340,15 @@ This low-level calculator takes already-resolved `regression_snps` and `regressi
 For writing workflows, `query_batch_size` defines sequential execution and saved-file grouping.
 Direct mode repeats reference work between batches while reusing its worker pool.
 Indexed mode also reuses a worker pool but reloads chromosome operators for each active query batch.
-It streams chromosome fragments into staged output and removes them before advancing to the next batch, bounding raw-fragment scratch by batch width.
-Smaller indexed batches add operator reads; staged final output still grows with the full query count.
+Both writing modes stream chromosome fragments into staged output and remove them before advancing to the next batch, bounding raw-fragment scratch by batch width and avoiding a genome-wide query matrix in the parent.
+Direct fragments preserve the existing post-kernel float32 values; indexed fragments retain float64 through query filtering, and both publish float32 scores.
+Numerical accumulation, annotation counts, and overlaps remain float64 over the broader reference universe.
+Smaller batches add repeated reference work or operator reads; staged final output still grows with the full query count.
 Every worker uses 1 BLAS thread; serial calculation uses one managed child.
 Completed results and optional reference metadata stay private until computation succeeds.
 There is no checkpoint or resume workflow.
 See [the execution policy](../docs/current/parallel-execution.md) for CPU budgets, failure cleanup, and chromosome logs.
+The [direct assembly measurements](../docs/wiki/main-functionalities/ldscore.md#direct-assembly-measurements) used precomputed chromosome scores and do not establish a smaller safe production RAM allocation.
 
 ## Case 5: Reuse an Exact Gene LD-Score Index
 

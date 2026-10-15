@@ -144,8 +144,9 @@ def finalize_query_measurements(statuses, count_by_column, varying):
 
     ``varying[name]`` is true iff the complete regression-row column
     contains more than one distinct value, treating NaNs as one value just as
-    ``Series.nunique(dropna=False)`` does. Indexed scoring combines float64
-    chromosome summaries; direct scoring inspects its materialized columns.
+    ``Series.nunique(dropna=False)`` does. Writing workflows combine chromosome
+    summaries in direct post-kernel float32 or indexed float64 precision.
+    Materialized direct callers inspect the same float32 score columns.
     """
     finalized: list[QueryAnnotationStatus] = []
     retained_queries: list[str] = []

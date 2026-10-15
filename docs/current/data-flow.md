@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -698,4 +698,21 @@ flowchart LR
 
 ## Bounded annotation and model flow
 
-Supplied annotation sources use two bounded content passes. The first validates/classifies columns and stages only metadata. Metadata is aligned in tiles sized for each discovered source group, globally indexed, and selected; the second input pass writes retained numeric values directly into packed binary and dense float32 chromosome stores beside Parquet metadata. No numeric spool or conversion file is created. BED and gene queries are packed directly during projection. Public selected reads remain float32 and preserve logical input order across physical stores. Direct LD scoring holds at most the configured chromosome workers and active query batches. Final HM3 LD tables remain aggregate. Batch regression shares trait/baseline alignment, reads selected query columns, and stages each completed fit. Optional `partitioned-h2 --workers` processes borrow immutable maps and each fit one complete query model; at most one task is in flight per worker. The coordinator collects results in query order, applies the query-error policy, and publishes after stable summary sorting. Workers exit before their output-owned scratch is removed. See [query workers](regression-configuration.md#43-query-workers-and-memory) and `_QueryWorkers` in [_partitioned_h2_parallel.py](../../src/ldsc/_partitioned_h2_parallel.py). Exact quantile reconstruction uses global float64 boundaries and two bounded annotation passes. See [the annotation format policy](annotation-memory-design.md#annotation-format-policy) for encoding and [the implemented memory design](annotation-memory-design.md) for owner/release boundaries.
+Supplied annotation sources use two bounded content passes.
+The first validates/classifies columns and stages only metadata.
+Metadata is aligned in tiles sized for each discovered source group, globally indexed, and selected; the second input pass writes retained numeric values directly into packed binary and dense float32 chromosome stores beside Parquet metadata.
+No numeric spool or conversion file is created.
+BED and gene queries are packed directly during projection.
+Public selected reads remain float32 and preserve logical input order across physical stores.
+Direct LD scoring holds at most the configured chromosome workers and one active query batch.
+Writing workers stage post-kernel float32 query fragments and return baseline data with scientific and diagnostic summaries.
+The parent filters from those summaries and uses the same chromosome-at-a-time writer as indexed scoring, whose fragments remain float64 through filtering.
+Consumed fragments are removed before the next batch, while final HM3 LD tables remain aggregate and publish after complete success.
+The prepared no-output Python route remains materialized.
+Batch regression shares trait/baseline alignment, reads selected query columns, and stages each completed fit.
+Optional `partitioned-h2 --workers` processes borrow immutable maps and each fit one complete query model; at most one task is in flight per worker.
+The coordinator collects results in query order, applies the query-error policy, and publishes after stable summary sorting.
+Workers exit before their output-owned scratch is removed.
+See [query workers](regression-configuration.md#43-query-workers-and-memory) and `_QueryWorkers` in [_partitioned_h2_parallel.py](../../src/ldsc/_partitioned_h2_parallel.py).
+Exact quantile reconstruction uses global float64 boundaries and two bounded annotation passes.
+See [the annotation format policy](annotation-memory-design.md#annotation-format-policy) for encoding and [the implemented memory design](annotation-memory-design.md) for owner/release boundaries.

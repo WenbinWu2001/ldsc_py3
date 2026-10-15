@@ -81,3 +81,19 @@ Validation: complete Bash CLI examples parse, local file links and heading ancho
 Both notebooks pass JSON and code-cell syntax checks; comparison with the committed versions confirms unchanged code cells, outputs, cell metadata, and notebook metadata.
 Only explanatory notebook Markdown changed, so neither notebook was re-executed for this documentation pass.
 No production code or scientific results changed, and no new HPC measurements were run.
+
+## 2026-10-15 update | direct LD-score streaming assembly
+
+Reason: the user approved direct file-writing streaming after the supplied full-row assembly replays.
+Updated the LD-score page, README, current memory/architecture/execution contracts, LD-score and partitioned tutorials, and two notebook explanations.
+Direct workers now stage post-kernel float32 queries and share the chromosome fragment writer with indexed scoring, which retains float64 through filtering.
+Documented one active batch, global variation, worker/scratch ownership, the unchanged materialized no-output API, and metadata-last publication.
+The earlier log entry's direct-streaming exclusion records the prior regression-only scope; this update implements the subsequently approved direct scope.
+
+Sources: [direct fragment staging](../../src/ldsc/_direct_ldscore_batches.py), [shared variation](../../src/ldsc/_query_variation.py), [shared fragment writer](../../src/ldsc/_ldscore_fragments.py), the [local validation audit](../audits/2026-10-15_direct-streaming.md), and the frozen workspace [replay report](../../../diagnostics/20261015_direct_streaming_scale/report.md).
+
+Validation: the full pytest suite passed 1,991 tests and 133 subtests, with one skip; the separate unittest compatibility run passed 1,003 tests, with one skip.
+Real small-kernel tests cover score/statistic/metadata parity, filtering edges, multiple batches, fragment lifetimes, failure cleanup, and no incomplete publication.
+Documentation checks validate local links, heading anchors, CLI examples, and dates.
+Notebook edits change explanatory Markdown only; code, outputs, and execution metadata are unchanged, and notebooks were not re-executed.
+The replay measurements remain distinct from local integration tests; no new HPC measurement or smaller production RAM recommendation is claimed.

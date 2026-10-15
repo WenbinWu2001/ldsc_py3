@@ -80,17 +80,50 @@ See [the execution policy](../../current/parallel-execution.md) for native-limit
 This optimization targets workloads such as 1,000 pathways, each later tested separately against shared baseline categories.
 `--query-batch-size 100` sets the maximum active query batch and defaults to 100.
 Direct calculation prepares, computes, privately writes, and releases one batch before starting the next; smaller batches repeat reference/genotype work.
-Indexed calculation also admits only one query batch at a time, using a persistent worker pool.
-Each chromosome task reloads its operator for that batch and writes a lossless float64 Parquet fragment.
-The coordinator consumes fragments in chromosome order, streams them into the staged public output, and removes that batch's fragments before submitting the next batch.
+Direct workers now write their existing post-kernel float32 query scores to private chromosome fragments and return baseline data with scientific and diagnostic summaries.
+Indexed calculation also admits only one query batch at a time; each chromosome task reloads its operator for that batch and writes a lossless float64 Parquet fragment.
+Both modes use a persistent worker pool and determine global query filtering from chromosome summaries at their existing precision boundaries.
+The shared writer consumes fragments in chromosome order, streams them into the staged public output, and removes that batch's fragments before submitting the next batch.
 This avoids accumulating raw fragments for all queries or concatenating a full genome-wide query batch in memory.
-Numerical accumulation remains float64, and public LD-score values remain float32.
+Numerical accumulation, counts, and overlaps remain float64, and public LD-score values remain float32.
+Streaming preserves both the broader reference contributor universe and the separately selected regression/output rows.
 
-Indexed raw-fragment scratch therefore scales with batch width, while staged final output still grows with the total number of queries.
-Smaller batches can reduce scratch and active query arrays but add repeated operator reads and scheduling overhead; reducing workers alone does not reduce the number of query batches.
-Baseline values remain resident, and every active worker needs its chromosome operator and numerical workspace.
-The indexed changes do not add streaming assembly to direct LD scoring.
+Raw-fragment scratch therefore scales with batch width, while staged final output still grows with the total number of queries.
+Smaller batches can reduce scratch and active query arrays but add repeated direct reference work or indexed operator reads; reducing workers alone does not reduce the number of query batches.
+Baseline values remain resident, and every active worker needs its reference/operator state and numerical workspace.
+No new CLI option is required.
 
 Python writing workflows return `LDScoreSource`. Use `source.read_queries(["pathway_A", "pathway_B"])` to load named columns, even across files; the call preserves requested column order, does not cache values, and imposes no read-width limit. Callers own the RAM for these explicit reads. For a small calculation that must write nothing, use prepared in-memory annotations with `LDScoreCalculator.run(..., output_config=None)` and keep all queries in one batch. See the [Python example](../../../tutorials/ld-score-calculation.md#small-python-calculations-without-writes).
 
-Private scratch stays below the output directory and is cleaned on handled success or failure. Metadata is published after all batches succeed. Resuming from a completed batch is a possible future feature and is not supported. Freed memory can remain reserved by the allocator, so RSS need not drop immediately. See the [memory design](../../current/annotation-memory-design.md), [numerical verification](../../audits/annotation-memory/sequential-query-batches.md), and [batch regression guide](partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways). Sources: `LDScoreCalculator.run`, `LDScoreSource.read_queries`, and `indexed_results` in [_indexed_ldscore_batches.py](../../../src/ldsc/_indexed_ldscore_batches.py).
+Private scratch stays below the output directory and is cleaned on handled success or failure, after worker shutdown when a task fails.
+Metadata is published after all batches succeed.
+Resuming from a completed batch is a possible future feature and is not supported.
+Freed memory can remain reserved by the allocator, so RSS need not drop immediately.
+See the [memory design](../../current/annotation-memory-design.md), [direct integration validation](../../audits/2026-10-15_direct-streaming.md), and [batch regression guide](partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways).
+Sources: `LDScoreCalculator.run`, `LDScoreSource.read_queries`, [direct fragment staging](../../../src/ldsc/_direct_ldscore_batches.py), and `indexed_results` in [_indexed_ldscore_batches.py](../../../src/ldsc/_indexed_ldscore_batches.py).
+
+## Direct assembly measurements
+
+The October 15 Longleaf replays compared materialized direct assembly with chromosome-fragment assembly at frozen revision `03aa8ca`.
+Each used precomputed scores for 22 chromosomes, 22 persistent workers, 53 baseline columns, 1,134,471 output SNP rows, and 1,000 queries per batch.
+They measured assembly and writing, without real genotype/reference preparation or LD calculation.
+Both variants used the same output rows; the improvement did not come from dropping SNPs.
+
+| Replay workload | Median whole-job cgroup peak, materialized → streamed | Median wall seconds | Median combined CPU seconds |
+| --- | ---: | ---: | ---: |
+| One batch | 42.15 → 22.74 GiB | 155.32 → 102.25 | 210.35 → 168.81 |
+| Three batches, original node | 43.84 → 25.99 GiB | 340.69 → 178.92 | 472.50 → 340.23 |
+| Three batches, independent node | 43.62 → 25.71 GiB | 399.80 → 172.22 | 503.53 → 265.83 |
+
+All 28 valid replays passed exact within-backend comparisons of saved values, schemas, SNP/query order, row groups, filtering statuses, counts, overlaps, and scientific metadata.
+System-time outliers were retained and the two node groups were analyzed separately.
+No comparison group showed an observed wall/CPU increase above the 5% screening threshold; these measurements do not guarantee a production speedup.
+
+Active fragments totaled about 257 MiB across all 22 files, not per file.
+Sampled workload-file peaks were approximately equal between variants: 0.644 GiB for one batch and 1.115 GiB for three batches, with 1.259 GiB allocated blocks for three batches.
+These figures exclude fixed inputs and measurement logs and are not complete production scratch peaks; compression depends on the queries.
+
+The integrated implementation has separate local tests using real small PLINK and parquet-R2 calculations, including metadata parity and failure cleanup.
+Production memory savings and a smaller safe Slurm allocation remain unproven because the replay omitted reference preparation and kernel computation.
+Source: the workspace [full replay report](../../../../diagnostics/20261015_direct_streaming_scale/report.md) and [lifecycle record](../../../../diagnostics/20261015_direct_streaming_scale/lifecycle.md), plus the [local integration audit](../../audits/2026-10-15_direct-streaming.md).
+The replay links require the enclosing research workspace; the table and limitations above summarize the evidence for standalone package readers.

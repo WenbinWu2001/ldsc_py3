@@ -42,6 +42,10 @@ import pandas as pd
 
 from ._serial_calculation import serial_calculation
 from ._ldscore_diagnostics import ldscore_logs, chromosome_log, report_chromosome_failure
+from ._direct_ldscore_batches import DirectChromosomeFragment, stage_direct_chromosome
+from ._ldscore_fragments import StagedLDScoreBatch
+from ._query_variation import combine_variation
+from .chromosome_inference import chrom_sort_key
 from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
 from ._parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _run_chromosome_tasks, _validate_workers
@@ -84,7 +88,7 @@ from ._kernel.snp_identity import RestrictionIdentityKeys
 from ._row_alignment import assert_same_snp_rows
 from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .query_annotations import (
-    QueryAnnotationStatus, finalize_query_statuses, gene_query_statuses, gene_viability_errors,
+    QueryAnnotationStatus, finalize_query_statuses, finalize_query_measurements, gene_query_statuses, gene_viability_errors,
     _log_gene_list_rejections, _log_gene_list_snp_support,
     _log_query_annotation_statuses, _all_query_annotations_skipped_message,
 )
@@ -407,8 +411,11 @@ class LDScoreCalculator:
 
         Notes
         -----
-        Each direct batch repeats reference traversal. Query-related workspace
-        scales with active batch width and chromosome workers. Counts and LD
+        Each direct batch repeats reference traversal. Writing workers stage
+        their post-kernel float32 query scores in private chromosome fragments;
+        the parent combines scientific summaries and streams those fragments
+        without constructing a genome-wide query matrix. Query workspace scales
+        with active batch width and chromosome workers. Counts and LD
         accumulation use float64; canonical output retains its usual precision.
         The calculator borrows inputs and never closes the caller's bundle.
         Workers are managed child processes with 1 BLAS thread each, including
@@ -457,9 +464,11 @@ class LDScoreCalculator:
                         statuses = tuple(status for status in annotation_bundle.query_statuses
                                          if status.query in selected or (ordinal == 0 and status.status not in {"ok", "warning"}))
                         with execution_query_bundle(annotation_bundle, columns, statuses, output_config.output_dir) as active:
-                            result = self._run_batch(annotation_bundle=active, batch_label=f"batch {ordinal + 1}/{len(groups)}", **kwargs)
-                            yield result
-                            del result
+                            with TemporaryDirectory(prefix=".ldsc-fragments-", dir=output_config.output_dir) as fragments:
+                                result = self._run_batch(annotation_bundle=active, fragment_dir=fragments,
+                                    batch_label=f"batch {ordinal + 1}/{len(groups)}", **kwargs)
+                                yield result
+                                del result
                         del active
                         progress.completed = len(columns)
             result = self.output_writer.write_batches(results(), output_config,
@@ -484,12 +493,14 @@ class LDScoreCalculator:
         regression_regions: kernel_regions.RegionIntervals | None = None,
         config_snapshot: dict[str, Any] | None = None,
         pool=None, log_paths=None, batch_label="batch 1/1", export_root=None, worker_count=None,
-    ) -> LDScoreResult:
-        """Compute one materialized genome-wide batch using resolved inputs.
+        fragment_dir=None,
+    ) -> LDScoreResult | StagedLDScoreBatch:
+        """Compute one batch, retaining query scores only for no-output callers.
 
         Scientific preparation and chromosome aggregation are shared by writing
         and no-output paths. Diagnostics use RAM when output is omitted; the
-        caller owns any writing-path workspace and final publication.
+        caller owns writing-path fragments through consumption or worker
+        shutdown, plus final publication.
         """
         if output_config is None:
             if len(annotation_bundle.query_columns) > ldscore_config.query_batch_size:
@@ -523,8 +534,9 @@ class LDScoreCalculator:
             regression_regions=regression_regions,
             worker_count=worker_count,
             export_dir=export_dir, pool=pool, log_paths=log_paths, batch_label=batch_label,
+            fragment_dir=fragment_dir,
         )
-        chromosome_results: list[ChromLDScoreResult] = []
+        chromosome_results = []
         for chrom in chromosomes:
             outcome = outcomes[chrom]
             if outcome.skipped:
@@ -557,10 +569,21 @@ class LDScoreCalculator:
                 chromosome_results=chromosome_results,
             ),
         )
-        result = finalize_query_statuses(
-            result,
-            tuple(getattr(annotation_bundle, "query_statuses", ())),
-        )
+        statuses = tuple(getattr(annotation_bundle, "query_statuses", ()))
+        if isinstance(result, StagedLDScoreBatch) and statuses:
+            varying = dict(zip(result.query_columns, combine_variation(
+                (item.variation for item in chromosome_results), len(result.query_columns)), strict=True))
+            finalized, retained = finalize_query_measurements(statuses, {
+                record["column"]: float(record["all_reference_snp_count"])
+                for record in result.count_records if record["group"] == "query"}, varying)
+            result = dataclass_replace(result, query_columns=retained, query_statuses=finalized,
+                count_records=[record for record in result.count_records
+                               if record["group"] != "query" or record["column"] in retained],
+                overlap=None if result.overlap is None else result.overlap.select_queries(retained),
+                annotation_types={name: kind for name, kind in result.annotation_types.items()
+                                  if name in [*result.baseline_columns, *retained]})
+        elif not isinstance(result, StagedLDScoreBatch):
+            result = finalize_query_statuses(result, statuses)
         LOGGER.debug(
             f"Computed LD scores for {len(chromosome_results)} chromosomes "
             f"and {len(result.baseline_table)} retained SNP rows."
@@ -571,6 +594,7 @@ class LDScoreCalculator:
         self, chromosomes, annotation_bundle, ref_panel, ldscore_config: LDScoreConfig,
         global_config: GlobalConfig, regression_snps, worker_count: int,
         regression_regions=None, export_dir=None, *, pool=None, log_paths=None, batch_label="batch 1/1",
+        fragment_dir=None,
     ) -> dict[str, _ChromOutcome]:
         """Dispatch one chromosome per child; return outcomes in a keyed mapping.
 
@@ -586,7 +610,7 @@ class LDScoreCalculator:
                 return self._run_chromosomes(
                     chromosomes, annotation_bundle, ref_panel, ldscore_config, global_config,
                     regression_snps, worker_count, regression_regions, export_dir,
-                    pool=executor, log_paths=log_paths, batch_label=batch_label)
+                    pool=executor, log_paths=log_paths, batch_label=batch_label, fragment_dir=fragment_dir)
         prefixes = ref_panel._resolved_prefixes() if isinstance(ref_panel, PlinkRefPanel) else None
         paths = log_paths or {}
         outcomes = {}
@@ -596,7 +620,7 @@ class LDScoreCalculator:
             return pool.submit(_compute_one_chromosome, chrom,
                 _slice_annotation_bundle(annotation_bundle, chrom), ref_panel.spec,
                 ldscore_config, global_config, export_dir, chromosome_prefixes=prefixes,
-                log_path=paths.get(chrom), batch_label=batch_label)
+                log_path=paths.get(chrom), batch_label=batch_label, fragment_dir=fragment_dir)
 
         def collect(chrom, outcome):
             outcomes[outcome.chrom] = outcome
@@ -735,11 +759,11 @@ class LDScoreCalculator:
 
     def _aggregate_chromosome_results(
         self,
-        chromosome_results: Sequence[ChromLDScoreResult],
+        chromosome_results: Sequence[ChromLDScoreResult | DirectChromosomeFragment],
         global_config: GlobalConfig,
         count_config: dict[str, Any] | None = None,
-    ) -> LDScoreResult:
-        """Concatenate and sum per-chromosome results into one aggregate object.
+    ) -> LDScoreResult | StagedLDScoreBatch:
+        """Combine chromosome statistics, retaining query paths for writing runs.
 
         The annotation overlap matrix is aggregated only for partitioned runs (two
         or more LD-score columns). Single-annotation runs (e.g. the synthetic
@@ -783,6 +807,45 @@ class LDScoreCalculator:
                 list(chromosome_results[0].baseline_columns),
                 list(chromosome_results[0].query_columns),
             )
+        annotation_names = [
+            *chromosome_results[0].baseline_columns,
+            *chromosome_results[0].query_columns,
+        ]
+        annotation_types = {
+            name: (
+                "quantitative"
+                if any(chrom_result.annotation_types.get(name) == "quantitative" for chrom_result in chromosome_results)
+                else "binary"
+            )
+            for name in annotation_names
+        }
+        shared = dict(
+            baseline_columns=list(chromosome_results[0].baseline_columns),
+            query_columns=list(chromosome_results[0].query_columns),
+            count_records=_count_records_from_totals(
+                baseline_columns=list(chromosome_results[0].baseline_columns),
+                query_columns=list(chromosome_results[0].query_columns),
+                count_totals=count_totals,
+            ),
+            count_config=dict(count_config or {}),
+            config_snapshot=snapshots[0] if snapshots else None,
+            overlap=aggregated_overlap,
+            identity_drops_by_chrom={
+                result.chrom: result.identity_drops
+                for result in chromosome_results if result.identity_drops is not None
+            },
+            annotation_types=annotation_types,
+        )
+        if isinstance(chromosome_results[0], DirectChromosomeFragment):
+            baseline_table = kernel_ldscore.sort_frame_by_genomic_position(pd.concat(
+                [result.baseline_table for result in chromosome_results], ignore_index=True))
+            _assert_canonical_maf(baseline_table)
+            ordered = sorted(chromosome_results, key=lambda result: chrom_sort_key(result.chrom))
+            return StagedLDScoreBatch(
+                baseline_table=baseline_table,
+                query_fragments=tuple(result.query_fragment for result in ordered if result.query_fragment is not None),
+                query_statuses=(), gene_list_batch=None, chromosome_scope={}, index_provenance={}, **shared,
+            )
         merged_table = pd.concat(
             [
                 _join_split_tables(
@@ -804,39 +867,13 @@ class LDScoreCalculator:
             query_columns=list(chromosome_results[0].query_columns),
             snp_identifier=global_config.snp_identifier,
         )
-        annotation_names = [
-            *chromosome_results[0].baseline_columns,
-            *chromosome_results[0].query_columns,
-        ]
-        annotation_types = {
-            name: (
-                "quantitative"
-                if any(chrom_result.annotation_types.get(name) == "quantitative" for chrom_result in chromosome_results)
-                else "binary"
-            )
-            for name in annotation_names
-        }
         result = LDScoreResult(
             baseline_table=baseline_table,
             query_table=query_table,
-            count_records=_count_records_from_totals(
-                baseline_columns=list(chromosome_results[0].baseline_columns),
-                query_columns=list(chromosome_results[0].query_columns),
-                count_totals=count_totals,
-            ),
-            baseline_columns=list(chromosome_results[0].baseline_columns),
-            query_columns=list(chromosome_results[0].query_columns),
             ld_reference_snps=frozenset(),
             ld_regression_snps=frozenset().union(*(result.ld_regression_snps for result in chromosome_results)),
             chromosome_results=list(chromosome_results),
-            count_config=dict(count_config or {}),
-            config_snapshot=snapshots[0] if snapshots else None,
-            overlap=aggregated_overlap,
-            identity_drops_by_chrom={
-                result.chrom: result.identity_drops
-                for result in chromosome_results if result.identity_drops is not None
-            },
-            annotation_types=annotation_types,
+            **shared,
         )
         result.validate()
         return result
@@ -2379,7 +2416,7 @@ def _snp_universe_policy(
     ref_panel,
     ldscore_config: LDScoreConfig,
     regression_regions: kernel_regions.RegionIntervals | None,
-    chromosome_results: Sequence[ChromLDScoreResult],
+    chromosome_results: Sequence[ChromLDScoreResult | DirectChromosomeFragment],
 ) -> dict[str, Any]:
     """Describe the independently selected LD-reference and regression universes.
 
@@ -2548,7 +2585,7 @@ class _ChromOutcome:
     """Tagged result of one chromosome's LD-score computation in a worker."""
 
     chrom: str
-    result: "ChromLDScoreResult | None"
+    result: "ChromLDScoreResult | DirectChromosomeFragment | None"
     skipped: bool
     skip_message: str | None = None
 
@@ -2563,7 +2600,7 @@ def _compute_one_chromosome(
     regression_snps=_WORKER_UNSET,
     regression_regions=_WORKER_UNSET,
     chromosome_prefixes=None,
-    log_path=None, batch_label="batch 1/1",
+    log_path=None, batch_label="batch 1/1", fragment_dir=None,
 ) -> _ChromOutcome:
     """Compute one chromosome end-to-end and return a tagged outcome.
 
@@ -2572,6 +2609,8 @@ def _compute_one_chromosome(
     defaults to the pool-initializer-provided global; direct task callers may
     pass it explicitly. Recoverable empty-intersection errors return a
     skipped outcome rather than raising across the pool boundary.
+    With ``fragment_dir``, the outcome carries a private query path and compact
+    summaries; otherwise it retains the materialized chromosome result.
     """
     from ._kernel.ref_panel import RefPanelLoader
 
@@ -2604,6 +2643,8 @@ def _compute_one_chromosome(
             if _is_empty_intersection(exc, chrom):
                 return _ChromOutcome(chrom=chrom, result=None, skipped=True, skip_message=str(exc))
             raise
+        if fragment_dir is not None:
+            result = stage_direct_chromosome(result, fragment_dir)
         return _ChromOutcome(chrom=chrom, result=result, skipped=False)
 
 

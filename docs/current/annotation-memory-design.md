@@ -93,6 +93,12 @@ Within each active direct query batch, each PLINK correlation block is generated
 
 `--query-batch-size` defaults to **100** for direct/indexed `ldscore` and batch `partitioned-h2`. A smaller positive value reduces active query workspace. It does not reduce the number of requested pathways or merge them into a joint regression model. With exactly 1,000 queries, the default uses ten batches of up to 100. The active output-row accumulator scales with batch width. Only compact counts, baseline-by-query overlaps, and diagnostic/source descriptors scale with the total requested query count; saved query LD values do not accumulate in memory.
 
+For direct file-writing workflows, [`stage_direct_chromosome()`](../../src/ldsc/_direct_ldscore_batches.py) writes the existing post-kernel float32 query table to a private Parquet fragment before the worker returns.
+The parent receives baseline data, counts, overlaps, variation summaries, and diagnostic descriptors, then combines them without a genome-wide query matrix.
+[`_query_variation.py`](../../src/ldsc/_query_variation.py) combines each chromosome's first values and within-chromosome variation flags, including columns that are constant within chromosomes but differ between chromosomes.
+Direct filtering uses the same float32 values as the materialized API; indexed filtering continues to use float64.
+The small prepared no-output Python route still returns a materialized `LDScoreResult`.
+
 ## Chromosome parallelism
 
 `--workers` / `workers` defaults to one managed child process, including on HPC.
@@ -105,7 +111,16 @@ See [the execution policy](parallel-execution.md) for native-limit verification,
 
 The sequential lifecycle is `load chromosome → prepare → compute/write diagnostics → close → next chromosome`. Reference and annotation working arrays from the completed chromosome become available for reuse before the next preparation. Python/NumPy allocators may keep freed pages, so RSS need not fall immediately. A flat RSS trace alone is not evidence of retained chromosome objects; lifetime tests assert release directly.
 
-Parallel submission keeps pending chromosome work bounded by the effective worker count. Tasks receive descriptors, not eager annotation matrices for every chromosome. Each worker owns its active chromosome state and releases it before advancing. Completed chromosome outputs are retained only for the active batch. `LDScoreCalculator.run()` yields that aggregate to `LDScoreDirectoryWriter.write_batches()`, which writes it privately and releases query values before requesting the next batch. The allowed per-batch join/concatenate/split path remains. Worker count and query batch size control different dimensions of memory; more workers can increase total process-tree memory and may be slower for small inputs.
+Parallel submission keeps pending chromosome work bounded by the effective worker count.
+Tasks receive descriptors, not eager annotation matrices for every chromosome.
+Each worker owns its active chromosome state and releases it before advancing; the pool persists across batches and publication.
+`LDScoreCalculator.run()` yields a `StagedLDScoreBatch` to `LDScoreDirectoryWriter.write_batches()` after all chromosome statistics are available.
+The shared fragment writer reads, validates, and writes one chromosome at a time in genomic order, then releases its frame and deletes its fragment before reading another.
+The entire active fragment directory is removed before the next batch, including when every query in a batch is skipped.
+On failure, workers finish shutdown before borrowed annotation or fragment workspaces are removed.
+Worker count and query batch size control different dimensions of memory; more workers can increase total process-tree memory and may be slower for small inputs.
+Baseline tables, worker kernel arrays, and staged final outputs have separate lifetimes, so bounded query fragments do not establish a whole-job RAM limit.
+See [the replay measurements](../wiki/main-functionalities/ldscore.md#direct-assembly-measurements) and [local integration validation](../audits/2026-10-15_direct-streaming.md) for the evidence boundary.
 
 **Public LD tables aggregate chromosomes within each query batch.** One batch uses `ldscore.query.parquet`; multiple batches use ordered `ldscore.query.batch00001.parquet` files. Root `metadata.json.query_batches` records each file, ordered query columns, and chromosome row groups. Baseline, counts, and overlap are shared once. `_ldscore_batch_output.py` stages all query files inside the output directory, publishes after successful computation, and writes metadata last. Handled failure closes the producer and removes owned staging while retaining available diagnostics. Resume from the last completed batch is a future feature, not supported now.
 
@@ -122,7 +137,8 @@ All active-batch scratch is removed before another batch is submitted, including
 The score payload bound is proportional to output SNP rows times batch width, while each live query array is chromosome-sized.
 Shared baseline values, compact metadata, and privately staged final outputs have separate lifetimes; the total job memory and scratch footprint is not just the raw score payload bound.
 Canonical integrity checks remain intact, including validation when each operator is reopened.
-`workers`/`--workers` has the direct-mode convention: default 1, positive worker counts, -1 detected available CPUs, -2 leaves one free, zero invalid, capped at chromosome count.
+`workers`/`--workers` has the direct-mode convention: default 1, positive worker counts, -1 detected available CPUs, -2 one fewer worker than that detected count, zero invalid, capped at chromosome count.
+Negative offsets do not reserve or pin a CPU.
 
 The index builder uses the same bounded annotation preparation and chromosome scheduling. Shared baseline and regression-weight projection use one traversal; separate atom-batch traversals remain intentional. Stored operators and common payloads remain float64. Smaller query multiplications and separate validation/assembly passes can add overhead; performance claims require end-to-end measurements, not just a count of loaded operators.
 
@@ -137,7 +153,11 @@ Workers stage complete model results and return compact outcomes.
 At most one task is in flight per process; workers exit before scratch removal.
 See [query workers](regression-configuration.md#43-query-workers-and-memory).
 
-[`LDScoreSource`](../../src/ldsc/ldscore_source.py), returned by `load_ldscore_from_dir()`, reads shared baseline/identity metadata and validates schemas without retaining all query values. `read_queries(columns)` selects only requested Parquet columns and does not cache them. Writing workflows return `LDScoreSource` directly; `read_queries(columns)` may span files and exceed generation width, preserves requested order, and imposes no RAM cap. `LDScoreResult` remains the materialized object for one active batch or a small prepared no-output calculation. Downstream `h2`, `rg`, and partitioned workflows consume only the columns they need.
+[`LDScoreSource`](../../src/ldsc/ldscore_source.py), returned by `load_ldscore_from_dir()`, reads shared baseline/identity metadata and validates schemas without retaining all query values.
+`read_queries(columns)` selects only requested Parquet columns and does not cache them.
+Writing workflows return `LDScoreSource` directly; `read_queries(columns)` may span files and exceed generation width, preserves requested order, and imposes no RAM cap.
+`LDScoreResult` remains the explicitly materialized result, including small prepared no-output calculations; writing workflows use private fragment descriptors instead.
+Downstream `h2`, `rg`, and partitioned workflows consume only the columns they need.
 
 [`PreparedRegressionInputs`](../../src/ldsc/regression_runner.py) shares trait alignment, baseline LD scores, row mappings, and count lookup across a batch. Each query batch is loaded/aligned once. Each model still fits its complete retained genome-wide SNP set; variance filtering, outlier filtering, counts, regression weights, and jackknife work remain model-specific. No chromosome-wise regression estimates are substituted for the genome-wide model.
 

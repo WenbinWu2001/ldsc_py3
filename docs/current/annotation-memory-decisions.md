@@ -1,8 +1,20 @@
 # Annotation and Workflow Memory Decisions
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 Current status: the user confirmed the complete annotation-storage design and authorized implementation on September 15. Packed binary storage, exact automatic classification, two input content passes without numeric staging, and explicit private column selection are implemented. Public float32 reads, logical input order, and LD-score output behavior are preserved. The full suite passed 1,812 tests and 132 subtests, with one skip; an independent chromosome-22 baseline comparison verified every decoded value. See the [implemented format policy and measured file sizes](annotation-memory-design.md#annotation-format-policy). These decisions supersede the September 14 choice to retain dense annotation storage, while preserving the approved execution batching.
+
+## Execution and regression update (2026-10-15)
+
+The subsequently approved indexed design, implemented in `659738a`, supersedes the chromosome-outer lifecycle recorded under [Indexed generation](#indexed-generation) below.
+It processes one query batch at a time with a persistent worker pool, reloads chromosome operators for each batch, streams chromosome fragments into staged output, and removes those fragments before advancing.
+This bounds raw-fragment scratch by batch width while retaining the scientific and complete-run publication contracts.
+The earlier operator-retention decision remains below as historical context.
+
+The approved regression changes, implemented in `7a478e6`, reduce model-array copying, store run-wide metadata once, and reuse disposable staged detail files during publication.
+They apply to regression over both direct and indexed LD scores; copying a fitted query now requires its enclosing shared metadata.
+Munging and direct-LD streaming are excluded from this optimization work.
+See the [implemented memory design](annotation-memory-design.md), [fitted-result contract](partitioned-h2-results.md), and [measured regression phase improvements](../wiki/main-functionalities/partitioned-h2.md#memory-and-runtime-measurements).
 
 ## Query batch default update (2026-09-16)
 
@@ -102,6 +114,8 @@ Write batch files privately inside the supplied output directory and release the
 On a handled computation failure, remove the current run's private batch files and retain diagnostics. Preserve the existing overwrite and failure-marker policy. Final publication carries no new rollback guarantee. The existing writer and artifact-family lifecycle are in [`outputs.py`](../../src/ldsc/outputs.py), `LDScoreDirectoryWriter` and `ArtifactFamily`; the current failure-marker contract is recorded in [path specification](path-specification.md).
 
 ### Indexed generation
+
+The chromosome-outer execution choice in this historical section is superseded by the [October 15 update](#execution-and-regression-update-2026-10-15).
 
 Include bounded-memory result generation from a prebuilt gene LD-score index. Updating only filenames and the returned handle would leave the existing all-query `query_scores` allocation and retained `query_tables` in [`_run_indexed_ldscore_in_workspace()`](../../src/ldsc/gene_ldscore_index.py).
 

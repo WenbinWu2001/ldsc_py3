@@ -1,6 +1,6 @@
 # Partitioned LDSC Workflow: Technical Reference
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 This document describes the refactored workflow for computing LD scores and
 running h2, partitioned-h2, and rg regression from one canonical LD-score result
@@ -455,7 +455,14 @@ Writing LD-score workflows and `load_ldscore_from_dir` return `LDScoreSource`. I
 
 `LDScoreResult` remains the materialized object for one execution batch. The small prepared-input Python exception, `LDScoreCalculator.run(..., output_config=None)`, returns one such batch with complete in-memory diagnostics and creates no files. Prepare annotations with `AnnotationBundle.from_frames` and supply resolved restrictions explicitly. Multiple batches require output configuration. See the [zero-write example](../../tutorials/ld-score-calculation.md#small-python-calculations-without-writes).
 
-Generation `query_batch_size` bounds sequential output batches. Direct calculation repeats reference work across them; indexed calculation reuses one chromosome operator per worker through its batches. `workers` is capped at chromosome count. Regression chooses its own batch width independently and retains one complete genome-wide model per query. Sources: `LDScoreCalculator.run`, `run_indexed_ldscore`, and the [memory design](annotation-memory-design.md).
+Generation `query_batch_size` bounds sequential output batches.
+Direct calculation repeats reference work across them.
+Indexed calculation reuses a worker pool, reloads chromosome operators for each active query batch, and streams chromosome fragments into staged output before removing that batch's fragments.
+Its raw-fragment scratch scales with batch width, while final staged output grows with the full query count.
+`workers` is capped at chromosome count.
+Regression chooses its own batch width independently and fits each query over its complete retained genome-wide SNP set, borrowing shared columns and reducing intermediate copies.
+It stores run-wide provenance once in `diagnostics/metadata.json`, referenced by each query's metadata; keep the complete result directory when copying fitted queries.
+Sources: `LDScoreCalculator.run`, `indexed_results`, `RegressionRunner.estimate_partitioned_h2_batch`, the [memory design](annotation-memory-design.md), and the [fitted-result contract](partitioned-h2-results.md).
 
 `output_paths` records scientific artifacts such as metadata, shared baseline/overlap files, and query batch files; workflow logs such as `diagnostics/ldscore.log` are audit files and are not included.
 `RgOutputConfig(write_per_pair_detail=True)` controls the optional per-pair

@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -332,11 +332,19 @@ run and absent for baseline-only runs. `--output-dir` is required; the retired
 
 The root `partitioned_h2.tsv` includes `query_result_dir`, a path relative to the result root that matches the folder in `diagnostics/query_annotations/manifest.tsv`. Baseline-only summaries use `NaN`. The navigation column is absent from per-query tables and in-memory Python summaries.
 
-Root `diagnostics/metadata.json` and per-query `metadata.json` files are provenance only. The root file is self-describing about the analysis: `analysis_type` (`functional_category` | `cell_type_specific`), `headline_metric` (`enrichment` | `coefficient`), `enrichment_p_test` (`two_sided_t`), and `coefficient_p_test` (`one_sided_greater`).
+Root `diagnostics/metadata.json` stores run-wide provenance once.
+It describes the analysis through `analysis_type` (`functional_category` | `cell_type_specific`), `headline_metric` (`enrichment` | `coefficient`), `enrichment_p_test` (`two_sided_t`), and `coefficient_p_test` (`one_sided_greater`).
+Each per-query `metadata.json` stores fit-specific fields and `global_metadata: "../../metadata.json"`, resolved relative to that query folder.
+Its `files` paths remain relative to the aggregate result root.
+The post-fit `quantile-h2` reader requires the enclosing shared metadata when this reference is present and merges it with query-specific fields taking precedence.
+Keep the complete result directory when copying fitted queries.
+Sources: `PartitionedH2DirectoryWriter` in [outputs.py](../../src/ldsc/outputs.py) and `load_fitted_partitioned_model` in [quantile_h2.py](../../src/ldsc/quantile_h2.py).
 
 Model metadata records `n_snps`, `effective_chisq_max`, and `n_blocks_used` from the fitted population: at the root for a baseline-only model and in each per-query metadata file for query models.
 
-Completed query scans write `diagnostics/query_status.tsv` in requested order, including failed queries; strict failures publish this ledger without new scientific results. Root and successful per-query metadata record the following runtime fields. Baseline-only runs omit these query-worker fields and the status table.
+Completed query scans write `diagnostics/query_status.tsv` in requested order, including failed queries; strict failures publish this ledger without new scientific results.
+Root metadata records the following runtime fields, available to successful per-query model readers through the shared metadata reference.
+Baseline-only runs omit these query-worker fields and the status table.
 
 | Field | Meaning |
 | --- | --- |

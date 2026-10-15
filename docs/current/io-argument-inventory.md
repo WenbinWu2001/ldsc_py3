@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -184,7 +184,7 @@ Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requi
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--query-batch-size` | config | no | active focal query columns | Positive integer, default `100`; bounds query preparation, computation, and output-file grouping. Direct mode repeats reference work between batches; indexed mode reuses each worker's chromosome operator through its batches. Independent of regression read width. |
+| `--query-batch-size` | config | no | active focal query columns | Positive integer, default `100`; bounds query preparation, computation, and output-file grouping. Direct mode repeats reference work between batches; indexed mode reloads chromosome operators per batch and removes its raw fragments before advancing. Indexed raw scratch scales with batch width; final staged output grows with the full query count. Independent of regression read width. |
 | `--output-dir` | output | yes | canonical LD-score result directory | Writes root scientific artifacts and `diagnostics/ldscore.log`; evaluated BED/gene runs add `query_annotation_status.tsv`, and gene runs add `gene_list_audit.tsv.gz` plus `gene_list_resolution_summary.tsv`. Parquet row groups are chromosome-aligned. |
 | `--gene-ldscore-index-dir` | input | no | exact gene LD-score index | Selects indexed gene-list assembly instead of live baseline/reference-panel computation; defaults to omitted/`None`. Requires `--query-annot-gene-list-sources`; scientific settings are inherited from the immutable index, so live inputs and non-default overrides are rejected, and explicit padding is always rejected. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed LD-score files and `diagnostics/ldscore.log` may be replaced; defaults to `False`, so any existing owned LD-score artifact in `output_dir` is refused. Successful overwrites remove stale owned single/numbered query files not produced by the current run. |

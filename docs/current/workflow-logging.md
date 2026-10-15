@@ -1,6 +1,6 @@
 # Workflow Logging
 
-Last updated on: 2026-10-13
+Last updated on: 2026-10-15
 
 ## Audience and authority
 
@@ -441,7 +441,13 @@ Ordinary query-model exceptions include the query name and stage. Process death,
 
 ## Batch and collection progress
 
-Both LD-score backends report each batch start and completion. Direct mode names LD-score calculation batches and logs the chromosome computation inside each batch. Indexed mode logs chromosome computation first, then numbers genome-wide assembly batches; one chromosome computes all of its query batches before assembly. Batch completion describes completed private work, not a published or resumable result. Each backend reports one whole-run query-status total after finalization. Sources: `LDScoreCalculator.run()` in [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py) and `indexed_results()` in [_indexed_ldscore_batches.py](../../src/ldsc/_indexed_ldscore_batches.py).
+Both LD-score backends report each batch start and completion.
+Direct mode names LD-score calculation batches and logs the chromosome computation inside each batch.
+Indexed mode logs chromosome computation for the active query batch, followed by that batch's numbered assembly phase.
+The next batch's chromosome work starts only after the current batch has been streamed into private output and its raw fragments removed.
+Batch completion describes completed private work, not a published or resumable result.
+Each backend reports one whole-run query-status total after finalization.
+Sources: `LDScoreCalculator.run()` in [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py) and `indexed_results()` in [_indexed_ldscore_batches.py](../../src/ldsc/_indexed_ldscore_batches.py).
 
 Partitioned regression reports actual completed query outcomes, with status counts, through the same parent-owned progress stream for serial and parallel execution. Parallel collection advances when each result arrives, and timed waits can report unchanged completed counts while workers compute. Serial fits report when control returns. Numbered batch boundaries appear even for fast batches; per-query successful phases require DEBUG. For example, omitting elapsed times:
 

@@ -1,6 +1,6 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
@@ -51,7 +51,14 @@ OUTPUT_ROOT="${INPUT_ROOT}/tutorial_output"
 4. `ldsc ldscore` excludes the extended MHC and centromere regions by default.
 5. Be careful about the genome build of your input file. Although the package runs a guardrail check on the genome build, it is not comprehensive.
 6. To inspect what happened under the hood, check the log file in the `diagnostics/` directory inside each command's output directory.
-7. Resource use depends on SNP, sample, annotation, and worker counts. Start with `--workers 1`, allow temporary disk space under the output directory, and lower `--query-batch-size` to reduce active query workspace. Direct mode repeats reference work across batches; indexed mode keeps one chromosome operator per worker while writing that chromosome's batches. In the [1,000-query chromosome-22 benchmark](../audits/annotation-memory/sequential-query-batches.md#resource-measurements-and-limits), width 100 used 82.2% less peak private scratch than width 1,000 and took 1.903 times as long, with essentially unchanged peak RAM. The report separates measured results from conditional whole-genome projections. The [earlier local benchmark](../audits/annotation-memory/results.md) predates sequential output batching.
+7. Resource use depends on SNP, sample, annotation, and worker counts.
+   Start with `--workers 1`, allow temporary disk space under the output directory, and lower `--query-batch-size` to reduce active query workspace.
+   Direct mode repeats reference work across batches.
+   Indexed mode processes one query batch at a time with a persistent worker pool, reloads chromosome operators for each batch, and streams chromosome fragments into staged output before deleting those fragments.
+   Smaller indexed batches bound raw scratch more tightly but add operator-read overhead; see [current LD-score memory controls](main-functionalities/ldscore.md#memory-for-many-pathways).
+   In the historical direct-mode [1,000-query chromosome-22 benchmark](../audits/annotation-memory/sequential-query-batches.md#resource-measurements-and-limits), width 100 used 82.2% less peak private scratch than width 1,000 and took 1.903 times as long, with essentially unchanged peak RAM.
+   That report separates measured results from conditional whole-genome projections; it does not measure the current indexed implementation.
+   The [earlier local benchmark](../audits/annotation-memory/results.md) predates sequential output batching.
 
 ## Config you should follow across all steps
 
@@ -387,7 +394,8 @@ ldsc partitioned-h2 \
 4. The command above uses one managed child with 1 BLAS thread.
    With four CPUs available and allocated, add `--workers 4` to fit four complete query-plus-baseline models concurrently.
    `--query-batch-size 100` bounds loaded query columns and caps concurrency.
-   See [concurrent query fitting](main-functionalities/partitioned-h2.md#fit-queries-concurrently).
+   Current regression reduces model-array copying automatically for both direct and indexed LD-score inputs; each active fit still needs its complete retained SNP set and private estimator workspace.
+   See [concurrent query fitting](main-functionalities/partitioned-h2.md#fit-queries-concurrently) and the [measured regression improvements](main-functionalities/partitioned-h2.md#memory-and-runtime-measurements).
 
 **Outputs:**
 
@@ -414,6 +422,11 @@ Here:
 
 - `partitioned_h2.tsv` is a summary over all query annotations, sorted by the p-value of the query annotation's coefficient (`coefficient-p`), from most to least significant. Its `query_result_dir` column gives each query's exact folder relative to the output directory, even after you re-sort the table; `category` keeps the original name.
 - `query_annotations/` holds the per-query results, which also include the coefficients and h2 share of the baseline annotations. `manifest.tsv` records each original query annotation name, its results folder name, and the paths to the relevant results files.
+
+Copy all of `${PARTITIONED_H2_OUTPUT_DIR}` when moving or sharing fitted queries.
+Run-wide provenance is stored once in `diagnostics/metadata.json`; each query's metadata links to it with `"global_metadata": "../../metadata.json"`.
+The current model reader follows that reference, so keep the enclosing result tree when selecting a query for `quantile-h2`.
+See [keeping fitted results together](main-functionalities/partitioned-h2.md#keep-fitted-results-together).
 
 For a continuous annotation, continue with [Continuous annotations in partitioned LDSC](continuous-annotation-partitioned-ldsc.md). That post-fit workflow uses one complete fitted model and its saved jackknife coefficient values; it does not combine different per-query regressions.
 

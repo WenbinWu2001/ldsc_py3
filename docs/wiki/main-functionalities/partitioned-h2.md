@@ -1,6 +1,6 @@
 # Partitioned heritability
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 `ldsc partitioned-h2` reads a canonical LD-score directory and tests how its
 annotations contribute to SNP heritability.
@@ -50,13 +50,61 @@ ldsc partitioned-h2 \
   --output-dir results/pathway_enrichment
 ```
 
-The command prepares shared trait/baseline alignment once and reads query columns in batches. Regression batch width is independent of generation batch width; one read can span several saved query files. Every pathway still fits its complete retained genome-wide SNP set with model-specific filtering, weights, and jackknife calculations. A smaller batch such as `--query-batch-size 100` reduces loaded query values and private mapping space, but also limits how many query workers can be active. Loading and mapping overhead can change with batch width; the best value depends on the workload. Sources: `RegressionRunner.estimate_partitioned_h2_batch` in [regression_runner.py](../../../src/ldsc/regression_runner.py) and `LDScoreSource.read_queries` in [ldscore_source.py](../../../src/ldsc/ldscore_source.py).
+The command prepares shared trait/baseline alignment once and reads query columns in batches.
+Regression batch width is independent of generation batch width; one read can span several saved query files.
+Every pathway still fits its complete retained genome-wide SNP set with model-specific filtering, weights, and jackknife calculations.
+A smaller batch such as `--query-batch-size 100` reduces loaded query values and private mapping space, but also limits how many query workers can be active.
+It does not reduce the SNP rows or baseline categories in each active fit.
+Loading and mapping overhead can change with batch width; the best value depends on the workload.
+Sources: `RegressionRunner.estimate_partitioned_h2_batch` in [regression_runner.py](../../../src/ldsc/regression_runner.py) and `LDScoreSource.read_queries` in [ldscore_source.py](../../../src/ldsc/ldscore_source.py).
 
-The aggregate `partitioned_h2.tsv` keeps the requested final ordering. Per-query category tables, coefficient delete values, and metadata are written as fits finish, staged privately until successful sorted publication under `diagnostics/query_annotations/`. Python `estimate_partitioned_h2_batch(..., output_dir=...)` returns the aggregate summary and persistent `per_query_artifacts` paths, rather than every detailed table in memory.
+Current regression automatically borrows aligned baseline/query column views, applies row filtering before materializing the numerical design, and reuses owned numerical buffers where dtype promotion permits.
+Shared worker inputs remain read-only.
+These changes reduce copying for regression over both direct and indexed LD-score inputs, without changing float64 calculations, SNP/query ordering, counts, overlaps, or error policies.
+No new option is needed; batch and worker defaults are unchanged.
+See the [regression memory contract](../../current/annotation-memory-design.md) and `_dataset_from_query_values` / `_fit_h2_dataset` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
+
+The aggregate `partitioned_h2.tsv` keeps the requested final ordering.
+Per-query category tables, coefficient delete values, and metadata are written as fits finish, staged privately until successful sorted publication under `diagnostics/query_annotations/`.
+Publication moves disposable staged detail files into place and stores run-wide provenance once, reducing repeated writing and serialization.
+Python `estimate_partitioned_h2_batch(..., output_dir=...)` returns the aggregate summary and persistent `per_query_artifacts` paths, rather than every detailed table in memory.
+Republishing those persistent artifacts copies them and preserves the original results.
+Source: `PartitionedH2DirectoryWriter` in [outputs.py](../../../src/ldsc/outputs.py).
 
 The saved root summary appends `query_result_dir`, the exact per-query folder relative to the output directory; `category` retains the original gene-set name. Use this path to find detailed results after re-sorting the table. Baseline-only summaries use `NaN` because no per-query folders exist. See [the output contract](../../current/partitioned-h2-results.md#partitioned_h2tsv).
 
 New temporary files stay below the selected output directory and are cleaned on handled completion or failure. Existing overwrite/failure-marker behavior is preserved. Released allocations can remain reserved by Python/NumPy, so RSS need not fall after every fit. See the [memory design](../../current/annotation-memory-design.md) for ownership, indexing, and exact-quantile details.
+
+## Keep fitted results together
+
+Copy the complete `partitioned-h2` output directory when moving or sharing fitted queries.
+Run-wide provenance is stored in `diagnostics/metadata.json`; each query's `metadata.json` contains fit-specific fields and `"global_metadata": "../../metadata.json"`, resolved relative to that query folder.
+A query folder alone is therefore incomplete for downstream model loading.
+The `files` entries in query metadata remain relative to the aggregate result root.
+
+For `quantile-h2`, still select one successful `diagnostics/query_annotations/<query>/` folder inside the complete result tree.
+The current `load_fitted_partitioned_model()` reader resolves shared provenance automatically, with query-specific values taking precedence.
+If the shared metadata is missing, restore the enclosing `diagnostics/metadata.json` from the same fitted run and preserve its directory layout.
+See [shared-metadata troubleshooting](../../troubleshooting.md#quantile-h2-shared-fitted-model-metadata-is-missing), the [result contract](../../current/partitioned-h2-results.md), and the reader in [quantile_h2.py](../../../src/ldsc/quantile_h2.py).
+
+## Memory and runtime measurements
+
+Longleaf pilots measured the two regression changes separately before integration in `7a478e6`.
+The following values are phase medians, comparing the earlier implementation with the optimized implementation:
+
+| Phase and workload | Wall time, s | CPU time, s | Measured resource change |
+| --- | ---: | ---: | --- |
+| Model fitting: 60 queries, 20 workers | 60.83 → 31.74 | 898.84 → 401.08 | Peak anonymous memory: 37.25 → 27.13 GiB |
+| Publication: 100 completed fits | 5.456 → 1.917 | 3.355 → 0.650 | Logical writes: 139.856 → 1.667 MiB; anonymous memory roughly unchanged |
+
+The model comparison used two baseline and two optimized runs on the same node and BLAS backend, retaining 1,127,525 aligned SNP rows and 53 baseline columns per fit.
+It used direct LD-score inputs; indexed-input regression uses the same fitting code.
+The publication comparison used four baseline and two combined-optimization runs with the full 18,841-entry annotation dictionary.
+Scientific results agreed exactly within each tested BLAS backend; cross-backend differences were also present between unchanged baselines.
+Both changes reduced measured phase wall time and CPU time, but these pilots do not establish a full production-job speedup or a smaller safe RAM allocation.
+In particular, reduced publication writes do not imply a proportional reduction in anonymous memory or charged file cache.
+Source: the workspace [pilot report](../../../../diagnostics/20261014_memory_pilots/report.md), including workload boundaries, repetitions, cache measurements, and numerical checks.
+The report link requires the enclosing research workspace; the table above summarizes its findings for standalone package readers.
 
 ## Fit queries concurrently
 
@@ -86,7 +134,13 @@ OpenMP and Arrow CPU/I/O limits are separately one; unsupported numerical limits
 Zero, Boolean, and non-integer requests are invalid.
 See [the execution policy](../../current/parallel-execution.md) for allocation limits, process startup, and diagnostics.
 
-Workers borrow read-only maps of the shared baseline/trait arrays and current query batch from private output scratch. More workers still need more RAM for private filtered model matrices and estimators, and the maps need disk space. Query completion order does not change the requested status order or the stable summary/manifest order. The INFO log reports requested/effective workers and phase timings; the same counts appear in root and successful per-query metadata. A local bounded 1,000-query chromosome-22 benchmark measured 74.17, 47.63, and 30.47 seconds with 1, 2, and 4 workers, respectively, including preparation and publication. Its sampled peak process-tree RSS was 472, 1,048, and 1,507 MiB; these are not full-genome RAM estimates. See the [benchmark and limits](../../audits/2026-09-15_partitioned-query-workers.md#end-to-end-benchmark).
+Workers borrow read-only maps of the shared baseline/trait arrays and current query batch from private output scratch.
+More workers still need more RAM for private filtered model matrices and estimators, and the maps need disk space.
+Query completion order does not change the requested status order or the stable summary/manifest order.
+The INFO log reports requested/effective workers and phase timings; run-wide worker counts are stored in root metadata and available through each successful query's shared metadata reference.
+A historical local 1,000-query chromosome-22 benchmark, before the current copy and publication improvements, measured 74.17, 47.63, and 30.47 seconds with 1, 2, and 4 workers, respectively, including preparation and publication.
+Its sampled peak process-tree RSS was 472, 1,048, and 1,507 MiB; these are not full-genome RAM estimates.
+See the [benchmark and limits](../../audits/2026-09-15_partitioned-query-workers.md#end-to-end-benchmark).
 
 The Python option is `runner.estimate_partitioned_h2_batch(..., workers=4, query_batch_size=100)`. Put parallel calls in an importable script under `if __name__ == "__main__":`; from a notebook, use the CLI in a subprocess for parallel fitting. Both error policies below apply to ordinary query-model exceptions. Worker death, transport errors, output errors, and interrupts abort under either policy, identify affected queries, and trigger child-process cleanup. Sources: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py), the shared resolver in [_parallelism.py](../../../src/ldsc/_parallelism.py), and process ownership in [_partitioned_h2_parallel.py](../../../src/ldsc/_partitioned_h2_parallel.py).
 

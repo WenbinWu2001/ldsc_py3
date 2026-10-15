@@ -1,6 +1,6 @@
 # Build an exact gene LD-score index
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 For the mathematical construction of the disjoint atoms, stored operator, and
 sufficient statistics—and the full downstream indexed-assembly derivation—see
@@ -288,6 +288,15 @@ Pass the same directory to `ldsc ldscore --gene-ldscore-index-dir`; see
 
 ## Memory during index reuse
 
-Opening an index validates and releases chromosome payloads one at a time. The returned object holds shared metadata, support summaries, and component paths. Indexed `ldscore` uses `--workers` for chromosome worker processes: default 1, positive counts, `-1` for detected available CPUs, and `-2` to leave one core free, capped at the chromosome count. Each worker loads one chromosome operator, writes and releases each query batch, then releases that operator. `--query-batch-size` defaults to 100. The coordinator assembles and saves one genome-wide batch at a time; multiple batches produce numbered query Parquet files with an ordered `query_batches` manifest. More workers retain more operators concurrently.
+Opening an index validates and releases chromosome payloads one at a time.
+The returned object holds shared metadata, support summaries, and component paths.
+Indexed `ldscore` uses `--workers` for chromosome worker processes: default 1, positive counts, `-1` for detected available CPUs, and `-2` for one fewer worker than that count, capped at the chromosome count.
+This controls concurrency; it does not reserve or pin an unused CPU.
+`--query-batch-size` defaults to 100.
+A persistent worker pool processes one active query batch; each chromosome task loads its operator and writes a lossless float64 Parquet fragment for that batch.
+The coordinator streams fragments in chromosome order into staged public output and removes the active batch's fragments before starting another.
+Multiple batches produce numbered query Parquet files with an ordered `query_batches` manifest.
+Raw-fragment scratch is bounded by batch width, while final staged output grows with the full query count.
+More workers retain more operators concurrently, and smaller batches repeat operator reads more often.
 
 Validation and computation remain separate passes and can add I/O, especially for small inputs. Gene-index construction retains its existing sibling staging/lock/publication mechanism; score-generation scratch stays under the user output directory. Query batches are not resumable checkpoints. See [the implemented memory design](../../current/annotation-memory-design.md) and `indexed_results` in [_indexed_ldscore_batches.py](../../../src/ldsc/_indexed_ldscore_batches.py).

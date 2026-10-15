@@ -1,6 +1,6 @@
 # LDSC-SEG for Protein-Coding Gene Lists
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 This tutorial tests whether one or more protein-coding gene lists are enriched for trait heritability. For each query gene list, LDSC3 fits the model
 
@@ -83,7 +83,14 @@ Relevant flags omitted because their default values are used:
 
 Fast mode uses a precomputed exact gene LD-score index to assemble LD scores, annotation counts, and overlap statistics for the query gene lists. It does not reread the PLINK reference panel.
 
-Indexed assembly avoids rereading PLINK genotypes, but validation and chromosome-operator reads still incur I/O. Direct and indexed modes accept `--workers`: default 1, positive worker counts, `-1` for detected available CPUs, and `-2` to leave one core free, capped at the chromosome count. Each indexed worker owns one chromosome operator and writes/releases that chromosome's query batches before advancing. Profile the actual index and query batch; see the [index reuse memory guidance](utility-functionalities/build-gene-ldscore-index.md#memory-during-index-reuse).
+Indexed assembly avoids rereading PLINK genotypes, but validation and chromosome-operator reads still incur I/O.
+Direct and indexed modes accept `--workers`: default 1, positive worker counts, `-1` for detected available CPUs, and `-2` for one fewer worker than that count, capped at the chromosome count.
+This does not reserve an unused CPU.
+Indexed scoring uses a persistent pool for one active query batch and reloads each chromosome operator per batch.
+The coordinator streams chromosome fragments into staged output and removes that batch's fragments before starting the next.
+Smaller batches reduce raw-fragment scratch but add operator reads; final staged output still grows with all queries.
+Profile the actual index and query batch; see the [index reuse memory guidance](utility-functionalities/build-gene-ldscore-index.md#memory-during-index-reuse).
+
 - **Supported genome build:** hg19
 
 ```bash
@@ -193,6 +200,12 @@ regr/<trait>/
 The root `partitioned_h2.tsv` contains one summary row per successfully fitted query gene list and omits baseline-category rows. Failed queries appear in `diagnostics/query_status.tsv` with `unestimable` or `failed` status and have no result folder. Use `query_result_dir` in the root summary to locate each gene list's detailed results: resolve the path relative to the output directory. The original gene-list name remains in `category`, and the folder number reflects this run's sorted row order. Each query-specific `partitioned_h2_full.tsv` reports the complete fitted model:
 
 `[query annotation, baseline annotations]`.
+
+Copy all of `${PARTITIONED_H2_DIR}` when moving or sharing fitted queries.
+Run-wide provenance is stored once in `diagnostics/metadata.json`, and each query's metadata references it with `"global_metadata": "../../metadata.json"`.
+The current `quantile-h2` reader resolves this reference when loading a selected query inside the complete tree.
+The shared regression implementation also reduces model-array copies for both direct and indexed inputs without changing the fitted model.
+See [keeping fitted results together](main-functionalities/partitioned-h2.md#keep-fitted-results-together) and [regression memory and runtime measurements](main-functionalities/partitioned-h2.md#memory-and-runtime-measurements).
 
 Focus on `coefficient` and its one-sided `coefficient_p`. A positive coefficient with a small p-value indicates that the query gene list contributes additional heritability after accounting for the baseline annotations.
 

@@ -1,6 +1,6 @@
 # LD Score Calculation
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-built SNP-level annotations, or from raw BED/gene-list queries plus an explicit baseline.
 
@@ -339,7 +339,9 @@ This low-level calculator takes already-resolved `regression_snps` and `regressi
 
 For writing workflows, `query_batch_size` defines sequential execution and saved-file grouping.
 Direct mode repeats reference work between batches while reusing its worker pool.
-Indexed mode keeps each chromosome operator through its query batches.
+Indexed mode also reuses a worker pool but reloads chromosome operators for each active query batch.
+It streams chromosome fragments into staged output and removes them before advancing to the next batch, bounding raw-fragment scratch by batch width.
+Smaller indexed batches add operator reads; staged final output still grows with the full query count.
 Every worker uses 1 BLAS thread; serial calculation uses one managed child.
 Completed results and optional reference metadata stay private until computation succeeds.
 There is no checkpoint or resume workflow.

@@ -1,6 +1,6 @@
 # Calculate LD scores from gene lists
 
-Last updated on: 2026-10-14
+Last updated on: 2026-10-15
 
 Use gene-list mode to turn pathway, expression, proteomic, GO, or other gene
 sets into focal annotations for partitioned S-LDSC. LDSC resolves each list
@@ -165,13 +165,23 @@ ldsc partitioned-h2 \
 Each focal result is conditional on the supplied baseline block and optional
 `gene_control`. A missing focal output is a workflow status, not evidence for a
 biological null; inspect diagnostics before regression.
-Query runs write the per-query result tree automatically for successful fits. To summarize nominal conditional-coefficient evidence across fitted query gene lists, pass the aggregate partitioned-h2 result root to `ldsc plot`; do not pass an individual query folder.
+Query runs write the per-query result tree automatically for successful fits.
+Copy the complete regression output directory when moving or sharing those fits: each query's metadata references shared provenance in the enclosing `diagnostics/metadata.json`.
+See [keeping fitted results together](partitioned-h2.md#keep-fitted-results-together).
+To summarize nominal conditional-coefficient evidence across fitted query gene lists, pass the aggregate partitioned-h2 result root to `ldsc plot`; do not pass an individual query folder.
 
 Regression is strict by default: any query error prevents publication of new scientific results. Add the single flag `--continue-on-query-error` to the regression command to skip failed queries and publish successful fits. Inspect regression `diagnostics/query_status.tsv` for all attempted queries and `diagnostics/partitioned-h2.log` for error and block diagnostics. This is separate from LD-score generation's `--allow-unresolved-genes` and `diagnostics/query_annotation_status.tsv`. Shared input/output errors, interrupts, and scans with no successful fits remain fatal. See [regression failure handling](partitioned-h2.md#choose-what-happens-when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
 
 ## Large pathway batches
 
-For 1,000 pathways, regression tests each pathway separately against the same baseline categories. `--query-batch-size` defaults to `100` in direct/indexed `ldscore` and `partitioned-h2`; lower it to reduce active query workspace. Direct LD scoring writes and releases one query batch before preparing the next, repeating reference/genotype work across batches. Indexed assembly keeps one chromosome operator per worker, writes and releases that chromosome's query batches, then releases the operator. For LD-score generation, `--workers` defaults to 1, accepts positive counts, `-1` for detected available CPUs and `-2` to leave one core free, and is capped at the chromosome count.
+For 1,000 pathways, regression tests each pathway separately against the same baseline categories.
+`--query-batch-size` defaults to `100` in direct/indexed `ldscore` and `partitioned-h2`; lower it to reduce active query workspace.
+Direct LD scoring writes and releases one query batch before preparing the next, repeating reference/genotype work across batches.
+Indexed scoring uses a persistent worker pool for one active query batch, reloads chromosome operators for each batch, and streams chromosome fragments into staged output before removing the batch's fragments.
+Smaller indexed batches reduce raw-fragment scratch but add operator reads; final staged output still grows with the number of queries.
+For LD-score generation, `--workers` defaults to 1, accepts positive counts, `-1` for detected available CPUs and `-2` for one fewer worker than that count, and is capped at the chromosome count.
+Negative offsets do not reserve or pin an unused CPU.
+Regression automatically reduces model-array copying and repeated metadata/file writing for either LD-score route; see [regression memory and runtime measurements](partitioned-h2.md#memory-and-runtime-measurements).
 
 `--workers` / `workers` defaults to one managed child process, including on HPC.
 Every worker uses **1 BLAS thread**, in serial and parallel execution.

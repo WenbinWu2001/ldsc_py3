@@ -1,6 +1,6 @@
 # Calculate LD scores
 
-Last updated on: 2026-10-14
+Last updated on: 2026-10-15
 
 `ldsc ldscore` computes a reusable LD-score directory from PLINK genotypes or a precomputed R² panel. Regression consumes that directory. Ordinary unpartitioned scoring uses a synthetic all-ones `base` annotation:
 
@@ -31,7 +31,9 @@ For PLINK input, `--export-ref-metadata` writes `ref_metadata/chrN_meta.tsv.gz` 
 
 For indexed gene-list scoring on Longleaf with a similar workload, start with **`--workers 8` and 8 allocated CPUs**, retaining **128 GiB RAM** and **one native numerical thread per worker**.
 Use Slurm `--cpus-per-task=8 --mem=128G`; workers are managed processes, not a synonym for CPU threads.
-This is an empirical starting recommendation, not a change to the package default of one worker or a recommendation for direct LD scoring, index construction, or regression.
+This is a provisional starting point from the historical benchmark below, which predates the bounded indexed-batch implementation in `659738a`.
+It does not establish the optimum worker count or RAM requirement for the current implementation.
+The package default remains one worker; this recommendation does not cover direct LD scoring, index construction, or regression.
 
 A matched Longleaf comparison at revision `e4cefba` used the same first 1,000 query files, all 22 chromosomes, 1,134,471 SNP rows, 53 baseline columns, saved index, and `--query-batch-size 1000`.
 Every run requested 128 GiB and used one native numerical thread per worker.
@@ -53,8 +55,11 @@ These were single runs on shared nodes in fixed order, with uncontrolled cache, 
 All checked outputs matched exactly across the four settings, including SNP/query order, LD-score values, counts, overlaps, and query statuses.
 
 The one-batch comparison does not establish a full-workload optimum or a lower RAM requirement.
-The separate full 22-worker run completed in 2:03:14, whereas the full 8-worker run timed out at 4:00:15 during serial assembly; its completed full-workload runtime remains unknown.
-Keep 128 GiB for the full workload, and do not extrapolate one-batch time by multiplying by the number of batches: the full run stages approximately 159 GiB of raw score payload and has different cache pressure.
+With that earlier implementation, the separate full 22-worker run completed in 2:03:14, whereas the full 8-worker run timed out at 4:00:15 during serial assembly; its completed full-workload runtime remains unknown.
+Those runs staged approximately 159 GiB of raw score payload before assembly.
+The current implementation bounds raw fragments to one active query batch, as described below, so that historical staging volume is no longer its scratch model.
+Keep the existing 128 GiB allocation until the current full workload is measured; neither these historical runs nor the bounded design alone establishes a smaller safe allocation.
+Do not extrapolate one-batch time by multiplying by the number of batches: repeated operator reads, final output volume, and cache pressure affect the full run.
 
 Source: the workspace [matched benchmark report](../../../../diagnostics/20261014_indexed_workers/fourway_report.md), with [measurements and commands](../../../../diagnostics/20261014_indexed_workers/fourway_details.md).
 Benchmark jobs were 4933958 (22), 4933979 (8), 4930922 (4), and 4930923 (1); exact validator 4934033 passed with zero numeric differences.
@@ -72,7 +77,19 @@ LD scoring and index construction cap by chromosomes; regression caps by complet
 Zero, Boolean, and non-integer Python requests are invalid.
 See [the execution policy](../../current/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
 
-This optimization targets workloads such as 1,000 pathways, each later tested separately against shared baseline categories. `--query-batch-size 100` sets the maximum active query batch and defaults to 100. Direct calculation prepares, computes, privately writes, and releases one batch before starting the next; smaller batches repeat reference/genotype work. Indexed calculation keeps one chromosome operator per worker through that chromosome's batches, writing and releasing each batch before advancing. The coordinator assembles one genome-wide batch at a time. Baseline values remain resident, but completed query LD tables do not accumulate in the returned result.
+This optimization targets workloads such as 1,000 pathways, each later tested separately against shared baseline categories.
+`--query-batch-size 100` sets the maximum active query batch and defaults to 100.
+Direct calculation prepares, computes, privately writes, and releases one batch before starting the next; smaller batches repeat reference/genotype work.
+Indexed calculation also admits only one query batch at a time, using a persistent worker pool.
+Each chromosome task reloads its operator for that batch and writes a lossless float64 Parquet fragment.
+The coordinator consumes fragments in chromosome order, streams them into the staged public output, and removes that batch's fragments before submitting the next batch.
+This avoids accumulating raw fragments for all queries or concatenating a full genome-wide query batch in memory.
+Numerical accumulation remains float64, and public LD-score values remain float32.
+
+Indexed raw-fragment scratch therefore scales with batch width, while staged final output still grows with the total number of queries.
+Smaller batches can reduce scratch and active query arrays but add repeated operator reads and scheduling overhead; reducing workers alone does not reduce the number of query batches.
+Baseline values remain resident, and every active worker needs its chromosome operator and numerical workspace.
+The indexed changes do not add streaming assembly to direct LD scoring.
 
 Python writing workflows return `LDScoreSource`. Use `source.read_queries(["pathway_A", "pathway_B"])` to load named columns, even across files; the call preserves requested column order, does not cache values, and imposes no read-width limit. Callers own the RAM for these explicit reads. For a small calculation that must write nothing, use prepared in-memory annotations with `LDScoreCalculator.run(..., output_config=None)` and keep all queries in one batch. See the [Python example](../../../tutorials/ld-score-calculation.md#small-python-calculations-without-writes).
 

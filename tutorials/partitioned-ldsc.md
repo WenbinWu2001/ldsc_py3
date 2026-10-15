@@ -107,7 +107,19 @@ The Python example above uses one managed child with 1 BLAS thread.
 Python scripts must guard workflow calls with `if __name__ == "__main__":` for serial and parallel execution.
 The [cell-specific notebook](cell-specific-ldsc.ipynb) also demonstrates a CLI subprocess pattern.
 
-For 1,000 pathways, each query still fits separately against shared baseline categories. During LD-score generation, the default `query_batch_size=100` permits up to 100 queries per execution batch (ten batches for 1,000 queries). Reducing the generation width bounds active query workspace and writes multiple numbered genome-wide query files, with an ordered `query_batches` manifest in root metadata. Direct calculation repeats reference/genotype work between batches; indexed calculation reuses one chromosome operator per worker through its batches. Direct and indexed `workers` default to 1 and are capped at the chromosome count. Freed pages can remain reserved by the allocator, so RSS need not immediately fall. See `LDScoreCalculator.run` and `LDScoreSource.read_queries` in the [memory design](../docs/current/annotation-memory-design.md).
+For 1,000 pathways, each query still fits separately against shared baseline categories.
+During LD-score generation, the default `query_batch_size=100` permits up to 100 queries per execution batch (ten batches for 1,000 queries).
+Reducing the generation width bounds active query workspace and writes multiple numbered genome-wide query files, with an ordered `query_batches` manifest in root metadata.
+Direct calculation repeats reference/genotype work between batches.
+Indexed calculation uses a persistent worker pool for one active query batch, reloads chromosome operators per batch, and streams chromosome fragments into staged output before removing the batch's fragments.
+Smaller indexed batches reduce raw-fragment scratch but add operator-read overhead; final staged output still grows with the full query count.
+Direct and indexed `workers` default to 1 and are capped at the chromosome count.
+Freed pages can remain reserved by the allocator, so RSS need not immediately fall.
+See `LDScoreCalculator.run`, `indexed_results`, and `LDScoreSource.read_queries` in the [memory design](../docs/current/annotation-memory-design.md).
+
+Regression over either LD-score route automatically borrows aligned columns and reduces intermediate copies while retaining each model's complete SNP set and numerical precision.
+Batch width bounds loaded query columns; worker count controls the number of complete concurrent fits and their private estimator workspaces.
+See [regression memory and runtime measurements](../docs/wiki/main-functionalities/partitioned-h2.md#memory-and-runtime-measurements) for measured phase improvements and their limits.
 
 Generation and regression batch widths are independent. To inspect values explicitly, call `source.read_queries(["query_name"])`; reads preserve requested column order and have no cache or width cap. Current readers require the `query_batches` manifest; regenerate older directories. For the small prepared-input Python route that writes nothing, see [LD-score calculation without writes](ld-score-calculation.md#small-python-calculations-without-writes).
 

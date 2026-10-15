@@ -1,6 +1,6 @@
 # Wiki Update Log
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-15
 
 ## 2026-09-15 update | query regression failures
 
@@ -66,3 +66,18 @@ Reason: document whole-query process workers and the shared `--threads` parser, 
 Source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py), the shared resolver in [_parallelism.py](../../src/ldsc/_parallelism.py), [_partitioned_h2_parallel.py](../../src/ldsc/_partitioned_h2_parallel.py), and [query-worker policy](../current/regression-configuration.md#43-query-workers-and-memory). Local runtime and memory guidance links to the existing [benchmark report](../audits/2026-09-15_partitioned-query-workers.md).
 
 Validation: the synthetic cell-specific notebook executes top to bottom, comparing the inline API summary and query-status ordering against a real two-worker CLI run and checking requested/effective/native-thread metadata. Both notebooks pass JSON and code-cell syntax checks; the real-input partitioned notebook remains an input template and was not executed without its user-supplied data. Complete CLI examples parse, local file links and heading anchors resolve, update dates and `git diff --check` pass. An AST comparison confirms that the three source modules edited in this documentation pass changed only in docstrings. The previously completed full pytest/unittest and 1/2/4-worker benchmark results remain recorded in the implementation report.
+
+## 2026-10-15 update | regression memory, fitted results, and indexed batches
+
+Updated the partitioned-h2, LD-score, gene-list, continuous-annotation, index-reuse, guided-tutorial, and LDSC-SEG PC-gene pages, along with the affected current contracts, troubleshooting, Markdown tutorials, and two notebook tutorials.
+Documented automatic regression copy reduction, shared run-wide metadata, reuse of disposable staged files, and the need to copy the complete fitted-result directory.
+Added recovery guidance for missing shared metadata and a table of measured regression phase improvements with workload and full-job limitations.
+Corrected indexed scheduling descriptions to one active query batch with operator reloads and fragment cleanup, and marked earlier worker measurements and execution decisions as historical.
+Munging and direct-LD streaming remain outside this optimization work.
+
+Sources: regression implementation `7a478e6`, indexed implementation `659738a`, the [memory contract](../current/annotation-memory-design.md), the [fitted-result contract](../current/partitioned-h2-results.md), and the workspace [Longleaf pilot report](../../../diagnostics/20261014_memory_pilots/report.md).
+
+Validation: complete Bash CLI examples parse, local file links and heading anchors resolve, update dates are current, and `git diff --check` passes.
+Both notebooks pass JSON and code-cell syntax checks; comparison with the committed versions confirms unchanged code cells, outputs, cell metadata, and notebook metadata.
+Only explanatory notebook Markdown changed, so neither notebook was re-executed for this documentation pass.
+No production code or scientific results changed, and no new HPC measurements were run.

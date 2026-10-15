@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-10-13
+Last updated on: 2026-10-15
 
 This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](current/workflow-logging.md#diagnostics-and-troubleshooting).
 It also retains guidance for failed-run artifacts, documented query omissions, and cleanup warnings that users need to interpret.
@@ -825,6 +825,23 @@ such a directory cannot be partitioned.
 **Developer reference:** `regression_runner.estimate_partitioned_h2_batch()` / `summarize_partitioned_h2()` · **Exception:** `LDSCInputError`
 
 ## quantile-h2
+
+### quantile-h2: shared fitted-model metadata is missing
+
+**Symptom:** loading a fitted query reports missing shared metadata or an invalid `global_metadata` reference.
+
+Current query results store run-wide provenance once in the aggregate result's `diagnostics/metadata.json`.
+Each query's `metadata.json` points to it with `"global_metadata": "../../metadata.json"`.
+Copying only `diagnostics/query_annotations/<query>/` breaks that reference.
+
+Restore the complete result directory, or restore the enclosing `diagnostics/metadata.json` and query metadata from the same fitted run while preserving their relative locations.
+Then select the successful query folder within that tree as `--partitioned-h2-result-dir`.
+Use the current LDSC3 reader, which resolves shared provenance and gives fit-specific fields precedence.
+Restoring missing metadata from the original run does not require recomputing LD scores or refitting the model.
+Do not substitute metadata from another run or reconstruct provenance from unrelated results.
+See [keeping fitted results together](wiki/main-functionalities/partitioned-h2.md#keep-fitted-results-together) and the [output contract](current/partitioned-h2-results.md).
+
+**Developer reference:** `load_fitted_partitioned_model()` in [quantile_h2.py](../src/ldsc/quantile_h2.py) · **Exception:** `LDSCInputError`
 
 ### quantile-h2: fitted model or resupplied sources do not verify
 

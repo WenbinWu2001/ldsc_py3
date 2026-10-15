@@ -66,8 +66,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ._row_alignment import assert_same_snp_rows
-from ._kernel.snp_identity import effective_merge_key_series, identity_artifact_metadata, is_allele_aware_mode
+from ._kernel.snp_identity import identity_artifact_metadata, is_allele_aware_mode
 from .config import _normalize_required_path
+from .ldscore_source import validate_ldscore_allele_columns
 from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError
 from .path_resolution import (
     ensure_output_directory,
@@ -942,7 +943,7 @@ class LDScoreDirectoryWriter:
                 f"{missing}. Most likely an upstream LD-score step returned a result table with the wrong schema. "
                 "Re-run with DEBUG logging and report the traceback."
             )
-        _validate_ldscore_allele_columns(baseline_table, table_name="baseline_table", snp_identifier=snp_identifier)
+        validate_ldscore_allele_columns(baseline_table, table_name="baseline_table", snp_identifier=snp_identifier)
         if query_columns and query_table is None:
             raise LDSCInternalError(
                 "LD-score output writer could not write query annotations because result.query_columns is non-empty "
@@ -972,35 +973,13 @@ class LDScoreDirectoryWriter:
                 f"{missing}. Most likely an upstream LD-score step returned a query table with the wrong schema. "
                 "Re-run with DEBUG logging and report the traceback."
             )
-        _validate_ldscore_allele_columns(query_table, table_name="query_table", snp_identifier=snp_identifier)
+        validate_ldscore_allele_columns(query_table, table_name="query_table", snp_identifier=snp_identifier)
         assert_same_snp_rows(
             baseline_table,
             query_table,
             context="query rows must match baseline rows on CHR/SNP/POS",
             snp_identifier=snp_identifier,
         )
-
-
-def _validate_ldscore_allele_columns(table: pd.DataFrame, *, table_name: str, snp_identifier: str) -> None:
-    """Reject allele-aware LD-score artifacts without usable allele identity."""
-    if not is_allele_aware_mode(snp_identifier):
-        return
-    missing = [column for column in ("A1", "A2") if column not in table.columns]
-    if missing:
-        raise LDSCInputError(
-            f"LD-score artifact table {table_name} is malformed for snp_identifier='{snp_identifier}' because "
-            f"allele columns are missing: {missing}. Most likely this artifact was produced by an older package "
-            "version or copied without allele-aware columns. Regenerate the LD-score artifact with the current "
-            "LDSC package."
-        )
-    try:
-        effective_merge_key_series(table, snp_identifier, context=table_name)
-    except (LDSCInputError, ValueError) as exc:
-        raise LDSCInputError(
-            f"LD-score artifact table {table_name} is malformed for snp_identifier='{snp_identifier}' because "
-            f"its A1/A2 columns are unusable: {exc}. Most likely the artifact contains malformed allele values "
-            "or duplicate allele-aware SNP identities. Regenerate the LD-score artifact with the current LDSC package."
-        ) from exc
 
 
 @dataclass(frozen=True)

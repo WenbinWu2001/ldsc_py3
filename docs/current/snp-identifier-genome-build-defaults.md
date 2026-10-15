@@ -1,6 +1,6 @@
 # SNP Identifier / Genome Build: Default Design
 
-Last updated on: 2026-09-11
+Last updated on: 2026-10-15
 
 ## Design Decisions
 
@@ -206,7 +206,7 @@ must supply `genome_build="auto"` or a concrete build.
 | `config.py` | `_GLOBAL_CONFIG` and `reset_global_config()` | `GlobalConfig()` — no explicit args needed |
 | `ref_panel_builder.py` | `config_from_args` | Add `genome_build="auto"` (satisfies invariant; value is ignored by the workflow) |
 | `sumstats_munger.py` | `_effective_sumstats_config` | Guard: `genome_build = coordinate_metadata.get("genome_build") or config.genome_build` so the effective in-memory snapshot uses inferred or lifted coordinates when available; new sidecars serialize only minimal identity provenance used to reconstruct that snapshot on reload |
-| `regression_runner.py` | LD-score metadata loading | Current root metadata must carry minimal identity provenance; old package-written artifacts should be regenerated |
+| `ldscore_source.py` | LD-score metadata loading | Current root metadata must carry minimal identity provenance; old package-written artifacts should be regenerated |
 | `regression_runner.py` | `build_dataset` empty-merge error | Append `f"Active config: {self.global_config!r}."` |
 
 Call sites in `ldscore_calculator.py` already resolve `genome_build` to a

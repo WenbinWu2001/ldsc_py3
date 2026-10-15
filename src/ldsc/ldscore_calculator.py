@@ -86,7 +86,7 @@ from ._kernel.regions import REGR_SNPS_EXCLUDE_REGIONS_CHOICES, regr_snps_exclud
 from ._kernel.identifiers import build_snp_id_series, read_snp_restriction_keys
 from ._kernel.snp_identity import RestrictionIdentityKeys
 from ._row_alignment import assert_same_snp_rows
-from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
+from .errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .query_annotations import (
     QueryAnnotationStatus, finalize_query_statuses, finalize_query_measurements, gene_query_statuses, gene_viability_errors,
     _log_gene_list_rejections, _log_gene_list_snp_support,
@@ -1694,7 +1694,7 @@ def _annotation_build_config_from_args(args: argparse.Namespace) -> AnnotationBu
 
 def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config, global_config):
     """Measure interval support on the prepared computational SNP universe."""
-    from .errors import EmptyReferenceSNPs, LDSCUserError
+    from .errors import LDSCUserError
 
     batch = annotation_bundle.gene_list_batch
     padding_bp = int(annotation_bundle.source_summary.get("padding_bp", 0))
@@ -2058,7 +2058,7 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
     return run_ldscore_from_args(args)
 
 
-def main(argv: Sequence[str] | None = None) -> LDScoreResult:
+def main(argv: Sequence[str] | None = None) -> LDScoreSource:
     """Command-line entry point for the LD-score workflow."""
     parser = build_parser()
     argv_list = list(sys.argv[1:] if argv is None else argv)
@@ -2547,24 +2547,6 @@ def _kernel_annotation_bundle(bundle, chrom):
     return kernel_ldscore.AnnotationBundle(metadata, values, list(bundle.baseline_columns), list(bundle.query_columns))
 
 
-def _is_empty_intersection(error: Exception, chrom: str) -> bool:
-    """Return whether ``error`` is the recoverable empty-intersection case."""
-    from .errors import EmptyReferenceSNPs
-
-    if isinstance(error, EmptyReferenceSNPs):
-        return True
-    message = str(error)
-    old_shape = message.startswith("No retained annotation SNPs remain on chromosome ")
-    new_shape = message.startswith("ldscore retained no annotation SNPs on chromosome ")
-    if not (old_shape or new_shape):
-        return False
-    if old_shape and not any(suffix in message for suffix in (" after parquet intersection.", " after PLINK intersection.")):
-        return False
-    if new_shape and "after intersecting with the " not in message:
-        return False
-    return True
-
-
 # Worker state shared within a pool worker process. ``regression_snps`` is set
 # once by the pool initializer so a large SNP set is transferred per worker, not
 # per task; direct task probes can pass it explicitly instead.
@@ -2599,8 +2581,8 @@ def _compute_one_chromosome(
     Rebuilds the reference-panel adapter locally from ``ref_panel_spec`` so no
     live reader/file handle crosses the process boundary. ``regression_snps``
     defaults to the pool-initializer-provided global; direct task callers may
-    pass it explicitly. Recoverable empty-intersection errors return a
-    skipped outcome rather than raising across the pool boundary.
+    pass it explicitly. Only ``EmptyReferenceSNPs`` returns a skipped outcome;
+    other failures propagate across the pool boundary.
     With ``fragment_dir``, the outcome carries a private query path and compact
     summaries; otherwise it retains the materialized chromosome result.
     """
@@ -2631,10 +2613,8 @@ def _compute_one_chromosome(
                 regression_regions=regression_regions,
                 export_dir=export_dir,
             )
-        except (ValueError, LDSCInputError) as exc:
-            if _is_empty_intersection(exc, chrom):
-                return _ChromOutcome(chrom=chrom, result=None, skipped=True, skip_message=str(exc))
-            raise
+        except EmptyReferenceSNPs as exc:
+            return _ChromOutcome(chrom=chrom, result=None, skipped=True, skip_message=str(exc))
         if fragment_dir is not None:
             result = stage_direct_chromosome(result, fragment_dir)
         return _ChromOutcome(chrom=chrom, result=result, skipped=False)

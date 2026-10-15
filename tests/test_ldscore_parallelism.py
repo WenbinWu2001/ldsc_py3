@@ -18,6 +18,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from ldsc.errors import EmptyReferenceSNPs, LDSCInputError
+
 _HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 pytestmark = pytest.mark.skipif(not _HAS_PYARROW, reason="pyarrow is required for index parquet panels")
 
@@ -246,6 +248,43 @@ def test_compute_one_chromosome_returns_success_outcome(two_chrom_panel):
     assert outcome.result.baseline_table["SNP"].tolist() == ["rs1", "rs2", "rs3", "rs4"]
 
 
+@pytest.mark.parametrize("error_type", [ValueError, LDSCInputError])
+@pytest.mark.parametrize("message", [
+    "No retained annotation SNPs remain on chromosome 1 after parquet intersection.",
+    "ldscore retained no annotation SNPs on chromosome 1 after intersecting with the PLINK panel.",
+])
+def test_worker_propagates_untyped_errors_even_with_empty_intersection_wording(
+    two_chrom_panel, monkeypatch, error_type, message,
+):
+    from ldsc.ldscore_calculator import LDScoreCalculator, _compute_one_chromosome
+
+    error = error_type(message)
+
+    def fail(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(LDScoreCalculator, "compute_chromosome", fail)
+    chrom, bundle, spec, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
+    with pytest.raises(error_type) as caught:
+        _compute_one_chromosome(chrom, bundle, spec, ldcfg, gcfg, regression_snps=reg)
+    assert caught.value is error
+
+
+def test_worker_skips_typed_empty_reference_independent_of_message(two_chrom_panel, monkeypatch):
+    from ldsc.ldscore_calculator import LDScoreCalculator, _compute_one_chromosome
+
+    def empty(*args, **kwargs):
+        raise EmptyReferenceSNPs("The requested SNP filters retained no computational rows.")
+
+    monkeypatch.setattr(LDScoreCalculator, "compute_chromosome", empty)
+    chrom, bundle, spec, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
+    outcome = _compute_one_chromosome(chrom, bundle, spec, ldcfg, gcfg, regression_snps=reg)
+    assert outcome.chrom == "1"
+    assert outcome.skipped is True
+    assert outcome.result is None
+    assert outcome.skip_message == "The requested SNP filters retained no computational rows."
+
+
 # --- Task 4: pool initializer -----------------------------------------------
 
 
@@ -414,7 +453,7 @@ def test_parallel_output_matches_sequential(run_minimal_ldscore):
 def test_partitioned_parallel_preserves_scores_counts_overlap_and_classification(two_chrom_panel, tmp_path):
     from ldsc.config import GlobalConfig, set_global_config
     from ldsc.ldscore_calculator import run_ldscore
-    from ldsc.regression_runner import load_ldscore_from_dir
+    from ldsc import load_ldscore_from_dir
 
     metadata = pd.concat([panel for panel, _ in _PANEL_CHROMS.values()], ignore_index=True)
     baseline = metadata.loc[:, ["CHR", "POS", "SNP"]].assign(

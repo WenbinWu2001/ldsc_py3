@@ -95,7 +95,7 @@ _LAZY_EXPORTS = {
     "SumstatsTable": (".sumstats_munger", "SumstatsTable"),
     "infer_raw_sumstats": (".sumstats_munger", "infer_raw_sumstats"),
     "load_sumstats": (".sumstats_munger", "load_sumstats"),
-    "load_ldscore_from_dir": (".regression_runner", "load_ldscore_from_dir"),
+    "load_ldscore_from_dir": (".ldscore_source", "load_ldscore_from_dir"),
     "LDScoreSource": (".ldscore_source", "LDScoreSource"),
     "LegacyLDScoreConverter": (".legacy_ldscore_converter", "LegacyLDScoreConverter"),
     "LegacyLDScoreConversionResult": (".legacy_ldscore_converter", "LegacyLDScoreConversionResult"),

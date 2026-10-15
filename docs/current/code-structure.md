@@ -34,6 +34,7 @@ ldsc_py3_restructured/
 │   ├── ref_panel_builder.py
 │   ├── r2_query.py
 │   ├── ldscore_calculator.py
+│   ├── ldscore_source.py
 │   ├── _ldscore_preflight.py
 │   ├── legacy_ldscore_converter.py
 │   ├── _sumstats_input.py
@@ -104,6 +105,7 @@ ldsc_py3_restructured/
 | `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, `--input-format auto` / `--infer-only` header inference, Parquet/TSV curated output writing, self-describing `sumstats.parquet` footer identity metadata, diagnostics under `diagnostics/`, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
 | `ldsc._sumstats_input` | private workflow helper resolving raw schema, DANER/sample-size settings, bounded source-build evidence and keep-lists into `ResolvedMungeInput` |
 | `ldsc._kernel.sumstats_munger` | chunk QC and restriction, whole-table N and sign conversion, resolved liftover and global identity cleanup; returns `MungeResult` with counts and provenance |
+| `ldsc.ldscore_source` | canonical directory loading, manifest/schema and allele validation shared with writers, resident baseline/count/overlap metadata, and uncached selected-query reads |
 | `ldsc.regression_runner` | file-driven regression dataset assembly, automatic legacy LDSC2 sumstats rsID-to-panel projection and allele harmonization, active effective identity-key merging (`SNP`, `SNP:<allele_set>`, `CHR:POS`, or `CHR:POS:<allele_set>`), h2/partitioned-h2/rg estimator dispatch (including the two overlap-aware partitioned-h2 regimes), observed/liability-scale summary columns, exact final-fit h2 regression-bin diagnostics, and rg result-family writing |
 | `ldsc._partitioned_h2_parallel`, `ldsc._parallelism` | private read-only regression maps, bounded spawned whole-query workers, worker termination/log forwarding, and shared worker-count resolution; statistical calculations remain in `RegressionRunner._fit_partitioned_query()` |
 | `ldsc.quantile_h2` | post-fit continuous-target quantile assignment, fitted-source/common-universe reconstruction and verification, vectorized coefficient/delete-value projection, standardized `tau_star`, CLI orchestration, and diagnostics |
@@ -144,6 +146,7 @@ ldsc_py3_restructured/
 | change R2 pair lookup CLI/API behavior | `src/ldsc/r2_query.py`, then `src/ldsc/_kernel/r2_query.py` |
 | change runtime PLINK/parquet reference access | `src/ldsc/_kernel/ref_panel.py` |
 | change LD-score orchestration, optional-baseline behavior, or output packaging | `src/ldsc/ldscore_calculator.py`, `src/ldsc/outputs.py` |
+| change saved LD-score loading or selected-query reads | `src/ldsc/ldscore_source.py`; keep model-specific validation in `src/ldsc/regression_runner.py` |
 | change LD-score math | `src/ldsc/_kernel/ldscore.py` |
 | change raw sumstats ingestion, format inference, `CHR`/`POS` handling, sumstats SNP keep-list filtering, liftover drop audit sidecars, footer provenance, or curated loading | `src/ldsc/sumstats_munger.py`, then `src/ldsc/_kernel/sumstats_munger.py` |
 | change regression dataset assembly or CLI summaries | `src/ldsc/regression_runner.py`, then `src/ldsc/outputs.py`, `docs/current/partitioned-h2-results.md` for partitioned-h2 output layout, `docs/current/partitioned-ldsc-workflow.md` for rg output contracts, and `docs/current/regression-configuration.md` for the tunable estimator parameters and defaults |

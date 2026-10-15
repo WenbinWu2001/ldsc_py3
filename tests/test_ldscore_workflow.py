@@ -2397,7 +2397,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 [(row["group"], row["column"]) for row in metadata["counts"]],
                 [("baseline", "base"), ("query", "query")],
             )
-            from ldsc.regression_runner import load_ldscore_from_dir
+            from ldsc import load_ldscore_from_dir
 
             loaded = load_ldscore_from_dir(output_dir)
             self.assertIsNotNone(loaded.overlap)

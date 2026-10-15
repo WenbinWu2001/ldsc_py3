@@ -34,7 +34,7 @@ from ldsc.outputs import (
     RgDirectoryWriter,
     RgOutputConfig,
 )
-from ldsc.regression_runner import load_ldscore_from_dir
+from ldsc import load_ldscore_from_dir
 
 
 def make_split_ldscore_result(query: bool = True) -> LDScoreResult:

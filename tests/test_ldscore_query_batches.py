@@ -12,7 +12,7 @@ import pytest
 from ldsc._kernel.ldscore_projection import ArrayAnnotations
 from ldsc._kernel.overlap import annotation_statistics
 from ldsc.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-from ldsc.regression_runner import load_ldscore_from_dir
+from ldsc import load_ldscore_from_dir
 from tests.test_output import make_split_ldscore_result
 
 

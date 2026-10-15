@@ -2,6 +2,9 @@
 
 import weakref
 import json
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +12,7 @@ import pandas as pd
 import pytest
 
 from ldsc import regression_runner as workflow
-from ldsc import cli
+from ldsc import cli, load_ldscore_from_dir
 from ldsc.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from tests import test_regression_workflow as fixtures
 from tests.test_regression_fit_outcomes import h2_dataset
@@ -24,6 +27,36 @@ def ld_directory(tmp_path):
     return result
 
 
+def test_public_directory_reader_does_not_import_regression(tmp_path):
+    ld_directory(tmp_path)
+    script = textwrap.dedent("""
+        import importlib.abc
+        import sys
+        import numpy as np
+
+        class BlockWorkflowImports(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname == "ldsc.regression_runner":
+                    raise ImportError(f"Directory reads must not import {fullname}")
+
+        sys.meta_path.insert(0, BlockWorkflowImports())
+        from ldsc import load_ldscore_from_dir
+
+        source = load_ldscore_from_dir(sys.argv[1])
+        selected = source.read_queries(["query2", "query1"])
+        assert selected.columns.tolist() == ["CHR", "SNP", "POS", "query2", "query1"]
+        assert selected.SNP.tolist() == ["rs1", "rs2", "rs3"]
+        np.testing.assert_array_equal(selected[["query2", "query1"]],
+                                      [[0.5, 1.0], [1.5, 2.0], [2.5, 3.0]])
+        assert all(selected[name].dtype == np.float32 for name in source.query_columns)
+    """)
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", script, str(tmp_path)],
+        capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_directory_loading_defers_query_values_and_reads_only_requested_columns(tmp_path, monkeypatch):
     expected = ld_directory(tmp_path)
     original = pd.read_parquet
@@ -35,7 +68,7 @@ def test_directory_loading_defers_query_values_and_reads_only_requested_columns(
         return original(path, *args, **kwargs)
 
     monkeypatch.setattr(pd, "read_parquet", read)
-    source = workflow.load_ldscore_from_dir(str(tmp_path))
+    source = load_ldscore_from_dir(str(tmp_path))
     assert query_reads and all(cols is not None for cols in query_reads)
     assert all(not set(cols).intersection(expected.query_columns) for cols in query_reads)
     assert not hasattr(source, "query_table")
@@ -53,14 +86,14 @@ def test_unused_query_values_are_not_validated_but_missing_schema_still_fails(tm
     query = pd.read_parquet(path)
     query["query2"] = "unused invalid numeric values"
     query.to_parquet(path, index=False)
-    source = workflow.load_ldscore_from_dir(str(tmp_path))
+    source = load_ldscore_from_dir(str(tmp_path))
     runner = workflow.RegressionRunner()
     table = fixtures.RegressionWorkflowTest().make_sumstats_table()
     dataset = runner.build_dataset(table, source, query_columns=["query1"])
     assert dataset.retained_ld_columns == ["base", "query1"]
     query.drop(columns="query2").to_parquet(path, index=False)
     with pytest.raises(Exception, match="query2"):
-        workflow.load_ldscore_from_dir(str(tmp_path))
+        load_ldscore_from_dir(str(tmp_path))
 
 
 def test_shared_preparation_preserves_order_and_model_specific_column_filtering():
@@ -108,7 +141,7 @@ def batch_inputs(tmp_path):
     LDScoreDirectoryWriter().write(source, LDScoreOutputConfig(output_dir=tmp_path))
     table = workflow.SumstatsTable(data=frame[["SNP", "Z", "N"]], trait_name="trait", has_alleles=False,
                                    source_path="trait", config_snapshot=source.config_snapshot)
-    return table, workflow.load_ldscore_from_dir(str(tmp_path))
+    return table, load_ldscore_from_dir(str(tmp_path))
 
 
 @pytest.mark.parametrize("batch_size", [1, 2, 1000])

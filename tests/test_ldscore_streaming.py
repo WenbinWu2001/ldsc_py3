@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc.regression_runner import load_ldscore_from_dir
+from ldsc import load_ldscore_from_dir
 from ldsc import run_ldscore
 from tests.test_ldscore_chromosome_scope import write_r2_inputs
 

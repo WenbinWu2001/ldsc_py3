@@ -46,6 +46,7 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 - **CLI Layer**: public command dispatch in `ldsc.cli`
 - **Workflow And Preprocessing Layer**: public services in `ldsc.annotation_builder`, `ldsc.ref_panel_builder`, `ldsc.r2_query`, `ldsc.ldscore_calculator`, `ldsc.sumstats_munger`, `ldsc.regression_runner`, and `ldsc.quantile_h2`, plus shared normalization in `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, `ldsc.genome_build_inference`, `ldsc.annotation_semantics`, and the internal `ldsc.gene_list_resolver`
 - **Compute Kernel**: private file-format and numerical code in `ldsc._kernel.*`
+- **Shared Artifact Access**: canonical LD-score directory opening, schema/identity validation, and selected-query reads in `ldsc.ldscore_source`, consumed by generation and regression
 - **Output And Derived-Result Layer**: canonical LD-score, h2, partitioned-h2, quantile-h2, and rg artifact writing
   in `ldsc.outputs`, plus the fixed h2 summary writer in
   `ldsc.regression_runner`; metadata-driven plotting in
@@ -81,7 +82,7 @@ ldsc_py3_restructured/
 │   ├── ref_panel_builder.py
 │   ├── r2_query.py
 │   ├── ldscore_calculator.py
-│   ├── ldscore_source.py     # saved LD-score handle and selected query reads
+│   ├── ldscore_source.py     # directory loading, validation, and selected reads
 │   ├── sumstats_munger.py
 │   ├── _sumstats_input.py   # resolved raw schema and source-build preparation
 │   ├── regression_runner.py
@@ -180,6 +181,7 @@ The parent combines statistics and filters queries after every chromosome succee
 Prepared no-output calculations retain the materialized `LDScoreResult` path.
 Writing workflows retain `diagnostics/ldscore.log` and per-chromosome logs.
 Query-local BED/gene failures are status records; a run continues when at least one query is usable.
+Chromosome workers skip only the typed `EmptyReferenceSNPs` outcome; other failures propagate independently of diagnostic wording.
 Architecture invariant: computation stays chromosome-wise, global filtering uses the complete chromosome summaries, and final publication follows complete success.
 
 ### `ldsc._kernel.ref_panel`, `ldsc._kernel.ldscore`
@@ -204,11 +206,16 @@ This module wraps the historical munging behavior in typed public objects such a
 
 `_sumstats_input.prepare_munge_input()` owns raw header interpretation, DANER/sample-size selection, source-build inference and keep-list preparation. It supplies `ResolvedMungeInput` to `_kernel.sumstats_munger.munge_sumstats()`, which returns `MungeResult` with data, exclusive stage counts, coordinate provenance and separate drop tables. The sole CLI parser is `sumstats_munger.build_parser()`. Production and tests use the same preparation path; results never travel through added namespace attributes. `tests/test_munge_results.py` covers count conservation, chunk independence, bounded build inference before QC, request reuse, and liftover/identity accounting.
 
+### `ldsc.ldscore_source`
+
+`load_ldscore_from_dir()` opens an `LDScoreSource`, retaining baseline values, identities, counts, and overlap while leaving query LD-score values on disk.
+This module owns manifest/schema checks, count/overlap consistency, and the allele validator shared with `outputs.py`.
+`LDScoreSource.read_queries()` returns explicit, uncached selections in requested column order; callers own their memory and must keep the source directory available and unchanged.
+The batch output writer and regression workflows both call this loader; `ldscore_source.py` has no dependency on output writers or regression orchestration.
+Selected-value validation and alignment to a regression model remain with `RegressionRunner`.
+
 ### `ldsc.regression_runner`
 
-`load_ldscore_from_dir()` currently lives in this workflow module and opens an `LDScoreSource`, retaining baseline values, identities, counts, and overlap while leaving query LD-score values on disk.
-It delegates manifest/schema checks to `ldscore_source.py`; `LDScoreSource.read_queries()` returns explicit, uncached selections.
-The batch output writer also calls this loader to reopen published artifacts, so saved-source loading currently depends on the regression workflow.
 `RegressionRunner` accepts saved sources or prepared `LDScoreResult` values, projects legacy LDSC2 sumstats by rsID onto the canonical panel with allele validation, orientation, and a stable drop audit, then merges current or projected sumstats, drops zero-variance LD-score columns, requires `output_dir` for writing workflows, writes per-command logs under `diagnostics/`, and dispatches to the regression kernel for `h2`, partitioned `h2`, and `rg`.
 Regression merges by the effective key for the active mode: `SNP` in `rsid`, `SNP:<allele_set>` in `rsid_allele_aware`, `CHR:POS` in `chr_pos`, and `CHR:POS:<allele_set>` in `chr_pos_allele_aware`.
 Regression labels traits from explicit CLI overrides, then the sumstats parquet footer `ldsc:trait_name`, then filenames; rg anchor selection uses `--anchor-trait`, matching trait labels before source paths.

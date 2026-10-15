@@ -14,6 +14,7 @@ This document summarizes the user-visible file streams for each public workflow.
 | Preprocessing | yes | `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, `ldsc.genome_build_inference` | normalize tokens, headers, identifiers, chromosome order, and coordinate-build assumptions |
 | Workflow | yes | feature modules under `src/ldsc/` | build aligned in-memory tables |
 | Kernel | no | `ldsc._kernel.*` | low-level readers and numerical work |
+| Artifact access | yes | `ldsc.ldscore_source` | open canonical LD-score directories, validate schemas/identities, and read selected query columns |
 | Postprocessing | yes | `ldsc.outputs`, `ldsc.plotting`, `ldsc.h2_scale`, pandas writers in `ldsc.regression_runner`, `ldsc._logging` | preflight fixed output paths, emit core/derived results, and write workflow audit logs/failure markers |
 
 ## Package Overview
@@ -596,8 +597,11 @@ flowchart LR
     E2[Reload canonical headers]
   end
 
+  subgraph S5[Artifact access (public)<br/>ldsc.ldscore_source]
+    E3[Open LDScoreSource and read selected queries]
+  end
+
   subgraph W5[Workflow (public)<br/>ldsc.regression_runner]
-    E3[Rebuild LDScoreResult]
     E4[Merge on effective SNP identity key]
     E5[Drop zero-variance columns]
   end
@@ -638,6 +642,7 @@ For column definitions and interpretation, see
 
 - Preprocessing: `ldsc.path_resolution`, `ldsc.column_inference`
 - Workflow: `ldsc.regression_runner`, `ldsc.sumstats_munger.load_sumstats()`
+- Artifact access: `ldsc.ldscore_source.load_ldscore_from_dir()` and `LDScoreSource.read_queries()`
 - Kernel: `ldsc._kernel.regression`, `ldsc._kernel._jackknife`, `ldsc._kernel._irwls`
 - Postprocessing: pandas TSV writers in `ldsc.regression_runner`; partitioned-h2
   and rg directory writing in `ldsc.outputs`

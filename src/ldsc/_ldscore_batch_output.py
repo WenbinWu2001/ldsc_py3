@@ -130,7 +130,7 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
             close = getattr(results, "close", None)
             if close is not None:
                 close()
-    from .regression_runner import load_ldscore_from_dir
+    from .ldscore_source import load_ldscore_from_dir
     from ._gene_query_storage import persistent_gene_diagnostics
     source = load_ldscore_from_dir(str(root))
     paths = {key: str(value) for key, value in family.paths.items()}

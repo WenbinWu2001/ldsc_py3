@@ -37,7 +37,7 @@ def test_existing_chromosome_drop_report_blocks_ldscore_before_log(tmp_path):
 
 
 def test_ldscore_overwrite_keeps_produced_reports_and_reconciles_optional_outputs(tmp_path):
-    from ldsc.regression_runner import load_ldscore_from_dir
+    from ldsc import load_ldscore_from_dir
 
     argv = plink_arguments(tmp_path)
     source = Path(argv[argv.index("--plink-prefix") + 1])

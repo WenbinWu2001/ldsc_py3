@@ -1,6 +1,6 @@
 # Classes And Features
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-15
 
 This document summarizes the public package surface. For workflow-level file streams, see [data-flow.md](data-flow.md).
 
@@ -89,7 +89,6 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 | Type | Role |
 | --- | --- |
 | `AnnotationBundle` | complete dataset metadata, on-demand chromosome/row/column descriptors, explicit `close()`, and ordered BED/gene statuses; no whole-genome matrices |
-| `LDScoreSource` | canonical-directory baseline and identity metadata with selective `read_queries(columns)` access |
 | `PreparedRegressionInputs` | shared trait/baseline alignment and row mappings for separate pathway models |
 | `PartitionedH2BatchResult` | aggregate summary plus persistent `output_paths` and per-query fit artifact paths |
 | `ReferencePanelBuildResult` | summary of parquet panel artifacts written by one build |

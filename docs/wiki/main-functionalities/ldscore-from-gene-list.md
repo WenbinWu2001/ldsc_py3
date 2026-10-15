@@ -1,6 +1,6 @@
 # Calculate LD scores from gene lists
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-14
 
 Use gene-list mode to turn pathway, expression, proteomic, GO, or other gene
 sets into focal annotations for partitioned S-LDSC. LDSC resolves each list
@@ -92,6 +92,9 @@ The index owns its catalog, baseline, panel, build, identity, padding, and
 exclusion policies. Do not pass live overrides. Production indexes always
 cover autosomes 1–22 and old indexes must be rebuilt for the current catalog
 schema. Runtime controls `--workers` and `--query-batch-size` are accepted in indexed mode; they do not override the stored scientific configuration.
+
+For similar indexed workloads on Longleaf, the [matched worker comparison](ldscore.md#choosing-workers-for-indexed-scoring) supports starting with `--workers 8`, 8 allocated CPUs, 128 GiB RAM, and one native numerical thread per worker.
+This workload-specific recommendation leaves the package default at one worker; the linked comparison includes all four tested counts and the limits of extrapolating to a full query workload.
 
 ## Optional control genes
 

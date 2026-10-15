@@ -1,6 +1,6 @@
 # Calculate LD scores
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-14
 
 `ldsc ldscore` computes a reusable LD-score directory from PLINK genotypes or a precomputed R² panel. Regression consumes that directory. Ordinary unpartitioned scoring uses a synthetic all-ones `base` annotation:
 
@@ -26,6 +26,39 @@ Baseline inputs are prebuilt annotation tables. To prepare binary baseline categ
 For PLINK input with `--ld-wind-cm`, LDSC interpolates CM from a matching explicit genetic map when supplied; otherwise BIM CM must be informative. `--genetic-map-hg19-sources` and `--genetic-map-hg38-sources` accept comma-separated exact paths, without `*` or `@` expansion. With R² input, CM comes from the authoritative metadata sidecar; map flags do not override it.
 
 For PLINK input, `--export-ref-metadata` writes `ref_metadata/chrN_meta.tsv.gz` with the effective CM and reference metadata without changing the BIM. It is not an indexed-mode option. Sources: `build_parser` in [ldscore_calculator.py](../../../src/ldsc/ldscore_calculator.py) and `_resolve_genetic_map` in [_kernel/ref_panel.py](../../../src/ldsc/_kernel/ref_panel.py).
+
+## Choosing workers for indexed scoring
+
+For indexed gene-list scoring on Longleaf with a similar workload, start with **`--workers 8` and 8 allocated CPUs**, retaining **128 GiB RAM** and **one native numerical thread per worker**.
+Use Slurm `--cpus-per-task=8 --mem=128G`; workers are managed processes, not a synonym for CPU threads.
+This is an empirical starting recommendation, not a change to the package default of one worker or a recommendation for direct LD scoring, index construction, or regression.
+
+A matched Longleaf comparison at revision `e4cefba` used the same first 1,000 query files, all 22 chromosomes, 1,134,471 SNP rows, 53 baseline columns, saved index, and `--query-batch-size 1000`.
+Every run requested 128 GiB and used one native numerical thread per worker.
+
+| Workers / allocated CPUs | Total allocation elapsed | Chromosome interval | Reserved CPU-hours |
+| --- | ---: | ---: | ---: |
+| 22 | 4:47 | 6.00 s | 1.7539 |
+| 8 | 3:00 | 25.17 s | 0.4000 |
+| 4 | 5:28 | 40.03 s | 0.3644 |
+| 1 | 8:05 | 140.13 s | 0.1347 |
+
+Eight workers had the shortest observed total elapsed time and reserved 77.2% fewer CPU-hours than 22.
+Four workers are a reasonable alternative when CPU reservation matters more than the observed turnaround advantage; one worker minimized reserved CPU-hours but finished slowest.
+At the benchmark's verified Longleaf billing settings, 128 GiB contributed 32 billing units for every allocation, so fewer CPUs did not lower the hourly billing rate.
+
+Twenty-two workers computed chromosomes fastest, while startup, input preparation, result assembly, and output writing dominated total time.
+Increasing workers does not automatically accelerate those serial stages.
+These were single runs on shared nodes in fixed order, with uncontrolled cache, filesystem, and load effects; the faster 8-worker total does not establish that worker contention slowed the 22-worker run.
+All checked outputs matched exactly across the four settings, including SNP/query order, LD-score values, counts, overlaps, and query statuses.
+
+The one-batch comparison does not establish a full-workload optimum or a lower RAM requirement.
+The separate full 22-worker run completed in 2:03:14, whereas the full 8-worker run timed out at 4:00:15 during serial assembly; its completed full-workload runtime remains unknown.
+Keep 128 GiB for the full workload, and do not extrapolate one-batch time by multiplying by the number of batches: the full run stages approximately 159 GiB of raw score payload and has different cache pressure.
+
+Source: the workspace [matched benchmark report](../../../../diagnostics/20261014_indexed_workers/fourway_report.md), with [measurements and commands](../../../../diagnostics/20261014_indexed_workers/fourway_details.md).
+Benchmark jobs were 4933958 (22), 4933979 (8), 4930922 (4), and 4930923 (1); exact validator 4934033 passed with zero numeric differences.
+These evidence links require the enclosing research workspace; the table and limitations above summarize the results for standalone package readers.
 
 ## Memory for many pathways
 

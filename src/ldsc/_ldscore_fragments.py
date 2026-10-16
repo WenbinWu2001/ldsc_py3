@@ -8,16 +8,14 @@ the shared baseline and compact scientific summaries remain in memory.
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ._row_alignment import assert_same_snp_rows
 from .errors import LDSCInternalError
-from .ldscore_source import validate_ldscore_schemas
+from .ldscore_source import validate_ldscore_query_table
 from .outputs import _cast_parquet_floats
 
 
@@ -50,15 +48,13 @@ class StagedLDScoreBatch:
     snp_universe_policy: dict | None = None
 
 
-def validate_fragment_baseline(writer, result):
-    """Validate the shared baseline independently of deferred query reads."""
-    writer._validate_tables(SimpleNamespace(**(vars(result) | {
-        "query_table": None, "query_columns": [],
-    })))
+def write_query_fragments(result: StagedLDScoreBatch, path: Path, compression):
+    """Write finalized queries against an already-validated shared baseline.
 
-
-def write_query_fragments(writer, result, path, compression):
-    """Validate and write one chromosome per row group without concatenation."""
+    Read and validate one chromosome at a time, narrow its values to float32,
+    and delete the consumed fragment after releasing its frame. The producer
+    keeps the fragment directory alive until consumption or worker shutdown.
+    """
     identity = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in result.baseline_table]
     columns = [*identity, *result.query_columns]
     row_groups, offset = [], 0
@@ -67,15 +63,10 @@ def write_query_fragments(writer, result, path, compression):
         for fragment in result.query_fragments:
             frame = pd.read_parquet(fragment, columns=columns, use_threads=False)
             baseline = result.baseline_table.iloc[offset:offset + len(frame)]
-            part = SimpleNamespace(baseline_table=baseline, query_table=frame,
-                                   baseline_columns=result.baseline_columns,
-                                   query_columns=result.query_columns,
-                                   config_snapshot=result.config_snapshot)
-            writer._validate_tables(part)
-            validate_ldscore_schemas(result.baseline_columns, result.query_columns,
-                                    baseline.columns, frame.columns)
-            assert_same_snp_rows(baseline, frame, context="query fragment rows must match baseline rows on CHR/SNP/POS",
-                                snp_identifier=result.config_snapshot.snp_identifier)
+            validate_ldscore_query_table(
+                baseline, frame, result.query_columns,
+                snp_identifier=result.config_snapshot.snp_identifier,
+            )
             if not frame.empty:
                 if frame.CHR.astype(str).nunique() != 1:
                     raise LDSCInternalError("A query fragment must contain exactly one chromosome.")
@@ -88,7 +79,7 @@ def write_query_fragments(writer, result, path, compression):
                                    "row_offset": offset, "n_rows": len(frame)})
                 offset += len(frame)
                 del table, narrowed
-            del part, baseline, frame
+            del baseline, frame
             fragment.unlink()
     if offset != len(result.baseline_table):
         raise LDSCInternalError("Query fragments do not cover every baseline SNP row.")

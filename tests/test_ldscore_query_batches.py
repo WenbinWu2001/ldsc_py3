@@ -179,6 +179,8 @@ def test_batch_writer_releases_tables_and_reads_across_files(tmp_path):
                              count_records=[result.count_records[0], *[
                                  {**result.count_records[1], "column": name} for name in names]])
             refs.append(weakref.ref(table))
+            refs.append(weakref.ref(result.ld_reference_snps))
+            refs.append(weakref.ref(result.ld_regression_snps))
             yield result
             del result, table
 

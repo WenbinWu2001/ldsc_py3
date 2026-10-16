@@ -1,6 +1,6 @@
 """Selective access to canonical aggregate LD-score directories.
 
-Directory opening, manifest checks, and shared writer/reader allele validation
+Directory opening, manifest checks, and shared table/identity validation
 live here, independently of regression orchestration.
 Shared baseline values and SNP metadata stay resident for regression alignment.
 Query reads return detached batches; the source never caches query values.
@@ -99,6 +99,74 @@ def validate_ldscore_schemas(baseline_columns, query_columns, baseline_schema, q
         missing = {"CHR", "SNP", "POS", *query_columns}.difference(query_schema)
         if missing:
             raise LDSCInternalError(f"LD-score query_table is missing required columns {sorted(missing)}. Regenerate the complete LD-score directory.")
+
+
+def validate_ldscore_baseline_table(
+    table: pd.DataFrame, baseline_columns: list[str], config_snapshot: GlobalConfig | None,
+) -> str:
+    """Validate the shared output baseline and return its SNP identity mode.
+
+    Query values may still be on disk. Validate this complete baseline before
+    passing its matching row slices to ``validate_ldscore_query_table``.
+    """
+    if config_snapshot is None:
+        raise LDSCInternalError(
+            "LD-score output writer could not validate tables because LDScoreResult.config_snapshot is missing. "
+            "Most likely an upstream LD-score workflow returned an older or incomplete result object. "
+            "Re-run with DEBUG logging and report the traceback."
+        )
+    snp_identifier = config_snapshot.snp_identifier
+    _validate_ldscore_output_columns(
+        table, ["regression_ld_scores", *baseline_columns],
+        table_name="baseline_table", snp_identifier=snp_identifier,
+    )
+    return snp_identifier
+
+
+def validate_ldscore_query_table(
+    baseline: pd.DataFrame, query: pd.DataFrame | None, query_columns: list[str], *,
+    snp_identifier: str,
+) -> None:
+    """Validate query columns and identity against already-validated baseline rows.
+
+    Accept either a complete materialized query table or one chromosome
+    fragment paired with its baseline slice. An absent table requires no
+    query columns; a present table must declare at least one query column.
+    """
+    if bool(query_columns) != (query is not None):
+        raise LDSCInternalError(
+            "LD-score query columns and query_table presence disagree. Most likely an upstream LD-score "
+            "step returned incomplete query annotation metadata. Re-run with DEBUG logging and report the traceback."
+        )
+    if query is None:
+        return
+    _validate_ldscore_output_columns(
+        query, query_columns, table_name="query_table", snp_identifier=snp_identifier,
+    )
+    assert_same_snp_rows(
+        baseline, query, context="query rows must match baseline rows on CHR/SNP/POS",
+        snp_identifier=snp_identifier,
+    )
+
+
+def _validate_ldscore_output_columns(table, columns, *, table_name, snp_identifier):
+    """Check output columns and allele identity without comparing paired rows."""
+    identity_columns = ["A1", "A2"] if is_allele_aware_mode(snp_identifier) else []
+    missing = [name for name in ["CHR", "POS", "SNP", *identity_columns, *columns] if name not in table.columns]
+    if missing:
+        if any(name in missing for name in ("A1", "A2")):
+            raise LDSCInternalError(
+                f"LD-score output writer could not validate {table_name} for allele-aware output because "
+                f"required columns are missing: {missing}. Most likely an upstream LD-score step dropped A1/A2 "
+                "from an allele-aware result table. Regenerate the LD-score artifact with the current LDSC "
+                "package; if this was produced by this run, re-run with DEBUG logging and report the traceback."
+            )
+        raise LDSCInternalError(
+            f"LD-score output writer could not validate {table_name} because required columns are missing: "
+            f"{missing}. Most likely an upstream LD-score step returned a result table with the wrong schema. "
+            "Re-run with DEBUG logging and report the traceback."
+        )
+    validate_ldscore_allele_columns(table, table_name=table_name, snp_identifier=snp_identifier)
 
 
 def validate_ldscore_allele_columns(table: pd.DataFrame, *, table_name: str, snp_identifier: str) -> None:

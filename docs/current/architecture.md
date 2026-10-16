@@ -209,7 +209,8 @@ This module wraps the historical munging behavior in typed public objects such a
 ### `ldsc.ldscore_source`
 
 `load_ldscore_from_dir()` opens an `LDScoreSource`, retaining baseline values, identities, counts, and overlap while leaving query LD-score values on disk.
-This module owns manifest/schema checks, count/overlap consistency, and the allele validator shared with `outputs.py`.
+This module owns manifest/schema checks, count/overlap consistency, and table/identity validation shared by materialized and staged output.
+`validate_ldscore_baseline_table()` validates the complete shared baseline; `validate_ldscore_query_table()` checks either a materialized query table or one fragment against its already-validated baseline rows.
 `LDScoreSource.read_queries()` returns explicit, uncached selections in requested column order; callers own their memory and must keep the source directory available and unchanged.
 The batch output writer and regression workflows both call this loader; `ldscore_source.py` has no dependency on output writers or regression orchestration.
 Selected-value validation and alignment to a regression model remain with `RegressionRunner`.
@@ -283,8 +284,13 @@ The writer stores run metadata once, and `quantile_h2.load_fitted_partitioned_mo
 | `_indexed_ldscore_batches.indexed_results` | Persistent pool with one active batch; reload/release chromosome operators per task; reduce compact float64 statistics in index order |
 | `_query_variation.summarize_variation`, `combine_variation` | Exact global variation from first values and within-chromosome flags, preserving each producer's precision |
 | `_ldscore_fragments.StagedLDScoreBatch`, `write_query_fragments` | Private batch descriptor and ordered validation/publication from direct float32 or indexed float64 fragments; delete each consumed fragment without a genome-wide query array |
-| `_ldscore_batch_output.write_ldscore_batches` | Write/release batches, combine compact metadata, publish canonical artifacts after success, and clean owned scratch on handled failure |
+| `_ldscore_batch_output._LDScorePublication`, `write_ldscore_batches` | Retain explicit shared publication state while releasing each materialized or staged batch; publish canonical artifacts after success and clean owned scratch on handled failure |
 | `LDScoreSource.read_queries` | Explicit selected-query reads across manifest files in requested order, without caching or a width cap |
+
+`LDScoreDirectoryWriter.write_batches()` consumes materialized `LDScoreResult` values or private `StagedLDScoreBatch` descriptors behind the same publication interface.
+Its publication record retains the baseline, counts, overlap, provenance, and diagnostics, without retaining the producer's query values, SNP sets, or chromosome results.
+The producer owns active fragments through consumption or worker shutdown; the writer closes the producer before removing publication staging on handled failure.
+Fragment validation consumes tables directly and checks row alignment once per fragment, without constructing partial result objects.
 
 `tests/test_ldscore_query_batches.py` verifies numerical precision, zero writes for prepared single-batch calculation, batch lifetimes, publication, and overwrite cleanup.
 `tests/test_gene_index_streaming.py` covers operator ownership, known union scores, and serial/parallel agreement.

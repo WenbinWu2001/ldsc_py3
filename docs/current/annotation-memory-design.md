@@ -393,6 +393,10 @@ See [the replay measurements](../wiki/main-functionalities/ldscore.md#direct-ass
 Root `metadata.json.query_batches` records each file, ordered query columns, and chromosome row groups.
 Baseline, counts, and overlap are shared once.
 `_ldscore_batch_output.py` stages all query files inside the output directory, publishes after successful computation, and writes metadata last.
+Its `_LDScorePublication` record retains only the shared baseline, counts, overlap, provenance, and diagnostic descriptors needed for publication.
+Materialized query tables, producer SNP sets, chromosome results, and staged query paths remain with the active batch and can be released before the next batch is requested.
+`ldscore_source.validate_ldscore_baseline_table()` checks the shared baseline before deferred reads; `validate_ldscore_query_table()` checks either a complete materialized query table or one fragment against the corresponding baseline rows.
+Each fragment has one row-alignment check, with the existing allele-aware identity and row-order rules.
 Handled failure closes the producer and removes owned staging while retaining available diagnostics.
 Resume from the last completed batch is a future feature, not supported now.
 

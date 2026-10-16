@@ -4,10 +4,12 @@ Private Parquet files own completed values. Only the shared baseline, compact
 counts, overlap blocks, and diagnostic descriptors survive between batches.
 """
 
-from dataclasses import replace
+from __future__ import annotations
+
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from types import SimpleNamespace
+from typing import TYPE_CHECKING
 import json
 import os
 
@@ -16,14 +18,47 @@ import pandas as pd
 from ._annotation_storage import TsvDiagnostics
 from .annotation_semantics import require_unique_annotation_names
 from .errors import LDSCInputError
+from .ldscore_source import validate_ldscore_baseline_table, validate_ldscore_query_table
 from .outputs import _to_serializable, _write_chromosome_aligned_parquet
 from .path_resolution import ensure_output_directory, remove_output_artifacts
 from .query_annotations import gene_viability_errors
 
+if TYPE_CHECKING:
+    from .config import GlobalConfig
+    from ._gene_query_storage import StagedGeneListBatch
+    from .overlap_matrix import LDScoreOverlap
+    from .query_annotations import QueryAnnotationStatus
+
+
+@dataclass(slots=True)
+class _LDScorePublication:
+    """Retain only shared artifacts and metadata while consuming query batches.
+
+    Query values, producer SNP sets, and chromosome results remain owned by
+    the active batch. Diagnostic paths here refer to publication staging.
+    """
+
+    baseline_table: pd.DataFrame
+    baseline_columns: list[str]
+    count_records: list[dict]
+    count_config: dict
+    config_snapshot: GlobalConfig
+    gene_list_batch: StagedGeneListBatch | None
+    chromosome_scope: dict
+    index_provenance: dict | None
+    annotation_types: dict[str, str]
+    snp_universe_policy: dict | None
+    legacy_ldsc2_import: dict | None
+    overlap: LDScoreOverlap | None
+    query_columns: list[str] = field(default_factory=list)
+    query_statuses: tuple[QueryAnnotationStatus, ...] = ()
+    query_batches: list[dict] = field(default_factory=list)
+    identity_drops_by_chrom: dict[str, TsvDiagnostics] = field(default_factory=dict)
+
 
 def write_ldscore_batches(writer, results, output_config, query_status_order=()):
     """Consume one result at a time, then publish the complete artifact family."""
-    from ._ldscore_fragments import StagedLDScoreBatch, validate_fragment_baseline, write_query_fragments
+    from ._ldscore_fragments import StagedLDScoreBatch, write_query_fragments
 
     root = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
     writer.artifact_family(root).preflight(overwrite=output_config.overwrite)
@@ -38,22 +73,30 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
         try:
             for result in results:
                 streamed = isinstance(result, StagedLDScoreBatch)
-                if streamed:
-                    validate_fragment_baseline(writer, result)
-                else:
-                    writer._validate_tables(result)
+                snp_identifier = validate_ldscore_baseline_table(
+                    result.baseline_table, result.baseline_columns, result.config_snapshot,
+                )
+                if not streamed:
+                    validate_ldscore_query_table(
+                        result.baseline_table, result.query_table, result.query_columns,
+                        snp_identifier=snp_identifier,
+                    )
                 if shared is None:
-                    shared = SimpleNamespace(**vars(result))
-                    shared.query_table = None
-                    if streamed:
-                        shared.query_fragments = ()
-                    shared.chromosome_results = []
-                    shared.query_columns = []
-                    shared.count_records = [record for record in result.count_records if record["group"] == "baseline"]
-                    shared.annotation_types = {name: result.annotation_types.get(name, "unknown") for name in result.baseline_columns}
-                    shared.overlap = None if result.overlap is None else result.overlap.select_queries([])
+                    shared = _LDScorePublication(
+                        baseline_table=result.baseline_table,
+                        baseline_columns=list(result.baseline_columns),
+                        count_records=[record for record in result.count_records if record["group"] == "baseline"],
+                        count_config=dict(result.count_config),
+                        config_snapshot=result.config_snapshot,
+                        gene_list_batch=result.gene_list_batch,
+                        chromosome_scope=result.chromosome_scope,
+                        index_provenance=result.index_provenance,
+                        annotation_types={name: result.annotation_types.get(name, "unknown") for name in result.baseline_columns},
+                        snp_universe_policy=result.snp_universe_policy,
+                        legacy_ldsc2_import=None if streamed else result.legacy_ldsc2_import,
+                        overlap=None if result.overlap is None else result.overlap.select_queries([]),
+                    )
                     baseline_rg = _write_chromosome_aligned_parquet(shared.baseline_table, stage / "ldscore.baseline.parquet", compression)
-                    shared.identity_drops_by_chrom = {}
                     for chrom, artifact in result.identity_drops_by_chrom.items():
                         path = stage / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
                         artifact.write_to(path)
@@ -67,7 +110,7 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
                 statuses.extend(result.query_statuses)
                 if result.query_columns:
                     filename = f"query-{len(query_batches) + 1}.parquet"
-                    groups = (write_query_fragments(writer, result, stage / filename, compression) if streamed else
+                    groups = (write_query_fragments(result, stage / filename, compression) if streamed else
                               _write_chromosome_aligned_parquet(result.query_table, stage / filename, compression))
                     query_batches.append({"file": filename, "query_columns": list(result.query_columns), "row_groups": groups})
                 if result.overlap is not None:
@@ -137,6 +180,6 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
     return replace(source, output_paths=paths, query_statuses=shared.query_statuses,
                    gene_list_batch=persistent_gene_diagnostics(shared.gene_list_batch, paths),
                    chromosome_scope=shared.chromosome_scope,
-                   snp_universe_policy=getattr(shared, "snp_universe_policy", None),
+                   snp_universe_policy=shared.snp_universe_policy,
                    identity_drops_by_chrom={chrom: TsvDiagnostics(root / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz")
                                             for chrom in shared.identity_drops_by_chrom})

@@ -88,9 +88,9 @@ ldsc_py3_restructured/
 | `ldsc._annotation_sources`, `ldsc._annotation_identity`, `ldsc._annotation_loading` | bounded input scans, aligned source preparation, global identity cleanup, and shared source-backed construction |
 | `ldsc.annotate_workflow`, `ldsc._annotation_queries`, `ldsc._direct_annotation` | standalone BED/gene gates, incremental projection, and direct LD-score integration |
 | `ldsc._gene_query_storage` | staged per-source gene selections and complete audit replay with shared catalog state |
-| `ldsc.ldscore_source` | validate ordered query manifests and read explicit selections across LD-score batch files |
 | `ldsc._annotation_memory` | small prepared annotations and diagnostics without filesystem writes |
-| `ldsc._ldscore_batch_output` | consume/release query batches, stage privately, and publish complete LD directories |
+| `ldsc._ldscore_batch_output` | consume/release materialized or staged query batches, retain explicit shared publication state, and publish complete LD directories |
+| `ldsc._ldscore_fragments` | describe producer-owned chromosome fragments and validate/write one query frame at a time against the shared baseline |
 | `ldsc._parallelism` | shared `workers` validation, joblib detected CPU budgets, task caps, and execution summaries |
 | `ldsc._worker_runtime`, `ldsc._serial_calculation` | fixed 1-BLAS-thread child policy, runtime verification, independent Arrow limits, and controlled standalone numerical calls |
 | `ldsc._ldscore_diagnostics` | chromosome logs, batch context, and accurate task/pool failure reporting |
@@ -105,7 +105,7 @@ ldsc_py3_restructured/
 | `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, `--input-format auto` / `--infer-only` header inference, Parquet/TSV curated output writing, self-describing `sumstats.parquet` footer identity metadata, diagnostics under `diagnostics/`, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
 | `ldsc._sumstats_input` | private workflow helper resolving raw schema, DANER/sample-size settings, bounded source-build evidence and keep-lists into `ResolvedMungeInput` |
 | `ldsc._kernel.sumstats_munger` | chunk QC and restriction, whole-table N and sign conversion, resolved liftover and global identity cleanup; returns `MungeResult` with counts and provenance |
-| `ldsc.ldscore_source` | canonical directory loading, manifest/schema and allele validation shared with writers, resident baseline/count/overlap metadata, and uncached selected-query reads |
+| `ldsc.ldscore_source` | canonical directory loading, manifest/schema and table/identity validation shared with writers, resident baseline/count/overlap metadata, and uncached selected-query reads |
 | `ldsc.regression_runner` | file-driven regression dataset assembly, automatic legacy LDSC2 sumstats rsID-to-panel projection and allele harmonization, active effective identity-key merging (`SNP`, `SNP:<allele_set>`, `CHR:POS`, or `CHR:POS:<allele_set>`), h2/partitioned-h2/rg estimator dispatch (including the two overlap-aware partitioned-h2 regimes), observed/liability-scale summary columns, exact final-fit h2 regression-bin diagnostics, and rg result-family writing |
 | `ldsc._partitioned_h2_parallel`, `ldsc._parallelism` | private read-only regression maps, bounded spawned whole-query workers, worker termination/log forwarding, and shared worker-count resolution; statistical calculations remain in `RegressionRunner._fit_partitioned_query()` |
 | `ldsc.quantile_h2` | post-fit continuous-target quantile assignment, fitted-source/common-universe reconstruction and verification, vectorized coefficient/delete-value projection, standardized `tau_star`, CLI orchestration, and diagnostics |

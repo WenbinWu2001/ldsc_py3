@@ -1,8 +1,10 @@
 """Output writers for the refactored LDSC workflows.
 
 The public LD-score workflow writes one canonical result directory containing
-``metadata.json``, ``ldscore.baseline.parquet``, an optional
-``ldscore.query.parquet``, and an optional ``ldscore.overlap.parquet`` (the
+``metadata.json``, ``ldscore.baseline.parquet``, optional query files
+(``ldscore.query.parquet`` for one batch or numbered
+``ldscore.query.batchNNNNN.parquet`` files for multiple batches), and an optional
+``ldscore.overlap.parquet`` (the
 annotation overlap matrix required by partitioned-h2's overlap-aware category
 tables and read by the shared h2 collinearity guard when there are two or more
 LD-score columns; ``rg`` does not use it). The overlap sidecar is
@@ -58,23 +60,27 @@ import unicodedata
 from dataclasses import asdict, dataclass, is_dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ._row_alignment import assert_same_snp_rows
-from ._kernel.snp_identity import identity_artifact_metadata, is_allele_aware_mode
+from ._kernel.snp_identity import identity_artifact_metadata
 from .config import _normalize_required_path
-from .ldscore_source import validate_ldscore_allele_columns
+from .ldscore_source import validate_ldscore_baseline_table, validate_ldscore_query_table
 from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError
 from .path_resolution import (
     ensure_output_directory,
     preflight_output_artifact_family,
     remove_output_artifacts,
 )
+
+if TYPE_CHECKING:
+    from ._ldscore_fragments import StagedLDScoreBatch
+    from .ldscore_calculator import LDScoreResult
+    from .ldscore_source import LDScoreSource
 
 
 def _cast_parquet_floats(df: pd.DataFrame) -> pd.DataFrame:
@@ -638,16 +644,23 @@ class LDScoreDirectoryWriter:
                                  if path.name.removeprefix("ldscore.query.batch").removesuffix(".parquet").isdigit())],
         )
 
-    def write_batches(self, results, output_config: LDScoreOutputConfig, *, query_status_order=()):
-        """Publish sequential materialized batches and return a saved source.
+    def write_batches(
+        self, results: Iterable[LDScoreResult | StagedLDScoreBatch],
+        output_config: LDScoreOutputConfig, *, query_status_order: Iterable[str] = (),
+    ) -> LDScoreSource:
+        """Publish sequential LD-score batches and return a saved source.
 
         Parameters
         ----------
-        results : iterable of LDScoreResult
+        results : iterable of LDScoreResult or StagedLDScoreBatch
             Nonempty sequence of genome-wide results with identical baseline
             values and SNP rows, disjoint query columns, and corresponding
-            counts and overlap statistics. Use a generator that releases each
-            yielded result when resumed to bound retained query values.
+            counts and overlap statistics. ``LDScoreResult`` holds materialized
+            query values; private ``StagedLDScoreBatch`` descriptors hold
+            ordered chromosome fragments. The producer owns each yielded
+            result and its files until consumption finishes. Use a generator
+            that releases the consumed batch when resumed, and shuts down any
+            workers before removing their borrowed files when closed.
         output_config : LDScoreOutputConfig
             Output directory, Parquet compression, and overwrite policy.
         query_status_order : sequence of str, optional
@@ -671,13 +684,20 @@ class LDScoreDirectoryWriter:
 
         Notes
         -----
-        Each query table is privately written under the output directory and
-        released before requesting the next result. One query batch uses
-        ``ldscore.query.parquet``; multiple batches use numbered files. After
+        Each query batch is privately written under the output directory and
+        released before requesting the next result. Staged batches are read
+        one chromosome at a time. Their producers finalize retained queries
+        at direct post-kernel float32 or indexed float64 precision; the writer
+        narrows retained values to public float32 without changing eligibility.
+        Publication retains only the shared baseline, counts, overlap, and
+        provenance/diagnostics, without copying all producer result fields.
+        One query batch uses ``ldscore.query.parquet``; multiple batches use
+        numbered files. After
         all batches succeed, the writer publishes shared artifacts and the
         ordered ``query_batches`` manifest, with root metadata last. Handled
-        failure closes the producer and removes owned staging. Completed
-        batches are not resumable checkpoints.
+        failure closes the producer before removing owned staging. Staging
+        adds no rollback for a later filesystem publication failure, and
+        completed batches are not resumable checkpoints.
         """
         from ._ldscore_batch_output import write_ldscore_batches
 
@@ -734,7 +754,12 @@ class LDScoreDirectoryWriter:
                 "received an LDScoreResult without baseline_table. Most likely an upstream LD-score workflow "
                 "returned an incomplete result object. Re-run with DEBUG logging and report the traceback."
             )
-        self._validate_tables(result)
+        snp_identifier = validate_ldscore_baseline_table(
+            baseline_table, result.baseline_columns, result.config_snapshot,
+        )
+        validate_ldscore_query_table(
+            baseline_table, query_table, result.query_columns, snp_identifier=snp_identifier,
+        )
 
         overlap = getattr(result, "overlap", None)
         family = self.artifact_family(output_dir, result)
@@ -912,75 +937,6 @@ class LDScoreDirectoryWriter:
         if legacy_import is not None:
             payload["legacy_ldsc2_import"] = dict(legacy_import)
         return payload
-
-    def _validate_tables(self, result: Any) -> None:
-        """Validate baseline/query table shape before any files are written."""
-        baseline_table = getattr(result, "baseline_table")
-        query_table = getattr(result, "query_table", None)
-        baseline_columns = list(getattr(result, "baseline_columns", []))
-        query_columns = list(getattr(result, "query_columns", []))
-        config_snapshot = getattr(result, "config_snapshot", None)
-        if config_snapshot is None:
-            raise LDSCInternalError(
-                "LD-score output writer could not validate tables because LDScoreResult.config_snapshot is missing. "
-                "Most likely an upstream LD-score workflow returned an older or incomplete result object. "
-                "Re-run with DEBUG logging and report the traceback."
-            )
-        snp_identifier = config_snapshot.snp_identifier
-        identity_columns = ["A1", "A2"] if is_allele_aware_mode(snp_identifier) else []
-        required_baseline = ["CHR", "POS", "SNP", *identity_columns, REGRESSION_LD_SCORE_COLUMN, *baseline_columns]
-        missing = [column for column in required_baseline if column not in baseline_table.columns]
-        if missing:
-            if any(column in missing for column in ("A1", "A2")):
-                raise LDSCInternalError(
-                    "LD-score output writer could not validate baseline_table for allele-aware output because "
-                    f"required columns are missing: {missing}. Most likely an upstream LD-score step dropped A1/A2 "
-                    "from an allele-aware result table. Regenerate the LD-score artifact with the current LDSC "
-                    "package; if this was produced by this run, re-run with DEBUG logging and report the traceback."
-                )
-            raise LDSCInternalError(
-                "LD-score output writer could not validate baseline_table because required columns are missing: "
-                f"{missing}. Most likely an upstream LD-score step returned a result table with the wrong schema. "
-                "Re-run with DEBUG logging and report the traceback."
-            )
-        validate_ldscore_allele_columns(baseline_table, table_name="baseline_table", snp_identifier=snp_identifier)
-        if query_columns and query_table is None:
-            raise LDSCInternalError(
-                "LD-score output writer could not write query annotations because result.query_columns is non-empty "
-                "but query_table is missing. Most likely an upstream LD-score step returned an incomplete query "
-                "annotation result. Re-run with DEBUG logging and report the traceback."
-            )
-        if not query_columns and query_table is not None:
-            raise LDSCInternalError(
-                "LD-score output writer could not write the result because query_table was provided while "
-                "result.query_columns is empty. Most likely an upstream LD-score step returned inconsistent "
-                "query annotation metadata. Re-run with DEBUG logging and report the traceback."
-            )
-        if query_table is None:
-            return
-        required_query = ["CHR", "POS", "SNP", *identity_columns, *query_columns]
-        missing = [column for column in required_query if column not in query_table.columns]
-        if missing:
-            if any(column in missing for column in ("A1", "A2")):
-                raise LDSCInternalError(
-                    "LD-score output writer could not validate query_table for allele-aware output because required "
-                    f"columns are missing: {missing}. Most likely an upstream LD-score step dropped A1/A2 from an "
-                    "allele-aware query table. Regenerate the LD-score artifact with the current LDSC package; if "
-                    "this was produced by this run, re-run with DEBUG logging and report the traceback."
-                )
-            raise LDSCInternalError(
-                "LD-score output writer could not validate query_table because required columns are missing: "
-                f"{missing}. Most likely an upstream LD-score step returned a query table with the wrong schema. "
-                "Re-run with DEBUG logging and report the traceback."
-            )
-        validate_ldscore_allele_columns(query_table, table_name="query_table", snp_identifier=snp_identifier)
-        assert_same_snp_rows(
-            baseline_table,
-            query_table,
-            context="query rows must match baseline rows on CHR/SNP/POS",
-            snp_identifier=snp_identifier,
-        )
-
 
 @dataclass(frozen=True)
 class QuantileH2OutputConfig:

@@ -1,6 +1,6 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-20
 
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `column_inference.py`, all
@@ -61,7 +61,11 @@ truth for any computation or validation.
 
 `AnnotationBundle.read()` returns `float32`, including binary-only selections. Private annotation storage separates packed binary columns from dense float32 continuous columns. Generated BED/gene membership, gene controls, and synthetic `base` are binary by construction. Supplied columns are binary only when all parsed values are exactly zero or one across every input chunk and chromosome, before float32 narrowing. Type does not depend on baseline/query membership. Continuous values remain dense even when mostly zero. Missing/nonnumeric annotation validation is unchanged; zero is not a missing-value code.
 
-Packed files store eight SNP rows per uint8 in column-major order, with explicit little bit order and logical row count in the descriptor. Public default reads preserve baseline-then-query input order through explicit column mapping, independently of the binary/continuous files. Numerical kernels accumulate LD scores, annotation sums, and overlap products in float64. The `.annot.gz` writer retains generated integer text `0`/`1`; LD-score Parquet values retain float32. See [annotation format policy](annotation-memory-design.md#annotation-format-policy) for the two-pass preparation, encoding, selected reads, and size contracts.
+Packed files store eight SNP rows per uint8 in column-major order, with explicit little bit order and logical row count in the descriptor.
+Public default reads preserve baseline-then-query input order through explicit column mapping, independently of the binary/continuous files.
+Numerical kernels accumulate LD scores, annotation sums, and overlap products in float64.
+The `.annot.gz` writer retains generated integer query text `0`/`1` and supplied baseline values at float32 precision; LD-score Parquet values retain float32.
+See [annotation format policy](annotation-memory-design.md#annotation-format-policy) for the two-pass preparation, encoding, selected reads, and size contracts.
 
 ### On-disk dtypes (parquet)
 

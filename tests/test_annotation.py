@@ -262,7 +262,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             right.write_text("OR4F5\n", encoding="utf-8")
 
             with self.assertRaisesRegex(LDSCInputError, "duplicate_query_name"):
-                run_annotate(baseline_annot_sources=[baseline], query_annot_gene_list_sources=[left, right],
+                run_annotate(ref_snp_annot_sources=[baseline], query_annot_gene_list_sources=[left, right],
                              gene_coordinate_file=catalog, padding_bp=0, genome_build="hg38",
                              global_config=GlobalConfig(snp_identifier="rsid"), output_dir=tmpdir / "out")
             summary = pd.read_csv(tmpdir / "out/diagnostics/gene_list_resolution_summary.tsv", sep="\t")
@@ -378,7 +378,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                     [
                         "--query-annot-bed-sources",
                         "query.bed",
-                        "--baseline-annot-sources",
+                        "--ref-snp-annot-sources",
                         "baseline.annot.gz",
                         "--output-dir",
                         "out",
@@ -393,7 +393,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             [
                 "--query-annot-bed-sources",
                 "query.bed",
-                "--baseline-annot-sources",
+                "--ref-snp-annot-sources",
                 "baseline.annot.gz",
                 "--output-dir",
                 "out",
@@ -412,7 +412,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 [
                     "--query-annot-bed-sources",
                     "query.bed",
-                    "--baseline-annot-sources",
+                    "--ref-snp-annot-sources",
                     "baseline.annot.gz",
                     "--output-dir",
                     "out",
@@ -774,7 +774,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
                     run_annotate(global_config=builder.global_config,
                         query_annot_bed_sources=(str(bed),),
-                        baseline_annot_sources=(str(base),),
+                        ref_snp_annot_sources=(str(base),),
                         output_dir=output_dir,
                     )
 
@@ -808,7 +808,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
                     run_annotate(global_config=builder.global_config,
                         query_annot_bed_sources=(str(bed),),
-                        baseline_annot_sources=(str(base),),
+                        ref_snp_annot_sources=(str(base),),
                         output_dir=output_dir,
                     )
 
@@ -843,7 +843,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             with contextlib.nullcontext():
                 run_annotate(global_config=builder.global_config,
                     query_annot_bed_sources=(str(bed),),
-                    baseline_annot_sources=(str(base),),
+                    ref_snp_annot_sources=(str(base),),
                     output_dir=output_dir,
                 )
 
@@ -881,7 +881,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             with contextlib.nullcontext():
                 run_annotate(global_config=builder.global_config,
                     query_annot_bed_sources=(str(bed),),
-                    baseline_annot_sources=(str(base),),
+                    ref_snp_annot_sources=(str(base),),
                     output_dir=output_dir,
                     overwrite=True,
                 )
@@ -907,7 +907,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             )
             run_annotate(global_config=builder.global_config,
                 query_annot_bed_sources=(str(bed),),
-                baseline_annot_sources=(str(base),),
+                ref_snp_annot_sources=(str(base),),
                 output_dir=output_dir,
                 padding_bp=100000,
             )
@@ -922,7 +922,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(metadata["padding_bp"], 100000)
             self.assertEqual(
                 metadata["files"],
-                {"query_annotations": ["query.1.annot.gz"], "dropped_snps": "diagnostics/dropped_snps/dropped.tsv.gz", "query_annotation_status": "diagnostics/query_annotation_status.tsv", "chromosome_scope": "diagnostics/chromosome_scope.json"},
+                {"baseline_annotations": ["baseline.1.annot.gz"], "query_annotations": ["query.1.annot.gz"], "dropped_snps": "diagnostics/dropped_snps/dropped.tsv.gz", "query_annotation_status": "diagnostics/query_annotation_status.tsv", "chromosome_scope": "diagnostics/chromosome_scope.json"},
             )
             dropped = pd.read_csv(sidecar, sep="\t", compression="gzip")
             self.assertEqual(dropped["reason"].tolist(), ["duplicate_identity", "duplicate_identity"])
@@ -942,7 +942,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             )
             run_annotate(global_config=builder.global_config,
                 query_annot_bed_sources=(str(bed),),
-                baseline_annot_sources=(str(base),),
+                ref_snp_annot_sources=(str(base),),
                 output_dir=output_dir,
             )
             output_path = output_dir / "query.1.annot.gz"
@@ -971,7 +971,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             builder = AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), AnnotationBuildConfig())
             run_annotate(global_config=builder.global_config,
                 query_annot_bed_sources=(str(bed),),
-                baseline_annot_sources=(str(base),),
+                ref_snp_annot_sources=(str(base),),
                 output_dir=output_dir,
             )
 
@@ -1010,7 +1010,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 (),
                 {
                     "query_annot_bed_sources": str(bed),
-                    "baseline_annot_sources": str(base),
+                    "ref_snp_annot_sources": str(base),
                     "output_dir": str(output_dir),
                     "overwrite": False,
                     "snp_identifier": "rsid",
@@ -1382,7 +1382,7 @@ class AnnotationWrapperTest(unittest.TestCase):
             baseline, bed = root / "baseline.annot", root / "query.bed"
             _write_annot(baseline, [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)], {"base_a": [1, 0]})
             bed.write_text("chr1\t0\t100\tfeature\n", encoding="utf-8")
-            with run_annotate(query_annot_bed_sources=[bed], baseline_annot_sources=[baseline],
+            with run_annotate(query_annot_bed_sources=[bed], ref_snp_annot_sources=[baseline],
                               output_dir=root / "out", global_config=GlobalConfig(snp_identifier="rsid")) as result:
                 self.assertEqual(result.query_columns, ["query"])
                 self.assertEqual(result.read("1", columns=["query"]).ravel().tolist(), [1, 1])
@@ -1399,7 +1399,7 @@ class AnnotationWrapperTest(unittest.TestCase):
             bed.write_text("chr1\t0\t100\tfeature\n", encoding="utf-8")
             with mock.patch.object(annotate_workflow, "resolve_genome_build", return_value="hg19") as resolve:
                 with annotation_builder.main([
-                    "--query-annot-bed-sources", str(bed), "--baseline-annot-sources", str(root / "baseline.@.annot"),
+                    "--query-annot-bed-sources", str(bed), "--ref-snp-annot-sources", str(root / "baseline.@.annot"),
                     "--output-dir", str(root / "out"), "--snp-identifier", "chr_pos", "--genome-build", "auto",
                 ]) as result:
                     self.assertEqual(result.config_snapshot.genome_build, "hg19")

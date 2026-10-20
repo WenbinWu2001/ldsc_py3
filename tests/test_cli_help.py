@@ -22,7 +22,7 @@ def commands():
 
 
 @pytest.mark.parametrize("command, inputs, default", [
-    ("annotate", ["--baseline-annot-sources", "baseline.annot.gz",
+    ("annotate", ["--ref-snp-annot-sources", "baseline.annot.gz",
                   "--query-annot-gene-list-sources", "genes.txt"], None),
     ("ldscore", [], "strict"),
     ("quantile-h2", ["--partitioned-h2-result-dir", "results",
@@ -110,7 +110,7 @@ def test_regression_rejects_removed_no_intercept(commands, command, capsys):
 
 def test_path_help_distinguishes_suites_globs_and_single_files(commands):
     for command, flag in (
-        ("annotate", "--baseline-annot-sources"), ("ldscore", "--plink-prefix"),
+        ("annotate", "--ref-snp-annot-sources"), ("ldscore", "--plink-prefix"),
         ("build-r2-panel", "--plink-prefix"), ("build-gene-ldscore-index", "--baseline-annot-sources"),
         ("quantile-h2", "--target-annot-sources"),
     ):

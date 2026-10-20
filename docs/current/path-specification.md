@@ -1,6 +1,6 @@
 # Input Path Specification
 
-Last updated on: 2026-09-16
+Last updated on: 2026-10-20
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -288,7 +288,10 @@ Relevant APIs:
 Accepted path forms:
 
 - `query_annot_bed_sources` or `query_annot_gene_list_sources`: exact paths or globs; standalone annotate accepts exactly one route
-- `baseline_annot_sources`: exact path, glob, or explicit `@`
+- Exactly one of `ref_snp_annot_sources` (`.annot`/`.annot.gz`) or `ref_snp_bim_sources` (`.bim`/`.bim.gz`): exact paths, globs, or explicit `@` suites.
+  BIM sources are files, not PLINK prefixes; no BED/FAM companions are required.
+  BIM `@` suites and annotation-grid gene-list runs require all autosomes 1–22.
+  Existing BED-plus-annotation `@` input retains available members; exact paths/globs use their actual content scope.
 
 How files are handled:
 
@@ -296,7 +299,7 @@ How files are handled:
 - the annotation column name is the resolved BED file basename with the final
   suffix removed (`pathlib.Path.stem`); directory names are ignored, so
   `/path1/annot.bed` and `/path2/annot.bed` both become `annot`
-- every resolved baseline annotation file is used as a SNP template
+- the selected source supplies the SNP grid; annotation input also supplies baseline values to export
 - `padding_bp` / `--padding-bp` expands each BED interval on both
   sides before projection and clips starts at zero; the default `0` leaves
   intervals unchanged
@@ -308,14 +311,14 @@ Requirements:
 - BED stems must be unique because they become annotation names; duplicate
   stems and clashes with existing annotation columns raise before projection or
   output writing
-- baseline templates must be `.annot` or `.annot.gz` files
+- the two grid options are mutually exclusive; no additional baseline-values input is accepted in BIM mode
 
 Example:
 
 ```python
 run_annotate(
     query_annot_bed_sources="beds/*.bed",
-    baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
+    ref_snp_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     output_dir="annotations/query_from_beds",
     padding_bp=0,
     overwrite=True,
@@ -326,11 +329,11 @@ Output:
 
 - `output_dir` is created when missing and reused when present.
 - Projection writes `query.<chrom>.annot.gz` for every chromosome in the
-  resulting bundle, plus diagnostics under `diagnostics/`.
-- Existing root-level `query.*.annot.gz` files or owned diagnostics are refused
+  resulting bundle, plus aligned `baseline.<chrom>.annot.gz` files for annotation-grid input and diagnostics under `diagnostics/`.
+- Existing root-level `query.*.annot.gz`, `baseline.*.annot.gz`, or owned diagnostics are refused
   before any annotation shard is written unless `overwrite=True` or CLI
-  `--overwrite` is supplied. With overwrite enabled, stale query shards outside
-  the current chromosome set are removed after the current shards are written.
+  `--overwrite` is supplied. With overwrite enabled, stale baseline/query shards outside
+  the current output family are removed after the current shards are written.
 
 ### LD score calculation
 

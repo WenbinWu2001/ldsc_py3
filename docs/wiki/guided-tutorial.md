@@ -1,6 +1,6 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
@@ -445,7 +445,7 @@ ldsc annotate \
     --snp-identifier chr_pos \
     --genome-build hg19 \
     --query-annot-bed-sources "$RAW_QUERY_BED_SOURCES" \
-    --baseline-annot-sources "$BASELINE_ANNOT_SOURCES" \
+    --ref-snp-annot-sources "$BASELINE_ANNOT_SOURCES" \
     --output-dir "$ANNOT_OUT_DIR" \
     --overwrite
 ```
@@ -453,7 +453,11 @@ ldsc annotate \
 **Remarks:**
 
 - For each chromosome, all input query annotations are combined into one file as separate columns, with each column name being the input's base filename (used as the annotation name).
-- The resulting `query.@.annot.gz` suite is the canonical input to downstream `ldsc ldscore`: one query annotation file per chromosome, containing multiple annotation columns; each column is one query annotation. Pass it with `--query-annot-sources "$ANNOT_OUT_DIR/query.@.annot.gz"`.
+- The output pair is aligned after identity cleanup.
+  Pass `--baseline-annot-sources "$ANNOT_OUT_DIR/baseline.@.annot.gz"` and `--query-annot-sources "$ANNOT_OUT_DIR/query.@.annot.gz"` together to downstream `ldsc ldscore`, using the exported baselines instead of the original inputs.
+  Each query file contains all query columns for its chromosome.
+- To use BIM SNP metadata instead, replace `--ref-snp-annot-sources` with `--ref-snp-bim-sources 'panel/reference.@.bim'`.
+  These options are mutually exclusive; BIM mode writes only query files and requires no BED/FAM companions.
 - Do not create one chromosome-sharded annotation suite per query. In sharded annotation-input mode, `ldscore` expects one query annotation file per chromosome and reads the separate queries from its columns. This input rule is distinct from the numbered genome-wide query LD-score output files described above.
 - The generated annotation header includes `CM` for compatibility, with values written as `NA`. Input annotation CM values are discarded; LD scoring uses reference-panel CM. See [`_annotation_parsing.normalize_annotation_chunk`](../../src/ldsc/_annotation_parsing.py).
 - See the `annotate` wiki for more on this functionality.
@@ -464,6 +468,7 @@ Upon a successful run, you should expect the following files in your output dire
 
 ```
 annot_processed/
+    baseline.1.annot.gz ... baseline.22.annot.gz
     query.1.annot.gz ... query.22.annot.gz
     diagnostics/
         metadata.json

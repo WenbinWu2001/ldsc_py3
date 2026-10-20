@@ -1,6 +1,6 @@
 # Wiki Update Log
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 ## 2026-09-15 update | query regression failures
 
@@ -108,3 +108,12 @@ Real small-kernel tests cover score/statistic/metadata parity, filtering edges, 
 Documentation checks validate local links, heading anchors, CLI examples, and dates.
 Notebook edits change explanatory Markdown only; code, outputs, and execution metadata are unchanged, and notebooks were not re-executed.
 The replay measurements remain distinct from local integration tests; no new HPC measurement or smaller production RAM recommendation is claimed.
+
+## 2026-10-20 update | standalone annotation grids and aligned exports
+
+Updated the [annotate guide](utility-functionalities/annotate.md) and [guided tutorial](guided-tutorial.md) for mutually exclusive BIM/annotation grids and direct downstream use of aligned exports.
+The BIM recipe now reads SNP metadata directly without a fabricated baseline template or genotype companions.
+Annotation-grid runs export cleaned baseline and query families and log row counts plus the downstream flags.
+The Python notebook uses exported baseline paths for its LD-score step.
+
+Sources: [`run_annotate()`](../../src/ldsc/annotate_workflow.py), [`_annotation_bim.py`](../../src/ldsc/_annotation_bim.py), [`AnnotationDirectoryWriter`](../../src/ldsc/outputs.py), and [`test_annotate_grid.py`](../../tests/test_annotate_grid.py).

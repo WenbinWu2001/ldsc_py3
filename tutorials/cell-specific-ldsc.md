@@ -1,6 +1,6 @@
 # Cell-Specific LDSC
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 Goal: estimate cell-specific enrichment by running partitioned LDSC with one query annotation per cell type.
 
@@ -94,7 +94,13 @@ See [regression memory and runtime measurements](../docs/wiki/main-functionaliti
 
 Generation and regression batch widths are independent. To inspect values explicitly, call `source.read_queries(["query_name"])`; reads preserve requested column order and have no cache or width cap. Current readers require the `query_batches` manifest; regenerate older directories. For the small prepared-input Python route that writes nothing, see [LD-score calculation without writes](ld-score-calculation.md#small-python-calculations-without-writes).
 
-For reusable annotations, use `with run_annotate(..., output_dir=...) as bundle:`. For explicit low-level preparation, use `with AnnotationBuilder(config).run(source_config, output_dir=...) as bundle:` and finish all borrowers before closure. Returned standalone bundles reference saved query outputs and may depend on original baseline inputs. See the [developer memory design](../docs/current/annotation-memory-design.md).
+For reusable annotations, use `with run_annotate(..., output_dir=...) as bundle:`.
+For explicit low-level preparation, use `with AnnotationBuilder(config).run(source_config, output_dir=...) as bundle:` and finish all borrowers before closure.
+Standalone accepts exactly one of `ref_snp_annot_sources` and `ref_snp_bim_sources`.
+Returned bundles reference exported files only.
+Annotation-grid mode exports aligned baseline/query families; pass them together through downstream `baseline_annot_sources` and `query_annot_sources` (CLI `--baseline-annot-sources` and `--query-annot-sources`).
+BIM mode exports generated query columns only.
+See the [developer memory design](../docs/current/annotation-memory-design.md).
 
 ## Concurrent query fits
 

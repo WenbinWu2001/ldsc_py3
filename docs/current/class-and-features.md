@@ -1,6 +1,6 @@
 # Classes And Features
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 This document summarizes the public package surface. For workflow-level file streams, see [data-flow.md](data-flow.md).
 
@@ -8,7 +8,7 @@ This document summarizes the public package surface. For workflow-level file str
 
 | Feature | CLI | Python entry points | Main inputs | Main outputs |
 | --- | --- | --- | --- | --- |
-| Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_annotate()`, `run_annotate_from_args()`, `annotation_builder.main()` | baseline `.annot(.gz)`, exactly one BED/gene-list route, explicit gene padding/catalog, and global duplicate cleanup before projection | root `query.<chrom>.annot.gz`; diagnostics under `diagnostics/` include `metadata.json`, `dropped_snps/dropped.tsv.gz`, and `annotate.log` |
+| Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_annotate()`, `run_annotate_from_args()`, `annotation_builder.main()` | exactly one BIM or baseline `.annot(.gz)` grid, exactly one BED/gene-list route, explicit gene padding/catalog, and global duplicate cleanup before projection | root `query.<chrom>.annot.gz` and aligned `baseline.<chrom>.annot.gz` for annotation-grid input; diagnostics under `diagnostics/` include `metadata.json`, `dropped_snps/dropped.tsv.gz`, and `annotate.log` |
 | Build a gene LD-score index | `ldsc build-gene-ldscore-index` | `GeneLDScoreIndexBuildConfig`, `build_gene_ldscore_index()`, `load_gene_ldscore_index()` | required canonical one-based gene catalog, explicit `hg19`, and base `rsid` or `chr_pos`; baseline annotations inner-joined to PLINK by the effective key; mutable duplicate groups drop-all with diagnostics; optional identity-only regression restriction | workers durably stage distinct chromosome payloads and release their records; the coordinator publishes one complete strictly validated mode/build-bearing index with `index_id`, PLINK-authored `CHR/POS/SNP/A1/A2`, embedded catalog, canonical chromosome order, successful-build JSON, completed log, and duplicate-drop sidecars; private stages are never resumable, and live/failed logs plus locking use hidden sibling build state |
 | Build parquet reference panels | `ldsc build-r2-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, source build defaults to `auto` and is inferred from `.bim`, optional chain-file liftover in `chr_pos`-family modes, conditional genetic maps, optional keep/restrict files including an explicit `--ref-panel-snps-file`, optional `min_r2`; restriction identifier read from `GlobalConfig` and coordinates interpreted in the source build; restriction files are identity-only filters with duplicate keys collapsed; duplicate coordinate groups drop-all in `chr_pos`-family modes | root per-build `chr*_r2.parquet` and `chr*_meta.tsv.gz` artifacts; diagnostics under `diagnostics/` include full-suite `metadata.json` or per-chromosome `metadata.chr<chrom>.json`, `dropped_snps/chr*_dropped.tsv.gz`, and build logs |
 | Query reference-panel R2 | `ldsc query-r2` | `R2Panel`, `query_r2()`, `unbiased_r2_to_pearson_r()` | package-built panel directory, endpoint-suffixed pair table | required `--output-dir` result directory with `query_r2.tsv` plus diagnostics; pure `query_r2()` remains in-memory |

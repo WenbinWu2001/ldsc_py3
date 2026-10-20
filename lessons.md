@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -257,3 +257,11 @@ Last updated on: 2026-10-15
 - Summary/root cause/correction: Quantile tests supplied hand-built query metadata without `files`, hiding a preflight path error.
   The real partitioned writer records file paths relative to the aggregate result root, but the reader prepended the nested query directory again and rejected valid files.
   Resolve those manifest paths from the aggregate root and test annotation, BED, and gene-list quantile reconstruction from actual writer-produced artifacts, including shared metadata.
+
+## Reusable annotation families must share the cleaned grid
+
+- Standalone annotation removed duplicate SNP identities from generated queries while retaining the original baseline files as downstream inputs.
+  The LD-score reader checks row alignment before identity cleanup, so those inputs could fail despite coming from one annotation run.
+  Export supplied baseline values and generated queries from the same cleaned grid, and return handles to the exports.
+  BIM-only projection has no supplied baseline values and must not fabricate any.
+  Verify downstream scoring after deleting the original baseline input, including continuous-value preservation; see `tests/test_annotate_grid.py`.

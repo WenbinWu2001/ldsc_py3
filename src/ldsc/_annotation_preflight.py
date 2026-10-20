@@ -12,7 +12,7 @@ def input_issue(role, path, chrom, reason, details):
                 repair='Supply valid annotation inputs for the declared scope; inspect exact paths, glob matches, and @ declarations.')
 
 
-def resolve_annotation_inputs(tokens, *, role='baseline'):
+def resolve_annotation_inputs(tokens, *, role='baseline', suffixes=ANNOTATION_SUFFIXES):
     """Return concrete paths, declared chromosomes, and accumulated path issues."""
     paths, declared, issues = [], {}, []
     for raw in split_cli_path_tokens(tokens):
@@ -20,7 +20,7 @@ def resolve_annotation_inputs(tokens, *, role='baseline'):
         members = [(token.replace('@', chrom), chrom) for chrom in AUTOSOMES] if '@' in token else [(token, '')]
         for path, chrom in members:
             try:
-                matches = resolve_file_group([path], suffixes=ANNOTATION_SUFFIXES, label=f'{role} annotation')
+                matches = resolve_file_group([path], suffixes=suffixes, label=f'{role} annotation')
                 for match in matches:
                     if match not in paths:
                         paths.append(match)

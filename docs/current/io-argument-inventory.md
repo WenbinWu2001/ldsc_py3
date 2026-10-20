@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -98,7 +98,7 @@ Adapted public paths:
 Not fully adapted or retained for compatibility:
 
 - `ldsc annotate` writes generated query annotations as
-  `query.<chrom>.annot.gz`; these are intermediate annotation artifacts rather
+  `query.<chrom>.annot.gz` plus aligned `baseline.<chrom>.annot.gz` for annotation-grid input; these are intermediate annotation artifacts rather
   than science-facing result tables.
 - `ldsc build-r2-panel` still writes runtime metadata sidecars as
   `chr{chrom}_meta.tsv.gz` and liftover-stage drop audit files as
@@ -168,15 +168,17 @@ are written.
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--query-annot-bed-sources` | input | one route | BED interval files | Accepts exact files, globs, comma-separated tokens, and source-token lists. Each resolved BED file stem (`Path.stem`) becomes a query annotation name; duplicate stems are rejected. |
-| `--baseline-annot-sources` | input | yes | baseline `.annot[.gz]` templates | Accepts exact files, globs, and `@` chromosome-suite tokens. |
-| `--output-dir` | output | yes | generated query annotation directory | Writes combined root `query.<chrom>.annot.gz` files for retained BED/gene queries, plus diagnostic `metadata.json`, `dropped_snps/dropped.tsv.gz`, and `annotate.log` under `diagnostics/`; gene mode adds resolution/support audits. |
+| `--ref-snp-annot-sources` | input | one grid required | baseline `.annot[.gz]` grid and values | Mutually exclusive with BIM; accepts exact files, globs, and `@` chromosome suites. |
+| `--ref-snp-bim-sources` | input | one grid required | metadata-only `.bim[.gz]` grid | No BED/FAM companions or baseline values; accepts exact files, globs, and complete `@` suites. |
+| `--output-dir` | output | yes | annotation output directory | Writes aligned `baseline.<chrom>.annot.gz` for annotation-grid input and combined root `query.<chrom>.annot.gz` files for retained BED/gene queries, plus diagnostic `metadata.json`, `dropped_snps/dropped.tsv.gz`, and `annotate.log` under `diagnostics/`; gene mode adds resolution/support audits. |
 | `--padding-bp` | input transform | no | BED interval expansion | Adds this many base pairs to both sides of each BED interval before SNP projection; starts are clipped at zero. Defaults to `0`, so BED intervals are used as provided. |
 | `--overwrite` | output mode | no | collision policy | Controls whether generated annotation files and diagnostics may be replaced; defaults to `False`, so any existing root-level `query.*.annot.gz` shard or owned diagnostic artifact is refused. With overwrite, stale query shards outside the current chromosome set are removed after a successful run. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`; these records go to `diagnostics/annotate.log` and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
 | `--snp-identifier` | config | no | SNP identity mode | Defines how SNPs are keyed. Defaults to `chr_pos_allele_aware`; valid values are `rsid`, `rsid_allele_aware`, `chr_pos`, and `chr_pos_allele_aware`. |
 | `--genome-build` | config | no | coordinate interpretation | Coordinate build for `chr_pos`-family inputs. Defaults to omitted/`None`, which is invalid for coordinate-family inputs unless the workflow can infer it; accepted values include `auto`, `hg19`/`GRCh37`, and `hg38`/`GRCh38`. |
 
-Removed flags: `--bed-files`, `--baseline-annot`, `--bed-padding-bp`.
+Removed standalone flags: `--baseline-annot-sources`, `--bed-files`, `--baseline-annot`, `--bed-padding-bp`.
+Downstream `ldscore --baseline-annot-sources` is unchanged.
 
 Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requires `--gene-coordinate-file` and explicit nonnegative `--padding-bp`, and supports the opt-in flag `--allow-unresolved-genes` (omission keeps strict resolution) and `--gene-exclude-regions {none,mhc}`. It has no control list. `--output-dir` remains required; the complete contract is in [annotate gene-list decisions](annotate-gene-list-decisions.md).
 

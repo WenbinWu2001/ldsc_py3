@@ -1,6 +1,6 @@
 # Workflow Logging
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 ## Audience and authority
 
@@ -423,6 +423,21 @@ path but includes data artifacts such as the dropped-SNP audit sidecar.
 
 For historical implementation rationale, see the [logging harmonization design](../specs/2026-05-02-logging-harmonization-design.md) and the [console/file routing plan](../plans/2026-06-04-logging-console-file-routing-plan.md).
 The current behavior above supersedes their earlier assumptions.
+
+### Standalone annotation row counts and downstream inputs
+
+After successful `annotate`, the log reports `Baseline SNP rows: input=N, output=M, dropped=D` for annotation-grid input, or `BIM grid SNP rows: ...` for BIM input.
+Counts include zero drops and describe logical grid rows, not annotation columns or the regression SNP subset.
+`diagnostics/metadata.json` stores the totals and per-chromosome counts in `snp_rows`; the full row audit remains under `diagnostics/dropped_snps/`.
+
+For annotation-grid input, the log lists output paths and states:
+
+```text
+For downstream ldscore, use the exported baseline files with --baseline-annot-sources and the exported query files with --query-annot-sources; do not use the original baseline inputs. Exported paths are listed above.
+```
+
+Both exports share the cleaned grid, preventing an alignment failure caused by pairing cleaned queries with unmodified input baselines.
+BIM mode emits query files only and has no baseline-value output.
 
 ## Streaming memory-workflow diagnostics
 

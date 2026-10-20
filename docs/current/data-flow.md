@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -97,76 +97,45 @@ Annotation files may also omit alleles in allele-aware modes because they
 describe genomic membership; when annotation alleles are present, they
 participate in allele-aware matching.
 
-## 1. `annotate`: BED Projection To SNP-Level `.annot.gz`
+## 1. `annotate`: BED or Gene Projection to SNP Annotations
 
-Output directories are created when missing and reused when present. Existing
-root-level `query.*.annot.gz` files and owned diagnostics under `diagnostics/`
-are refused before any query shard is written unless the caller passes
-`--overwrite` or `overwrite=True`. With overwrite enabled, stale query shards
-outside the current chromosome set are removed after the current shards are
-written.
-Annotation rows are cleaned before BED projection by computing the effective
-SNP identity key for the active mode and dropping all rows in duplicate-key
-clusters. Runs with an output directory also write
-`diagnostics/dropped_snps/dropped.tsv.gz`, header-only when no rows are
-dropped.
-
-`ldsc.annotation_builder` owns both command entry paths: `main(argv)` parses
-standalone annotation arguments, and `run_annotate_from_args(args)` consumes
-the namespace created by the unified `ldsc` CLI without reparsing.
-
-### Required inputs
-
-| File | Example | Notes |
-| --- | --- | --- |
-| baseline annotation shard | `CHR POS SNP CM base`<br/>`1 10583 rs58108140 0.0 1` | used as the SNP template; one shard per chromosome is typical |
-| BED file | `chr1 10000 10100 enhancer_A` | one or more region files; each resolved BED file stem (`Path.stem`) becomes a query annotation column name; duplicate stems are rejected |
-
-### Flow
+Supply exactly one grid: baseline `.annot(.gz)` files via `--ref-snp-annot-sources`, or six-column headerless BIM files via `--ref-snp-bim-sources`.
+BIM input uses only SNP metadata and requires no BED/FAM companions.
+Select either BED intervals or focal gene lists; gene lists require a coordinate catalog and explicit padding.
+Existing build, identity, and chromosome-scope rules apply before projection.
 
 ```mermaid
 flowchart LR
-  I1[Baseline .annot(.gz)]
-  I2[BED intervals]
-
-  subgraph P1[Preprocessing (public)<br/>config + path_resolution]
-    A1[Resolve input shards]
-    A2[Normalize BED and baseline tokens]
-  end
-
-  subgraph W1[Workflow (public)<br/>ldsc.annotation_builder]
-    A3[Load baseline rows]
-    A8[Drop duplicate identity clusters]
-    A4[Project BEDs to SNP columns]
-    A7[Preflight query shards + diagnostics<br/>Write outputs]
-  end
-
-  subgraph K1[Kernel (private)<br/>ldsc._kernel.annotation]
-    A5[Normalize BED files]
-    A6[Intersect regions with SNP grid]
-  end
-
-  I1 --> A1 --> A3 --> A8 --> A4 --> A5 --> A6 --> A7
-  I2 --> A1
-  A2 --> A4
-  A7 --> O1[query.<chrom>.annot.gz + diagnostics/]
+  G[BIM metadata or baseline annotations] --> S[Bounded scan and global identity cleanup]
+  Q[BED intervals or resolved genes] --> P[Shared chromosome projection]
+  S --> P
+  P --> W[AnnotationDirectoryWriter]
+  W --> O[Query shards and diagnostics]
+  W --> B[Aligned baseline shards for annotation-grid input]
+  O --> R[Export-backed AnnotationBundle]
+  B --> R
 ```
 
-### Outputs
+Each output family uses the same surviving SNP metadata, row order, and chromosome shards.
+The writer emits `query.<chrom>.annot.gz` with generated binary values and, for annotation-grid input, `baseline.<chrom>.annot.gz` with supplied float32 values.
+Both retain canonical `CHR BP SNP CM` metadata, optional alleles, and explicit `CM=NA`.
+Original inputs are unchanged.
+For downstream `ldscore`, use the exported baseline files with `--baseline-annot-sources` and exported query files with `--query-annot-sources`.
+BIM-generated files may serve as baseline or query annotations according to the caller's model; BIM mode supplies no baseline values automatically.
 
-| File | Example | Notes |
-| --- | --- | --- |
-| projected query annotation shard | `CHR BP SNP CM enhancer_A`<br/>`1 10583 rs58108140 NA 1` | output name is `query.<chrom>.annot.gz`; `NA` is the explicit missing-metadata token, while annotation values must be numeric and non-missing |
-| dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `diagnostics/dropped_snps/dropped.tsv.gz`; records annotation identity cleanup rows |
-| diagnostic metadata | JSON provenance | `diagnostics/metadata.json`; not consumed downstream |
-| workflow log | plain-text lifecycle and package records | `diagnostics/annotate.log` under `output_dir`; not included in returned data paths |
+Diagnostics include `metadata.json`, `annotate.log`, `dropped_snps/dropped.tsv.gz`, query statuses, and applicable gene/input/scope audits under `diagnostics/`.
+Metadata `snp_rows` records logical input/output/dropped counts, in total and per chromosome; the log reports totals and downstream usage flags.
+The returned bundle reopens exported files and owns bounded private read storage until `close()`.
+
+Output preflight covers both `query.*.annot.gz` and `baseline.*.annot.gz` plus owned diagnostics.
+`--overwrite` replaces owned outputs and removes stale siblings after success, preserving unrelated files.
 
 ### Modules used
 
-- Preprocessing: `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`
-- Workflow: `ldsc.annotation_builder`
-- Kernel: `ldsc._kernel.annotation`
-- Postprocessing: gzip writer inside `ldsc.annotation_builder`
+- Public parser/dispatch: `ldsc.annotation_builder`; orchestration: `ldsc.annotate_workflow`.
+- Grid preparation: `_annotation_sources`, `_annotation_bim`, `_annotation_identity`, and `_annotation_storage`.
+- Projection: `_annotation_queries`, `_annotation_projection`, and `_gene_query_storage`.
+- Publication and reload: `outputs.AnnotationDirectoryWriter` and `_annotation_outputs`.
 
 ## 2. `build-r2-panel`: PLINK To Standard Parquet R2 Reference
 

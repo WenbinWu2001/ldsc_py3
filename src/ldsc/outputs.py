@@ -320,10 +320,10 @@ def _declare_artifacts(output_dir, entries, *, label, extra_owned=()) -> Artifac
 
 
 class AnnotationDirectoryWriter:
-    """Write persistent annotation shards and stream complete query diagnostics."""
+    """Export aligned baseline/query shards in bounded tiles and query diagnostics."""
 
     @staticmethod
-    def artifact_family(output_dir, *, chromosomes=(), gene_lists=False, diagnostics=()) -> ArtifactFamily:
+    def artifact_family(output_dir, *, chromosomes=(), gene_lists=False, diagnostics=(), baseline=False) -> ArtifactFamily:
         output_dir = Path(output_dir)
         entries = {
             'metadata': ('diagnostics/metadata.json', True),
@@ -337,7 +337,10 @@ class AnnotationDirectoryWriter:
             'chromosome_scope': ('diagnostics/chromosome_scope.json', 'chromosome_scope' in diagnostics),
         }
         entries.update({f'query_{chrom}': (f'query.{chrom}.annot.gz', True) for chrom in chromosomes})
-        return _declare_artifacts(output_dir, entries, label='annotation output artifact', extra_owned=tuple(output_dir.glob('query.*.annot.gz')))
+        if baseline:
+            entries.update({f'baseline_{chrom}': (f'baseline.{chrom}.annot.gz', True) for chrom in chromosomes})
+        return _declare_artifacts(output_dir, entries, label='annotation output artifact',
+                                  extra_owned=(*output_dir.glob('query.*.annot.gz'), *output_dir.glob('baseline.*.annot.gz')))
 
     def write_diagnostics(self, output_dir, *, batch=None, statuses=None, drops=None, catalog_issues=None, input_issues=None, scope=None):
         """Persist every available gate result without inventing later-stage data."""
@@ -368,44 +371,55 @@ class AnnotationDirectoryWriter:
         return paths
 
     def write(self, bundle, output_dir, *, overwrite=False, provenance=None, scope=None, catalog_issues=None, preflighted=False):
-        """Emit chromosome shards incrementally and return persistent path references."""
+        """Write supplied baselines as float32 and generated queries as 0/1 text.
+
+        Both families share cleaned metadata, rows, and chromosome order. Numeric
+        tile width is bounded by the family column count; source files are never
+        modified. Query-only bundles emit no baseline family.
+        """
         output_dir = Path(output_dir)
         diagnostics = ['chromosome_scope'] if scope is not None else []
         if catalog_issues is not None:
             diagnostics.append('gene_catalog_issues')
-        family = self.artifact_family(output_dir, chromosomes=bundle.chromosomes, gene_lists=bundle.gene_list_batch is not None, diagnostics=diagnostics)
+        family = self.artifact_family(output_dir, chromosomes=bundle.chromosomes, gene_lists=bundle.gene_list_batch is not None,
+                                      diagnostics=diagnostics, baseline=bool(bundle.baseline_columns))
         # The workflow already preflighted before writing its log/diagnostics.
         # Reconcile the final produced family for successful stale cleanup.
         stale = family.preflight(overwrite=overwrite or preflighted)
         paths = self.write_diagnostics(output_dir, batch=bundle.gene_list_batch, statuses=bundle.query_statuses,
                                        drops=bundle.identity_drops, scope=scope, catalog_issues=catalog_issues)
-        written = []
-        row_batch = max(1, min(65536, 16 * 1024 * 1024 // (8 * max(1, len(bundle.query_columns)))))
+        groups = [('query', bundle.query_columns)]
+        if bundle.baseline_columns:
+            groups.insert(0, ('baseline', bundle.baseline_columns))
+        written = {f'{role}_annotations': [] for role, _ in groups}
         for chrom in bundle.chromosomes:
             metadata = bundle.metadata_for_chromosome(chrom).rename(columns={'POS': 'BP'})
             preferred = [name for name in ('CHR', 'BP', 'SNP', 'CM') if name in metadata]
             metadata = metadata.loc[:, [*preferred, *[name for name in metadata if name not in preferred]]]
-            path = output_dir / f'query.{chrom}.annot.gz'
-            with gzip.open(path, 'wt') as stream:
-                for start in range(0, len(metadata), row_batch):
-                    stop = min(start + row_batch, len(metadata))
-                    values = bundle.read(chrom, rows=slice(start, stop), columns=bundle.query_columns)
-                    query = pd.DataFrame(values.astype(np.uint8), columns=bundle.query_columns)
-                    frame = pd.concat([metadata.iloc[start:stop].reset_index(drop=True), query], axis=1)
-                    frame.to_csv(stream, sep='\t', index=False, header=start == 0, na_rep='NA')
-            written.append(path)
+            for role, columns in groups:
+                path = output_dir / f'{role}.{chrom}.annot.gz'
+                row_batch = max(1, min(65536, 16 * 1024 * 1024 // (8 * max(1, len(columns) + len(metadata.columns)))))
+                with gzip.open(path, 'wt') as stream:
+                    for start in range(0, len(metadata), row_batch):
+                        stop = min(start + row_batch, len(metadata))
+                        values = bundle.read(chrom, rows=slice(start, stop), columns=columns)
+                        annotations = pd.DataFrame(values.astype(np.uint8) if role == 'query' else values,
+                                                   columns=columns)
+                        frame = pd.concat([metadata.iloc[start:stop].reset_index(drop=True), annotations], axis=1)
+                        frame.to_csv(stream, sep='\t', index=False, header=start == 0, na_rep='NA')
+                written[f'{role}_annotations'].append(path)
             del metadata
         config = bundle.config_snapshot
         payload = {**(provenance or {}), 'artifact_type': 'annotation_projection',
                    'snp_identifier': config.snp_identifier, 'genome_build': config.genome_build,
                    'chromosomes': bundle.chromosomes, 'n_snps': bundle.n_rows,
                    'baseline_columns': bundle.baseline_columns, 'query_columns': bundle.query_columns,
-                   'files': {'query_annotations': [path.name for path in written],
+                   'files': {**{key: [path.name for path in files] for key, files in written.items()},
                              **{key: str(path.relative_to(output_dir)) for key, path in paths.items()}}}
         _atomic_write_json(payload, family.paths['metadata'])
         remove_output_artifacts(stale)
         bundle.output_paths = {**{key: str(path) for key, path in paths.items()}, 'metadata': str(family.paths['metadata']),
-                               'query_annotations': [str(path) for path in written]}
+                               **{key: [str(path) for path in files] for key, files in written.items()}}
         return bundle.output_paths
 
 

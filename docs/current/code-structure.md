@@ -1,6 +1,6 @@
 # Code Structure
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 This is the authoritative contributor entry for the `ldsc` package. Start here to locate a change. [Architecture](architecture.md) explains execution boundaries, [data flow](data-flow.md) explains artifact streams, and [layer structure](layer-structure.md) supplies the detailed ownership matrix. These domain references supplement this entry rather than defining competing navigation maps.
 
@@ -84,7 +84,8 @@ ldsc_py3_restructured/
 | `ldsc.annotation_builder` | public annotation builder and general standalone parser/API dispatch seam |
 | `ldsc.annotation_semantics` | global annotation-name uniqueness and advisory binary/quantitative classification |
 | `ldsc._annotation_bundle`, `ldsc._annotation_storage` | explicit dataset ownership, chromosome descriptors, detached selected reads, and output-contained scratch |
-| `ldsc._annotation_outputs` | saved query descriptors with original baseline dependencies; deferred preparation on explicit reads and construction-owner detachment |
+| `ldsc._annotation_outputs` | saved baseline/query descriptors with no original-input dependencies; deferred preparation on explicit reads and construction-owner detachment |
+| `ldsc._annotation_bim` | metadata-only standalone BIM grid scans using shared identity cleanup; no genotype companions or value synthesis |
 | `ldsc._annotation_sources`, `ldsc._annotation_identity`, `ldsc._annotation_loading` | bounded input scans, aligned source preparation, global identity cleanup, and shared source-backed construction |
 | `ldsc.annotate_workflow`, `ldsc._annotation_queries`, `ldsc._direct_annotation` | standalone BED/gene gates, incremental projection, and direct LD-score integration |
 | `ldsc._gene_query_storage` | staged per-source gene selections and complete audit replay with shared catalog state |

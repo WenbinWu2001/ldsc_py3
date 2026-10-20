@@ -1,6 +1,6 @@
 # Memory and CPU efficiency design
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 <a id="annotation-and-workflow-memory-design"></a>
 
@@ -96,7 +96,12 @@ Closure is idempotent, deletes only owned private staging, and invalidates subse
 Original inputs must remain available and unchanged while a source-backed result depends on them.
 
 Standalone `run_annotate()` uses [`_annotation_outputs.py`](../../src/ldsc/_annotation_outputs.py) to return saved sources.
-It writes persistent `query.<chrom>.annot.gz` files incrementally and returns descriptors referring to those outputs and the original baseline sources.
+It writes persistent `query.<chrom>.annot.gz` files and, in annotation-grid mode, aligned `baseline.<chrom>.annot.gz` files incrementally.
+Returned descriptors refer only to exported files; original baseline/BIM inputs are not dependencies.
+BIM grids are scanned in bounded metadata chunks by [`_annotation_bim.py`](../../src/ldsc/_annotation_bim.py), then use the shared disk identity index and retained-metadata writer.
+They require no genotype data or placeholder baseline value stores.
+Generated queries use packed binary stores; exported baselines retain the existing exact classification and float32 continuous-value contract.
+The writer reads row tiles sized for the selected family width, preserving a bounded numeric working set.
 It removes its construction scratch before returning.
 A later explicit read can prepare output-owned private shards; the caller closes that owner when done.
 Persistent outputs survive closure.
@@ -214,7 +219,7 @@ The package's computation tiles and execution batches supply those limits.
 Packing alone does not shrink score accumulators or assembly copies; the separate projection and streaming designs below address those allocations.
 
 These files are private, owner-scoped intermediate artifacts.
-Canonical annotation text remains `.annot.gz` with generated 0/1 values, and canonical LD-score Parquet files, query-batch manifests, column order, and precision remain unchanged.
+Canonical annotation text remains `.annot.gz` with generated 0/1 query values and supplied float32 baseline values, and canonical LD-score Parquet files, query-batch manifests, column order, and precision remain unchanged.
 Reloading saved annotations uses the same automatic preparation policy.
 No persistent packed-artifact format, migration, resume, or new user option is introduced.
 

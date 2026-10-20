@@ -33,7 +33,7 @@ def test_gene_and_bed_membership_boundaries_reload_and_lifetime(tmp_path, sharde
 
     baseline, genes, bed, catalog = inputs(tmp_path, sharded)
     config=GlobalConfig(snp_identifier='rsid')
-    with run_annotate(baseline_annot_sources=baseline, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
+    with run_annotate(ref_snp_annot_sources=baseline, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
                       padding_bp=0, genome_build='hg19', global_config=config, output_dir=tmp_path/'gene') as bundle:
         assert bundle.chromosomes == ['1', '2']
         assert bundle.read('1', columns=['pathway'])[:,0].tolist() == [0,1,1,0]
@@ -41,7 +41,7 @@ def test_gene_and_bed_membership_boundaries_reload_and_lifetime(tmp_path, sharde
         assert bundle.query_statuses[0].n_annotation_snps == 2
         private = bundle.workspace.path
     assert not private.exists()
-    with run_annotate(baseline_annot_sources=baseline, query_annot_bed_sources=[bed], global_config=config, output_dir=tmp_path/'bed'):
+    with run_annotate(ref_snp_annot_sources=baseline, query_annot_bed_sources=[bed], global_config=config, output_dir=tmp_path/'bed'):
         pass
     for chrom in ['1','2']:
         gene_frame = pd.read_csv(tmp_path/'gene'/f'query.{chrom}.annot.gz', sep=r'\s+')
@@ -60,7 +60,7 @@ def test_gene_input_requires_explicit_padding(tmp_path):
 
     baseline, genes, _, catalog=inputs(tmp_path)
     with pytest.raises(LDSCInputError, match='padding-bp'):
-        run_annotate(baseline_annot_sources=baseline, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
+        run_annotate(ref_snp_annot_sources=baseline, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
                      genome_build='hg19', global_config=GlobalConfig(snp_identifier='rsid'), output_dir=tmp_path/'out')
 
 
@@ -93,7 +93,7 @@ def test_bed_projection_padding_and_headers_without_optional_backend(tmp_path, m
                      'chrom\tchromStart\tchromEnd\tname\n1\t50\t75\ta\nchr2\t5\t20\tb\n')
     # POS is one-based: padded BED [25,100) selects POS 26 through 100.
     # The second interval pads to [0,45), selecting POS 1 through 45.
-    with run_annotate(baseline_annot_sources=[baseline], query_annot_bed_sources=[bed],
+    with run_annotate(ref_snp_annot_sources=[baseline], query_annot_bed_sources=[bed],
                       padding_bp=padding, global_config=GlobalConfig(snp_identifier='rsid'),
                       output_dir=tmp_path/'out') as bundle:
         for chrom, values in expected.items():
@@ -108,7 +108,7 @@ def test_returned_annotation_uses_persistent_outputs_after_build_scratch_is_rele
     output.mkdir()
     marker = output / 'RUN_FAILED.txt'
     marker.write_text('earlier failed overwrite')
-    bundle = run_annotate(baseline_annot_sources=baseline, query_annot_gene_list_sources=[genes],
+    bundle = run_annotate(ref_snp_annot_sources=baseline, query_annot_gene_list_sources=[genes],
                           gene_coordinate_file=catalog, padding_bp=0, genome_build='hg19',
                           global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
     assert not marker.exists()
@@ -135,7 +135,7 @@ def test_empty_and_unsupported_sources_are_skipped_but_supported_query_survives(
     frame = pd.read_csv(baseline[0], sep='\t')
     frame.loc[frame.CHR.eq(2), 'POS'] = 500
     frame.to_csv(baseline[0], sep='\t', index=False)
-    with run_annotate(baseline_annot_sources=baseline, query_annot_gene_list_sources=[empty, genes, unsupported], gene_coordinate_file=catalog,
+    with run_annotate(ref_snp_annot_sources=baseline, query_annot_gene_list_sources=[empty, genes, unsupported], gene_coordinate_file=catalog,
                       padding_bp=0, genome_build='hg19', gene_list_resolution_policy=policy,
                       global_config=GlobalConfig(snp_identifier='rsid'), output_dir=tmp_path/'out') as bundle:
         assert bundle.query_columns == ['pathway']
@@ -151,7 +151,7 @@ def test_all_focal_skipped_writes_diagnostics_and_no_scientific_family(tmp_path)
     genes.write_text('')
     output = tmp_path/'out'
     with pytest.raises(LDSCInputError, match='skipped'):
-        run_annotate(baseline_annot_sources=baseline, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
+        run_annotate(ref_snp_annot_sources=baseline, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
                      padding_bp=0, genome_build='hg19', global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
     assert (output/'diagnostics'/'query_annotation_status.tsv').is_file()
     assert not list(output.glob('query.*.annot.gz'))
@@ -166,7 +166,7 @@ def test_coverage_failure_is_not_treated_as_zero_support(tmp_path, policy):
     genes.write_text('G2\n')
     output = tmp_path/'out'
     with pytest.raises(LDSCInputError, match='coverage'):
-        run_annotate(baseline_annot_sources=baseline[:1], query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
+        run_annotate(ref_snp_annot_sources=baseline[:1], query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
                      padding_bp=0, genome_build='hg19', gene_list_resolution_policy=policy,
                      global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
     audit = pd.read_csv(output/'diagnostics'/'gene_list_audit.tsv.gz', sep='\t')
@@ -184,7 +184,7 @@ def test_gate_a_collects_independent_sources_and_omits_later_statuses(tmp_path):
     missing.write_text('G1\textra\n')
     output = tmp_path/'out'
     with pytest.raises(LDSCInputError, match='preflight'):
-        run_annotate(baseline_annot_sources=baseline, query_annot_gene_list_sources=[genes,missing], gene_coordinate_file=catalog,
+        run_annotate(ref_snp_annot_sources=baseline, query_annot_gene_list_sources=[genes,missing], gene_coordinate_file=catalog,
                      padding_bp=0, genome_build='hg19', gene_list_resolution_policy='resolved-only',
                      global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
     summary = pd.read_csv(output/'diagnostics'/'gene_list_resolution_summary.tsv', sep='\t').set_index('query')
@@ -202,7 +202,7 @@ def test_explicit_suite_collects_missing_autosomes_and_bad_members(tmp_path):
     (tmp_path/'baseline.3.annot.gz').write_bytes(b'not gzip')
     output=tmp_path/'out'
     with pytest.raises(LDSCInputError, match='[Ii]nput preflight'):
-        run_annotate(baseline_annot_sources=[tmp_path/'baseline.@.annot.gz'], query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
+        run_annotate(ref_snp_annot_sources=[tmp_path/'baseline.@.annot.gz'], query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
                      padding_bp=0, genome_build='hg19', global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
     issues=pd.read_csv(output/'diagnostics'/'input_issues.tsv', sep='\t')
     assert len(issues) == 20
@@ -214,7 +214,7 @@ def test_overwrite_failure_marker_and_persistent_family(tmp_path):
 
     baseline, genes, _, catalog=inputs(tmp_path)
     output=tmp_path/'out'
-    kwargs=dict(baseline_annot_sources=baseline, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
+    kwargs=dict(ref_snp_annot_sources=baseline, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
                 padding_bp=0, genome_build='hg19', global_config=GlobalConfig(snp_identifier='rsid'), output_dir=output)
     with run_annotate(**kwargs):
         pass
@@ -240,7 +240,7 @@ def test_real_module_cli_writes_reloadable_outputs_and_releases_scratch(tmp_path
 
     baseline, genes, _, catalog=inputs(tmp_path)
     output=tmp_path/'out'
-    run=subprocess.run([sys.executable,'-m','ldsc','annotate','--baseline-annot-sources',str(baseline[0]),
+    run=subprocess.run([sys.executable,'-m','ldsc','annotate','--ref-snp-annot-sources',str(baseline[0]),
                         '--query-annot-gene-list-sources',str(genes),'--gene-coordinate-file',str(catalog),
                         '--padding-bp','0','--snp-identifier','rsid','--genome-build','hg19','--output-dir',str(output)], capture_output=True,text=True)
     assert run.returncode == 0, run.stdout + run.stderr

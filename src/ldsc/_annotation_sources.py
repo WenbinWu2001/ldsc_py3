@@ -5,7 +5,7 @@ After identity selection, a second input pass writes retained values directly
 to packed-binary and dense-continuous NumPy stores beside Parquet metadata.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from contextlib import ExitStack
 from itertools import zip_longest
 from pathlib import Path
@@ -44,6 +44,7 @@ class PreparedAnnotationSources:
     drops: FrameSpool
     scope_chromosomes: tuple[str, ...] = ()
     input_chromosomes: tuple = ()
+    snp_rows: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -140,7 +141,7 @@ def _aligned_metadata(sources, mode, chunk_rows):
 
 
 @report_phase(LOGGER, 'staging', 'retained annotation metadata')
-def _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom):
+def _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom, *, input_counts=None):
     """Write final metadata and bounded row locators, counting retained rows."""
     selections, counts, writers = [], {}, {}
     selected_chrom = normalize_chromosome(chrom) if chrom is not None else None
@@ -151,6 +152,9 @@ def _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom):
             offset = 0
             for metadata in _aligned_metadata(group, mode, chunk_rows):
                 advance(len(metadata), object=f'group {ordinal + 1}/{len(groups)}')
+                if input_counts is not None:
+                    for label, count in metadata["CHR"].value_counts().items():
+                        input_counts[label] = input_counts.get(label, 0) + int(count)
                 keep, dropped = identity.select(metadata)
                 drops.append(dropped)
                 if selected_chrom is not None:
@@ -168,6 +172,17 @@ def _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom):
                     writers[label].write_table(table)
                     counts[label] = counts.get(label, 0) + len(rows)
     return selections, counts
+
+
+def _snp_row_counts(input_counts, output_counts):
+    """Count logical rows once, including each discarded duplicate occurrence."""
+    by_chromosome = {
+        chrom: {"input": count, "output": output_counts.get(chrom, 0),
+                "dropped": count - output_counts.get(chrom, 0)}
+        for chrom, count in sorted(input_counts.items(), key=lambda item: chrom_sort_key(item[0]))
+    }
+    return {**{key: sum(row[key] for row in by_chromosome.values())
+               for key in ("input", "output", "dropped")}, "by_chromosome": by_chromosome}
 
 
 @report_phase(LOGGER, 'staging', 'retained annotation values')
@@ -318,12 +333,14 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
     if is_allele_aware_mode(mode) and not any("A1" in s.metadata_columns for s in sources):
         effective_mode = identity_base_mode(mode)
     LOGGER.info("Checking SNP identities and preparing chromosome annotations.")
+    input_counts = {}
     with DiskIdentityIndex(workspace.path / "identity.sqlite", effective_mode) as identity:
         for group, rows in zip(groups, group_rows):
             for metadata in _aligned_metadata(group, mode, rows):
                 advance(len(metadata), object=f'annotation group ({len(group)} files)')
                 identity.add(metadata)
-        selections, counts = _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom)
+        selections, counts = _select_rows(groups, group_rows, workspace, identity, drops, mode, chrom,
+                                         input_counts=input_counts)
     (workspace.path / "identity.sqlite").unlink()
     shards = _write_values(groups, selections, group_rows, counts, workspace, columns)
     if not shards:
@@ -332,7 +349,8 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
         raise error
     scope = tuple(sorted(set().union(*(s.chromosomes for s in baselines)), key=chrom_sort_key))
     prepared = PreparedAnnotationSources(shards, baseline_columns, query_columns, drops, scope,
-        tuple((str(s.path), "baseline" if s in baselines else "query", tuple(s.chromosomes)) for s in sources))
+        tuple((str(s.path), "baseline" if s in baselines else "query", tuple(s.chromosomes)) for s in sources),
+        snp_rows=_snp_row_counts(input_counts, counts))
     binary_count = sum(len(store.columns) for store in next(iter(shards.values())).stores if store.bitorder)
     LOGGER.info("Annotation storage: binary=%d packed-bit columns, continuous=%d float32 columns; value files=%s bytes.",
                 binary_count, len(columns) - binary_count,

@@ -1,6 +1,6 @@
 # ldsc3_Jerry
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 This repository is the active refactored LDSC package.
 
@@ -68,7 +68,11 @@ Direct mode preserves its post-kernel float32 scores, while indexed mode retains
 This happens automatically with the existing options and preserves the small, materialized no-output Python API.
 See [direct assembly measurements and their limits](docs/wiki/main-functionalities/ldscore.md#direct-assembly-measurements) before changing a job's RAM allocation.
 
-Standalone `annotate` accepts BED files or gene lists and writes reusable chromosome annotation shards incrementally.
+Standalone `annotate` projects BED files or gene lists onto exactly one SNP grid: `--ref-snp-bim-sources` for metadata-only BIM input, or `--ref-snp-annot-sources` for existing baseline annotations.
+BIM mode writes query annotations only; annotation mode writes aligned `baseline.<chrom>.annot.gz` and `query.<chrom>.annot.gz` files after shared identity cleanup.
+Pass both exported families to downstream `ldscore` with `--baseline-annot-sources` and `--query-annot-sources`; using the original baselines can fail row alignment after cleanup.
+The log reports input/output/dropped SNP counts and these downstream flags.
+See the [standalone guide](docs/wiki/utility-functionalities/annotate.md) for CLI and Python examples.
 Source-backed Python preparation requires an output directory and explicit bundle ownership; new scratch stays under that destination, with the existing gene-index construction transaction as the exception.
 See the [memory and CPU efficiency design guide](docs/current/annotation-memory-design.md) for the package-wide mechanisms, precision contracts, tradeoffs, remaining allocations, and validation evidence.
 The [pathway batch guide](docs/wiki/main-functionalities/partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways) explains user settings and measured workloads.

@@ -1,4 +1,4 @@
-"""Standalone BED/gene annotation over a bounded, validated baseline grid.
+"""Standalone BED/gene annotation over a bounded BIM or annotation grid.
 
 This workflow resolves source and catalog gates before projection, measures
 annotation-grid support, writes canonical chromosome shards incrementally,
@@ -11,6 +11,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from ._annotation_bundle import AnnotationBundle
+from ._annotation_bim import resolve_bim_grid_inputs, prepare_bim_grid, iter_grid_build_frames
 from ._annotation_queries import prepare_bed_queries, build_query_shards
 from ._annotation_sources import prepare_annotation_sources
 from ._annotation_storage import AnnotationWorkspace
@@ -23,7 +24,7 @@ from .column_inference import normalize_genome_build
 from .config import AnnotationBuildConfig, GlobalConfig, get_global_config, print_global_config_banner
 from .errors import LDSCInputError
 from .gene_list_resolver import GeneCatalog, GeneCatalogValidationError
-from .genome_build_inference import resolve_genome_build
+from .genome_build_inference import resolve_genome_build, resolve_genome_build_from_chr_pos_frames
 from .outputs import AnnotationDirectoryWriter
 from .path_resolution import ensure_output_directory, resolve_file_group, split_cli_path_tokens
 from .query_annotations import gene_query_statuses, gene_viability_errors
@@ -31,7 +32,7 @@ from .query_annotations import gene_query_statuses, gene_viability_errors
 LOGGER = logging.getLogger('LDSC.annotation')
 
 
-def _projection_build(requested, mode, baseline_tokens, catalog):
+def _projection_build(requested, mode, baseline_tokens, catalog, *, bim_shards=None):
     requested = normalize_genome_build(requested)
     if catalog is None and identity_mode_family(mode) == 'rsid':
         return None
@@ -40,8 +41,13 @@ def _projection_build(requested, mode, baseline_tokens, catalog):
     if requested is None:
         raise LDSCInputError('annotate requires --genome-build for chr_pos-family identifiers. Supply auto, hg19, or hg38.')
     if requested == 'auto':
-        sample, _ = sample_frame_from_chr_pattern(baseline_tokens, context='annotation inputs')
-        resolved = resolve_genome_build('auto', 'chr_pos', sample, context='annotation inputs', logger=LOGGER)
+        if bim_shards is not None:
+            resolved = resolve_genome_build_from_chr_pos_frames(
+                'auto', 'chr_pos', iter_grid_build_frames(bim_shards), context='BIM annotation grid', logger=LOGGER,
+            )
+        else:
+            sample, _ = sample_frame_from_chr_pattern(baseline_tokens, context='annotation inputs')
+            resolved = resolve_genome_build('auto', 'chr_pos', sample, context='annotation inputs', logger=LOGGER)
     else:
         resolved = requested
     if catalog is not None and resolved != catalog.genome_build:
@@ -65,19 +71,23 @@ def _gate_a_error(batch, naming_error=None):
 
 
 @materializing_overwrite_guard(lambda *args, **kwargs: (kwargs.get('output_dir'), kwargs.get('overwrite', False), 'RUN_FAILED.txt') if kwargs.get('output_dir') else None, command='run_annotate(...)')
-def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=None, query_annot_gene_list_sources=None,
+def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=None,
+                 query_annot_bed_sources=None, query_annot_gene_list_sources=None,
                  gene_coordinate_file=None, padding_bp=None, gene_list_resolution_policy=None, gene_exclude_regions=None,
                  genome_build=None, global_config=None, overwrite=False):
     """Write BED or focal gene-list annotations and return a live shard handle.
 
     Parameters
     ----------
-    baseline_annot_sources : path-like or sequence
-        Existing annotation files defining SNP identities, order, and baseline
-        columns. Exact paths, globs, and explicit chromosome suites are accepted.
+    ref_snp_annot_sources, ref_snp_bim_sources : str or sequence of path-like, optional
+        Exactly one grid source. Annotation files supply SNP metadata and real
+        baseline values; BIM files supply only SNP metadata and need no BED/FAM
+        companions. Exact paths, globs, comma-separated tokens, and @
+        chromosome suites are accepted. BIM @ suites require chromosomes 1–22.
+        Existing identity cleanup determines the retained grid and row order.
     output_dir : path-like
         Required destination for canonical outputs and owned private staging.
-    query_annot_bed_sources, query_annot_gene_list_sources : path-like or sequence, optional
+    query_annot_bed_sources, query_annot_gene_list_sources : str or sequence of path-like, optional
         Exactly one focal query route. Gene lists use exact catalog identifiers.
     gene_coordinate_file : path-like, optional
         Required one-build coordinate catalog for gene mode; no packaged default.
@@ -104,18 +114,23 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
     Returns
     -------
     AnnotationBundle
-        Persistent query outputs plus original baseline dependencies. Construction
-        scratch is released before returning; explicit reads prepare private
-        shards on demand under the output directory. Use a context manager or
-        call ``close()`` after consumption. Closure preserves public outputs.
+        Persistent query outputs and, for annotation-input mode, aligned baseline
+        outputs. Original inputs are not needed for later reads. BIM mode has no
+        baseline columns. Construction scratch is released before returning;
+        explicit float32 reads prepare packed-binary/dense-float32 private stores
+        on demand under the output directory. Use a context manager or ``close()``;
+        closure preserves public outputs. No genotype QC or LD scoring occurs.
     """
     bed = split_cli_path_tokens(query_annot_bed_sources)
     genes = split_cli_path_tokens(query_annot_gene_list_sources)
-    baseline = split_cli_path_tokens(baseline_annot_sources)
+    baseline = split_cli_path_tokens(ref_snp_annot_sources)
+    bim = split_cli_path_tokens(ref_snp_bim_sources)
+    if bool(baseline) == bool(bim):
+        raise LDSCInputError('annotate requires exactly one of --ref-snp-annot-sources or --ref-snp-bim-sources.')
     if bool(bed) == bool(genes):
         raise LDSCInputError('annotate requires exactly one of --query-annot-bed-sources or --query-annot-gene-list-sources.')
-    if not baseline or output_dir is None:
-        raise LDSCInputError('annotate requires --baseline-annot-sources and --output-dir.')
+    if output_dir is None:
+        raise LDSCInputError('annotate requires --output-dir.')
     if genes and padding_bp is None:
         raise LDSCInputError('Gene-list annotate requires explicit nonnegative --padding-bp; use 0 for gene bodies.')
     if not genes and (gene_coordinate_file is not None or gene_list_resolution_policy is not None or gene_exclude_regions is not None):
@@ -132,14 +147,15 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
     batch = catalog = bundle = None
     try:
         with workflow_logging('annotate', output/'diagnostics'/'annotate.log', log_level=config.log_level):
-            log_inputs(baseline_annot_sources=f"{len(baseline)} input declarations",
+            log_inputs(grid_kind='bim' if bim else 'annotation', grid_sources=f"{len(bim or baseline)} input declarations",
                        query_sources=f"{len(genes or bed)} input declarations; see diagnostics/metadata.json for source provenance",
                        padding_bp=spec.padding_bp, output_dir=str(output))
             from ._input_preflight import inspect_declared_inputs
             declared_inputs = inspect_declared_inputs(baseline=baseline,
                 files=[('BED', bed), ('gene lists', genes)], scalar_files=[('gene catalog', spec.gene_coordinate_file)],
                 mode=config.snp_identifier, strict_annotations=bool(genes),
-                issues_path=output/'diagnostics/input_issues.tsv')
+                issues_path=output/'diagnostics/input_issues.tsv',
+                checks=[('BIM grid', ', '.join(bim), lambda: resolve_bim_grid_inputs(bim))] if bim else ())
             if genes:
                 try:
                     catalog = GeneCatalog.load(spec.gene_coordinate_file)
@@ -154,12 +170,20 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
                 if batch.has_fatal_gate_a_issues:
                     raise _gate_a_error(batch)
             requested = genome_build if genome_build is not None else config.genome_build
-            projection_build = _projection_build(requested, config.snp_identifier, baseline, catalog)
+            prepared = None
+            if bim:
+                paths, declared = declared_inputs.files['BIM grid']
+                prepared = prepare_bim_grid(workspace, paths, declared, mode=config.snp_identifier, autosomes_only=bool(genes))
+            else:
+                paths, declared = declared_inputs.baseline, declared_inputs.declarations
+            projection_build = _projection_build(requested, config.snp_identifier, baseline, catalog,
+                                                 bim_shards=prepared.shards if bim else None)
             resolved_config = GlobalConfig(snp_identifier=config.snp_identifier,
                                            genome_build=projection_build if identity_mode_family(config.snp_identifier) == 'chr_pos' else None,
                                            log_level=config.log_level)
-            paths, declared, issues = declared_inputs.baseline, declared_inputs.declarations, []
-            prepared = prepare_annotation_sources(workspace, paths, [], mode=config.snp_identifier, declared_chromosomes=declared, input_issues=issues, autosomes_only=bool(genes), header_widths=declared_inputs.widths)
+            if prepared is None:
+                prepared = prepare_annotation_sources(workspace, paths, [], mode=config.snp_identifier, declared_chromosomes=declared,
+                                                       autosomes_only=bool(genes), header_widths=declared_inputs.widths)
             bundle = AnnotationBundle(prepared.shards, list(prepared.baseline_columns), [], workspace,
                                       config_snapshot=resolved_config, identity_drops=prepared.drops, gene_list_batch=batch)
             names = [d['query'] for d in batch.declarations] if batch is not None else [Path(path).stem for path in resolve_file_group(bed, label='BED file')]
@@ -182,8 +206,10 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
                 raise _gate_a_error(batch, naming_error)
             if naming_error:
                 raise naming_error
-            scope = {'chromosomes': list(prepared.scope_chromosomes), 'baseline_chromosomes': list(prepared.scope_chromosomes),
+            scope = {'chromosomes': list(prepared.scope_chromosomes), 'grid_kind': 'bim' if bim else 'annotation',
                      'requires_all_autosomes': bool(declared), 'selection': 'validated_input_contents', 'validation_status': 'passed'}
+            if baseline:
+                scope['baseline_chromosomes'] = list(prepared.scope_chromosomes)
             if batch is not None:
                 batch, coverage_errors = batch.with_coverage(prepared.scope_chromosomes)
                 bundle.gene_list_batch = batch
@@ -200,9 +226,10 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
                 sources = prepare_bed_queries(declared_inputs.files['BED'], workspace)
                 build_query_shards(bundle, bed_sources=sources, padding_bp=spec.padding_bp)
             provenance = {'query_source_kind': 'gene_list' if genes else 'bed', 'query_sources': genes or bed,
-                          'baseline_annot_sources': baseline, 'query_annot_bed_sources': bed, 'query_annot_gene_list_sources': genes,
+                          'grid_kind': 'bim' if bim else 'annotation', 'ref_snp_annot_sources': baseline, 'ref_snp_bim_sources': bim,
+                          'query_annot_bed_sources': bed, 'query_annot_gene_list_sources': genes,
                           'gene_coordinate_file': spec.gene_coordinate_file, 'gene_catalog_build': None if catalog is None else catalog.genome_build,
-                          'projection_genome_build': projection_build, 'padding_bp': spec.padding_bp,
+                          'projection_genome_build': projection_build, 'padding_bp': spec.padding_bp, 'snp_rows': prepared.snp_rows,
                           'gene_exclude_regions': spec.gene_exclude_regions, 'gene_list_resolution_policy': spec.gene_list_resolution_policy}
             bundle.source_summary = provenance
             writer.write(bundle, output, overwrite=overwrite, provenance=provenance, scope=scope,
@@ -212,8 +239,15 @@ def run_annotate(*, baseline_annot_sources, output_dir, query_annot_bed_sources=
                 _log_gene_list_snp_support(bundle.gene_list_batch)
             _log_query_annotation_statuses(bundle.query_statuses)
             log_outputs(**bundle.output_paths)
+            counts = prepared.snp_rows
+            LOGGER.info("%s SNP rows: input=%s, output=%s, dropped=%s.",
+                        'BIM grid' if bim else 'Baseline', counts['input'], counts['output'], counts['dropped'])
+            if baseline:
+                LOGGER.info("For downstream ldscore, use the exported baseline files with --baseline-annot-sources "
+                            "and the exported query files with --query-annot-sources; do not use the original baseline inputs. "
+                            "Exported paths are listed above.")
             from ._annotation_outputs import persistent_annotation_bundle
-            return persistent_annotation_bundle(bundle, paths, output)
+            return persistent_annotation_bundle(bundle, output)
     except BaseException as exc:
         try:
             writer.write_diagnostics(output, batch=None, drops=getattr(exc, 'annotation_drops', None), input_issues=getattr(exc, 'input_issues', None))

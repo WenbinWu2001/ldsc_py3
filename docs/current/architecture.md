@@ -1,6 +1,6 @@
 # Architecture 
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 `ldsc` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
@@ -24,7 +24,7 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 
 ## Bird's-Eye View
 
-- **Build query annotations**: project BED or resolved gene intervals onto a baseline SNP grid. Entry points: `ldsc annotate`, `ldsc ldscore`, `ldsc.AnnotationBuilder`
+- **Build query annotations**: project BED or resolved gene intervals onto a SNP grid; standalone `annotate` accepts mutually exclusive BIM or baseline-annotation sources. Entry points: `ldsc annotate`, `ldsc ldscore`, `ldsc.AnnotationBuilder`
 - **Build parquet reference panels**: convert PLINK genotype panels into standard parquet R2 artifacts. Entry points: `ldsc build-r2-panel`, `ldsc.ReferencePanelBuilder`
 - **Query reference-panel R2**: look up adjusted R2, `sign_r`, and signed Pearson `r` for SNP pairs in package-built index-format panels. Entry points: `ldsc query-r2`, `ldsc.R2Panel`, `ldsc.query_r2()`
 - **Build exact gene LD-score indexes**: precompute PLINK-backed disjoint-atom operators for one complete immutable baseline/reference/gene configuration. Entry point: `ldsc build-gene-ldscore-index`
@@ -155,7 +155,14 @@ For rg, the dispatcher loads the correlation table and optional metadata-declare
 
 ### `ldsc.annotation_builder`
 
-This is the public annotation API and CLI dispatch seam: `AnnotationBuilder`, `AnnotationBundle`, `run_annotate()`, `parse_annotate_args()`, `run_annotate_from_args()`, and `main()`. `AnnotationBuilder.run(..., output_dir=...)` prepares a chromosome-backed dataset with explicit ownership. `annotate_workflow` owns standalone BED/gene validation and incremental canonical output. Shared `_annotation_*` modules own bounded discovery, identity cleanup, separate metadata/value artifacts, projection, and storage lifetime; `_direct_annotation` integrates them with direct LD-score scope and support gates. The complete module and ownership map is in [annotation-memory-design.md](annotation-memory-design.md).
+This is the public annotation API and CLI dispatch seam: `AnnotationBuilder`, `AnnotationBundle`, `run_annotate()`, `parse_annotate_args()`, `run_annotate_from_args()`, and `main()`.
+`AnnotationBuilder.run(..., output_dir=...)` prepares a chromosome-backed dataset with explicit ownership.
+`annotate_workflow` owns standalone BED/gene validation and incremental canonical output.
+`_annotation_bim` stages metadata-only BIM grids through shared identity selection.
+Annotation-grid input emits aligned baseline/query families; BIM input emits query values only.
+`_annotation_outputs` reopens these exports without original-input dependencies.
+Shared `_annotation_*` modules own bounded discovery, identity cleanup, separate metadata/value artifacts, projection, and storage lifetime; `_direct_annotation` integrates them with direct LD-score scope and support gates.
+The complete module and ownership map is in [annotation-memory-design.md](annotation-memory-design.md).
 
 For interval projection, `_annotation_queries.prepare_bed_queries()` streams validated BED rows from `_kernel.regions.iter_bed_rows()` into chromosome spools.
 `_annotation_queries.build_query_shards()` uses `_annotation_projection.ChromosomeProjector` for both BED and gene intervals, preserving zero-based half-open membership against one-based SNP positions.

@@ -1,6 +1,6 @@
 # LD Score Calculation
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-built SNP-level annotations, or from raw BED/gene-list queries plus an explicit baseline.
 
@@ -434,7 +434,7 @@ set_global_config(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_bui
 
 with run_annotate(
     query_annot_bed_sources="beds/*.bed",
-    baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
+    ref_snp_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     output_dir="annotations/query_from_beds",
     # overwrite=True,  # also removes stale query shards outside the current chromosome set
 ) as bundle:
@@ -447,11 +447,15 @@ with run_annotate(
 ```bash
 ldsc annotate \
   --query-annot-bed-sources "beds/*.bed" \
-  --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
+  --ref-snp-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --output-dir annotations/query_from_beds
 ```
 
-The generated query shards are named `query.<chrom>.annot.gz`, so downstream inputs should use a token such as `annotations/query_from_beds/query.@.annot.gz`.
+The output contains aligned `baseline.<chrom>.annot.gz` and `query.<chrom>.annot.gz` families.
+Use `--baseline-annot-sources 'annotations/query_from_beds/baseline.@.annot.gz'` and `--query-annot-sources 'annotations/query_from_beds/query.@.annot.gz'` together in `ldscore`; use globs for a partial chromosome scope.
+The original baselines may have rows removed during cleanup, so use the exported baseline family.
+For a BIM-only grid, replace `--ref-snp-annot-sources` with `--ref-snp-bim-sources 'panel/reference.@.bim'` (Python `ref_snp_bim_sources`).
+These options are mutually exclusive; BIM mode writes only query files and invents no baseline values.
 
 To construct the same persistent annotation format from gene lists, select the gene route instead of BED sources and choose the padding explicitly:
 
@@ -462,20 +466,28 @@ ldsc annotate \
   --gene-exclude-regions none \
   --padding-bp 0 \
   --genome-build hg19 \
-  --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
+  --ref-snp-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --output-dir annotations/query_from_genes
 ```
 
 The standalone example is strict by default. Add `--allow-unresolved-genes` with no value to omit approved rejected identifiers with diagnostics. Python callers use `run_annotate(..., gene_list_resolution_policy="resolved-only")` for the same policy.
 
-Standalone gene annotation measures support on the cleaned baseline SNP grid and reports `annotation_snp_count`; it does not evaluate reference-panel or regression support. Empty and globally unsupported focal lists are skipped, usable siblings continue, and an all-skipped batch fails. All-one queries are retained. No control-gene route is accepted. See the [standalone guide](../docs/wiki/utility-functionalities/annotate.md) for coverage, diagnostics, and build rules.
+Standalone gene annotation measures support on the cleaned input SNP grid and reports `annotation_snp_count`; it does not evaluate reference-panel or regression support.
+Empty and globally unsupported focal lists are skipped, usable siblings continue, and an all-skipped batch fails.
+All-one queries are retained.
+No control-gene route is accepted.
+See the [standalone guide](../docs/wiki/utility-functionalities/annotate.md) for coverage, diagnostics, and build rules.
 
-The returned bundle references persistent query shards and the original baseline sources. Construction scratch is released before return; an explicit chromosome read can prepare private data again under the output directory. Close the bundle after use. Closure preserves the saved queries and original baselines.
+The returned bundle references the exported baseline/query families, or just query files in BIM mode.
+Construction scratch is released before return; an explicit chromosome read can prepare private data again under the output directory.
+Close the bundle after use.
+Closure preserves all exported files and original inputs.
 
-If `--output-dir` does not exist yet, the workflow creates it automatically and logs creation at INFO. If any root-level `query.*.annot.gz` shard already exists, the
+If `--output-dir` does not exist yet, the workflow creates it automatically and logs creation at INFO.
+If any root-level `query.*.annot.gz` or `baseline.*.annot.gz` shard already exists, the
 command fails before writing any shard, even if that shard is outside the
 current chromosome set. Add `--overwrite` only for an intentional rerun; stale
-query shards not produced by the successful run are removed.
+baseline/query shards not produced by the successful run are removed.
 
 For script-style annotation runs, `ldsc.annotation_builder.main(argv)` is the
 parser entry point and returns the produced `AnnotationBundle`. If you already

@@ -54,7 +54,7 @@ class AnnotationBuilder:
             and unchanged throughout their use.
         output_dir : path-like
             Required writable parent for unique private preparation files.
-            Use ``run_annotate`` to publish canonical standalone query files.
+            Use ``run_annotate`` to publish canonical standalone annotation files.
 
         Returns
         -------
@@ -109,11 +109,22 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
     genes = parser.add_argument_group('BED and gene-list settings')
     runtime = parser.add_argument_group('Output and logging')
 
-    inputs.add_argument(
-        '--baseline-annot-sources', nargs='+', required=True, metavar='SOURCES',
+    grid = inputs.add_mutually_exclusive_group(required=True)
+    grid.add_argument(
+        '--ref-snp-annot-sources', nargs='+', metavar='SOURCES',
         help=(
-            'Required baseline annotation files defining the SNPs to annotate. Accepts exact paths, with space- '
+            'Baseline annotation files defining the SNPs to annotate; export aligned baseline and query files. '
+            'Exclusive with --ref-snp-bim-sources. Accepts exact paths, with space- '
             'or comma-separated tokens. Gene-list runs require every declared chromosome member. '
+            + CHROMOSOME_PATH_HELP
+        ),
+    )
+    grid.add_argument(
+        '--ref-snp-bim-sources', nargs='+', metavar='SOURCES',
+        help=(
+            'Headerless six-column PLINK .bim or .bim.gz files defining SNP rows; no BED/FAM companions required. '
+            'Use SNP metadata only and write query annotations without synthetic baselines. '
+            'Exclusive with --ref-snp-annot-sources. Accepts space- or comma-separated paths. '
             + CHROMOSOME_PATH_HELP
         ),
     )
@@ -128,9 +139,9 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
     queries.add_argument(
         '--query-annot-bed-sources', nargs='+', metavar='SOURCES',
         help=(
-            "BED intervals to find covered baseline SNPs. Accepts exact paths or '*' patterns. Supply exactly one "
+            "BED intervals to find covered grid SNPs. Accepts exact paths or '*' patterns. Supply exactly one "
             "of --query-annot-bed-sources or --query-annot-gene-list-sources; no default. '@' is not expanded; "
-            'see --baseline-annot-sources for wildcard and quoting rules.'
+            'see --ref-snp-annot-sources for wildcard and quoting rules.'
         ),
     )
     queries.add_argument(
@@ -138,7 +149,7 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         help=(
             'One-column gene-list files to find SNPs within gene intervals. Requires --gene-coordinate-file and '
             'explicit --padding-bp. Supply exactly one of this flag or --query-annot-bed-sources; no default. '
-            "Accepts '*' patterns (see --baseline-annot-sources); '@' is not expanded."
+            "Accepts '*' patterns (see --ref-snp-annot-sources); '@' is not expanded."
         ),
     )
 
@@ -250,8 +261,9 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
     This function is the workflow-layer dispatch target used by the unified
     ``ldsc`` parser. It accepts the already parsed namespace, normalizes
     identifier/build settings, splits CLI path tokens, resolves
-    ``--genome-build auto`` when requested, writes ``query.<chrom>.annot.gz``
-    files, and returns the produced bundle without reparsing arguments.
+    ``--genome-build auto`` when requested, and writes query shards plus aligned
+    baseline shards for annotation-grid input. BIM-grid input writes query shards
+    only. The returned bundle reads exported files without reparsing arguments.
 
     Parameters
     ----------
@@ -272,7 +284,8 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
     config = GlobalConfig(snp_identifier=mode, genome_build=(requested or "auto") if identity_mode_family(mode) == "chr_pos" else None,
                           log_level=getattr(args, "log_level", "INFO"))
     return run_annotate(
-        baseline_annot_sources=getattr(args, "baseline_annot_sources", None), output_dir=getattr(args, "output_dir", None),
+        ref_snp_annot_sources=getattr(args, "ref_snp_annot_sources", None),
+        ref_snp_bim_sources=getattr(args, "ref_snp_bim_sources", None), output_dir=getattr(args, "output_dir", None),
         query_annot_bed_sources=getattr(args, "query_annot_bed_sources", None), query_annot_gene_list_sources=genes,
         gene_coordinate_file=getattr(args, "gene_coordinate_file", None), padding_bp=getattr(args, "padding_bp", None),
         gene_list_resolution_policy=getattr(args, "gene_list_resolution_policy", None), gene_exclude_regions=getattr(args, "gene_exclude_regions", None),

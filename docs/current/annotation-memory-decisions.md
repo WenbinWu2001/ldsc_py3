@@ -1,6 +1,6 @@
 # Annotation and Workflow Memory Decisions
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 Current status: the user confirmed the complete annotation-storage design and authorized implementation on September 15. Packed binary storage, exact automatic classification, two input content passes without numeric staging, and explicit private column selection are implemented. Public float32 reads, logical input order, and LD-score output behavior are preserved. The full suite passed 1,812 tests and 132 subtests, with one skip; an independent chromosome-22 baseline comparison verified every decoded value. See the [implemented format policy and measured file sizes](annotation-memory-design.md#annotation-format-policy). These decisions supersede the September 14 choice to retain dense annotation storage, while preserving the approved execution batching.
 
@@ -192,7 +192,10 @@ Standalone `annotate` writes chromosome shards incrementally and returns an obje
 
 `AnnotationBundle` is a resource-owning handle supporting context-manager use and explicit `close()`. It owns private staging. A calculator receiving an existing bundle borrows it without closing it. Closing removes owned private storage and prevents further shard loading, while leaving original inputs and persistent outputs untouched. Returning a bundle does not close resources that the returned handle still needs.
 
-The returned complete annotation dataset may depend on original baseline sources. Generated query shards remain persistent; no portable copy of all baseline annotations is required. Private baseline staging remains owned by the live bundle.
+The October 20 standalone output decision supersedes the earlier permission for `run_annotate()` to depend on original baseline sources.
+Standalone annotation-grid mode exports both cleaned baseline and generated query files; BIM mode exports query files only.
+Returned standalone bundles read these exports, with private staging owned by the live bundle.
+Other source-backed preparation APIs retain their existing input lifetime contracts.
 
 New annotation/analysis disk staging stays inside the explicitly supplied output directory, rather than using the system temporary directory or `TMPDIR`. Workflows that require disk staging require an explicit output directory. The approved small, single-batch Python route instead holds preparation and diagnostics in memory and performs no filesystem writes; pure numerical functions operating on supplied arrays also remain file-free. Owned scratch in writing workflows is removed on closure or handled failure. Interrupted writing runs start fresh, without automatic reuse or deletion of abandoned directories.
 
@@ -271,7 +274,7 @@ The user confirmed the original map on September 10 and selected sequential quer
 | Objective and workflow scope | Many independent pathway fits; direct sequential query batches, bounded parallel indexed result generation, output/reader integration, and necessary consumer migrations | September 14 scope replaces the broad new optimization effort |
 | Standalone gene-list behavior | Exact input route, catalog/build/padding/exclusion rules, Gate A/B outcomes, annotation-grid support, output reloadability | Confirmed; separate condition–outcome table |
 | Dataset interface | One lazy complete-dataset handle; chromosome/column/row access; no whole-genome annotation materialization | Confirmed |
-| Ownership and lifetime | Explicit owner/borrower/close; permitted original baseline dependencies; sequential release and bounded worker submissions | Confirmed |
+| Ownership and lifetime | Explicit owner/borrower/close; export-backed standalone bundles; sequential release and bounded worker submissions | Confirmed |
 | Scratch and interrupted runs | New scratch inside output directory; owned cleanup; fresh retry without abandoned-stage reuse/deletion; existing index-construction exception | Confirmed |
 | Input preparation and identity | Bounded preflight/discovery and source preparation; dataset-wide annotation duplicate cleanup; stage-specific validation preserved | Confirmed |
 | Direct computation | Sequential execution batches, target width 1000; repeated traversal and materialized active-batch scores permitted; contributor and weight policies preserved | Confirmed September 14 |

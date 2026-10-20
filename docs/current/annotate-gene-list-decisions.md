@@ -1,21 +1,26 @@
 # Standalone Annotate Gene-list Decisions
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-20
 
 Status: standalone BED/gene-list CLI and `run_annotate()` are implemented using staged chromosome access. Direct/indexed workflow migration is implemented under the [memory implementation plan](../plans/2026-09-10-annotation-workflow-memory.md). The decision table remains the behavior contract; implementation evidence is recorded in the [memory audit](../audits/annotation-memory/progress.md).
 
 ## Problem and scope
 
-Standalone `ldsc annotate` accepts BED or focal gene-list queries over the explicitly supplied baseline annotation SNP grid. The implementation is local to `ldsc_py3_restructured`; no HPC execution is part of this refactor.
+Standalone `ldsc annotate` accepts BED or focal gene-list queries over an explicitly supplied BIM or baseline-annotation SNP grid.
+The implementation is local to `ldsc_py3_restructured`; no HPC execution is part of this refactor.
 
 The pre-refactor design inspection used commit `a505c45` (`refactor: remove annotation fingerprints`). Relevant seams are [annotation_builder.py](../../src/ldsc/annotation_builder.py), `add_annotate_arguments()`, `run_annotate_from_args()`, `AnnotationBuilder.run()`; [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py), `build_parser()` and `_normalize_run_args()`; and [gene_list_resolver.py](../../src/ldsc/gene_list_resolver.py), `GeneCatalog.load()` and `resolve_gene_lists()`.
 
 ## CLI and Python contract
 
-Accept exactly one of `--query-annot-bed-sources` and `--query-annot-gene-list-sources`. Continue requiring `--baseline-annot-sources` and `--output-dir`. Preserve existing BED behavior, SNP identities and row ordering, duplicate handling, and annotation values.
+Accept exactly one of `--query-annot-bed-sources` and `--query-annot-gene-list-sources`.
+Require `--output-dir` and exactly one of `--ref-snp-annot-sources` or `--ref-snp-bim-sources`.
+Preserve existing BED behavior, SNP identities and row ordering, duplicate handling, and annotation values.
 
 | Argument | Approved standalone behavior |
 | --- | --- |
+| `--ref-snp-annot-sources` | Existing baseline values and SNP grid; export aligned baseline and query families. Python: `ref_snp_annot_sources`. |
+| `--ref-snp-bim-sources` | Metadata-only `.bim`/`.bim.gz` grid; export query files only, without BED/FAM companions or fabricated baseline values. Python: `ref_snp_bim_sources`. |
 | `--query-annot-bed-sources` | Existing BED route; mutually exclusive with gene-list sources. |
 | `--query-annot-gene-list-sources` | Focal gene-list exact paths or globs, using existing path-token normalization, deterministic expansion, source naming, and resolution rules. |
 | `--gene-coordinate-file` | Required for gene lists; the user-supplied TSV/TSV.GZ is the sole coordinate and gene-resolution authority. |
@@ -27,9 +32,17 @@ Accept exactly one of `--query-annot-bed-sources` and `--query-annot-gene-list-s
 
 The CLI flag takes no value. The retired `--gene-list-resolution-policy` option is rejected without an alias. Python `run_annotate()` retains `gene_list_resolution_policy`: omission or `None` selects `strict`, and `"resolved-only"` explicitly permits the audited subset. Metadata retains the effective policy string.
 
-Do not expose `--control-gene-list-file`. A control becomes baseline column `gene_control` in direct ldscore, whereas annotate writes query columns. No control or copied-baseline output suite is added. Existing shared control support remains available to its current workflows.
+Do not expose `--control-gene-list-file`.
+A control becomes baseline column `gene_control` in direct ldscore, whereas annotate writes query columns.
+No control output is added.
+Annotation-grid mode exports supplied baseline values on the cleaned grid.
+Existing shared control support remains available to its current workflows.
 
-Do not add prebuilt-query or indexed query routes, synthetic baseline generation, PLINK/R² inputs, reference-panel filters, regression-SNP selectors, LD windows, or regression-specific exclusions. The baseline annotation grid remains required; a BIM-based replacement is outside this decision.
+The October 20 grid/output decision supersedes the earlier baseline-only input and original-baseline dependency decisions.
+The standalone `--baseline-annot-sources` flag and Python `baseline_annot_sources` keyword are replaced without aliases; downstream baseline flags stay unchanged.
+BIM and annotation grid sources are mutually exclusive; BIM plus separate supplied baselines is unsupported.
+Use only BIM SNP metadata (CHR, SNP, one-based BP, and A1/A2 under the selected identity policy); CM is ignored.
+No BED/FAM companions, genotype QC, synthetic baseline generation, prebuilt-query/indexed routes, or LD-score policy changes are part of standalone annotation.
 
 Use a general public `run_annotate()` entry point and rename the parser helper to `parse_annotate_args()`. Keep `run_annotate_from_args()` as the CLI dispatch seam. Replace obsolete BED-only wrappers and update exports, internal callers, tests, and examples without compatibility aliases. The return value follows the shared shard-based `AnnotationBundle` interface and references persistent outputs; its precise resource interface belongs to the memory refactor.
 
@@ -37,9 +50,18 @@ Use a general public `run_annotate()` entry point and rename the parser helper t
 
 Reuse the existing [gene-list input contract](gene-list-input-format.md#gene-list-source-format): exact case-sensitive identifiers or names, no implicit alias repair or Ensembl-version stripping, one identifier per nonblank row, and within-source deduplication by canonical gene ID. Preserve source and row audit ordering and established annotation-name collision rules.
 
-The catalog contains one declared build and one-based inclusive intervals. Convert `[start, end]` once to internal `[start - 1, end)`, then pad both sides and clip the start at zero. The annotation is the binary union of selected intervals on surviving baseline SNP rows. Explicit MHC exclusion is an audited transformation, not rejected resolution; there is no implicit gene exclusion.
+The catalog contains one declared build and one-based inclusive intervals.
+Convert `[start, end]` once to internal `[start - 1, end)`, then pad both sides and clip the start at zero.
+The annotation is the binary union of selected intervals on surviving grid SNP rows.
+Explicit MHC exclusion is an audited transformation, not rejected resolution; there is no implicit gene exclusion.
 
-In gene-list mode, omitted `--genome-build` behaves as `auto`. Combine catalog and available baseline evidence through existing inference helpers, with no reference-panel dependency. Conflicting or insufficient evidence fails according to the direct workflow's applicable rules; an explicit build must agree with the catalog. No implicit liftover occurs. For rsID-family identity, retain build-independent identity configuration and separately record the concrete projection build. Preserve BED build behavior when no catalog is involved. See [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py), `_normalize_run_args()` and `_resolve_ldscore_chr_pos_genome_build()`, and [genome_build_inference.py](../../src/ldsc/genome_build_inference.py).
+In gene-list mode, omitted `--genome-build` behaves as `auto`.
+Combine catalog and available grid evidence through existing inference helpers, with no reference-panel dependency.
+Conflicting or insufficient evidence fails according to the direct workflow's applicable rules; an explicit build must agree with the catalog.
+No implicit liftover occurs.
+For rsID-family identity, retain build-independent identity configuration and separately record the concrete projection build.
+Preserve BED build behavior when no catalog is involved.
+See [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py), `_normalize_run_args()` and `_resolve_ldscore_chr_pos_genome_build()`, and [genome_build_inference.py](../../src/ldsc/genome_build_inference.py).
 
 ## Validation gates and condition–outcome table
 
@@ -47,9 +69,19 @@ The table applies to the new standalone gene-list route. Existing BED acceptance
 
 Gate A validates the catalog and resolves all focal sources together before substantial annotation projection. Collect every safely discoverable source, row, catalog, and naming issue at the gate where its prerequisites are available. A structurally unusable catalog may prevent reliable matching; report its issues without inventing a gene-resolution audit. An unreadable list receives a source-summary error with unknown row counts. Unreferenced latent catalog defects are diagnosed without failing an otherwise valid run. Reuse the current resolver's `RESOLVED_ONLY_REASONS` rather than creating another omission policy.
 
-After Gate A, establish chromosome coverage from validated baseline contents before interpreting absent support. Exact paths and globs select their actual files; file contents establish scope. An `@` declaration requires all autosomes 1–22. Collect safely discoverable missing, unreadable, invalid, and inconsistent baseline inputs. Every selected gene must be inside the validated scope after resolution, deduplication, and explicit gene exclusion. A pathway need not contain genes on every covered chromosome. Do not import direct ldscore's baseline/reference-set equality check: standalone annotate has no reference panel. Preserve the documented glob-selection caveat from [path specification](path-specification.md#direct-ld-score-query-scope).
+After Gate A, establish chromosome coverage from validated grid contents before interpreting absent support.
+Exact paths and globs select their actual files; file contents establish scope.
+An `@` declaration requires all autosomes 1–22.
+Collect safely discoverable missing, unreadable, invalid, and inconsistent grid inputs.
+Every selected gene must be inside the validated scope after resolution, deduplication, and explicit gene exclusion.
+A pathway need not contain genes on every covered chromosome.
+Do not import direct ldscore's baseline/reference-set equality check: standalone annotate has no reference panel.
+Preserve the documented glob-selection caveat from [path specification](path-specification.md#direct-ld-score-query-scope).
 
-Gate B measures support on baseline SNP rows remaining after existing annotation identity cleanup. Count surviving SNP rows intersecting each padded gene interval; query counts measure the interval union without double-counting overlap. Determine query viability across the complete validated chromosome scope. Unknown or unevaluated support is blank, never zero.
+Gate B measures support on grid SNP rows remaining after existing annotation identity cleanup.
+Count surviving SNP rows intersecting each padded gene interval; query counts measure the interval union without double-counting overlap.
+Determine query viability across the complete validated chromosome scope.
+Unknown or unevaluated support is blank, never zero.
 
 | Condition | Outcome |
 | --- | --- |
@@ -64,8 +96,8 @@ Gate B measures support on baseline SNP rows remaining after existing annotation
 | Unreferenced latent catalog defect | Diagnose without failing an otherwise valid run; referenced defects follow existing resolution policy. |
 | Repeated rows or aliases select the same canonical gene | Select that gene once within the source and retain duplicate audit rows. |
 | Explicit gene-region exclusion removes a gene | Record `excluded`; assess coverage and support only for the remaining selected genes. |
-| Selected gene lies outside validated baseline chromosome scope | Fail the complete batch under either policy as incomplete chromosome coverage; do not truncate or skip the pathway. |
-| Required baseline input is missing, unreadable, invalid, or violates its declared scope | Fail the input gate after collecting safely discoverable issues; support remains unevaluated. |
+| Selected gene lies outside validated grid chromosome scope | Fail the complete batch under either policy as incomplete chromosome coverage; do not truncate or skip the pathway. |
+| Required grid input is missing, unreadable, invalid, or violates its declared scope | Fail the input gate after collecting safely discoverable issues; support remains unevaluated. |
 | Individual resolved gene overlaps no surviving annotation-grid SNPs | Diagnose measured zero support; this alone is nonfatal. A supported sibling gene can keep the focal query usable. |
 | Entire focal query overlaps no surviving annotation-grid SNPs | Skip globally as `zero_annotation_snps`; retain usable focal siblings. |
 | A usable query is zero on one chromosome but supported elsewhere | Retain the column in every emitted chromosome shard, including its zero values. |
@@ -76,13 +108,26 @@ Preserve the shared precedence in [query_annotations.py](../../src/ldsc/query_an
 
 ## Outputs, diagnostics, and failure behavior
 
-Keep root `query.<chrom>.annot.gz` files with identical ordered query columns across chromosomes. Omit globally skipped queries from every shard. Preserve the canonical `CHR/BP/SNP/CM` layout, explicit `CM=NA`, existing allele-column behavior, absence of annotation MAF, and generated integer `0/1` values. Preserve reloadability through the shared annotation readers and downstream prebuilt-query ldscore route. See [outputs.py](../../src/ldsc/outputs.py), `AnnotationDirectoryWriter.write()`, and [lessons.md](../../lessons.md#missing-metadata-must-be-explicit-in-reusable-whitespace-parsed-tables).
+Keep root `query.<chrom>.annot.gz` files with identical ordered query columns across chromosomes.
+Annotation-grid mode also writes `baseline.<chrom>.annot.gz` using the same cleaned SNP metadata, rows, order, and chromosome shards.
+Supplied baseline values retain float32 precision, including continuous values; the original files remain untouched.
+BIM-grid mode has no baseline output or baseline columns.
+Downstream `ldscore` consumes the exported baseline family through `--baseline-annot-sources` and the query family through `--query-annot-sources`, with no manifest requirement or new grid flag.
+BIM-generated columns can themselves be passed as downstream baseline annotations when they define the intended baseline model; filenames do not fix their modeling role.
+Omit globally skipped queries from every shard.
+Preserve the canonical `CHR/BP/SNP/CM` layout, explicit `CM=NA`, existing allele-column behavior, absence of annotation MAF, and generated integer `0/1` values.
+Preserve reloadability through the shared annotation readers and downstream prebuilt-query ldscore route.
+See [outputs.py](../../src/ldsc/outputs.py), `AnnotationDirectoryWriter.write()`, and [lessons.md](../../lessons.md#missing-metadata-must-be-explicit-in-reusable-whitespace-parsed-tables).
 
 Persist the row-complete `diagnostics/gene_list_audit.tsv.gz`, per-source `diagnostics/gene_list_resolution_summary.tsv`, and post-Gate-A `diagnostics/query_annotation_status.tsv`, plus applicable chromosome-scope and input/catalog-issue diagnostics. Retain the existing `diagnostics/metadata.json`, `diagnostics/annotate.log`, and dropped-SNP audit. Structural catalog failure may produce catalog issues without a list audit; Gate A rejection writes the available audit/summary without fabricating later-stage statuses. Reuse existing diagnostic schemas and writers where applicable.
 
 Annotation-grid support must be explicit: use `annotation_snp_count` for measured per-gene grid counts and an annotate-specific zero-support reason, leaving reference-panel counts unevaluated. Summary support counts describe the annotation grid; `n_annotation_snps` counts marked surviving rows over all emitted chromosomes. Preserve reference-support semantics for direct/indexed ldscore. The support-update helper and shared status text must distinguish these universes rather than calling baseline-grid SNPs reference-panel SNPs.
 
-Provenance records query and baseline sources, catalog source/build, concrete projection build, SNP identity configuration, padding, explicit exclusions, resolution policy, counts, chromosome scope, and applicable diagnostic paths. Do not add routine content hashes or restore removed annotation fingerprints.
+Provenance records `grid_kind`, `ref_snp_annot_sources`, `ref_snp_bim_sources`, query sources, catalog source/build, concrete projection build, SNP identity configuration, padding, explicit exclusions, resolution policy, counts, chromosome scope, and applicable diagnostic paths.
+The `snp_rows` object records input, output, and dropped logical SNP rows, both in total and under `by_chromosome`.
+Aligned column sources count each SNP row once; every removed duplicate occurrence counts as a dropped row.
+The INFO log reports totals including zero drops and, for annotation input, directs users to the exported pair with the exact downstream flags and paths.
+Do not add routine content hashes or restore removed annotation fingerprints.
 
 Fatal validation publishes available diagnostics before new scientific outputs. Successful partial runs emit bounded CLI notices for deliberate resolution omissions and zero-support/skipped-query outcomes, with detailed diagnostics retained. Python callers receive structured statuses and paths without direct console notices. Follow [workflow logging](workflow-logging.md#output-family-preflight) for family preflight, logs, successful stale-owned-file cleanup, and authorized-overwrite failure markers. Do not add rollback, restoration, quarantine, or a new failure-time deletion policy. A failed overwrite is not promised to restore a prior successful family.
 
@@ -92,12 +137,35 @@ The [annotation memory decisions](annotation-memory-decisions.md#confirmed-datas
 
 Resolve gene lists once and reuse the batch across chromosomes. Accumulate coverage/support/status summaries without whole-genome annotation matrices. Globally determine which query columns are retained before publishing a complete scientific family; the refactor determines the necessary bounded passes or private staging. Standalone annotate writes shards incrementally and returns an object referencing persistent outputs. Do not build a second storage framework, eagerly retain all chromosome DataFrames, reread a whole-genome source once per chromosome, or rematerialize whole-genome annotations on return.
 
-The memory-refactor discussion subsequently approved dataset-wide annotation identity cleanup, resource-owning bundle handles with explicit closure and borrowing, and dependence on original baseline sources. It also requires new annotation/analysis staging inside the supplied output directory; the implemented lifecycle is described in [annotation memory design](annotation-memory-design.md). Those decisions govern this feature's integration, including the deliberate correction of layout-dependent duplicate handling. No portable copies of all baseline annotations are required. Standalone query-mode scope is settled and should not be reopened as an unresolved memory-refactor question.
+The memory-refactor discussion subsequently approved dataset-wide annotation identity cleanup, resource-owning bundle handles with explicit closure and borrowing, and bounded private baseline staging.
+It also requires new annotation/analysis staging inside the supplied output directory; the implemented lifecycle is described in [annotation memory design](annotation-memory-design.md).
+Those decisions govern this feature's integration, including the deliberate correction of layout-dependent duplicate handling.
+The October 20 output contract requires cleaned baseline exports in annotation-grid mode.
+The returned bundle reads exported files only, releasing construction scratch before return.
+BIM mode returns only generated columns through the same resource-owning interface.
+Standalone query-mode scope is settled and should not be reopened as an unresolved memory-refactor question.
 
 ## Implementation acceptance checks
 
-The standalone implementation uses `annotate_workflow.run_annotate()`, shared chunk normalization, output-contained shard storage, staged gene resolution, and `AnnotationDirectoryWriter`. Affected parser/export tests now use `run_annotate()` and `parse_annotate_args()`. Documentation/tutorial migration, full checks, and matched resource measurements are complete; see the [verification record](../audits/annotation-memory/progress.md) and [resource results](../audits/annotation-memory/results.md).
+The standalone implementation uses `annotate_workflow.run_annotate()`, metadata-only `_annotation_bim` staging, shared chunk normalization, output-contained shard storage, staged gene resolution, and `AnnotationDirectoryWriter`.
+Affected parser/export tests now use `run_annotate()` and `parse_annotate_args()`.
+Documentation/tutorial migration, full checks, and matched resource measurements are complete; see the [verification record](../audits/annotation-memory/progress.md) and [resource results](../audits/annotation-memory/results.md).
 
 Validate independently expected SNP membership, interval boundaries, overlap unions, padding, clipping, exact aliases and duplicates, and explicit exclusions. For example, an unpadded catalog interval `[101, 110]` must mark one-based SNP positions 101 and 110 but not 100 or 111, matching BED `[100, 110)`. Repeat with matching BED intervals and padding using independently derived expected values.
 
-Cover chromosome-sharded and whole-genome baselines, identity and row-order preservation, globally supported queries with zero-only shards, every condition in the table, batched failures across independent sources, output reloadability, diagnostic/provenance contents, collision/overwrite handling, and stale-owned-artifact cleanup. Verify actual CLI and Python paths and that support does not consult a reference panel. Coordinate bounded-memory checks with the refactor, including discovery/preflight and return behavior. Run appropriate focused tests, the full pytest suite, CLI help, and the standard-library unittest compatibility check; run pytest and unittest sequentially because they share BED temporary-file cleanup. Report actual results after implementation; documentation-only verification does not establish runtime correctness.
+Cover BIM-only and annotation-grid routes, chromosome-sharded and whole-genome baselines, identity and row-order preservation, globally supported queries with zero-only shards, every condition in the table, batched failures across independent sources, output reloadability, diagnostic/provenance contents, collision/overwrite handling, and stale-owned-artifact cleanup.
+Verify actual CLI and Python paths and that support does not consult a reference panel.
+Coordinate bounded-memory checks with the refactor, including discovery/preflight and return behavior.
+Run appropriate focused tests, the full pytest suite, CLI help, and the standard-library unittest compatibility check; run pytest and unittest sequentially because they share BED temporary-file cleanup.
+Report actual results after implementation; documentation-only verification does not establish runtime correctness.
+
+### October 20 grid/export verification
+
+`tests/test_annotate_grid.py` covers mutually exclusive CLI/Python grid inputs, BIM-only metadata, four identity modes, BED/gene boundary parity, malformed inputs and suite membership, automatic build evidence, aligned logical row counts, continuous baseline values, exported-input lifetime, and stale-family cleanup.
+An end-to-end test deletes the original baseline after export, passes the exported pair to `run_ldscore()`, and checks independently expected scores.
+
+The local `ldsc3-dev` environment imported this checkout's `src/ldsc` on branch `restructure`.
+Full pytest passed 2,010 tests and 130 subtests with one expected skip; sequential unittest discovery ran 994 tests successfully with one expected skip.
+Both CLI entry points were checked, 22 documented annotation/LD-score commands parsed, and 525 local documentation link targets resolved.
+The partitioned tutorial notebook's JSON and Python cells were validated; its placeholder dataset paths prevent a complete notebook execution without user inputs.
+No HPC execution or new resource benchmark was performed for this change.

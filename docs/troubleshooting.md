@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](current/workflow-logging.md#diagnostics-and-troubleshooting).
 It also retains guidance for failed-run artifacts, documented query omissions, and cleanup warnings that users need to interpret.
@@ -287,6 +287,19 @@ Successful runs report the method and counts in stdout and `diagnostics/sumstats
 
 ## annotate
 
+### annotate: grid selection and downstream alignment
+
+Use exactly one of `--ref-snp-annot-sources` or `--ref-snp-bim-sources`.
+The old standalone `--baseline-annot-sources` flag is removed; downstream `ldscore` retains it.
+BIM input is a six-column headerless `.bim`/`.bim.gz` file with positive integer one-based BP, not a PLINK prefix, and requires no BED/FAM companions.
+For an `@` BIM suite, provide all 22 autosomal members with matching chromosome contents; use exact paths or globs for a deliberately smaller scope.
+BIM format and member failures are recorded in `diagnostics/input_issues.tsv`.
+
+If `ldscore` reports row mismatch after annotation generation, pair the exported `baseline.<chrom>.annot.gz` files with the exported `query.<chrom>.annot.gz` files through `--baseline-annot-sources` and `--query-annot-sources`.
+Original baselines may have additional rows removed by annotation identity cleanup.
+Inspect the input/output/dropped counts in `diagnostics/annotate.log` and `diagnostics/metadata.json` (`snp_rows`).
+BIM mode exports query values only; using them as downstream queries still requires actual aligned baseline annotations.
+
 ### annotate: input preflight
 
 Missing files, invalid annotation values or headers, and incorrect chromosome members are recorded in `diagnostics/input_issues.tsv`. Exact paths and globs select their actual inputs. For gene-list annotation, `@` explicitly requires autosomes 1–22; each member must contain its declared chromosome. Repair all listed inputs before rerunning. Input defects are not interpreted as zero pathway support.
@@ -295,7 +308,11 @@ Missing files, invalid annotation values or headers, and incorrect chromosome me
 
 Use exactly one BED or gene-list query route. Gene lists require a readable coordinate catalog and explicit nonnegative `--padding-bp`, including `0` for gene bodies. Check `diagnostics/gene_catalog_issues.tsv`, `diagnostics/gene_list_audit.tsv.gz`, and `diagnostics/gene_list_resolution_summary.tsv` for catalog defects, malformed or unreadable lists, naming collisions, and unresolved identifiers. `resolved-only` permits only the established identifier-resolution omission allowlist; it does not bypass malformed rows, missing sources, or incomplete chromosome coverage.
 
-After resolution, every selected gene must be covered by validated baseline contents. `diagnostics/chromosome_scope.json` and the gene audit explain missing coverage. Measured support is then reported as `annotation_snp_count` on cleaned baseline SNP rows; reference-panel support remains unevaluated. Empty and globally unsupported focal queries are skipped, usable siblings continue, and an all-skipped batch fails without publishing a new query family. All-one annotation columns remain valid.
+After resolution, every selected gene must be covered by validated grid contents.
+`diagnostics/chromosome_scope.json` and the gene audit explain missing coverage.
+Measured support is then reported as `annotation_snp_count` on cleaned grid SNP rows; reference-panel support remains unevaluated.
+Empty and globally unsupported focal queries are skipped, usable siblings continue, and an all-skipped batch fails without publishing a new query family.
+All-one annotation columns remain valid.
 
 An authorized overwrite can leave `RUN_FAILED.txt` after failure. Inspect diagnostics and rerun with corrected inputs and `--overwrite`; no rollback to earlier results is promised. Private staging is removed on handled failure or bundle closure. Python callers should use `with run_annotate(...):` or call `close()` after consuming the returned handle; canonical `query.<chrom>.annot.gz` files remain available.
 

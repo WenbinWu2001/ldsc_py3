@@ -173,7 +173,7 @@ def test_annotate_reports_baseline_and_bed_paths_before_staging(tmp_path, monkey
     from ldsc import run_annotate, GlobalConfig, _annotation_sources
     monkeypatch.setattr(_annotation_sources, "_scan", forbid_work)
     with pytest.raises(LDSCInputError) as failure:
-        run_annotate(baseline_annot_sources=[tmp_path / "missing.annot"],
+        run_annotate(ref_snp_annot_sources=[tmp_path / "missing.annot"],
                      query_annot_bed_sources=[tmp_path / "missing.bed"], output_dir=tmp_path / "out",
                      global_config=GlobalConfig(snp_identifier="rsid"))
     assert "missing.annot" in str(failure.value) and "missing.bed" in str(failure.value)

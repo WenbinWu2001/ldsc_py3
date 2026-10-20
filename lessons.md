@@ -265,3 +265,10 @@ Last updated on: 2026-10-20
   Export supplied baseline values and generated queries from the same cleaned grid, and return handles to the exports.
   BIM-only projection has no supplied baseline values and must not fabricate any.
   Verify downstream scoring after deleting the original baseline input, including continuous-value preservation; see `tests/test_annotate_grid.py`.
+
+## Identifier failures must not hide independent query-name failures
+
+- Standalone annotation aborted on rejected gene identifiers before checking source-derived query names, hiding simultaneous baseline or reserved-name collisions from both the terminal and source summary.
+  Check names from resolved declarations and validated annotation headers before the fatal gene-list gate, then write the enriched diagnostics and raise once.
+  Preserve resolver-owned duplicate-name reasons and stop before grid preparation or projection.
+  Verify terminal messages, saved audits, and preparation boundaries together; see `tests/test_annotate_preflight.py`.

@@ -77,6 +77,9 @@ No automatic baseline synthesis or alignment with a separate baseline source is 
 Do not split each query column into its own chromosome suite.
 
 Gene Gate A reports safely discoverable source, naming, catalog, and identifier issues.
+After header and catalog validation, naming collisions and unresolved identifiers are reported together before SNP-grid preparation.
+Query names come from source filenames: rename a conflicting file and inspect both `gene_list_resolution_summary.tsv` and `gene_list_audit.tsv.gz` under `diagnostics/`.
+Naming collisions remain fatal with `--allow-unresolved-genes`, including empty or fully unresolved colliding queries.
 Gate B evaluates support only on grid rows surviving identity cleanup.
 Empty and globally unsupported focal queries are skipped while usable siblings continue; an all-skipped batch fails.
 All-one queries remain valid.

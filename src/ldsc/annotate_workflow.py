@@ -98,8 +98,8 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
         Gene-only rejection policy. Omitted or ``None`` means ``'strict'``:
         rejected identifiers stop preparation after the batch audit.
         ``'resolved-only'`` omits allowlisted rejected rows and records the
-        resolved subset in diagnostics. Structural input and chromosome-coverage
-        errors remain fatal. The CLI selects this policy with the value-free
+        resolved subset in diagnostics. Naming, structural input, and
+        chromosome-coverage errors remain fatal. The CLI selects this policy with the value-free
         ``--allow-unresolved-genes`` flag; the Python parameter remains a string.
     gene_exclude_regions : {'none', 'mhc'}, optional
         Gene-only explicit exclusion before padding, default none.
@@ -120,6 +120,14 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
         explicit float32 reads prepare packed-binary/dense-float32 private stores
         on demand under the output directory. Use a context manager or ``close()``;
         closure preserves public outputs. No genotype QC or LD scoring occurs.
+
+    Notes
+    -----
+    After input-header and catalog validation, gene identifier and query-name
+    failures are collected together before build inference, SNP-grid preparation,
+    or projection. Query names come from source filenames and are checked even
+    for empty or unresolved lists. Failed preflight writes the complete gene
+    audit and source summary; no new scientific annotation files are published.
     """
     bed = split_cli_path_tokens(query_annot_bed_sources)
     genes = split_cli_path_tokens(query_annot_gene_list_sources)
@@ -163,12 +171,33 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                     writer.write_diagnostics(output, catalog_issues=exc.issues)
                     raise
                 batch = resolve_gene_lists_staged(genes, catalog, workspace, resolution_policy=spec.gene_list_resolution_policy, gene_exclude_regions=spec.gene_exclude_regions)
+                # Names depend on declarations and validated headers, not resolved genes or grid rows.
+                names = [declaration['query'] for declaration in batch.declarations]
+                baseline_columns = {column for path in declared_inputs.baseline for column in declared_inputs.columns[path]}
+                reserved = {'gene_control', 'CHR', 'POS', 'BP', 'SNP', 'CM', 'A1', 'A2', 'MAF'}
+                naming_errors = []
+                try:
+                    require_unique_annotation_names(sorted(baseline_columns), names)
+                except LDSCInputError as exc:
+                    naming_errors.append(str(exc))
+                reserved_queries = sorted(reserved.intersection(names))
+                if reserved_queries:
+                    naming_errors.append('Gene-list query names collide with reserved annotation metadata/control names: ' + ', '.join(reserved_queries) + '.')
+                naming_error = None
+                if naming_errors:
+                    naming_error = LDSCInputError(' '.join(naming_errors) + ' Rename conflicting focal source files to change their query names.')
+                    summary = batch.summary.copy()
+                    # Duplicate-query reasons are already recorded by the resolver.
+                    invalid_names = summary['query'].isin(baseline_columns | reserved)
+                    summary.loc[invalid_names, 'source_status'] = 'error'
+                    summary.loc[invalid_names, 'source_reasons'] = summary.loc[invalid_names, 'source_reasons'].fillna('').map(lambda text: ';'.join(filter(None, (text, 'annotation_name_collision'))))
+                    batch = replace(batch, summary=summary, has_fatal_gate_a_issues=True)
                 writer.write_diagnostics(output, batch=batch, catalog_issues=catalog.issues)
                 from .query_annotations import _log_gene_catalog_issues, _log_gene_list_rejections
                 _log_gene_catalog_issues(catalog.issues)
                 _log_gene_list_rejections(batch)
                 if batch.has_fatal_gate_a_issues:
-                    raise _gate_a_error(batch)
+                    raise _gate_a_error(batch, naming_error)
             requested = genome_build if genome_build is not None else config.genome_build
             prepared = None
             if bim:
@@ -186,26 +215,9 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                                                        autosomes_only=bool(genes), header_widths=declared_inputs.widths)
             bundle = AnnotationBundle(prepared.shards, list(prepared.baseline_columns), [], workspace,
                                       config_snapshot=resolved_config, identity_drops=prepared.drops, gene_list_batch=batch)
-            names = [d['query'] for d in batch.declarations] if batch is not None else [Path(path).stem for path in resolve_file_group(bed, label='BED file')]
-            naming_error = None
-            try:
+            if batch is None:
+                names = [Path(path).stem for path in resolve_file_group(bed, label='BED file')]
                 require_unique_annotation_names(bundle.baseline_columns, names)
-                if batch is not None and any(name in {'gene_control', 'CHR', 'POS', 'BP', 'SNP', 'CM', 'A1', 'A2', 'MAF'} for name in names):
-                    raise LDSCInputError('Gene-list query names collide with reserved annotation metadata/control names. Rename the focal source files.')
-            except LDSCInputError as exc:
-                naming_error = exc
-            if batch is not None and (batch.has_fatal_gate_a_issues or naming_error):
-                if naming_error:
-                    summary = batch.summary.copy()
-                    forbidden = set(bundle.baseline_columns) | {'gene_control', 'CHR', 'POS', 'BP', 'SNP', 'CM', 'A1', 'A2', 'MAF'}
-                    invalid_names = summary['query'].isin(forbidden) | summary['query'].duplicated(keep=False)
-                    summary.loc[invalid_names, 'source_status'] = 'error'
-                    summary.loc[invalid_names, 'source_reasons'] = summary.loc[invalid_names, 'source_reasons'].fillna('').map(lambda text: ';'.join(filter(None, (text, 'annotation_name_collision'))))
-                    batch = replace(batch, summary=summary)
-                    writer.write_diagnostics(output, batch=batch)
-                raise _gate_a_error(batch, naming_error)
-            if naming_error:
-                raise naming_error
             scope = {'chromosomes': list(prepared.scope_chromosomes), 'grid_kind': 'bim' if bim else 'annotation',
                      'requires_all_autosomes': bool(declared), 'selection': 'validated_input_contents', 'validation_status': 'passed'}
             if baseline:

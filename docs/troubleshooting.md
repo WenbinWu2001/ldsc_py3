@@ -308,6 +308,13 @@ Missing files, invalid annotation values or headers, and incorrect chromosome me
 
 Use exactly one BED or gene-list query route. Gene lists require a readable coordinate catalog and explicit nonnegative `--padding-bp`, including `0` for gene bodies. Check `diagnostics/gene_catalog_issues.tsv`, `diagnostics/gene_list_audit.tsv.gz`, and `diagnostics/gene_list_resolution_summary.tsv` for catalog defects, malformed or unreadable lists, naming collisions, and unresolved identifiers. `resolved-only` permits only the established identifier-resolution omission allowlist; it does not bypass malformed rows, missing sources, or incomplete chromosome coverage.
 
+Standalone `annotate` checks query names from source filenames against validated baseline headers and reserved metadata/control names before preparing the SNP grid.
+For example, if baseline column `base` conflicts with `base.txt` and that list contains `UNKNOWN`, the same terminal error reports both problems.
+The source summary records `annotation_name_collision`, while the row audit records the unresolved identifier; duplicate source-derived query names retain `duplicate_query_name`.
+Rename the conflicting focal source files to change their query names, and repair rejected identifiers when using strict resolution.
+`--allow-unresolved-genes` does not permit naming collisions, even for empty lists or lists with no resolved genes.
+Invalid headers or an unusable catalog may stop an earlier gate because dependent checks cannot be performed reliably.
+
 After resolution, every selected gene must be covered by validated grid contents.
 `diagnostics/chromosome_scope.json` and the gene audit explain missing coverage.
 Measured support is then reported as `annotation_snp_count` on cleaned grid SNP rows; reference-panel support remains unevaluated.

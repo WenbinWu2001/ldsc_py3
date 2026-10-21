@@ -1,6 +1,6 @@
 # Calculate LD scores
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 `ldsc ldscore` computes a reusable LD-score directory from PLINK genotypes or a precomputed R² panel. Regression consumes that directory. Ordinary unpartitioned scoring uses a synthetic all-ones `base` annotation:
 
@@ -20,6 +20,12 @@ The output root contains `metadata.json` and `ldscore.baseline.parquet`. One que
 Direct query scoring requires explicit `--baseline-annot-sources` plus one query route: `--query-annot-sources`, `--query-annot-bed-sources`, or `--query-annot-gene-list-sources`. See the [guided tutorial](../guided-tutorial.md#analysis-3-partition-heritability-with-functional-annotations-known-as-cell-type-specific-regression), [gene-list workflow](ldscore-from-gene-list.md), and [standalone annotation](../utility-functionalities/annotate.md). An exact gene index supplies its own configuration and baseline; omit live overrides in indexed mode.
 
 Baseline inputs are prebuilt annotation tables. To prepare binary baseline categories from BED files, follow [building baseline annotations with `annotate`](../utility-functionalities/annotate.md#build-baseline-annotations-from-bed-files), including target SNP-grid creation, category-specific interval boundaries, and the all-ones `base` column.
+
+
+With `--genome-build auto`, baseline and prebuilt query annotations, PLINK BIM shards or R2 metadata, gene-catalog declarations, and coordinate keep lists must agree.
+Every selected shard participates; exact files, globs, and `@` paths use the same inference rule, and PLINK-only auto runs use BIM coordinates.
+A concrete build is authoritative; it does not convert coordinates.
+See the [shared genome-build and keep-list policy](global-config.md#genome-build-inference-checking-and-overrides).
 
 ## Effective CM Coordinates and Metadata Export
 

@@ -169,7 +169,8 @@ def _validate_r2_identity_matches_config(metadata: dict[str, object], global_con
     """Reject package R2 artifacts built under different identity assumptions."""
     artifact_config = GlobalConfig(
         snp_identifier=str(metadata["snp_identifier"]),
-        genome_build=metadata.get("genome_build"),
+        genome_build=(global_config.genome_build if global_config.genome_build in {"hg19", "hg38"}
+                      else metadata.get("genome_build")),
     )
     validate_config_compatibility(
         global_config,
@@ -814,8 +815,6 @@ class RefPanelLoader:
         mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
         if identity_mode_family(mode) != "chr_pos" or self.global_config.genome_build != "auto":
             return self.global_config
-        if not ref_panel_spec.ref_panel_snps_file:
-            return self.global_config
         resolved_build = _infer_restricted_ref_panel_build(ref_panel_spec)
         return GlobalConfig(
             snp_identifier=mode,
@@ -825,109 +824,23 @@ class RefPanelLoader:
 
 
 def _infer_restricted_ref_panel_build(ref_panel_spec: RefPanelConfig) -> str:
-    """Infer a concrete build for direct ``chr_pos`` ref-panel restrictions."""
-    if ref_panel_spec.ref_panel_snps_file:
-        header_build = _infer_restriction_header_build(Path(ref_panel_spec.ref_panel_snps_file))
-        if header_build is not None:
-            return header_build
-    try:
-        if ref_panel_spec.backend == "parquet_r2":
-            inferred = _infer_parquet_r2_build(ref_panel_spec)
-        elif ref_panel_spec.backend == "plink":
-            inferred = _infer_plink_ref_panel_build(ref_panel_spec)
-        else:
-            inferred = None
-    except Exception as exc:
-        raise LDSCInputError(
-            "Reference-panel loading could not infer genome_build='auto' before applying "
-            "chr_pos SNP restrictions. Most likely the restriction file, PLINK BIM, or "
-            "parquet R2 metadata did not contain enough build evidence. Pass "
-            "GlobalConfig(genome_build='hg19') or GlobalConfig(genome_build='hg38') explicitly."
-        ) from exc
-    if inferred not in {"hg19", "hg38"}:
-        raise LDSCInputError(
-            "Reference-panel loading could not infer genome_build='auto' before applying "
-            "chr_pos SNP restrictions. Most likely the restriction file and reference panel "
-            "do not expose concrete build metadata. Pass GlobalConfig(genome_build='hg19') "
-            "or GlobalConfig(genome_build='hg38') explicitly."
-        )
-    return inferred
+    """Resolve all panel shards and coordinate restrictions before filtering."""
+    from .._genome_build_policy import GenomeBuildCheck
 
-
-def _infer_restriction_header_build(path: Path) -> str | None:
-    """Infer build from an unambiguous build-specific restriction POS header."""
-    header, _rows, _delimiter = _parse_restriction_rows(path)
-    normalized = {str(column).upper().replace("-", "_") for column in header}
-    has_hg19 = any(token in normalized for token in {"HG19_POS", "HG19_BP", "HG37_POS", "GRCH37_POS"})
-    has_hg38 = any(token in normalized for token in {"HG38_POS", "HG38_BP", "GRCH38_POS"})
-    if has_hg19 and not has_hg38:
-        return "hg19"
-    if has_hg38 and not has_hg19:
-        return "hg38"
-    return None
-
-
-def _parse_restriction_rows(path: Path):
-    """Reuse the identifier parser for header inspection."""
-    from .identifiers import _parse_restriction_rows as parse_rows
-
-    return parse_rows(path)
-
-
-def _infer_parquet_r2_build(ref_panel_spec: RefPanelConfig) -> str | None:
-    """Infer reference-panel build from parquet R2 schema metadata."""
-    if ref_panel_spec.r2_dir is None:
-        return None
-    root = Path(ref_panel_spec.r2_dir)
-    paths: list[Path] = []
-    if root.is_dir():
-        paths.extend(sorted(root.glob("chr*_r2.parquet")))
-        for build in ("hg19", "hg38"):
-            child = root / build
-            if child.is_dir():
-                paths.extend(sorted(child.glob("chr*_r2.parquet")))
-    builds = {_read_r2_sorted_by_build(path) for path in paths}
-    builds.discard(None)
-    if len(builds) == 1:
-        return next(iter(builds))
-    return None
-
-
-def _read_r2_sorted_by_build(path: Path) -> str | None:
-    """Read ``ldsc:sorted_by_build`` from a parquet R2 schema."""
-    try:
-        import pyarrow.parquet as pq
-    except ImportError:
-        return None
-    raw_meta = pq.read_schema(str(path)).metadata or {}
-    raw_build = raw_meta.get(b"ldsc:sorted_by_build")
-    if raw_build is None:
-        return None
-    build = raw_build.decode("utf-8")
-    return build if build in {"hg19", "hg38"} else None
-
-
-def _infer_plink_ref_panel_build(ref_panel_spec: RefPanelConfig) -> str | None:
-    """Infer reference-panel build from PLINK BIM coordinates."""
-    if ref_panel_spec.plink_prefix is None:
-        return None
-    plink = inspect_plink_inputs(ref_panel_spec.plink_prefix)
-    plink.require_valid()
-    prefixes = plink.prefixes
-    frames: list[pd.DataFrame] = []
-    for prefix in prefixes:
-        frame = pd.read_csv(
-            prefix + ".bim",
-            sep=r"\s+",
-            header=None,
-            usecols=[0, 3],
-            names=["CHR", "POS"],
-        )
-        frames.append(frame)
-    if not frames:
-        return None
-    sample = pd.concat(frames, ignore_index=True)
-    return resolve_genome_build("auto", "chr_pos", sample, context="reference-panel SNP restriction", logger=LOGGER)
+    check = GenomeBuildCheck('auto', context='reference-panel loading', logger=LOGGER)
+    if ref_panel_spec.backend == 'plink':
+        check.plink('--plink-prefix', ref_panel_spec.plink_prefix)
+    elif ref_panel_spec.r2_dir is not None:
+        root = Path(ref_panel_spec.r2_dir)
+        paths = sorted(root.glob('chr*_r2.parquet'))
+        if not paths:
+            paths = [path for build in ('hg19', 'hg38') for path in sorted((root / build).glob('chr*_r2.parquet'))]
+        if not paths:
+            check.unresolved('--r2-dir', root, 'no R2 Parquet artifacts found')
+        for path in paths:
+            check.table('--r2-dir', path)
+    check.paths('--ref-panel-snps-file', ref_panel_spec.ref_panel_snps_file, restriction_mode='chr_pos')
+    return check.resolve()
 
 
 def _read_metadata_sidecar_identity(path: str | Path) -> dict[str, object] | None:
@@ -965,7 +878,8 @@ def _validate_metadata_identity_matches_config(metadata: dict[str, object], glob
     """Reject package metadata sidecars built under different identity assumptions."""
     artifact_config = GlobalConfig(
         snp_identifier=str(metadata["snp_identifier"]),
-        genome_build=metadata.get("genome_build"),
+        genome_build=(global_config.genome_build if global_config.genome_build in {"hg19", "hg38"}
+                      else metadata.get("genome_build")),
     )
     validate_config_compatibility(
         artifact_config,

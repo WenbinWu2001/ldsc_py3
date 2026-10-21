@@ -1,10 +1,15 @@
 # Cross-trait genetic correlation
 
-Last updated on: 2026-09-11
+Last updated on: 2026-10-20
 
 `ldsc rg` estimates genetic correlation for all unordered pairs of supplied traits, or for each trait against one anchor. It writes both correlation results and separately fitted single-trait heritabilities. The [cross-trait tutorial](../../../tutorials/cross-trait-genetic-correlation.md) covers input preparation and the Python API.
 
 ## Estimate and plot all trait pairs
+
+All coordinate-family trait inputs and the LD-score artifact participate in one genome-build check before fitting any trait or pair.
+Conflicting or unresolved evidence produces a grouped report identifying every input.
+There is no build override on `rg`; supply matching upstream artifacts using the shared [genome-build policy](../../current/snp-identifier-genome-build-defaults.md#genome-build-policy).
+Legacy LDSC2 text summary statistics retain their separate rsID-to-panel projection path.
 
 ```bash
 ldsc rg \

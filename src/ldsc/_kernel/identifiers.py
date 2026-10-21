@@ -253,6 +253,9 @@ def read_snp_restriction_keys(
     The result is a set-like filter for SNP matching only. Duplicate restriction
     keys collapse to one retained key, and columns outside the active identity
     schema, such as ``CM`` or ``MAF``, are ignored rather than propagated.
+    Coordinate builds must already be resolved by the workflow. A concrete
+    ``genome_build`` selects its matching build-specific position column ahead
+    of generic POS; this reader does not re-infer or reject that declaration.
 
     Results are memoized by file identity (path, mtime, size) and identifier
     mode/build, so loading the same map twice in one run -- e.g. the packaged HM3

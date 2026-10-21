@@ -1,11 +1,17 @@
 # Convert legacy LD-score files
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-20
 
 Conversion uses one managed child process with **1 BLAS thread**.
 For Python scripts, place workflow calls under `if __name__ == "__main__":`; see [the execution policy](../../current/parallel-execution.md).
 
 `ldsc convert-ldsc2-ldscores` converts a complete legacy reference/weight suite into a directory accepted by LDSC3 regression through `--ldscore-dir`. Use it for ordinary unpartitioned scores or a baseline-only partitioned suite.
+
+
+In coordinate mode, auto checks bounded samples from every retained reference chromosome.
+A concrete `--genome-build` is authoritative and assumes one-based source positions.
+rsID output does not require build inference; reference coordinates own coordinate-mode output, while legacy weight/annotation disagreements remain alignment audits.
+See the [shared policy](../main-functionalities/global-config.md#genome-build-inference-checking-and-overrides).
 
 ## Standard filenames
 

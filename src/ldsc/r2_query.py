@@ -109,6 +109,9 @@ def query_r2(
         One of the four public identity modes. None uses panel provenance.
     genome_build : {"hg19", "hg38"} or None, optional
         Select the coordinate build when the panel directory contains both.
+        A concrete value is authoritative. Otherwise coordinate-panel shard
+        declarations must agree. Pair endpoints use the selected panel build;
+        their coordinate build is not independently inferred.
 
     Returns
     -------
@@ -217,6 +220,12 @@ class R2Panel:
             snp_identifier = raw.decode("utf-8")
 
         panel = cls(paths, normalize_snp_identifier_mode(snp_identifier))
+        if panel._mode.startswith('chr_pos'):
+            from ._genome_build_policy import GenomeBuildCheck
+            check = GenomeBuildCheck(genome_build, context='query-r2', logger=LOGGER)
+            for _, parquet_path in paths.values():
+                check.table('--panel-dir', parquet_path)
+            check.resolve()
         panel._validate_binding = validate_binding
         return panel
 

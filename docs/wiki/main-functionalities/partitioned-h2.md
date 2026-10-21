@@ -1,6 +1,6 @@
 # Partitioned heritability
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 `ldsc partitioned-h2` reads a canonical LD-score directory and tests how its
 annotations contribute to SNP heritability.
@@ -22,6 +22,10 @@ interpretation, see [the guided tutorial](../guided-tutorial.md) and the
 LD scoring accepts prebuilt annotation columns, BED intervals, or gene lists as mutually exclusive query routes. BED files can be prepared by users or obtained from an external resource in the required format, and support optional padding. Gene lists require a coordinate catalog for direct projection. See [annotation preparation](../utility-functionalities/annotate.md).
 
 ## Baseline-only functional partitioning
+
+Coordinate-family summary statistics and LD-score artifacts must agree on their genome build before fitting.
+This command has no build override; supply matching upstream artifacts if the grouped build check fails.
+See the [genome-build policy](../../current/snp-identifier-genome-build-defaults.md#genome-build-policy), including the separate legacy LDSC2 text projection path.
 
 To fit all supplied baseline categories jointly, use a canonical LD-score directory built with baseline annotations and no query columns:
 

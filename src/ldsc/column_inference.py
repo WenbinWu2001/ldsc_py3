@@ -169,8 +169,8 @@ RESTRICTION_RSID_SPEC_MAP = {spec.canonical: spec for spec in RESTRICTION_RSID_S
 
 RESTRICTION_CHRPOS_SPECS = (CHR_COLUMN_SPEC, POS_COLUMN_SPEC)
 RESTRICTION_CHRPOS_SPEC_MAP = {spec.canonical: spec for spec in RESTRICTION_CHRPOS_SPECS}
-RESTRICTION_HG19_POS_SPEC = ColumnSpec("POS", tuple(f"{build}_{pos}" for build in _HG19_BUILD_ALIASES for pos in _POS_TOKEN_ALIASES), "hg19 position")
-RESTRICTION_HG38_POS_SPEC = ColumnSpec("POS", tuple(f"{build}_{pos}" for build in _HG38_BUILD_ALIASES for pos in _POS_TOKEN_ALIASES), "hg38 position")
+RESTRICTION_HG19_POS_SPEC = ColumnSpec("hg19_POS", tuple(f"{build}_{pos}" for build in _HG19_BUILD_ALIASES for pos in _POS_TOKEN_ALIASES), "hg19 position")
+RESTRICTION_HG38_POS_SPEC = ColumnSpec("hg38_POS", tuple(f"{build}_{pos}" for build in _HG38_BUILD_ALIASES for pos in _POS_TOKEN_ALIASES), "hg38 position")
 
 
 # Strict internal artifact families.
@@ -373,7 +373,11 @@ def resolve_restriction_chr_pos_columns(
     genome_build: str | None = None,
     context: str | None = None,
 ) -> tuple[str, str]:
-    """Resolve the relevant columns for a ``chr_pos`` restriction file."""
+    """Prefer the matching build-specific position; otherwise use generic POS.
+
+    Build validation belongs to the workflow; this reader selects columns
+    using its resolved or authoritative build. Unused columns are ignored.
+    """
     columns = list(columns)
     try:
         normalized_build = normalize_genome_build(genome_build)
@@ -389,39 +393,26 @@ def resolve_restriction_chr_pos_columns(
     except (ValueError, LDSCInputError) as exc:
         raise _restriction_header_error(columns, ("CHR", "POS")) from exc
 
-    try:
-        pos_col = resolve_required_column(columns, RESTRICTION_CHRPOS_SPEC_MAP["POS"], context=context)
+    # Select a matching build-specific representation before generic POS.
+    specific = {
+        build: resolve_optional_column(columns, spec, context=context)
+        for build, spec in (("hg19", RESTRICTION_HG19_POS_SPEC),
+                            ("hg38", RESTRICTION_HG38_POS_SPEC))
+    }
+    if normalized_build in specific and specific[normalized_build] is not None:
+        return chr_col, specific[normalized_build]
+    generic_columns = [column for column in columns if column not in specific.values()]
+    pos_col = resolve_optional_column(generic_columns, RESTRICTION_CHRPOS_SPEC_MAP["POS"], context=context)
+    if pos_col is not None:
         return chr_col, pos_col
-    except (ValueError, LDSCInputError) as generic_error:
-        # Fall through to build-specific position aliases before reporting the
-        # generic POS failure to the caller.
-        pass
-
-    if normalized_build == "hg19":
-        try:
-            return chr_col, resolve_required_column(columns, RESTRICTION_HG19_POS_SPEC, context=context)
-        except (ValueError, LDSCInputError) as exc:
-            raise _restriction_header_error(columns, ("POS",)) from exc
-    if normalized_build == "hg38":
-        try:
-            return chr_col, resolve_required_column(columns, RESTRICTION_HG38_POS_SPEC, context=context)
-        except (ValueError, LDSCInputError) as exc:
-            raise _restriction_header_error(columns, ("POS",)) from exc
-
     if normalized_build == "auto":
-        matches: list[str] = []
-        for spec in (RESTRICTION_HG19_POS_SPEC, RESTRICTION_HG38_POS_SPEC):
-            match = resolve_optional_column(columns, spec, context=context)
-            if match is not None and match not in matches:
-                matches.append(match)
+        matches = [value for value in specific.values() if value is not None]
         if len(matches) == 1:
             return chr_col, matches[0]
         if len(matches) > 1:
             raise LDSCInputError(
-                f"Could not resolve SNP restriction position column{f' in {context}' if context else ''}: "
-                f"multiple build-specific position columns matched ({', '.join(matches)}). "
-                "Most likely the restriction file contains both hg19 and hg38 coordinates while genome_build='auto'. "
-                "Set genome_build to 'hg19' or 'hg38', or rename the desired column to POS/BP."
-            ) from generic_error
-
-    raise _restriction_header_error(columns, ("POS",)) from generic_error
+                f"Could not resolve SNP restriction position column in {context}: "
+                "multiple build-specific position columns matched. Resolve the workflow "
+                "genome build before selecting hg19_POS or hg38_POS."
+            )
+    raise _restriction_header_error(columns, ("POS",))

@@ -214,6 +214,14 @@ def inspect_r2_headers(directory, genome_build=None):
     import pyarrow.parquet as pq
     from ._kernel.ref_panel import _resolve_r2_build_dir
 
+    root = Path(directory)
+    children = [root / build for build in ('hg19', 'hg38') if (root / build).is_dir()]
+    if genome_build == 'auto' and len(children) > 1 and not list(root.glob('chr*_r2.parquet')):
+        gate = InputGate('R2 declarations and headers')
+        for child in children:
+            gate.check('reference', child, lambda child=child: inspect_r2_headers(child, child.name))
+        gate.finish()
+        return root
     root = _resolve_r2_build_dir(directory, genome_build)
     members = sorted({path.name.split('_')[0][3:] for pattern in ('chr*_r2.parquet', 'chr*_meta.tsv.gz') for path in root.glob(pattern)})
     gate = InputGate('R2 declarations and headers')

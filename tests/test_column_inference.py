@@ -130,14 +130,14 @@ class ColumnInferenceTest(unittest.TestCase):
             "rs_id",
         )
 
-    def test_resolve_restriction_chr_pos_columns_prefers_generic_pos_aliases(self):
+    def test_resolve_restriction_chr_pos_columns_prefers_matching_build_position(self):
         self.assertEqual(
             resolve_restriction_chr_pos_columns(
                 ["chr", "bp", "hg19_pos"],
                 genome_build="hg19",
                 context="test-restrict-chr-pos",
             ),
-            ("chr", "bp"),
+            ("chr", "hg19_pos"),
         )
 
     def test_resolve_restriction_chr_pos_columns_accepts_build_specific_position_alias(self):

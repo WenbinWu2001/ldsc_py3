@@ -1146,8 +1146,9 @@ def build_parser() -> argparse.ArgumentParser:
     identity.add_argument(
         '--source-genome-build', default='auto', choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
         help=(
-            'Genome build of input chromosome/position coordinates. Default: auto, infer hg19 or hg38 from '
-            'input SNPs; stop and request an explicit build if inference fails. Concrete builds cannot '
+            'Genome build of source coordinates. Default: auto, check raw chromosomes and coordinate keep lists; '
+            'stop with a grouped report if evidence conflicts or is insufficient. Concrete builds are '
+            'authoritative and cannot '
             'be used with rsid or rsid_allele_aware identity.'
         ),
     )
@@ -1593,20 +1594,24 @@ def _apply_build_inference_report(
         _append_suggested_option(suggested, "--output-genome-build", output_build)
     if source_hint == "auto":
         try:
-            sample = _read_infer_only_coordinate_frame(source_path, raw_config, munge_config, inference)
-            resolved_source = resolve_genome_build(
-                "auto",
-                global_config.snp_identifier,
-                sample,
-                context="raw summary statistics",
-                logger=None,
-            )
+            position = {**inference.column_hints, **raw_config.column_hints}.get('pos')
+            resolved_source = munge_input.source_position_build([position] if position else [])
+            if resolved_source is None:
+                sample = _read_infer_only_coordinate_frame(source_path, raw_config, munge_config, inference)
+                resolved_source = resolve_genome_build(
+                    "auto",
+                    global_config.snp_identifier,
+                    sample,
+                    context="raw summary statistics",
+                    logger=None,
+                )
         except Exception as exc:
             resolved_source = None
             missing.append("source_genome_build")
             notes.append(
                 "Unable to infer source genome build from CHR/POS coordinates. "
-                f"{exc} Rerun with --source-genome-build hg19 or --source-genome-build hg38."
+                f"{str(exc).split('Pass --genome-build')[0].strip()} "
+                "Rerun with --source-genome-build hg19 or --source-genome-build hg38."
             )
             notes.append("Source hg19 command: add --source-genome-build hg19.")
             notes.append("Source hg38 command: add --source-genome-build hg38.")

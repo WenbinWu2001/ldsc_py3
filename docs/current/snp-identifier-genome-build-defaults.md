@@ -1,6 +1,120 @@
 # SNP Identifier / Genome Build: Default Design
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
+
+## Genome-build policy
+
+This contract governs inference, checking, and resolution before coordinate-dependent computation.
+The shared collector is `GenomeBuildCheck` in [_genome_build_policy.py](../../src/ldsc/_genome_build_policy.py); statistical evidence remains in `genome_build_inference.py`.
+No new flags or per-input build declarations are required by this policy.
+
+### One build for inputs used together
+
+Inputs whose coordinates are used together must share one workflow genome build.
+A concrete build supplied through the command's existing option is authoritative within that option's scope, even when metadata or coordinate inference would indicate a different build.
+For example, `--genome-build hg19` declares hg19 for the applicable workflow, while `--source-genome-build hg19` declares the source build for panel building or munging.
+An override establishes how coordinates are interpreted; it does not convert positions or replace an existing liftover operation.
+Source and target builds in a workflow that performs liftover remain separate coordinate stages, so an intentional source-to-target conversion is not itself a build conflict.
+Errors must suggest only options supported by the affected command; workflows without a build override direct the user to matching upstream artifacts.
+
+Without a concrete override, inspect build evidence across all relevant inputs and their selected shards before deciding whether the workflow can proceed.
+No input wins a disagreement because it was listed or read first.
+Conflicting hg19 and hg38 evidence causes an error before substantial computation or publication of scientific outputs.
+If neither the inputs nor a concrete override establish a workflow build, resolution fails instead of choosing a default build.
+Path syntax does not determine the build: exact paths, globs, and `@` declarations use the same build policy for the files they select.
+Existing chromosome-coverage requirements remain separate from build consistency.
+
+### Build declarations and bounded inference
+
+Valid artifact build metadata or a build-specific position column establishes that input's build without coordinate re-inference.
+Compare the declared builds across inputs using the same consistency rule as inferred builds; a declaration on one input does not override conflicting evidence from another input.
+A concrete user-supplied build remains authoritative over both declarations and inference within its existing scope.
+
+For inputs that require coordinate inference, sample at most 5,000 rows from every relevant file/chromosome.
+Coordinate columns are streamed to discover chromosomes; inference uses only those bounded samples.
+The current criteria require at least 200 uniquely informative packaged HM3 matches and at least 99% support for the winning build/coordinate-basis hypothesis.
+See `MIN_INSPECTED_REFERENCE_SNPS` and `DOMINANCE_THRESHOLD` in [genome_build_inference.py](../../src/ldsc/genome_build_inference.py).
+Successful inference for one input must not stop evidence collection for the remaining inputs or shards.
+An exhaustive build check of every coordinate row is not performed.
+Mixtures confined to unsampled rows can escape detection.
+
+### SNP keep-list rules
+
+Build validation depends on the SNP identifiers actually used for filtering, not merely on which columns happen to be present in the keep-list.
+Apply these rules consistently to user-supplied reference-panel and regression SNP restrictions and other keep-list readers:
+
+| Keep-list type and filtering identity | Genome-build validation |
+| --- | --- |
+| rsIDs only, with filtering by rsID | Not required; no coordinate build is used by this restriction. |
+| Explicit build-specific positions, such as `hg19_POS` | Select the column matching the workflow's build; its declaration supplies the build without coordinate inference. |
+| Generic `CHR/POS`, with coordinate filtering and no build declaration | Under `auto`, attempt inference and raise an error if evidence is insufficient. |
+
+Existing valid artifact build metadata remains sufficient evidence under the shared declaration rule above.
+When both generic `POS` and a position column matching the resolved build are present, prefer the matching build-specific column.
+For example, an hg19 workflow uses `hg19_POS` even when `POS` is also present.
+Use generic `POS` only when the matching build-specific column is absent.
+An unused generic column does not create a genome-build conflict.
+The presence of both hg19 and hg38 coordinate columns represents available alternatives; select the column for the resolved workflow build rather than treating unused alternatives as conflicting inputs.
+
+A generic coordinate keep-list with insufficient inference evidence remains `unresolved` and causes an automatic run to fail, even when the other inputs agree on one build.
+It does not inherit the build from those other inputs.
+Finish examining the remaining inputs and include the keep-list's flag, path, and inference failure reason in the grouped error and workflow log.
+The actionable message asks the user to check the keep-list's coordinate build and explicitly specify `--genome-build hg19` or `--genome-build hg38` for commands supporting that option.
+Use `--source-genome-build` for source-build workflows instead; do not suggest an unsupported flag.
+A concrete authoritative override permits a generic coordinate keep-list without successful coordinate-based inference, while ordinary input-format and identifier validation still apply.
+See the [insufficient-evidence example](../troubleshooting.md#common-keep-list-build-could-not-be-resolved).
+
+### Ordinary BED files inherit the workflow build
+
+Ordinary BED interval files are not independently checked for genome build.
+Report them as `unchecked`, then interpret their intervals in the workflow's resolved or explicitly declared build.
+This is an accepted assumption about compatibility, not an inferred or verified build for the BED file.
+An ordinary BED file does not supply build evidence, and its unchecked status alone does not prevent a run whose build is otherwise resolved.
+BED's zero-based, half-open interval convention remains unchanged.
+Unlike an unresolved generic coordinate keep-list, an ordinary BED file is deliberately unchecked and does not need inference evidence.
+
+### Complete, grouped validation errors
+
+Finish examining every relevant input before raising a genome-build consistency error.
+Record a missing, unreadable, or otherwise unusable input and continue examining the other inputs that can be inspected; do not stop at the first mismatch or failed inference.
+The report must account for every relevant input, including inputs that agree and ordinary BED files that are deliberately unchecked.
+Group the findings by `hg19`, `hg38`, `unresolved`, and `unchecked`.
+These are user-facing report labels, not a persisted artifact status enum.
+
+| Report group | Meaning |
+| --- | --- |
+| `hg19` or `hg38` | Available evidence identifies that build; distinguish coordinate inference from a metadata declaration. |
+| `unresolved` | The input could not be assigned a build; include the reason, such as insufficient informative coordinates or an unreadable file. |
+| `unchecked` | Build checking is intentionally omitted; ordinary BED files inherit the resolved workflow build, while rsID-only restrictions used for rsID filtering need no coordinate build. |
+
+List the CLI input flag and the concrete file or shard under each group, with chromosome and evidence source where useful.
+When members supplied by one flag disagree, show that flag in each affected group and identify the individual members.
+The same flags identify input roles in reports from Python workflows; Python callers set the corresponding configuration fields.
+Use a group heading such as "Build evidence across inputs" because not every known build was inferred from coordinates.
+State the observed conflict, identify unresolved evidence without pretending it was checked successfully, and explain what the user can do next.
+The actionable guidance asks the user to check the listed inputs for a consistent build and gives a command-appropriate explicit override example when available.
+The grouped findings belong in the run-aborting message and workflow log, so users do not need `DEBUG` or repeated failed runs to discover additional input conflicts.
+See the [grouped report example](../troubleshooting.md#common-genome-build-consistency-check-failed).
+
+### Command scope
+
+| Command | Evidence and interpretation |
+| --- | --- |
+| `annotate` | Selected annotation/BIM grids and the supplied gene-catalog declaration; ordinary BED inherits the resolved projection build. |
+| Direct `ldscore` | Baseline and prebuilt query annotations, PLINK BIM shards or R2 Parquet and sidecar declarations, the gene catalog when used, and coordinate keep lists. |
+| `build-r2-panel` | All source BIM shards and the source-coordinate keep list, before filtering; genetic maps are selected by the resolved source/emitted build. cM map validation waits until source inference. |
+| `munge-sumstats` | Raw source coordinates and the source-coordinate keep list, before QC; explicit `--output-genome-build` remains a separate target. `--infer-only` is a preview, not the full input-consistency gate. |
+| `convert-ldsc2-ldscores` | Retained reference coordinates in each chromosome for coordinate identity; other legacy coordinates remain alignment audits because rsID joins transfer reference coordinates to the output. rsID output requires no build inference. |
+| `h2`, `partitioned-h2`, `rg` | Coordinate-family saved artifacts must agree; all RG traits participate before fitting. No CLI build override. Footerless Parquet remains invalid; legacy LDSC2 text uses panel-owned coordinate projection. |
+| `quantile-h2` | Saved LD-score build and resupplied coordinate artifacts must agree; BED inherits that build. No CLI build override. |
+| `build-gene-ldscore-index` | Required explicit hg19 is authoritative; no auto. Indexed scoring later inherits the immutable index and rejects live configuration overrides. |
+| `query-r2` | Existing concrete build selects/interprets a panel; otherwise coordinate-panel shard metadata must agree. Pair endpoints are lookup requests interpreted in the selected panel's build, with no separate pair-build inference. |
+| `convert-h2-scale`, `plot` | Saved-result consumers; no coordinate-build inference. |
+
+Build metadata describes emitted coordinates.
+After munging liftover it is the output build; each R2 output records its own emitted build.
+Neither should be read as an assertion about the original pre-liftover coordinates.
+SNP identity and file-format validation remain separate: an explicit build does not permit invalid alleles, missing required columns, broken sidecar bindings, or incompatible identity modes.
 
 ## Design Decisions
 
@@ -126,7 +240,7 @@ because they serve different user models.
 
 `build-r2-panel` is intentionally isolated from `GlobalConfig.genome_build`.
 The PLINK source build is owned by `ReferencePanelBuildConfig.source_genome_build`
-and defaults to `"auto"`, which infers from `.bim` coordinates. This keeps the panel-building
+and defaults to `"auto"`, which checks every `.bim` shard together with coordinate-based SNP restrictions. This keeps the panel-building
 workflow self-contained: it neither reads nor writes the global genome-build
 assumption. The `GlobalConfig` that `build-r2-panel` constructs internally holds
 `genome_build="auto"` only to satisfy the construction invariant; that value is
@@ -143,9 +257,10 @@ Regression workflows (`h2`, `partitioned-h2`, `rg`) can see three independent
 2. The reconstructed sumstats artifact snapshot — `SumstatsTable.config_snapshot`
 3. The runner's live `self.global_config` — from the process registry at construction time
 
-**Pair validation** (`build_dataset`, lines 132–137) fires when both on-disk
-snapshots are present. It compares the two artifacts against each other.
-The runner's live config is **not** a participant in this check.
+Coordinate-family regression checks the LD-score artifact and all participating traits before fitting.
+Known artifact snapshots establish builds; suitable in-memory objects without a concrete build use bounded coordinate inference.
+Conflicting or unresolved builds produce one grouped error.
+The runner's live configuration does not override saved artifact provenance.
 
 Effective identifier resolution selects the mode in priority order:
 

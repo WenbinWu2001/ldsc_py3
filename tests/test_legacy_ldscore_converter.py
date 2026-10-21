@@ -328,8 +328,8 @@ def test_chr_pos_conversion_uses_reference_build_inference_and_normalizes_zero_b
     output = tmp_path / "converted"
     _write_unpartitioned_suite(reference, weights)
     monkeypatch.setattr(
-        "ldsc.legacy_ldscore_converter.infer_chr_pos_build",
-        lambda *_args, **_kwargs: SimpleNamespace(genome_build="hg19", coordinate_basis="0-based"),
+        "ldsc._genome_build_policy.infer_chr_pos_build",
+        lambda *_args, **_kwargs: SimpleNamespace(genome_build="hg19", coordinate_basis="0-based", inspected_snp_count=500),
     )
 
     ldsc.convert_ldsc2_ldscores(

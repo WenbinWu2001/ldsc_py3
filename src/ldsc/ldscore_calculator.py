@@ -50,7 +50,6 @@ from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
 from ._parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _run_chromosome_tasks, _validate_workers
 from ._progress import report_phase, PhaseProgress
-from ._chr_sampler import sample_frame_from_chr_pattern
 from ._annotation_storage import TsvDiagnostics
 from .ldscore_source import LDScoreSource
 from ._kernel.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, identity_mode_family, is_allele_aware_mode
@@ -65,7 +64,6 @@ from .config import (
     validate_config_compatibility,
 )
 from .hm3 import packaged_hm3_curated_map_path
-from .genome_build_inference import resolve_genome_build
 from .outputs import (
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
@@ -110,7 +108,6 @@ _LDSCORE_INTERSECTION_DOC = (
     "docs/troubleshooting.md#ldscore-no-annotation-snps-remain-after-reference-panel-intersection"
 )
 _LDSCORE_PARQUET_DOC = "docs/troubleshooting.md#ldscore-parquet-r2-input-is-incompatible"
-_LDSCORE_BUILD_DOC = "docs/troubleshooting.md#ldscore-genome-build-could-not-be-resolved-consistently"
 
 
 
@@ -427,6 +424,27 @@ class LDScoreCalculator:
                 "LDScoreCalculator.run() requires output_config when export_ref_metadata=True. "
                 "Reference metadata is a filesystem artifact, so pass LDScoreOutputConfig(output_dir=...)."
             )
+        if identity_mode_family(global_config.snp_identifier) == "chr_pos" and global_config.genome_build == "auto":
+            from ._genome_build_policy import GenomeBuildCheck
+            check = GenomeBuildCheck('auto', context='LDScoreCalculator', logger=LOGGER)
+            for role, obj in (("annotations", annotation_bundle), ("reference panel", ref_panel)):
+                snapshot = getattr(obj, 'config_snapshot', None) or getattr(obj, 'global_config', None)
+                build = getattr(snapshot, 'genome_build', None)
+                if build in {'hg19', 'hg38'}:
+                    check.declared(role, role, build)
+                elif role == 'annotations':
+                    for chrom in obj.chromosomes:
+                        check.frames(role, f'annotations [chr{chrom}]', [obj.metadata_for_chromosome(chrom)])
+                elif obj.spec.backend == 'plink':
+                    check.plink('--plink-prefix', obj.spec.plink_prefix)
+                else:
+                    for path in _candidate_r2_schema_paths(obj.spec.r2_dir):
+                        check.table('--r2-dir', path)
+            global_config = dataclass_replace(global_config, genome_build=check.resolve())
+        if hasattr(ref_panel, 'global_config') and global_config.genome_build in {'hg19', 'hg38'}:
+            from copy import copy
+            ref_panel = copy(ref_panel)
+            ref_panel.global_config = dataclass_replace(ref_panel.global_config, genome_build=global_config.genome_build)
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
         _validate_workers(ldscore_config.workers)
         with ExitStack() as stack:
@@ -511,7 +529,8 @@ class LDScoreCalculator:
             annotation_bundle = dataclass_replace(annotation_bundle, diagnostics_in_memory=True)
         if annotation_bundle.config_snapshot is not None:
             validate_config_compatibility(
-                annotation_bundle.config_snapshot,
+                (dataclass_replace(annotation_bundle.config_snapshot, genome_build=global_config.genome_build)
+                 if global_config.genome_build in {"hg19", "hg38"} else annotation_bundle.config_snapshot),
                 global_config,
                 context="AnnotationBundle and LDScoreCalculator runtime config",
             )
@@ -1097,7 +1116,8 @@ def build_parser() -> argparse.ArgumentParser:
         '--genome-build', choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'), default=None,
         help=(
             'Genome build for coordinate matching and gene intervals. Required for chr_pos modes; direct '
-            'gene-list runs default to auto, inferred from reference/annotation SNPs. Other rsid runs need '
+            'gene-list runs default to auto. Auto checks all coordinate inputs and shards; concrete builds '
+            'are authoritative. Other rsid runs need '
             'no build. Gene-list runs also use this build for --regr-snps-exclude-regions. With '
             '--gene-ldscore-index-dir, inherit its build and omit this flag.'
         ),
@@ -1415,6 +1435,10 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
             batch = catalog = None
             if _has_cli_tokens(getattr(args,"query_annot_gene_list_sources",None)):
                 catalog = GeneCatalog.load(args.gene_coordinate_file)
+                requested_build = normalize_genome_build(getattr(args, "genome_build", None))
+                if requested_build in {"hg19", "hg38"}:
+                    from dataclasses import replace
+                    catalog = replace(catalog, genome_build=requested_build)
                 batch = resolve_gene_lists_staged(split_cli_path_tokens(args.query_annot_gene_list_sources),catalog,workspace,
                     control_path=getattr(args,"control_gene_list_file",None),
                     resolution_policy=getattr(args,"gene_list_resolution_policy","strict"),
@@ -2180,6 +2204,12 @@ def _resolve_ldscore_chr_pos_genome_build(
     *,
     gene_catalog_build: str | None = None,
 ) -> str:
+    """Collect every coordinate input, then resolve or report all build evidence.
+
+    A concrete build is authoritative. Auto trusts declarations, otherwise
+    samples each file/chromosome; generic coordinate restrictions must resolve
+    independently and BED inherits the result.
+    """
     normalized = normalize_genome_build(genome_build)
     if normalized is None:
         raise LDSCUsageError(
@@ -2191,54 +2221,27 @@ def _resolve_ldscore_chr_pos_genome_build(
     if normalized != "auto":
         return normalized
 
-    resolved: list[tuple[str, str]] = []
-    normalized_catalog_build = normalize_genome_build(gene_catalog_build)
-    if normalized_catalog_build in {"hg19", "hg38"}:
-        resolved.append(("gene-coordinate catalog", normalized_catalog_build))
-    annotation_tokens = split_cli_path_tokens(getattr(args, "baseline_annot_sources", None))
-    if annotation_tokens:
-        frame, sampled_path = sample_frame_from_chr_pattern(
-            annotation_tokens,
-            context="LD-score annotation inputs",
-        )
-        resolved.append(
-            (
-                "annotation",
-                resolve_genome_build(
-                    "auto",
-                    "chr_pos",
-                    frame,
-                    context="LD-score annotation inputs",
-                    logger=LOGGER,
-                ),
-            )
-        )
-        LOGGER.info(f"Resolved LD-score annotation genome build from '{sampled_path}'.")
+    from ._genome_build_policy import GenomeBuildCheck
+
+    check = GenomeBuildCheck(normalized, context="ldscore", logger=LOGGER)
+    if gene_catalog_build is not None:
+        check.declared("--gene-coordinate-file", getattr(args, "gene_coordinate_file", None) or "gene-coordinate catalog", gene_catalog_build)
+    for role in ("baseline_annot_sources", "query_annot_sources"):
+        check.paths("--" + role.replace("_", "-"), getattr(args, role, None))
+    check.plink("--plink-prefix", getattr(args, "plink_prefix", None))
     r2_dir = _r2_dir_from_args(args)
     if r2_dir is not None:
-        ref_panel_build = _infer_r2_dir_genome_build(r2_dir)
-        if ref_panel_build is not None:
-            resolved.append(("reference panel", ref_panel_build))
-            LOGGER.info(f"Resolved LD-score reference-panel genome build from parquet schema metadata in '{r2_dir}'.")
-    if not resolved:
-        raise LDSCInputError(
-            "ldscore could not infer the genome build for chr_pos inputs. Most likely "
-            "no chromosome-suite annotation sample or R2 parquet build metadata was "
-            "available to inspect. Pass `--genome-build hg19` or `--genome-build hg38`, "
-            "or provide LDSC-generated parquet R2 files with build metadata. "
-            f"Other causes & fixes: {_LDSCORE_BUILD_DOC}"
-        )
-    builds = {build for _label, build in resolved}
-    if len(builds) != 1:
-        details = ", ".join(f"{label}={build}" for label, build in resolved)
-        raise LDSCInputError(
-            f"ldscore found conflicting genome-build evidence: {details}. Most likely "
-            "the annotation files and parquet reference panel were generated on different "
-            "builds. Regenerate one input on the same build, or rerun with a matching "
-            "reference panel and `--genome-build`. "
-            f"Other causes & fixes: {_LDSCORE_BUILD_DOC}"
-        )
-    return resolved[0][1]
+        paths = _candidate_r2_schema_paths(r2_dir)
+        if not paths:
+            check.unresolved("--r2-dir", r2_dir, "no R2 Parquet build metadata available")
+        for path in paths:
+            check.table("--r2-dir", path)
+    mode = getattr(args, "snp_identifier", "chr_pos")
+    for role in ("ref_panel_snps_file", "regr_snps_file"):
+        check.paths("--" + role.replace("_", "-"), getattr(args, role, None), restriction_mode=mode)
+    check.unchecked("--query-annot-bed-sources", getattr(args, "query_annot_bed_sources", None),
+                    "ordinary BED; inherits workflow build")
+    return check.resolve()
 
 
 @report_phase(LOGGER, 'validation', 'regression SNP restriction')
@@ -2263,27 +2266,6 @@ def _regr_snps_file_from_config(config: LDScoreConfig) -> str:
     return config.regr_snps_file or packaged_hm3_curated_map_path()
 
 
-def _infer_r2_dir_genome_build(r2_dir: str) -> str | None:
-    """Infer hg19/hg38 from R2 parquet schema metadata, never path names."""
-    builds_by_path: dict[str, str] = {}
-    for path in _candidate_r2_schema_paths(r2_dir):
-        build = _read_r2_sorted_by_build(path)
-        if build is not None:
-            builds_by_path[str(path)] = build
-
-    builds = set(builds_by_path.values())
-    if len(builds) > 1:
-        details = ", ".join(f"{path}={build}" for path, build in sorted(builds_by_path.items()))
-        raise LDSCInputError(
-            f"ldscore found conflicting R2 parquet genome-build metadata in '{r2_dir}': "
-            f"{details}. Most likely the R2 directory mixes files from different reference-panel "
-            "builds. Keep only one build in the R2 directory or regenerate the panel as a single "
-            "consistent artifact. "
-            f"Other causes & fixes: {_LDSCORE_BUILD_DOC}"
-        )
-    return next(iter(builds), None)
-
-
 def _candidate_r2_schema_paths(r2_dir: str) -> list[Path]:
     """Return candidate R2 parquet files whose schema metadata can identify a panel build."""
     root = Path(r2_dir)
@@ -2300,18 +2282,6 @@ def _candidate_r2_schema_paths(r2_dir: str) -> list[Path]:
         if child.is_dir():
             paths.extend(sorted(child.glob("chr*_r2.parquet")))
     return paths
-
-
-def _read_r2_sorted_by_build(path: Path) -> str | None:
-    """Read ``ldsc:sorted_by_build`` from one R2 parquet schema."""
-    import pyarrow.parquet as pq
-
-    raw_meta = pq.read_schema(str(path)).metadata or {}
-    raw_build = raw_meta.get(b"ldsc:sorted_by_build")
-    if raw_build is None:
-        return None
-    build = normalize_genome_build(raw_build.decode("utf-8"))
-    return build if build in {"hg19", "hg38"} else None
 
 
 def _resolve_regression_region_build(

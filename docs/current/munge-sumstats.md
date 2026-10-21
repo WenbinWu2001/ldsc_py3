@@ -1,6 +1,6 @@
 # Munge-Sumstats
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-20
 
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`
@@ -124,6 +124,16 @@ build:
 Accepted concrete builds are `hg19` and `hg38`; common aliases such as `hg37`,
 `GRCh37`, and `GRCh38` normalize to canonical values. `auto` is accepted only
 for the source build.
+
+Source `auto` checks raw source coordinates and the coordinate keep list together before QC, using the shared [genome-build policy](snp-identifier-genome-build-defaults.md#genome-build-policy).
+A selected raw position column such as `--pos hg19_POS` declares the source build without coordinate inference, including in `--infer-only`.
+Otherwise inference samples up to 5,000 rows per chromosome and retains the existing HM3 confidence criteria.
+A concrete `--source-genome-build hg19` or `hg38` is authoritative; it does not convert positions or choose the output build.
+
+For keep lists, rsID filtering needs no coordinate-build check, and matching build-specific columns take precedence over generic `POS` without inference.
+Generic `CHR/POS` keep lists without a build declaration must independently supply enough evidence in auto mode, even when the raw source build is known.
+An insufficient small list produces a grouped input report and advises checking its build and supplying a concrete `--source-genome-build`.
+Ordinary column, allele, and identifier validation still applies after an override.
 
 In rsID-family modes, genome build is not part of the merge identity. The
 munger rejects source-build, output-build, and liftover flags in those modes.

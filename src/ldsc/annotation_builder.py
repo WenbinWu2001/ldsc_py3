@@ -157,8 +157,8 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         '--genome-build', default=None, choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
         help=(
             'Genome build for coordinate-based SNP matching. Required with chr_pos or chr_pos_allele_aware; '
-            'auto infers hg19/hg38 and coordinate origin. Unused for rsid matching; gene intervals use '
-            'their catalog build. No fixed default.'
+            'auto checks every grid shard and the gene catalog using declarations or bounded inference. '
+            'Concrete builds are authoritative; BED inherits the resolved build. No fixed default.'
         ),
     )
     identity.add_argument(
@@ -263,7 +263,9 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
     identifier/build settings, splits CLI path tokens, resolves
     ``--genome-build auto`` when requested, and writes query shards plus aligned
     baseline shards for annotation-grid input. BIM-grid input writes query shards
-    only. The returned bundle reads exported files without reparsing arguments.
+    only. Auto compares every selected grid shard with the catalog declaration;
+    concrete builds are authoritative and BED inherits the projection build.
+    The returned bundle reads exported files without reparsing arguments.
 
     Parameters
     ----------

@@ -68,7 +68,6 @@ from ._cli_help import CLIHelpFormatter, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
 from ._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from .config import (
-    ConfigMismatchError,
     GlobalConfig,
     RegressionConfig,
     get_global_config,
@@ -90,7 +89,6 @@ from ._kernel.snp_identity import (
 from ._row_alignment import assert_same_snp_rows
 from ._parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _validate_workers
 from .column_inference import infer_chr_pos_columns, normalize_snp_identifier_mode
-from .genome_build_inference import infer_chr_pos_build
 from .ldscore_calculator import LDScoreResult
 from .ldscore_source import LDScoreSource, load_ldscore_from_dir
 from .outputs import (
@@ -400,12 +398,6 @@ class RegressionRunner:
             identifier_mode,
             context=sumstats_table.source_path or sumstats_table.trait_name or "sumstats",
         )
-        if sumstats_table.config_snapshot is not None and ldscore_result.config_snapshot is not None:
-            _validate_regression_config_compatibility(
-                sumstats_table.config_snapshot,
-                ldscore_result.config_snapshot,
-                context="SumstatsTable and LDScoreResult",
-            )
         ldscore_mode = _ldscore_identity_mode(ldscore_result, self.global_config, fallback_mode=identifier_mode)
         ldscore_frame = _assemble_regression_ldscore_table(
             ldscore_result,
@@ -628,19 +620,8 @@ class RegressionRunner:
         )
         identity = _resolve_rg_identity(sumstats_table_1, sumstats_table_2, ldscore_result, self.global_config, config)
         identifier_mode = identity.effective_mode
-        for table, label in ((sumstats_table_1, "trait 1"), (sumstats_table_2, "trait 2")):
-            _regression_genome_build(
-                table,
-                ldscore_result,
-                identifier_mode,
-                context=table.source_path or table.trait_name or label,
-            )
-            if table.config_snapshot is not None and ldscore_result.config_snapshot is not None:
-                _validate_regression_config_compatibility(
-                    table.config_snapshot,
-                    ldscore_result.config_snapshot,
-                    context=f"{label} SumstatsTable and LDScoreResult",
-                )
+        _regression_genome_build([sumstats_table_1, sumstats_table_2], ldscore_result,
+                                 identifier_mode, context="rg")
 
         weight_column = REGRESSION_LD_SCORE_COLUMN
         ref_ld_columns = list(ldscore_result.baseline_columns)
@@ -1357,6 +1338,8 @@ class RegressionRunner:
                 "Pass an anchor trait name or path that belongs to the current `--sumstats-sources` list."
             )
 
+        _regression_genome_build(tables, ldscore_result,
+                                 _ldscore_identity_mode(ldscore_result, self.global_config), context="rg")
         prev = list(prevalences) if prevalences is not None else [(None, None)] * len(tables)
 
         h2_rows = []
@@ -1412,67 +1395,43 @@ class RegressionRunner:
         return RgResultFamily(rg=rg, rg_full=rg_full, h2_per_trait=h2_per_trait, per_pair_metadata=per_pair_metadata)
 
 
-def _validate_regression_config_compatibility(
-    a: GlobalConfig,
-    b: GlobalConfig,
-    context: str = "",
-) -> None:
-    """Validate regression provenance fields outside SNP identity mode."""
-    prefix = f" when combining {context}" if context else ""
-    if a.genome_build != b.genome_build:
-        raise ConfigMismatchError(
-            f"genome_build mismatch{prefix}: {a.genome_build!r} vs "
-            f"{b.genome_build!r}. These objects were computed under different "
-            "genome-build assumptions and cannot be safely merged."
-        )
-
-
 def _regression_genome_build(
-    sumstats_table: SumstatsTable,
+    sumstats_tables: SumstatsTable | Sequence[SumstatsTable],
     ldscore_result: LDScoreSource | LDScoreResult,
     identifier_mode: str,
     *,
     context: str,
 ) -> None:
-    """Verify a chr_pos sumstats shares the LD-score panel's genome build.
+    """Check all coordinate-family artifacts before fitting any model.
 
-    rsID-family runs skip the check entirely because their merge identity is
-    independent of coordinate build. For chr_pos-family runs the sumstats build
-    is taken from its footer metadata when present, otherwise inferred from its
-    coordinates. A build that disagrees with the panel, or coordinates that
-    cannot be confidently dated, is a hard error directing the user to liftover
-    or re-munge.
+    Valid snapshots establish builds without coordinate re-inference.
+    In-memory objects lacking a concrete snapshot use bounded coordinate
+    samples. rsID joins need no coordinate build. Regression has no build
+    override; failures direct users to matching upstream artifacts.
     """
     if identity_mode_family(identifier_mode) != "chr_pos":
         return
-    panel_build = getattr(ldscore_result.config_snapshot, "genome_build", None)
-    snapshot = sumstats_table.config_snapshot
-    sumstats_build = getattr(snapshot, "genome_build", None) if snapshot is not None else None
-    if sumstats_build is None:
-        if not {"CHR", "POS"}.issubset(sumstats_table.data.columns):
-            raise LDSCInputError(
-                f"Regression could not verify the genome build of sumstats '{context}': it carries no build "
-                "metadata and has no CHR/POS columns to infer one from. Most likely it is a legacy rsID-keyed "
-                "file being run against a chr_pos LD-score panel. Re-munge it with the current `ldsc munge-sumstats` "
-                "so it records its build, or liftover it to match the panel, then re-run."
-            )
-        try:
-            sumstats_build = infer_chr_pos_build(sumstats_table.data, context=context).genome_build
-        except LDSCInputError as exc:
-            raise LDSCInputError(
-                f"Regression could not verify the genome build of sumstats '{context}': its coordinates did not "
-                "match the reference closely enough to infer a build, and it carries no build metadata. "
-                "Re-munge it with the current `ldsc munge-sumstats` so it records its build, or liftover it to "
-                "match the LD-score panel, then re-run."
-            ) from exc
-        LOGGER.debug(f"Inferred genome build '{sumstats_build}' for sumstats '{context}'.")
-    if panel_build is not None and sumstats_build != panel_build:
-        raise LDSCInputError(
-            f"Regression genome-build mismatch: sumstats '{context}' is {sumstats_build!r} but the LD-score "
-            f"panel is {panel_build!r}. Coordinate merges require the same build. Liftover the sumstats to "
-            f"{panel_build!r} and re-run."
-        )
-    LOGGER.debug(f"Regression genome build for sumstats '{context}': {sumstats_build!r} (panel {panel_build!r}).")
+    from ._genome_build_policy import GenomeBuildCheck
+
+    check = GenomeBuildCheck('auto', context='regression', option=None, logger=LOGGER)
+    tables = sumstats_tables if isinstance(sumstats_tables, (list, tuple)) else [sumstats_tables]
+    role = '--sumstats-sources' if isinstance(sumstats_tables, (list, tuple)) else '--sumstats-file'
+    for table in tables:
+        source = table.source_path or table.trait_name or context
+        build = getattr(table.config_snapshot, 'genome_build', None)
+        if _is_legacy_sumstats(table):
+            check.unchecked(role, [source], 'legacy rsID projection inherits panel coordinates')
+        elif build in {'hg19', 'hg38'}:
+            check.declared(role, source, build)
+        else:
+            check.frames(role, source, [table.data])
+    panel_source = str(ldscore_result.output_paths.get('metadata', 'LD-score artifact'))
+    build = getattr(ldscore_result.config_snapshot, 'genome_build', None)
+    if build in {'hg19', 'hg38'}:
+        check.declared('--ldscore-dir', panel_source, build)
+    else:
+        check.frames('--ldscore-dir', panel_source, [ldscore_result.baseline_table])
+    check.resolve()
 
 
 def _snapshot_identity_mode(snapshot: GlobalConfig | None) -> str | None:
@@ -1485,7 +1444,7 @@ def _snapshot_identity_mode(snapshot: GlobalConfig | None) -> str | None:
 
 def _is_legacy_sumstats(table: SumstatsTable) -> bool:
     """Return whether ``table`` came from an LDSC2 munged text artifact."""
-    return bool(table.provenance.get("legacy_ldsc2", False)) and "legacy_projection" not in table.provenance
+    return bool(getattr(table, "provenance", {}).get("legacy_ldsc2", False)) and "legacy_projection" not in table.provenance
 
 
 def _has_legacy_sumstats_source(table: SumstatsTable) -> bool:

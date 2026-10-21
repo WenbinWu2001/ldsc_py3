@@ -136,7 +136,7 @@ def test_builder_catalog_failure_writes_full_issues_before_atom_transaction(tmp_
     assert not output.exists()
 
 
-def test_builder_rejects_catalog_build_mismatch_before_atom_transaction(tmp_path, monkeypatch):
+def test_builder_uses_authoritative_index_build_for_catalog(tmp_path, monkeypatch):
     catalog = tmp_path / "catalog.tsv"
     catalog.write_text(
         "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
@@ -157,15 +157,15 @@ def test_builder_rejects_catalog_build_mismatch_before_atom_transaction(tmp_path
             "--snp-identifier", "rsid",
         ]
     )
-    monkeypatch.setattr(
-        gene_ldscore_index,
-        "_create_gene_index_transaction",
-        lambda *_args, **_kwargs: pytest.fail("atom transaction started after catalog build mismatch"),
-    )
+    def inspect_build(*_args, catalog, **_kwargs):
+        assert catalog.genome_build == 'hg19'
+        assert set(catalog.frame.genome_build) == {'hg19'}
+        raise RuntimeError('catalog assertion checked before numerical work')
 
-    with pytest.raises(LDSCInputError, match="catalog=hg38, index=hg19"):
+    monkeypatch.setattr(gene_ldscore_index, '_run_gene_ldscore_index_build', inspect_build)
+    with pytest.raises(RuntimeError, match='catalog assertion checked'):
         gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
-
+    assert 'hg38' in catalog.read_text()
     assert not output.exists()
 
 

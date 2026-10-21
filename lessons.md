@@ -272,3 +272,9 @@ Last updated on: 2026-10-20
   Check names from resolved declarations and validated annotation headers before the fatal gene-list gate, then write the enriched diagnostics and raise once.
   Preserve resolver-owned duplicate-name reasons and stop before grid preparation or projection.
   Verify terminal messages, saved audits, and preparation boundaries together; see `tests/test_annotate_preflight.py`.
+
+## Build-specific column specifications must not declare generic POS
+
+- Summary/root cause/correction: Both build-specific restriction specifications used `POS` as their canonical field, so asking whether hg19/hg38 columns existed classified a generic `POS` column as both declarations and bypassed coordinate inference.
+  Give build-specific specifications their own canonical column names, prefer the matching declaration, and test ordinary generic, named, and alternative-column inputs through the workflow build check.
+  Keep build evidence collection separate from the reader's final column selection; see `tests/test_genome_build_policy.py`.

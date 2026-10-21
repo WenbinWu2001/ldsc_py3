@@ -6,6 +6,13 @@ Last updated on: 2026-10-20
 Direct `ldsc ldscore` accepts BED files and gene lists too, so standalone annotation is optional for queries.
 To prepare baseline categories from BED files, use the [baseline preparation recipe](#build-baseline-annotations-from-bed-files) below.
 
+
+Auto build resolution checks every selected annotation or BIM grid shard together with the gene-catalog declaration, when supplied.
+It accepts exact paths and globs as well as `@` suites and does not require chromosome 1 merely for inference.
+Existing command-specific chromosome coverage requirements still apply.
+A concrete build is authoritative; ordinary BED is unchecked and inherits the resolved projection build.
+See the [shared policy](../main-functionalities/global-config.md#genome-build-inference-checking-and-overrides).
+
 ## Inputs
 
 Supply `--output-dir` and exactly one SNP-grid option:

@@ -11,11 +11,10 @@ from dataclasses import replace
 from pathlib import Path
 
 from ._annotation_bundle import AnnotationBundle
-from ._annotation_bim import resolve_bim_grid_inputs, prepare_bim_grid, iter_grid_build_frames
+from ._annotation_bim import resolve_bim_grid_inputs, prepare_bim_grid
 from ._annotation_queries import prepare_bed_queries, build_query_shards
 from ._annotation_sources import prepare_annotation_sources
 from ._annotation_storage import AnnotationWorkspace
-from ._chr_sampler import sample_frame_from_chr_pattern
 from ._gene_query_storage import resolve_gene_lists_staged
 from ._kernel.snp_identity import identity_mode_family
 from ._logging import workflow_logging, materializing_overwrite_guard, log_inputs, log_outputs
@@ -24,7 +23,7 @@ from .column_inference import normalize_genome_build
 from .config import AnnotationBuildConfig, GlobalConfig, get_global_config, print_global_config_banner
 from .errors import LDSCInputError
 from .gene_list_resolver import GeneCatalog, GeneCatalogValidationError
-from .genome_build_inference import resolve_genome_build, resolve_genome_build_from_chr_pos_frames
+from ._genome_build_policy import GenomeBuildCheck
 from .outputs import AnnotationDirectoryWriter
 from .path_resolution import ensure_output_directory, resolve_file_group, split_cli_path_tokens
 from .query_annotations import gene_query_statuses, gene_viability_errors
@@ -32,27 +31,24 @@ from .query_annotations import gene_query_statuses, gene_viability_errors
 LOGGER = logging.getLogger('LDSC.annotation')
 
 
-def _projection_build(requested, mode, baseline_tokens, catalog, *, bim_shards=None):
+def _projection_build(requested, mode, baseline_tokens, catalog, *, bim_tokens=(), bed_tokens=(), query_tokens=()):
+    """Resolve all grid/catalog evidence, trusting a concrete user declaration."""
     requested = normalize_genome_build(requested)
-    if catalog is None and identity_mode_family(mode) == 'rsid':
+    if catalog is None and identity_mode_family(mode) == 'rsid' and requested is None:
         return None
     if catalog is not None and requested is None:
         requested = 'auto'
     if requested is None:
         raise LDSCInputError('annotate requires --genome-build for chr_pos-family identifiers. Supply auto, hg19, or hg38.')
-    if requested == 'auto':
-        if bim_shards is not None:
-            resolved = resolve_genome_build_from_chr_pos_frames(
-                'auto', 'chr_pos', iter_grid_build_frames(bim_shards), context='BIM annotation grid', logger=LOGGER,
-            )
-        else:
-            sample, _ = sample_frame_from_chr_pattern(baseline_tokens, context='annotation inputs')
-            resolved = resolve_genome_build('auto', 'chr_pos', sample, context='annotation inputs', logger=LOGGER)
-    else:
-        resolved = requested
-    if catalog is not None and resolved != catalog.genome_build:
-        raise LDSCInputError(f'Gene-coordinate catalog build does not match annotation build: catalog={catalog.genome_build}, annotation={resolved}. Supply matching inputs; no implicit liftover is performed.')
-    return resolved
+    check = GenomeBuildCheck(requested, context='annotate', logger=LOGGER)
+    check.paths('--ref-snp-annot-sources', baseline_tokens)
+    check.paths('--query-annot-sources', query_tokens)
+    if bim_tokens:
+        check.paths('--ref-snp-bim-sources', bim_tokens, bim=True)
+    if catalog is not None:
+        check.declared('--gene-coordinate-file', getattr(catalog, 'source', 'gene-coordinate catalog'), catalog.genome_build)
+    check.unchecked('--query-annot-bed-sources', bed_tokens, 'ordinary BED; inherits workflow build')
+    return check.resolve()
 
 
 def _gate_a_error(batch, naming_error=None):
@@ -144,6 +140,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
     if not genes and (gene_coordinate_file is not None or gene_list_resolution_policy is not None or gene_exclude_regions is not None):
         raise LDSCInputError('Gene catalog, resolution, and exclusion options require --query-annot-gene-list-sources.')
     config = global_config or get_global_config()
+    requested = genome_build if genome_build is not None else config.genome_build
     print_global_config_banner('run_annotate', config)
     spec = AnnotationBuildConfig(baseline_annot_sources=baseline, query_annot_bed_sources=bed, query_annot_gene_list_sources=genes,
                                  gene_coordinate_file=gene_coordinate_file, padding_bp=0 if padding_bp is None else padding_bp,
@@ -167,6 +164,8 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
             if genes:
                 try:
                     catalog = GeneCatalog.load(spec.gene_coordinate_file)
+                    if normalize_genome_build(requested) in {"hg19", "hg38"}:
+                        catalog = replace(catalog, genome_build=normalize_genome_build(requested))
                 except GeneCatalogValidationError as exc:
                     writer.write_diagnostics(output, catalog_issues=exc.issues)
                     raise
@@ -198,7 +197,6 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                 _log_gene_list_rejections(batch)
                 if batch.has_fatal_gate_a_issues:
                     raise _gate_a_error(batch, naming_error)
-            requested = genome_build if genome_build is not None else config.genome_build
             prepared = None
             if bim:
                 paths, declared = declared_inputs.files['BIM grid']
@@ -206,7 +204,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
             else:
                 paths, declared = declared_inputs.baseline, declared_inputs.declarations
             projection_build = _projection_build(requested, config.snp_identifier, baseline, catalog,
-                                                 bim_shards=prepared.shards if bim else None)
+                                                 bim_tokens=bim, bed_tokens=bed)
             resolved_config = GlobalConfig(snp_identifier=config.snp_identifier,
                                            genome_build=projection_build if identity_mode_family(config.snp_identifier) == 'chr_pos' else None,
                                            log_level=config.log_level)

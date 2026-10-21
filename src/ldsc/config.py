@@ -154,8 +154,10 @@ class GlobalConfig:
         and add a normalized allele set to the merge key.
     genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
         Genome-build context for ``chr_pos`` workflows that require
-        coordinate-build interpretation. Default is ``"auto"``. Ignored for
-        ``"rsid"``.
+        coordinate-build interpretation. Default is ``"auto"``: workflows
+        compare declared or bounded inferred evidence across relevant inputs.
+        A concrete build is authoritative and does not convert coordinates.
+        Ignored for ``"rsid"`` identity; interval projection has its own build.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
         Requested logging verbosity for workflow modules. Default is ``"INFO"``.
 
@@ -725,8 +727,10 @@ class ReferencePanelBuildConfig:
         globs and explicit ``@`` chromosome-suite tokens are also accepted.
     source_genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"}, optional
         Genome build of the input PLINK coordinates. If ``"auto"``, the
-        build-r2-panel workflow infers the build from PLINK ``.bim`` rows
-        before applying SNP restrictions.
+        workflow checks every PLINK ``.bim`` shard and coordinate restriction
+        before filtering. A concrete source build is authoritative. Generic
+        keep lists must have sufficient evidence in auto mode. cM map
+        selection and validation follow source resolution.
     genetic_map_hg19_sources, genetic_map_hg38_sources : str or os.PathLike[str] or None, optional
         Genetic-map paths used to populate cM values for each emitted sidecar.
         Maps are required for every emitted build when ``ld_wind_cm`` is set.
@@ -833,7 +837,7 @@ class ReferencePanelBuildConfig:
             source_map = self.genetic_map_hg19_sources
         elif self.source_genome_build == "hg38":
             source_map = self.genetic_map_hg38_sources
-        if self.ld_wind_cm is not None and self.source_genome_build is not None and source_map is None:
+        if self.ld_wind_cm is not None and self.source_genome_build in {"hg19", "hg38"} and source_map is None:
             raise LDSCConfigError(
                 f"Could not construct ReferencePanelBuildConfig: ld_wind_cm requires a {self.source_genome_build} genetic map path. "
                 "Most likely cM-window LD scores were requested without the matching genetic map. "
@@ -926,8 +930,9 @@ class MungeConfig:
         packaged HM3 list when no custom file is supplied.
     source_genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"}, optional
         Genome build of raw ``CHR``/``POS`` coordinates. ``"auto"`` asks the
-        munger to infer the source build from the raw file. Default is
-        ``"auto"``. If the source build cannot be resolved, supply an explicit
+        munger to check raw source chromosomes and coordinate keep lists.
+        Default is ``"auto"``. A concrete source build is authoritative.
+        If any required source build cannot be resolved, supply an explicit
         build; the requested output build is never used to guess the source.
     output_genome_build : {"hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
         Desired output coordinate build. Required explicitly in coordinate-family

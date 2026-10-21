@@ -190,6 +190,14 @@ def _validate_aggregates(model, metadata, sums, products):
 def prepare_quantile_statistics(args, model, workspace, diagnostics):
     """Validate sources and reduce chromosome artifacts using exact global bounds."""
     metadata = json.loads((model.ldscore_dir / "metadata.json").read_text(encoding="utf-8"))
+    if str(metadata.get('snp_identifier', '')).startswith('chr_pos'):
+        from ._genome_build_policy import GenomeBuildCheck
+        check = GenomeBuildCheck('auto', context='quantile-h2', option=None)
+        check.declared('saved LD scores', model.ldscore_dir, metadata.get('genome_build'))
+        for role in ('baseline_annot_sources', 'query_annot_sources', 'target_annot_sources', 'ref_metadata_sources', 'gene_coordinate_file'):
+            check.paths('--' + role.replace('_', '-'), getattr(args, role, None))
+        check.unchecked('--query-annot-bed-sources', getattr(args, 'query_annot_bed_sources', None), 'ordinary BED; inherits saved build')
+        check.resolve()
     bundle = _model_annotations(args, model, metadata, workspace)
     references = resolve_file_group(split_cli_path_tokens(args.ref_metadata_sources),
         suffixes=("", ".tsv", ".tsv.gz", ".txt", ".txt.gz"), label="reference metadata", allow_chromosome_suite=True)

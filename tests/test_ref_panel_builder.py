@@ -2236,48 +2236,21 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertTrue(any("synchronized cross-build drops" in message for message in logs.output))
 
     def test_builder_run_infers_source_genome_build_before_build_state_preparation(self):
+        from ldsc.genome_build_inference import load_packaged_reference_table
         with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100), ("1", "rs2", 200)])
-            config = ReferencePanelBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="rsid"))
-            captured = {}
-
+            root = Path(tmpdir)
+            rows = load_packaged_reference_table().head(500)
+            self._write_plink_prefix_rows(root, 'panel.1', [(str(row.CHR), f'rs{i}', int(row.hg19_POS)) for i, row in enumerate(rows.itertuples())])
+            config = ReferencePanelBuildConfig(plink_prefix=root / 'panel.@', output_dir=root / 'out', ld_wind_kb=1.)
+            builder = ref_panel_builder.ReferencePanelBuilder(GlobalConfig(snp_identifier='rsid'))
+            captured = []
             def fake_build(prefix, chrom, config, build_state):
-                captured["source_genome_build"] = config.source_genome_build
-                return {
-                    "r2_hg19": str(Path(config.output_dir) / "hg19" / f"chr{chrom}_r2.parquet"),
-                    "meta_hg19": str(Path(config.output_dir) / "hg19" / f"chr{chrom}_meta.tsv.gz"),
-                }
-
-            def fake_resolve_from_frames(hint, snp_identifier, frames, *, context, logger=None):
-                captured["resolve_args"] = (hint, snp_identifier, context, logger)
-                captured["evidence_frames"] = list(frames)
-                return "hg19"
-
-            with mock.patch.object(
-                ref_panel_builder,
-                "resolve_genome_build",
-                side_effect=AssertionError("build-r2-panel should use chunked CHR/POS evidence"),
-            ), mock.patch.object(
-                ref_panel_builder,
-                "resolve_genome_build_from_chr_pos_frames",
-                side_effect=fake_resolve_from_frames,
-                create=True,
-            ) as patched_resolve:
-                with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "_build_chromosome", side_effect=fake_build):
-                    builder.run(config)
-
-        self.assertEqual(captured["source_genome_build"], "hg19")
-        self.assertEqual(captured["resolve_args"][:3], ("auto", "chr_pos", "build-r2-panel PLINK .bim"))
-        self.assertIs(captured["resolve_args"][3], ref_panel_builder.LOGGER)
-        self.assertEqual(len(captured["evidence_frames"]), 1)
-        self.assertEqual(captured["evidence_frames"][0]["POS"].tolist(), [100, 200])
-        self.assertEqual(patched_resolve.call_count, 1)
+                captured.append(config.source_genome_build)
+                return {'r2_hg19': str(Path(config.output_dir) / 'hg19' / f'chr{chrom}_r2.parquet'),
+                        'meta_hg19': str(Path(config.output_dir) / 'hg19' / f'chr{chrom}_meta.tsv.gz')}
+            with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, '_build_chromosome', side_effect=fake_build):
+                builder.run(config)
+            self.assertEqual(captured, ['hg19'])
 
     def test_prepare_build_state_reads_source_build_specific_restriction_column(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2299,9 +2272,9 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 build_state = builder._prepare_build_state(config)
 
         self.assertEqual(build_state.restriction_values, {"1:100"})
-        self.assertTrue(any("source genome build 'hg19'" in message for message in logs.output))
+        self.assertTrue(any("source_genome_build='hg19'" in message for message in logs.output))
 
-    def test_prepare_build_state_infers_generic_restriction_pos_build_and_accepts_source_match(self):
+    def test_prepare_build_state_uses_resolved_build_and_drops_invalid_restriction_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             restriction = tmpdir / "restrict.tsv"
@@ -2323,16 +2296,14 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 global_config=GlobalConfig(snp_identifier="chr_pos")
             )
 
-            with mock.patch.object(ref_panel_builder, "resolve_genome_build", return_value="hg19") as patched_resolve:
-                with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as logs:
-                    build_state = builder._prepare_build_state(config)
+            with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as logs:
+                build_state = builder._prepare_build_state(config)
 
         self.assertEqual(build_state.restriction_values, {"1:100"})
-        self.assertEqual(patched_resolve.call_args.args[0], "auto")
-        self.assertEqual(patched_resolve.call_args.args[2]["POS"].tolist(), [100])
-        self.assertTrue(any("Dropped 2 SNPs with invalid or missing CHR/POS" in message for message in logs.output))
+        self.assertEqual(build_state.restriction_keys.n_input_rows, 3)
+        self.assertEqual(build_state.restriction_keys.n_retained_keys, 1)
 
-    def test_prepare_build_state_rejects_generic_restriction_pos_build_mismatch(self):
+    def test_prepare_build_state_honors_explicit_source_build_for_small_list(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             restriction = tmpdir / "restrict.tsv"
@@ -2348,9 +2319,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 global_config=GlobalConfig(snp_identifier="chr_pos")
             )
 
-            with mock.patch.object(ref_panel_builder, "resolve_genome_build", return_value="hg38"):
-                with self.assertRaisesRegex(LDSCInputError, "restriction.*hg38.*source.*hg19"):
-                    builder._prepare_build_state(config)
+            state = builder._prepare_build_state(config)
+            self.assertEqual(state.restriction_values, {'1:110'})
 
     def test_chr_pos_restriction_filters_before_liftover(self):
         with tempfile.TemporaryDirectory() as tmpdir:

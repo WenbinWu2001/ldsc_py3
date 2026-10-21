@@ -498,7 +498,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 log_level="INFO",
             )
 
-            with self.assertRaisesRegex(LDSCInputError, "could not infer the genome build"):
+            with self.assertRaisesRegex(LDSCInputError, "Genome-build consistency check failed"):
                 ldscore_workflow._normalize_run_args(args)
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
@@ -581,7 +581,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 log_level="INFO",
             )
 
-            with self.assertRaisesRegex(LDSCInputError, "conflicting R2 parquet genome-build metadata"):
+            with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
                 ldscore_workflow._normalize_run_args(args)
 
     def make_chrom_result(self, chrom: str, bp: int, score: float, count: float):
@@ -1760,7 +1760,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     annotation_bundle=annotation_bundle,
                     ref_panel=ref_panel,
                     ldscore_config=LDScoreConfig(ld_wind_snps=10),
-                    global_config=GlobalConfig(genome_build="hg38", snp_identifier="chr_pos"),
+                    global_config=GlobalConfig(snp_identifier="rsid"),
                 )
 
         patched_compute.assert_not_called()
@@ -2523,46 +2523,19 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
 
     def test_normalize_run_args_chr_pos_auto_infers_matching_annotation_and_r2_dir_builds(self):
-        args = Namespace(
-            output_dir="out",
-            query_annot_sources=None,
-            baseline_annot_sources="baseline.@.annot.gz",
-            plink_prefix=None,
-            r2_dir="panel/hg19",
-            snp_identifier="chr_pos",
-            genome_build="auto",
-            keep_indivs_file=None,
-            ref_panel_snps_file=None,
-            regr_snps_file=None,
-            log_level="INFO",
-        )
-        sample_calls = []
-        resolve_calls = []
-
-        def fake_sample(tokens, *, context, **_kwargs):
-            sample_calls.append((tuple(tokens), context))
-            return pd.DataFrame({"CHR": ["1"], "POS": [100]}), f"{context}.sample"
-
-        def fake_resolve(genome_build, snp_identifier, sample_frame, *, context, **_kwargs):
-            resolve_calls.append((genome_build, snp_identifier, context, sample_frame["POS"].tolist()))
-            return "hg19"
-
-        with mock.patch.object(ldscore_workflow, "sample_frame_from_chr_pattern", side_effect=fake_sample), mock.patch.object(
-            ldscore_workflow,
-            "resolve_genome_build",
-            side_effect=fake_resolve,
-        ):
-            normalized_args, global_config = ldscore_workflow._normalize_run_args(args)
-
-        self.assertEqual(global_config.genome_build, "hg19")
-        self.assertEqual(normalized_args.genome_build, "hg19")
-        self.assertEqual(
-            sample_calls,
-            [
-                (("baseline.@.annot.gz",), "LD-score annotation inputs"),
-            ],
-        )
-        self.assertEqual([call[2] for call in resolve_calls], ["LD-score annotation inputs"])
+        from ldsc.genome_build_inference import load_packaged_reference_table
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            baseline, r2_dir = root / 'baseline.annot', root / 'panel'
+            rows = load_packaged_reference_table().head(500)
+            rows[['CHR', 'hg19_POS']].rename(columns={'hg19_POS': 'POS'}).assign(base=1).to_csv(baseline, sep='\t', index=False)
+            _write_minimal_r2_parquet(r2_dir / 'chr1_r2.parquet', {b'ldsc:sorted_by_build': b'hg19'})
+            args = Namespace(output_dir='out', baseline_annot_sources=str(baseline), query_annot_sources=None,
+                             plink_prefix=None, r2_dir=str(r2_dir), snp_identifier='chr_pos', genome_build='auto',
+                             keep_indivs_file=None, ref_panel_snps_file=None, regr_snps_file=None, log_level='INFO')
+            normalized, config = ldscore_workflow._normalize_run_args(args)
+            self.assertEqual(config.genome_build, 'hg19')
+            self.assertEqual(normalized.genome_build, 'hg19')
 
     def test_normalize_run_args_chr_pos_auto_does_not_infer_from_ref_panel_child_directory(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2583,7 +2556,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 log_level="INFO",
             )
 
-            with self.assertRaisesRegex(LDSCInputError, "could not infer the genome build"):
+            with self.assertRaisesRegex(LDSCInputError, "Genome-build consistency check failed"):
                 ldscore_workflow._normalize_run_args(args)
 
     def test_normalize_run_args_rsid_concrete_genome_build_warns_and_nulls(self):
@@ -2608,37 +2581,20 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
     def test_normalize_run_args_chr_pos_auto_rejects_annotation_r2_build_mismatch(self):
+        from ldsc.genome_build_inference import load_packaged_reference_table
         with tempfile.TemporaryDirectory() as tmpdir:
-            r2_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_minimal_r2_parquet(
-                r2_dir / "chr1_r2.parquet",
-                {b"ldsc:sorted_by_build": b"hg38"},
-            )
-            args = Namespace(
-                output_dir="out",
-                query_annot_sources=None,
-                baseline_annot_sources="baseline.@.annot.gz",
-                plink_prefix=None,
-                r2_dir=str(r2_dir),
-                snp_identifier="chr_pos",
-                genome_build="auto",
-                keep_indivs_file=None,
-                ref_panel_snps_file=None,
-                regr_snps_file=None,
-                log_level="INFO",
-            )
-
-            with mock.patch.object(
-                ldscore_workflow,
-                "sample_frame_from_chr_pattern",
-                return_value=(pd.DataFrame({"CHR": ["1"], "POS": [100]}), "sample"),
-            ), mock.patch.object(
-                ldscore_workflow,
-                "resolve_genome_build",
-                return_value="hg19",
-            ):
-                with self.assertRaisesRegex(LDSCInputError, "conflicting genome-build evidence"):
-                    ldscore_workflow._normalize_run_args(args)
+            root = Path(tmpdir)
+            baseline, r2_dir = root / 'baseline.annot', root / 'panel'
+            rows = load_packaged_reference_table().head(500)
+            rows[['CHR', 'hg19_POS']].rename(columns={'hg19_POS': 'POS'}).assign(base=1).to_csv(baseline, sep='\t', index=False)
+            _write_minimal_r2_parquet(r2_dir / 'chr1_r2.parquet', {b'ldsc:sorted_by_build': b'hg38'})
+            args = Namespace(output_dir='out', baseline_annot_sources=str(baseline), query_annot_sources=None,
+                             plink_prefix=None, r2_dir=str(r2_dir), snp_identifier='chr_pos', genome_build='auto',
+                             keep_indivs_file=None, ref_panel_snps_file=None, regr_snps_file=None, log_level='INFO')
+            with self.assertRaisesRegex(LDSCInputError, 'Conflicting genome-build evidence') as caught:
+                ldscore_workflow._normalize_run_args(args)
+            self.assertIn(str(baseline), str(caught.exception))
+            self.assertIn('chr1_r2.parquet', str(caught.exception))
 
     def test_run_ldscore_from_args_rejects_keep_in_parquet_mode(self):
         args = Namespace(

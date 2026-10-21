@@ -26,7 +26,6 @@ from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, wo
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from .config import GlobalConfig
 from .errors import LDSCInputError, LDSCUsageError
-from .genome_build_inference import infer_chr_pos_build
 from .ldscore_calculator import LDScoreResult
 from .overlap_matrix import LDScoreOverlap
 from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
@@ -779,8 +778,8 @@ def build_parser() -> argparse.ArgumentParser:
         '--genome-build', choices=('auto', 'hg19', 'hg38'), default='auto',
         help=(
             'Genome build of legacy reference coordinates; no coordinate conversion is performed. Default: '
-            'auto, infer hg19/hg38. A resolved build is required for chr_pos identity; unresolved inference '
-            'in rsid mode is recorded as a warning.'
+            'auto, check every retained reference chromosome for chr_pos identity. A concrete build is '
+            'authoritative; rsid identity does not require coordinate-build inference.'
         ),
     )
 
@@ -1329,57 +1328,38 @@ def _resolve_output_coordinates(
     *,
     context: str,
 ) -> tuple[pd.DataFrame, str | None, dict[str, object]]:
+    """Resolve every retained reference chromosome, or honor a concrete build.
+
+    Auto coordinate inference may normalize zero-based positions. A concrete
+    declaration assumes one-based coordinates and performs no conversion.
+    rsID output carries no coordinate build and requires no inference.
+    """
     output = frame.copy()
-    inference = None
-    inference_error = None
-    try:
-        inference = infer_chr_pos_build(output.loc[:, ["CHR", "POS"]], context=context)
-    except (ValueError, LDSCInputError) as exc:
-        inference_error = str(exc)
-
-    if mode == "rsid":
-        if build_hint in {"hg19", "hg38"} and inference is not None and inference.genome_build != build_hint:
-            raise LDSCInputError(
-                f"Declared reference genome build {build_hint} conflicts with decisive {inference.genome_build} "
-                f"coordinate evidence in {context}."
-            )
-        if inference is None:
-            LOGGER.warning(
-                "Could not infer reference build for rsID conversion; conversion continues because rsID is "
-                "the canonical identity. Details: %s",
-                inference_error,
-            )
-        return output, None, {
-            "requested_build": build_hint,
-            "effective_build": None,
-            "inferred_build": None if inference is None else inference.genome_build,
-            "coordinate_basis": "unknown" if inference is None else inference.coordinate_basis,
-            "inference_error": inference_error,
+    if build_hint in {"hg19", "hg38"}:
+        effective_build = None if mode == "rsid" else build_hint
+        return output, effective_build, {
+            "requested_build": build_hint, "effective_build": effective_build,
+            "inferred_build": None, "coordinate_basis": "declared_1-based", "inference_error": None,
         }
-
-    if build_hint in {None, "auto"}:
-        if inference is None:
-            raise LDSCInputError(
-                f"Could not infer the reference genome build for chr_pos conversion of {context}. "
-                "Pass --genome-build hg19 or --genome-build hg38 explicitly."
-            )
-        effective_build = inference.genome_build
-    else:
-        effective_build = build_hint
-        if inference is not None and inference.genome_build != effective_build:
-            raise LDSCInputError(
-                f"Declared reference genome build {effective_build} conflicts with decisive "
-                f"{inference.genome_build} coordinate evidence in {context}."
-            )
-    basis = "declared_1-based" if inference is None else inference.coordinate_basis
+    if mode == "rsid":
+        # Reference coordinates are descriptive for rsID joins.
+        return output, None, {
+            "requested_build": build_hint, "effective_build": None,
+            "inferred_build": None, "coordinate_basis": "unknown", "inference_error": None,
+        }
+    from ._genome_build_policy import GenomeBuildCheck
+    check = GenomeBuildCheck('auto', context='convert-ldsc2-ldscores', logger=LOGGER)
+    check.frames('--legacy-reference-dir', context, [output.loc[:, ['CHR', 'POS']]])
+    bases = {inference.coordinate_basis for _, inference in check.inferences}
+    if len(bases) > 1:
+        check.unresolved('--legacy-reference-dir', context, 'inconsistent coordinate basis; use one-based positions')
+    effective_build = check.resolve()
+    basis = next(iter(bases))
     if basis == "0-based":
         output["POS"] = pd.to_numeric(output["POS"]).astype("int64") + 1
     return output, effective_build, {
-        "requested_build": build_hint,
-        "effective_build": effective_build,
-        "inferred_build": None if inference is None else inference.genome_build,
-        "coordinate_basis": basis,
-        "inference_error": inference_error,
+        "requested_build": build_hint, "effective_build": effective_build,
+        "inferred_build": effective_build, "coordinate_basis": basis, "inference_error": None,
     }
 
 

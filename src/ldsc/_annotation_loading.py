@@ -21,13 +21,22 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
         scalar_files=[('gene catalog', spec.gene_coordinate_file), ('control genes', spec.control_gene_list_file)],
         mode=config.snp_identifier, strict_annotations=False)
     baseline, query = declared.baseline, declared.query
-    if spec.query_annot_gene_list_sources:
-        from .annotate_workflow import _projection_build, _gate_a_error
-        from .gene_list_resolver import GeneCatalog
+    from dataclasses import replace
+    from .annotate_workflow import _projection_build
+    from ._kernel.snp_identity import identity_mode_family
+    from .gene_list_resolver import GeneCatalog
 
-        catalog = GeneCatalog.load(spec.gene_coordinate_file)
-        projection_build = _projection_build(projection_genome_build or config.genome_build,
-                                            config.snp_identifier, spec.baseline_annot_sources, catalog)
+    catalog = GeneCatalog.load(spec.gene_coordinate_file) if spec.query_annot_gene_list_sources else None
+    requested = projection_genome_build or config.genome_build
+    projection_build = _projection_build(requested, config.snp_identifier, spec.baseline_annot_sources, catalog,
+                                        query_tokens=spec.query_annot_sources, bed_tokens=spec.query_annot_bed_sources)
+    if identity_mode_family(config.snp_identifier) == "chr_pos":
+        config = replace(config, genome_build=projection_build)
+    if catalog is not None:
+        catalog = replace(catalog, genome_build=projection_build)
+    if spec.query_annot_gene_list_sources:
+        from .annotate_workflow import _gate_a_error
+
         batch = resolve_gene_lists_staged(spec.query_annot_gene_list_sources, catalog, workspace,
                                          control_path=spec.control_gene_list_file,
                                          resolution_policy=spec.gene_list_resolution_policy,

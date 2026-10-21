@@ -49,7 +49,9 @@ OUTPUT_ROOT="${INPUT_ROOT}/tutorial_output"
 2. Quote input patterns so LDSC receives them intact. Baseline and prebuilt annotation sources support `*` and complete-autosomal `@` suites; BED, gene-list, and rg sumstats sources support globs but not `@`. Genetic-map sources for `ldscore` and `build-gene-ldscore-index` accept comma-separated exact paths only. See the [command-specific path rules](../current/path-specification.md#pattern-support-in-command-help).
 3. Output directories are created automatically. Use `--overwrite` to allow overwriting existing output files.
 4. `ldsc ldscore` excludes the extended MHC and centromere regions by default.
-5. Be careful about the genome build of your input file. Although the package runs a guardrail check on the genome build, it is not comprehensive.
+5. Auto build resolution checks every relevant coordinate input and shard using declarations or bounded samples.
+   Ordinary BED inherits the workflow build; small generic coordinate keep lists must be inferable or use a concrete authoritative build option.
+   See the [shared genome-build policy](main-functionalities/global-config.md#genome-build-inference-checking-and-overrides).
 6. To inspect what happened under the hood, check the log file in the `diagnostics/` directory inside each command's output directory.
 7. Resource use depends on SNP, sample, annotation, and worker counts.
    Start with `--workers 1`, allow temporary disk space under the output directory, and lower `--query-batch-size` to reduce active query workspace.

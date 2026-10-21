@@ -1,8 +1,40 @@
 # Global configuration and paths
 
-Last updated on: 2026-09-13
+Last updated on: 2026-10-20
 
 Choose SNP identity and genome build consistently before materializing inputs. The general default is `chr_pos_allele_aware`; the guided tutorial explicitly selects base `chr_pos`. Coordinate-based munging requires an explicit output build. Direct annotation projection also needs coordinates in the intended build. Indexed LD scoring inherits its stored configuration and rejects live overrides. See [configuration design](../../current/config-design.md) and [identity/build defaults](../../current/snp-identifier-genome-build-defaults.md).
+
+## Genome-build inference, checking, and overrides
+
+Use the existing build flag for the coordinate stage you are running.
+`--genome-build auto` checks all relevant inputs and selected shards; `build-r2-panel` and `munge-sumstats` use `--source-genome-build auto`.
+Valid artifact metadata and build-specific position columns establish builds without coordinate re-inference.
+Otherwise LDSC samples up to 5,000 rows per input/chromosome and requires at least 200 informative HM3 matches with at least 99% support.
+Every relevant input participates before a consistency error is raised, regardless of input order.
+This is bounded inference, not an exhaustive check for within-file mixtures.
+
+A concrete `--genome-build hg19` or `hg38` is authoritative, including over conflicting metadata.
+Use `--source-genome-build` for source-build workflows.
+An override changes interpretation and does not lift coordinates over.
+Munging still requires a separate `--output-genome-build` for coordinate-family output.
+Saved output build metadata describes the coordinates after any requested conversion.
+
+| SNP keep-list used for filtering | Rule |
+| --- | --- |
+| rsID keys | No coordinate-build validation. |
+| Build-specific positions | Use the column matching the workflow build, ahead of generic `POS`; no coordinate inference is needed. |
+| Generic `CHR/POS` without a declaration | Infer in auto mode; insufficient evidence is an error even if the panel is resolved. |
+
+A list containing both `hg19_POS` and `hg38_POS` supplies alternatives; unused columns do not conflict.
+If the matching named column is absent, generic `POS` is the fallback and must supply enough evidence under `auto`.
+For a small generic list, check its build and explicitly pass the command's concrete build option.
+Ordinary BED is unchecked and inherits the resolved workflow build; its compatibility is assumed.
+
+On failure, the terminal error and workflow log group every checked input by `hg19`, `hg38`, or `unresolved`, and list BED/rsID-only inputs as `unchecked`.
+Each entry identifies its flag, file or shard, and evidence or failure reason.
+Check those inputs and use the suggested existing override only when you know the intended build.
+Commands without a build override, such as regression and quantile analysis, require matching upstream artifacts.
+See the [full policy and command scopes](../../current/snp-identifier-genome-build-defaults.md#genome-build-policy) and [grouped error examples](../../troubleshooting.md#common-genome-build-consistency-check-failed).
 
 ## Input paths
 

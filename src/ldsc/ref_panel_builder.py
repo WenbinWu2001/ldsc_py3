@@ -49,27 +49,19 @@ from ._serial_calculation import serial_calculation
 from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
 from .column_inference import (
-    RESTRICTION_CHRPOS_SPEC_MAP,
-    RESTRICTION_HG19_POS_SPEC,
-    RESTRICTION_HG38_POS_SPEC,
-    normalize_column_token,
     normalize_genome_build,
     normalize_snp_identifier_mode,
-    resolve_required_column,
 )
 from ._kernel.snp_identity import (
     IDENTITY_DROP_COLUMNS,
     RestrictionIdentityKeys,
     clean_identity_artifact_table,
-    collapse_restriction_identity_keys,
     coerce_identity_drop_frame,
     empty_identity_drop_frame,
     identity_mode_family,
-    is_allele_aware_mode,
 )
 from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
 from ._coordinates import normalize_chr_pos_frame
-from .genome_build_inference import resolve_genome_build, resolve_genome_build_from_chr_pos_frames
 from ._progress import report_phase
 from .path_resolution import ensure_output_directory, preflight_output_artifact_family, remove_output_artifacts, resolve_file_group, inspect_plink_inputs, resolve_scalar_path
 from ._logging import (
@@ -95,13 +87,9 @@ from ._kernel.liftover import (
 LOGGER = logging.getLogger("LDSC.ref_panel_builder")
 _GENETIC_MAP_SUFFIXES = ("", ".txt", ".txt.gz", ".tsv", ".tsv.gz", ".csv", ".csv.gz")
 _TABLE_SUFFIXES = ("", ".txt", ".txt.gz", ".tsv", ".tsv.gz", ".csv", ".csv.gz")
-_BIM_BUILD_INFERENCE_CHUNKSIZE = 5_000
 _BUILD_REF_PANEL_EMPTY_DOC = "docs/troubleshooting.md#build-r2-panel-no-reference-panel-artifacts-were-produced"
 _BUILD_REF_PANEL_LIFTOVER_DOC = (
     "docs/troubleshooting.md#build-r2-panel-liftover-or-genetic-map-configuration-is-incomplete"
-)
-_BUILD_REF_PANEL_RESTRICTION_DOC = (
-    "docs/troubleshooting.md#build-r2-panel-snp-restriction-does-not-match-the-source-panel"
 )
 
 
@@ -436,13 +424,23 @@ class ReferencePanelBuilder:
             LOGGER.error("PLINK input validation failed; complete repair audit: %s", issues_path)
             raise
         resolved_prefixes = plink.prefixes
-        config = self._resolve_source_genome_build(config, resolved_prefixes)
+        chrom_sources = [(prefix, chrom) for chrom, prefix in plink.chromosome_prefixes.items()]
+        workflow_log_path = _resolve_build_ref_panel_log_path(workflow_log_path, config, chrom_sources)
+        if workflow_log_path is not None:
+            scope = [chrom for _, chrom in chrom_sources] if _is_chromosome_scoped_invocation(config, chrom_sources) else None
+            preflight_output_artifact_family(
+                [workflow_log_path], _ref_panel_output_family(output_dir, [workflow_log_path], chromosomes=scope),
+                overwrite=config.overwrite, label="reference-panel output artifact",
+            )
+        try:
+            config = self._resolve_source_genome_build(config, resolved_prefixes)
+        except (LDSCInputError, LDSCConfigError):
+            # Output builds are still unknown; the log alone has been preflighted.
+            with workflow_logging("build-r2-panel", workflow_log_path, log_level=self.global_config.log_level):
+                raise
         snp_identifier_mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
 
-        chrom_sources = [(prefix, chrom) for chrom, prefix in plink.chromosome_prefixes.items()]
-
         chromosomes = [chrom for _, chrom in chrom_sources]
-        workflow_log_path = _resolve_build_ref_panel_log_path(workflow_log_path, config, chrom_sources)
         metadata_path = _resolve_build_ref_panel_metadata_path(output_dir, config, chrom_sources)
         produced_paths = _expected_ref_panel_output_paths(config, chromosomes, metadata_path=metadata_path)
         if workflow_log_path is not None:
@@ -531,33 +529,14 @@ class ReferencePanelBuilder:
                 "Most likely a Python caller bypassed CLI choices with an invalid build token. "
                 "Use `source_genome_build='auto'`, `'hg19'`, or `'hg38'`."
             )
-        try:
-            source_build = resolve_genome_build_from_chr_pos_frames(
-                "auto",
-                "chr_pos",
-                _iter_plink_bim_chr_pos_frames(resolved_prefixes),
-                context="build-r2-panel PLINK .bim",
-                logger=LOGGER,
-            )
-        except (ValueError, LDSCInputError) as exc:
-            details = str(exc).replace(
-                "Pass --genome-build hg19 or --genome-build hg38",
-                "Pass --source-genome-build hg19 or --source-genome-build hg38",
-            )
-            raise LDSCInputError(
-                "build-r2-panel could not infer source_genome_build from PLINK .bim "
-                f"coordinates. Most likely the BIM coordinates do not overlap enough HM3 "
-                "reference SNPs, or CHR/BP columns are malformed. Pass "
-                "`--source-genome-build hg19` or `--source-genome-build hg38`. "
-                f"{details}"
-            ) from exc
-        if source_build not in {"hg19", "hg38"}:
-            raise LDSCInputError(
-                "build-r2-panel could not resolve source_genome_build from PLINK .bim "
-                "coordinates. Most likely build inference returned no concrete build. "
-                "Pass `--source-genome-build hg19` or `--source-genome-build hg38`."
-            )
-        LOGGER.info(f"Using source_genome_build='{source_build}' for PLINK reference-panel coordinates.")
+        from ._genome_build_policy import GenomeBuildCheck
+
+        check = GenomeBuildCheck("auto", context="build-r2-panel", option="--source-genome-build", logger=LOGGER)
+        for prefix in resolved_prefixes:
+            check.table("--plink-prefix", str(prefix) + ".bim", bim=True)
+        check.paths("--ref-panel-snps-file", config.ref_panel_snps_file,
+                    restriction_mode=self.global_config.snp_identifier)
+        source_build = check.resolve()
         return dataclass_replace(config, source_genome_build=source_build)
 
     @report_phase(LOGGER, 'validation', 'maps, restrictions, and liftover configuration')
@@ -1177,252 +1156,21 @@ def _chain_flag_hint(source_build: str, target_build: str) -> str:
     return f"--liftover-chain-{source_build}-to-{target_build}-file"
 
 
-def _iter_plink_bim_chr_pos_frames(resolved_prefixes: Sequence[str]):
-    """Yield CHR/BP coordinate chunks from resolved PLINK ``.bim`` files."""
-    for prefix in resolved_prefixes:
-        reader = pd.read_csv(
-            prefix + ".bim",
-            sep=r"\s+",
-            header=None,
-            usecols=[0, 3],
-            names=["CHR", "POS"],
-            chunksize=_BIM_BUILD_INFERENCE_CHUNKSIZE,
-        )
-        for frame in reader:
-            if not frame.empty:
-                yield frame
-
-
 def _read_ref_panel_snp_restriction(
     path: str | Path,
     restriction_mode: str,
     *,
     source_genome_build: str,
 ) -> RestrictionIdentityKeys:
+    """Load restriction keys using the resolved or authoritative source build.
+
+    Auto validation has already examined this input alongside every BIM shard.
+    rsID filtering ignores coordinates; coordinate filtering prefers a matching
+    build-specific position column and otherwise uses generic POS.
     """
-    Read a builder SNP restriction file in the source PLINK build.
-
-    Restriction files contribute only identity keys for filtering retained
-    reference-panel rows. Duplicate keys collapse to one retained key, and
-    non-identity columns such as ``CM`` or ``MAF`` are ignored.
-    """
-    if identity_mode_family(restriction_mode) == "rsid":
-        return kernel_identifiers.read_snp_restriction_keys(path, restriction_mode, logger=LOGGER)
-    if source_genome_build not in {"hg19", "hg38"}:
-        raise LDSCInternalError(
-            "build-r2-panel SNP restriction loading failed: source_genome_build is not "
-            f"concrete ({source_genome_build!r}). Most likely source build inference was "
-            "skipped before CHR/POS restriction loading. Re-run with DEBUG logging and report the traceback."
-        )
-    frame, has_allele_columns = _read_source_build_chr_pos_restriction_frame(
-        Path(path),
-        source_genome_build,
-        inspect_alleles=is_allele_aware_mode(restriction_mode),
+    return kernel_identifiers.read_snp_restriction_keys(
+        path, restriction_mode, genome_build=source_genome_build, logger=LOGGER,
     )
-    frame, _report = normalize_chr_pos_frame(
-        frame,
-        context=f"reference-panel SNP restriction '{path}'",
-        coordinate_policy="drop",
-        logger=LOGGER,
-    )
-    return collapse_restriction_identity_keys(
-        frame,
-        restriction_mode,
-        context=f"reference-panel SNP restriction '{path}'",
-        has_allele_columns=has_allele_columns,
-        logger=LOGGER,
-    )
-
-
-def _source_position_spec(source_genome_build: str):
-    """Return the build-specific position column spec for the source build."""
-    return RESTRICTION_HG19_POS_SPEC if source_genome_build == "hg19" else RESTRICTION_HG38_POS_SPEC
-
-
-def _resolve_build_specific_position_column(
-    header: Sequence[str],
-    *,
-    source_genome_build: str,
-    path: Path,
-) -> str | None:
-    """Resolve only explicit build-specific position aliases, not generic POS."""
-    spec = _source_position_spec(source_genome_build)
-    alias_tokens = {normalize_column_token(alias) for alias in spec.aliases}
-    matches = [
-        column
-        for column in header
-        if (normalized := normalize_column_token(column)) in alias_tokens
-        or any(normalized.endswith(alias) for alias in alias_tokens)
-    ]
-    if not matches:
-        return None
-    if len(matches) > 1:
-        raise LDSCInputError(
-            f"build-r2-panel could not choose the {source_genome_build} position column "
-            f"in SNP restriction '{path}': multiple matching columns were found "
-            f"({', '.join(map(str, matches))}). Most likely the restriction file carries "
-            "duplicate build-specific position columns. Keep one source-build position "
-            "column or rename the extras. "
-            f"Other causes & fixes: {_BUILD_REF_PANEL_RESTRICTION_DOC}"
-        )
-    return matches[0]
-
-
-def _restriction_frame_from_columns(
-    *,
-    path: Path,
-    header: Sequence[str],
-    rows: Sequence[Sequence[str]],
-    chr_col: str,
-    pos_col: str,
-    inspect_alleles: bool,
-) -> pd.DataFrame:
-    """Materialize CHR/POS restriction rows from selected source columns."""
-    header = list(header)
-    chr_idx = header.index(chr_col)
-    pos_idx = header.index(pos_col)
-    if inspect_alleles:
-        a1_col, a2_col, has_allele_columns = kernel_identifiers._resolve_restriction_allele_columns(
-            header,
-            context=str(path),
-        )
-    else:
-        a1_col, a2_col, has_allele_columns = None, None, False
-    allele_indices = (header.index(a1_col), header.index(a2_col)) if has_allele_columns else None
-    values: list[dict[str, object]] = []
-    for row in rows:
-        if not row:
-            continue
-        if len(row) <= max(chr_idx, pos_idx):
-            raise LDSCInputError(
-                f"build-r2-panel could not read SNP restriction '{path}': a row is "
-                "missing the CHR or POS column. Most likely the file has ragged rows "
-                "or the delimiter is inconsistent. Fix the row or re-export the table "
-                "with a consistent delimiter."
-            )
-        record = {"CHR": row[chr_idx], "POS": row[pos_idx]}
-        if allele_indices is not None:
-            if len(row) <= max(allele_indices):
-                raise LDSCInputError(
-                    f"build-r2-panel could not read SNP restriction '{path}': a row is "
-                    "missing the A1 or A2 column required by allele-aware mode. Most likely "
-                    "the file has ragged rows or incomplete allele columns. Fix the row or "
-                    "use a base SNP identifier mode."
-                )
-            record["A1"] = row[allele_indices[0]]
-            record["A2"] = row[allele_indices[1]]
-        values.append(record)
-    columns = ["CHR", "POS", *(["A1", "A2"] if has_allele_columns else [])]
-    return pd.DataFrame(values, columns=columns)
-
-
-def _infer_generic_restriction_build(frame: pd.DataFrame, path: Path) -> str:
-    """Infer the genome build represented by a generic restriction POS column."""
-    inference_frame, _report = normalize_chr_pos_frame(
-        frame.loc[:, ["CHR", "POS"]].copy(),
-        context=f"reference-panel SNP restriction '{path}'",
-        coordinate_policy="drop",
-        logger=None,
-    )
-    try:
-        inferred_build = resolve_genome_build(
-            "auto",
-            "chr_pos",
-            inference_frame,
-            context=f"reference-panel SNP restriction '{path}'",
-            logger=LOGGER,
-        )
-    except (ValueError, LDSCInputError) as exc:
-        raise LDSCInputError(
-            f"build-r2-panel could not infer the genome build of the generic POS column "
-            f"in SNP restriction '{path}'. Most likely the restriction coordinates have "
-            "too little HM3 overlap, use the wrong columns, or mix builds. Provide a "
-            "source-build-specific position column such as hg19_POS or hg38_POS aligned "
-            "to the PLINK source build. "
-            f"Other causes & fixes: {_BUILD_REF_PANEL_RESTRICTION_DOC}"
-        ) from exc
-    if inferred_build not in {"hg19", "hg38"}:
-        raise LDSCInputError(
-            f"build-r2-panel could not infer the genome build of SNP restriction '{path}'. "
-            "Most likely the restriction file lacks usable CHR/POS evidence. Add a "
-            "source-build-specific position column or pass a restriction file aligned "
-            "to the PLINK source build. "
-            f"Other causes & fixes: {_BUILD_REF_PANEL_RESTRICTION_DOC}"
-        )
-    return inferred_build
-
-
-def _read_source_build_chr_pos_restriction_frame(
-    path: Path,
-    source_genome_build: str,
-    *,
-    inspect_alleles: bool = True,
-) -> tuple[pd.DataFrame, bool]:
-    """Read CHR/POS restriction rows that must align to the source build."""
-    header, rows, _delimiter = kernel_identifiers._parse_restriction_rows(path)
-    if not header:
-        return pd.DataFrame(columns=["CHR", "POS"]), False
-    chr_col = resolve_required_column(
-        header,
-        RESTRICTION_CHRPOS_SPEC_MAP["CHR"],
-        context=str(path),
-    )
-    if inspect_alleles:
-        _a1_col, _a2_col, has_allele_columns = kernel_identifiers._resolve_restriction_allele_columns(
-            header,
-            context=str(path),
-        )
-    else:
-        has_allele_columns = False
-    source_pos_col = _resolve_build_specific_position_column(
-        header,
-        source_genome_build=source_genome_build,
-        path=path,
-    )
-    if source_pos_col is not None:
-        LOGGER.info(
-            f"Using source-build-specific restriction column '{source_pos_col}' "
-            f"for source genome build '{source_genome_build}'."
-        )
-        frame = _restriction_frame_from_columns(
-            path=path,
-            header=header,
-            rows=rows,
-            chr_col=chr_col,
-            pos_col=source_pos_col,
-            inspect_alleles=inspect_alleles,
-        )
-        return frame, has_allele_columns
-
-    generic_pos_col = resolve_required_column(
-        header,
-        RESTRICTION_CHRPOS_SPEC_MAP["POS"],
-        context=str(path),
-    )
-    frame = _restriction_frame_from_columns(
-        path=path,
-        header=header,
-        rows=rows,
-        chr_col=chr_col,
-        pos_col=generic_pos_col,
-        inspect_alleles=inspect_alleles,
-    )
-    restriction_build = _infer_generic_restriction_build(frame, path)
-    if restriction_build != source_genome_build:
-        raise LDSCInputError(
-            "build-r2-panel SNP restriction does not match the source panel build: "
-            f"the generic POS column in '{path}' was inferred as {restriction_build}, "
-            f"but the PLINK source build is {source_genome_build}. Most likely the "
-            "restriction file was prepared on a different genome build. Provide SNP "
-            "restrictions aligned to the PLINK source build, or add a source-build-specific "
-            f"{source_genome_build}_POS column. "
-            f"Other causes & fixes: {_BUILD_REF_PANEL_RESTRICTION_DOC}"
-        )
-    LOGGER.info(
-        f"Generic POS column in reference-panel SNP restriction '{path}' "
-        f"was inferred as source_genome_build='{source_genome_build}'."
-    )
-    return frame, has_allele_columns
 
 
 def _position_lookup_for_build(
@@ -1654,8 +1402,8 @@ def build_parser() -> argparse.ArgumentParser:
     identity.add_argument(
         '--source-genome-build', default='auto', choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
         help=(
-            'Genome build of input PLINK coordinates. Default: auto, infer hg19/hg38 from BIM '
-            'chromosome/position rows before SNP restriction.'
+            'Genome build of input PLINK coordinates. Default: auto, check every BIM shard and coordinate '
+            'keep list before filtering. Concrete builds are authoritative; cM map selection follows inference.'
         ),
     )
 

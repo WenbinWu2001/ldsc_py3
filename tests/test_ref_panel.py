@@ -270,7 +270,7 @@ class PlinkRefPanelTest(unittest.TestCase):
             metadata = panel.load_metadata("22")
             self.assertEqual(set(metadata["SNP"]), {PLINK_SNPS[0]})
 
-    def test_chr_pos_restriction_with_auto_build_infers_before_filtering(self):
+    def test_small_panel_needs_override_even_with_declared_keep_list(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             restrict = Path(tmpdir) / "restrict.tsv"
             restrict.write_text(
@@ -279,7 +279,10 @@ class PlinkRefPanelTest(unittest.TestCase):
                 "22\t16805059\n",
                 encoding="utf-8",
             )
-            panel = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos")).load(
+            with self.assertRaisesRegex(LDSCInputError, 'unresolved:'):
+                RefPanelLoader(GlobalConfig(snp_identifier='chr_pos')).load(
+                    RefPanelConfig(backend='plink', plink_prefix=str(PLINK_PREFIX), ref_panel_snps_file=str(restrict)))
+            panel = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")).load(
                 RefPanelConfig(
                     backend="plink",
                     plink_prefix=str(PLINK_PREFIX),
@@ -472,7 +475,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 panel.build_reader("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
-    def test_package_canonical_r2_rejects_genome_build_mismatch(self):
+    def test_concrete_build_override_preserves_r2_format_validation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
             _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet", genome_build="hg38")
@@ -483,7 +486,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
             )
 
-            with self.assertRaisesRegex(ValueError, "genome_build mismatch"):
+            with self.assertRaisesRegex(LDSCInputError, "not an index-format R2"):
                 panel.build_reader("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")

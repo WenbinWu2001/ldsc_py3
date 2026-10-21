@@ -1096,7 +1096,9 @@ class RegressionWorkflowTest(unittest.TestCase):
             config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
         )
 
-        dataset = runner.build_dataset(sumstats, ldscore_result, query_columns=["query1"])
+        with mock.patch('ldsc._genome_build_policy.infer_chr_pos_build',
+                        return_value=SimpleNamespace(genome_build='hg38', coordinate_basis='1-based', inspected_snp_count=500)):
+            dataset = runner.build_dataset(sumstats, ldscore_result, query_columns=["query1"])
 
         self.assertEqual(dataset.merged["SNP"].tolist(), ["trait1", "trait2", "trait3"])
         self.assertEqual(dataset.retained_ld_columns, ["base", "query1"])
@@ -1795,7 +1797,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             config_snapshot=GlobalConfig(genome_build="hg19", snp_identifier="chr_pos"),
         )
 
-        with self.assertRaisesRegex(LDSCInputError, "Liftover"):
+        with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
             runner.build_dataset(sumstats, ldscore_result)
 
     def _chr_pos_ldscore(self, genome_build="hg38"):
@@ -1822,35 +1824,35 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.make_sumstats_table(),
             config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
         )
-        with self.assertRaisesRegex(LDSCInputError, "Liftover"):
+        with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
             regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
 
     def test_regression_genome_build_infers_when_metadata_absent(self):
         frame = pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [10], "Z": [1.0], "N": [100.0]})
         sumstats = replace(self.make_sumstats_table(), data=frame, config_snapshot=None)
-        with mock.patch.object(
-            regression_runner, "infer_chr_pos_build", return_value=SimpleNamespace(genome_build="hg38")
+        with mock.patch(
+            "ldsc._genome_build_policy.infer_chr_pos_build", return_value=SimpleNamespace(genome_build="hg38", coordinate_basis="1-based", inspected_snp_count=500)
         ):
             regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
-        with mock.patch.object(
-            regression_runner, "infer_chr_pos_build", return_value=SimpleNamespace(genome_build="hg19")
+        with mock.patch(
+            "ldsc._genome_build_policy.infer_chr_pos_build", return_value=SimpleNamespace(genome_build="hg19", coordinate_basis="1-based", inspected_snp_count=500)
         ):
-            with self.assertRaisesRegex(LDSCInputError, "Liftover"):
+            with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
                 regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
 
     def test_regression_genome_build_errors_when_inference_inconclusive(self):
         frame = pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [10], "Z": [1.0], "N": [100.0]})
         sumstats = replace(self.make_sumstats_table(), data=frame, config_snapshot=None)
-        with mock.patch.object(
-            regression_runner, "infer_chr_pos_build", side_effect=LDSCInputError("could not infer")
+        with mock.patch(
+            "ldsc._genome_build_policy.infer_chr_pos_build", side_effect=LDSCInputError("could not infer")
         ):
-            with self.assertRaisesRegex(LDSCInputError, "Re-munge.*liftover"):
+            with self.assertRaisesRegex(LDSCInputError, "unresolved:"):
                 regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
 
     def test_regression_genome_build_errors_when_chr_pos_columns_missing(self):
         # Metadata-absent chr_pos run on a sumstats lacking CHR/POS (e.g. a legacy rsID file).
         sumstats = replace(self.make_sumstats_table(), config_snapshot=None)
-        with self.assertRaisesRegex(LDSCInputError, "Re-munge.*liftover"):
+        with self.assertRaisesRegex(LDSCInputError, "unresolved:"):
             regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
 
     def test_build_dataset_skips_compatibility_check_for_legacy_none_snapshots(self):

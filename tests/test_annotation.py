@@ -368,7 +368,8 @@ class AnnotationBuilderTest(unittest.TestCase):
 
         help_text = " ".join(stdout.getvalue().split())
         self.assertIn("Required with chr_pos or chr_pos_allele_aware", help_text)
-        self.assertIn("gene intervals use their catalog build", help_text)
+        self.assertIn("auto checks every grid shard and the gene catalog", help_text)
+        self.assertIn("Concrete builds are authoritative", help_text)
 
     def test_bed_to_annot_parser_rejects_removed_no_batch_flag(self):
         stderr = io.StringIO()
@@ -1390,21 +1391,20 @@ class AnnotationWrapperTest(unittest.TestCase):
                 self.assertTrue(Path(result.output_paths["query_annotations"][0]).is_file())
 
     def test_main_chr_pos_auto_resolves_build_before_running(self):
-        from ldsc import annotate_workflow
-
+        from ldsc.genome_build_inference import load_packaged_reference_table
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            baseline, bed = root / "baseline.1.annot", root / "query.bed"
-            baseline.write_text("CHR\tBP\tSNP\tCM\tbase\n1\t100\trs1\t0.0\t1\n", encoding="utf-8")
-            bed.write_text("chr1\t0\t100\tfeature\n", encoding="utf-8")
-            with mock.patch.object(annotate_workflow, "resolve_genome_build", return_value="hg19") as resolve:
-                with annotation_builder.main([
-                    "--query-annot-bed-sources", str(bed), "--ref-snp-annot-sources", str(root / "baseline.@.annot"),
-                    "--output-dir", str(root / "out"), "--snp-identifier", "chr_pos", "--genome-build", "auto",
-                ]) as result:
-                    self.assertEqual(result.config_snapshot.genome_build, "hg19")
-                    self.assertEqual(result.read("1", columns=["query"]).ravel().tolist(), [1])
-            self.assertEqual(resolve.call_args.args[0], "auto")
+            baseline, bed = root / "baseline.2.annot", root / "query.bed"
+            reference = load_packaged_reference_table()
+            rows = reference.loc[reference.CHR.astype(str).eq('2')].head(500)
+            rows[['CHR', 'hg19_POS']].rename(columns={'hg19_POS': 'BP'}).assign(base=1).to_csv(baseline, sep='\t', index=False)
+            bed.write_text("chr2\t0\t1000000000\n")
+            with annotation_builder.main([
+                "--query-annot-bed-sources", str(bed), "--ref-snp-annot-sources", str(root / "baseline.*.annot"),
+                "--output-dir", str(root / "out"), "--snp-identifier", "chr_pos", "--genome-build", "auto",
+            ]) as result:
+                self.assertEqual(result.config_snapshot.genome_build, "hg19")
+                self.assertEqual(result.read("2", columns=["query"]).ravel().tolist(), [1] * 500)
 
     def test_main_bed_to_annot_public_entrypoint_is_removed(self):
         self.assertFalse(hasattr(annotation_builder, "main_bed_to_annot"))

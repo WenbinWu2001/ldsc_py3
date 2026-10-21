@@ -131,6 +131,78 @@ Markers, logs, audits, and scientific outputs use the same expanded destination.
 
 **Developer reference:** `genome_build_inference.resolve_genome_build()` and `genome_build_inference.resolve_chr_pos_table()` · **Exception:** `LDSCInputError`
 
+### Common: genome-build consistency check failed
+
+This illustrative report follows the [genome-build policy](current/snp-identifier-genome-build-defaults.md#genome-build-policy).
+The workflow examines all relevant inputs before raising a consistency error and includes each selected file or shard in the grouped findings.
+
+```text
+Genome-build consistency check failed for ldscore.
+
+Build evidence across inputs:
+  hg19:
+    --plink-prefix: panel/chr1.bim (coordinate inference)
+    --baseline-annot-sources: annotations/base.1.annot.gz (coordinate inference)
+  hg38:
+    --baseline-annot-sources: annotations/base.2.annot.gz (coordinate inference)
+  unresolved:
+    --regr-snps-file: keep.tsv (too few informative coordinates)
+  unchecked:
+    --query-annot-bed-sources: regions.bed (ordinary BED; inherits workflow build)
+
+The reference input and baseline annotation shards contain conflicting
+hg19/hg38 build evidence. The build of keep.tsv could not be resolved.
+regions.bed was not independently checked and does not establish a build.
+
+Check the listed inputs and ensure their coordinates use a consistent build.
+To make a known build authoritative for this run, specify --genome-build hg19
+or --genome-build hg38. This declaration does not convert coordinates.
+```
+
+The same input flag can appear in multiple groups when its files disagree.
+Actual reports identify the files and evidence found in that run, explain each unresolved input, and include matching inputs as well as conflicting ones.
+Metadata declarations must be labeled as declarations rather than coordinate inference.
+An unchecked ordinary BED file is allowed to inherit a successfully resolved workflow build; the unchecked label is not itself an error.
+A generic coordinate keep-list that lacks sufficient inference evidence is an error under `auto`, even if all resolved inputs agree; it does not inherit their build.
+rsID-only keep-lists used for rsID filtering need no build validation and can be listed as `unchecked` with the reason "rsID filtering; no coordinate build required".
+Valid build metadata and matching build-specific position columns supply build evidence without coordinate re-inference.
+When a matching build-specific column is present, it takes precedence over generic `POS`; an unused generic column does not create a conflict.
+
+Override advice must use the option for the affected command.
+For `build-r2-panel` and coordinate-based `munge-sumstats`, the source-build example is `--source-genome-build hg19` or `--source-genome-build hg38`.
+`--output-genome-build` specifies munging's target build and does not override source evidence.
+For commands without a build override, direct the user to consistent upstream artifacts instead of suggesting an unsupported flag.
+Explicit build declarations remain authoritative within their existing scope; they do not repair unreadable files or other structural input errors.
+
+### Common: keep-list build could not be resolved
+
+This illustrative example shows insufficient evidence in a generic coordinate keep-list.
+A small list is still an error under `auto`, even when the reference panel is resolved.
+For the full distinction between rsID filtering, declared coordinates, and generic coordinates, see the [SNP keep-list rules](current/snp-identifier-genome-build-defaults.md#snp-keep-list-rules).
+
+```text
+Genome-build consistency check failed for ldscore.
+
+Build evidence across inputs:
+  hg19:
+    --plink-prefix: panel/chr1.bim (coordinate inference)
+  hg38: none
+  unresolved:
+    --regr-snps-file: keep.tsv (40 informative HM3 matches; at least 200 required)
+  unchecked: none
+
+The generic CHR/POS keep-list keep.tsv could not be assigned a genome build.
+The reference panel's build does not establish the keep-list's build.
+Check that the keep-list coordinates use the intended workflow build, then
+explicitly specify --genome-build hg19 or --genome-build hg38 for this run.
+The explicit declaration is authoritative and does not convert coordinates.
+```
+
+The error and workflow log must identify the actual keep-list flag, file, and reason inference failed, with all other inputs included in the grouped report.
+The explicit build option allows the user to declare a known build for a small coordinate list without supplying additional inference evidence.
+For panel building or munging, replace the example override with the command's existing `--source-genome-build` option.
+Inference uses bounded samples from every relevant file/chromosome and retains the existing confidence criteria; an exhaustive coordinate scan is not required.
+
 ### Common: LDSC artifact schema or provenance is incompatible
 
 **Symptom:** `Could not read LDSC <artifact> artifact metadata...`
@@ -561,24 +633,26 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
 
 ### ldscore: genome build could not be resolved consistently
 
-**Symptom:** `ldscore could not infer the genome build...` / `ldscore found conflicting genome-build evidence...`
+**Symptom:** `Genome-build consistency check failed for ldscore.`
 
 **Likely causes & how to check** (most probable first):
 
 | # | Likely cause | How to check |
 |---|--------------|--------------|
-| 1 | `--genome-build auto` had no annotation sample or R2 parquet build metadata to inspect | Confirm annotation path tokens resolve and R2 parquet metadata contains `ldsc:sorted_by_build` |
-| 2 | Annotation inputs and R2 parquet metadata were generated on different genome builds | Compare annotation coordinate build against the R2 parquet `ldsc:sorted_by_build` value |
-| 3 | The R2 directory contains parquet files from multiple builds | Inspect build metadata across `chr*_r2.parquet` files in the directory |
-| 4 | Annotation CHR/POS columns were parsed from the wrong fields | Print the annotation header and first rows; confirm CHR/POS look like genomic coordinates |
+| 1 | A coordinate input, including a small keep list, lacks sufficient build evidence | Read the `unresolved` group for the input flag, concrete path, and reason |
+| 2 | Annotation, PLINK BIM, gene-catalog, or R2 declarations identify different builds | Compare the complete `hg19` and `hg38` groups, including every selected shard |
+| 3 | R2 Parquet and sidecar declarations disagree | Keep matching `chrN_r2.parquet` and `chrN_meta.tsv.gz` artifacts together |
+| 4 | CHR/POS columns were parsed from the wrong fields | Inspect the listed input's header; matching build-specific position columns take precedence over generic POS |
 
 **Remedies:**
 
-1. Pass an explicit build: `--genome-build hg19` or `--genome-build hg38`.
-2. Regenerate annotation and R2 reference-panel artifacts on the same genome build.
-3. Keep only one build's R2 parquet files in a given `--r2-dir`.
+1. Check the listed inputs and supply coordinates on one build.
+2. When the build is known, declare it authoritatively with `--genome-build hg19` or `--genome-build hg38`; this does not convert coordinates.
+3. Exact paths, globs, and `@` suites all support auto inference, including PLINK-only input and suites without chromosome 1.
 
-**Developer reference:** `ldscore_calculator._resolve_ldscore_chr_pos_genome_build()` and `ldscore_calculator._infer_r2_dir_genome_build()` · **Exception:** `LDSCInputError`
+See the [complete grouped report](#common-genome-build-consistency-check-failed) and [keep-list guidance](#common-keep-list-build-could-not-be-resolved).
+
+**Developer reference:** `ldscore_calculator._resolve_ldscore_chr_pos_genome_build()` and `_genome_build_policy.GenomeBuildCheck` · **Exception:** `LDSCInputError`
 
 ### ldscore: unusable CM for ld-wind-cm
 
@@ -655,25 +729,27 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
 
 ### build-r2-panel: SNP restriction does not match the source panel
 
-**Symptom:** `build-r2-panel SNP restriction does not match the source panel build...`
+**Symptom:** `Genome-build consistency check failed for build-r2-panel...`, with `--ref-panel-snps-file` listed under a conflicting build or `unresolved`.
 
 **Likely causes & how to check** (most probable first):
 
 | # | Likely cause | How to check |
 |---|--------------|--------------|
 | 1 | The restriction's generic POS column is on a different build than the PLINK source | Infer or inspect several CHR/POS rows against hg19/hg38 |
-| 2 | The restriction file has ambiguous build-specific position columns | Print the header and keep only one `hg19_POS` or `hg38_POS` source-build column |
+| 2 | More than one alias describes the same build-specific position | Keep one column for each build; hg19 and hg38 columns may coexist as alternatives |
 | 3 | CHR/POS columns were parsed from the wrong delimiter or header names | Inspect the header with `head -1 <file> | cat -A` |
 | 4 | Allele-aware restriction rows are missing A1/A2 values | Check whether every row has both allele columns when using allele-aware modes |
-| 5 | The file contains too little HM3 overlap for automatic build inference | Use explicit source-build-specific position columns instead of generic `POS` |
+| 5 | The file contains too little HM3 overlap for automatic build inference | Verify its build, then specify `--source-genome-build hg19` or `hg38` |
 
 **Remedies:**
 
 1. Prepare the restriction file on the same build as the PLINK source panel.
-2. Prefer source-build-specific position columns such as `hg19_POS` or `hg38_POS`.
+2. A matching `hg19_POS` or `hg38_POS` is preferred over generic `POS` without re-inference.
+   Otherwise generic positions need enough evidence in auto mode.
+   A concrete `--source-genome-build` is authoritative and bypasses build inference; it does not convert positions.
 3. Fix ragged rows or delimiter/header issues before rerunning.
 
-**Developer reference:** `ref_panel_builder._read_ref_panel_snp_restriction()` and restriction build/column readers · **Exception:** `LDSCInputError`
+**Developer reference:** `ref_panel_builder.ReferencePanelBuilder._resolve_source_genome_build()`, `_genome_build_policy.GenomeBuildCheck`, and `column_inference.resolve_restriction_chr_pos_columns()` · **Exception:** `LDSCInputError`
 
 ### build-r2-panel: reference-panel artifact is incompatible
 

@@ -1,6 +1,6 @@
 # Continuous-Annotation Quantile Heritability: Technical Contract
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-20
 
 Quantile calculation runs in one managed child with **1 BLAS thread**, including input overlap products and post-fit projection.
 See [parallel execution](parallel-execution.md) for native-limit verification and Python process startup.
@@ -38,6 +38,11 @@ Copy the complete regression result directory, including `diagnostics/metadata.j
 Missing or invalid shared references fail with a repair message.
 
 ## Required resupplied data
+
+For coordinate-family workflows, reconstruction inherits the saved LD-score build and checks all resupplied annotation and reference-metadata shards against it before projection.
+Valid declarations are trusted; otherwise bounded coordinate inference applies.
+Ordinary BED inputs remain unchecked and inherit that build.
+`quantile-h2` has no build override, so conflicting or unresolved inputs require matching upstream artifacts; see the [shared build policy](snp-identifier-genome-build-defaults.md#genome-build-policy).
 
 The command deliberately does not copy original annotation matrices into regression results. Users resupply:
 

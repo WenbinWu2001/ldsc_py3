@@ -480,11 +480,6 @@ class SumstatsMungerTest(unittest.TestCase):
                 summary_message="mock inferred hg19 0-based",
             )
 
-            def fake_resolve_chr_pos_table(frame, *, context, logger=None, reference_table=None, coordinate_policy="drop"):
-                normalized = frame.copy()
-                normalized["CHR"] = normalized["CHR"].astype(str)
-                normalized["POS"] = pd.to_numeric(normalized["POS"], errors="raise").astype(int) + 1
-                return normalized, inference
 
             original_parse = kernel_munge.parse_dat
 
@@ -494,7 +489,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 self.assertEqual(request.coordinate_basis, "0-based")
                 return original_parse(dat_gen, request)
 
-            with mock.patch.object(munge_input, "resolve_chr_pos_table", side_effect=fake_resolve_chr_pos_table), \
+            with mock.patch("ldsc._genome_build_policy.infer_chr_pos_build", return_value=inference), \
                  mock.patch.object(kernel_munge, "parse_dat", side_effect=assert_auto_resolved_before_parse):
                 table = SumstatsMunger().run(
                     MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, trait_name="trait"),
@@ -1223,7 +1218,7 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path.write_text("CHR POS SNP A1 A2 P BETA N\n1 99 rs1 A G .05 .05 1000\n")
             inference = mock.Mock(genome_build="hg38", coordinate_basis="0-based", inspected_snp_count=1,
                                   match_counts={}, match_fractions={}, summary_message="inferred hg38 0-based")
-            with mock.patch.object(munge_input, "resolve_chr_pos_table", return_value=(pd.DataFrame(), inference)), \
+            with mock.patch("ldsc._genome_build_policy.infer_chr_pos_build", return_value=inference), \
                  mock.patch.object(kernel_munge, "munge_sumstats", wraps=kernel_munge.munge_sumstats) as kernel:
                 sumstats_workflow.main(["--no-snp-restriction",
                     "--raw-sumstats-file", str(raw_path), "--output-dir", str(tmpdir / "out"),
@@ -2014,7 +2009,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 encoding="utf-8",
             )
             keep_path = tmpdir / "keep.tsv"
-            keep_path.write_text("CHR\tPOS\n1\t200\n", encoding="utf-8")
+            keep_path.write_text("CHR\thg19_POS\n1\t200\n", encoding="utf-8")
 
             inference = mock.Mock(
                 genome_build="hg19",
@@ -2025,13 +2020,8 @@ class SumstatsMungerTest(unittest.TestCase):
                 summary_message="mock inferred hg19 0-based",
             )
 
-            def fake_resolve_chr_pos_table(frame, *, context, logger=None, reference_table=None):
-                normalized = frame.copy()
-                normalized["CHR"] = normalized["CHR"].astype(str)
-                normalized["POS"] = normalized["POS"].astype(int) + 1
-                return normalized, inference
 
-            with mock.patch.object(munge_input, "resolve_chr_pos_table", side_effect=fake_resolve_chr_pos_table):
+            with mock.patch("ldsc._genome_build_policy.infer_chr_pos_build", return_value=inference):
                 table = SumstatsMunger().run(
                     MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(

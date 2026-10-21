@@ -196,6 +196,12 @@ def test_single_query_model_reconstructs_each_query_route(workflow, route):
         path.write_text("G1\nG2\n")
         workflow.args.query_annot_gene_list_sources = [str(path)]
         workflow.args.gene_coordinate_file = str(catalog)
+    # Small synthetic coordinate artifacts declare their build, like published annotations.
+    sidecar = workflow.root / 'diagnostics/metadata.json'
+    sidecar.parent.mkdir(exist_ok=True)
+    sidecar.write_text(json.dumps({'artifact_type': 'annotation_projection', 'genome_build': 'hg38',
+        'files': {'baseline_annotations': ['annotations.tsv', 'ref.tsv', 'target.tsv'],
+                  'query_annotations': ['query.annot.gz']}}))
     result = run_quantile_h2_from_args(workflow.args)
     assert result.metadata["selected_model_type"] == "baseline_plus_query"
     np.testing.assert_allclose(result.quantile_h2.h2_obs, [.35, .05])

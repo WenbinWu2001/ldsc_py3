@@ -21,12 +21,15 @@ import pandas as pd
 from .column_inference import (
     RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS,
     RAW_SUMSTATS_SIGNED_STAT_SPECS,
+    RESTRICTION_HG19_POS_SPEC,
+    RESTRICTION_HG38_POS_SPEC,
     build_cleaned_alias_lookup,
     clean_header,
+    resolve_optional_column,
 )
 from .config import GlobalConfig, MungeConfig
 from .errors import LDSCInputError, LDSCUsageError
-from .genome_build_inference import collect_chr_pos_build_evidence_frame, resolve_chr_pos_table
+from .genome_build_inference import collect_chr_pos_build_evidence_frame
 from ._kernel.liftover import SumstatsLiftoverRequest
 from ._kernel.snp_identity import identity_base_mode, identity_mode_family, is_allele_aware_mode
 from ._kernel.sumstats_munger import MungeQC, ResolvedMungeInput, prepare_sumstats_restriction
@@ -396,7 +399,7 @@ def prepare_munge_input(
 
     (openfunc, compression) = get_compression(source_path)
     metadata_skiprows = count_leading_sumstats_comment_lines(source_path)
-    coordinate_metadata = _resolve_source_coordinates(source_path, cname_translation, global_config, compression, metadata_skiprows)
+    coordinate_metadata = _resolve_source_coordinates(source_path, cname_translation, global_config, compression, metadata_skiprows, restriction_path=restriction_path)
     restriction = prepare_sumstats_restriction(restriction_path, mode, coordinate_metadata['genome_build'])
     return ResolvedMungeInput(
         source_path=source_path,
@@ -418,56 +421,60 @@ def prepare_munge_input(
     )
 
 
-def _resolve_source_coordinates(source_path, cname_translation, global_config, compression, metadata_skiprows):
-    """Resolve build and basis from raw coordinates before any chunk QC."""
-    mode = global_config.snp_identifier
-    genome_build = global_config.genome_build
-    metadata = {'snp_identifier': mode, 'genome_build': genome_build,
+def source_position_build(position_columns):
+    """Read a build declaration from the selected raw position column name."""
+    builds = {build for build, spec in (('hg19', RESTRICTION_HG19_POS_SPEC), ('hg38', RESTRICTION_HG38_POS_SPEC))
+              if resolve_optional_column(position_columns, spec, context='raw position column') is not None}
+    return next(iter(builds)) if len(builds) == 1 else None
+
+
+def _resolve_source_coordinates(source_path, cname_translation, global_config, compression, metadata_skiprows, *, restriction_path=None):
+    """Resolve source build and basis jointly with coordinate restriction evidence.
+
+    Concrete source builds are authoritative and imply one-based coordinates.
+    Auto trusts a selected build-specific position column, otherwise samples
+    each chromosome before QC. It checks the keep list in the actual filtering
+    mode and reports all unresolved/conflicting inputs together.
+    """
+    from ._genome_build_policy import GenomeBuildCheck
+
+    mode, build = global_config.snp_identifier, global_config.genome_build
+    metadata = {'snp_identifier': mode, 'genome_build': build,
                 'genome_build_inferred': False,
                 'coordinate_basis': '1-based' if identity_mode_family(mode) == 'chr_pos' else None}
-    if identity_mode_family(mode) != 'chr_pos' or genome_build != 'auto':
+    if identity_mode_family(mode) != 'chr_pos' or build != 'auto':
         return metadata
-    coordinate_frame = read_coordinate_evidence(
-        source_path,
-        cname_translation,
-        compression=compression,
-        metadata_skiprows=metadata_skiprows,
-    )
-    try:
-        _normalized, inference = resolve_chr_pos_table(
-            coordinate_frame,
-            context=source_path,
-            logger=None,
-        )
-    except (ValueError, LDSCInputError) as exc:
-        raise LDSCInputError(
-            f"munge-sumstats could not infer genome_build from raw CHR/POS coordinates in "
-            f"'{source_path}'. Most likely too few coordinates match a known build. "
-            "Pass --source-genome-build hg19 or --source-genome-build hg38 explicitly."
-        ) from exc
-
-    metadata = {
-        'snp_identifier': mode,
-        'genome_build': inference.genome_build,
-        'genome_build_inferred': True,
-        'coordinate_basis': inference.coordinate_basis,
-        'build_inference': {
-            'inspected_snp_count': int(inference.inspected_snp_count),
-            'match_counts': dict(inference.match_counts),
-            'match_fractions': dict(inference.match_fractions),
-            'summary_message': inference.summary_message,
-        },
-    }
-    if inference.coordinate_basis == '0-based':
-        LOGGER.warning(inference.summary_message)
+    check = GenomeBuildCheck('auto', context='munge-sumstats', option='--source-genome-build', logger=LOGGER)
+    position_columns = [raw for raw, target in cname_translation.items() if target == 'POS']
+    declared_build = source_position_build(position_columns)
+    if declared_build:
+        check.declared('--raw-sumstats-file', source_path, declared_build, 'selected build-specific position column')
     else:
-        LOGGER.info(inference.summary_message)
-    LOGGER.info(f"Resolved genome_build='{inference.genome_build}' before chunk parsing for chr_pos summary statistics.")
+        check.frames('--raw-sumstats-file', source_path, _coordinate_frames(
+            source_path, cname_translation, compression=compression, metadata_skiprows=metadata_skiprows))
+    check.paths('--sumstats-snps-file', restriction_path, restriction_mode=mode)
+    source_inferences = [value for source, value in check.inferences if source == str(source_path)]
+    bases = {value.coordinate_basis for value in source_inferences}
+    if len(bases) > 1:
+        check.unresolved('--raw-sumstats-file', source_path, 'inconsistent coordinate basis across chromosomes; use one-based coordinates')
+    build = check.resolve()
+    if not source_inferences:
+        metadata['genome_build'] = build
+        return metadata
+    inference = source_inferences[0]
+    counts = {key: sum(value.match_counts[key] for value in source_inferences) for key in inference.match_counts}
+    inspected = sum(value.inspected_snp_count for value in source_inferences)
+    metadata.update(genome_build=build, genome_build_inferred=True, coordinate_basis=inference.coordinate_basis,
+        build_inference={'inspected_snp_count': inspected, 'match_counts': counts,
+            'match_fractions': {key: count / inspected for key, count in counts.items()},
+            'summary_message': '; '.join(value.summary_message for value in source_inferences)})
+    if inference.coordinate_basis == '0-based':
+        LOGGER.warning('Converting inferred zero-based source positions to one-based coordinates.')
     return metadata
 
 
-def read_coordinate_evidence(source_path, cname_translation, *, compression, metadata_skiprows):
-    """Read only raw CHR/POS evidence needed for early genome-build inference."""
+def _coordinate_frames(source_path, cname_translation, *, compression, metadata_skiprows):
+    """Stream mapped source coordinates without applying QC or restrictions."""
     raw_chr = [raw for raw, target in cname_translation.items() if target == 'CHR']
     raw_pos = [raw for raw, target in cname_translation.items() if target == 'POS']
     if not raw_chr or not raw_pos:
@@ -490,4 +497,12 @@ def read_coordinate_evidence(source_path, cname_translation, *, compression, met
     )
     with reader:
         frames = (chunk.rename(columns={raw_chr[0]: 'CHR', raw_pos[0]: 'POS'}) for chunk in reader)
-        return collect_chr_pos_build_evidence_frame(frames, context=source_path)
+        yield from frames
+
+
+def read_coordinate_evidence(source_path, cname_translation, *, compression, metadata_skiprows):
+    """Return an adaptive evidence sample for coordinate inspection tools."""
+    return collect_chr_pos_build_evidence_frame(
+        _coordinate_frames(source_path, cname_translation, compression=compression, metadata_skiprows=metadata_skiprows),
+        context=source_path,
+    )

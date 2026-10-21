@@ -119,7 +119,22 @@ This is the only command-line entry point. It parses subcommands, preserves the 
 
 ### `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, `ldsc.genome_build_inference`
 
-These modules define the package-wide contracts that every workflow shares. They normalize path tokens, chromosome ordering, genome-build aliases, exact SNP identifier modes, input header aliases, and `chr_pos`-family genome-build inference before the kernel is called. `ldsc.path_resolution` also owns output-directory creation, fixed-artifact collision preflight, coherent artifact-family preflight, and stale owned-sibling cleanup helpers. `ldsc.genome_build_inference` is public for Python callers through the top-level `ldsc` exports, while the CLI exposes it only through `--genome-build auto` on existing workflows. Architecture invariant: numerical functions consume resolved inputs. Shared normalization stays here or in the workflow layer; the runtime reference-panel adapters currently live at `ldsc._kernel.ref_panel` and resolve panel-specific inputs before numerical projection.
+These modules define the package-wide contracts that every workflow shares.
+They normalize path tokens, chromosome ordering, genome-build aliases, exact SNP identifier modes, input header aliases, and `chr_pos`-family genome-build inference before the kernel is called.
+`ldsc.path_resolution` also owns output-directory creation, fixed-artifact collision preflight, coherent artifact-family preflight, and stale owned-sibling cleanup helpers.
+`ldsc.genome_build_inference` is public for Python callers through the top-level `ldsc` exports, while the CLI exposes it through the existing `--genome-build auto` or `--source-genome-build auto` option for each workflow.
+Architecture invariant: numerical functions consume resolved inputs.
+Shared normalization stays here or in the workflow layer; the runtime reference-panel adapters currently live at `ldsc._kernel.ref_panel` and resolve panel-specific inputs before numerical projection.
+
+### `ldsc._genome_build_policy`
+
+`GenomeBuildCheck` collects declared, inferred, unresolved, and unchecked evidence before resolving a workflow coordinate build.
+It uses shared path expansion and column aliases, trusts concrete artifact declarations, and bounds coordinate inference per file/chromosome.
+All evidence is collected before conflict/unresolved errors; concrete user builds bypass inference and comparison within the option's scope.
+Workflows and reference adapters call this helper before filtering or numerical work; numerical readers receive a concrete build and do not repeat the decision.
+Restriction column selection in `column_inference.py` prefers the matching named position column, then generic `POS`.
+`genome_build_inference.py` retains the HM3 confidence and coordinate-basis calculations.
+See the [build policy](snp-identifier-genome-build-defaults.md#genome-build-policy) for command scope, BED inheritance, source/output separation, and grouped diagnostics.
 
 ### `ldsc._logging`
 

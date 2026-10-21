@@ -547,12 +547,11 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                     issues_path,
                 )
                 raise
+            # The required concrete index build is an authoritative declaration.
+            from dataclasses import replace
             if catalog.genome_build != config.genome_build:
-                raise LDSCInputError(
-                    "Gene-coordinate catalog build does not match the index build: "
-                    f"catalog={catalog.genome_build}, index={config.genome_build}. "
-                    "Use a canonical catalog generated for the index build; no implicit liftover is performed."
-                )
+                catalog = replace(catalog, genome_build=config.genome_build,
+                                  frame=catalog.frame.assign(genome_build=config.genome_build))
             stage_parent = _create_gene_index_transaction(index_path)
             try:
                 published_path = _run_gene_ldscore_index_build(

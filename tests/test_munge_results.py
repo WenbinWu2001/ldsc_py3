@@ -134,14 +134,15 @@ def test_production_build_inference_uses_bounded_raw_evidence_before_qc(tmp_path
     raw = tmp_path / "raw.tsv"
     raw.write_text("CHR POS SNP P BETA N\n" + "".join(rows))
     evidence_sizes = []
-    resolve = munge_input.resolve_chr_pos_table
+    from ldsc import _genome_build_policy as policy
+    resolve = policy.infer_chr_pos_build
 
     def observe_evidence(frame, **kwargs):
         assert frame.columns.tolist() == ["CHR", "POS"]
         evidence_sizes.append(len(frame))
         return resolve(frame, **kwargs)
 
-    monkeypatch.setattr(munge_input, "resolve_chr_pos_table", observe_evidence)
+    monkeypatch.setattr(policy, "infer_chr_pos_build", observe_evidence)
     munger = SumstatsMunger()
     table = munger.run(
         MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw, output_dir=tmp_path / "out", source_genome_build="auto",

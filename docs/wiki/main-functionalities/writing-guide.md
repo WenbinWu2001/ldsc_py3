@@ -2,6 +2,10 @@
 
 Last updated on: 2026-09-13
 
+**Start with a quick start section at the top.** Then the details.
+
+
+
 **Use an example to illustrate each functionality module.**
 
 1. What does this functionality do? -- use more plain language (what are the inputs and outputs, one concise sentence how do the estimated quantities facilitate our genetic understanding)

@@ -1,4 +1,4 @@
-# Architecture 
+# Architecture
 
 Last updated on: 2026-10-26
 
@@ -130,7 +130,10 @@ Shared normalization stays here or in the workflow layer; the runtime reference-
 
 `GenomeBuildCheck` collects declared, inferred, unresolved, and unchecked evidence before resolving a workflow coordinate build.
 It uses shared path expansion and column aliases, trusts concrete artifact declarations, and bounds coordinate inference per file/chromosome.
-All evidence is collected before conflict/unresolved errors; concrete user builds bypass inference and comparison within the option's scope.
+All relevant declarations are compared after alias normalization, including labels produced by earlier inference.
+Concrete user builds bypass fresh inference while requiring declarations to agree; unlabeled inputs inherit the explicit assertion.
+Auto mode reconciles declarations and necessary per-input/per-chromosome inference, failing on conflicts or unresolved required builds.
+Build-specific coordinate columns and panel build children represent selectable alternatives, and explicit liftover source/target stages are validated separately.
 Workflows and reference adapters call this helper before filtering or numerical work; numerical readers receive a concrete build and do not repeat the decision.
 Restriction column selection in `column_inference.py` prefers the matching named position column, then generic `POS`.
 `genome_build_inference.py` retains the HM3 confidence and coordinate-basis calculations.
@@ -227,7 +230,18 @@ This workflow module is the sole public reader of selected LDSC2 LD-score fragme
 
 ### `ldsc.gene_ldscore_index`, `ldsc._kernel.gene_ldscore_index`
 
-The workflow module owns the `build-gene-ldscore-index` command, explicit hg19 plus base `rsid|chr_pos` identity, pre-QC baseline/PLINK inner intersection by the effective key, canonical `index_id`, hidden build-state logging/locking, incremental chromosome persistence inside one private run transaction, complete atomic publication/recovery, strict mode/build/digest validation, and explicit indexed `ldscore` assembly. Each worker atomically installs its payload in a distinct staged chromosome directory and returns compact evidence; the coordinator writes all shared and identity metadata, validates the complete stage, and moves that existing tree into place. The open log stays under `.<index-name>.build-state/`, outside the replaceable artifact; after its handler closes, a successful log moves into the published `diagnostics/`. A missing or empty destination is not mutated before commit, and post-commit transaction or log-placement cleanup is warning-only. Mutable baseline and PLINK duplicate effective-key groups are dropped in full with warning/audit diagnostics, empty intersections fail, PLINK `CHR/POS/SNP/A1/A2` metadata is authoritative, and canonical sorting maps back to preserved physical BIM/BED indices. The private kernel owns disjoint half-open atoms, Boolean gene-to-atom CSR membership, bounded SNP-by-atom blocks, sufficient statistics, and float64 `Y @ z` assembly. Each index directory is one immutable distribution artifact with no restart, resume, incremental update, component reuse, or legacy-index loader. Indexed output is still a self-contained canonical LD-score directory written by `LDScoreDirectoryWriter`; it inherits identity/build and rejects live overrides. Architecture invariant: online assembly uses only the explicitly named complete index and never discovers an index or falls back to live computation.
+The workflow module owns the `build-gene-ldscore-index` command, explicit hg19/hg38 plus any shared SNP identity mode, an explicitly selected cM/kb/SNP window, pre-QC baseline/PLINK inner intersection by the effective key, canonical `index_id`, hidden build-state logging/locking, incremental chromosome persistence inside one private run transaction, complete atomic publication/recovery, strict mode/build/digest validation, and explicit indexed `ldscore` assembly.
+Each worker atomically installs its payload in a distinct staged chromosome directory and returns compact evidence; the coordinator writes all shared and identity metadata, validates the complete stage, and moves that existing tree into place.
+The open log stays under `.<index-name>.build-state/`, outside the replaceable artifact; after its handler closes, a successful log moves into the published `diagnostics/`.
+A missing or empty destination is not mutated before commit, and post-commit transaction or log-placement cleanup is warning-only.
+Shared allele-aware cleanup and duplicate-group removal retain audit diagnostics.
+Contradictory baseline/PLINK coordinates or usable alleles fail with a repair table before chromosome workers; cross-chromosome rsID checks use a temporary SQLite join.
+Empty intersections fail, PLINK `CHR/POS/SNP/A1/A2` metadata is authoritative, and canonical sorting maps back to preserved physical BIM/BED indices.
+The private kernel owns disjoint half-open atoms, Boolean gene-to-atom CSR membership, bounded SNP-by-atom blocks, sufficient statistics, and float64 `Y @ z` assembly.
+Each index directory is one immutable format-version-2 artifact with no restart, resume, incremental update, component reuse, or legacy-index loader.
+Earlier formats require a complete rebuild.
+Indexed output is still a self-contained canonical LD-score directory written by `LDScoreDirectoryWriter`; it inherits identity/build and rejects live overrides.
+Architecture invariant: online assembly uses only the explicitly named complete index and never discovers an index or falls back to live computation.
 
 Gene-query eligibility and finalization are shared by direct and indexed computation in `query_annotations.py`: coverage after explicit exclusions, resolution/support reason precedence, required-control/all-skipped viability, and aligned pruning of scientific columns and metadata. `_ldscore_preflight.py` validates direct input chromosome contents, exact baseline/reference set agreement, complete `@` declarations, and authoritative glob matches. Neither helper is a general workflow framework; reference preparation and indexed atom support remain backend-specific. See [the detailed coverage contract](gene-list-diagnostics-and-repair.md#chromosome-scope-and-pathway-coverage).
 

@@ -82,7 +82,8 @@ Coordinate-dependent workflows instead require a concrete build through their su
 ## Input-Specific Sampling and Workflow Resolution
 
 `GenomeBuildCheck` in [_genome_build_policy.py](../../src/ldsc/_genome_build_policy.py) collects applicable declarations and bounded coordinate evidence across relevant files and chromosomes before resolving a workflow build.
-Concrete workflow build options are authoritative within their scope; otherwise incompatible evidence or unresolved required coordinates stop the workflow.
+Concrete workflow build options must agree with existing declarations and supply the build for unlabeled inputs without fresh inference.
+Without a concrete assertion, incompatible evidence or unresolved required coordinates stop the workflow.
 The read-only inspector reuses table readers, aliases, and the inference engine but keeps its successful `unknown` reporting separate from workflow resolution.
 
 | Input type | Evidence |

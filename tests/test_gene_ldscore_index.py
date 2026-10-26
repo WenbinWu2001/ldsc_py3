@@ -87,7 +87,7 @@ def test_builder_parser_requires_catalog_and_hides_partial_chromosome_control():
         )
     with pytest.raises(SystemExit):
         parser.parse_args(
-            [
+            ["--ld-wind-cm", "1",
                 "--baseline-annot-sources", "baseline.@.annot.gz",
                 "--plink-prefix", "panel.@",
                 "--output-dir", "index",
@@ -112,7 +112,7 @@ def test_builder_catalog_failure_writes_full_issues_before_atom_transaction(tmp_
     _write_plink_trio(tmp_path / "reference", ["1"])
     output = tmp_path / "index"
     args = gene_ldscore_index.build_parser().parse_args(
-        [
+        ["--ld-wind-cm", "1",
             "--baseline-annot-sources", str(baseline),
             "--plink-prefix", str(tmp_path / "reference"),
             "--output-dir", str(output),
@@ -136,7 +136,7 @@ def test_builder_catalog_failure_writes_full_issues_before_atom_transaction(tmp_
     assert not output.exists()
 
 
-def test_builder_uses_authoritative_index_build_for_catalog(tmp_path, monkeypatch):
+def test_builder_rejects_conflicting_catalog_build(tmp_path, monkeypatch):
     catalog = tmp_path / "catalog.tsv"
     catalog.write_text(
         "gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
@@ -148,7 +148,7 @@ def test_builder_uses_authoritative_index_build_for_catalog(tmp_path, monkeypatc
     _write_plink_trio(tmp_path / "reference", ["1"])
     output = tmp_path / "index"
     args = gene_ldscore_index.build_parser().parse_args(
-        [
+        ["--ld-wind-cm", "1",
             "--baseline-annot-sources", str(baseline),
             "--plink-prefix", str(tmp_path / "reference"),
             "--output-dir", str(output),
@@ -157,13 +157,9 @@ def test_builder_uses_authoritative_index_build_for_catalog(tmp_path, monkeypatc
             "--snp-identifier", "rsid",
         ]
     )
-    def inspect_build(*_args, catalog, **_kwargs):
-        assert catalog.genome_build == 'hg19'
-        assert set(catalog.frame.genome_build) == {'hg19'}
-        raise RuntimeError('catalog assertion checked before numerical work')
-
-    monkeypatch.setattr(gene_ldscore_index, '_run_gene_ldscore_index_build', inspect_build)
-    with pytest.raises(RuntimeError, match='catalog assertion checked'):
+    monkeypatch.setattr(gene_ldscore_index, '_create_gene_index_transaction',
+                        lambda *_a, **_k: pytest.fail('transaction started before build validation'))
+    with pytest.raises(LDSCInputError, match='Conflicting genome-build evidence'):
         gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     assert 'hg38' in catalog.read_text()
     assert not output.exists()
@@ -342,7 +338,7 @@ def test_embedded_catalog_keeps_mhc_exclusions_with_empty_gene_rows():
 
 def test_baseline_plink_intersection_uses_identifier_mode_and_plink_order(caplog):
     baseline_metadata = _rows(
-        ("22", 999, "rs3"), ("22", 10, "rs1"), ("22", 20, "baseline_only")
+        ("22", 30, "rs3"), ("22", 10, "rs1"), ("22", 20, "baseline_only")
     )
     annotations = pd.DataFrame({"base": [3.0, 1.0, 2.0]})
     plink = _rows(("22", 10, "rs1"), ("22", 30, "rs3"), ("22", 40, "plink_only"))
@@ -368,10 +364,12 @@ def test_baseline_plink_intersection_uses_identifier_mode_and_plink_order(caplog
         "matched_rows": 2,
         "baseline_only_rows": 1,
         "plink_only_rows": 1,
-        "coordinate_discordant_rows": 1,
+        "coordinate_discordant_rows": 0,
+        "baseline_identity_rows_dropped": 0,
+        "plink_bim_identity_rows_dropped": 0,
         "snp_label_discordant_rows": 0,
     }
-    assert "coordinate disagreement" in caplog.text
+    assert "coordinate disagreement" not in caplog.text
 
 
 @pytest.mark.parametrize("side", ["baseline", "PLINK BIM"])
@@ -694,29 +692,41 @@ def test_direct_plink_duplicate_group_is_dropped_and_recorded(tmp_path):
     assert duplicate_key not in set(result.metadata["SNP"])
 
 
-@pytest.mark.parametrize("snp_identifier", ["rsid", "chr_pos"])
-def test_plink_atom_operator_matches_direct_union_in_atom_batches(snp_identifier):
-    prefix = Path(__file__).resolve().parent / "fixtures" / "plink" / "plink"
+@pytest.mark.parametrize("snp_identifier", ["rsid", "chr_pos", "rsid_allele_aware", "chr_pos_allele_aware"])
+@pytest.mark.parametrize("unit,value", [("snps", 2), ("kb", .002), ("cm", .15)])
+@pytest.mark.parametrize("build", ["hg19", "hg38"])
+def test_plink_atom_operator_matches_direct_union_in_atom_batches(tmp_path, snp_identifier, unit, value, build):
+    fixture = Path(__file__).resolve().parent / "fixtures" / "plink" / "plink"
+    prefix = tmp_path / "panel"
+    for suffix in (".bed", ".bim", ".fam"):
+        shutil.copyfile(fixture.with_suffix(suffix), prefix.with_suffix(suffix))
     bim = pd.read_csv(
         prefix.with_suffix(".bim"),
         sep=r"\s+",
         header=None,
         names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
     )
+    bim = bim.assign(A1="A", A2="G", CM=bim.POS * .1)
+    bim.to_csv(prefix.with_suffix(".bim"), sep="\t", index=False, header=False)
     metadata = bim[["CHR", "SNP", "CM", "POS"]].copy()
     baseline = pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float64)})
     base_bundle = kernel_ldscore.AnnotationBundle(metadata, baseline, ["base"], [])
     args = Namespace(
         bfile=str(prefix), keep=None, maf_min=None, maf=None,
-        ld_wind_snps=10, ld_wind_kb=None, ld_wind_cm=None,
-        yes_really=True, snp_batch_size=3, common_maf_min=0.05,
+        ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=None,
+        yes_really=False, snp_batch_size=3, common_maf_min=0.05,
         snp_identifier=snp_identifier, genetic_map=None,
     )
+    setattr(args, f"ld_wind_{unit}", value)
+    if snp_identifier.startswith("chr_pos"):
+        args.genome_build = build
     regression_keys = (
         set(metadata["SNP"].astype(str))
-        if snp_identifier == "rsid"
+        if snp_identifier.startswith("rsid")
         else set(metadata["CHR"].astype(str) + ":" + metadata["POS"].astype(str))
     )
+    from ldsc._kernel.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
+    regression_keys = RestrictionIdentityKeys(regression_keys, "base", empty_identity_drop_frame(), len(metadata), len(regression_keys))
     gene_intervals = np.array([[0, 4], [2, 7], [3, 5]], dtype=np.int64)
 
     indexed_one = build_plink_index_chromosome(
@@ -873,15 +883,15 @@ def test_build_index_command_requires_explicit_identity_and_build(capsys):
             ]
         )
     error = capsys.readouterr().err
-    assert "--snp-identifier is required; choose rsid or chr_pos." in error
-    assert "--genome-build is required; choose hg19." in error
+    assert "--snp-identifier is required; choose rsid, chr_pos, rsid_allele_aware, or chr_pos_allele_aware." in error
+    assert "--genome-build is required; choose hg19 or hg38." in error
 
 
-def test_build_index_help_exposes_only_the_supported_hg19_genetic_map():
+def test_build_index_help_exposes_matching_build_genetic_maps():
     help_text = gene_ldscore_index.build_parser().format_help()
 
     assert "--genetic-map-hg19-sources" in help_text
-    assert "--genetic-map-hg38-sources" not in help_text
+    assert "--genetic-map-hg38-sources" in help_text
 
 
 @pytest.mark.parametrize("snp_identifier", ["rsid", "chr_pos"])
@@ -889,7 +899,7 @@ def test_build_index_command_registers_explicit_base_identity(snp_identifier):
     parser = cli.build_parser()
     args = parser.parse_args(
         [
-            "build-gene-ldscore-index",
+            "build-gene-ldscore-index", "--ld-wind-cm", "1",
             "--baseline-annot-sources", "baseline.@.annot.gz",
             "--plink-prefix", "panel.@",
             "--output-dir", "suite",
@@ -915,7 +925,7 @@ def test_build_index_command_registers_explicit_base_identity(snp_identifier):
 def test_build_index_command_accepts_custom_regression_snps_and_region_policy():
     args = cli.build_parser().parse_args(
         [
-            "build-gene-ldscore-index",
+            "build-gene-ldscore-index", "--ld-wind-cm", "1",
             "--baseline-annot-sources", "baseline.@.annot.gz",
             "--plink-prefix", "panel.@",
             "--output-dir", "index",
@@ -933,7 +943,7 @@ def test_build_index_command_accepts_custom_regression_snps_and_region_policy():
 def test_build_index_command_rejects_legacy_region_alias_and_old_regr_file_name():
     parser = cli.build_parser()
     base = [
-        "build-gene-ldscore-index",
+        "build-gene-ldscore-index", "--ld-wind-cm", "1",
         "--baseline-annot-sources", "baseline.@.annot.gz",
         "--plink-prefix", "panel.@", "--output-dir", "index",
         "--gene-coordinate-file", "genes.tsv", "--genome-build", "hg19",
@@ -947,14 +957,14 @@ def test_build_index_command_rejects_legacy_region_alias_and_old_regr_file_name(
 
 def test_build_index_python_config_requires_identity_and_build():
     with pytest.raises(TypeError):
-        GeneLDScoreIndexBuildConfig(
+        GeneLDScoreIndexBuildConfig(ld_wind_cm=1.0,
             baseline_annot_sources=("baseline.@.annot.gz",),
             plink_prefix="panel.@",
             output_dir="index",
         )
 
     with pytest.raises(TypeError):
-        GeneLDScoreIndexBuildConfig(
+        GeneLDScoreIndexBuildConfig(ld_wind_cm=1.0,
             baseline_annot_sources=("baseline.@.annot.gz",),
             plink_prefix="panel.@",
             output_dir="index",
@@ -964,7 +974,7 @@ def test_build_index_python_config_requires_identity_and_build():
             exclude_regions="none",
         )
 
-    config = GeneLDScoreIndexBuildConfig(
+    config = GeneLDScoreIndexBuildConfig(ld_wind_cm=1.0,
         baseline_annot_sources=("baseline.@.annot.gz",),
         plink_prefix="panel.@",
         output_dir="index",
@@ -1239,8 +1249,8 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
     log_path = build_state / "build-gene-ldscore-index.log"
     log_text = log_path.read_text(encoding="utf-8")
     assert "LDSC build-gene-ldscore-index Started" in log_text
-    assert "Chromosome 22 failed during baseline/PLINK identifier intersection" in log_text
-    assert "LDSCInputError" in log_text
+    assert "Baseline/PLINK consistency validation failed" in log_text
+    assert (build_state / "baseline_plink_issues.tsv").exists()
     assert "Failed " in log_text
     assert not index_path.exists()
 
@@ -1381,9 +1391,9 @@ def test_explicit_genetic_map_identity_is_content_bound(tmp_path):
     first.write_text("CHR POS CM\n22 1 0.1\n", encoding="utf-8")
     second.write_text("CHR POS CM\n22 2 0.2\n", encoding="utf-8")
 
-    bim_identity = _genetic_map_identity(Namespace(genetic_map_hg19_sources=None))
+    bim_identity = _genetic_map_identity(Namespace(ld_wind_cm=1.0, genome_build="hg19", genetic_map_hg19_sources=None))
     explicit = _genetic_map_identity(
-        Namespace(genetic_map_hg19_sources=f"{first},{second}")
+        Namespace(ld_wind_cm=1.0, genome_build="hg19", genetic_map_hg19_sources=f"{first},{second}")
     )
 
     assert bim_identity == "bim_cm"

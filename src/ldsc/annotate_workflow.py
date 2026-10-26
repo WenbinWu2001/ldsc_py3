@@ -32,7 +32,7 @@ LOGGER = logging.getLogger('LDSC.annotation')
 
 
 def _projection_build(requested, mode, baseline_tokens, catalog, *, bim_tokens=(), bed_tokens=(), query_tokens=()):
-    """Resolve all grid/catalog evidence, trusting a concrete user declaration."""
+    """Reconcile grid/catalog declarations before resolving unlabeled inputs."""
     requested = normalize_genome_build(requested)
     if catalog is None and identity_mode_family(mode) == 'rsid' and requested is None:
         return None
@@ -100,8 +100,10 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
     gene_exclude_regions : {'none', 'mhc'}, optional
         Gene-only explicit exclusion before padding, default none.
     genome_build : str, optional
-        Projection build override, kept separate from build-independent rsID
-        identity. Omitted gene mode uses auto, following existing inference rules.
+        Projection build assertion, kept separate from build-independent
+        rsID identity. A concrete build must agree with applicable input
+        declarations and supplies the build for unlabeled inputs without
+        inference or conversion. Omitted gene mode uses auto reconciliation.
     global_config : GlobalConfig, optional
         Shared identity and logging configuration; defaults to registered globals.
     overwrite : bool, optional
@@ -164,8 +166,6 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
             if genes:
                 try:
                     catalog = GeneCatalog.load(spec.gene_coordinate_file)
-                    if normalize_genome_build(requested) in {"hg19", "hg38"}:
-                        catalog = replace(catalog, genome_build=normalize_genome_build(requested))
                 except GeneCatalogValidationError as exc:
                     writer.write_diagnostics(output, catalog_issues=exc.issues)
                     raise
@@ -197,14 +197,14 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                 _log_gene_list_rejections(batch)
                 if batch.has_fatal_gate_a_issues:
                     raise _gate_a_error(batch, naming_error)
+            projection_build = _projection_build(requested, config.snp_identifier, baseline, catalog,
+                                                 bim_tokens=bim, bed_tokens=bed)
             prepared = None
             if bim:
                 paths, declared = declared_inputs.files['BIM grid']
                 prepared = prepare_bim_grid(workspace, paths, declared, mode=config.snp_identifier, autosomes_only=bool(genes))
             else:
                 paths, declared = declared_inputs.baseline, declared_inputs.declarations
-            projection_build = _projection_build(requested, config.snp_identifier, baseline, catalog,
-                                                 bim_tokens=bim, bed_tokens=bed)
             resolved_config = GlobalConfig(snp_identifier=config.snp_identifier,
                                            genome_build=projection_build if identity_mode_family(config.snp_identifier) == 'chr_pos' else None,
                                            log_level=config.log_level)

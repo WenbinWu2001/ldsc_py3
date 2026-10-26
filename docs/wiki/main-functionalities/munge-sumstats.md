@@ -1,6 +1,6 @@
 # Munge summary statistics
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 `ldsc munge-sumstats` converts a raw GWAS table into LDSC3-ready summary statistics. See the current [munge-sumstats guide](../../current/munge-sumstats.md) for the full workflow and output contract.
 
@@ -9,7 +9,8 @@ Source `auto` checks raw coordinates and any coordinate-based SNP keep list befo
 A selected raw column such as `--pos hg19_POS` declares its build without coordinate inference, including in the preview.
 A small generic `CHR/POS` keep list without sufficient HM3 evidence causes an error that names `--sumstats-snps-file` and suggests `--source-genome-build hg19` or `hg38`.
 In keep lists, matching build-specific columns are preferred over generic `POS`; rsID filters require no build check.
-A concrete source build is authoritative, while `--output-genome-build` remains the requested target.
+A concrete source build must agree with input declarations and supplies the build for unlabeled coordinates without fresh inference.
+`--output-genome-build` remains the separate requested target of any coordinate conversion.
 See the [shared policy and grouped diagnostics](global-config.md#genome-build-inference-checking-and-overrides).
 
 ## Recommended workflow

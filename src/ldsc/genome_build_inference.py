@@ -122,8 +122,8 @@ def resolve_genome_build(
     """
     Resolve a genome-build hint to a concrete build or ``None``.
 
-    This is the single authoritative entry point for build resolution. After
-    this call returns, the value is ``"hg19"``, ``"hg38"``, or ``None``; it is
+    This resolves one raw coordinate hint; workflow-wide declaration checking
+    belongs to ``_genome_build_policy.GenomeBuildCheck``. After this call returns, the value is ``"hg19"``, ``"hg38"``, or ``None``; it is
     never ``"auto"``. Internal kernel components must not call
     :func:`infer_chr_pos_build` directly for build resolution.
 

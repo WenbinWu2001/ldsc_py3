@@ -424,22 +424,24 @@ class LDScoreCalculator:
                 "LDScoreCalculator.run() requires output_config when export_ref_metadata=True. "
                 "Reference metadata is a filesystem artifact, so pass LDScoreOutputConfig(output_dir=...)."
             )
-        if identity_mode_family(global_config.snp_identifier) == "chr_pos" and global_config.genome_build == "auto":
+        if identity_mode_family(global_config.snp_identifier) == "chr_pos":
             from ._genome_build_policy import GenomeBuildCheck
-            check = GenomeBuildCheck('auto', context='LDScoreCalculator', logger=LOGGER)
+            check = GenomeBuildCheck(global_config.genome_build, context='LDScoreCalculator', logger=LOGGER)
             for role, obj in (("annotations", annotation_bundle), ("reference panel", ref_panel)):
                 snapshot = getattr(obj, 'config_snapshot', None) or getattr(obj, 'global_config', None)
                 build = getattr(snapshot, 'genome_build', None)
                 if build in {'hg19', 'hg38'}:
                     check.declared(role, role, build)
-                elif role == 'annotations':
+                if role == 'annotations':
                     for chrom in obj.chromosomes:
-                        check.frames(role, f'annotations [chr{chrom}]', [obj.metadata_for_chromosome(chrom)])
-                elif obj.spec.backend == 'plink':
-                    check.plink('--plink-prefix', obj.spec.plink_prefix)
-                else:
-                    for path in _candidate_r2_schema_paths(obj.spec.r2_dir):
-                        check.table('--r2-dir', path)
+                        check.frames(role, f'annotations [chr{chrom}]', [obj.metadata_for_chromosome(chrom)],
+                                     infer_unlabeled=build not in {'hg19', 'hg38'})
+                if role == 'reference panel':
+                    if obj.spec.backend == 'plink':
+                        check.plink('--plink-prefix', obj.spec.plink_prefix)
+                    else:
+                        check.r2('--r2-dir', obj.spec.r2_dir)
+                    check.paths('--ref-panel-snps-file', obj.spec.ref_panel_snps_file, restriction_mode=global_config.snp_identifier)
             global_config = dataclass_replace(global_config, genome_build=check.resolve())
         if hasattr(ref_panel, 'global_config') and global_config.genome_build in {'hg19', 'hg38'}:
             from copy import copy
@@ -1117,7 +1119,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             'Genome build for coordinate matching and gene intervals. Required for chr_pos modes; direct '
             'gene-list runs default to auto. Auto checks all coordinate inputs and shards; concrete builds '
-            'are authoritative. Other rsid runs need '
+            'must agree with input declarations. Other rsid runs need '
             'no build. Gene-list runs also use this build for --regr-snps-exclude-regions. With '
             '--gene-ldscore-index-dir, inherit its build and omit this flag.'
         ),
@@ -1435,10 +1437,6 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
             batch = catalog = None
             if _has_cli_tokens(getattr(args,"query_annot_gene_list_sources",None)):
                 catalog = GeneCatalog.load(args.gene_coordinate_file)
-                requested_build = normalize_genome_build(getattr(args, "genome_build", None))
-                if requested_build in {"hg19", "hg38"}:
-                    from dataclasses import replace
-                    catalog = replace(catalog, genome_build=requested_build)
                 batch = resolve_gene_lists_staged(split_cli_path_tokens(args.query_annot_gene_list_sources),catalog,workspace,
                     control_path=getattr(args,"control_gene_list_file",None),
                     resolution_policy=getattr(args,"gene_list_resolution_policy","strict"),
@@ -2157,14 +2155,10 @@ def _normalize_run_args(
     if identity_mode_family(normalized_mode) == "rsid":
         requested_build = normalize_genome_build(getattr(args, "genome_build", None))
         if has_gene_lists:
-            if requested_build in {None, "auto"}:
-                normalized_args.gene_catalog_build = _resolve_ldscore_chr_pos_genome_build(
-                    normalized_args,
-                    "auto",
-                    gene_catalog_build=getattr(gene_catalog, "genome_build", None),
-                )
-            else:
-                normalized_args.gene_catalog_build = requested_build
+            normalized_args.gene_catalog_build = _resolve_ldscore_chr_pos_genome_build(
+                normalized_args, requested_build or "auto",
+                gene_catalog_build=getattr(gene_catalog, "genome_build", None),
+            )
             global_config = GlobalConfig(
                 snp_identifier=normalized_mode,
                 genome_build=None,
@@ -2172,6 +2166,8 @@ def _normalize_run_args(
             )
             normalized_args.genome_build = None
         else:
+            if requested_build in {"hg19", "hg38"}:
+                _resolve_ldscore_chr_pos_genome_build(normalized_args, requested_build)
             global_config = GlobalConfig(
                 snp_identifier=normalized_mode,
                 genome_build=requested_build,
@@ -2206,7 +2202,7 @@ def _resolve_ldscore_chr_pos_genome_build(
 ) -> str:
     """Collect every coordinate input, then resolve or report all build evidence.
 
-    A concrete build is authoritative. Auto trusts declarations, otherwise
+    A concrete build checks declarations without fresh inference. Auto trusts declarations, otherwise
     samples each file/chromosome; generic coordinate restrictions must resolve
     independently and BED inherits the result.
     """
@@ -2218,9 +2214,6 @@ def _resolve_ldscore_chr_pos_genome_build(
             "was omitted. Pass `--genome-build auto`, `--genome-build hg19`, or "
             "`--genome-build hg38`."
         )
-    if normalized != "auto":
-        return normalized
-
     from ._genome_build_policy import GenomeBuildCheck
 
     check = GenomeBuildCheck(normalized, context="ldscore", logger=LOGGER)
@@ -2231,17 +2224,20 @@ def _resolve_ldscore_chr_pos_genome_build(
     check.plink("--plink-prefix", getattr(args, "plink_prefix", None))
     r2_dir = _r2_dir_from_args(args)
     if r2_dir is not None:
-        paths = _candidate_r2_schema_paths(r2_dir)
-        if not paths:
-            check.unresolved("--r2-dir", r2_dir, "no R2 Parquet build metadata available")
-        for path in paths:
-            check.table("--r2-dir", path)
+        check.r2("--r2-dir", r2_dir)
     mode = getattr(args, "snp_identifier", "chr_pos")
     for role in ("ref_panel_snps_file", "regr_snps_file"):
         check.paths("--" + role.replace("_", "-"), getattr(args, role, None), restriction_mode=mode)
     check.unchecked("--query-annot-bed-sources", getattr(args, "query_annot_bed_sources", None),
                     "ordinary BED; inherits workflow build")
-    return check.resolve()
+    resolved = check.resolve()
+    if getattr(args, "plink_prefix", None):
+        map_sources = getattr(args, f"genetic_map_{resolved}_sources", None)
+        if map_sources:
+            maps = GenomeBuildCheck(resolved, context="ldscore genetic map", logger=LOGGER)
+            maps.paths(f"--genetic-map-{resolved}-sources", map_sources)
+            maps.resolve()
+    return resolved
 
 
 @report_phase(LOGGER, 'validation', 'regression SNP restriction')
@@ -2264,24 +2260,6 @@ def _load_regression_snps(
 def _regr_snps_file_from_config(config: LDScoreConfig) -> str:
     """Return the explicit regression list or the canonical bundled HM3 default."""
     return config.regr_snps_file or packaged_hm3_curated_map_path()
-
-
-def _candidate_r2_schema_paths(r2_dir: str) -> list[Path]:
-    """Return candidate R2 parquet files whose schema metadata can identify a panel build."""
-    root = Path(r2_dir)
-    if not root.is_dir():
-        return []
-
-    direct = sorted(root.glob("chr*_r2.parquet"))
-    if direct:
-        return direct
-
-    paths: list[Path] = []
-    for build in ("hg19", "hg38"):
-        child = root / build
-        if child.is_dir():
-            paths.extend(sorted(child.glob("chr*_r2.parquet")))
-    return paths
 
 
 def _resolve_regression_region_build(

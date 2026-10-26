@@ -521,9 +521,7 @@ class ReferencePanelBuilder:
         resolved_prefixes: Sequence[str],
     ) -> ReferencePanelBuildConfig:
         """Return a config whose PLINK source genome build is concrete."""
-        if config.source_genome_build in {"hg19", "hg38"}:
-            return config
-        if config.source_genome_build != "auto":
+        if config.source_genome_build not in {"auto", "hg19", "hg38"}:
             raise LDSCConfigError(
                 f"build-r2-panel received unsupported source_genome_build={config.source_genome_build!r}. "
                 "Most likely a Python caller bypassed CLI choices with an invalid build token. "
@@ -531,7 +529,7 @@ class ReferencePanelBuilder:
             )
         from ._genome_build_policy import GenomeBuildCheck
 
-        check = GenomeBuildCheck("auto", context="build-r2-panel", option="--source-genome-build", logger=LOGGER)
+        check = GenomeBuildCheck(config.source_genome_build, context="build-r2-panel", option="--source-genome-build", logger=LOGGER)
         for prefix in resolved_prefixes:
             check.table("--plink-prefix", str(prefix) + ".bim", bim=True)
         check.paths("--ref-panel-snps-file", config.ref_panel_snps_file,
@@ -564,6 +562,13 @@ class ReferencePanelBuilder:
                 label="hg38 genetic map",
                 allow_chromosome_suite=True,
             )
+        from ._genome_build_policy import GenomeBuildCheck
+        for build, paths in (("hg19", hg19_files), ("hg38", hg38_files)):
+            if paths:
+                check = GenomeBuildCheck(build, context=f"build-r2-panel {build} genetic map", logger=LOGGER)
+                for path in paths:
+                    check.table(f"--genetic-map-{build}-sources", path)
+                check.resolve()
         source_build = config.source_genome_build
         if source_build not in {"hg19", "hg38"}:
             raise LDSCInternalError(
@@ -1162,7 +1167,7 @@ def _read_ref_panel_snp_restriction(
     *,
     source_genome_build: str,
 ) -> RestrictionIdentityKeys:
-    """Load restriction keys using the resolved or authoritative source build.
+    """Load restriction keys using the resolved, declaration-consistent source build.
 
     Auto validation has already examined this input alongside every BIM shard.
     rsID filtering ignores coordinates; coordinate filtering prefers a matching
@@ -1403,7 +1408,7 @@ def build_parser() -> argparse.ArgumentParser:
         '--source-genome-build', default='auto', choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
         help=(
             'Genome build of input PLINK coordinates. Default: auto, check every BIM shard and coordinate '
-            'keep list before filtering. Concrete builds are authoritative; cM map selection follows inference.'
+            'keep list before filtering. Concrete builds must agree with input declarations; cM maps follow the resolved build.'
         ),
     )
 

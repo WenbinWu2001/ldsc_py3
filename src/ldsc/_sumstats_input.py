@@ -21,11 +21,8 @@ import pandas as pd
 from .column_inference import (
     RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS,
     RAW_SUMSTATS_SIGNED_STAT_SPECS,
-    RESTRICTION_HG19_POS_SPEC,
-    RESTRICTION_HG38_POS_SPEC,
     build_cleaned_alias_lookup,
     clean_header,
-    resolve_optional_column,
 )
 from .config import GlobalConfig, MungeConfig
 from .errors import LDSCInputError, LDSCUsageError
@@ -421,17 +418,10 @@ def prepare_munge_input(
     )
 
 
-def source_position_build(position_columns):
-    """Read a build declaration from the selected raw position column name."""
-    builds = {build for build, spec in (('hg19', RESTRICTION_HG19_POS_SPEC), ('hg38', RESTRICTION_HG38_POS_SPEC))
-              if resolve_optional_column(position_columns, spec, context='raw position column') is not None}
-    return next(iter(builds)) if len(builds) == 1 else None
-
-
 def _resolve_source_coordinates(source_path, cname_translation, global_config, compression, metadata_skiprows, *, restriction_path=None):
     """Resolve source build and basis jointly with coordinate restriction evidence.
 
-    Concrete source builds are authoritative and imply one-based coordinates.
+    Concrete source builds must agree with declarations and imply one-based coordinates.
     Auto trusts a selected build-specific position column, otherwise samples
     each chromosome before QC. It checks the keep list in the actual filtering
     mode and reports all unresolved/conflicting inputs together.
@@ -442,13 +432,14 @@ def _resolve_source_coordinates(source_path, cname_translation, global_config, c
     metadata = {'snp_identifier': mode, 'genome_build': build,
                 'genome_build_inferred': False,
                 'coordinate_basis': '1-based' if identity_mode_family(mode) == 'chr_pos' else None}
-    if identity_mode_family(mode) != 'chr_pos' or build != 'auto':
+    if identity_mode_family(mode) != 'chr_pos':
         return metadata
-    check = GenomeBuildCheck('auto', context='munge-sumstats', option='--source-genome-build', logger=LOGGER)
+    check = GenomeBuildCheck(build, context='munge-sumstats', option='--source-genome-build', logger=LOGGER)
     position_columns = [raw for raw, target in cname_translation.items() if target == 'POS']
-    declared_build = source_position_build(position_columns)
-    if declared_build:
-        check.declared('--raw-sumstats-file', source_path, declared_build, 'selected build-specific position column')
+    chromosome_columns = [raw for raw, target in cname_translation.items() if target == 'CHR']
+    if position_columns and chromosome_columns:
+        check.table('--raw-sumstats-file', source_path,
+                    coordinate_columns=(chromosome_columns[0], position_columns[0]))
     else:
         check.frames('--raw-sumstats-file', source_path, _coordinate_frames(
             source_path, cname_translation, compression=compression, metadata_skiprows=metadata_skiprows))

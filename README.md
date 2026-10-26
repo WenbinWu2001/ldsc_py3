@@ -114,7 +114,7 @@ git pull origin main
 conda activate ldsc3
 ```
 
-Because the package is installed in editable mode, source-code updates take effect immediately. 
+Because the package is installed in editable mode, source-code updates take effect immediately.
 If `environment.yml` or the package dependencies have changed, also update the environment and reinstall the package:
 
 ```bash
@@ -340,13 +340,25 @@ ldsc ldscore \
   --output-dir gene_ldscores
 ```
 
-Build complete indexes offline with `ldsc build-gene-ldscore-index`. Construction requires an explicit one-based `--gene-coordinate-file`, defaults to unpadded gene intervals (`--padding-bp 0`), and requires both `--genome-build hg19` and an explicit `--snp-identifier rsid|chr_pos`; there is no packaged gene catalog, identity/build default, inference, hg38, liftover, or allele-aware index mode. Indexed mode is explicit and fail-closed: it validates and inherits the complete index's identity/build and stored padding, rejects live identity/build or baseline/reference/window overrides, and requires callers to remove `--padding-bp` entirely rather than pass zero. It writes the same self-contained canonical LD-score directory. During the offline build, each completed chromosome is atomically persisted in a hidden run-specific stage, allowing its large in-memory payload to be released while later chromosomes continue. A `Finished chromosome N` log line reports that private durability boundary; the public destination remains absent, empty, or at its prior complete version until every chromosome and shared metadata pass reload validation. These private shards are not resumable checkpoints and never support chromosome append or incremental index updates. See
+Build complete indexes offline with `ldsc build-gene-ldscore-index`.
+Construction requires a one-based `--gene-coordinate-file`, all autosomes 1–22, an explicit hg19/hg38 build, one of the four shared SNP identity modes, and exactly one of `--ld-wind-cm`, `--ld-wind-kb`, or `--ld-wind-snps`.
+There is no default LD window, build inference, liftover, or whole-chromosome override.
+Gene intervals remain unpadded by default (`--padding-bp 0`).
+The catalog and applicable input build declarations must agree; baseline/PLINK SNP contradictions fail with a repair table.
+Indexed mode is explicit and fail-closed: it validates and inherits the complete index's identity/build and stored padding, rejects live identity/build or baseline/reference/window overrides, and requires callers to remove `--padding-bp` entirely rather than pass zero.
+It writes the same self-contained canonical LD-score directory.
+During the offline build, each completed chromosome is atomically persisted in a hidden run-specific stage, allowing its large in-memory payload to be released while later chromosomes continue.
+A `Finished chromosome N` log line reports that private durability boundary; the public destination remains absent, empty, or at its prior complete version until every chromosome and shared metadata pass reload validation.
+These private shards are not resumable checkpoints and never support chromosome append or incremental index updates.
+See
 [the exact gene-index guide](docs/current/gene-ldscore-index.md) and its
 [mathematical algorithm](docs/current/gene-ldscore-index-mathematics.md).
 Task-oriented walkthroughs cover [building the index](docs/wiki/utility-functionalities/build-gene-ldscore-index.md)
 and [using it for gene-list LD scores](docs/wiki/main-functionalities/ldscore-from-gene-list.md).
 
-Gene-index metadata retains the semantic `index_id` and one ordered published-row fingerprint. New indexes omit the redundant effective-row fingerprint and require an updated reader; otherwise-valid existing indexes remain readable. See the [fingerprint and reader contract](docs/current/gene-ldscore-index.md#artifact-and-identity-contract).
+Gene-index metadata retains the semantic `index_id` and one ordered published-row fingerprint.
+New indexes use format version 2; previous formats must be rebuilt and are not supported by the reader.
+See the [fingerprint and reader contract](docs/current/gene-ldscore-index.md#artifact-and-identity-contract).
 
 Gene-list resolution is strict by default in `annotate`, `ldscore`, and `quantile-h2`. Add the value-free flag `--allow-unresolved-genes` to deliberately use the resolved subset with omission diagnostics. It replaces `--gene-list-resolution-policy resolved-only`; remove `--gene-list-resolution-policy strict` from existing commands. Python policy arguments and metadata retain `strict` / `resolved-only`.
 
@@ -416,9 +428,10 @@ It reports declared or inferred hg19/hg38, or `unknown` when evidence is insuffi
 When artifact metadata records rsID matching, the report adds: “This artifact’s workflow uses rsIDs for SNP matching.”
 See the [helper contract](docs/current/snp-identifier-genome-build-defaults.md#standalone-build-inspection) for supported inputs, dual-build artifacts, and exit codes.
 Workflows also expose inference through `--genome-build auto` for annotation and direct LD-score workflows, and through `--source-genome-build auto` for `munge-sumstats` and `build-r2-panel`.
-The [genome-build policy](docs/current/snp-identifier-genome-build-defaults.md#genome-build-policy) documents authoritative explicit declarations, trusted build metadata, bounded inference, keep-list validation and column precedence, complete grouped validation errors, and ordinary BED inheritance.
+The [genome-build policy](docs/current/snp-identifier-genome-build-defaults.md#genome-build-policy) documents explicit assertions consistent with input declarations, normalized build aliases, bounded inference, keep-list validation and column precedence, complete grouped validation errors, and ordinary BED inheritance.
 Under `auto`, every relevant coordinate input participates and conflicts or unresolved inputs produce one grouped error.
-A concrete build is authoritative and does not convert coordinates; ordinary BED files inherit the workflow build.
+A concrete build supplies the coordinate system for unlabeled inputs and must agree with existing metadata declarations; it never relabels inputs or converts coordinates.
+Ordinary BED files inherit the workflow build.
 
 ## Input Path Tokens
 

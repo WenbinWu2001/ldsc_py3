@@ -1,6 +1,6 @@
 # LD-score SNP-universe contract
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-26
 
 This table distinguishes the SNP universes used by canonical LD Score
 Regression (LDSC) and stratified LDSC. It is especially important for MHC and
@@ -34,11 +34,9 @@ SNP-by-atom matrix and are not a second computation of the regression weights.
 
 ## Exact gene LD-score index
 
-The v1 gene index defaults written/regression rows to bundled HapMap3 SNPs
-minus `mhc-and-centromeres`, intersected with retained reference rows. A custom
-`--regr-snps-file` replaces the HapMap3 candidate set, and the selected
-`--regr-snps-exclude-regions` policy is then subtracted. This is a **regression-row
-policy**, not an HM3-only reference panel:
+The gene index defaults written/regression rows to bundled HapMap3 SNPs minus `mhc-and-centromeres`, intersected with retained reference rows.
+A custom `--regr-snps-file` replaces the HapMap3 candidate set, and the selected `--regr-snps-exclude-regions` policy is then subtracted.
+This is a **regression-row policy**, not an HM3-only reference panel:
 
 - baseline and focal LD scores still receive contributions from the broad
   retained PLINK universe;

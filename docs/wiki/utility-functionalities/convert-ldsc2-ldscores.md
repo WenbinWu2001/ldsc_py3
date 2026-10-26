@@ -1,6 +1,6 @@
 # Convert legacy LD-score files
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 Conversion uses one managed child process with **1 BLAS thread**.
 For Python scripts, place workflow calls under `if __name__ == "__main__":`; see [the execution policy](../../current/parallel-execution.md).
@@ -9,8 +9,9 @@ For Python scripts, place workflow calls under `if __name__ == "__main__":`; see
 
 
 In coordinate mode, auto checks bounded samples from every retained reference chromosome.
-A concrete `--genome-build` is authoritative and assumes one-based source positions.
-rsID output does not require build inference; reference coordinates own coordinate-mode output, while legacy weight/annotation disagreements remain alignment audits.
+A concrete `--genome-build` assumes one-based source positions and must agree with declarations in reference, weight, and annotation inputs.
+Unlabeled reference coordinates use that assertion without fresh inference.
+rsID output does not require build inference; reference coordinates own coordinate-mode output, while unlabeled legacy weight/annotation coordinate disagreements remain alignment audits.
 See the [shared policy](../main-functionalities/global-config.md#genome-build-inference-checking-and-overrides).
 
 ## Standard filenames

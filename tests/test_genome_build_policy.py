@@ -156,6 +156,53 @@ def test_converter_explicit_build_is_authoritative():
     assert provenance['inferred_build'] is None
 
 
+@pytest.mark.parametrize('requested', ['auto', 'hg19'])
+def test_in_memory_build_labels_are_declarations(requested):
+    from ldsc._genome_build_policy import GenomeBuildCheck
+    frame = coordinates(1, 'hg19', 2).assign(genome_build='GRCh38')
+    check = GenomeBuildCheck(requested, context='in-memory annotations')
+    check.declared('reference', 'panel', 'hg19')
+    check.frames('annotations', 'frame', [frame])
+    with pytest.raises(LDSCInputError, match='Conflicting genome-build evidence'):
+        check.resolve()
+
+
+def test_munge_preview_rejects_conflicting_source_declaration(tmp_path):
+    from ldsc.sumstats_munger import main
+    source = tmp_path / 'raw.tsv'
+    source.write_text('CHR hg38_POS SNP A1 A2 P BETA N\n1 123 rs1 A G 0.05 0.1 1000\n')
+    result = main(['--raw-sumstats-file', str(source), '--output-dir', str(tmp_path / 'unused'),
+                   '--pos', 'hg38_POS', '--source-genome-build', 'hg19', '--output-genome-build', 'hg19',
+                   '--infer-only', '--no-snp-restriction'])
+    assert not result.runnable
+    assert 'Conflicting genome-build evidence' in ' '.join(result.notes)
+    assert not (tmp_path / 'unused').exists()
+
+
+def test_converter_validates_weight_build_declaration_before_conversion(tmp_path, monkeypatch):
+    from tests.test_legacy_ldscore_converter import _write_unpartitioned_suite, _write_text
+    from ldsc.legacy_ldscore_converter import convert_ldsc2_ldscores
+    monkeypatch.setattr('ldsc._worker_runtime._INITIALIZED', True)
+    reference, weights = tmp_path / 'reference', tmp_path / 'weights'
+    _write_unpartitioned_suite(reference, weights)
+    _write_text(weights / 'weights.2.l2.ldscore.gz', '# ldsc:genome_build=hg38\nCHR SNP BP L2\n2 rs2 201 2\n')
+    with pytest.raises(LDSCInputError, match='Conflicting genome-build evidence') as caught:
+        convert_ldsc2_ldscores(legacy_reference_dir=reference, legacy_weight_dir=weights,
+                              output_dir=tmp_path / 'out', snp_identifier='chr_pos', genome_build='hg19')
+    assert 'weights.2.l2.ldscore.gz' in str(caught.value)
+    assert not (tmp_path / 'out' / 'metadata.json').exists()
+
+
+@pytest.mark.parametrize('validator', ['_validate_r2_identity_matches_config', '_validate_metadata_identity_matches_config'])
+def test_low_level_reference_validation_does_not_replace_input_build(validator):
+    from ldsc import GlobalConfig
+    from ldsc._kernel import ref_panel
+    metadata = {'snp_identifier': 'chr_pos', 'genome_build': 'GRCh38'}
+    with pytest.raises(LDSCInputError, match='Conflicting genome-build evidence'):
+        getattr(ref_panel, validator)(metadata, GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'))
+    assert metadata['genome_build'] == 'GRCh38'
+
+
 def test_regression_reports_all_traits_and_panel_without_override():
     from ldsc import GlobalConfig
     from ldsc.regression_runner import _regression_genome_build
@@ -250,7 +297,7 @@ def test_conflicting_r2_footer_declarations_are_both_reported(tmp_path):
     assert 'ldsc:genome_build' in str(caught.value) and 'ldsc:sorted_by_build' in str(caught.value)
 
 
-def test_r2_sidecar_declaration_participates_in_auto_but_not_override(tmp_path):
+def test_r2_sidecar_declaration_participates_with_an_explicit_build(tmp_path):
     import gzip
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -267,4 +314,143 @@ def test_r2_sidecar_declaration_participates_in_auto_but_not_override(tmp_path):
     assert 'chr1_r2.parquet' in str(caught.value) and 'chr1_meta.tsv.gz' in str(caught.value)
     explicit = GenomeBuildCheck('hg19', context='test')
     explicit.table('--r2-dir', path)
-    assert explicit.resolve() == 'hg19'
+    with pytest.raises(LDSCInputError, match='hg38') as caught:
+        explicit.resolve()
+    assert 'chr1_meta.tsv.gz' in str(caught.value)
+    assert 'hg19' in str(caught.value)
+
+
+@pytest.mark.parametrize('requested, declared', [('hg19', 'GRCh38'), ('GRCh37', 'hg38')])
+def test_explicit_build_rejects_conflicting_declarations(requested, declared):
+    from ldsc._genome_build_policy import GenomeBuildCheck
+    check = GenomeBuildCheck(requested, context='test')
+    check.declared('gene catalog', 'genes.tsv', declared)
+    with pytest.raises(LDSCInputError) as caught:
+        check.resolve()
+    message = str(caught.value)
+    assert all(value in message for value in ('genes.tsv', 'hg19', 'hg38', 'No coordinates or build labels were changed'))
+
+
+def test_explicit_build_accepts_aliases_and_unlabeled_coordinates_without_inference(tmp_path, monkeypatch):
+    from ldsc._genome_build_policy import GenomeBuildCheck
+    monkeypatch.setattr('ldsc._genome_build_policy.infer_chr_pos_build',
+                        lambda *a, **k: pytest.fail('Explicit builds must not infer coordinates'))
+    declared, unlabeled = tmp_path / 'declared.tsv', tmp_path / 'unlabeled.tsv'
+    declared.write_text('# ldsc:genome_build=GRCh37\nCHR\tPOS\n1\t123\n')
+    unlabeled.write_text('CHR\tPOS\n1\t456\n')
+    check = GenomeBuildCheck('hg19', context='test')
+    check.table('annotations', declared)
+    check.table('annotations', unlabeled)
+    assert check.resolve() == 'hg19'
+    assert check.inferences == []
+
+
+@pytest.mark.parametrize('declared, fails', [('GRCh37', False), ('hg38', True)])
+def test_munge_preserves_bzip2_build_validation(tmp_path, declared, fails):
+    import bz2
+    from ldsc import GlobalConfig
+    from ldsc._sumstats_input import _resolve_source_coordinates
+    path = tmp_path / 'raw.tsv.bz2'
+    with bz2.open(path, 'wt') as stream:
+        stream.write(f'CHR\tPOS\tgenome_build\n1\t123\t{declared}\n')
+    config = GlobalConfig(snp_identifier='chr_pos', genome_build='hg19')
+    def resolve():
+        return _resolve_source_coordinates(str(path), {'CHR': 'CHR', 'POS': 'POS'}, config, 'bz2', 0)
+    if fails:
+        with pytest.raises(LDSCInputError, match='Conflicting genome-build evidence') as caught:
+            resolve()
+        assert str(path) in str(caught.value)
+    else:
+        assert resolve()['genome_build'] == 'hg19'
+
+
+def test_annotation_sidecar_declarations_must_agree(tmp_path):
+    import json
+    from ldsc._genome_build_policy import GenomeBuildCheck
+    path = tmp_path / 'baseline.annot'
+    path.write_text('CHR\tPOS\tbase\n1\t123\t1\n')
+    (tmp_path / 'diagnostics').mkdir()
+    (tmp_path / 'diagnostics' / 'metadata.json').write_text(json.dumps({
+        'artifact_type': 'annotation_projection', 'files': {'baseline_annotations': [path.name]},
+        'projection_genome_build': 'hg19', 'genome_build': 'hg38'}))
+    check = GenomeBuildCheck('hg19', context='test')
+    check.table('baseline annotations', path)
+    with pytest.raises(LDSCInputError, match='Conflicting genome-build evidence'):
+        check.resolve()
+
+
+def test_mixed_catalog_labels_are_conflicts_not_coordinate_alternatives(tmp_path):
+    from ldsc._genome_build_policy import GenomeBuildCheck
+    path = tmp_path / 'mixed.tsv'
+    path.write_text('CHR\tPOS\tgenome_build\n1\t123\thg19\n2\t456\thg38\n')
+    check = GenomeBuildCheck('hg19', context='test')
+    check.table('catalog', path)
+    with pytest.raises(LDSCInputError, match='mixed.tsv'):
+        check.resolve()
+
+
+@pytest.mark.parametrize('build', ['hg19', 'hg38'])
+def test_explicit_build_selects_coordinate_alternatives(tmp_path, build):
+    from ldsc._genome_build_policy import GenomeBuildCheck
+    path = tmp_path / 'alternatives.tsv'
+    path.write_text('CHR\thg19_POS\thg38_POS\n1\t123\t456\n')
+    check = GenomeBuildCheck(build, context='test')
+    check.table('restriction', path)
+    assert check.resolve() == build
+
+
+def test_ldscore_explicit_build_checks_annotation_metadata(tmp_path):
+    path = tmp_path / 'baseline.annot'
+    path.write_text('# ldsc:genome_build=GRCh38\nCHR\tPOS\tbase\n1\t123\t1\n')
+    args = Namespace(baseline_annot_sources=[path], snp_identifier='chr_pos')
+    with pytest.raises(LDSCInputError, match='baseline.annot'):
+        _resolve_ldscore_chr_pos_genome_build(args, 'hg19')
+
+
+def test_munge_explicit_source_build_checks_selected_column_and_metadata(tmp_path):
+    from ldsc import GlobalConfig
+    from ldsc._sumstats_input import _resolve_source_coordinates
+    source = tmp_path / 'raw.tsv'
+    source.write_text('CHR\thg38_POS\n1\t123\n')
+    with pytest.raises(LDSCInputError, match='raw.tsv'):
+        _resolve_source_coordinates(source, {'CHR': 'CHR', 'hg38_POS': 'POS'},
+                                    GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'), None, 0)
+
+
+def test_panel_explicit_source_build_checks_keep_list_declaration(tmp_path):
+    from ldsc import GlobalConfig, ReferencePanelBuilder, ReferencePanelBuildConfig
+    keep = tmp_path / 'keep.tsv'
+    keep.write_text('# ldsc:genome_build=hg38\nCHR\tPOS\n1\t123\n')
+    config = ReferencePanelBuildConfig(plink_prefix='panel', output_dir=tmp_path / 'out',
+        source_genome_build='hg19', ref_panel_snps_file=keep, ld_wind_kb=1)
+    with pytest.raises(LDSCInputError, match='keep.tsv'):
+        ReferencePanelBuilder(GlobalConfig(snp_identifier='chr_pos'))._resolve_source_genome_build(config, [])
+
+
+def test_declared_footer_and_column_must_agree(tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from ldsc._genome_build_policy import GenomeBuildCheck
+    path = tmp_path / 'conflicting.parquet'
+    pq.write_table(pa.table({'CHR': [1], 'POS': [123], 'genome_build': ['hg38']})
+                   .replace_schema_metadata({b'ldsc:genome_build': b'hg19'}), path)
+    check = GenomeBuildCheck('hg19', context='test')
+    check.table('annotations', path)
+    with pytest.raises(LDSCInputError, match='conflicting.parquet'):
+        check.resolve()
+
+
+@pytest.mark.parametrize('requested', ['hg19', 'auto'])
+def test_ldscore_selects_one_available_panel_build(tmp_path, requested):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    root = tmp_path / 'panel'
+    for build in ('hg19', 'hg38'):
+        child = root / build
+        child.mkdir(parents=True)
+        pq.write_table(pa.table({'IDX_1': [0]}).replace_schema_metadata(
+            {b'ldsc:genome_build': build.encode()}), child / 'chr1_r2.parquet')
+    baseline = tmp_path / 'baseline.annot'
+    baseline.write_text('# ldsc:genome_build=hg19\nCHR\tPOS\tbase\n1\t123\t1\n')
+    args = Namespace(r2_dir=root, baseline_annot_sources=[baseline], snp_identifier='chr_pos')
+    assert _resolve_ldscore_chr_pos_genome_build(args, requested) == 'hg19'

@@ -1,6 +1,6 @@
 # Create reusable SNP annotations
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 `ldsc annotate` projects BED intervals or gene lists onto a BIM or baseline-annotation SNP grid and writes reusable binary query files.
 Direct `ldsc ldscore` accepts BED files and gene lists too, so standalone annotation is optional for queries.
@@ -10,7 +10,8 @@ To prepare baseline categories from BED files, use the [baseline preparation rec
 Auto build resolution checks every selected annotation or BIM grid shard together with the gene-catalog declaration, when supplied.
 It accepts exact paths and globs as well as `@` suites and does not require chromosome 1 merely for inference.
 Existing command-specific chromosome coverage requirements still apply.
-A concrete build is authoritative; ordinary BED is unchecked and inherits the resolved projection build.
+A concrete build must agree with grid and catalog declarations; unlabeled coordinates use that assertion without inference or conversion.
+Ordinary BED is unchecked and inherits the resolved projection build.
 See the [shared policy](../main-functionalities/global-config.md#genome-build-inference-checking-and-overrides).
 
 ## Inputs

@@ -32,8 +32,6 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
                                         query_tokens=spec.query_annot_sources, bed_tokens=spec.query_annot_bed_sources)
     if identity_mode_family(config.snp_identifier) == "chr_pos":
         config = replace(config, genome_build=projection_build)
-    if catalog is not None:
-        catalog = replace(catalog, genome_build=projection_build)
     if spec.query_annot_gene_list_sources:
         from .annotate_workflow import _gate_a_error
 

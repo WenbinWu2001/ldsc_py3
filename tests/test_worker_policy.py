@@ -17,7 +17,7 @@ def test_invalid_workers_rejected_before_io(tmp_path, workers, workflow):
         if workflow == "direct":
             LDScoreConfig(ld_wind_cm=1, workers=workers)
         elif workflow == "build":
-            GeneLDScoreIndexBuildConfig(
+            GeneLDScoreIndexBuildConfig(ld_wind_cm=1.0,
                 baseline_annot_sources=("missing",), plink_prefix="missing",
                 gene_coordinate_file="missing", output_dir=str(tmp_path / "out"),
                 genome_build="hg19", snp_identifier="rsid", workers=workers,

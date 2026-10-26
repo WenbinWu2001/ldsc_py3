@@ -475,7 +475,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 panel.build_reader("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
-    def test_concrete_build_override_preserves_r2_format_validation(self):
+    def test_concrete_build_rejects_conflicting_r2_declaration(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
             _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet", genome_build="hg38")
@@ -486,7 +486,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
             )
 
-            with self.assertRaisesRegex(LDSCInputError, "not an index-format R2"):
+            with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
                 panel.build_reader("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")

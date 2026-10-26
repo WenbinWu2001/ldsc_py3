@@ -919,7 +919,7 @@ class SumstatsMungerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text("SNP A1 A2 P OR N\nrs1 A G 0.05 1.1 1000\n", encoding="utf-8")
+            raw_path.write_text("CHR POS SNP A1 A2 P OR N\n1 100 rs1 A G 0.05 1.1 1000\n", encoding="utf-8")
             returned = pd.DataFrame(
                 {
                     "SNP": ["rs2", "rs1", "rs4", "rs3"],
@@ -2449,7 +2449,7 @@ class SumstatsMungerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw = tmpdir / "raw.tsv"
-            self._write_raw_sumstats(raw)
+            raw.write_text("CHR POS SNP A1 A2 P BETA N\n1 100 rs1 A G 0.05 0.1 1000\n")
             stdout = io.StringIO()
             with contextlib.redirect_stdout(stdout):
                 report = sumstats_workflow.main([
@@ -2475,50 +2475,47 @@ class SumstatsMungerTest(unittest.TestCase):
             )
             stdout = io.StringIO()
 
-            with mock.patch("ldsc.sumstats_munger.resolve_genome_build", side_effect=ValueError("insufficient evidence")):
-                with contextlib.redirect_stdout(stdout):
-                    result = sumstats_workflow.main(
-                        ["--no-snp-restriction",
-                            "--raw-sumstats-file",
-                            str(raw_path),
-                            "--output-dir",
-                            str(tmpdir / "unused"),
-                            "--infer-only",
-                            "--output-genome-build",
-                            "hg38",
-                        ]
-                    )
+            with contextlib.redirect_stdout(stdout):
+                result = sumstats_workflow.main(
+                    ["--no-snp-restriction",
+                        "--raw-sumstats-file",
+                        str(raw_path),
+                        "--output-dir",
+                        str(tmpdir / "unused"),
+                        "--infer-only",
+                        "--output-genome-build",
+                        "hg38",
+                    ]
+                )
 
             output = stdout.getvalue()
             self.assertFalse(result.runnable)
             self.assertIn("source_genome_build", result.missing_fields)
-            self.assertIn("Unable to infer source genome build", output)
+            self.assertIn("Unable to resolve a consistent source genome build", output)
             self.assertIn("--source-genome-build hg19", output)
             self.assertIn("--source-genome-build hg38", output)
 
-    def test_infer_only_coordinate_read_stops_after_sufficient_build_evidence(self):
+    def test_infer_only_checks_later_chromosomes_without_output(self):
         from ldsc.genome_build_inference import load_packaged_reference_table
-
+        reference = load_packaged_reference_table()
         with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            reference = load_packaged_reference_table().head(300)
+            raw_path = Path(tmpdir) / "raw.tsv"
             with raw_path.open("w", encoding="utf-8") as handle:
                 handle.write("CHR POS SNP A1 A2 P BETA N\n")
-                for idx, row in enumerate(reference.itertuples(index=False)):
-                    handle.write(f"{row.CHR} {int(row.hg19_POS)} rs{idx} A G 0.05 0.1 1000\n")
-                for idx in range(60_000):
+                for row in reference.loc[reference.CHR.astype(str).eq("1")].head(300).itertuples(index=False):
+                    handle.write(f"1 {row.hg19_POS} rs{row.hg19_POS} A G 0.05 0.1 1000\n")
+                for idx in range(50_000):
                     handle.write(f"1 {900_000_000 + idx} tail{idx} A G 0.05 0.1 1000\n")
+                for row in reference.loc[reference.CHR.astype(str).eq("2")].head(300).itertuples(index=False):
+                    handle.write(f"2 {row.hg38_POS} rs{row.hg38_POS} A G 0.05 0.1 1000\n")
+            with contextlib.redirect_stdout(io.StringIO()):
+                report = sumstats_workflow.main([
+                    "--raw-sumstats-file", str(raw_path), "--output-dir", str(Path(tmpdir) / "unused"),
+                    "--infer-only", "--output-genome-build", "hg19", "--no-snp-restriction"])
+            self.assertFalse(report.runnable)
+            self.assertIn("Conflicting genome-build evidence", " ".join(report.notes))
+            self.assertFalse((Path(tmpdir) / "unused").exists())
 
-            sample = sumstats_workflow._read_infer_only_coordinate_frame(
-                str(raw_path),
-                MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path),
-                MungeConfig(no_snp_restriction=True),
-                sumstats_workflow.RawSumstatsInference(detected_format="plain"),
-            )
-
-            self.assertLess(len(sample), 10_000)
-            self.assertGreaterEqual(len(sample), 300)
 
     def test_infer_only_checks_liftover_chain_path_and_reports_direction(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2533,21 +2530,20 @@ class SumstatsMungerTest(unittest.TestCase):
             chain_path.write_text("", encoding="utf-8")
             stdout = io.StringIO()
 
-            with mock.patch("ldsc.sumstats_munger.resolve_genome_build", return_value="hg19"):
-                with contextlib.redirect_stdout(stdout):
-                    result = sumstats_workflow.main(
-                        ["--no-snp-restriction",
-                            "--raw-sumstats-file",
-                            str(raw_path),
-                            "--output-dir",
-                            str(tmpdir / "unused"),
-                            "--infer-only",
-                            "--output-genome-build",
-                            "hg38",
-                            "--liftover-chain-file",
-                            str(chain_path),
-                        ]
-                    )
+            with contextlib.redirect_stdout(stdout):
+                result = sumstats_workflow.main(
+                    ["--no-snp-restriction",
+                        "--raw-sumstats-file",
+                        str(raw_path),
+                        "--output-dir",
+                        str(tmpdir / "unused"),
+                        "--infer-only", "--source-genome-build", "hg19",
+                        "--output-genome-build",
+                        "hg38",
+                        "--liftover-chain-file",
+                        str(chain_path),
+                    ]
+                )
 
             output = stdout.getvalue()
             self.assertTrue(result.runnable)
@@ -2566,21 +2562,20 @@ class SumstatsMungerTest(unittest.TestCase):
             missing_chain_path = tmpdir / "missing.over.chain"
             stdout = io.StringIO()
 
-            with mock.patch("ldsc.sumstats_munger.resolve_genome_build", return_value="hg19"):
-                with contextlib.redirect_stdout(stdout):
-                    result = sumstats_workflow.main(
-                        ["--no-snp-restriction",
-                            "--raw-sumstats-file",
-                            str(raw_path),
-                            "--output-dir",
-                            str(tmpdir / "unused"),
-                            "--infer-only",
-                            "--output-genome-build",
-                            "hg38",
-                            "--liftover-chain-file",
-                            str(missing_chain_path),
-                        ]
-                    )
+            with contextlib.redirect_stdout(stdout):
+                result = sumstats_workflow.main(
+                    ["--no-snp-restriction",
+                        "--raw-sumstats-file",
+                        str(raw_path),
+                        "--output-dir",
+                        str(tmpdir / "unused"),
+                        "--infer-only", "--source-genome-build", "hg19",
+                        "--output-genome-build",
+                        "hg38",
+                        "--liftover-chain-file",
+                        str(missing_chain_path),
+                    ]
+                )
 
             output = stdout.getvalue()
             self.assertFalse(result.runnable)
@@ -2602,19 +2597,18 @@ class SumstatsMungerTest(unittest.TestCase):
             )
             stdout = io.StringIO()
 
-            with mock.patch("ldsc.sumstats_munger.resolve_genome_build", return_value="hg19"):
-                with contextlib.redirect_stdout(stdout):
-                    result = sumstats_workflow.main(
-                        [
-                            "--raw-sumstats-file",
-                            str(raw_path),
-                            "--output-dir",
-                            str(tmpdir / "unused"),
-                            "--infer-only",
-                            "--output-genome-build",
-                            "hg38",
-                        ]
-                    )
+            with contextlib.redirect_stdout(stdout):
+                result = sumstats_workflow.main(
+                    [
+                        "--raw-sumstats-file",
+                        str(raw_path),
+                        "--output-dir",
+                        str(tmpdir / "unused"),
+                        "--infer-only", "--source-genome-build", "hg19",
+                        "--output-genome-build",
+                        "hg38",
+                    ]
+                )
 
             output = stdout.getvalue()
             self.assertTrue(result.runnable)

@@ -1,6 +1,6 @@
 # Build an R² Panel
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 This serial workflow reuses one managed child across chromosomes, with **1 BLAS thread**.
 For Python scripts, place workflow calls under `if __name__ == "__main__":`; see [the execution policy](../../current/parallel-execution.md).
@@ -10,7 +10,8 @@ For Python scripts, place workflow calls under `if __name__ == "__main__":`; see
 
 `--source-genome-build auto` checks every BIM shard and coordinate keep list before restricting SNPs.
 A small generic `CHR/POS` keep list with insufficient evidence fails with advice to specify a concrete source build.
-A concrete source build is authoritative; matching named position columns take precedence over generic `POS`, and rsID filtering needs no coordinate-build validation.
+A concrete source build must agree with input declarations and supplies the build for unlabeled coordinates without fresh inference.
+Matching named position columns take precedence over generic `POS`, and rsID filtering needs no coordinate-build validation.
 With cM windows, map selection and validation follow source inference; supply the map for each emitted build.
 See the [shared policy](global-config.md#genome-build-inference-checking-and-overrides).
 

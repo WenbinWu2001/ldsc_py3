@@ -58,11 +58,15 @@ Otherwise LDSC samples up to 5,000 rows per input/chromosome and requires at lea
 Every relevant input participates before a consistency error is raised, regardless of input order.
 This is bounded inference, not an exhaustive check for within-file mixtures.
 
-A concrete `--genome-build hg19` or `hg38` is authoritative, including over conflicting metadata.
+A concrete `--genome-build hg19` or `hg38` must agree with applicable input declarations after alias normalization.
+Existing metadata is a declaration regardless of whether an earlier workflow inferred it or a user specified it.
+Unlabeled inputs use the explicit assertion without fresh build inference.
 Use `--source-genome-build` for source-build workflows.
-An override changes interpretation and does not lift coordinates over.
+An assertion never changes input labels or converts coordinates.
+Conflicts require matching coordinates, verified metadata corrections, or an explicit coordinate conversion.
 Munging still requires a separate `--output-genome-build` for coordinate-family output.
 Saved output build metadata describes the coordinates after any requested conversion.
+Source and target builds in explicit liftover are separate stages, not conflicting declarations.
 
 | SNP keep-list used for filtering | Rule |
 | --- | --- |
@@ -77,7 +81,8 @@ Ordinary BED is unchecked and inherits the resolved workflow build; its compatib
 
 On failure, the terminal error and workflow log group every checked input by `hg19`, `hg38`, or `unresolved`, and list BED/rsID-only inputs as `unchecked`.
 Each entry identifies its flag, file or shard, and evidence or failure reason.
-Check those inputs and use the suggested existing override only when you know the intended build.
+For verified unlabeled inputs, use the suggested concrete build option.
+Conflicting declarations must be repaired before rerunning; the build option cannot override them.
 Commands without a build override, such as regression and quantile analysis, require matching upstream artifacts.
 See the [full policy and command scopes](../../current/snp-identifier-genome-build-defaults.md#genome-build-policy) and [grouped error examples](../../troubleshooting.md#common-genome-build-consistency-check-failed).
 

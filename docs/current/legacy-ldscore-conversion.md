@@ -1,6 +1,6 @@
 # Legacy LDSC2 LD-Score Suite Conversion
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-26
 
 Conversion runs serially in one managed child with **1 BLAS thread**, including reconstructed annotation overlap products.
 See [parallel execution](parallel-execution.md) for native-limit verification and Python process startup.
@@ -29,6 +29,12 @@ arguments. Optional `--snp-identifier rsid|chr_pos` and
 `--genome-build auto|hg19|hg38` controls select the allele-unaware converted
 identity; `rsid` and `auto` are the defaults. The command normally needs no
 glob, prefix, column-map, or suite-profile argument.
+
+Before conversion, the shared build validator checks declarations in reference, weight, and annotation inputs.
+Concrete hg19/hg38 assertions must agree with those labels after alias normalization; unlabeled inputs remain admissible without fresh inference.
+For coordinate identity in auto mode, unlabeled reference coordinates are inferred across all selected chromosomes.
+Weight and annotation coordinates transferred by rsID joins are descriptive, but any existing build declaration must still agree.
+See the [shared genome-build policy](snp-identifier-genome-build-defaults.md#genome-build-policy).
 
 ## Compatibility Boundary
 

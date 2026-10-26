@@ -1,6 +1,6 @@
 # LD Score Calculation
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-built SNP-level annotations, or from raw BED/gene-list queries plus an explicit baseline.
 
@@ -352,9 +352,8 @@ The [direct assembly measurements](../docs/wiki/main-functionalities/ldscore.md#
 
 ## Case 5: Reuse an Exact Gene LD-Score Index
 
-For many gene sets under one fixed hg19/PLINK configuration, build the
-expensive reference calculation once. The builder requires an explicit base
-identity mode and explicit hg19 assertion:
+For many gene sets under one fixed PLINK configuration, build the expensive reference calculation once.
+The builder requires an explicit identity mode, hg19 or hg38 assertion, and exactly one LD window:
 
 ```bash
 ldsc build-gene-ldscore-index \
@@ -364,6 +363,7 @@ ldsc build-gene-ldscore-index \
   --gene-coordinate-file "annotations/gene-coordinates.hg19.tsv.gz" \
   --genome-build hg19 \
   --snp-identifier chr_pos \
+  --ld-wind-cm 1 \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
   --regr-snps-exclude-regions mhc-and-centromeres
@@ -372,12 +372,14 @@ ldsc build-gene-ldscore-index \
 Index construction defaults to `--padding-bp 0`. This example deliberately
 requests a non-default 100 kb gene flank and names the index accordingly.
 
-Use exactly `rsid` or `chr_pos`; there is no default, `auto`, inference,
-liftover, hg38, or allele-aware index mode. `rsid` joins on `SNP`; `chr_pos`
-joins on normalized positive 1-based `(CHR, POS)` and treats baseline SNP labels
-as passive. PLINK publishes `CHR`, `POS`, `SNP`, `A1`, and `A2` after either
-match. Advanced callers must ensure the baseline, PLINK, restriction, and map
-coordinates all use hg19.
+Choose `rsid`, `chr_pos`, `rsid_allele_aware`, or `chr_pos_allele_aware`; identity and build have no defaults.
+There is no build inference or liftover in index construction, and autosomes 1–22 remain required.
+Exactly one of `--ld-wind-cm`, `--ld-wind-kb`, or `--ld-wind-snps` is required; whole-chromosome windows are rejected.
+`rsid` joins on `SNP`; `chr_pos` joins on normalized positive 1-based `(CHR, POS)` and treats baseline SNP labels as passive.
+Allele-aware modes apply the shared normalization and cleanup rules, with base-key matching allowed when annotations omit both allele columns.
+PLINK publishes `CHR`, `POS`, `SNP`, `A1`, and `A2` for consistent matches.
+Input declarations must agree with the explicit build; contradictory baseline/PLINK records stop construction with a repair table.
+Earlier index formats require complete rebuilding.
 
 Mutable baseline or PLINK duplicate effective-key groups are removed in full,
 with a warning and rows in `diagnostics/dropped_snps/`; no representative is
@@ -400,7 +402,7 @@ ldsc ldscore \
 
 This indexed example also uses strict resolution. Add `--allow-unresolved-genes` only for a deliberate resolved subset; index integrity, chromosome coverage, and requested-control viability remain required.
 
-Indexed assembly inherits the validated index identity and hg19 provenance.
+Indexed assembly inherits the validated index identity and coordinate build, which is hg19 in this example.
 It adds no gene control unless one existing one-column file is supplied with
 `--control-gene-list-file`.
 Do not pass live `--snp-identifier` or `--genome-build` options; either option
@@ -419,7 +421,10 @@ absent or empty until a complete index is published.
 
 This live build log contains the same annotation-preparation milestones before `Starting chromosome N`. Index annotation preparation remains serial; the preparation parallelism study is closed, and `--workers` continues to control only subsequent chromosome computation. See [the measured decision](../docs/audits/annotation-memory/preparation-parallelism.md#decision).
 
-Use an updated reader for newly built gene indexes: chromosome metadata now carries only the published-row fingerprint, which also covers the effective SNP key. Otherwise-valid existing indexes remain readable; the semantic `index_id` and six input fingerprints are unchanged. See the [artifact and identity contract](../docs/current/gene-ldscore-index.md#artifact-and-identity-contract).
+Current indexes require format version 2; earlier formats must be rebuilt completely.
+Chromosome metadata carries the published-row fingerprint, which covers the effective SNP key in all four identity modes.
+The semantic `index_id` includes the explicit build, matching mode, and selected window unit/value.
+See the [artifact and identity contract](../docs/current/gene-ldscore-index.md#artifact-and-identity-contract).
 
 ## Optional: Materialize BED or Gene Projections for Reuse
 

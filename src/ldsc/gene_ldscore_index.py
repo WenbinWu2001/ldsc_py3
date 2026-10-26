@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import fcntl
@@ -26,6 +26,7 @@ import logging
 import os
 from pathlib import Path
 import socket
+import sqlite3
 import shutil
 import sys
 import tempfile
@@ -60,10 +61,14 @@ from ._kernel.regions import RegionIntervals
 from ._kernel.identifiers import read_snp_restriction_keys
 from ._kernel.snp_identity import (
     RestrictionIdentityKeys,
+    allele_set_series,
+    base_key_series,
     clean_identity_artifact_table,
     effective_merge_key_series,
     empty_identity_drop_frame,
     normalize_snp_identifier_mode,
+    identity_mode_family,
+    is_allele_aware_mode,
 )
 from ._kernel import regions as kernel_regions
 from ._logging import (
@@ -77,8 +82,9 @@ from ._annotation_storage import AnnotationWorkspace, FrameSpool
 from ._annotation_sources import prepare_annotation_sources
 from .chromosome_inference import normalize_chromosome, normalize_chromosome_series
 from ._coordinates import positive_int_position_series
+from .column_inference import normalize_genome_build
 from .config import GeneLDScoreIndexBuildConfig, GlobalConfig
-from .errors import LDSCInputError, LDSCInternalError
+from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 from .gene_list_resolver import (
     GeneCatalog,
     GeneCatalogValidationError,
@@ -93,6 +99,7 @@ LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
 
 _IDENTITY_COLUMNS = ["CHR", "POS", "SNP"]
+_INDEX_FORMAT_VERSION = 2
 
 
 class _GeneIndexArgumentParser(argparse.ArgumentParser):
@@ -101,9 +108,9 @@ class _GeneIndexArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
         missing: list[str] = []
         if "required" in message and "--snp-identifier" in message:
-            missing.append("--snp-identifier is required; choose rsid or chr_pos.")
+            missing.append("--snp-identifier is required; choose rsid, chr_pos, rsid_allele_aware, or chr_pos_allele_aware.")
         if "required" in message and "--genome-build" in message:
-            missing.append("--genome-build is required; choose hg19.")
+            missing.append("--genome-build is required; choose hg19 or hg38.")
         super().error(" ".join(missing) if missing else message)
 
 
@@ -119,7 +126,7 @@ def calculate_index_id(index_identity: dict) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the closed-v1 offline gene LD-score index parser."""
+    """Build the offline gene LD-score index parser."""
     parser = _GeneIndexArgumentParser(
         prog="ldsc build-gene-ldscore-index",
         description="Build an exact PLINK-backed disjoint-atom gene LD-score index.",
@@ -127,7 +134,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.prog = 'ldsc build-gene-ldscore-index'
     parser.formatter_class = CLIHelpFormatter
-    parser.description = 'Build a reusable gene LD-score index from hg19 PLINK genotypes and baseline annotations.'
+    parser.description = 'Build a reusable gene LD-score index from hg19 or hg38 PLINK genotypes and baseline annotations.'
     inputs = parser.add_argument_group('Inputs and output')
     identity = parser.add_argument_group('SNP identity and genome build')
     genes = parser.add_argument_group('Gene intervals and LD window')
@@ -153,7 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument(
         '--gene-coordinate-file', required=True, metavar='FILE',
         help=(
-            'Required headered TSV/TSV.GZ catalog of hg19 gene coordinates, with one-based inclusive intervals. '
+            'Required headered TSV/TSV.GZ gene catalog in the declared build, with one-based inclusive intervals. '
             'Defines the full gene set stored in the index. Supply an exact file path; patterns are not expanded.'
         ),
     )
@@ -165,17 +172,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     identity.add_argument(
-        '--snp-identifier', choices=('rsid', 'chr_pos'), required=True,
+        '--snp-identifier', choices=('rsid', 'chr_pos', 'rsid_allele_aware', 'chr_pos_allele_aware'), required=True,
         help=(
             'Required SNP matching rule: rsid uses SNP identifiers; chr_pos uses chromosome and position. '
-            'Both ignore alleles for matching; no default.'
+            'The allele-aware variants also compare normalized alleles, following ldscore rules. No default.'
         ),
     )
     identity.add_argument(
-        '--genome-build', choices=('hg19',), required=True,
+        '--genome-build', type=normalize_genome_build, choices=('hg19', 'hg38'), required=True,
         help=(
-            'Required assertion that coordinate-bearing inputs use hg19. Only hg19 is supported; no '
-            'inference or coordinate conversion.'
+            'Required build assertion for coordinate-bearing inputs: hg19 or hg38. Input build declarations '
+            'must agree after alias normalization. No inference or coordinate conversion.'
         ),
     )
 
@@ -193,13 +200,19 @@ def build_parser() -> argparse.ArgumentParser:
             'choice is fixed in the index.'
         ),
     )
-    genes.add_argument(
-        '--ld-wind-cm', type=float, default=1.0, metavar='CM',
+    window = genes.add_mutually_exclusive_group(required=True)
+    window.add_argument(
+        '--ld-wind-cm', type=float, default=None, metavar='CM',
         help=(
-            'Maximum LD-window distance on either side of each SNP, in centiMorgans. Default: 1.0; requires '
-            'informative PLINK CM values or --genetic-map-hg19-sources.'
+            'Maximum LD-window distance on either side of each SNP, in centiMorgans. No default; requires '
+            'informative PLINK CM values or a matching-build genetic map. Specify exactly one LD window.'
         ),
     )
+    window.add_argument('--ld-wind-kb', type=float, default=None, metavar='KB',
+                        help='Maximum LD-window distance in kilobases. No default; specify exactly one LD window.')
+    window.add_argument('--ld-wind-snps', type=int, default=None, metavar='N',
+                        help='Maximum LD-window distance in retained SNPs after identity and genotype filtering. '
+                             'No default; specify exactly one LD window. Whole-chromosome windows are rejected.')
 
     filters.add_argument(
         '--regr-snps-file', default=None, metavar='FILE',
@@ -246,6 +259,9 @@ def build_parser() -> argparse.ArgumentParser:
             'coordinate source is required.'
         ),
     )
+    maps.add_argument('--genetic-map-hg38-sources', default=None, metavar='SOURCES',
+                      help='hg38 genetic-map files for --ld-wind-cm with --genome-build hg38. '
+                           'Same path rules as --genetic-map-hg19-sources.')
 
     runtime.add_argument(
         '--workers', type=_parse_workers, default=1, metavar='N',
@@ -299,14 +315,15 @@ def build_gene_ldscore_index(
     ----------
     config : GeneLDScoreIndexBuildConfig
         Validated baseline, PLINK, chromosome, projection, window, filtering,
-        and batching settings. The builder requires explicit hg19 and either
-        base rsID or base CHR/POS identity in a 1 cM PLINK-backed workflow.
+        and batching settings. Requires an explicit hg19/hg38 build, identity
+        mode, and exactly one cM, kb, or SNP-count LD window.
     genetic_map_hg19_sources : str, optional
-        Comma-separated hg19 genetic-map paths. When omitted, informative cM
-        coordinates from each PLINK BIM are used.
+        Comma-separated hg19 genetic-map paths for an hg19 cM window.
+        When no matching map is supplied, cM windows require informative
+        coordinates from each PLINK BIM. Maps are invalid for kb/SNP windows.
     genetic_map_hg38_sources : str, optional
-        Reserved matching-build argument. V1 rejects hg38 maps because its
-        projection build is hg19.
+        Comma-separated hg38 genetic-map paths for an hg38 cM window.
+        Maps must match the explicit build; kb/SNP windows need no map.
     overwrite : bool, optional
         Rebuild and replace a complete existing valid index. Gene indexes do
         not support incremental updates or component reuse. Default is
@@ -329,14 +346,22 @@ def build_gene_ldscore_index(
         If ``config`` is not a ``GeneLDScoreIndexBuildConfig``.
     LDSCInputError
         If an input is missing or incompatible, the baseline/PLINK identifier
-        intersection is empty after duplicate-group cleanup, an hg38 genetic
-        map is supplied, or staged validation fails.
+        intersection is empty after identity cleanup, build or SNP declarations
+        conflict, a whole-chromosome window is requested, or staged validation fails.
     FileExistsError
         If a valid index exists and ``overwrite`` is false, or a nonempty
         unrecognized directory occupies the destination.
 
     Notes
     -----
+    All autosomes 1 through 22 are required. Build declarations in applicable
+    inputs must agree with the explicit build after alias normalization;
+    construction performs neither build inference nor coordinate conversion.
+    Allele-aware modes use shared allele normalization and identity cleanup.
+    Annotations may omit both allele columns and match by base identity;
+    supplying only one allele column is invalid. Shared-key coordinate or
+    usable-allele contradictions stop the build with a repair table.
+
     Construction uses float64 adjusted-r-squared accumulation, retains
     negative values, and batches internal atom columns. Mutable baseline and
     PLINK duplicate effective-key groups are dropped in full with warnings and
@@ -366,6 +391,8 @@ def build_gene_ldscore_index(
             padding_bp=config.padding_bp,
             gene_exclude_regions=config.gene_exclude_regions,
             ld_wind_cm=config.ld_wind_cm,
+            ld_wind_kb=config.ld_wind_kb,
+            ld_wind_snps=config.ld_wind_snps,
             maf_min=config.maf_min,
             common_maf_min=config.common_maf_min,
             keep_indivs_file=config.keep_indivs_file,
@@ -466,7 +493,7 @@ def _build_embedded_gene_catalog(
     command="run_build_gene_ldscore_index_from_args(...)",
 )
 def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
-    """Build one exact v1 index through locked preflight and staged publication."""
+    """Build one exact index through locked preflight and staged publication."""
     started = time.perf_counter()
     chromosomes = tuple(getattr(args, "_test_chromosomes", tuple(str(value) for value in range(1, 23))))
     allow_partial_for_tests = chromosomes != tuple(str(value) for value in range(1, 23))
@@ -481,6 +508,8 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
         padding_bp=args.padding_bp,
         gene_exclude_regions=args.gene_exclude_regions,
         ld_wind_cm=args.ld_wind_cm,
+        ld_wind_kb=getattr(args, "ld_wind_kb", None),
+        ld_wind_snps=getattr(args, "ld_wind_snps", None),
         maf_min=args.maf_min,
         common_maf_min=args.common_maf_min,
         keep_indivs_file=args.keep_indivs_file,
@@ -512,12 +541,16 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 gene_coordinate_file=Path(config.gene_coordinate_file).name,
                 plink_prefix=config.plink_prefix,
                 ld_wind_cm=config.ld_wind_cm,
+                ld_wind_kb=config.ld_wind_kb,
+                ld_wind_snps=config.ld_wind_snps,
                 padding_bp=config.padding_bp,
                 gene_exclude_regions=config.gene_exclude_regions,
                 maf_min=config.maf_min,
                 common_maf_min=config.common_maf_min,
                 keep_indivs_file=config.keep_indivs_file or "all individuals",
-                genetic_map="explicit hg19 map" if getattr(args, "genetic_map_hg19_sources", None) else "BIM cM fallback",
+                genetic_map=("not used" if config.ld_wind_cm is None else
+                             f"explicit {config.genome_build} map" if getattr(args, f"genetic_map_{config.genome_build}_sources", None)
+                             else "BIM cM fallback"),
                 regr_snps_file=config.regr_snps_file or "bundled HapMap3",
                 regr_snps_exclude_regions=config.regr_snps_exclude_regions,
                 snp_batch_size=config.snp_batch_size,
@@ -547,11 +580,13 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                     issues_path,
                 )
                 raise
-            # The required concrete index build is an authoritative declaration.
-            from dataclasses import replace
-            if catalog.genome_build != config.genome_build:
-                catalog = replace(catalog, genome_build=config.genome_build,
-                                  frame=catalog.frame.assign(genome_build=config.genome_build))
+            from ._genome_build_policy import GenomeBuildCheck
+            check = GenomeBuildCheck(config.genome_build, context="gene-index construction", logger=LOGGER)
+            check.declared("gene catalog", config.gene_coordinate_file, catalog.genome_build)
+            for path in declared_inputs.baseline:
+                check.table("baseline annotations", path)
+            check.paths("regression SNPs", config.regr_snps_file, restriction_mode=config.snp_identifier)
+            check.resolve()
             stage_parent = _create_gene_index_transaction(index_path)
             try:
                 published_path = _run_gene_ldscore_index_build(
@@ -590,8 +625,8 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
             maf=None,
             snp_identifier=config.snp_identifier,
             genome_build=config.genome_build,
-            ld_wind_snps=None,
-            ld_wind_kb=None,
+            ld_wind_snps=config.ld_wind_snps,
+            ld_wind_kb=config.ld_wind_kb,
             ld_wind_cm=config.ld_wind_cm,
             yes_really=False,
             snp_batch_size=config.snp_batch_size,
@@ -608,9 +643,9 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
             snp_identifier=config.snp_identifier,
             chrom=chrom,
         )
-        intersection.diagnostics["baseline_duplicate_rows_dropped"] += sum(
-            int(frame.reason.eq("duplicate_identity").sum()) for frame in baseline_drop.frames()
-        )
+        for frame in baseline_drop.frames():
+            intersection.diagnostics["baseline_duplicate_rows_dropped"] += int(frame.reason.eq("duplicate_identity").sum())
+            intersection.diagnostics["baseline_identity_rows_dropped"] += len(frame)
         kernel_bundle = kernel_ldscore.AnnotationBundle(
             metadata=intersection.metadata,
             annotations=intersection.annotations,
@@ -638,6 +673,11 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
             atom_batch_size=config.atom_batch_size,
         )
     except Exception as exc:
+        if isinstance(exc, LDSCUsageError) and "whole-chromosome" in str(exc):
+            raise LDSCInputError(
+                f"Gene-index construction rejects the whole-chromosome LD window on chromosome {chrom}. "
+                "Specify a smaller --ld-wind-cm, --ld-wind-kb, or --ld-wind-snps value; "
+                "the builder has no whole-chromosome override.") from exc
         exc.add_note(f"Chromosome {chrom} failed during {phase}.")
         LOGGER.error(
             f"Chromosome {chrom} failed during {phase}: {type(exc).__name__}: {exc}"
@@ -741,12 +781,11 @@ def _run_gene_ldscore_index_build(
         gene_exclude_regions=config.gene_exclude_regions,
     )
     # Package-wide rsID identity deliberately carries no coordinate-build
-    # semantics. The index contract independently records explicit hg19 for
-    # provenance and gene/region projection in both builder modes.
+    # semantics. The index independently records the explicit projection build.
     global_config = (
-        GlobalConfig(snp_identifier="rsid")
-        if config.snp_identifier == "rsid"
-        else GlobalConfig(snp_identifier="chr_pos", genome_build=config.genome_build)
+        GlobalConfig(snp_identifier=config.snp_identifier)
+        if identity_mode_family(config.snp_identifier) == "rsid"
+        else GlobalConfig(snp_identifier=config.snp_identifier, genome_build=config.genome_build)
     )
     regression_path = Path(config.regr_snps_file or packaged_hm3_curated_map_path())
     from ._input_preflight import InputGate
@@ -756,7 +795,7 @@ def _run_gene_ldscore_index_build(
     with PhaseProgress(LOGGER, 'validation', 'PLINK, regression restriction, and genetic map content'):
         regression_keys = gate.check('regression SNPs', regression_path,
             lambda: read_snp_restriction_keys(regression_path, config.snp_identifier, genome_build=config.genome_build))
-        genetic_map = gate.check('genetic map', getattr(args, 'genetic_map_hg19_sources', None),
+        genetic_map = gate.check('genetic map', getattr(args, f'genetic_map_{config.genome_build}_sources', None),
                                  lambda: _load_builder_genetic_map(args))
         plink = inspect_plink_inputs(config.plink_prefix, chromosomes=chromosomes, require_complete_suite=True,
                                      discovered_members=declared_inputs.files['plink_members'])
@@ -788,6 +827,8 @@ def _run_gene_ldscore_index_build(
             for chrom, records in frame.groupby(frame.CHR.astype(str), sort=False):
                 if chrom in baseline_drops:
                     baseline_drops[chrom].append(records.assign(stage="gene_index_baseline_identity_cleanup"))
+
+        _validate_baseline_plink_inputs(sources, chromosome_prefixes, config, chromosomes, state_dir)
 
         def task_arguments(chrom):
             chrom_catalog = embedded_catalog.loc[embedded_catalog["chrom"].astype(str) == chrom].sort_values(
@@ -860,7 +901,8 @@ def _run_gene_ldscore_index_build(
     selected_individuals = index_identity.get("selected_individuals", {})
     plink_sources = index_identity.get("plink_sources", [])
     map_identity = index_identity.get("genetic_map", "bim_cm")
-    map_source = "explicit hg19 map" if isinstance(map_identity, dict) else "BIM cM fallback"
+    map_source = (f"explicit {config.genome_build} map" if isinstance(map_identity, dict)
+                  else "not used" if map_identity == "not_used" else "BIM cM fallback")
     diagnostic_payload = {
         "index_id": index_id,
         "elapsed_seconds": elapsed,
@@ -875,7 +917,7 @@ def _run_gene_ldscore_index_build(
             "chromosomes": list(chromosomes),
             "baseline_annot_sources": list(config.baseline_annot_sources),
             "plink_prefix": config.plink_prefix,
-            "ld_window": {"unit": "cm", "value": config.ld_wind_cm},
+            "ld_window": _index_ld_window(config),
             "padding_bp": config.padding_bp,
             "gene_exclude_regions": config.gene_exclude_regions,
             "maf_min": config.maf_min,
@@ -1407,19 +1449,25 @@ def _file_sha256(path: str | Path) -> str:
 
 
 def _load_builder_genetic_map(args):
-    hg19 = getattr(args, "genetic_map_hg19_sources", None)
-    hg38 = getattr(args, "genetic_map_hg38_sources", None)
-    if hg38:
+    build = normalize_genome_build(args.genome_build)
+    other = "hg38" if build == "hg19" else "hg19"
+    sources = getattr(args, f"genetic_map_{build}_sources", None)
+    if getattr(args, f"genetic_map_{other}_sources", None):
         raise LDSCInputError(
-            "The hg19 v1 index builder cannot use --genetic-map-hg38-sources."
-            " Supply --genetic-map-hg19-sources for this hg19 index build; no coordinate conversion is "
-            "performed by index construction."
+            f"Gene-index genetic map declares {other}, but the provided genome build is {build}. "
+            f"Supply --genetic-map-{build}-sources with verified {build} coordinates. "
+            "No coordinates or build labels were changed."
         )
-    if not hg19:
+    if not sources:
         return None
+    if args.ld_wind_cm is None:
+        raise LDSCInputError("Genetic-map sources require --ld-wind-cm. Omit the map for kb or SNP-count windows.")
+    from ._genome_build_policy import GenomeBuildCheck
     from ._kernel.ref_panel_builder import load_genetic_map_group
-
-    return load_genetic_map_group(split_cli_path_tokens(hg19))
+    check = GenomeBuildCheck(build, context="gene-index genetic map", logger=LOGGER)
+    check.paths("genetic map", sources)
+    check.resolve()
+    return load_genetic_map_group(split_cli_path_tokens(sources))
 
 
 def _canonical_frame_sha256(
@@ -1453,7 +1501,11 @@ def _retained_baseline_content_sha256(
     snp_identifier: str,
 ) -> str:
     """Hash retained annotation values under only the active effective identity."""
-    identity_columns = ["SNP"] if snp_identifier == "rsid" else ["CHR", "POS"]
+    identity_columns = ["SNP"] if identity_mode_family(snp_identifier) == "rsid" else ["CHR", "POS"]
+    if is_allele_aware_mode(snp_identifier):
+        authoritative_rows = authoritative_rows.assign(
+            allele_set=allele_set_series(authoritative_rows, context="retained baseline identity")[0])
+        identity_columns.append("allele_set")
     content = pd.concat(
         [
             authoritative_rows.loc[:, identity_columns].reset_index(drop=True),
@@ -1486,15 +1538,24 @@ def _catalog_identity_records(frame: pd.DataFrame) -> list[dict[str, object]]:
     ).to_dict(orient="records")
 
 
+def _index_ld_window(config) -> dict:
+    """Describe the one validated LD window in canonical index metadata."""
+    return next({"unit": unit, "value": getattr(config, f"ld_wind_{unit}")}
+                for unit in ("cm", "kb", "snps") if getattr(config, f"ld_wind_{unit}") is not None)
+
+
 def _genetic_map_identity(args, genetic_map: pd.DataFrame | None = None) -> str | dict:
     """Return the content-bound scientific identity of the effective cM map."""
-    sources = split_cli_path_tokens(getattr(args, "genetic_map_hg19_sources", None))
+    if args.ld_wind_cm is None:
+        return "not_used"
+    build = normalize_genome_build(args.genome_build)
+    sources = split_cli_path_tokens(getattr(args, f"genetic_map_{build}_sources", None))
     if not sources:
         return "bim_cm"
     if genetic_map is None:
         genetic_map = _load_builder_genetic_map(args)
     return {
-        "kind": "explicit_hg19",
+        "kind": f"explicit_{build}",
         "content_sha256": _canonical_frame_sha256(genetic_map, sort_by=("CHR", "POS")),
     }
 
@@ -1553,7 +1614,7 @@ def _builder_index_identity(
         },
         "maf_min": config.maf_min,
         "common_maf_min": config.common_maf_min,
-        "ld_window": {"unit": "cm", "value": config.ld_wind_cm},
+        "ld_window": _index_ld_window(config),
         "genetic_map": _genetic_map_identity(args, genetic_map),
         "regression_snps": {
             "kind": "custom" if config.regr_snps_file else "bundled_hapmap3",
@@ -1856,8 +1917,9 @@ def _load_gene_ldscore_index(
     Parameters
     ----------
     index_dir : path-like
-        Directory containing one complete index. No profile discovery or
-        compatibility migration is performed.
+        Directory containing one complete format-version-2 index covering
+        autosomes 1 through 22. Earlier formats require a complete rebuild;
+        no profile discovery or compatibility migration is performed.
 
     Returns
     -------
@@ -1874,6 +1936,9 @@ def _load_gene_ldscore_index(
     """
     index_path = Path(index_dir)
     root = _read_json(index_path / "metadata.json", "root")
+    if root.get("format_version") != _INDEX_FORMAT_VERSION:
+        raise LDSCInputError("Unsupported gene LD-score index format version. Rebuild the complete index with "
+                             "the current package; earlier indexes cannot be reused or migrated.")
     if root.get("artifact_type") != "gene_ldscore_index":
         raise LDSCInputError(
             "Gene LD-score index root has the wrong artifact_type."
@@ -1899,17 +1964,10 @@ def _load_gene_ldscore_index(
             "build-gene-ldscore-index. See "
             "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
         ) from exc
-    if snp_identifier not in {"rsid", "chr_pos"}:
-        raise LDSCInputError(
-            "Gene LD-score index supports only rsid or chr_pos identity metadata."
-            " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
-            "build-gene-ldscore-index. See "
-            "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
-        )
     genome_build = index_identity.get("genome_build")
-    if genome_build != "hg19":
+    if genome_build not in {"hg19", "hg38"}:
         raise LDSCInputError(
-            "Gene LD-score index genome-build metadata must be explicit hg19."
+            "Gene LD-score index genome-build metadata must be explicit hg19 or hg38."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
             "docs/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
@@ -2501,12 +2559,27 @@ def intersect_baseline_plink_by_identifier(
     snp_identifier: str,
     chrom: str,
 ) -> BaselinePlinkIntersection:
-    """Drop ambiguous source groups and inner-join by one base identity mode."""
-    if snp_identifier not in {"rsid", "chr_pos"}:
-        raise LDSCInputError(
-            f"Gene LD-score index matching does not support snp_identifier={snp_identifier!r}. "
-            "Use --snp-identifier rsid or chr_pos for index construction, matching the supplied baseline and PLINK panel."
-        )
+    """Validate and align baseline annotations to consistent PLINK identities.
+
+    Shared cleanup removes ambiguous identity groups in the selected base or
+    allele-aware mode. If baseline metadata omits both allele columns,
+    matching uses base keys after reference allele cleanup; one allele column
+    is invalid. Shared rsIDs with different coordinates and shared base keys
+    with incompatible usable normalized alleles raise ``LDSCInputError``
+    carrying an ``input_issues`` repair table. Ordinary unmatched rows are
+    omitted by the inner intersection.
+
+    The returned metadata uses PLINK coordinates, labels, and alleles, in
+    genomic order. Annotation values follow that same row order; diagnostics
+    and dropped rows describe this intersection's identity cleanup. Neither
+    input frame is modified.
+    """
+    snp_identifier = normalize_snp_identifier_mode(snp_identifier)
+    family = identity_mode_family(snp_identifier)
+    has_alleles = {"A1", "A2"}.intersection(baseline_rows.columns)
+    if len(has_alleles) == 1:
+        raise LDSCInputError("Baseline annotations must supply both A1 and A2, or omit both allele columns.")
+    baseline_mode = snp_identifier if has_alleles else family
     if len(baseline_rows) != len(baseline_annotations):
         raise LDSCInputError(
             f"Baseline SNP metadata has {len(baseline_rows)} rows but its annotations have "
@@ -2527,7 +2600,7 @@ def intersect_baseline_plink_by_identifier(
     )
     baseline_cleanup = clean_identity_artifact_table(
         baseline,
-        snp_identifier,
+        baseline_mode,
         context=f"gene-index baseline chromosome {chrom}",
         stage="gene_index_baseline_identity_cleanup",
         logger=LOGGER,
@@ -2545,14 +2618,22 @@ def intersect_baseline_plink_by_identifier(
         raise LDSCInputError(
             f"Gene LD-score index baseline/PLINK {snp_identifier} intersection is empty on chromosome {chrom} "
             "after duplicate identity cleanup. Check whether the baseline annotations and PLINK panel "
-            "use the intended SNP identifiers and matching hg19 coordinates, and check both inputs for "
+            "use the intended SNP identifiers and matching coordinates, and check both inputs for "
             "duplicate identities. Restore compatible inputs rather than dropping ambiguous SNPs to bypass this check."
         )
+    issues = _baseline_plink_contradictions(baseline, plink, mode=snp_identifier, chrom=chrom)
+    if not issues.empty:
+        error = LDSCInputError(
+            f"Baseline annotations and PLINK BIM contain {len(issues)} contradictory SNP records on chromosome {chrom}. "
+            "Inspect the repair table; supply matching coordinates and alleles, or correct erroneous input records "
+            "only after verification. No SNP labels, alleles, or coordinates were changed.")
+        error.input_issues = issues
+        raise error
     baseline["_identity_key"] = effective_merge_key_series(
-        baseline, snp_identifier, context=f"gene-index baseline chromosome {chrom}"
+        baseline, baseline_mode, context=f"gene-index baseline chromosome {chrom}"
     )
     plink["_identity_key"] = effective_merge_key_series(
-        plink, snp_identifier, context=f"gene-index PLINK BIM chromosome {chrom}"
+        plink, baseline_mode, context=f"gene-index PLINK BIM chromosome {chrom}"
     )
     baseline_keys = set(baseline["_identity_key"])
     plink_keys = set(plink["_identity_key"])
@@ -2561,7 +2642,7 @@ def intersect_baseline_plink_by_identifier(
         raise LDSCInputError(
             f"Gene LD-score index baseline/PLINK {snp_identifier} intersection is empty on chromosome {chrom}. "
             "Check that baseline annotations and the PLINK panel describe the same SNP population, "
-            "use compatible identifiers, and have matching hg19 coordinates; supply compatible inputs."
+            "use compatible identifiers, and have matching coordinates; supply compatible inputs."
         )
     matched_plink = (
         plink.loc[matched]
@@ -2571,23 +2652,8 @@ def intersect_baseline_plink_by_identifier(
     baseline_lookup = baseline.set_index("_identity_key", verify_integrity=True)
     matched_baseline = baseline_lookup.loc[matched_plink["_identity_key"]].reset_index()
     coordinate_discordant = 0
-    if snp_identifier == "rsid":
-        coordinate_discordant = int(
-            np.count_nonzero(
-                matched_plink["POS"].to_numpy(dtype=np.int64)
-                != matched_baseline["POS"].to_numpy(dtype=np.int64)
-            )
-        )
-    if coordinate_discordant:
-        LOGGER.warning(
-            f"Baseline/PLINK rsid intersection on chromosome {chrom} has "
-            f"{coordinate_discordant} coordinate disagreement row(s); PLINK coordinates are authoritative. "
-            "Index construction continues using PLINK coordinates for SNPs matched by rsID. "
-            "Check that baseline annotations and the PLINK panel describe compatible hg19 references, "
-            "and correct unintended coordinate differences before using the index."
-        )
     snp_label_discordant = 0
-    if snp_identifier == "chr_pos" and "SNP" in matched_baseline.columns:
+    if family == "chr_pos" and "SNP" in matched_baseline.columns:
         snp_label_discordant = int(
             np.count_nonzero(
                 matched_plink["SNP"].astype(str).to_numpy()
@@ -2605,8 +2671,10 @@ def intersect_baseline_plink_by_identifier(
     diagnostics = {
         "baseline_rows": int(len(baseline_rows)),
         "plink_rows": int(len(plink_rows)),
-        "baseline_duplicate_rows_dropped": int(len(baseline_cleanup.dropped)),
-        "plink_bim_duplicate_rows_dropped": int(len(plink_cleanup.dropped)),
+        "baseline_duplicate_rows_dropped": int(baseline_cleanup.dropped.reason.eq("duplicate_identity").sum()),
+        "plink_bim_duplicate_rows_dropped": int(plink_cleanup.dropped.reason.eq("duplicate_identity").sum()),
+        "baseline_identity_rows_dropped": int(len(baseline_cleanup.dropped)),
+        "plink_bim_identity_rows_dropped": int(len(plink_cleanup.dropped)),
         "matched_rows": int(len(matched_plink)),
         "baseline_only_rows": int(len(baseline_keys - plink_keys)),
         "plink_only_rows": int(len(plink_keys - baseline_keys)),
@@ -2621,6 +2689,85 @@ def intersect_baseline_plink_by_identifier(
     return BaselinePlinkIntersection(matched_plink, aligned_annotations, diagnostics, dropped)
 
 
+def _validate_baseline_plink_inputs(sources, prefixes, config, chromosomes, state_dir):
+    """Collect metadata conflicts across chromosomes before starting LD workers."""
+    issues = []
+    causes = []
+    for chrom in chromosomes:
+        metadata = sources.shards[chrom].metadata()
+        try:
+            intersect_baseline_plink_by_identifier(
+                metadata, pd.DataFrame(index=range(len(metadata))), _read_bim_identity(prefixes[chrom]),
+                snp_identifier=config.snp_identifier, chrom=chrom)
+        except LDSCInputError as exc:
+            causes.append(exc)
+            records = getattr(exc, "input_issues", pd.DataFrame([{"chrom": chrom, "reason": "invalid_intersection",
+                                                                  "details": str(exc)}]))
+            issues.append(records.assign(baseline_sources=",".join(config.baseline_annot_sources),
+                                         plink_source=str(prefixes[chrom]) + ".bim"))
+    if identity_mode_family(config.snp_identifier) == "rsid":
+        cross_chromosome = _cross_chromosome_rsid_issues(sources, prefixes, config, chromosomes, state_dir)
+        if not cross_chromosome.empty:
+            issues.append(cross_chromosome.assign(baseline_sources=",".join(config.baseline_annot_sources),
+                                                  reason="cross_chromosome_coordinate_mismatch"))
+            causes.append(LDSCInputError("Shared baseline/PLINK rsIDs declare different chromosomes."))
+    path = state_dir / "baseline_plink_issues.tsv"
+    if issues:
+        frame = pd.concat(issues, ignore_index=True)
+        frame.to_csv(path, sep="\t", index=False)
+        error = LDSCInputError(f"Baseline/PLINK consistency validation failed. Repair the contradictory or invalid "
+                               f"SNP records listed in {path}, using matching coordinates and alleles. "
+                               + " ".join(str(cause) for cause in causes[:5]) + " " +
+                               "Correct metadata only after verification; no input records were changed. "
+                               "See docs/troubleshooting.md#build-gene-ldscore-index-input-conflicts.")
+        error.input_issues = frame
+        LOGGER.error("%s", error)
+        raise error from ExceptionGroup("Baseline/PLINK input conflicts", causes)
+    path.unlink(missing_ok=True)
+
+
+def _cross_chromosome_rsid_issues(sources, prefixes, config, chromosomes, state_dir):
+    """Join chromosome declarations on disk without retaining genome-wide metadata."""
+    with tempfile.TemporaryDirectory(prefix="identity-", dir=state_dir) as temporary:
+        with closing(sqlite3.connect(str(Path(temporary) / "coordinates.sqlite"))) as database:
+            for table in ("baseline", "plink"):
+                database.execute(f"CREATE TABLE {table} (SNP TEXT, CHR TEXT, POS INTEGER)")
+            for chrom in chromosomes:
+                baseline = sources.shards[chrom].metadata()
+                plink = clean_identity_artifact_table(
+                    _read_bim_identity(prefixes[chrom]), config.snp_identifier,
+                    context=f"PLINK chromosome {chrom}", stage="gene_index_build_validation").cleaned
+                for table, frame in (("baseline", baseline), ("plink", plink)):
+                    frame.loc[:, ["SNP", "CHR", "POS"]].astype({"CHR": str}).to_sql(
+                        table, database, if_exists="append", index=False, chunksize=1000)
+            database.execute("CREATE INDEX baseline_snp ON baseline (SNP)")
+            database.execute("CREATE INDEX plink_snp ON plink (SNP)")
+            issues = pd.read_sql_query(
+                "SELECT b.SNP AS base_key, b.CHR AS CHR_baseline, b.POS AS POS_baseline, "
+                "p.CHR AS CHR_plink, p.POS AS POS_plink FROM baseline b JOIN plink p ON b.SNP=p.SNP "
+                "WHERE b.CHR != p.CHR", database)
+    if not issues.empty:
+        issues["plink_source"] = issues.CHR_plink.map(lambda chrom: str(prefixes[chrom]) + ".bim")
+    return issues
+
+
+def _baseline_plink_contradictions(baseline, plink, *, mode, chrom):
+    """Report conflicting coordinates or usable alleles for shared base keys."""
+    left = baseline.copy()
+    right = plink.copy()
+    for frame in (left, right):
+        frame["base_key"] = base_key_series(frame, mode, context="baseline/PLINK consistency")
+        frame["allele_set"] = (allele_set_series(frame, context="baseline/PLINK consistency")[0]
+                               if {"A1", "A2"}.issubset(frame.columns) else pd.NA)
+    pairs = left.merge(right, on="base_key", suffixes=("_baseline", "_plink"), validate="one_to_one")
+    masks = {"allele_mismatch": (pairs.allele_set_baseline.notna() & pairs.allele_set_plink.notna()
+                                  & pairs.allele_set_baseline.fillna("").ne(pairs.allele_set_plink.fillna("")))}
+    if identity_mode_family(mode) == "rsid":
+        masks["coordinate_mismatch"] = pairs.CHR_baseline.ne(pairs.CHR_plink) | pairs.POS_baseline.ne(pairs.POS_plink)
+    issues = [pairs.loc[mask].assign(reason=reason, chrom=chrom) for reason, mask in masks.items() if mask.any()]
+    return pd.concat(issues, ignore_index=True) if issues else pd.DataFrame()
+
+
 def _normalize_identity_rows(
     frame: pd.DataFrame,
     *,
@@ -2629,7 +2776,7 @@ def _normalize_identity_rows(
     snp_identifier: str,
 ) -> pd.DataFrame:
     """Normalize one strict-identity frame without dropping caller columns."""
-    required = {"CHR", "POS"} | ({"SNP"} if snp_identifier == "rsid" or label == "PLINK BIM" else set())
+    required = {"CHR", "POS"} | ({"SNP"} if identity_mode_family(snp_identifier) == "rsid" or label == "PLINK BIM" else set())
     missing = required - set(frame.columns)
     if missing:
         raise LDSCInputError(
@@ -2669,7 +2816,8 @@ def _read_json(path: Path, label: str) -> dict:
 
 
 def _validate_metadata_identity(metadata: dict, *, index_id: str) -> None:
-    if metadata.get("artifact_type") != "gene_ldscore_index" or metadata.get("index_id") != index_id:
+    if (metadata.get("artifact_type") != "gene_ldscore_index" or metadata.get("index_id") != index_id
+            or metadata.get("format_version") != _INDEX_FORMAT_VERSION):
         raise LDSCInputError(
             "Gene LD-score index component identity is invalid."
             " Restore components from the same complete index build as its root metadata."
@@ -2683,7 +2831,7 @@ def _cast_index_baseline_rows(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _published_row_metadata_sha256(frame: pd.DataFrame) -> str:
-    """Bind ordered CHR/SNP/POS/A1/A2 metadata, including either effective SNP key."""
+    """Bind ordered CHR/SNP/POS/A1/A2 metadata for all four identity modes."""
     required = ["CHR", "SNP", "POS", "A1", "A2"]
     missing = [column for column in required if column not in frame.columns]
     if missing:
@@ -2712,6 +2860,7 @@ def _index_chromosome_metadata(
     )
     return {
         "artifact_type": "gene_ldscore_index",
+        "format_version": _INDEX_FORMAT_VERSION,
         "chromosome": str(chrom),
         "snp_identifier": snp_identifier,
         "genome_build": genome_build,
@@ -2816,6 +2965,7 @@ def _finalize_staged_index_artifact(
         index_path / "metadata.json",
         {
             "artifact_type": "gene_ldscore_index",
+            "format_version": _INDEX_FORMAT_VERSION,
             "index_id": index_id,
             "snp_identifier": index_identity["snp_identifier"],
             "genome_build": index_identity["genome_build"],
@@ -2858,6 +3008,7 @@ def _write_index_artifact(
         index_path / "metadata.json",
         {
             "artifact_type": "gene_ldscore_index",
+            "format_version": _INDEX_FORMAT_VERSION,
             "index_id": index_id,
             "snp_identifier": index_identity["snp_identifier"],
             "genome_build": index_identity["genome_build"],
@@ -2978,10 +3129,11 @@ def _load_index_chromosome(
             " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
             "index components. Rebuild the complete index if the original valid files are unavailable."
         )
-    effective_columns = ["SNP"] if snp_identifier == "rsid" else ["CHR", "POS"]
-    if baseline_rows.duplicated(effective_columns, keep=False).any():
+    cleanup = clean_identity_artifact_table(baseline_rows, snp_identifier, context=f"index chromosome {chrom}",
+                                             stage="index_validation")
+    if not cleanup.dropped.empty:
         raise LDSCInputError(
-            "Gene LD-score index baseline rows contain duplicate effective identities."
+            "Gene LD-score index baseline rows contain duplicate effective identities or invalid/ambiguous allele groups."
             " Restore this chromosome component together with its matching root index; do not mix or hand-edit "
             "index components. Rebuild the complete index if the original valid files are unavailable."
         )

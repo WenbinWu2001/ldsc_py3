@@ -25,6 +25,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 import logging
+import math
 from numbers import Integral
 from os import PathLike
 from typing import Literal
@@ -156,7 +157,8 @@ class GlobalConfig:
         Genome-build context for ``chr_pos`` workflows that require
         coordinate-build interpretation. Default is ``"auto"``: workflows
         compare declared or bounded inferred evidence across relevant inputs.
-        A concrete build is authoritative and does not convert coordinates.
+        A concrete build must agree with input declarations and supplies the
+        build for unlabeled inputs without inference or coordinate conversion.
         Ignored for ``"rsid"`` identity; interval projection has its own build.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
         Requested logging verbosity for workflow modules. Default is ``"INFO"``.
@@ -571,14 +573,16 @@ class LDScoreConfig:
 
 @dataclass(frozen=True)
 class GeneLDScoreIndexBuildConfig:
-    """Scientific and resource settings for the v1 gene-index builder.
+    """Scientific and resource settings for exact gene-index construction.
 
     Parameters
     ----------
     baseline_annot_sources : tuple of str
         Ordered baseline annotation paths or chromosome-suite tokens. Their
-        effective rsID or CHR/POS keys are inner-joined to the selected PLINK BIM before
-        genotype QC; PLINK metadata is authoritative for matched rows.
+        effective keys are inner-joined to the selected PLINK BIM before
+        genotype QC. Shared-key coordinate or usable-allele contradictions
+        fail; PLINK supplies metadata for consistent matches. Allele-aware
+        modes permit annotations to omit both allele columns, but not one.
     plink_prefix : str
         Exact PLINK BED/BIM/FAM prefix or plain chromosome-suite stem; globs
         and ``@`` chromosome patterns are also accepted.
@@ -588,22 +592,22 @@ class GeneLDScoreIndexBuildConfig:
         ``.<output-name>.build-state``; the closed successful log moves into
         ``<output_dir>/diagnostics``. A missing or empty destination is not
         mutated before successful publication.
-    chromosomes : tuple of str, optional
-        Canonical autosome coverage. Default is chromosomes 1 through 22.
-    genome_build : {"hg19"}
+    genome_build : {"hg19", "hg38"}
         Explicit gene-projection and coordinate build. Required with no
-        default; the builder supports only hg19 and performs no inference.
-    snp_identifier : {"rsid", "chr_pos"}
-        Required base variant-identity mode. No default or automatic inference
-        is applied, and allele-aware modes are outside this builder contract.
+        default; equivalent build names are normalized. All 22 autosomes are
+        required, and index construction performs no inference or liftover.
+        Applicable input declarations must agree with this build.
+    snp_identifier : {"rsid", "chr_pos", "rsid_allele_aware", "chr_pos_allele_aware"}
+        Required variant-identity mode, using the shared LD-score matching rules.
     padding_bp : int, optional
         Base pairs added to each side of included transcribed gene intervals.
         Default is 0.
     gene_exclude_regions : {"none", "mhc"}, optional
         Gene-region exclusion applied to unpadded intervals before padding.
         Default is ``"mhc"``.
-    ld_wind_cm : float, optional
-        Positive LD window in centiMorgans. The supported default is 1.0.
+    ld_wind_cm, ld_wind_kb, ld_wind_snps : float, float, int, or None, optional
+        Exactly one positive LD window must be supplied: centiMorgans,
+        kilobases, or retained SNPs. No default or whole-chromosome override.
     maf_min : float, optional
         Inclusive retained-reference MAF threshold. Default is no explicit
         filter.
@@ -636,8 +640,7 @@ class GeneLDScoreIndexBuildConfig:
     Raises
     ------
     LDSCConfigError
-        If required paths are absent or a setting lies outside the closed v1
-        compatibility domain.
+        If required paths are absent or a setting violates the builder contract.
     """
 
     baseline_annot_sources: tuple[str, ...]
@@ -648,7 +651,9 @@ class GeneLDScoreIndexBuildConfig:
     snp_identifier: str
     padding_bp: int = 0
     gene_exclude_regions: str = "mhc"
-    ld_wind_cm: float = 1.0
+    ld_wind_cm: float | None = None
+    ld_wind_kb: float | None = None
+    ld_wind_snps: int | None = None
     maf_min: float | None = None
     common_maf_min: float = 0.05
     keep_indivs_file: str | None = None
@@ -670,11 +675,13 @@ class GeneLDScoreIndexBuildConfig:
                 "Cannot build a gene LD-score index without baseline annotations. "
                 "Supply --baseline-annot-sources (baseline_annot_sources in Python) covering autosomes 1 through 22."
             )
-        if self.genome_build != "hg19" or self.snp_identifier not in {"rsid", "chr_pos"}:
+        object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
+        object.__setattr__(self, "snp_identifier", normalize_snp_identifier_mode(self.snp_identifier))
+        if self.genome_build not in {"hg19", "hg38"}:
             raise LDSCConfigError(
                 f"Cannot build a gene LD-score index with genome_build={self.genome_build!r} and "
-                f"snp_identifier={self.snp_identifier!r}. Index construction requires explicit hg19 coordinates "
-                "and rsid or chr_pos identifiers. Supply --genome-build hg19 and the matching --snp-identifier; "
+                f"snp_identifier={self.snp_identifier!r}. Index construction requires explicit hg19 or hg38 coordinates. "
+                "Supply --genome-build hg19 or hg38 and the matching --snp-identifier; "
                 "no build inference or liftover is performed by index construction."
             )
         if self.gene_exclude_regions not in {"none", "mhc"}:
@@ -692,11 +699,19 @@ class GeneLDScoreIndexBuildConfig:
                 f"Cannot extend gene intervals by padding_bp={self.padding_bp!r}: padding must be nonnegative. "
                 "Set --padding-bp to 0 for gene bodies or a positive number of base pairs."
             )
-        if self.ld_wind_cm <= 0 or self.snp_batch_size <= 0 or self.atom_batch_size <= 0:
+        windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
+        if sum(value is not None for value in windows) != 1:
+            raise LDSCConfigError(_one_ld_window_message("GeneLDScoreIndexBuildConfig"))
+        for name in ("ld_wind_snps", "ld_wind_kb", "ld_wind_cm"):
+            value = getattr(self, name)
+            if value is not None and (isinstance(value, bool) or not math.isfinite(value) or value <= 0
+                                      or (name == "ld_wind_snps" and not isinstance(value, Integral))):
+                raise LDSCConfigError(f"Invalid {name}={value!r}: use a finite positive window, with an integer SNP count.")
+        if self.snp_batch_size <= 0 or self.atom_batch_size <= 0:
             raise LDSCConfigError(
                 f"Cannot configure gene-index construction: ld_wind_cm={self.ld_wind_cm!r}, "
                 f"snp_batch_size={self.snp_batch_size!r}, atom_batch_size={self.atom_batch_size!r}. "
-                "Set --ld-wind-cm to a positive cM distance and both --snp-batch-size and --atom-batch-size to positive values."
+                "Set both --snp-batch-size and --atom-batch-size to positive values."
             )
         if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
             raise LDSCConfigError(
@@ -728,7 +743,8 @@ class ReferencePanelBuildConfig:
     source_genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"}, optional
         Genome build of the input PLINK coordinates. If ``"auto"``, the
         workflow checks every PLINK ``.bim`` shard and coordinate restriction
-        before filtering. A concrete source build is authoritative. Generic
+        before filtering. A concrete source build must agree with existing declarations and
+        bypasses fresh inference for unlabeled inputs. Generic
         keep lists must have sufficient evidence in auto mode. cM map
         selection and validation follow source resolution.
     genetic_map_hg19_sources, genetic_map_hg38_sources : str or os.PathLike[str] or None, optional
@@ -931,7 +947,8 @@ class MungeConfig:
     source_genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"}, optional
         Genome build of raw ``CHR``/``POS`` coordinates. ``"auto"`` asks the
         munger to check raw source chromosomes and coordinate keep lists.
-        Default is ``"auto"``. A concrete source build is authoritative.
+        Default is ``"auto"``. A concrete source build must agree with existing declarations and
+        bypasses fresh inference for unlabeled inputs.
         If any required source build cannot be resolved, supply an explicit
         build; the requested output build is never used to guess the source.
     output_genome_build : {"hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional

@@ -173,8 +173,10 @@ hg19/hg38 build evidence. The build of keep.tsv could not be resolved.
 regions.bed was not independently checked and does not establish a build.
 
 Check the listed inputs and ensure their coordinates use a consistent build.
-To make a known build authoritative for this run, specify --genome-build hg19
-or --genome-build hg38. This declaration does not convert coordinates.
+For verified unlabeled inputs, specify --genome-build hg19 or --genome-build hg38.
+Explicit builds cannot override conflicting declarations. Supply matching coordinates,
+correct erroneous metadata only after verification, or convert coordinates explicitly.
+No coordinates or build labels were changed.
 ```
 
 The same input flag can appear in multiple groups when its files disagree.
@@ -455,18 +457,30 @@ and counted. For a duplicate effective identity, every row in that source group
 is dropped; no representative is selected. Inspect
 `<index-dir>/diagnostics/dropped_snps/chrN_dropped.tsv.gz` after success (or the
 live log during a failing build). An empty result cannot define an LD universe.
-Under rsID matching, coordinate disagreements warn and use PLINK coordinates.
-Under coordinate matching, differing SNP labels warn and the PLINK label is
-published. During
+Under rsID matching, coordinate disagreements stop the build with a repair table.
+Under coordinate matching, differing SNP labels are reported and the PLINK label is published.
+During
 a failed build, check
 `<parent>/.<index-name>.build-state/build-gene-ldscore-index.log`; after a
 successful build, check `<index-dir>/diagnostics/build-gene-ldscore-index.log`.
-Confirm that all sources are hg19, that `--snp-identifier` matches the intended
-key, and that the inputs overlap after complete duplicate groups are removed.
-There is no build inference or liftover; `--genome-build hg19` is an advanced-user
-provenance assertion. A failed first build leaves the index destination absent or
+Confirm that all coordinate sources match the explicit hg19/hg38 build, that `--snp-identifier` matches the intended key, and that the inputs overlap after shared identity cleanup.
+There is no build inference or liftover; declarations must agree and cannot be replaced by the command-line assertion.
+A failed first build leaves the index destination absent or
 empty and can be retried directly; the previous log is archived under
 `<parent>/.<index-name>.build-state/history/`.
+
+### build-gene-ldscore-index: input conflicts
+
+Build-label conflicts identify the affected catalog, annotation, restriction, or map and its declared/requested builds.
+Names such as GRCh37/hg19 and GRCh38/hg38 are equivalent.
+Supply matching coordinates, correct an erroneous label only after verifying its coordinates, or perform an explicit conversion before index construction.
+The builder never converts coordinates or overwrites a conflicting label.
+
+SNP contradictions produce `.<index-name>.build-state/baseline_plink_issues.tsv` before chromosome workers start.
+The table identifies shared keys, baseline/PLINK sources, coordinates and usable normalized allele pairs, and a reason such as `coordinate_mismatch`, `allele_mismatch`, or `cross_chromosome_coordinate_mismatch`.
+Verify the reference releases and repair the indicated records; ordinary unmatched SNPs and shared-policy identity cleanup remain separate diagnostics.
+
+**Developer reference:** `gene_ldscore_index._validate_baseline_plink_inputs()` and `_genome_build_policy.GenomeBuildCheck` · **Exception:** `LDSCInputError`
 
 ### build-gene-ldscore-index: a partial hidden stage remains after failure
 
@@ -506,14 +520,13 @@ and reported rather than deleted.
 
 ### build-gene-ldscore-index: required identity or build option is missing
 
-**Symptom:** parsing stops with `--snp-identifier is required; choose rsid or
-chr_pos.` or `--genome-build is required; choose hg19.`
+**Symptom:** parsing reports a missing `--snp-identifier`, `--genome-build`, or LD-window option.
 
-New construction has no default or inference for either decision. Pass exactly
-one of `--snp-identifier rsid` or `--snp-identifier chr_pos`, plus
-`--genome-build hg19`. Do not use `auto`, hg38, or an allele-aware mode. These
-options belong only to Stage 1 construction. Remove both options from Stage 2
-`ldsc ldscore --gene-ldscore-index-dir ...`, which inherits them from the index.
+Choose one of the four shared SNP identity modes, explicitly supply hg19 or hg38, and set exactly one of `--ld-wind-cm`, `--ld-wind-kb`, or `--ld-wind-snps`.
+There are no defaults for those decisions.
+Whole-chromosome windows are rejected; use a smaller window because this builder has no override.
+These settings belong to index construction.
+Remove them from `ldsc ldscore --gene-ldscore-index-dir ...`, which inherits its immutable settings.
 
 ## ldscore
 
@@ -665,7 +678,8 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
 **Remedies:**
 
 1. Check the listed inputs and supply coordinates on one build.
-2. When the build is known, declare it authoritatively with `--genome-build hg19` or `--genome-build hg38`; this does not convert coordinates.
+2.
+For verified unlabeled inputs, assert the build with `--genome-build hg19` or `--genome-build hg38`; this bypasses fresh inference but cannot override existing declarations or convert coordinates.
 3. Exact paths, globs, and `@` suites all support auto inference, including PLINK-only input and suites without chromosome 1.
 
 See the [complete grouped report](#common-genome-build-consistency-check-failed) and [keep-list guidance](#common-keep-list-build-could-not-be-resolved).
@@ -764,7 +778,7 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
 1. Prepare the restriction file on the same build as the PLINK source panel.
 2. A matching `hg19_POS` or `hg38_POS` is preferred over generic `POS` without re-inference.
    Otherwise generic positions need enough evidence in auto mode.
-   A concrete `--source-genome-build` is authoritative and bypasses build inference; it does not convert positions.
+   A concrete `--source-genome-build` bypasses fresh inference and must agree with declarations; it does not convert positions.
 3. Fix ragged rows or delimiter/header issues before rerunning.
 
 **Developer reference:** `ref_panel_builder.ReferencePanelBuilder._resolve_source_genome_build()`, `_genome_build_policy.GenomeBuildCheck`, and `column_inference.resolve_restriction_chr_pos_columns()` · **Exception:** `LDSCInputError`

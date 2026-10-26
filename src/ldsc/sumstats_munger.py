@@ -69,7 +69,6 @@ from .errors import (
     LDSCUsageError,
     LDSCUserError,
 )
-from .genome_build_inference import resolve_genome_build
 from .hm3 import packaged_hm3_curated_map_path
 from .path_resolution import (
     ensure_output_directory,
@@ -308,7 +307,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
         clear ``ValueError``.
     trait_name : str or None, optional
         Optional trait label propagated into downstream regression summaries.
-        When supplied, this value overrides any metadata label. When
+        When supplied, this value must agree with existing metadata labels. When
         omitted, the loader uses the parquet footer ``trait_name`` when
         present, then falls back to the resolved filename. Default is ``None``.
 
@@ -1148,7 +1147,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             'Genome build of source coordinates. Default: auto, check raw chromosomes and coordinate keep lists; '
             'stop with a grouped report if evidence conflicts or is insufficient. Concrete builds are '
-            'authoritative and cannot '
+            'checked against declarations and cannot '
             'be used with rsid or rsid_allele_aware identity.'
         ),
     )
@@ -1592,29 +1591,22 @@ def _apply_build_inference_report(
     resolved_source = source_hint
     if output_build in {"hg19", "hg38"}:
         _append_suggested_option(suggested, "--output-genome-build", output_build)
-    if source_hint == "auto":
-        try:
-            position = {**inference.column_hints, **raw_config.column_hints}.get('pos')
-            resolved_source = munge_input.source_position_build([position] if position else [])
-            if resolved_source is None:
-                sample = _read_infer_only_coordinate_frame(source_path, raw_config, munge_config, inference)
-                resolved_source = resolve_genome_build(
-                    "auto",
-                    global_config.snp_identifier,
-                    sample,
-                    context="raw summary statistics",
-                    logger=None,
-                )
-        except Exception as exc:
-            resolved_source = None
-            missing.append("source_genome_build")
-            notes.append(
-                "Unable to infer source genome build from CHR/POS coordinates. "
-                f"{str(exc).split('Pass --genome-build')[0].strip()} "
-                "Rerun with --source-genome-build hg19 or --source-genome-build hg38."
-            )
-            notes.append("Source hg19 command: add --source-genome-build hg19.")
-            notes.append("Source hg38 command: add --source-genome-build hg38.")
+    try:
+        hints = {**inference.column_hints, **raw_config.column_hints}
+        flags = {clean_header(value): target.upper() for target, value in hints.items() if target in {"chr", "pos"}}
+        mapping = get_cname_map(flags, default_cnames, munge_config.ignore_columns)
+        translation = {column: mapping[clean_header(column)] for column in read_header(source_path)
+                       if clean_header(column) in mapping}
+        _, compression = get_compression(source_path)
+        metadata = munge_input._resolve_source_coordinates(
+            source_path, translation, replace(global_config, genome_build=source_hint), compression,
+            munge_input.count_leading_sumstats_comment_lines(source_path),
+            restriction_path=munge_config.sumstats_snps_file if not munge_config.no_snp_restriction else None)
+        resolved_source = metadata['genome_build']
+    except Exception as exc:
+        resolved_source = None
+        missing.append("source_genome_build")
+        notes.append(f"Unable to resolve a consistent source genome build. {exc}")
     if resolved_source in {"hg19", "hg38"}:
         _append_suggested_option(suggested, "--source-genome-build", resolved_source)
     builds_resolved = resolved_source in {"hg19", "hg38"} and output_build in {"hg19", "hg38"}
@@ -1656,26 +1648,6 @@ def _apply_build_inference_report(
         liftover_required=liftover_required,
         liftover_method=liftover_method,
     )
-
-
-def _read_infer_only_coordinate_frame(
-    source_path: str,
-    raw_config: MungeConfig,
-    munge_config: MungeConfig,
-    inference: RawSumstatsInference,
-) -> pd.DataFrame:
-    """Read enough raw CHR/POS evidence for ``--infer-only`` source-build inference."""
-    file_cnames = read_header(source_path)
-    hints = {**inference.column_hints, **raw_config.column_hints}
-    flag = {clean_header(value): target.upper() for target, value in hints.items() if target in {"chr", "pos"}}
-    cname_map = get_cname_map(flag, default_cnames, munge_config.ignore_columns)
-    translation = {column: cname_map[clean_header(column)] for column in file_cnames if clean_header(column) in cname_map}
-    _openfunc, compression = get_compression(source_path)
-    return munge_input.read_coordinate_evidence(
-        source_path, translation, compression=compression,
-        metadata_skiprows=munge_input.count_leading_sumstats_comment_lines(source_path),
-    )
-
 
 
 def _expected_chain_label(source_build: str, output_build: str) -> str:

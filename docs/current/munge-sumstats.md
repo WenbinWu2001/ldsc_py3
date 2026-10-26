@@ -1,6 +1,6 @@
 # Munge-Sumstats
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`
@@ -128,12 +128,13 @@ for the source build.
 Source `auto` checks raw source coordinates and the coordinate keep list together before QC, using the shared [genome-build policy](snp-identifier-genome-build-defaults.md#genome-build-policy).
 A selected raw position column such as `--pos hg19_POS` declares the source build without coordinate inference, including in `--infer-only`.
 Otherwise inference samples up to 5,000 rows per chromosome and retains the existing HM3 confidence criteria.
-A concrete `--source-genome-build hg19` or `hg38` is authoritative; it does not convert positions or choose the output build.
+A concrete `--source-genome-build hg19` or `hg38` must agree with declarations and supplies the build for unlabeled source positions without fresh inference.
+It does not convert positions or choose the output build.
 
 For keep lists, rsID filtering needs no coordinate-build check, and matching build-specific columns take precedence over generic `POS` without inference.
 Generic `CHR/POS` keep lists without a build declaration must independently supply enough evidence in auto mode, even when the raw source build is known.
 An insufficient small list produces a grouped input report and advises checking its build and supplying a concrete `--source-genome-build`.
-Ordinary column, allele, and identifier validation still applies after an override.
+Ordinary column, allele, and identifier validation still applies with a concrete assertion.
 
 In rsID-family modes, genome build is not part of the merge identity. The
 munger rejects source-build, output-build, and liftover flags in those modes.
@@ -292,8 +293,10 @@ Next step:
       --source-genome-build hg19
 ```
 
-If source-build inference fails, the report is non-runnable and suggests
-rerunning with `--source-genome-build hg19` or `--source-genome-build hg38`.
+If source-build inference or declaration consistency fails, the report is non-runnable and identifies the affected source.
+An explicit `--source-genome-build` can supply the build for verified unlabeled inputs, but cannot override conflicting metadata or a selected build-specific coordinate column.
+Use matching coordinates, correct erroneous metadata only after verification, or perform an explicit conversion.
+Source and output builds remain separate liftover stages.
 
 With packaged HM3 restriction, a cross-build request is runnable without a method flag: quick liftover is automatic. With a custom list or no restriction, the report requests `--liftover-chain-file <hg19ToHg38.over.chain>` (or the reverse direction). Suggestions preserve the selected restriction instead of switching the SNP set to HM3. An explicit chain file takes precedence; a missing chain path makes the report non-runnable and never falls back to HM3.
 

@@ -158,7 +158,7 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         help=(
             'Genome build for coordinate-based SNP matching. Required with chr_pos or chr_pos_allele_aware; '
             'auto checks every grid shard and the gene catalog using declarations or bounded inference. '
-            'Concrete builds are authoritative; BED inherits the resolved build. No fixed default.'
+            'Concrete builds must agree with input declarations; BED inherits the resolved build. No fixed default.'
         ),
     )
     identity.add_argument(
@@ -264,7 +264,7 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
     ``--genome-build auto`` when requested, and writes query shards plus aligned
     baseline shards for annotation-grid input. BIM-grid input writes query shards
     only. Auto compares every selected grid shard with the catalog declaration;
-    concrete builds are authoritative and BED inherits the projection build.
+    concrete builds must agree with input declarations and BED inherits the projection build.
     The returned bundle reads exported files without reparsing arguments.
 
     Parameters

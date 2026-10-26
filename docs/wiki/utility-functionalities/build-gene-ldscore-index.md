@@ -1,6 +1,6 @@
 # Build an exact gene LD-score index
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-26
 
 For the mathematical construction of the disjoint atoms, stored operator, and
 sufficient statistics—and the full downstream indexed-assembly derivation—see
@@ -20,9 +20,9 @@ offline artifact; it does not run regression.
 
 ## Supported scientific contract
 
-- explicit hg19 and either base `rsid` or base `chr_pos` identity, with a
-  PLINK BED/BIM/FAM reference;
-- a 1 cM window by default;
+- explicit hg19 or hg38 and one of the four shared identity modes, with a PLINK BED/BIM/FAM reference;
+- exactly one of `--ld-wind-cm`, `--ld-wind-kb`, or `--ld-wind-snps`, without a default;
+- no whole-chromosome windows or override;
 - unpadded gene intervals (`--padding-bp 0`) and MHC gene exclusion by default;
 - bundled HapMap3 regression SNP candidates by default, or one custom
   `--regr-snps-file`;
@@ -34,18 +34,17 @@ the configured effective identifier, as ordinary PLINK-backed `ldscore` does.
 It drops every row in a duplicate effective-key group with a warning and audit
 record, drops and reports rows found on only one side, fails on an empty
 intersection, and uses PLINK metadata and
-genotypes for matched rows. Coordinate disagreement under a shared rsID is a
-warning; PLINK coordinates win. Verify independently that PLINK and gene/map
-inputs are hg19 because rsID matching cannot establish build.
+genotypes for consistent matched rows.
+Coordinate disagreement under a shared rsID or incompatible usable alleles at a shared base key stops the build with `.<index-name>.build-state/baseline_plink_issues.tsv`.
+Input build declarations must agree with the explicit build after alias normalization; unlabeled coordinates are accepted under that assertion without conversion.
 
 ### Choose the explicit identity mode
 
-The builder has no identity or genome-build default. Always pass
-`--snp-identifier rsid --genome-build hg19` or
-`--snp-identifier chr_pos --genome-build hg19`. It does not accept `auto`, hg38,
-or allele-aware modes and performs no liftover. Advanced users are responsible
-for ensuring every baseline, PLINK, restriction, map, and catalog coordinate is
-hg19.
+The builder has no identity, genome-build, or LD-window default.
+Choose `rsid`, `chr_pos`, `rsid_allele_aware`, or `chr_pos_allele_aware` and explicitly supply `--genome-build hg19` or `--genome-build hg38`.
+Equivalent names such as GRCh37 and GRCh38 are normalized.
+Auto inference and liftover are unavailable in this command.
+For example, an hg38 coordinate-and-allele index can use `--snp-identifier chr_pos_allele_aware --genome-build hg38 --ld-wind-kb 1000`.
 
 `rsid` joins on `SNP`. `chr_pos` joins on normalized positive 1-based
 `(CHR, POS)`; baseline and restriction SNP labels are ignored and a baseline
@@ -53,7 +52,11 @@ SNP column may be absent. PLINK supplies the published `CHR`, `POS`, `SNP`,
 `A1`, and `A2`, so differing labels at a matched coordinate are reported but
 the PLINK label is retained. Repeated restriction keys collapse because a
 restriction is a set; duplicate mutable variant-source groups instead use
-drop-all. Inspect `diagnostics/dropped_snps/chrN_dropped.tsv.gz`.
+drop-all.
+Allele-aware modes use the shared strand-complement/order normalization and remove invalid, identical, palindromic, multiallelic, and duplicate identity groups with diagnostics.
+Annotations may omit both allele columns; base-key matching then recovers unambiguous reference alleles.
+Supplying only one allele column is invalid.
+Inspect `diagnostics/dropped_snps/chrN_dropped.tsv.gz`.
 
 Fast indexed assembly inherits the stored identity mode and build and therefore
 accepts neither live option, even when a supplied value would match.
@@ -68,11 +71,14 @@ identities**. Its required columns depend on the builder's explicit
 |---|---|---|
 | `rsid` | `SNP` | anything else |
 | `chr_pos` | `CHR`, `POS` | anything else |
+| `rsid_allele_aware` | `SNP` | both `A1` and `A2`, or neither |
+| `chr_pos_allele_aware` | `CHR`, `POS` | both `A1` and `A2`, or neither |
 
-The gene-index builder supports only these two base identity modes. The reader
-accepts whitespace-, tab-, or comma-delimited plain text and `.gz` files.
-Duplicate restriction keys collapse, and columns outside the active identity
-schema are ignored. In `chr_pos` mode, `CHR` and `POS` must be hg19 coordinates.
+The reader accepts whitespace-, tab-, or comma-delimited plain text and `.gz` files.
+Duplicate restriction keys collapse, and columns outside the active identity schema are ignored.
+In coordinate modes, use positions in the explicitly selected build.
+When both hg19 and hg38 position columns are present, the matching column is selected.
+An allele-aware restriction without both allele columns filters by base identity; one allele column alone is invalid.
 
 For example, the `custom_regression_snps.tsv` used by a
 `--snp-identifier chr_pos --genome-build hg19` build can contain:
@@ -112,7 +118,7 @@ The former `--exclude-regions` alias is removed. Use `--regr-snps-exclude-region
 ### Which baseline-suite files are used?
 
 The builder uses baseline annotation shards as the matrix to which the new
-PLINK LD operator is applied. 
+PLINK LD operator is applied.
 
 At build time **it recomputes baseline LD scores** from the these baseline annotation shards using the PLINK data. It does not reuse or copy the precomputed LD scores (`.l2.ldscore.gz`) or counts (`.M`, `.M_5_50`) previously distributed beside those annotations.
 
@@ -156,7 +162,8 @@ ldsc build-gene-ldscore-index \
 This command explicitly requests non-default 100 kb padding. Omit
 `--padding-bp` to build the default unpadded index.
 
-The catalog is required, one-based, hg19, and must be fully canonical. The
+The catalog is required, one-based, fully canonical, and must declare the selected build (hg19 in this example).
+The
 builder checks every row before atom work and embeds the complete catalog,
 including intentionally MHC-excluded genes. Production construction always
 covers autosomes 1–22; partial builds and public `--chromosomes` selection are
@@ -180,6 +187,7 @@ ldsc build-gene-ldscore-index \
   --gene-coordinate-file "${RESOURCE_ROOT}/genes/gene-coordinates.hg19.tsv.gz" \
   --genome-build hg19 \
   --snp-identifier chr_pos \
+  --ld-wind-cm 1 \
   --regr-snps-file custom_regression_snps.tsv \
   --regr-snps-exclude-regions mhc-and-centromeres
 ```
@@ -190,10 +198,16 @@ retaining all candidate rows.
 
 Keep `--workers 1` until the target system has been profiled because each
 chromosome worker can multiply peak memory. Use `--keep-indivs-file` for a
-one-IID-per-row sample restriction, and `--genetic-map-hg19-sources` when BIM
-cM values are uninformative.
+one-IID-per-row sample restriction.
+For cM windows, use the matching `--genetic-map-hg19-sources` or `--genetic-map-hg38-sources` when BIM cM values are uninformative.
+Physical and SNP-count windows need no genetic map.
+SNP-count distances are measured after identity, intersection, genotype, and MAF filtering.
+Choose a smaller window if it spans an entire retained chromosome; the builder has no `--yes-really` override.
 
 ## Output and identity
+
+Current indexes use format version 2.
+Previously built formats must be rebuilt completely; there is no backward compatibility or migration.
 
 ```text
 <index-dir>/
@@ -221,7 +235,12 @@ One canonical `index_id` binds all scientific content and settings. Paths,
 output names, compression, harmless restriction-file ordering, threads, and
 batch sizes do not define identity. There are no suite or profile IDs.
 
-Each chromosome also records one ordered `CHR SNP POS A1 A2` fingerprint, `published_row_metadata_sha256`. It covers both identity modes without a separate effective-row digest. New indexes require an updated reader; otherwise-valid existing indexes remain readable. The semantic ID and six input fingerprints retain their existing design. These checks do not establish complete integrity of numerical payloads. See the [artifact and identity contract](../../current/gene-ldscore-index.md#artifact-and-identity-contract).
+Each chromosome also records one ordered `CHR SNP POS A1 A2` fingerprint, `published_row_metadata_sha256`.
+It covers all four identity modes without a separate effective-row digest.
+Current readers require format version 2; earlier formats must be rebuilt completely.
+The semantic ID includes the explicit build, matching mode, and selected window unit/value.
+These checks do not establish complete integrity of numerical payloads.
+See the [artifact and identity contract](../../current/gene-ldscore-index.md#artifact-and-identity-contract).
 
 ## Rerun and failure behavior
 

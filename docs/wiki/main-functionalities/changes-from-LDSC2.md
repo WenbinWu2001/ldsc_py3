@@ -1,13 +1,14 @@
 # Moving from LDSC2
 
-Last updated on: 2026-09-13
+Last updated on: 2026-10-26
 
 Build commands from the current `ldsc COMMAND --help` and workflow examples. Use the [legacy CLI flag map](../../current/legacy-cli-flag-map.md) to check replacements and removed flags.
 
 | Topic | Current contract |
 | --- | --- |
 | SNP identity | The general default is `chr_pos_allele_aware`. Base `chr_pos`, `rsid`, and `rsid_allele_aware` are explicit alternatives where supported. Use matching identities across inputs. |
-| Identity exceptions | `build-gene-ldscore-index` requires explicit base `rsid` or `chr_pos` with hg19. Indexed LD scoring inherits the index settings. Legacy LD-score conversion defaults to `rsid` and supports only base identity modes. |
+| Identity exceptions | `build-gene-ldscore-index` requires an explicit choice among all four shared identity modes, hg19 or hg38, and exactly one cM/kb/SNP-count window. Indexed LD scoring inherits the index settings. Legacy LD-score conversion defaults to `rsid` and supports only base identity modes. |
+| Genome-build declarations | Applicable input labels must agree with an explicit build after alias normalization; unlabeled inputs use that assertion without inference or conversion. Auto mode reconciles declarations and necessary inference across inputs and chromosomes. |
 | Baseline annotations | Direct query LD scoring requires explicit baseline annotations. Only ordinary unpartitioned scoring can synthesize an all-ones `base`. Indexed scoring uses the stored baseline. |
 | Query annotations | Supply prebuilt annotation columns, BED files, or gene lists as mutually exclusive routes. Direct BED/gene projection is integrated into `ldscore`; standalone `annotate` optionally creates reusable query files. |
 | LD-score artifacts | Regression reads a canonical directory with `metadata.json`, `ldscore.baseline.parquet`, and applicable query/overlap Parquet files. It does not recompute LD scores. |

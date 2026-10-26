@@ -65,7 +65,7 @@ _ISSUE_COLUMNS = [
     "expected",
     "details",
 ]
-_METADATA_COLUMNS = {"CHR", "SNP", "BP", "POS", "CM", "MAF"}
+_METADATA_COLUMNS = {"CHR", "SNP", "BP", "POS", "CM", "MAF", "GENOME_BUILD"}
 _COUNT_CONFIG = {
     "common_reference_snp_maf_min": 0.05,
     "common_reference_snp_maf_operator": ">",
@@ -257,6 +257,14 @@ class LegacyLDScoreConverter:
                 "Restore missing shards or rename misnamed copies from the matching source suite."
             )
 
+        from ._genome_build_policy import GenomeBuildCheck
+        build_check = GenomeBuildCheck(build_hint, context="convert-ldsc2-ldscores", logger=LOGGER)
+        for role, paths in (("reference", reference_family.paths), ("weight", weight_family.paths),
+                            ("annotation", annotation_family)):
+            for path in paths.values():
+                build_check.table(f"legacy {role}", path, infer_unlabeled=(role == "reference" and mode == "chr_pos"))
+        if mode == "chr_pos" or build_check.explicit or any(not entry.unchecked for entry in build_check.evidence):
+            build_check.resolve()
         first_reference = _read_ldscore_table(reference_family.paths[1], "reference", 1)
         reference_columns = _scientific_columns(first_reference)
         if not reference_columns:
@@ -283,6 +291,7 @@ class LegacyLDScoreConverter:
                 reference_columns=reference_columns,
                 mode=mode,
                 build_hint=build_hint,
+                build_check=build_check,
                 overwrite=overwrite,
                 issues=issues,
             )
@@ -358,7 +367,7 @@ class LegacyLDScoreConverter:
             )
         _validate_global_output_identity(baseline, mode)
         baseline, effective_build, coordinate_provenance = _resolve_output_coordinates(
-            baseline, mode, build_hint, context="legacy reference LD-score suite"
+            baseline, mode, build_hint, context="legacy reference LD-score suite", build_check=build_check
         )
         baseline = _sort_baseline(baseline)
         count_records = [
@@ -415,6 +424,7 @@ class LegacyLDScoreConverter:
         reference_columns: list[str],
         mode: str,
         build_hint: str | None,
+        build_check,
         overwrite: bool,
         issues: list[dict[str, object]],
     ) -> LegacyLDScoreConversionResult:
@@ -601,7 +611,7 @@ class LegacyLDScoreConverter:
             )
         _validate_global_output_identity(baseline, mode)
         baseline, effective_build, coordinate_provenance = _resolve_output_coordinates(
-            baseline, mode, build_hint, context="legacy baseline reference LD-score suite"
+            baseline, mode, build_hint, context="legacy baseline reference LD-score suite", build_check=build_check
         )
         baseline = _sort_baseline(baseline)
         count_records = [
@@ -779,7 +789,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             'Genome build of legacy reference coordinates; no coordinate conversion is performed. Default: '
             'auto, check every retained reference chromosome for chr_pos identity. A concrete build is '
-            'authoritative; rsid identity does not require coordinate-build inference.'
+            'required to agree with input declarations; rsid identity needs no coordinate-build inference.'
         ),
     )
 
@@ -998,7 +1008,7 @@ def _discover_frequency_family(
 
 def _read_ldscore_table(path: Path, role: str, chrom: int) -> pd.DataFrame:
     try:
-        return pd.read_csv(path, sep=r"\s+", compression="infer")
+        return pd.read_csv(path, sep=r"\s+", compression="infer", comment="#")
     except Exception as exc:
         raise LDSCInputError(
             f"Could not parse legacy {role} LD-score table '{path}' for chromosome {chrom}: {exc}. "
@@ -1010,7 +1020,7 @@ def _read_ldscore_table(path: Path, role: str, chrom: int) -> pd.DataFrame:
 
 def _read_whitespace_table(path: Path, role: str, chrom: int) -> pd.DataFrame:
     try:
-        return pd.read_csv(path, sep=r"\s+", compression="infer")
+        return pd.read_csv(path, sep=r"\s+", compression="infer", comment="#")
     except Exception as exc:
         raise LDSCInputError(
             f"Could not parse legacy {role} table '{path}' for chromosome {chrom}: {exc}. "
@@ -1327,6 +1337,7 @@ def _resolve_output_coordinates(
     build_hint: str | None,
     *,
     context: str,
+    build_check=None,
 ) -> tuple[pd.DataFrame, str | None, dict[str, object]]:
     """Resolve every retained reference chromosome, or honor a concrete build.
 
@@ -1335,7 +1346,12 @@ def _resolve_output_coordinates(
     rsID output carries no coordinate build and requires no inference.
     """
     output = frame.copy()
+    from ._genome_build_policy import GenomeBuildCheck
+    check = build_check or GenomeBuildCheck(build_hint, context='convert-ldsc2-ldscores', logger=LOGGER)
+    if build_check is None and mode != "rsid":
+        check.frames('--legacy-reference-dir', context, [output])
     if build_hint in {"hg19", "hg38"}:
+        check.resolve()
         effective_build = None if mode == "rsid" else build_hint
         return output, effective_build, {
             "requested_build": build_hint, "effective_build": effective_build,
@@ -1347,19 +1363,16 @@ def _resolve_output_coordinates(
             "requested_build": build_hint, "effective_build": None,
             "inferred_build": None, "coordinate_basis": "unknown", "inference_error": None,
         }
-    from ._genome_build_policy import GenomeBuildCheck
-    check = GenomeBuildCheck('auto', context='convert-ldsc2-ldscores', logger=LOGGER)
-    check.frames('--legacy-reference-dir', context, [output.loc[:, ['CHR', 'POS']]])
     bases = {inference.coordinate_basis for _, inference in check.inferences}
     if len(bases) > 1:
         check.unresolved('--legacy-reference-dir', context, 'inconsistent coordinate basis; use one-based positions')
     effective_build = check.resolve()
-    basis = next(iter(bases))
+    basis = next(iter(bases)) if bases else "declared_1-based"
     if basis == "0-based":
         output["POS"] = pd.to_numeric(output["POS"]).astype("int64") + 1
     return output, effective_build, {
         "requested_build": build_hint, "effective_build": effective_build,
-        "inferred_build": effective_build, "coordinate_basis": basis, "inference_error": None,
+        "inferred_build": effective_build if check.inferences else None, "coordinate_basis": basis, "inference_error": None,
     }
 
 

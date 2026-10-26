@@ -1,6 +1,6 @@
 # Query Pairwise R² and Signed r
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 `ldsc query-r2` looks up specific SNP pairs in a [build-r2-panel](../main-functionalities/build-r2-panel.md) output directory. It returns bias-adjusted R² and, in allele-aware modes, Pearson r in your query allele orientation. This lets you inspect local LD without loading the full pair table.
 
@@ -27,7 +27,7 @@ ldsc query-r2 \
 The panel must contain current `SIGN_R` Parquet files and their matching `chrN_meta.tsv.gz` sidecars. Individual Parquet files are not accepted as `--panel-dir`.
 
 Without a concrete build option, coordinate-panel shards and their sidecar declarations must agree on one build.
-`--genome-build hg19` or `--genome-build hg38` is authoritative for the selected panel and does not convert coordinates.
+`--genome-build hg19` or `--genome-build hg38` must agree with the selected coordinate panel's declarations and does not convert coordinates.
 Pair endpoints are interpreted in that panel build; the command does not independently infer a build from the requested pairs.
 See the shared [genome-build policy](../../current/snp-identifier-genome-build-defaults.md#genome-build-policy).
 

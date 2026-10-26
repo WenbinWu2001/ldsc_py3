@@ -21,7 +21,7 @@ from tests.test_partitioned_query_failures import concentrate_queries
     ["partitioned-h2", "--sumstats-file", "trait", "--ldscore-dir", "ld"],
     ["ldscore"],
     ["build-gene-ldscore-index", "--baseline-annot-sources", "baseline", "--plink-prefix", "panel",
-     "--gene-coordinate-file", "genes", "--snp-identifier", "rsid", "--genome-build", "hg19"],
+     "--gene-coordinate-file", "genes", "--snp-identifier", "rsid", "--genome-build", "hg19", "--ld-wind-cm", "1"],
 ])
 def test_cli_thread_contract(inputs, capsys):
     inputs = [*inputs, "--output-dir", "out"]

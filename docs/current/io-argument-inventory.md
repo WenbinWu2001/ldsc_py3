@@ -64,7 +64,7 @@ identifier modes. External R2 parquet formats are not supported.
 ## Format Policy
 
 The package separates machine-consumed internal artifacts from
-science-facing result tables. 
+science-facing result tables.
 Internal artifacts are machine-consumed intermediate products and should use Parquet as their primary format. This applies to package-built R2 pair tables,
 canonical LD-score result tables, and curated munged summary statistics. JSON
 metadata is a downstream contract for LD-score artifacts; curated sumstats
@@ -318,8 +318,7 @@ inside the owned package are removed after the successful write.
 
 ### `ldsc build-gene-ldscore-index`
 
-This advanced, deliberately closed command builds an immutable hg19 gene
-LD-score index under an explicitly selected base `rsid` or `chr_pos` identity.
+This command builds an immutable hg19 or hg38 gene LD-score index under an explicitly selected shared SNP identity mode.
 It is not a legacy compatibility command and performs no inference or liftover.
 
 | Flag | Direction | Required | Object | Notes |
@@ -328,16 +327,16 @@ It is not a legacy compatibility command and performs no inference or liftover.
 | `--plink-prefix` | input | yes | PLINK reference panel | Exact prefix or supported chromosome suite. |
 | `--gene-coordinate-file` | input | yes | canonical one-based gene catalog | Sole gene universe embedded in the index. Every catalog defect is fatal before atom construction. |
 | `--output-dir` | output | yes | immutable index directory | Publishes one complete index artifact; no incremental update or component reuse. |
-| `--genome-build` | config | yes | coordinate build assertion | Closed to explicit `hg19` in both modes; no default or inference. |
-| `--snp-identifier` | config | yes | SNP identity | Exactly `rsid` or `chr_pos`; no default, `auto`, or allele-aware mode. |
+| `--genome-build` | config | yes | coordinate build assertion | Explicit `hg19` or `hg38` (aliases normalized); no default or inference. Applicable input declarations must agree. |
+| `--snp-identifier` | config | yes | SNP identity | One of the four shared SNP identity modes; no default. |
 | `--padding-bp` | model | no | gene interval padding | Padding used when constructing disjoint gene atoms; defaults to `0`. |
 | `--gene-exclude-regions` | model | no | gene exclusion policy | `none` or `mhc`; defaults to `mhc`. |
-| `--ld-wind-cm` | model | no | LD window | cM window used by the PLINK-backed operator; defaults to `1.0`. |
+| `--ld-wind-cm`, `--ld-wind-kb`, `--ld-wind-snps` | model | exactly one | LD window | Required cM, kilobase, or retained-SNP-count distance; no default. Whole-chromosome windows are rejected with no override. |
 | `--maf-min`, `--common-maf-min` | QC/counts | no | reference MAF thresholds | Retained-reference and common-count thresholds stored in index identity; `--maf-min` defaults to `None`, and `--common-maf-min` defaults to `0.05`. |
 | `--keep-indivs-file` | input | no | PLINK sample restriction | Restricts individuals used during index construction; defaults to omitted/`None`. |
-| `--regr-snps-file` | input | no | regression SNP override | Headered identity-only table; `rsid` requires `SNP`, while `chr_pos` requires `CHR` and `POS`. Defaults to omitted/`None`, so the bundled hg19 HM3 set is used. Repeated effective keys collapse. |
+| `--regr-snps-file` | input | no | regression SNP override | Headered identity-only table; `rsid` requires `SNP`, while `chr_pos` requires `CHR` and `POS`. Defaults to omitted/`None`, so the bundled HM3 set in the selected build is used. Repeated effective keys collapse; allele-aware restrictions may omit both allele columns for base-key filtering. |
 | `--regr-snps-exclude-regions` | input transform | no | regression-region subtraction | `none`, `mhc`, `centromeres`, or `mhc-and-centromeres`; defaults to `mhc-and-centromeres`. The obsolete `--exclude-regions` alias is rejected. |
-| `--genetic-map-hg19-sources` | input | no | genetic map | Optional explicit hg19 map; accepts comma-separated exact paths, without `*` or `@` expansion. Defaults to omitted/`None`; hg38 maps are not a builder CLI input. |
+| `--genetic-map-hg19-sources`, `--genetic-map-hg38-sources` | input | no | genetic map | Optional map matching the explicit build for cM windows; accepts comma-separated exact paths without `*` or `@` expansion. Omit for kb/SNP-count windows. |
 | `--snp-batch-size`, `--atom-batch-size` | performance | no | computation batches | Bounds SNP and disjoint-atom matrix work; `--snp-batch-size` defaults to `128`, and `--atom-batch-size` defaults to `64`. |
 | `--workers` | performance | no | chromosome workers | Default 1, one managed child; every worker uses 1 BLAS thread. Use joblib.cpu_count() as the detected CPU budget; reject positive requests above it before capping by tasks (and regression query batch size). Negative -k uses max(1, budget + 1 - k); zero is invalid. See [execution policy](parallel-execution.md). |
 | `--overwrite` | output mode | no | publication policy | Replaces only a complete valid owned index through staged publication; defaults to `False`. |
@@ -356,7 +355,7 @@ accept query annotations, thin annotations, or arbitrary partitioned suites.
 | `--legacy-frequency-dir` | input | baseline only | LDSC2 `.frq[.gz]` suite directory | Defaults to omitted/`None`; required for baseline conversion to reconstruct strict legacy common counts and overlap, and omitted for unpartitioned conversion. |
 | `--output-dir` | output | yes | canonical LDSC3 LD-score directory | Writes `metadata.json`, `ldscore.baseline.parquet`, optional baseline overlap, and conversion diagnostics without modifying source files. |
 | `--snp-identifier` | config | no | output identity | `rsid` (default) or `chr_pos`; allele-aware modes are forbidden because the source suite has no authoritative alleles. All source-family joins still use rsID. |
-| `--genome-build` | config | no | reference coordinate interpretation | `auto` (default), `hg19`, or `hg38`. Required inference applies only to `chr_pos`; rsID output remains buildless and records best-effort evidence as provenance. |
+| `--genome-build` | config | no | reference coordinate interpretation | `auto` (default), `hg19`, or `hg38`. Necessary inference applies only to reference coordinates in `chr_pos`; existing applicable declarations must agree. rsID output remains buildless. |
 | `--overwrite` | output mode | no | collision policy | Replaces converter-owned outputs only; defaults to `False`; legacy inputs remain read-only. |
 | `--log-level` | logging | no | workflow log verbosity | Defaults to `INFO`; writes `diagnostics/convert-ldsc2-ldscores.log`. |
 
@@ -644,8 +643,8 @@ LD-score `chunk_size`; `use_hm3_ref_panel_snps`, `use_hm3_regression_snps`,
 |---|---:|---:|---|
 | `GeneLDScoreIndexBuildConfig` | `baseline_annot_sources`, `plink_prefix` | input | baseline suite and PLINK panel |
 | `GeneLDScoreIndexBuildConfig` | `output_dir` | output | complete immutable index directory |
-| `GeneLDScoreIndexBuildConfig` | `genome_build`, `snp_identifier` | config | required explicit `hg19` and base `rsid|chr_pos` semantic identity |
-| `GeneLDScoreIndexBuildConfig` | `padding_bp`, `gene_exclude_regions`, `ld_wind_cm` | model | closed index scientific identity; `padding_bp` defaults to `0` |
+| `GeneLDScoreIndexBuildConfig` | `genome_build`, `snp_identifier` | config | required explicit hg19/hg38, one shared identity mode, and exactly one cM/kb/SNP-count window |
+| `GeneLDScoreIndexBuildConfig` | `padding_bp`, `gene_exclude_regions`, `ld_wind_cm`, `ld_wind_kb`, `ld_wind_snps` | model | fixed index scientific identity; `padding_bp` defaults to `0`; exactly one LD window is required with no default |
 | `GeneLDScoreIndexBuildConfig` | `regr_snps_file`, `regr_snps_exclude_regions` | input | regression row universe |
 | `GeneLDScoreIndexBuildConfig` | `snp_batch_size`, `atom_batch_size`, `workers` | performance | bounded index computation |
 | `build_gene_ldscore_index(config)` | `config` | input/output | staged build and publication workflow |

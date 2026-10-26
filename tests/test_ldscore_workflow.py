@@ -556,7 +556,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(global_config.genome_build, "hg19")
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
-    def test_auto_genome_build_rejects_conflicting_r2_schema_metadata(self):
+    def test_auto_genome_build_requires_selection_among_r2_alternatives(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             r2_parent = Path(tmpdir) / "panel"
             _write_minimal_r2_parquet(
@@ -581,7 +581,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 log_level="INFO",
             )
 
-            with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
+            with self.assertRaisesRegex(LDSCInputError, "could not be inferred or resolved"):
                 ldscore_workflow._normalize_run_args(args)
 
     def make_chrom_result(self, chrom: str, bp: int, score: float, count: float):
@@ -2563,7 +2563,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         args = Namespace(
             output_dir="out",
             query_annot_sources=None,
-            baseline_annot_sources="baseline.annot.gz",
+            baseline_annot_sources=None,
             plink_prefix="panel",
             snp_identifier="rsid",
             genome_build="hg38",

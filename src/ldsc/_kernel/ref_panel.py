@@ -165,13 +165,21 @@ def _r2_path_has_ldsc_package_schema(path: str) -> bool:
     return any(key in raw for key in package_keys)
 
 
-def _validate_r2_identity_matches_config(metadata: dict[str, object], global_config: GlobalConfig) -> None:
+def _artifact_global_config(metadata, global_config, source):
+    """Validate declared coordinates before constructing an artifact snapshot."""
+    build = metadata.get("genome_build")
+    if identity_mode_family(global_config.snp_identifier) == "chr_pos":
+        from .._genome_build_policy import GenomeBuildCheck
+        check = GenomeBuildCheck(global_config.genome_build, context="reference-panel validation", logger=LOGGER)
+        if build is not None:
+            check.declared("reference artifact", source, build)
+        build = check.resolve()
+    return GlobalConfig(snp_identifier=str(metadata["snp_identifier"]), genome_build=build)
+
+
+def _validate_r2_identity_matches_config(metadata: dict[str, object], global_config: GlobalConfig, *, source="R2 artifact") -> None:
     """Reject package R2 artifacts built under different identity assumptions."""
-    artifact_config = GlobalConfig(
-        snp_identifier=str(metadata["snp_identifier"]),
-        genome_build=(global_config.genome_build if global_config.genome_build in {"hg19", "hg38"}
-                      else metadata.get("genome_build")),
-    )
+    artifact_config = _artifact_global_config(metadata, global_config, source)
     validate_config_compatibility(
         global_config,
         artifact_config,
@@ -646,7 +654,7 @@ class ParquetR2RefPanel(RefPanel):
         if paths:
             if _r2_path_has_ldsc_package_schema(paths[0]):
                 identity_metadata = _read_identity_schema_meta(paths[0], expected_artifact_type="ref_panel_r2")
-                _validate_r2_identity_matches_config(identity_metadata, self.global_config)
+                _validate_r2_identity_matches_config(identity_metadata, self.global_config, source=paths[0])
             stored = _read_r2_schema_meta(paths[0])
             effective_bias, effective_n = _resolve_r2_bias_from_meta(
                 effective_bias,
@@ -811,11 +819,11 @@ class RefPanelLoader:
         )
 
     def _global_config_for_spec(self, ref_panel_spec: RefPanelConfig) -> GlobalConfig:
-        """Resolve direct Python auto-build restrictions before backend loading."""
+        """Validate direct Python build declarations before backend loading."""
         mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
-        if identity_mode_family(mode) != "chr_pos" or self.global_config.genome_build != "auto":
+        if identity_mode_family(mode) != "chr_pos":
             return self.global_config
-        resolved_build = _infer_restricted_ref_panel_build(ref_panel_spec)
+        resolved_build = _infer_restricted_ref_panel_build(ref_panel_spec, self.global_config.genome_build)
         return GlobalConfig(
             snp_identifier=mode,
             genome_build=resolved_build,
@@ -823,22 +831,15 @@ class RefPanelLoader:
         )
 
 
-def _infer_restricted_ref_panel_build(ref_panel_spec: RefPanelConfig) -> str:
+def _infer_restricted_ref_panel_build(ref_panel_spec: RefPanelConfig, requested="auto") -> str:
     """Resolve all panel shards and coordinate restrictions before filtering."""
     from .._genome_build_policy import GenomeBuildCheck
 
-    check = GenomeBuildCheck('auto', context='reference-panel loading', logger=LOGGER)
+    check = GenomeBuildCheck(requested, context='reference-panel loading', logger=LOGGER)
     if ref_panel_spec.backend == 'plink':
         check.plink('--plink-prefix', ref_panel_spec.plink_prefix)
     elif ref_panel_spec.r2_dir is not None:
-        root = Path(ref_panel_spec.r2_dir)
-        paths = sorted(root.glob('chr*_r2.parquet'))
-        if not paths:
-            paths = [path for build in ('hg19', 'hg38') for path in sorted((root / build).glob('chr*_r2.parquet'))]
-        if not paths:
-            check.unresolved('--r2-dir', root, 'no R2 Parquet artifacts found')
-        for path in paths:
-            check.table('--r2-dir', path)
+        check.r2('--r2-dir', ref_panel_spec.r2_dir)
     check.paths('--ref-panel-snps-file', ref_panel_spec.ref_panel_snps_file, restriction_mode='chr_pos')
     return check.resolve()
 
@@ -874,13 +875,9 @@ def _read_metadata_sidecar_identity(path: str | Path) -> dict[str, object] | Non
     }
 
 
-def _validate_metadata_identity_matches_config(metadata: dict[str, object], global_config: GlobalConfig) -> None:
+def _validate_metadata_identity_matches_config(metadata: dict[str, object], global_config: GlobalConfig, *, source="reference metadata") -> None:
     """Reject package metadata sidecars built under different identity assumptions."""
-    artifact_config = GlobalConfig(
-        snp_identifier=str(metadata["snp_identifier"]),
-        genome_build=(global_config.genome_build if global_config.genome_build in {"hg19", "hg38"}
-                      else metadata.get("genome_build")),
-    )
+    artifact_config = _artifact_global_config(metadata, global_config, source)
     validate_config_compatibility(
         artifact_config,
         global_config,
@@ -913,7 +910,7 @@ def _read_metadata_table(
         )
     if identity_metadata is not None:
         validate_identity_artifact_metadata(identity_metadata, expected_artifact_type="ref_panel_metadata")
-        _validate_metadata_identity_matches_config(identity_metadata, global_config)
+        _validate_metadata_identity_matches_config(identity_metadata, global_config, source=path)
 
     df = pd.read_csv(
         path,
@@ -1034,6 +1031,10 @@ def _resolve_genetic_map(panel, chrom, metadata):
     if sources is None:
         raise LDSCInputError(f"ldscore needs a `--genetic-map-{build}-sources` file to derive CM for the PLINK panel (resolved build {build}), but it was not supplied.")
     from .ref_panel_builder import load_genetic_map_group
+    from .._genome_build_policy import GenomeBuildCheck
+    check = GenomeBuildCheck(build, context="PLINK genetic map", logger=LOGGER)
+    check.paths(f"--genetic-map-{build}-sources", sources)
+    check.resolve()
     return load_genetic_map_group(split_cli_path_tokens(sources))
 
 

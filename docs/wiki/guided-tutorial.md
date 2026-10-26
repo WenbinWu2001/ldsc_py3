@@ -1,6 +1,6 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
@@ -50,7 +50,8 @@ OUTPUT_ROOT="${INPUT_ROOT}/tutorial_output"
 3. Output directories are created automatically. Use `--overwrite` to allow overwriting existing output files.
 4. `ldsc ldscore` excludes the extended MHC and centromere regions by default.
 5. Auto build resolution checks every relevant coordinate input and shard using declarations or bounded samples.
-   Ordinary BED inherits the workflow build; small generic coordinate keep lists must be inferable or use a concrete authoritative build option.
+   Ordinary BED inherits the workflow build; small unlabeled coordinate keep lists must be inferable or use a concrete build assertion.
+   Concrete assertions must agree with existing input declarations and never convert coordinates.
    See the [shared genome-build policy](main-functionalities/global-config.md#genome-build-inference-checking-and-overrides).
 6. To inspect what happened under the hood, check the log file in the `diagnostics/` directory inside each command's output directory.
 7. Resource use depends on SNP, sample, annotation, and worker counts.

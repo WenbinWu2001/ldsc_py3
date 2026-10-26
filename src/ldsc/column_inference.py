@@ -376,7 +376,7 @@ def resolve_restriction_chr_pos_columns(
     """Prefer the matching build-specific position; otherwise use generic POS.
 
     Build validation belongs to the workflow; this reader selects columns
-    using its resolved or authoritative build. Unused columns are ignored.
+    using its resolved build. Unused coordinate alternatives are ignored.
     """
     columns = list(columns)
     try:

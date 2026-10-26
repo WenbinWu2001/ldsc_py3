@@ -1,6 +1,6 @@
 # Exact gene LD-score index: mathematical algorithm
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-26
 
 This document gives the input-to-output mathematical specification for the
 exact gene-list index used by `ldsc ldscore`. It describes the online indexed
@@ -69,12 +69,15 @@ $$
 =\rho_{ij}^{2}-\frac{1-\rho_{ij}^{2}}{\nu}.
 $$
 
+The builder requires exactly one cM, kb, or retained-SNP-count window, without a default.
+SNP-count distance uses the reference order after identity cleanup, intersection, and genotype/MAF filtering; cM distance requires usable genetic-map coordinates.
+All windows reject whole-chromosome coverage.
 Define the windowed LD operator
 
 $$
 R_{ij}=
 \begin{cases}
-\widetilde r_{ij}^{\,2}, & i\text{ and }j\text{ are within the configured cM window},\\
+\widetilde r_{ij}^{\,2}, & i\text{ and }j\text{ are within the configured LD window},\\
 0, & \text{otherwise}.
 \end{cases}
 $$

@@ -58,16 +58,18 @@ No new flags or per-input build declarations are required by this policy.
 ### One build for inputs used together
 
 Inputs whose coordinates are used together must share one workflow genome build.
-A concrete build supplied through the command's existing option is authoritative within that option's scope, even when metadata or coordinate inference would indicate a different build.
+A concrete build supplied through the command's existing option must agree with every applicable input declaration after equivalent names are normalized, including GRCh37/hg19 and GRCh38/hg38.
+An existing metadata label is a declaration regardless of whether an earlier workflow inferred it or a user supplied it.
+Unlabeled inputs are admissible under an explicit build assertion; fresh statistical inference cannot override that assertion.
 For example, `--genome-build hg19` declares hg19 for the applicable workflow, while `--source-genome-build hg19` declares the source build for panel building or munging.
-An override establishes how coordinates are interpreted; it does not convert positions or replace an existing liftover operation.
+An explicit assertion establishes how unlabeled coordinates are interpreted; it never overwrites an input label, converts positions, or replaces an existing liftover operation.
 Source and target builds in a workflow that performs liftover remain separate coordinate stages, so an intentional source-to-target conversion is not itself a build conflict.
 Errors must suggest only options supported by the affected command; workflows without a build override direct the user to matching upstream artifacts.
 
-Without a concrete override, inspect build evidence across all relevant inputs and their selected shards before deciding whether the workflow can proceed.
+Without a concrete assertion, inspect build evidence across all relevant inputs and their selected shards before deciding whether the workflow can proceed.
 No input wins a disagreement because it was listed or read first.
 Conflicting hg19 and hg38 evidence causes an error before substantial computation or publication of scientific outputs.
-If neither the inputs nor a concrete override establish a workflow build, resolution fails instead of choosing a default build.
+If neither the inputs nor a concrete assertion establish a workflow build, resolution fails instead of choosing a default build.
 Path syntax does not determine the build: exact paths, globs, and `@` declarations use the same build policy for the files they select.
 Existing chromosome-coverage requirements remain separate from build consistency.
 
@@ -75,7 +77,9 @@ Existing chromosome-coverage requirements remain separate from build consistency
 
 Valid artifact build metadata or a build-specific position column establishes that input's build without coordinate re-inference.
 Compare the declared builds across inputs using the same consistency rule as inferred builds; a declaration on one input does not override conflicting evidence from another input.
-A concrete user-supplied build remains authoritative over both declarations and inference within its existing scope.
+A concrete user-supplied build bypasses fresh coordinate inference while retaining declaration checks.
+A disagreement stops the run before substantial computation or scientific output publication.
+Repair the inputs by supplying matching coordinates, correcting erroneous metadata only after verification, or performing an explicit coordinate conversion.
 
 For inputs that require coordinate inference, sample at most 5,000 rows from every relevant file/chromosome.
 Coordinate columns are streamed to discover chromosomes; inference uses only those bounded samples.
@@ -108,7 +112,7 @@ It does not inherit the build from those other inputs.
 Finish examining the remaining inputs and include the keep-list's flag, path, and inference failure reason in the grouped error and workflow log.
 The actionable message asks the user to check the keep-list's coordinate build and explicitly specify `--genome-build hg19` or `--genome-build hg38` for commands supporting that option.
 Use `--source-genome-build` for source-build workflows instead; do not suggest an unsupported flag.
-A concrete authoritative override permits a generic coordinate keep-list without successful coordinate-based inference, while ordinary input-format and identifier validation still apply.
+A concrete assertion permits an unlabeled generic coordinate keep-list without successful coordinate-based inference, while ordinary input-format and identifier validation still apply.
 See the [insufficient-evidence example](../troubleshooting.md#common-keep-list-build-could-not-be-resolved).
 
 ### Ordinary BED files inherit the workflow build
@@ -139,7 +143,8 @@ When members supplied by one flag disagree, show that flag in each affected grou
 The same flags identify input roles in reports from Python workflows; Python callers set the corresponding configuration fields.
 Use a group heading such as "Build evidence across inputs" because not every known build was inferred from coordinates.
 State the observed conflict, identify unresolved evidence without pretending it was checked successfully, and explain what the user can do next.
-The actionable guidance asks the user to check the listed inputs for a consistent build and gives a command-appropriate explicit override example when available.
+The actionable guidance asks the user to check the listed inputs for a consistent build and gives a command-appropriate explicit assertion example for verified unlabeled inputs when available.
+The message must identify the affected input, declared and requested or conflicting builds, and actionable remedies.
 The grouped findings belong in the run-aborting message and workflow log, so users do not need `DEBUG` or repeated failed runs to discover additional input conflicts.
 See the [grouped report example](../troubleshooting.md#common-genome-build-consistency-check-failed).
 
@@ -150,11 +155,11 @@ See the [grouped report example](../troubleshooting.md#common-genome-build-consi
 | `annotate` | Selected annotation/BIM grids and the supplied gene-catalog declaration; ordinary BED inherits the resolved projection build. |
 | Direct `ldscore` | Baseline and prebuilt query annotations, PLINK BIM shards or R2 Parquet and sidecar declarations, the gene catalog when used, and coordinate keep lists. |
 | `build-r2-panel` | All source BIM shards and the source-coordinate keep list, before filtering; genetic maps are selected by the resolved source/emitted build. cM map validation waits until source inference. |
-| `munge-sumstats` | Raw source coordinates and the source-coordinate keep list, before QC; explicit `--output-genome-build` remains a separate target. `--infer-only` is a preview, not the full input-consistency gate. |
-| `convert-ldsc2-ldscores` | Retained reference coordinates in each chromosome for coordinate identity; other legacy coordinates remain alignment audits because rsID joins transfer reference coordinates to the output. rsID output requires no build inference. |
+| `munge-sumstats` | Raw source coordinates and the source-coordinate keep list, before QC; explicit `--output-genome-build` remains a separate target. `--infer-only` checks the same source-build declarations and reports conflicts without creating output files. |
+| `convert-ldsc2-ldscores` | Reference declarations or per-chromosome inference establish coordinate identity; weight/annotation declarations must agree. Other unlabeled legacy coordinates remain descriptive because rsID joins transfer reference coordinates to the output. rsID output requires no build inference. |
 | `h2`, `partitioned-h2`, `rg` | Coordinate-family saved artifacts must agree; all RG traits participate before fitting. No CLI build override. Footerless Parquet remains invalid; legacy LDSC2 text uses panel-owned coordinate projection. |
 | `quantile-h2` | Saved LD-score build and resupplied coordinate artifacts must agree; BED inherits that build. No CLI build override. |
-| `build-gene-ldscore-index` | Required explicit hg19 is authoritative; no auto. Indexed scoring later inherits the immutable index and rejects live configuration overrides. |
+| `build-gene-ldscore-index` | Required explicit hg19 or hg38 must agree with the catalog and applicable input declarations; no auto or liftover. Indexed scoring later inherits the immutable index and rejects live configuration overrides. |
 | `query-r2` | Existing concrete build selects/interprets a panel; otherwise coordinate-panel shard metadata must agree. Pair endpoints are lookup requests interpreted in the selected panel's build, with no separate pair-build inference. |
 | `convert-h2-scale`, `plot` | Saved-result consumers; no coordinate-build inference. |
 
@@ -181,12 +186,9 @@ selects hg19 or hg38 for interval projection without changing rsID identity
 metadata.
 
 `build-gene-ldscore-index` is a second narrow workflow-level exception. New
-construction requires explicit `snp_identifier=rsid|chr_pos` and an explicit
-hg19 provenance assertion in its own `GeneLDScoreIndexBuildConfig`, with no
-defaults or inference. In rsID mode, ordinary `GlobalConfig` still carries
-`genome_build=None`; the index artifact independently binds hg19 because its
-gene projection, region masks, map, PLINK coordinates, and published rows are
-hg19-specific.
+construction requires an explicit choice among all four identity modes and an explicit hg19 or hg38 assertion in its own `GeneLDScoreIndexBuildConfig`.
+Exactly one cM, kb, or SNP-count window is required, without a default.
+In rsID-family modes, ordinary `GlobalConfig` still carries `genome_build=None`; the index independently binds its projection build because gene intervals, region masks, maps, and PLINK positions use that coordinate system.
 
 ### Why `chr_pos_allele_aware` is the package default
 

@@ -109,7 +109,8 @@ def query_r2(
         One of the four public identity modes. None uses panel provenance.
     genome_build : {"hg19", "hg38"} or None, optional
         Select the coordinate build when the panel directory contains both.
-        A concrete value is authoritative. Otherwise coordinate-panel shard
+        A concrete value must agree with normalized input declarations.
+        Otherwise coordinate-panel shard
         declarations must agree. Pair endpoints use the selected panel build;
         their coordinate build is not independently inferred.
 

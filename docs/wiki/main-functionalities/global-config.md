@@ -1,8 +1,53 @@
 # Global configuration and paths
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 Choose SNP identity and genome build consistently before materializing inputs. The general default is `chr_pos_allele_aware`; the guided tutorial explicitly selects base `chr_pos`. Coordinate-based munging requires an explicit output build. Direct annotation projection also needs coordinates in the intended build. Indexed LD scoring inherits its stored configuration and rejects live overrides. See [configuration design](../../current/config-design.md) and [identity/build defaults](../../current/snp-identifier-genome-build-defaults.md).
+
+## Inspect an artifact's genome build
+
+Before choosing workflow inputs, inspect their recorded or inferable build:
+
+```bash
+ldsc infer-genome-build reference.chr22.bim
+ldsc infer-genome-build raw-gwas.tsv.gz
+ldsc infer-genome-build results/ldscore
+ldsc infer-genome-build panels/reference
+```
+
+Each invocation takes one exact file or recognized LDSC artifact directory; `--help` is the only option.
+Standalone BIM needs no BED/FAM companions.
+Headered text (including gzip), Parquet, and recognized LDSC metadata JSON are supported, as are annotation, sumstats, LD-score, R²-panel, gene-index, and saved-result directory layouts.
+The helper inspects only the artifact's own metadata and relevant members, without following upstream paths or searching unrelated neighboring files.
+It does not expand globs or chromosome suites, accept build/column overrides, or create files, directories, logs, or failure markers.
+
+```text
+Genome build: hg19 (inferred from SNP coordinates; 1-based).
+```
+
+Metadata and build-specific coordinate columns produce a declared result without independent coordinate verification.
+Otherwise bounded HM3 inference uses at most 5,000 usable rows per file/chromosome, at least 200 informative matches, and at least 99% support.
+The reported build belongs to the inspected artifact's output coordinates, even when an upstream source used another build.
+No coordinates are converted.
+
+Insufficient or inconclusive evidence produces `Genome build: unknown (...)` with exit 0, including rsID-only tables and ordinary BED intervals without build metadata.
+An unresolved member prevents a single inferred build; confidently conflicting evidence is an error.
+Deliberately available hg19/hg38 alternatives, such as an R² panel with both build directories, are reported separately in that order and succeed.
+
+Inspection uses available build evidence regardless of SNP matching mode.
+When applicable metadata records `rsid` or `rsid_allele_aware`, either a known or unknown result also includes:
+
+```text
+This artifact’s workflow uses rsIDs for SNP matching.
+```
+
+An rsID column alone does not trigger this sentence.
+Reports go to stdout; actionable errors go to stderr.
+Missing/unreadable inputs, malformed/unsupported formats, unrecognized directories, and conflicts exit 1; invalid syntax and unexpected internal failures exit 2.
+A successful inspection does not replace the workflow consistency checks below.
+See the [full inspection contract](../../current/snp-identifier-genome-build-defaults.md#standalone-build-inspection).
+
+Source: `inspect_genome_build()` in [_genome_build_inspection.py](../../../src/ldsc/_genome_build_inspection.py), CLI dispatch in [cli.py](../../../src/ldsc/cli.py), and [inspection acceptance tests](../../../tests/test_genome_build_inspection.py).
 
 ## Genome-build inference, checking, and overrides
 
@@ -42,6 +87,7 @@ Quote patterns so the shell passes them intact. Pattern support depends on the c
 
 | Input | Examples and rules |
 | --- | --- |
+| `infer-genome-build PATH` | One exact file or recognized artifact directory; no glob or `@` expansion. |
 | Baseline/prebuilt query annotation sources | `"baseline/baseline.@.annot.gz"` declares a complete autosomal suite in direct query LD scoring; `"baseline/*.annot.gz"` selects actual matches. Validated contents determine chromosome scope. |
 | BED and gene-list sources | `"beds/*.bed"` or `"pathways/*.txt"`; `@` is not expanded. |
 | Scalar sumstats | A literal file or a quoted glob resolving to exactly one file. |

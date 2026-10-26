@@ -1,6 +1,6 @@
 # Wiki Update Log
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 ## 2026-09-15 update | query regression failures
 
@@ -117,3 +117,9 @@ Annotation-grid runs export cleaned baseline and query families and log row coun
 The Python notebook uses exported baseline paths for its LD-score step.
 
 Sources: [`run_annotate()`](../../src/ldsc/annotate_workflow.py), [`_annotation_bim.py`](../../src/ldsc/_annotation_bim.py), [`AnnotationDirectoryWriter`](../../src/ldsc/outputs.py), and [`test_annotate_grid.py`](../../tests/test_annotate_grid.py).
+
+## 2026-10-26 update | standalone genome-build inspection
+
+Reason: add `infer-genome-build` usage to [global configuration](main-functionalities/global-config.md#inspect-an-artifacts-genome-build), including evidence precedence, successful unknown results, explicit alternative builds, rsID reporting, and read-only exit behavior.
+Reconcile current feature, inference, path, CLI-help, IO, architecture, and logging documentation with the new command.
+Source: [inspection implementation](../../src/ldsc/_genome_build_inspection.py), [CLI dispatcher](../../src/ldsc/cli.py), [acceptance tests](../../tests/test_genome_build_inspection.py), and the [confirmed contract](../current/snp-identifier-genome-build-defaults.md#standalone-build-inspection).

@@ -1,6 +1,53 @@
 # SNP Identifier / Genome Build: Default Design
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
+
+## Standalone build inspection
+
+```bash
+ldsc infer-genome-build PATH
+```
+
+Supply one exact file or recognized LDSC artifact directory; `--help` is the only option.
+The helper supports standalone BIM files without BED/FAM companions, headered text tables (including gzip), Parquet, and recognized LDSC metadata JSON.
+It recognizes annotation, munged-sumstats, LD-score, R²-panel (root or build child), gene-index, and saved-result layouts.
+It reads their own metadata and relevant members without following upstream input paths or recursively searching unrelated files.
+It does not accept batches, globs, chromosome-suite expansion, build overrides, or column overrides.
+No new Python API is exported.
+
+Concrete metadata or build-specific position columns establish a declared build, using the existing build aliases.
+Otherwise, recognizable SNP coordinates are sampled from every relevant file/chromosome, using at most 5,000 usable rows per file/chromosome and the existing HM3 criteria of at least 200 informative matches and at least 99% support.
+The inferred output includes the input coordinate basis; no coordinates are changed.
+Declared metadata is not independently verified, and inference does not examine every coordinate row for agreement.
+The helper reports the artifact's own coordinates rather than substituting an upstream source build.
+For example, a panel's emitted builds describe its outputs; `source_genome_build` does not replace them.
+
+```text
+Genome build: hg19 (inferred from SNP coordinates; 1-based).
+This artifact’s workflow uses rsIDs for SNP matching.
+```
+
+The second sentence appears only when applicable metadata records `rsid` or `rsid_allele_aware`.
+An rsID column alone does not establish the workflow's matching mode.
+The sentence may also accompany an unknown result.
+
+Insufficient or inconclusive evidence produces `Genome build: unknown (...)` with a short reason.
+This includes rsID-only inputs and ordinary BED intervals without build metadata; interval endpoints are not SNP positions.
+An unresolved chromosome or member prevents a single inferred build for the complete artifact.
+Conflicting declarations or confident chromosome/member inferences for the same coordinate set cause an error.
+Explicit alternatives, such as separate hg19/hg38 position columns or R² build directories, receive separate labeled results ordered hg19 then hg38.
+Independent alternatives are not treated as conflicts.
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | Inspection completed, including `unknown` or deliberately available multiple builds. |
+| 1 | Missing/unreadable input, malformed or unsupported format, unrecognized directory, or conflicting build evidence. |
+| 2 | Invalid command syntax or an unexpected internal failure. |
+
+Reports go to stdout and errors go to stderr.
+No artifact files, directories, logs, or failure markers are created, including when invalid options are supplied.
+This informational helper does not weaken the workflow consistency rules below.
+See [inspection troubleshooting](../troubleshooting.md#infer-genome-build-input-cannot-be-inspected) for input failures.
 
 ## Genome-build policy
 

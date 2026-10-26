@@ -1,6 +1,6 @@
 # Input Path Specification
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -8,9 +8,19 @@ This note explains how to specify filesystem inputs in the refactored package.
 The goal is practical: help you choose the right path form for each workflow and
 avoid ambiguous inputs.
 
+## Read-only genome-build inspection
+
+`ldsc infer-genome-build PATH` accepts one exact file or recognized LDSC artifact directory.
+It does not expand `*` or `@`, guess suffixes, accept PLINK prefixes, or accept multiple paths.
+A standalone `.bim` is sufficient; `.bed` and `.fam` companions are not required.
+Known directories are identified by their existing metadata and artifact layouts, with only relevant members inspected.
+Manifest-selected members must remain inside the artifact directory; upstream source paths are not followed.
+The helper creates no output directory or log.
+See the [inspection contract](snp-identifier-genome-build-defaults.md#standalone-build-inspection) for reporting and exit codes.
+
 ## Supported Path Forms
 
-Public input file tokens support three forms (PLINK prefixes have the additional forms described below):
+Public workflow input file tokens support three forms (PLINK prefixes have the additional forms described below):
 
 - Exact path
   Example: `annotations/baseline.1.annot.gz`
@@ -608,9 +618,8 @@ The package does not infer:
   align to the inferred or explicit source PLINK build
 
 Programmatic build inference is available from the top-level Python API:
-`from ldsc import infer_chr_pos_build, resolve_chr_pos_table`. The command-line
-API exposes inference only through existing workflow flags; there is no
-standalone `ldsc infer-build` command.
+`from ldsc import infer_chr_pos_build, resolve_chr_pos_table`. The command-line API exposes workflow inference through existing build flags and read-only artifact inspection through `ldsc infer-genome-build PATH`.
+The inspection helper uses one exact path and never converts coordinates.
 
 ## Important Edge Cases
 

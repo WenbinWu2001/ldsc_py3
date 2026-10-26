@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -278,3 +278,9 @@ Last updated on: 2026-10-20
 - Summary/root cause/correction: Both build-specific restriction specifications used `POS` as their canonical field, so asking whether hg19/hg38 columns existed classified a generic `POS` column as both declarations and bypassed coordinate inference.
   Give build-specific specifications their own canonical column names, prefer the matching declaration, and test ordinary generic, named, and alternative-column inputs through the workflow build check.
   Keep build evidence collection separate from the reader's final column selection; see `tests/test_genome_build_policy.py`.
+
+## Read-only commands must bypass writes before argument parsing
+
+- Summary/root cause/correction: Registering a read-only helper in the shared CLI also admitted it to failure-marker handling, which examines raw `--overwrite` and `--output-dir` arguments before the command parser rejects them.
+  Exclude read-only helpers from that lifecycle before parsing; test rejected write options against an existing input directory and assert that no failure marker or other file appears.
+  Internal-error advice must also omit workflow-only logging options and stale workflow-log pointers for the helper; see `tests/test_genome_build_inspection.py`.

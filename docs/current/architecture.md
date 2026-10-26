@@ -1,6 +1,6 @@
 # Architecture 
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 `ldsc` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
@@ -122,7 +122,7 @@ This is the only command-line entry point. It parses subcommands, preserves the 
 These modules define the package-wide contracts that every workflow shares.
 They normalize path tokens, chromosome ordering, genome-build aliases, exact SNP identifier modes, input header aliases, and `chr_pos`-family genome-build inference before the kernel is called.
 `ldsc.path_resolution` also owns output-directory creation, fixed-artifact collision preflight, coherent artifact-family preflight, and stale owned-sibling cleanup helpers.
-`ldsc.genome_build_inference` is public for Python callers through the top-level `ldsc` exports, while the CLI exposes it through the existing `--genome-build auto` or `--source-genome-build auto` option for each workflow.
+`ldsc.genome_build_inference` is public for Python callers through the top-level `ldsc` exports, while the CLI exposes it through workflow build options and the read-only `infer-genome-build` helper.
 Architecture invariant: numerical functions consume resolved inputs.
 Shared normalization stays here or in the workflow layer; the runtime reference-panel adapters currently live at `ldsc._kernel.ref_panel` and resolve panel-specific inputs before numerical projection.
 
@@ -135,6 +135,15 @@ Workflows and reference adapters call this helper before filtering or numerical 
 Restriction column selection in `column_inference.py` prefers the matching named position column, then generic `POS`.
 `genome_build_inference.py` retains the HM3 confidence and coordinate-basis calculations.
 See the [build policy](snp-identifier-genome-build-defaults.md#genome-build-policy) for command scope, BED inheritance, source/output separation, and grouped diagnostics.
+
+### `ldsc._genome_build_inspection`
+
+The private [inspection module](../../src/ldsc/_genome_build_inspection.py) backs `ldsc infer-genome-build PATH` without adding a Python export.
+It reads owned artifact metadata and relevant members, reuses shared table/column readers and HM3 inference, and renders declared, inferred, unknown, or separately labeled alternative builds independently of SNP matching mode.
+It does not call workflow build resolution: unknown evidence is a successful inspection, while contradictory evidence and invalid inputs are errors.
+The CLI only parses and dispatches, writes the report to stdout, and excludes this helper from failure-marker handling.
+No artifact writers, workflow logs, or coordinate conversion participate.
+`tests/test_genome_build_inspection.py` covers artifact families, sampling, rsID reporting, exit codes, and read-only behavior through the CLI.
 
 ### `ldsc._logging`
 

@@ -1,6 +1,6 @@
 # CLI flag descriptions and ordering
 
-Last updated on: 2026-09-15
+Last updated on: 2026-10-26
 
 These are the agreed rules for writing flag descriptions and organizing `--help` across all public `ldsc` commands. A user should be able to identify the inputs they need, understand what an option changes, and choose a valid combination without knowing the package implementation.
 
@@ -64,6 +64,7 @@ The following sequences are starting points for organizing the two largest relev
 
 | Command | Group sequence |
 | --- | --- |
+| `infer-genome-build` | One positional exact path and help only; describe read-only reporting, successful unknown results, and no output or logging options. |
 | `munge-sumstats` | Essential inputs/output; SNP identity and genome build; sample size; filtering; format-specific and column overrides; performance and logging. |
 | `ldscore` | Essential inputs/output; direct computation; annotation sources with related BED/gene options together; indexed computation; advanced and resource controls. |
 

@@ -1,6 +1,6 @@
 # Code Structure
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 This is the authoritative contributor entry for the `ldsc` package. Start here to locate a change. [Architecture](architecture.md) explains execution boundaries, [data flow](data-flow.md) explains artifact streams, and [layer structure](layer-structure.md) supplies the detailed ownership matrix. These domain references supplement this entry rather than defining competing navigation maps.
 
@@ -137,6 +137,7 @@ ldsc_py3_restructured/
 | change output collision policy | `src/ldsc/path_resolution.py`, then the workflow writer that owns the artifact |
 | change workflow log files, lifecycle lines, or log-level handling | `src/ldsc/_logging.py`, then the workflow orchestration function that owns the output directory |
 | change header aliases or identifier/build normalization | `src/ldsc/column_inference.py` |
+| change read-only artifact build inspection | `src/ldsc/_genome_build_inspection.py`, with CLI dispatch in `src/ldsc/cli.py` and coverage in `tests/test_genome_build_inspection.py` |
 | change automatic `chr_pos` genome-build inference | `src/ldsc/genome_build_inference.py` |
 | change annotation loading or `ldsc annotate` behavior | `src/ldsc/annotation_builder.py`, then `src/ldsc/_annotation_sources.py` and `src/ldsc/annotate_workflow.py` |
 | change BED parsing or interval projection | `src/ldsc/_kernel/regions.py:iter_bed_rows`, then `src/ldsc/_annotation_queries.py` and `src/ldsc/_annotation_projection.py:ChromosomeProjector` |

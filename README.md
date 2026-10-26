@@ -1,6 +1,6 @@
 # ldsc3_Jerry
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 This repository is the active refactored LDSC package.
 
@@ -186,6 +186,7 @@ python -m ldsc --help
 
 Subcommands:
 
+- `ldsc infer-genome-build`
 - `ldsc annotate`
 - `ldsc build-gene-ldscore-index`
 - `ldsc build-r2-panel`
@@ -410,7 +411,11 @@ Genome-build inference for `chr_pos` tables is public through the Python API:
 use `infer_chr_pos_build()` when you only need the `hg19`/`hg38` decision, and
 use `resolve_chr_pos_table()` when you also want 0-based inputs converted to
 canonical 1-based coordinates.
-The CLI exposes inference through `--genome-build auto` for annotation and direct LD-score workflows, and through `--source-genome-build auto` for `munge-sumstats` and `build-r2-panel`; there is no standalone inference subcommand.
+Inspect one exact file or recognized LDSC artifact directory with `ldsc infer-genome-build PATH`.
+It reports declared or inferred hg19/hg38, or `unknown` when evidence is insufficient, without creating files or logs.
+When artifact metadata records rsID matching, the report adds: “This artifact’s workflow uses rsIDs for SNP matching.”
+See the [helper contract](docs/current/snp-identifier-genome-build-defaults.md#standalone-build-inspection) for supported inputs, dual-build artifacts, and exit codes.
+Workflows also expose inference through `--genome-build auto` for annotation and direct LD-score workflows, and through `--source-genome-build auto` for `munge-sumstats` and `build-r2-panel`.
 The [genome-build policy](docs/current/snp-identifier-genome-build-defaults.md#genome-build-policy) documents authoritative explicit declarations, trusted build metadata, bounded inference, keep-list validation and column precedence, complete grouped validation errors, and ordinary BED inheritance.
 Under `auto`, every relevant coordinate input participates and conflicts or unresolved inputs produce one grouped error.
 A concrete build is authoritative and does not convert coordinates; ordinary BED files inherit the workflow build.

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](current/workflow-logging.md#diagnostics-and-troubleshooting).
 It also retains guidance for failed-run artifacts, documented query omissions, and cleanup warnings that users need to interpret.
@@ -22,6 +22,24 @@ Use `--overwrite` only when replacing existing owned outputs is intended.
 Changing SNP restrictions, filters, model inputs, or query-continuation settings can change the analysis or the set of published results; review that consequence before treating such a change as a repair.
 
 When a message includes `docs/troubleshooting.md#<section>`, its fragment identifies a heading below.
+
+## infer-genome-build: input cannot be inspected
+
+The helper reports readable but insufficient build evidence as `unknown` with exit code 0.
+An inspection error instead means the input cannot be read as a supported artifact, or available evidence is contradictory.
+
+| Symptom | Check and repair |
+| --- | --- |
+| Missing or unrecognized path | Supply one existing exact file or recognized LDSC artifact directory; patterns and PLINK prefixes are not expanded. |
+| Unreadable, corrupt, binary, or malformed input | Check permissions, compression, and format; use the `.bim` rather than a binary PLINK `.bed` for coordinate inspection. |
+| Unrecognized metadata or directory | Supply a supported table directly or restore the canonical artifact metadata and layout. |
+| Missing member or member outside the artifact | Restore the referenced member inside the artifact directory; the helper does not follow upstream paths or escaping links. |
+| Conflicting builds | Inspect the paths, chromosomes, and metadata fields named in the error and supply consistent coordinates/declarations for that coordinate set. |
+
+Build declarations are reported without coordinate verification; a successful report is not a full artifact-integrity check.
+Deliberately separate hg19/hg38 coordinate alternatives are reported separately.
+There is no override flag, output directory, or log file for this command.
+See the [helper contract](current/snp-identifier-genome-build-defaults.md#standalone-build-inspection).
 
 ## Staged input validation
 

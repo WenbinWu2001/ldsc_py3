@@ -134,7 +134,7 @@ print(ldsc.__file__)
                 "annotate", "ldscore", "build-r2-panel", "build-gene-ldscore-index",
                 "convert-ldsc2-ldscores",
                 "munge-sumstats", "h2", "partitioned-h2", "quantile-h2", "rg", "query-r2",
-                "convert-h2-scale", "plot",
+                "convert-h2-scale", "plot", "infer-genome-build",
             },
         )
         self.assertNotIn("infer-build", subparsers_action.choices)
@@ -152,7 +152,7 @@ print(ldsc.__file__)
                 output_actions = [
                     action for action in command_parser._actions if action.dest == "output_dir"
                 ]
-                if command in {"plot", "convert-h2-scale"}:
+                if command in {"plot", "convert-h2-scale", "infer-genome-build"}:
                     self.assertEqual(output_actions, [])
                 else:
                     self.assertEqual(len(output_actions), 1)

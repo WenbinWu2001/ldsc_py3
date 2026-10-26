@@ -48,6 +48,7 @@ _USER_ERROR_TYPES = (
 # Single source of truth for the subcommand list shown in `ldsc --help`. Used by
 # both the full parser and the lightweight help parser so the two cannot drift.
 _SUBCOMMAND_HELP = {
+    "infer-genome-build": "Inspect an artifact's genome build without writing files.",
     "annotate": "Find SNPs covered by BED intervals or gene boundaries.",
     "ldscore": "Compute LD scores.",
     "build-r2-panel": "Build pairwise R2 panels from PLINK genotypes.",
@@ -83,6 +84,9 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = _NoAbbrevArgumentParser(prog="ldsc", description="LDSC command line interface.")
     subparsers = parser.add_subparsers(dest="command", required=True, parser_class=_NoAbbrevArgumentParser)
+
+    inspection_parser = subparsers.add_parser("infer-genome-build", help=_SUBCOMMAND_HELP["infer-genome-build"])
+    _add_build_inspection_arguments(inspection_parser)
 
     annotate_parser = subparsers.add_parser("annotate", help=_SUBCOMMAND_HELP["annotate"])
     annotation_builder.add_annotate_arguments(annotate_parser)
@@ -174,6 +178,16 @@ def main(argv: Sequence[str] | None = None):
     if argv:
         command = argv[0]
         subargv = argv[1:]
+        if command == "infer-genome-build":
+            from ._genome_build_inspection import inspect_genome_build
+
+            parser = _NoAbbrevArgumentParser(
+                prog="ldsc infer-genome-build", description=_SUBCOMMAND_HELP[command],
+            )
+            _add_build_inspection_arguments(parser)
+            report = inspect_genome_build(parser.parse_args(subargv).path)
+            print(report)
+            return report
         if command == "annotate":
             return annotation_builder.main(subargv)
         if command == "ldscore":
@@ -242,6 +256,16 @@ def main(argv: Sequence[str] | None = None):
     _build_top_level_parser().parse_args(argv)
 
 
+def _add_build_inspection_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "path", metavar="PATH",
+        help=("Required exact file or recognized LDSC artifact directory. Read build declarations "
+              "or infer hg19/hg38 from SNP coordinates. No patterns or multiple paths. "
+              "Print unknown when evidence is insufficient; unknown exits successfully. "
+              "Creates no files or logs."),
+    )
+
+
 def run_cli(argv: Sequence[str] | None = None) -> int:
     """Run the CLI with a clean user-error boundary and traceback logging."""
     cli_mode = argv is None
@@ -274,10 +298,10 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         LOGGER.error(f"Error: {exc}")
         return 1
     except LDSCError as exc:
-        _log_internal_error(exc)
+        _log_internal_error(exc, workflow_advice=raw_argv[:1] != ["infer-genome-build"])
         return 2
     except Exception as exc:
-        _log_internal_error(exc)
+        _log_internal_error(exc, workflow_advice=raw_argv[:1] != ["infer-genome-build"])
         return 2
     finally:
         close = getattr(result, "close", None)
@@ -295,7 +319,7 @@ def _cli_failure_marker_scope(argv: Sequence[str]) -> tuple[Path, str] | None:
     if "--help" in argv or "-h" in argv:
         return None
     command = argv[0]
-    if command not in _SUBCOMMAND_HELP:
+    if command not in _SUBCOMMAND_HELP or command == "infer-genome-build":
         return None
     if command == "munge-sumstats" and "--infer-only" in argv:
         return None
@@ -343,14 +367,14 @@ def _chromosome_from_concrete_prefix(prefix: str | None) -> str | None:
     return next(iter(normalized)) if len(normalized) == 1 else None
 
 
-def _log_internal_error(exc: BaseException) -> None:
+def _log_internal_error(exc: BaseException, *, workflow_advice: bool = True) -> None:
     """Emit a concise internal-error line; full traceback is in the run log file."""
-    log_path = last_workflow_log_path()
+    log_path = last_workflow_log_path() if workflow_advice else None
     pointer = f" See {log_path} for the full traceback." if log_path else ""
+    hint = " --log-level DEBUG adds developer context if the run needs to be reproduced." if workflow_advice else ""
     LOGGER.error(
         f"Internal error while running ldsc: {exc}.{pointer} "
-        "Report the command and package version with this error and any saved traceback. "
-        "--log-level DEBUG adds developer context if the run needs to be reproduced."
+        f"Report the command and package version with this error and any saved traceback.{hint}"
     )
 
 

@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -30,6 +30,13 @@ inputs such as LD-score files, count vectors, regression-weight files, and
 annotation manifests are no longer public inputs.
 
 Pattern support is command-specific; see [the input-family table](path-specification.md#pattern-support-in-command-help) for `*`, `@`, and exact-one restrictions.
+
+## Read-only genome-build inspection
+
+`ldsc infer-genome-build PATH` takes one exact file or recognized artifact directory and exposes only `--help`.
+It accepts no output directory, logging options, patterns, build overrides, or column overrides.
+Results go to stdout and errors to stderr; no files, directories, logs, or failure markers are created.
+See the [inspection contract](snp-identifier-genome-build-defaults.md#standalone-build-inspection) for formats, metadata ownership, multiple builds, and exit codes.
 
 ## Shared SNP Identity Contract
 

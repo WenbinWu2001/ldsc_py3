@@ -53,6 +53,9 @@ def test_every_visible_option_has_help_and_logging_levels(commands):
             if action.help == argparse.SUPPRESS:
                 continue
             assert action.help, (name, action.option_strings)
+        if name == "infer-genome-build":
+            assert set(parser._option_string_actions) == {"-h", "--help"}
+            continue
         log_help = parser._option_string_actions["--log-level"].help
         for meaning in ("DEBUG", "INFO", "WARNING", "ERROR", "Default: INFO", "workflow log"):
             assert meaning in log_help, (name, meaning)

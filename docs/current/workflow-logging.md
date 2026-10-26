@@ -1,6 +1,6 @@
 # Workflow Logging
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 ## Audience and authority
 
@@ -16,6 +16,14 @@ Familiar method terms such as SNP, LD score, genome build, and heritability are 
 Technical detail supplements the ordinary explanation rather than replacing it.
 Errors and warnings must remain understandable at the default level.
 Failure tracebacks belong in the saved logs even when `DEBUG` was not selected.
+
+## Read-only inspection exception
+
+`ldsc infer-genome-build PATH` prints its report to stdout and actionable errors to stderr.
+It never opens a workflow log, creates an output directory, or writes a failure marker, including on syntax errors.
+It accepts no verbosity or logging options; errors must not suggest `--log-level DEBUG` or point to a previous workflow log.
+An unknown build is a successful inspection (exit 0), not a logged workflow failure.
+See the [inspection contract](snp-identifier-genome-build-defaults.md#standalone-build-inspection) for the remaining exit codes.
 
 ## Message-writing rules
 

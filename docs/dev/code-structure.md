@@ -48,7 +48,7 @@ ldsc_py3_restructured/
 │   ├── outputs.py
 │   └── _kernel/
 ├── tests/
-└── tutorials/
+└── tools/
 ```
 
 ## Dependency Direction

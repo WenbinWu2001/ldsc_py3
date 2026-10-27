@@ -134,7 +134,7 @@ ldsc_py3_restructured/
 │       ├── formats.py
 │       └── identifiers.py
 ├── tests/                   # workflow and parity checks
-└── tutorials/               # end-to-end usage examples
+└── tools/                   # data-curation and figure scripts
 ```
 
 ## Code Map

@@ -474,7 +474,9 @@ def infer_chr_pos_build(
             f"Could not infer genome build for {context}: best hypothesis {best_name} matched "
             f"{match_counts[best_name]}/{inspected} informative SNPs ({best_fraction:.1%}), "
             f"below the {DOMINANCE_THRESHOLD:.0%} confidence threshold. "
-            "Most likely the input mixes genome builds or coordinate bases. "
+            f"Hypothesis support: {_format_hypothesis_support(inspected, match_counts, match_fractions)}. "
+            "Most likely the input mixes genome builds or coordinate bases, shown by substantial support for a second hypothesis; "
+            "small support spread across the other hypotheses instead suggests chance coordinate coincidences in a dense input. "
             f"Pass --genome-build hg19 or --genome-build hg38 explicitly after confirming the source build. "
             f"Other causes & fixes: {_GENOME_BUILD_TROUBLESHOOTING}"
         )
@@ -530,14 +532,21 @@ def _build_summary_message(
     match_fractions: dict[str, float],
 ) -> str:
     """Build the user-facing inference message emitted by workflows."""
-    parts: list[str] = []
-    for name, build, basis, _pos_column, _offset in _HYPOTHESIS_ORDER:
-        label = f"{build}/{basis}"
-        parts.append(f"{label}={match_counts[name]}/{inspected} ({match_fractions[name]:.1%})")
     basis_note = "converted positions to canonical 1-based coordinates" if coordinate_basis == "0-based" else "positions already matched canonical 1-based coordinates"
     return (
         f"Auto-inferred genome build {genome_build} with {coordinate_basis} coordinates from "
-        f"{inspected} reference SNPs; {basis_note}. Hypothesis support: "
-        + ", ".join(parts)
-        + "."
+        f"{inspected} reference SNPs; {basis_note}. "
+        f"Hypothesis support: {_format_hypothesis_support(inspected, match_counts, match_fractions)}."
+    )
+
+
+def _format_hypothesis_support(
+    inspected: int,
+    match_counts: dict[str, int],
+    match_fractions: dict[str, float],
+) -> str:
+    """Format matched counts and fractions for all four build/basis hypotheses."""
+    return ", ".join(
+        f"{build}/{basis}={match_counts[name]}/{inspected} ({match_fractions[name]:.1%})"
+        for name, build, basis, _pos_column, _offset in _HYPOTHESIS_ORDER
     )

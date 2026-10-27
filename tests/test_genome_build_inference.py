@@ -108,6 +108,28 @@ class GenomeBuildInferenceTest(unittest.TestCase):
                 reference_table=reference,
             )
 
+    def test_below_threshold_error_reports_all_hypothesis_support(self):
+        module = _load_module(self)
+        reference = _build_reference_table()
+        half = len(reference) // 2
+        raw = pd.DataFrame(
+            {
+                "CHR": ["1"] * len(reference),
+                "POS": reference["hg19_POS"].tolist()[:half] + reference["hg38_POS"].tolist()[half:],
+            }
+        )
+
+        with self.assertRaises(LDSCInputError) as ctx:
+            module.resolve_chr_pos_table(raw, context="unit-mixed", reference_table=reference)
+
+        message = str(ctx.exception)
+        self.assertIn(
+            "Hypothesis support: hg19/1-based=125/250 (50.0%), hg19/0-based=0/250 (0.0%), "
+            "hg38/1-based=125/250 (50.0%), hg38/0-based=0/250 (0.0%)",
+            message,
+        )
+        self.assertIn("below the 99% confidence threshold", message)
+
     def test_resolve_chr_pos_table_requires_minimum_evidence(self):
         module = _load_module(self)
         reference = _build_reference_table(n_rows=150)

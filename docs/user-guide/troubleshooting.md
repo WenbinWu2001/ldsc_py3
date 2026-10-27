@@ -138,6 +138,12 @@ Markers, logs, audits, and scientific outputs use the same expanded destination.
 | 2 | The input coordinates are from another build, assembly, or custom reference | Inspect several known SNP coordinates against hg19/hg38 in a genome browser or source metadata |
 | 3 | CHR/POS columns were parsed from the wrong columns or wrong delimiter | Print the header and first rows; confirm `CHR` and `POS` values look like chromosome labels and base-pair positions |
 | 4 | Coordinates are mixed across builds or coordinate bases | Check whether some rows match hg19 and others match hg38/0-based positions |
+| 5 | A dense input (for example a full imputed GWAS or 1000 Genomes panel) has chance coordinate coincidences with the wrong hypotheses | Read the `Hypothesis support` list in the error, as described below |
+
+**Reading the hypothesis support:** when the best hypothesis falls below the 99% threshold, the error lists matched counts and fractions for all four genome build and coordinate-basis hypotheses (`hg19/1-based`, `hg19/0-based`, `hg38/1-based`, `hg38/0-based`).
+If one hypothesis is just below 99% and the remainder is spread thinly across the other three (for example 98.8%, 0.4%, 0.5%, 0.3%), the shortfall is most likely chance coordinate coincidences in a dense input, and the best hypothesis is likely the true genome build.
+If a second hypothesis carries substantial support (for example 60% and 40%), the file most likely mixes genome builds or coordinate bases, or was assembled from differently built sources.
+In either case, confirm the genome build from the source metadata before declaring it.
 
 **Remedies:**
 

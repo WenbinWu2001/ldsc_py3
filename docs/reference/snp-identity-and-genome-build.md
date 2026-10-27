@@ -47,7 +47,7 @@ Independent alternatives are not treated as conflicts.
 Reports go to stdout and errors go to stderr.
 No artifact files, directories, logs, or failure markers are created, including when invalid options are supplied.
 This informational helper does not weaken the workflow consistency rules below.
-See [inspection troubleshooting](../troubleshooting.md#infer-genome-build-input-cannot-be-inspected) for input failures.
+See [inspection troubleshooting](../user-guide/troubleshooting.md#infer-genome-build-input-cannot-be-inspected) for input failures.
 
 ## Genome-build policy
 
@@ -113,7 +113,7 @@ Finish examining the remaining inputs and include the keep-list's flag, path, an
 The actionable message asks the user to check the keep-list's coordinate build and explicitly specify `--genome-build hg19` or `--genome-build hg38` for commands supporting that option.
 Use `--source-genome-build` for source-build workflows instead; do not suggest an unsupported flag.
 A concrete assertion permits an unlabeled generic coordinate keep-list without successful coordinate-based inference, while ordinary input-format and identifier validation still apply.
-See the [insufficient-evidence example](../troubleshooting.md#common-keep-list-build-could-not-be-resolved).
+See the [insufficient-evidence example](../user-guide/troubleshooting.md#common-keep-list-build-could-not-be-resolved).
 
 ### Ordinary BED files inherit the workflow build
 
@@ -146,7 +146,7 @@ State the observed conflict, identify unresolved evidence without pretending it 
 The actionable guidance asks the user to check the listed inputs for a consistent build and gives a command-appropriate explicit assertion example for verified unlabeled inputs when available.
 The message must identify the affected input, declared and requested or conflicting builds, and actionable remedies.
 The grouped findings belong in the run-aborting message and workflow log, so users do not need `DEBUG` or repeated failed runs to discover additional input conflicts.
-See the [grouped report example](../troubleshooting.md#common-genome-build-consistency-check-failed).
+See the [grouped report example](../user-guide/troubleshooting.md#common-genome-build-consistency-check-failed).
 
 ### Command scope
 

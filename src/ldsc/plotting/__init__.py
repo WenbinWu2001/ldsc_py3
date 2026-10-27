@@ -145,7 +145,7 @@ def plot_result(
         raise LDSCInputError(
             f"Could not read plotting source table '{source_path}': {exc}."
             " Check the named file and its readability; restore the original table and matching metadata from "
-            "the same run. See docs/troubleshooting.md#plot-result-directory-is-unsupported-or-incomplete."
+            "the same run. See docs/user-guide/troubleshooting.md#plot-result-directory-is-unsupported-or-incomplete."
         ) from exc
     h2_per_trait = None
     h2_path = None
@@ -162,7 +162,7 @@ def plot_result(
                 f"Could not read rg heritability table '{h2_path}': {exc}."
                 " Check the named file and its readability; restore the original table and matching metadata "
                 "from the same run. See "
-                "docs/troubleshooting.md#plot-result-directory-is-unsupported-or-incomplete."
+                "docs/user-guide/troubleshooting.md#plot-result-directory-is-unsupported-or-incomplete."
             ) from exc
         if h2_per_trait is not None and not h2_per_trait.empty and not isinstance(h2_per_trait.index, pd.RangeIndex):
             raise LDSCInputError(

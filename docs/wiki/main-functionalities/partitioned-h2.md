@@ -89,7 +89,7 @@ The `files` entries in query metadata remain relative to the aggregate result ro
 For `quantile-h2`, still select one successful `diagnostics/query_annotations/<query>/` folder inside the complete result tree.
 The current `load_fitted_partitioned_model()` reader resolves shared provenance automatically, with query-specific values taking precedence.
 If the shared metadata is missing, restore the enclosing `diagnostics/metadata.json` from the same fitted run and preserve its directory layout.
-See [shared-metadata troubleshooting](../../troubleshooting.md#quantile-h2-shared-fitted-model-metadata-is-missing), the [result contract](../../reference/results/partitioned-h2.md), and the reader in [quantile_h2.py](../../../src/ldsc/quantile_h2.py).
+See [shared-metadata troubleshooting](../../user-guide/troubleshooting.md#quantile-h2-shared-fitted-model-metadata-is-missing), the [result contract](../../reference/results/partitioned-h2.md), and the reader in [quantile_h2.py](../../../src/ldsc/quantile_h2.py).
 
 ## Memory and runtime measurements
 

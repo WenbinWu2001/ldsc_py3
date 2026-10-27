@@ -86,7 +86,7 @@ class PathResolutionTest(unittest.TestCase):
                 LDSCInputError,
                 "Could not resolve sumstats path.*matched 2 files.*"
                 "Most likely the glob is too broad.*"
-                "docs/troubleshooting.md#common-input-path-did-not-resolve-to-one-file",
+                "docs/user-guide/troubleshooting.md#common-input-path-did-not-resolve-to-one-file",
             ):
                 resolve_scalar_path(str(tmpdir / "trait.*.tsv"), label="sumstats")
 
@@ -225,7 +225,7 @@ class PathResolutionTest(unittest.TestCase):
                 LDSCInputError,
                 "Could not resolve parquet path.*matched 0 files.*"
                 "Most likely the path is misspelled.*"
-                "docs/troubleshooting.md#common-input-path-did-not-resolve-to-one-file",
+                "docs/user-guide/troubleshooting.md#common-input-path-did-not-resolve-to-one-file",
             ):
                 resolve_scalar_path(str(tmpdir / "reference.1"), label="parquet")
 
@@ -267,7 +267,7 @@ class PathResolutionTest(unittest.TestCase):
                 FileExistsError,
                 "Cannot write output artifact.*already exists.*"
                 "Most likely this output directory contains results from an earlier run.*"
-                "docs/troubleshooting.md#common-output-artifact-already-exists",
+                "docs/user-guide/troubleshooting.md#common-output-artifact-already-exists",
             ):
                 ensure_output_paths_available([path], overwrite=False)
 

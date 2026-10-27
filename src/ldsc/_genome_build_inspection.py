@@ -27,7 +27,7 @@ from .path_resolution import normalize_path_token
 
 _RSID_NOTICE = "This artifact’s workflow uses rsIDs for SNP matching."
 _NO_EVIDENCE = "no build metadata or usable SNP coordinates"
-_TROUBLESHOOTING = "docs/troubleshooting.md#infer-genome-build-input-cannot-be-inspected"
+_TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#infer-genome-build-input-cannot-be-inspected"
 _JSON_TYPES = {
     "annotation_projection", "ldscore", "ref_panel", "gene_ldscore_index",
     "h2_result", "partitioned_h2_result", "partitioned_h2_query_result", "rg_result",

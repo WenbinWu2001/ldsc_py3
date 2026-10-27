@@ -29,7 +29,7 @@ Keep the complete `partitioned-h2` output directory when copying fitted results,
 Each query's `metadata.json` references run-wide provenance in the enclosing `diagnostics/metadata.json` through `"global_metadata": "../../metadata.json"`.
 The current model reader resolves that reference automatically; a copied query folder alone is incomplete.
 If the parent metadata is missing, restore it from the same fitted run in its original relative location.
-See [keeping fitted results together](../../wiki/main-functionalities/partitioned-h2.md#keep-fitted-results-together) and [shared-metadata troubleshooting](../../troubleshooting.md#quantile-h2-shared-fitted-model-metadata-is-missing).
+See [keeping fitted results together](../../wiki/main-functionalities/partitioned-h2.md#keep-fitted-results-together) and [shared-metadata troubleshooting](../troubleshooting.md#quantile-h2-shared-fitted-model-metadata-is-missing).
 
 These selection rules also apply when the preceding regression used `--workers` to fit queries concurrently.
 Every successful folder contains one model's coefficients and jackknife delete values, with its shared provenance retained in the enclosing result tree.

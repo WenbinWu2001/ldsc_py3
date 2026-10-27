@@ -32,7 +32,7 @@ LOGGER = logging.getLogger("LDSC.liftover")
 SUPPORTED_LIFTOVER_BUILDS = {"hg19", "hg38"}
 LIFTOVER_DROP_COLUMNS = ["CHR", "SNP", "source_pos", "target_pos", "reason"]
 _SUMSTATS_LIFTOVER_TROUBLESHOOTING = (
-    "docs/troubleshooting.md#munge-sumstats-liftover-dropped-all-rows"
+    "docs/user-guide/troubleshooting.md#munge-sumstats-liftover-dropped-all-rows"
 )
 
 @dataclass(frozen=True)

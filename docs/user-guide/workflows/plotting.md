@@ -83,7 +83,7 @@ Each lower-triangle cell shows genetic correlation \(r_g\), with its block-jackk
 
 Light-gray diagonal cells show each trait's observed-scale heritability, with its jackknife SE in parentheses underneath. These values come from the saved single-trait fits in the metadata-declared `h2_per_trait.tsv`, matched by trait name. They use two decimal places and retain finite estimates outside 0–1. The correlations themselves are unchanged by observed-to-liability conversion; the diagonal heritabilities specifically use the observed scale.
 
-A diagonal labeled `failed` means no usable heritability–SE pair is available: the source or trait row may be missing, or an estimate/SE may be nonnumeric or nonfinite, or the SE negative. An SE of zero is valid. A missing heritability file does not prevent plotting the correlations. Malformed tables, missing required columns, duplicate trait rows, and unsafe declared paths instead stop plotting with an error; see [plot troubleshooting](../../troubleshooting.md#plot-rg-heritability-source-is-invalid).
+A diagonal labeled `failed` means no usable heritability–SE pair is available: the source or trait row may be missing, or an estimate/SE may be nonnumeric or nonfinite, or the SE negative. An SE of zero is valid. A missing heritability file does not prevent plotting the correlations. Malformed tables, missing required columns, duplicate trait rows, and unsafe declared paths instead stop plotting with an error; see [plot troubleshooting](../troubleshooting.md#plot-rg-heritability-source-is-invalid).
 
 The figure displays estimates and uncertainty only; it does not add p-values, symbols, or multiplicity correction.
 

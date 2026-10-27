@@ -745,7 +745,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 ldsc.LDSCInputError,
                 "Cannot load curated sumstats at .*snp_identifier='rsid_allele_aware' requires A1/A2 columns.*"
                 "Re-run munge-sumstats from the raw GWAS file.*"
-                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
+                "docs/user-guide/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
             ):
                 ldsc.load_sumstats(sumstats_file)
 
@@ -773,7 +773,7 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 ldsc.LDSCInputError,
                 "missing or invalid SNP identity rows.*"
-                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
+                "docs/user-guide/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
             ):
                 ldsc.load_sumstats(sumstats_file)
 
@@ -1499,7 +1499,7 @@ class SumstatsMungerTest(unittest.TestCase):
         with self.assertRaisesRegex(
             ldsc.LDSCInputError,
             "munge-sumstats could not map required column.*Z.*"
-            "docs/troubleshooting.md#munge-sumstats-could-not-map-a-required-column",
+            "docs/user-guide/troubleshooting.md#munge-sumstats-could-not-map-a-required-column",
         ):
             table.validate()
 
@@ -1812,7 +1812,7 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 ldsc.LDSCInputError,
                 "duplicate or invalid SNP identity rows.*duplicate_identity.*"
-                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
+                "docs/user-guide/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
             ):
                 ldsc.load_sumstats(sumstats_file)
 
@@ -2068,7 +2068,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 ldsc.LDSCInputError,
                 "munge-sumstats no SNPs remain after SNP keep-list restriction.*"
                 "snp_identifier=rsid.*keep-list identifiers=1.*"
-                "docs/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering",
+                "docs/user-guide/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering",
             ):
                 SumstatsMunger().run(
                     MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, trait_name="trait"),

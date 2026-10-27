@@ -40,7 +40,7 @@ _LDSCORE_FILENAME_GUIDANCE = (
     "with one constant prefix (possibly empty) and unpadded chromosomes 1-22. "
     "Organize one complete family directly in the supplied directory; put different releases in separate directories. "
     "Restore missing shards or rename misnamed copies to the standard filenames. "
-    "See docs/troubleshooting.md#convert-ldsc2-ldscores."
+    "See docs/user-guide/troubleshooting.md#convert-ldsc2-ldscores."
 )
 _WEIGHT_FILENAME_GUIDANCE = (
     "Found unsupported '.w.l2.ldscore(.gz)' filenames. Rename copies in a separate input directory, "
@@ -965,7 +965,7 @@ def _discover_frequency_family(
             "with one constant prefix (possibly empty) and unpadded chromosomes 1-22. "
             "Restore missing shards or rename misnamed copies; place one complete family directly in this "
             "directory and keep different releases in separate directories. "
-            "See docs/troubleshooting.md#convert-ldsc2-ldscores."
+            "See docs/user-guide/troubleshooting.md#convert-ldsc2-ldscores."
         )
     prefix, shards = next(iter(coherent.items()))
     for discarded_prefix, discarded_shards in groups.items():
@@ -1014,7 +1014,7 @@ def _read_ldscore_table(path: Path, role: str, chrom: int) -> pd.DataFrame:
             f"Could not parse legacy {role} LD-score table '{path}' for chromosome {chrom}: {exc}. "
             "Check the named file's readability, compression integrity, and whitespace-delimited header; "
             "restore the original table from the selected LDSC2 suite. "
-            "See docs/troubleshooting.md#conversion-rejected-the-legacy-suite."
+            "See docs/user-guide/troubleshooting.md#conversion-rejected-the-legacy-suite."
         ) from exc
 
 
@@ -1026,7 +1026,7 @@ def _read_whitespace_table(path: Path, role: str, chrom: int) -> pd.DataFrame:
             f"Could not parse legacy {role} table '{path}' for chromosome {chrom}: {exc}. "
             "Check the named file's readability, compression integrity, and whitespace-delimited header; "
             "restore the original table from the selected LDSC2 suite. "
-            "See docs/troubleshooting.md#conversion-rejected-the-legacy-suite."
+            "See docs/user-guide/troubleshooting.md#conversion-rejected-the-legacy-suite."
         ) from exc
 
 

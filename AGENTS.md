@@ -130,7 +130,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
 - Use exhaustive, stage-specific validation gates that collect every safely discoverable issue across focal/control inputs before aborting.
   An unreadable structural contract may fail immediately, a referenced analysis-changing defect must fail, and an unreferenced latent defect may be diagnosed without failing a correct run.
   Design diagnostics for concrete identification and repair; preserve explicit query-continuation policies and their attempted-query records, without introducing silent recovery.
-- Keep run-aborting messages self-contained; errors with three or more distinct causes also require the corresponding command section in `docs/troubleshooting.md` and synchronized in-code anchors.
+- Keep run-aborting messages self-contained; errors with three or more distinct causes also require the corresponding command section in `docs/user-guide/troubleshooting.md` and synchronized in-code anchors.
   Guide users toward their objective without requiring knowledge of internal implementation.
 
 ## Requested code reviews
@@ -170,7 +170,7 @@ These rules apply only when a review is requested; they do not require an extra 
 | `status.md` | Authorized current work, constraints, blockers, next steps; refresh in place and link decisions/evidence. |
 | `history.md` | Authorized meaningful events, appended chronologically with dates; consult on demand, not automatically at startup. |
 | `lessons.md` | After a repeated mistake (two or more) or an investigated non-obvious bug, append summary/root cause/correction; create on the first qualifying entry, skipping trivial slips. |
-| `docs/user-guide/`, `tutorials/`, `docs/wiki/`, `docs/troubleshooting.md` | User workflows, runnable Markdown/notebook examples, and command-specific remediation; `tutorials/` and `docs/wiki/` are being merged into `docs/user-guide/`. |
+| `docs/user-guide/` (including `troubleshooting.md`), `tutorials/`, `docs/wiki/` | User workflows, runnable Markdown/notebook examples, and command-specific remediation; `tutorials/` and `docs/wiki/` are being merged into `docs/user-guide/`. |
 | Validation evidence (no dedicated folder) | Summarize durable measurements inline in the host `docs/reference/`, `docs/dev/`, or `docs/decisions/` document with date, revision, and limits; keep raw logs, fixtures, and probe scripts out of `docs/`. The audits, specs, plans, and archive removed on 2026-10-26 remain in git history at `479fc4d`. |
 
 - Use `project-state` only for useful, authorized status/history updates: these destinations do not authorize completion logs, writes during read-only work/side conversations, or empty-file creation.

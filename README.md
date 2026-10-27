@@ -450,7 +450,7 @@ filenames inside the selected `output_dir`.
 
 ## Input validation stages
 
-Input validation is separate from output-overwrite protection. Direct LD scores validate reference inputs before annotation staging; gene-index and R2 builders check companion and auxiliary declarations together. Index consumers inspect every chromosome's component paths and small headers before loading operators. Independent defects at each gate are reported together with machine-readable repair diagnostics. Alignment, identity cleanup, and post-filter support are later content-dependent checks; a successful path gate does not guarantee a valid scientific dataset. See [staged validation and progress](docs/current/workflow-logging.md#staged-input-validation) and [repair guidance](docs/troubleshooting.md#staged-input-validation).
+Input validation is separate from output-overwrite protection. Direct LD scores validate reference inputs before annotation staging; gene-index and R2 builders check companion and auxiliary declarations together. Index consumers inspect every chromosome's component paths and small headers before loading operators. Independent defects at each gate are reported together with machine-readable repair diagnostics. Alignment, identity cleanup, and post-filter support are later content-dependent checks; a successful path gate does not guarantee a valid scientific dataset. See [staged validation and progress](docs/current/workflow-logging.md#staged-input-validation) and [repair guidance](docs/user-guide/troubleshooting.md#staged-input-validation).
 
 ## Output Collision Policy
 
@@ -464,7 +464,7 @@ For workflows that accept `--output-dir` or `output_dir`, the value is always a 
 - per-run log files are preflighted with the scientific outputs, so a collision
   fails before a new log is opened
 
-Gene-index retries accept an output directory containing only `RUN_FAILED.txt` and recognized legacy build diagnostics. The marker remains until successful publication; unrelated contents still block replacement. See [gene-index retry guidance](docs/troubleshooting.md#build-gene-ldscore-index-output-directory-is-nonempty-but-invalid).
+Gene-index retries accept an output directory containing only `RUN_FAILED.txt` and recognized legacy build diagnostics. The marker remains until successful publication; unrelated contents still block replacement. See [gene-index retry guidance](docs/user-guide/troubleshooting.md#build-gene-ldscore-index-output-directory-is-nonempty-but-invalid).
 
 Failure markers, logs, audits, scratch, and result files use the same normalized destination, including `~` and environment-variable expansion. A root failure marker does not count as a scientific output collision. See [workflow logging](docs/current/workflow-logging.md) for the marker lifecycle and [`test_output_directory_retries.py`](tests/test_output_directory_retries.py) for coverage across commands.
 

@@ -74,7 +74,7 @@ def target_chunks(paths, target_annotation, missing_token):
                 f"quantile-h2 could not parse target annotation '{path}': {exc}. "
                 "Check its text encoding, table columns, CHR labels, and numeric POS coordinates; "
                 "supply the intended table with --target-annot-sources. "
-                "See docs/troubleshooting.md#quantile-h2-target-values-are-invalid-or-quantiles-are-empty."
+                "See docs/user-guide/troubleshooting.md#quantile-h2-target-values-are-invalid-or-quantiles-are-empty."
             ) from exc
 
 

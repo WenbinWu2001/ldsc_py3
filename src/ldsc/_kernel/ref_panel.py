@@ -56,7 +56,7 @@ from .snp_identity import (
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
 _REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORECASE)
-_REF_PANEL_ARTIFACT_DOC = "docs/troubleshooting.md#build-r2-panel-reference-panel-artifact-is-incompatible"
+_REF_PANEL_ARTIFACT_DOC = "docs/user-guide/troubleshooting.md#build-r2-panel-reference-panel-artifact-is-incompatible"
 
 
 def _snp_id_series_for_matching(metadata: pd.DataFrame, snp_identifier: str, *, context: str) -> pd.Series:

@@ -170,6 +170,6 @@ An unused `.w` file alongside a complete recognized family does not invalidate t
 ## References
 
 - [Conversion contract](../docs/reference/formats/legacy-ldscores.md): counts, identity, schemas, discovery, and provenance.
-- [Troubleshooting](../docs/troubleshooting.md#convert-ldsc2-ldscores): repair guidance for rejected suites.
+- [Troubleshooting](../docs/user-guide/troubleshooting.md#convert-ldsc2-ldscores): repair guidance for rejected suites.
 - [Concise utility wiki](../docs/wiki/utility-functionalities/convert-ldsc2-ldscores.md): standard names and flags.
 - [Implementation](../src/ldsc/legacy_ldscore_converter.py): `build_parser`, `_discover_ldscore_family`, `_discover_associated_family`, `_discover_frequency_family`, and `LegacyLDScoreConverter.convert` define the behavior described here.

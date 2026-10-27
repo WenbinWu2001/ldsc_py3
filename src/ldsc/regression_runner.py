@@ -132,7 +132,7 @@ PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE = (
     "annotation such as the synthetic `base`), which has no overlap matrix and cannot be "
     "partitioned -- regenerate it with two or more annotation columns. It may also predate the "
     "overlap sidecar; if so, regenerate with the current `ldsc ldscore`. "
-    "Other causes & fixes: docs/troubleshooting.md#partitioned-h2-missing-overlap-matrix"
+    "Other causes & fixes: docs/user-guide/troubleshooting.md#partitioned-h2-missing-overlap-matrix"
 )
 FAILED_RG_NOTE = "Failed; see rg_full.tsv error column; use --output-dir for diagnostics/rg.log."
 REGRESSION_IDENTITY_KEY_COLUMN = "_ldsc_regression_identity_key"
@@ -146,7 +146,7 @@ LEGACY_SUMSTATS_DROP_COLUMNS = [
     "panel_candidate_count",
 ]
 _REGRESSION_NO_OVERLAP_DOC = (
-    "docs/troubleshooting.md#regression-no-snps-remain-after-merging-regression-inputs"
+    "docs/user-guide/troubleshooting.md#regression-no-snps-remain-after-merging-regression-inputs"
 )
 
 

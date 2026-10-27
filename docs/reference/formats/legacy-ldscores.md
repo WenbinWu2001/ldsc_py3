@@ -207,7 +207,7 @@ warnings remain regression concerns.
 
 ## Conversion Diagnostics
 
-Filename-related failures include the relevant accepted pattern and explain how to restore missing shards, rename misnamed copies, or organize different releases into separate directories. The shared workflow failure footer records the exception and its remedy in `diagnostics/convert-ldsc2-ldscores.log`, including at `--log-level ERROR`; the issue table also records the exception as `conversion_error`. This applies after the workflow log has opened. Invalid directory arguments and output collisions detected before logging are reported to the caller and may not produce a new log. See the [troubleshooting naming table](../../troubleshooting.md#convert-ldsc2-ldscores).
+Filename-related failures include the relevant accepted pattern and explain how to restore missing shards, rename misnamed copies, or organize different releases into separate directories. The shared workflow failure footer records the exception and its remedy in `diagnostics/convert-ldsc2-ldscores.log`, including at `--log-level ERROR`; the issue table also records the exception as `conversion_error`. This applies after the workflow log has opened. Invalid directory arguments and output collisions detected before logging are reported to the caller and may not produce a new log. See the [troubleshooting naming table](../../user-guide/troubleshooting.md#convert-ldsc2-ldscores).
 
 Conversion errors state the violated invariant, source role and file,
 chromosome or annotation when applicable, affected-SNP count, and a bounded

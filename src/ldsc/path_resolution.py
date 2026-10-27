@@ -45,10 +45,10 @@ ANNOTATION_SUFFIXES = ("", ".annot.gz", ".annot", ".txt.gz", ".txt", ".tsv.gz", 
 PARQUET_SUFFIXES = ("", ".parquet")
 FREQUENCY_SUFFIXES = ("", ".frq.gz", ".frq", ".txt.gz", ".txt", ".tsv.gz", ".tsv")
 _INPUT_PATH_TROUBLESHOOTING = (
-    "docs/troubleshooting.md#common-input-path-did-not-resolve-to-one-file"
+    "docs/user-guide/troubleshooting.md#common-input-path-did-not-resolve-to-one-file"
 )
 _OUTPUT_COLLISION_TROUBLESHOOTING = (
-    "docs/troubleshooting.md#common-output-artifact-already-exists"
+    "docs/user-guide/troubleshooting.md#common-output-artifact-already-exists"
 )
 
 

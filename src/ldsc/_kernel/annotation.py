@@ -16,7 +16,7 @@ import pandas as pd
 
 from ..errors import LDSCInputError
 
-_ANNOTATION_VALUES_DOC = "docs/troubleshooting.md#ldscore-annotation-values-are-malformed"
+_ANNOTATION_VALUES_DOC = "docs/user-guide/troubleshooting.md#ldscore-annotation-values-are-malformed"
 
 
 def _read_text_table(path: str) -> pd.DataFrame:

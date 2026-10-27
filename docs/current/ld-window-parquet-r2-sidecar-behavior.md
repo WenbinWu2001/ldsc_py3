@@ -90,7 +90,7 @@ For PLINK, `--ld-wind-cm` additionally rejects an *unusable* `.bim` `CM` (fewer
 than two distinct finite values per chromosome) with a dedicated error that
 `--yes-really` does not bypass; supply `--genetic-map-hg19-sources` /
 `--genetic-map-hg38-sources` to interpolate `CM` at the `.bim` positions. See
-`docs/troubleshooting.md#ldscore-unusable-cm-for-ld-wind-cm`.
+`docs/user-guide/troubleshooting.md#ldscore-unusable-cm-for-ld-wind-cm`.
 
 For `--ld-wind-cm`, the check is strict: every retained SNP must have a
 non-missing `CM`. If any retained row has missing `CM`, chromosome computation

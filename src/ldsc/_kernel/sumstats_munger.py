@@ -540,7 +540,7 @@ def _raise_sumstats_restriction_empty(restriction, *, input_rows=None, usable_ro
         f"Keep-list file: {restriction.path}. snp_identifier={restriction.mode}; genome_build={build_label}; "
         f"input rows before filtering={input_rows}; usable row identifiers={usable_rows}; "
         f"keep-list identifiers={len(restriction.identifiers)}.{drop_details} "
-        "Other causes & fixes: docs/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering"
+        "Other causes & fixes: docs/user-guide/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering"
     )
 
 
@@ -724,7 +724,7 @@ def munge_sumstats(request: ResolvedMungeInput) -> MungeResult:
             "Check the mapped input columns, --info-min/--maf-min, the reported QC counts, and the selected SNP restriction. "
             "Correct unintended settings; changing an intended threshold or restriction changes the analysis. "
             "Earlier QC and restriction removals are not individual rows in the dropped-SNP sidecar. "
-            "Other causes & fixes: docs/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering"
+            "Other causes & fixes: docs/user-guide/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering"
         )
 
     dat = dat.reset_index(drop=True)

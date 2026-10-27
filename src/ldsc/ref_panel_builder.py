@@ -89,9 +89,9 @@ from ._kernel.liftover import (
 LOGGER = logging.getLogger("LDSC.ref_panel_builder")
 _GENETIC_MAP_SUFFIXES = ("", ".txt", ".txt.gz", ".tsv", ".tsv.gz", ".csv", ".csv.gz")
 _TABLE_SUFFIXES = ("", ".txt", ".txt.gz", ".tsv", ".tsv.gz", ".csv", ".csv.gz")
-_BUILD_REF_PANEL_EMPTY_DOC = "docs/troubleshooting.md#build-r2-panel-no-reference-panel-artifacts-were-produced"
+_BUILD_REF_PANEL_EMPTY_DOC = "docs/user-guide/troubleshooting.md#build-r2-panel-no-reference-panel-artifacts-were-produced"
 _BUILD_REF_PANEL_LIFTOVER_DOC = (
-    "docs/troubleshooting.md#build-r2-panel-liftover-or-genetic-map-configuration-is-incomplete"
+    "docs/user-guide/troubleshooting.md#build-r2-panel-liftover-or-genetic-map-configuration-is-incomplete"
 )
 
 

@@ -182,14 +182,14 @@ def _trait_h2_labels(
         raise LDSCInputError(
             "h2_per_trait.tsv requires a nonempty trait_name for every row."
             " Restore the original single-trait h2 table from this rg run. See "
-            "docs/troubleshooting.md#plot-rg-heritability-source-is-invalid."
+            "docs/user-guide/troubleshooting.md#plot-rg-heritability-source-is-invalid."
         )
     duplicates = names[names.duplicated()].unique().tolist()
     if duplicates:
         raise LDSCInputError(
             "h2_per_trait.tsv contains duplicate trait rows: " + ", ".join(duplicates) + ". "
             "Restore the original single-trait h2 table from this rg run. "
-            "See docs/troubleshooting.md#plot-rg-heritability-source-is-invalid."
+            "See docs/user-guide/troubleshooting.md#plot-rg-heritability-source-is-invalid."
         )
     for name, estimate, standard_error in zip(names, table["total_h2_obs"], table["total_h2_obs_se"]):
         if name not in labels:

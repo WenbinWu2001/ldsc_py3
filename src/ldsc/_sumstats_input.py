@@ -378,7 +378,7 @@ def prepare_munge_input(
                 f"munge-sumstats could not map the required column '{c}' from the header of '{source_path}'. "
                 f"Available columns: {available}. Most likely the file uses an unrecognized name for it. "
                 "Pass the matching column flag or rename the column. Other causes & fixes: "
-                "docs/troubleshooting.md#munge-sumstats-could-not-map-a-required-column"
+                "docs/user-guide/troubleshooting.md#munge-sumstats-could-not-map-a-required-column"
             )
 
     # check aren't any duplicated column names in mapping

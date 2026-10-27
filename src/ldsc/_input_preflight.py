@@ -30,7 +30,7 @@ class InputGate:
     issues_path: Path | None = None
     issues: list = field(default_factory=list)
     causes: list[Exception] = field(default_factory=list, repr=False)
-    troubleshooting: str = 'docs/troubleshooting.md#staged-input-validation'
+    troubleshooting: str = 'docs/user-guide/troubleshooting.md#staged-input-validation'
 
     def check(self, role, source, operation, *, chrom=''):
         """Retain a check's value or record its typed error, repair, and original cause."""

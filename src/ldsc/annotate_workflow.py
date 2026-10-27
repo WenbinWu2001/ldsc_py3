@@ -66,7 +66,7 @@ def _gate_a_error(batch, naming_error=None):
     issues.extend(samples)
     if naming_error:
         issues.append(str(naming_error))
-    return LDSCInputError(f'Gene-list catalog preflight rejected {rejected} submitted row(s). ' + '; '.join(issues) + '. Complete diagnostics: diagnostics/gene_list_audit.tsv.gz and diagnostics/gene_list_resolution_summary.tsv. Repair the listed inputs and rerun. Other causes & fixes: docs/troubleshooting.md#annotate-gene-list-preflight')
+    return LDSCInputError(f'Gene-list catalog preflight rejected {rejected} submitted row(s). ' + '; '.join(issues) + '. Complete diagnostics: diagnostics/gene_list_audit.tsv.gz and diagnostics/gene_list_resolution_summary.tsv. Repair the listed inputs and rerun. Other causes & fixes: docs/user-guide/troubleshooting.md#annotate-gene-list-preflight')
 
 
 @materializing_overwrite_guard(lambda *args, **kwargs: (kwargs.get('output_dir'), kwargs.get('overwrite', False), 'RUN_FAILED.txt') if kwargs.get('output_dir') else None, command='run_annotate(...)')

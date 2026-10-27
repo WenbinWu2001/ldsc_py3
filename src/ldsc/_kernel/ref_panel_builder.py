@@ -38,7 +38,7 @@ from .snp_identity import (
 
 LOGGER = logging.getLogger("LDSC.ref_panel_builder.kernel")
 _BUILD_REF_PANEL_LIFTOVER_DOC = (
-    "docs/troubleshooting.md#build-r2-panel-liftover-or-genetic-map-configuration-is-incomplete"
+    "docs/user-guide/troubleshooting.md#build-r2-panel-liftover-or-genetic-map-configuration-is-incomplete"
 )
 # Text format of float columns (CM, MAF) in every reference-metadata sidecar.
 SIDECAR_FLOAT_FORMAT = "%.9g"

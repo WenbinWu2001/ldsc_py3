@@ -84,7 +84,7 @@ Each entry identifies its flag, file or shard, and evidence or failure reason.
 For verified unlabeled inputs, use the suggested concrete build option.
 Conflicting declarations must be repaired before rerunning; the build option cannot override them.
 Commands without a build override, such as regression and quantile analysis, require matching upstream artifacts.
-See the [full policy and command scopes](../../reference/snp-identity-and-genome-build.md#genome-build-policy) and [grouped error examples](../../troubleshooting.md#common-genome-build-consistency-check-failed).
+See the [full policy and command scopes](../../reference/snp-identity-and-genome-build.md#genome-build-policy) and [grouped error examples](../troubleshooting.md#common-genome-build-consistency-check-failed).
 
 ## Input paths
 

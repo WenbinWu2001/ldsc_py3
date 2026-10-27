@@ -137,7 +137,7 @@ class GenomeBuildInferenceTest(unittest.TestCase):
         self.assertIn("Most likely", message)
         self.assertIn("Pass --genome-build hg19 or --genome-build hg38", message)
         self.assertIn(
-            "docs/troubleshooting.md#common-genome-build-could-not-be-inferred",
+            "docs/user-guide/troubleshooting.md#common-genome-build-could-not-be-inferred",
             message,
         )
 
@@ -209,7 +209,7 @@ class TestResolveGenomeBuild(unittest.TestCase):
             module.resolve_genome_build("auto", "chr_pos", frame, context="test")
         self.assertIn("--genome-build", str(ctx.exception))
         self.assertIn("Most likely", str(ctx.exception))
-        self.assertIn("docs/troubleshooting.md#common-genome-build-could-not-be-inferred", str(ctx.exception))
+        self.assertIn("docs/user-guide/troubleshooting.md#common-genome-build-could-not-be-inferred", str(ctx.exception))
 
     def test_auto_logs_inference_summary(self):
         module = _load_module(self)

@@ -95,9 +95,9 @@ from .regions import RegionIntervals, region_exclusion_keep_mask
 
 LOGGER = logging.getLogger("LDSC.ldscore")
 _LDSCORE_INTERSECTION_DOC = (
-    "docs/troubleshooting.md#ldscore-no-annotation-snps-remain-after-reference-panel-intersection"
+    "docs/user-guide/troubleshooting.md#ldscore-no-annotation-snps-remain-after-reference-panel-intersection"
 )
-_LDSCORE_PARQUET_DOC = "docs/troubleshooting.md#ldscore-parquet-r2-input-is-incompatible"
+_LDSCORE_PARQUET_DOC = "docs/user-guide/troubleshooting.md#ldscore-parquet-r2-input-is-incompatible"
 # K bounds buffered pairs; CSR construction and projection add working arrays.
 _CSR_CHUNK_PAIRS = 16_000_000
 REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP")
@@ -707,7 +707,7 @@ def assert_cm_usable(cm: pd.Series, chrom: str) -> None:
             "genetic-map positions: pass a PLINK `.bim` with informative CM, add "
             "`--genetic-map-hg38-sources` / `--genetic-map-hg19-sources` for the panel's "
             "build, or use `--ld-wind-kb` / `--ld-wind-snps`. "
-            "See docs/troubleshooting.md#ldscore-unusable-cm-for-ld-wind-cm."
+            "See docs/user-guide/troubleshooting.md#ldscore-unusable-cm-for-ld-wind-cm."
         )
 
 

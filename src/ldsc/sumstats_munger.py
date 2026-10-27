@@ -104,10 +104,10 @@ _SUMSTATS_OUTPUT_FORMATS = {"parquet", "tsv.gz", "both"}
 _RAW_SUMSTATS_FORMATS = {"auto", "plain", "daner-old", "daner-new"}
 _SUMSTATS_PARQUET_COMPRESSION = "snappy"
 _REQUIRED_COLUMN_TROUBLESHOOTING = (
-    "docs/troubleshooting.md#munge-sumstats-could-not-map-a-required-column"
+    "docs/user-guide/troubleshooting.md#munge-sumstats-could-not-map-a-required-column"
 )
 _CURATED_ARTIFACT_TROUBLESHOOTING = (
-    "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated"
+    "docs/user-guide/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated"
 )
 
 

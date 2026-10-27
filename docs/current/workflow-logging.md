@@ -122,7 +122,7 @@ Bound the primary list when a complete table is available; do not replace specif
 The shared staged input gate shows at most 10 representative issues after writing the complete repair table.
 When no complete table was written, it retains every issue in the primary error.
 
-Use the existing [troubleshooting reference](../troubleshooting.md) for run-aborting errors with at least three distinct plausible causes.
+Use the existing [troubleshooting reference](../user-guide/troubleshooting.md) for run-aborting errors with at least three distinct plausible causes.
 Organize entries by the command the user runs, using `Common` for failures shared across commands and plain-language headings.
 Rank causes by available evidence and pair each with a concrete check and remedy.
 Simple one- or two-cause errors should be explained in the message without creating a separate reference entry.

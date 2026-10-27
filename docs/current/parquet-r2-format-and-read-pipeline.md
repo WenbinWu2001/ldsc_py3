@@ -185,6 +185,8 @@ The sidecar (`chrN_meta.tsv.gz`) is the per-SNP table for the whole panel and
 **defines the index space**: parquet `IDX_k` is a 0-based row number into it. It
 is a gzip TSV with `# ldsc:*` identity-provenance comments followed by columns
 `CHR, POS, SNP, A1, A2, CM, MAF` (one row per SNP, in build/position order).
+`CM` and `MAF` are written with 9 significant digits (`SIDECAR_FLOAT_FORMAT` in `_kernel/ref_panel_builder.py`).
+`build-r2-panel` computes its cM window from `CM` rounded to that precision, so the stored pairs match the window `ldscore` rebuilds from the sidecar.
 
 The sidecar is **required**. Because the parquet stores only indices, it is
 meaningless without the exact sidecar; there is no synthesize-from-parquet

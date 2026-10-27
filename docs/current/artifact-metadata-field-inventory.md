@@ -84,6 +84,7 @@ is neither a self-describing LDSC3 artifact nor an LDSC2 compatibility format.
 | `ldsc:snp_identifier` | SNP identity mode used when the munged artifact was written. | Recovered for regression compatibility checks. |
 | `ldsc:genome_build` | Final output genome build for coordinate-family identity modes; empty (`null`) for rsID-family modes because rsID identity is build-independent. | Recovered for the regression genome-build check when known. |
 | `ldsc:trait_name` | Trait label from the raw sumstats config, when supplied; empty otherwise. | Used for output labels, not compatibility. |
+| `ldsc:qc_info_min`, `ldsc:qc_maf_min` | Effective INFO and MAF thresholds of the munge run; empty when that filter was not applied. `SumstatsMunger.write_output` keeps them for a table returned by `run` and omits them otherwise. | Provenance only; not read. |
 
 ### Sumstats `diagnostics/dropped_snps/dropped.tsv.gz`
 

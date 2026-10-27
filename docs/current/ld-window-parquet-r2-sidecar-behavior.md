@@ -62,8 +62,12 @@ A panel stores only the SNP pairs inside the window it was built with, recorded 
 | Different unit (for example a kb panel and `--ld-wind-snps`) | `LDSCUsageError` ("windows in different units cannot be checked for coverage"). |
 
 The CLI checks every selected chromosome file in the header preflight, before pair scans, annotation preparation, or any LD-score computation.
-`ParquetR2RefPanel.prepare_chromosome` repeats the check per chromosome because the `LDScoreCalculator` Python API skips that preflight.
+The `LDScoreCalculator.run` Python API runs the same footer and sidecar checks for every chromosome before computing any, and lists all issues in one `LDSCInputError`.
+`ParquetR2RefPanel.prepare_chromosome` repeats the window check for each chromosome it prepares, such as through `LDScoreCalculator.compute_chromosome`.
 A different-unit window is rejected even when the panel happens to cover it, because coverage is not inferred from per-SNP coordinates.
+Sidecars store `CM` and `MAF` with 9 significant digits, and `build-r2-panel` chooses the pairs to store from the `CM` values as stored.
+`ldscore` rebuilds its window from those same values, so in every window unit a window no wider than the panel's never needs a pair the panel did not store.
+A PLINK `--ld-wind-cm` run matches a parquet cM run only when both use the same `CM` values: `.bim` column 3, or the genetic map the panel was built with.
 See `validate_ldscore_window_within_r2_panel_window` in `src/ldsc/_kernel/ldscore.py` and `inspect_r2_headers` in `src/ldsc/_input_preflight.py`.
 
 ### `--ld-wind-snps` counts panel rows
@@ -74,8 +78,10 @@ When the run keeps fewer SNPs than the panel (ldscore `--maf-min`, `--ref-panel-
 The PLINK backend counts the SNPs the run keeps, as LDSC2 did, so the two backends then differ for the same flags.
 Each such run logs one warning with the number of affected chromosomes, one example with its kept and panel SNP counts, and the location of the per-chromosome counts.
 Every parquet `--ld-wind-snps` run writes `diagnostics/ld_window_snp_counts.tsv` with `CHR`, `panel_snps`, `kept_snps`, `ld_wind_snps`, and `counting_basis` (`panel_rows`), listed in `metadata.json` `files`.
-Kept SNPs must be in sidecar row order; several SNPs at one position listed in a different order from the sidecar stop the run with an `LDSCInputError`.
-See `build_window_coordinates` in `src/ldsc/_kernel/ldscore.py` and `_ld_window_snp_counts` in `src/ldsc/ldscore_calculator.py`.
+SNPs that share a position may be listed in another order than the sidecar; `ParquetR2RefPanel.prepare_chromosome` computes them in sidecar row order, and output rows are sorted by `CHR`, `POS`, then `SNP` as usual.
+Output order then matches the annotation-order run only because SNPs that share `CHR`, `POS`, and `SNP` never reach computation: the identity policy drops them as duplicate or multi-allelic.
+If that policy changes to retain such SNPs, they would be written in sidecar order, and `prepare_chromosome` would also need to return them to annotation order.
+See `build_window_coordinates` in `src/ldsc/_kernel/ldscore.py`, `ParquetR2RefPanel.prepare_chromosome` in `src/ldsc/_kernel/ref_panel.py`, and `_ld_window_snp_counts` in `src/ldsc/ldscore_calculator.py`.
 
 **`CM`/`MAF` are always reference-panel-sourced.** Annotation `CM`/`MAF` are
 ignored; for the parquet backend the sidecar is authoritative, and the PLINK

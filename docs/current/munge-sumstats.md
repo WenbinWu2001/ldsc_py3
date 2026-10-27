@@ -187,6 +187,7 @@ sidecar is written.
 | `ldsc:snp_identifier` | Identity mode used when writing the artifact. |
 | `ldsc:genome_build` | Final output build in coordinate-family modes; empty for rsID-family modes (decoded as `null`). |
 | `ldsc:trait_name` | Optional biological trait label supplied by the user; empty otherwise. |
+| `ldsc:qc_info_min`, `ldsc:qc_maf_min` | Effective INFO and MAF thresholds of the munge run; empty when that filter was not applied because its column was absent. Readers ignore them. `SumstatsMunger.write_output` copies them from a table returned by `run` and omits them for a table built by hand or loaded from disk, whose thresholds are unknown. |
 
 The same compatibility state is attached to in-memory results as
 `SumstatsTable.config_snapshot`.

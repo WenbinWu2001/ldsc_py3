@@ -115,6 +115,7 @@ Performance behavior for canonical parquet R2 input:
 Unlike legacy LDSC, which widened each SNP's LD window to a multiple of `--chunk-size` and so only approximated the requested window, `ldsc` sums exactly the SNP pairs inside the requested window for both PLINK and parquet input.
 PLINK LD scores therefore do not depend on the batch size, and they equal legacy LDSC run with `--chunk-size 1`.
 Parquet LD scores apply the same window rule but differ slightly from PLINK, because parquet R² is stored as int16 and a parquet `--ld-wind-snps` window counts panel rows rather than retained SNPs.
+A cM window also differs when the panel's `CM`, interpolated from a genetic map, differs from the `.bim` `CM` the PLINK run uses.
 See [Exact PLINK LD windows](../docs/current/legacy-cli-flag-map.md#exact-plink-ld-windows) for the measured difference from published LDSC2 LD scores.
 
 ## Case 1: Ordinary Unpartitioned LD Scores

@@ -1,6 +1,6 @@
 # SNP Identifier / Genome Build: Default Design
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 ## Standalone build inspection
 
@@ -232,6 +232,7 @@ clusters.
 
 Multi-allelic base-key clusters are dropped because allele-aware modes exist for safer merging, not for retaining multi-allelic sites.
 Computing LD scores over retained same-position clusters would need its own design for same-position pair semantics, LD-window traversal, and R2 endpoint indexing.
+That design must also revisit the parquet `--ld-wind-snps` ordering of same-position SNPs, which relies on this drop; see [`--ld-wind-snps` counts panel rows](ld-window-parquet-r2-sidecar-behavior.md#--ld-wind-snps-counts-panel-rows).
 
 ### Validity table
 

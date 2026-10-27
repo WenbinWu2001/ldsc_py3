@@ -75,6 +75,7 @@ LDSC2's own code comment notes that these windows differ from the definition in 
 The current PLINK backend keeps the chunked computation but drops every pair outside the requested window, so `--snp-batch-size` in `ldsc ldscore` and `ldsc build-gene-ldscore-index` changes only speed and memory.
 Its LD scores equal LDSC2 run with `--chunk-size 1` and use the same window rule as the parquet-R2 backend, which always used exact windows.
 The two backends still differ slightly, because parquet R² is stored as int16 and a parquet `--ld-wind-snps` window counts panel rows rather than retained SNPs.
+A cM window also differs when the panel's `CM`, interpolated from a genetic map, differs from the `.bim` `CM` the PLINK run uses.
 Gene LD-score indexes built with the earlier rounded windows (`format_version` 2) are rejected and must be rebuilt.
 Published LDSC2 LD scores remain usable unchanged through `ldsc convert-ldsc2-ldscores`.
 

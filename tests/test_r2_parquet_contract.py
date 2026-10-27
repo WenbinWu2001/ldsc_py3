@@ -71,6 +71,8 @@ DEFECTS = {
     "raw bias": (dict(set_meta={b"ldsc:r2_bias": b"raw"}), "ldsc:r2_bias"),
     "missing n": (dict(drop=[b"ldsc:n_samples"]), "ldsc:n_samples"),
     "nonpositive n": (dict(set_meta={b"ldsc:n_samples": b"0"}), "ldsc:n_samples"),
+    # The unbiased correction divides by n - 2, so fewer than 3 samples cannot be decoded.
+    "two samples": (dict(set_meta={b"ldsc:n_samples": b"2"}), "ldsc:n_samples"),
     "missing window": (dict(drop=[b"ldsc:ld_window_mode", b"ldsc:ld_window_value"]), "ldsc:ld_window_mode"),
     "missing pair floor": (dict(drop=[b"ldsc:min_r2"]), "ldsc:min_r2"),
     "non-numeric pair floor": (dict(set_meta={b"ldsc:min_r2": b"none"}), "ldsc:min_r2"),
@@ -125,6 +127,29 @@ def test_one_error_lists_every_defect_of_every_file(tmp_path):
         R2Panel.open(root, genome_build="hg19")
     _assert_contract_error(failure.value, first, "ldsc:r2_scale", "ldsc:r2_bias")
     _assert_contract_error(failure.value, second, "ldsc:n_samples")
+
+
+def test_unreadable_file_is_reported_with_the_other_files_defects(tmp_path):
+    root = tmp_path / "hg19"
+    first, second = _write_panel(root, "1"), _write_panel(root, "2")
+    first.write_bytes(b"not a parquet file")
+    _rewrite(second, drop=[b"ldsc:r2_scale"])
+    for open_panel in (lambda: inspect_r2_headers(root, "hg19"), lambda: R2Panel.open(root, genome_build="hg19")):
+        with pytest.raises(LDSCInputError) as failure:
+            open_panel()
+        _assert_contract_error(failure.value, first, "cannot be read as parquet")
+        _assert_contract_error(failure.value, second, "ldsc:r2_scale")
+
+
+def test_query_r2_panel_rejects_chromosomes_with_different_sample_sizes(tmp_path):
+    # query-r2 converts unbiased R2 back to r with each panel's sample size, so
+    # chromosome files from runs with different samples cannot form one panel.
+    root = tmp_path / "hg19"
+    _write_panel(root, "1")
+    second = _write_panel(root, "2")
+    _rewrite(second, set_meta={b"ldsc:n_samples": b"5000"})
+    with pytest.raises(LDSCInputError, match=r"different sample sizes \(ldsc:n_samples 100, 5000\)"):
+        R2Panel.open(root, genome_build="hg19")
 
 
 def test_writer_output_satisfies_contract_and_decodes_exactly(tmp_path):

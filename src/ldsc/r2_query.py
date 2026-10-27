@@ -211,12 +211,17 @@ class R2Panel:
 
         contracts = dict(zip(paths, read_r2_parquet_contracts([r2 for _, r2 in paths.values()])))
         panel_modes = sorted({contract.snp_identifier for contract in contracts.values()})
+        sample_sizes = sorted({contract.n_samples for contract in contracts.values()})
+        mixed = []
         if len(panel_modes) > 1:
+            mixed.append(f"different SNP identifier modes ({', '.join(panel_modes)})")
+        if len(sample_sizes) > 1:
+            mixed.append(f"different sample sizes (ldsc:n_samples {', '.join(map(str, sample_sizes))})")
+        if mixed:
             raise LDSCInputError(
                 f"Could not open R2 reference panel '{panel_dir}': its chromosome files record "
-                f"different SNP identifier modes ({', '.join(panel_modes)}). Most likely files from "
-                "different build-r2-panel runs were combined. Use one complete panel directory "
-                "or regenerate the panel."
+                f"{' and '.join(mixed)}. Most likely files from different build-r2-panel runs were "
+                "combined. Use one complete panel directory or regenerate the panel."
             )
         panel_mode = panel_modes[0]
         mode = panel_mode if snp_identifier is None else normalize_snp_identifier_mode(snp_identifier)
@@ -249,7 +254,7 @@ class R2Panel:
 
     @property
     def n_samples(self) -> int:
-        """Reference sample size recorded by the first chromosome's parquet."""
+        """Reference sample size, which :meth:`open` requires to agree across chromosome files."""
         return next(iter(self._contracts.values())).n_samples
 
     def _chrom_state(self, chrom: str) -> _ChromState:

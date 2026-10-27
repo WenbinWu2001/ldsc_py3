@@ -874,9 +874,10 @@ class ReferencePanelBuildConfig:
             raise LDSCConfigError(_range_message("ReferencePanelBuildConfig", "maf_min", self.maf_min, "[0, 0.5]"))
         if self.snp_batch_size <= 0:
             raise LDSCConfigError(_positive_number_message("ReferencePanelBuildConfig", "snp_batch_size", self.snp_batch_size))
-        if self.min_r2 > 1:
+        if not math.isfinite(self.min_r2) or self.min_r2 > 1:
             raise LDSCConfigError(
-                f"Could not construct ReferencePanelBuildConfig: min_r2={self.min_r2!r} must not exceed 1. "
+                f"Could not construct ReferencePanelBuildConfig: min_r2={self.min_r2!r} must be a finite "
+                "number no greater than 1. "
                 "Most likely an R2 percentage or invalid threshold was supplied. "
                 "Use a decimal threshold in [0, 1]."
             )

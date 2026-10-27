@@ -540,7 +540,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             _write_canonical_r2_parquet(build_dir / "chr2_r2.parquet", chrom="2")
             _write_meta_sidecar(
                 build_dir / "chr1_meta.tsv.gz",
-                "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.8\n2\t30\trs3\t0.3\t0.4\n",
+                "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.2\n2\t30\trs3\t0.3\t0.4\n",
             )
             _write_meta_sidecar(build_dir / "chr2_meta.tsv.gz", "CHR\tBP\tSNP\tCM\tMAF\n2\t30\trs3\t0.3\t0.4\n")
             panel = ParquetR2RefPanel(
@@ -588,15 +588,20 @@ class ParquetRefPanelTest(unittest.TestCase):
             # MAF == 0.25 is retained (inclusive >=); 0.24 dropped.
             self.assertEqual(metadata["SNP"].tolist(), ["rs2", "rs3"])
 
-    def test_sidecar_metadata_rejects_missing_maf_values(self):
-        # build-r2-panel records MAF from genotypes for every sidecar row, so a
-        # missing value means the artifact was altered; it must never be read as
-        # "below threshold" or silently skip a requested --maf-min filter.
+    def test_sidecar_metadata_rejects_invalid_maf_values(self):
+        # build-r2-panel records MAF = freq(A1) <= 0.5 from genotypes for every
+        # sidecar row, so a missing or out-of-range value means the artifact was
+        # altered; it must never be read as "below threshold", folded into range,
+        # or silently skip a requested --maf-min filter.
         sidecars = {
             "partial": ("CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\tNA\n1\t30\trs3\t0.3\t0.4\n",
                         "1 of 3", "rs2"),
             "all": ("CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\tNA\n1\t20\trs2\t0.2\tNA\n",
                     "2 of 2", "rs1"),
+            "out_of_range": ("CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0\n1\t20\trs2\t0.2\t0.7\n"
+                             "1\t30\trs3\t0.3\t-0.2\n1\t40\trs4\t0.4\tinf\n1\t50\trs5\t0.5\t1.5\n"
+                             "1\t60\trs6\t0.6\t0.5\n",
+                             "4 of 6", "rs2, rs3, rs4, rs5"),
         }
         for label, (rows, count, example) in sidecars.items():
             for maf_min in (None, 0.25):
@@ -609,9 +614,29 @@ class ParquetRefPanelTest(unittest.TestCase):
                         RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir), maf_min=maf_min),
                     )
 
-                    with self.assertRaisesRegex(LDSCInputError, f"missing or non-numeric MAF for {count} SNP rows") as ctx:
+                    with self.assertRaisesRegex(
+                        LDSCInputError, f"missing, non-numeric, or out-of-range MAF for {count} SNP rows"
+                    ) as ctx:
                         panel.load_metadata("1")
                     self.assertIn(example, str(ctx.exception))
+
+    def test_sidecar_metadata_keeps_boundary_maf_values_unchanged(self):
+        # 0 (monomorphic) and 0.5 are the closed ends of the canonical MAF range.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
+            _write_meta_sidecar(
+                build_dir / "chr1_meta.tsv.gz",
+                "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0\n1\t20\trs2\t0.2\t0.5\n1\t30\trs3\t0.3\t0.25\n",
+            )
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            metadata = panel.load_metadata("1")
+
+            self.assertEqual(metadata["MAF"].tolist(), [0.0, 0.5, 0.25])
 
     def test_sidecar_metadata_loading_normalizes_float_chromosomes(self):
         with tempfile.TemporaryDirectory() as tmpdir:

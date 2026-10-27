@@ -148,7 +148,7 @@ class ChromComputationResult:
     ld_scores: np.ndarray
     w_ld: np.ndarray
     M: np.ndarray
-    M_5_50: np.ndarray | None
+    M_5_50: np.ndarray
     ldscore_columns: list[str]
     baseline_columns: list[str]
     query_columns: list[str]
@@ -830,7 +830,7 @@ def read_r2_parquet_contract(path) -> R2ParquetContract:
     Readers accept exactly what the writer produces: ``IDX_1``/``IDX_2``/
     ``R2``/``SIGN_R`` columns with an int16 ``R2``, the writer's
     ``ldsc:r2_encoding`` and ``ldsc:r2_scale``, already-unbiased values
-    (``ldsc:r2_bias="unbiased"``) with a positive ``ldsc:n_samples``, and
+    (``ldsc:r2_bias="unbiased"``) with an ``ldsc:n_samples`` of at least 3, and
     complete binding, identity, LD-window, and ``ldsc:min_r2`` metadata.
     Decoding is ``R2 = stored / r2_scale`` with no further correction. No
     value is defaulted; see :func:`read_r2_parquet_contracts` for the error.
@@ -880,7 +880,10 @@ def _check_r2_parquet_contract(path) -> tuple[R2ParquetContract | None, list[str
         ) from exc
     from .ref_panel_builder import R2_ENCODING, R2_QUANT_SCALE
 
-    schema = pq.read_schema(str(path))
+    try:
+        schema = pq.read_schema(str(path))
+    except (pa.ArrowException, OSError) as exc:
+        return None, [f"file cannot be read as parquet ({exc})"]
     raw = {key.decode("utf-8"): value.decode("utf-8", errors="replace")
            for key, value in (schema.metadata or {}).items()}
     problems: list[str] = []
@@ -914,7 +917,8 @@ def _check_r2_parquet_contract(path) -> tuple[R2ParquetContract | None, list[str
     text("r2_encoding", R2_ENCODING)
     r2_scale = parsed("r2_scale", float, lambda scale: scale == R2_QUANT_SCALE, repr(str(R2_QUANT_SCALE)))
     text("r2_bias", "unbiased")
-    n_samples = parsed("n_samples", int, lambda n: n > 0, "a positive integer")
+    # The writer's unbiased correction divides by n - 2, so it needs at least 3 samples.
+    n_samples = parsed("n_samples", int, lambda n: n >= 3, "an integer of at least 3")
     n_snps = parsed("n_snps", int, lambda n: n >= 0, "a nonnegative integer")
     identity_hash = text("sidecar_identity_sha256")
     sorted_by_build = parsed("sorted_by_build", normalize_genome_build, lambda build: build in {"hg19", "hg38"},
@@ -1295,20 +1299,25 @@ def compute_counts(
     metadata: pd.DataFrame,
     annotations: pd.DataFrame,
     common_maf_min: float = 0.05,
-) -> tuple[np.ndarray, np.ndarray | None]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
-    Compute LDSC-style annotation count vectors ``M`` and optional common counts.
+    Compute LDSC-style annotation count vectors ``M`` and common counts.
 
     ``M`` is the column-wise sum over the retained reference SNP universe.
     The common-count vector is the same sum restricted to rows with
     ``MAF >= common_maf_min`` (inclusive; deviates from legacy LDSC's strict
-    ``0.05 < FRQ < 0.95`` on canonical folded MAF) when MAF metadata is
-    available.
+    ``0.05 < FRQ < 0.95`` on canonical folded MAF). ``metadata`` must carry
+    MAF for every row; both reference-panel adapters guarantee it.
     """
+    if "MAF" not in metadata.columns or metadata["MAF"].isna().any():
+        raise LDSCInternalError(
+            "LD-score counts received reference metadata without MAF for every SNP, so the "
+            "common-SNP counts cannot be computed. Most likely a custom reference-panel adapter "
+            "dropped the MAF column or returned missing values. Supply MAF for every retained "
+            "SNP; for the built-in panels, re-run with DEBUG logging and report the traceback."
+        )
     annot_matrix = annotations.to_numpy(dtype=np.float32, copy=False)
     M = np.asarray(annot_matrix.sum(axis=0), dtype=np.float64)
-    if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
-        return M, None
     common = metadata["MAF"] >= common_maf_min
     M_5_50 = np.asarray(annot_matrix[common.to_numpy(), :].sum(axis=0), dtype=np.float64)
     return M, M_5_50

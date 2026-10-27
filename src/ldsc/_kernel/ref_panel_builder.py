@@ -740,10 +740,10 @@ def write_r2_parquet(
             "panel is too large for the current parquet format. Split the panel or reduce "
             "the retained SNP universe."
         )
-    if (ld_window_mode is None) != (ld_window_value is None):
+    if ld_window_mode is None or ld_window_value is None:
         raise LDSCInternalError(
             "build-r2-panel could not write R2 parquet LD-window metadata because "
-            "ld_window_mode and ld_window_value were not provided together. Most likely "
+            "ld_window_mode and ld_window_value were not both provided. Most likely "
             "the reference-panel builder passed an incomplete build-window record. "
             "Re-run with DEBUG logging and report the traceback."
         )

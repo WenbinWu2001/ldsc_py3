@@ -291,6 +291,15 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.maf_min, 0.01)
         self.assertEqual(config.keep_indivs_file, "filters/samples.keep")
 
+    def test_ref_panel_build_config_rejects_non_finite_min_r2(self):
+        # Readers require a finite ldsc:min_r2, so a non-finite floor must fail
+        # before a build instead of producing a panel no reader accepts.
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(min_r2=value), self.assertRaisesRegex(ldsc.LDSCConfigError, "min_r2"):
+                ReferencePanelBuildConfig(
+                    plink_prefix="plink/panel.@", output_dir="out", ld_wind_kb=100.0, min_r2=value
+                )
+
     def test_ref_panel_build_config_validates_required_fields(self):
         default_source = ReferencePanelBuildConfig(
             plink_prefix="plink/panel.@",

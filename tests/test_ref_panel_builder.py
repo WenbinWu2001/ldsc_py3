@@ -501,6 +501,20 @@ class StandardTableFormattingTest(unittest.TestCase):
             )
             self.assertEqual(pq.read_schema(str(filtered_path)).metadata[b"ldsc:min_r2"], b"0.3")
 
+    def test_write_r2_parquet_requires_ld_window_record(self):
+        # Readers reject panels without a build window, so the writer must not
+        # record a missing window as the text "None".
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for mode, value in (("kb", None), (None, 1000.0), (None, None)):
+                path = Path(tmpdir) / f"{mode}_{value}.parquet"
+                with self.subTest(mode=mode, value=value), self.assertRaisesRegex(LDSCInternalError, "ld_window_mode"):
+                    kernel_builder.write_r2_parquet(
+                        pair_chunks=dict_chunks([]), path=path, genome_build="hg19", n_samples=10,
+                        snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
+                        ld_window_mode=mode, ld_window_value=value,
+                    )
+                self.assertFalse(path.exists())
+
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
     def test_write_r2_parquet_records_ld_window_metadata(self):
         import pyarrow.parquet as pq

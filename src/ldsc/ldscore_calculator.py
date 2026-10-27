@@ -756,9 +756,10 @@ class LDScoreCalculator:
             axis=1,
         )
         ldscore_table = kernel_ldscore.sort_frame_by_genomic_position(ldscore_table)
-        count_map = {"all_reference_snp_counts": np.asarray(legacy_result.M, dtype=np.float64)}
-        if legacy_result.M_5_50 is not None:
-            count_map["common_reference_snp_counts"] = np.asarray(legacy_result.M_5_50, dtype=np.float64)
+        count_map = {
+            "all_reference_snp_counts": np.asarray(legacy_result.M, dtype=np.float64),
+            "common_reference_snp_counts": np.asarray(legacy_result.M_5_50, dtype=np.float64),
+        }
         baseline_table, query_table = _split_ldscore_table(
             ldscore_table,
             baseline_columns=list(legacy_result.baseline_columns),

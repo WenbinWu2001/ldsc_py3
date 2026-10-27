@@ -482,7 +482,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 backend=backend,
                 genome_build=genome_build,
                 plink_prefix=plink_prefix,
-                sample_size=None,
                 ref_panel_snps_file=None,
             )
         )
@@ -570,7 +569,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ld_scores=np.array([[1.0], [2.0]], dtype=np.float32),
             w_ld=np.array([[3.0], [4.0]], dtype=np.float32),
             M=np.array([2.0]),
-            M_5_50=None,
+            M_5_50=np.array([2.0]),
             ldscore_columns=["base"],
             baseline_columns=["base"],
             query_columns=[],
@@ -667,7 +666,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ld_scores=np.array([[1.0], [2.0]], dtype=np.float32),
             w_ld=np.array([[3.0], [4.0]], dtype=np.float32),
             M=np.array([2.0]),
-            M_5_50=None,
+            M_5_50=np.array([2.0]),
             ldscore_columns=["base"],
             baseline_columns=["base"],
             query_columns=[],
@@ -1331,6 +1330,19 @@ class LDScoreWorkflowTest(unittest.TestCase):
         # MAF == 0.05 is included (inclusive >=), so rows 0, 1 and 2 are common.
         np.testing.assert_allclose(M, [4.0, 3.0])
         np.testing.assert_allclose(M_5_50, [3.0, 2.0])
+
+    def test_compute_counts_rejects_metadata_without_complete_maf(self):
+        # Both reference adapters always supply MAF, so a gap means a custom or
+        # broken adapter; dropping the common counts would silently change the
+        # default regression counts.
+        annotations = pd.DataFrame({"base": [1.0, 1.0]})
+        for label, metadata in {
+            "no MAF column": pd.DataFrame({"SNP": ["rs1", "rs2"]}),
+            "all missing": pd.DataFrame({"MAF": [np.nan, np.nan]}),
+            "one missing": pd.DataFrame({"MAF": [0.2, np.nan]}),
+        }.items():
+            with self.subTest(label), self.assertRaisesRegex(LDSCInternalError, "MAF"):
+                kernel_ldscore.compute_counts(metadata, annotations)
 
     def test_count_config_records_inclusive_operator(self):
         from ldsc.ldscore_calculator import _count_config_from_ldscore_config

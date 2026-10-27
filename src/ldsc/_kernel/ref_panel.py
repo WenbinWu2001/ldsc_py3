@@ -793,18 +793,20 @@ def _read_metadata_table(
             "without allele-frequency values. Regenerate the panel with MAF metadata."
         )
     maf = pd.to_numeric(df[maf_col], errors="coerce").astype(float)
-    missing_maf = maf.isna()
-    if missing_maf.any():
+    # NaN fails both comparisons, so this also catches missing and non-numeric values.
+    invalid_maf = ~((maf >= 0.0) & (maf <= 0.5))
+    if invalid_maf.any():
         labels = out["SNP"] if "SNP" in out else out["CHR"].astype(str) + ":" + out["POS"].astype(str)
-        examples = ", ".join(labels[missing_maf].head(5))
+        examples = ", ".join(labels[invalid_maf].head(5))
         raise LDSCInputError(
-            f"Reference-panel metadata sidecar '{path}' has missing or non-numeric MAF for "
-            f"{int(missing_maf.sum())} of {len(maf)} SNP rows (first: {examples}). "
-            "`ldsc build-r2-panel` records MAF from genotypes for every row, so the sidecar "
-            "was most likely edited or produced by another tool. Regenerate the reference "
-            f"panel with the current `ldsc build-r2-panel`. Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
+            f"Reference-panel metadata sidecar '{path}' has missing, non-numeric, or out-of-range MAF for "
+            f"{int(invalid_maf.sum())} of {len(maf)} SNP rows (first: {examples}). "
+            "`ldsc build-r2-panel` records MAF as the minor-allele (A1) frequency, in [0, 0.5], "
+            "for every row, so the sidecar was most likely edited or produced by another tool. "
+            "Regenerate the reference panel with the current `ldsc build-r2-panel`. "
+            f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
         )
-    out["MAF"] = np.minimum(maf, 1.0 - maf)
+    out["MAF"] = maf
 
     a1_col = resolve_optional_column(df.columns, A1_COLUMN_SPEC, context=context)
     a2_col = resolve_optional_column(df.columns, A2_COLUMN_SPEC, context=context)

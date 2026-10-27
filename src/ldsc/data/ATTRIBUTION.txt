@@ -16,7 +16,7 @@ incomplete; the maintainer needs the original curation inputs and records.
 Do not label the complete table GPL, CC0, or public domain based solely on
 its inclusion in this software package or on the name HapMap3.
 
-docs/current/bundled-hm3-map-coordinate-validation.md records checks against
+docs/dev/validation/hm3-map-coordinates.md records checks against
 UCSC dbSNP 151 common tracks, Ensembl, and NCBI. Those checks establish
 coordinate evidence, not the complete table's source lineage or license.
 If original inputs are from IGSR/1000 Genomes, verify their dataset-specific
@@ -59,7 +59,7 @@ Credit the UCSC track producers and the genetic-map producers. The method
 follows the pericentromeric exclusion described in Bulik-Sullivan et al.
 (2015), DOI 10.1038/ng.3211. Source descriptions and derivation are in
 tools/regions/build_region_beds.py and
-docs/current/region-exclusion-presets.md, "Source of the coordinates".
+docs/reference/formats/region-exclusion-presets.md, "Source of the coordinates".
 
 The genetic maps themselves are not bundled. Their exact release, original
 download URL, and data-specific redistribution terms are not recorded in

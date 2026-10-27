@@ -6,7 +6,7 @@ Select resources that match the reference population, genome build, and intended
 
 | Resource | Preparation and contract |
 | --- | --- |
-| Packaged HapMap3 maps and exclusion regions | See [packaged resource notes](../../src/ldsc/data/readme.txt), [attribution](../../src/ldsc/data/ATTRIBUTION.txt), and [region presets](../current/region-exclusion-presets.md). |
+| Packaged HapMap3 maps and exclusion regions | See [packaged resource notes](../../src/ldsc/data/readme.txt), [attribution](../../src/ldsc/data/ATTRIBUTION.txt), and [region presets](../reference/formats/region-exclusion-presets.md). |
 | PLINK or R² reference panel | Supply a complete BED/BIM/FAM genotype trio or [build reusable R² tables](../wiki/main-functionalities/build-r2-panel.md). Keep each R² Parquet with its matching metadata sidecar. |
 | Baseline annotations | Supply the actual annotation files for direct query LD scoring or index construction. See [LD scoring](../wiki/main-functionalities/ldscore.md). |
 | Legacy LD-score suites | Use [explicit conversion](../wiki/utility-functionalities/convert-ldsc2-ldscores.md); precomputed scores are a different input from baseline annotation files. |

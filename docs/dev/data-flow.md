@@ -421,7 +421,7 @@ prefilter a custom regression list and pass it with `--regr-snps-file`.
 pruning is expressed only through `--ref-panel-snps-file`. Artifact
 `metadata.json` records the reference-universe policy separately from the
 regression-row/weight policy and its region-removal counts. See
-[`region-exclusion-presets.md`](../current/region-exclusion-presets.md) for coordinates
+[`region-exclusion-presets.md`](../reference/formats/region-exclusion-presets.md) for coordinates
 and migration guidance.
 
 ## 5. `munge-sumstats`: Raw GWAS Table To Curated Sumstats

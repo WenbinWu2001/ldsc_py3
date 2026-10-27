@@ -393,31 +393,7 @@ Do not pass source/output/liftover flags in rsID modes.
 
 ## Python API
 
-```python
-from ldsc import MungeConfig, SumstatsMunger
-
-sumstats = SumstatsMunger().run(
-    MungeConfig(
-        raw_sumstats_file="data/trait.tsv.gz",
-        source_genome_build="auto",
-        output_genome_build="hg38",
-        output_dir="outputs/trait_hg38",
-    )
-)
-```
-
-This configuration automatically maps packaged HM3 to the explicitly requested output build when necessary.
-
-To override automatic HM3 mapping, supply a chain file (also required for custom or unrestricted cross-build runs):
-
-```python
-MungeConfig(
-    raw_sumstats_file="data/trait.tsv.gz",
-    source_genome_build="hg19",
-    output_genome_build="hg38",
-    liftover_chain_file="resources/liftover/hg19ToHg38.over.chain",
-    output_dir="outputs/trait_hg38",
-)
-```
-
+Python examples are in [Python usage](../user-guide/python-usage.md#munge-summary-statistics).
+`SumstatsMunger().run()` takes a `MungeConfig`; with `source_genome_build="auto"` and an explicit `output_genome_build`, the packaged HM3 map is lifted to the requested build automatically.
+Set `liftover_chain_file` to override that mapping; a chain file is also required for custom or unrestricted cross-build runs.
 `SumstatsMunger.build_run_summary()` takes no table argument: it returns accounting from the most recent successful `run()`. Requesting it before a completed run raises `LDSCUsageError`.

@@ -242,3 +242,5 @@ Supply either `--N` or both `--N-cas` and `--N-con`; the paired constants are ad
 | Columns to exclude from inference and reading | `--ignore COL1,COL2` | `--ignore unused_beta,unused_frequency` |
 
 Source: column options in `build_parser` in [sumstats_munger.py](../../../src/ldsc/sumstats_munger.py).
+
+For the Python API, see [Python usage](../python-usage.md#munge-summary-statistics).

@@ -284,3 +284,69 @@ if __name__ == "__main__":
 The returned `LegacyLDScoreConversionResult` reports the detected suite type (`profile`), the number of retained rows, the baseline columns and the output paths, including the issue table and log.
 `load_ldscore_from_dir` opens the converted directory as an `LDScoreSource` for `RegressionRunner`; see [Partitioned heritability](#partitioned-heritability).
 LDSC2 `.sumstats(.gz)` files need no conversion: `load_sumstats` recognizes them, and `RegressionRunner` matches them to the LD-score directory automatically.
+
+## Munge summary statistics
+
+`SumstatsMunger.run` is the Python form of `ldsc munge-sumstats` described in [munge summary statistics](workflows/munge-sumstats.md); the CLI runs the same method.
+One `MungeConfig` holds the raw file, the output settings and the QC thresholds, using the flag names without the leading `--` where they exist.
+The SNP identifier mode comes from the global configuration (default `chr_pos_allele_aware`); set it with `set_global_config(GlobalConfig(snp_identifier="chr_pos"))`, for example, or pass `global_config=` to `run`.
+
+```python
+from ldsc import MungeConfig, SumstatsMunger
+
+munger = SumstatsMunger()
+sumstats = munger.run(
+    MungeConfig(
+        raw_sumstats_file="/path/to/raw/trait.tsv.gz",
+        trait_name="trait",
+        source_genome_build="auto",
+        output_genome_build="hg38",
+        output_dir="results/trait",
+        # sumstats_snps_file="/path/to/keep_list.tsv.gz",  # Replaces the packaged HM3 map.
+        # no_snp_restriction=True,  # Disables keep-list filtering.
+        # liftover_chain_file="/path/to/hg19ToHg38.over.chain",  # Replaces quick liftover.
+        # sumstats_format="daner-old",  # CLI --input-format; "auto" detects it.
+        # column_hints={"N_col": "NEFF"},  # Only if NEFF is the intended sample size.
+        # output_format="both",  # Also write trait.sumstats.gz.
+        # overwrite=True,  # Replace earlier outputs for this trait.
+    ),
+)
+```
+
+`output_genome_build` must be chosen explicitly in coordinate-family modes, and rsID-family modes reject the build and liftover fields.
+`output_format` takes `"parquet"` (default), `"tsv.gz"` or `"both"`.
+The liftover options follow the same rules as the CLI; see the [liftover rules](../reference/munge-sumstats.md#liftover-rules).
+
+### Inspect the run summary
+
+The CLI prints a `Munge-sumstats summary:` block after a successful run; a Python run writes the same block only to `diagnostics/sumstats.log`.
+Inspect the returned table and the accounting from the most recent run instead:
+
+```python
+summary = munger.build_run_summary()
+print(sumstats.summary())  # Rows, alleles, trait name and source path.
+print(sumstats.provenance["coordinate_provenance"]["liftover"])  # Liftover method and mapping counts.
+print(summary.n_input_rows, summary.n_retained_rows)
+print(summary.drop_counts)  # Rows removed at each stage; their sum is input minus retained rows.
+print(summary.output_paths)  # Data files and the dropped-SNP table; the log is not listed.
+```
+
+`drop_counts` gives exclusive removals in stage order: `NA`, `coordinates`, `INFO`, `FRQ`, `P`, `sumstats_snps` (keep-list), `N`, `NSTUDY`, `liftover` and `identity` (final SNP identity cleanup).
+Liftover counts start after keep-list filtering and earlier QC.
+The summary also records `used_n_rule` (the sample-size strategy actually used) and `qc_thresholds`, where `None` means the INFO or MAF filter did not run because no such column was selected.
+`build_run_summary()` raises `LDSCUsageError` if no run has completed.
+
+### Preview without writing
+
+`infer_raw_sumstats` is the Python counterpart of `--infer-only`: it reads the header and the first data row and writes nothing.
+
+```python
+from ldsc import MungeConfig, infer_raw_sumstats
+
+preview = infer_raw_sumstats(
+    "/path/to/raw/trait.tsv.gz",
+    MungeConfig(raw_sumstats_file="/path/to/raw/trait.tsv.gz", output_genome_build="hg38"),
+)
+print(preview.detected_format, preview.column_hints, preview.missing_fields)
+print(preview.runnable, preview.suggested_args)
+```

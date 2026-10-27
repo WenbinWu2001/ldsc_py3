@@ -354,7 +354,7 @@ These private shards are not resumable checkpoints and never support chromosome 
 See
 [the exact gene-index guide](docs/reference/gene-ldscore-index.md) and its
 [mathematical algorithm](docs/reference/methods/gene-ldscore-index-math.md).
-Task-oriented walkthroughs cover [building the index](docs/wiki/utility-functionalities/build-gene-ldscore-index.md)
+Task-oriented walkthroughs cover [building the index](docs/user-guide/workflows/gene-list-ld-scores.md)
 and [using it for gene-list LD scores](docs/user-guide/workflows/gene-list-ld-scores.md).
 
 Gene-index metadata retains the semantic `index_id` and one ordered published-row fingerprint.

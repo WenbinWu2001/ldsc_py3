@@ -488,3 +488,77 @@ Workflows run the same check themselves when the genome build is `auto`.
 `GlobalConfig` carries only the shared settings `snp_identifier`, `genome_build` and `log_level`.
 Every result keeps a frozen `config_snapshot` of the settings it was computed with; changing the registered `GlobalConfig` later does not alter existing results.
 Combining results computed under incompatible SNP identifier modes or genome builds raises `ConfigMismatchError`.
+
+## Gene-list LD scores
+
+The gene-list workflow uses the same `run_ldscore()` call as other LD scores; its keyword arguments are the command-line option names with underscores.
+Put workflow calls in a script under `if __name__ == "__main__":`, as explained in [parallel execution](../reference/parallel-execution.md).
+
+### Compute gene-list LD scores directly
+
+```python
+from ldsc import GlobalConfig, run_ldscore, set_global_config
+
+if __name__ == "__main__":
+    set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg19"))
+
+    source = run_ldscore(
+        output_dir="results/ldscores/gene-lists",
+        baseline_annot_sources="/path/to/baseline/baseline.@.annot.gz",
+        plink_prefix="/path/to/plink/1000G.EUR.QC.",
+        query_annot_gene_list_sources="/path/to/gene-lists/*.txt",
+        gene_coordinate_file="/path/to/genes/gene-coordinates.hg19.tsv.gz",
+        padding_bp=100000,
+        gene_exclude_regions="mhc",
+        ld_wind_cm=1.0,
+        # gene_list_resolution_policy="resolved-only",  # exploratory screens only
+    )
+
+    print(source.query_columns)
+    print(source.query_statuses)
+```
+
+Python selects the resolution policy with `gene_list_resolution_policy="strict"` (the default) or `"resolved-only"`, the equivalent of `--allow-unresolved-genes`; result metadata and diagnostic tables use the same two names.
+`padding_bp` must be given for gene lists; passing it with prebuilt query annotations, without query annotations, or with an index raises an error even when it is 0.
+Python calls return the query statuses and diagnostic paths and print no console notice.
+
+### Build a gene LD-score index
+
+`build_gene_ldscore_index()` is the Python form of `ldsc build-gene-ldscore-index`; its configuration fields carry the command-line option names, and the genetic-map sources are separate keyword arguments.
+
+```python
+from ldsc import GeneLDScoreIndexBuildConfig, build_gene_ldscore_index
+
+if __name__ == "__main__":
+    index_dir = build_gene_ldscore_index(
+        GeneLDScoreIndexBuildConfig(
+            baseline_annot_sources=("/path/to/baseline/baseline.@.annot.gz",),
+            plink_prefix="/path/to/plink/1000G.EUR.QC.",
+            output_dir="/path/to/indexes/baseline_100kb",
+            gene_coordinate_file="/path/to/genes/gene-coordinates.hg19.tsv.gz",
+            genome_build="hg19",
+            snp_identifier="rsid",
+            ld_wind_cm=1.0,
+            padding_bp=100000,
+        ),
+        # genetic_map_hg19_sources="/path/to/maps/genetic_map_chr1.txt,...",
+        # overwrite=True,  # replace an existing complete index
+    )
+```
+
+### Open a gene LD-score index
+
+```python
+from ldsc import load_gene_ldscore_index
+
+index = load_gene_ldscore_index("/path/to/indexes/baseline_100kb")
+print(index.index_id)
+print(index.chromosomes)
+print(index.snp_identifier, index.genome_build)
+```
+
+Opening an index validates each chromosome and releases its data before loading the next.
+The returned object holds the shared metadata, the embedded gene coordinate catalog (`gene_catalog`), per-gene support counts and the paths of the chromosome files, not the stored operators.
+
+Assemble gene-list LD scores from an index with the command `ldsc ldscore --gene-ldscore-index-dir`, described in [Calculate LD scores from gene lists](workflows/gene-list-ld-scores.md#step-2-assemble-gene-list-ld-scores); from a notebook, run it through `subprocess`.
+The resulting directory opens with `load_ldscore_from_dir()` like any other LD-score directory.

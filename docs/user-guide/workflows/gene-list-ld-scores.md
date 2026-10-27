@@ -2,34 +2,23 @@
 
 Last updated on: 2026-10-27
 
-Use gene-list mode to turn pathway, expression, proteomic, GO, or other gene
-sets into focal annotations for partitioned S-LDSC. LDSC resolves each list
-against one explicit gene universe, projects its intervals, and writes the
-ordinary self-contained LD-score directory consumed by `partitioned-h2`.
+Use gene-list mode to turn pathway, expression, proteomic, GO or other gene lists into query annotations for partitioned heritability, estimated with stratified LD score regression (S-LDSC; Finucane et al. 2015).
+LDSC3 resolves each gene list against one gene coordinate catalog, marks the SNPs inside the listed genes' intervals, and writes an ordinary, self-contained LD-score directory that `partitioned-h2` reads.
 
-Two backends are available:
+There are two ways to compute these LD scores:
 
-- direct mode recomputes LD scores from a live baseline/reference panel and
-  requires your build-aware coordinate catalog;
-- indexed mode assembles exact results from a curated distributed index and
-  uses only that index's embedded catalog/configuration.
+| Mode | Use when | What you supply |
+| --- | --- | --- |
+| Direct | You run a few gene-list batches, or need settings that change between runs. | Baseline annotations, a reference panel (PLINK or R² panel), a gene coordinate catalog and the padding. |
+| Indexed | You test many gene lists against one fixed baseline, PLINK reference panel and gene coordinate catalog. | A gene LD-score index, built once with `ldsc build-gene-ldscore-index`; it contains the gene coordinate catalog and all scientific settings. |
+
+Both modes give the same kind of LD-score directory, and every general `ldscore` option and output is described in [Calculate LD scores](ld-scores.md).
 
 ## Gene lists and coordinate authority
 
-### Coordinate catalog
+### Gene coordinate catalog
 
-In direct mode, pass a headered TSV or `.tsv.gz` using `--gene-coordinate-file`. All six columns below must exist; column order does not matter.
-
-| Column | Required content |
-| --- | --- |
-| `gene_id` | Unique, nonempty gene identifier. |
-| `gene_name` | Exact gene-name alias; values may be blank, but the column is required. |
-| `chrom` | Autosome `1`–`22`; `chr1` also works. |
-| `start` | One-based, inclusive integer ≥ 1. |
-| `end` | One-based, inclusive integer ≥ `start`. |
-| `genome_build` | One consistent build: `hg19`/`GRCh37` or `hg38`/`GRCh38`. |
-
-Illustrative catalog with **fictional coordinates**, separated by tabs:
+The gene coordinate catalog is a headered TSV or `.tsv.gz` file with these six columns in any order:
 
 ```tsv
 gene_id	gene_name	chrom	start	end	genome_build
@@ -37,158 +26,212 @@ GENE001	GENEA	1	100001	110000	hg19
 GENE002	GENEB	2	200001	220000	hg19
 ```
 
-Use actual gene coordinates from one authoritative annotation release/build. These are **not BED coordinates**: both `start` and `end` are one-based and inclusive. Extra columns are ignored. This catalog defines the entire focal and control gene universe; there is no packaged fallback. Indexed mode uses the catalog embedded in the index instead of a separate coordinate file.
+The coordinates above are fictional.
 
-### Gene-list files
+- `start` and `end` are one-based and inclusive, so these are not BED coordinates.
+- `gene_id` values must be unique; `gene_name` may be blank but the column is required.
+- `chrom` is an autosome, written `1` or `chr1`.
+- Every row declares the same genome build, `hg19`/`GRCh37` or `hg38`/`GRCh38`.
+- Extra columns are ignored.
 
-Pass headerless text files using `--query-annot-gene-list-sources`, with one identifier per line. For example, `pathway_A.txt` selects both genes from the catalog above:
+Build the gene coordinate catalog from one authoritative gene annotation release in one genome build: LDSC3 cannot detect rows that silently mix genome builds.
+It defines the entire set of genes a gene list can name, and no gene coordinate catalog is packaged with LDSC3.
+Direct mode reads it from `--gene-coordinate-file`; a gene LD-score index embeds it when the index is built.
+The full contract is in [coordinate catalog](../../reference/formats/gene-lists.md#coordinate-catalog).
+
+### Gene lists
+
+Each gene list is a headerless text file, plain or gzip, with one identifier per line; for example, `pathway_A.txt` selecting both genes above:
 
 ```text
 GENE001
 GENE002
 ```
 
-- Plain text and gzip are supported; blank lines are ignored and surrounding whitespace is removed.
-- Each identifier must exactly match a catalog `gene_id` or an unambiguous `gene_name`. Prefer authoritative gene IDs because names can be shared.
-- Matching is **case-sensitive**. Ensembl version suffixes are **not removed**, and synonyms are not inferred.
-- Do not include a header, extra columns, or comments: `#something` is treated as a gene identifier.
-- Duplicate entries resolving to the same gene count once per file.
-- Each file defines one query gene set. The filename determines its query name: remove a final `.gz`, then at most one final `.txt`, `.tsv`, or `.list` (extensions are case-insensitive). Query names must be unique and cannot collide with baseline columns or the reserved control name `gene_control`.
+- Each identifier must exactly match a `gene_id` or an unambiguous `gene_name`; prefer gene IDs, because names can be shared.
+- Matching is case-sensitive, Ensembl version suffixes are not removed and synonyms are not inferred.
+- Blank lines are ignored and surrounding whitespace is removed; there is no comment syntax, so `#TP53` is read as an identifier, and extra tab-separated fields make the line malformed.
+- An identifier repeated in one file, or two names of the same gene, selects that gene once.
+- The file name becomes the query annotation name after removing a final `.gz` and then one final `.txt`, `.tsv` or `.list`: `pathway_A.txt.gz` becomes `pathway_A`.
+  Query names must be unique and must not equal a baseline column or `gene_control`.
 
-Focal arguments may use exact paths or quoted glob patterns, such as `"/path/to/gene-sets/*.txt"`. The optional `--control-gene-list-file` uses the same file format but accepts exactly one literal file, not a glob. By default, unresolved or ambiguous identifiers stop the run.
-
-See [Gene-list query input](../../reference/formats/gene-lists.md#gene-list-source-format) for the full parsing and resolution contract.
+Pass gene lists with `--query-annot-gene-list-sources` as exact paths or quoted `*` patterns such as `"/path/to/gene-lists/*.txt"`; `@` is not expanded.
+The full parsing rules are in [gene-list source format](../../reference/formats/gene-lists.md#gene-list-source-format).
 
 ## Direct mode
 
 ```bash
 ldsc ldscore \
-  --baseline-annot-sources "/path/to/baseline.@.annot.gz" \
-  --plink-prefix "/path/to/1000G.EUR.QC." \
-  --query-annot-gene-list-sources "/path/to/gene-sets/*.txt" \
-  --gene-coordinate-file "/path/to/gene-coordinates.hg19.tsv.gz" \
+  --baseline-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
+  --plink-prefix /path/to/plink/1000G.EUR.QC. \
+  --query-annot-gene-list-sources "/path/to/gene-lists/*.txt" \
+  --gene-coordinate-file /path/to/genes/gene-coordinates.hg19.tsv.gz \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
   --snp-identifier rsid \
   --genome-build hg19 \
   --ld-wind-cm 1.0 \
-  --output-dir "/path/to/results/gene-set-ldscores"
+  --output-dir results/ldscores/gene-lists
 ```
 
-Live gene-list padding must be deliberate: pass `0` for gene bodies or a
-positive flank. MHC gene exclusion is an intentional, audited transformation
-applied before padding and is distinct from SNP `--regr-snps-exclude-regions`.
+- `--padding-bp` is required and must be chosen deliberately: `0` uses the gene bodies, and a positive value adds that many base pairs on both sides of each gene.
+- `--gene-exclude-regions mhc` removes genes whose unpadded interval overlaps the MHC, before padding; the direct-mode default is `none`.
+  This gene exclusion is recorded in the diagnostics and is separate from `--regr-snps-exclude-regions`, which removes regression SNPs.
+- `--genome-build` defaults to `auto` for direct gene-list runs, and the gene coordinate catalog's declared genome build must agree with the baseline annotations and reference panel; there is no liftover.
+- An R² panel works as well: replace `--plink-prefix` with `--r2-dir`.
+- Every selected gene must lie on a chromosome covered by both the baseline annotations and the reference panel; a gene list is never truncated to fit, and an uncovered gene fails the whole batch ([chromosome scope](../../reference/formats/gene-lists.md#direct-query-chromosome-scope)).
 
 ## Indexed mode
 
+Indexed mode moves the expensive reference-panel calculation for one baseline, PLINK reference panel and gene coordinate catalog into a one-time build.
+Later gene-list runs assemble exact LD scores from the stored index without the original PLINK or baseline files.
+
+### Step 1: build a gene LD-score index
+
+```bash
+ldsc build-gene-ldscore-index \
+  --baseline-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
+  --plink-prefix /path/to/plink/1000G.EUR.QC. \
+  --gene-coordinate-file /path/to/genes/gene-coordinates.hg19.tsv.gz \
+  --genome-build hg19 \
+  --snp-identifier rsid \
+  --ld-wind-cm 1.0 \
+  --padding-bp 100000 \
+  --gene-exclude-regions mhc \
+  --regr-snps-exclude-regions mhc-and-centromeres \
+  --output-dir /path/to/indexes/baseline_100kb
+```
+
+The build requires:
+
+- an explicit `--snp-identifier` (any of the four modes) and an explicit `--genome-build hg19` or `hg38`, with no `auto`, inference or liftover;
+- exactly one LD window, `--ld-wind-cm`, `--ld-wind-kb` or `--ld-wind-snps`, with no default; LD windows covering a whole chromosome are rejected and there is no `--yes-really`;
+- a PLINK reference panel and baseline annotations covering all autosomes 1 to 22; partial builds are not supported;
+- a gene coordinate catalog in the asserted genome build; every row is checked before the build starts, and the whole gene coordinate catalog, including MHC-excluded genes, is stored in the index.
+
+The padding and gene exclusion are fixed in the index.
+The index defaults are `--padding-bp 0` (gene bodies) and `--gene-exclude-regions mhc`; the example above requests 100 kb padding, which is why its directory is named `baseline_100kb`.
+Regression SNPs default to the HM3 map minus `mhc-and-centromeres`.
+To use your own regression SNPs, add `--regr-snps-file custom_regression_snps.tsv`, a headered table whose required columns depend on the SNP identifier mode (`SNP`, or `CHR` and `POS` in the asserted genome build); `--regr-snps-exclude-regions` still applies afterwards, and `none` keeps every listed SNP.
+The file format is in [build one complete index](../../reference/gene-ldscore-index.md#build-one-complete-index).
+
+How the inputs are combined:
+
+- Baseline and PLINK SNPs are matched on the SNP identity of the chosen mode, as in PLINK-based `ldscore`; SNPs found on only one side are dropped and counted, every SNP of a duplicated SNP identity is dropped and listed in `diagnostics/dropped_snps/`, and an empty match fails.
+- PLINK supplies the published `CHR`, `POS`, `SNP`, `A1` and `A2`; conflicting coordinates for one rsID, or incompatible alleles at one position, stop the build with the repair table `.<index-name>.build-state/baseline_plink_issues.tsv`.
+- The baseline LD scores, counts and regression weights are recomputed from the PLINK genotypes; precomputed `.l2.ldscore.gz`, `.M` and `.M_5_50` files distributed beside the baseline annotations are not used, so everything in the index shares one set of samples, filters and LD window.
+- Gene intervals do not restrict the baseline LD scores: every retained reference SNP contributes according to its baseline annotation value, whether or not it lies in a gene.
+  Do not prefilter the PLINK or baseline inputs to gene regions unless you intend that narrower reference panel.
+
+The matching rules are in [SNP identity contract](../../reference/gene-ldscore-index.md#snp-identity-contract), the baseline recomputation in [baseline-suite component usage](../../reference/gene-ldscore-index.md#baseline-suite-component-usage), and the gene-region caveat in [baseline LD-score contributor caveat](../../reference/gene-ldscore-index.md#baseline-ld-score-contributor-caveat).
+
+Resources:
+
+- Keep `--workers 1` until you have profiled memory on your system, because each worker can multiply peak memory.
+- Lower `--atom-batch-size` (default 64) or `--snp-batch-size` (default 512) to reduce memory; neither changes the results.
+- `--keep-indivs-file` keeps the listed individuals, one IID per row.
+- A cM LD window needs informative `.bim` `CM` values or `--genetic-map-hg19-sources` or `--genetic-map-hg38-sources` for the asserted genome build; kb and SNP-count LD windows need no genetic map.
+  SNP-count LD windows count SNPs after SNP identity matching, genotype and MAF filtering.
+
+While the build runs, follow its log next to the destination:
+
+```bash
+tail -f /path/to/indexes/.baseline_100kb.build-state/build-gene-ldscore-index.log
+```
+
+The log first reports annotation preparation (`Reading annotation inputs`, then SNP identity checks, then `Annotation preparation complete`) and then each chromosome.
+Its final `Finished` or `Failed` line gives the outcome.
+On success, the closed log moves to `/path/to/indexes/baseline_100kb/diagnostics/build-gene-ldscore-index.log`.
+Input checks run before any computation, and failed checks write their repair tables, such as `plink_input_issues.tsv`, under `.<index-name>.build-state/` next to the destination rather than inside it.
+If the gene coordinate catalog fails validation, repair it using `.<index-name>.build-state/gene_coordinate_catalog_issues.tsv.gz` ([catalog repair](../../reference/results/gene-list-diagnostics.md#coordinate-catalog-repair-and-index-builder-issues)).
+
+One output directory holds one complete, immutable index with a single `index_id`; it cannot be extended with chromosomes or settings, so any change to an input or setting needs a complete rebuild.
+The destination stays absent or empty until the whole index is published, and a failed build never leaves a partial index.
+Replacing an existing valid index requires `--overwrite`, and the old index stays usable until its replacement has been validated.
+A build never resumes from an earlier failed or interrupted attempt.
+Indexes in earlier formats (before format version 3) must be rebuilt.
+The directory layout, `index_id` and replacement rules are in [artifact and identity contract](../../reference/gene-ldscore-index.md#artifact-and-identity-contract) and [output preflight, logging and replacement](../../reference/gene-ldscore-index.md#output-preflight-logging-and-replacement); build errors are covered in [troubleshooting](../troubleshooting.md#build-gene-ldscore-index).
+
+### Step 2: assemble gene-list LD scores
+
 ```bash
 ldsc ldscore \
-  --gene-ldscore-index-dir "/path/to/index" \
-  --query-annot-gene-list-sources "/path/to/gene-sets/*.txt" \
-  --output-dir "/path/to/results/gene-set-ldscores"
+  --gene-ldscore-index-dir /path/to/indexes/baseline_100kb \
+  --query-annot-gene-list-sources "/path/to/gene-lists/*.txt" \
+  --output-dir results/ldscores/gene-lists
 ```
 
-The index owns its catalog, baseline, panel, build, identity, padding, and
-exclusion policies. Do not pass live overrides. Production indexes always
-cover autosomes 1–22 and old indexes must be rebuilt for the current catalog
-schema. Runtime controls `--workers` and `--query-batch-size` are accepted in indexed mode; they do not override the stored scientific configuration.
+The index supplies the gene coordinate catalog, baseline, reference panel, genome build, SNP identifier mode, LD window, padding, gene exclusion and regression SNPs.
+Do not pass any of them: options such as `--snp-identifier`, `--genome-build`, `--padding-bp` or `--baseline-annot-sources` are rejected in indexed mode, even when they equal the stored value.
+Indexed mode accepts `--control-gene-list-file`, `--allow-unresolved-genes`, `--workers`, `--query-batch-size`, `--overwrite` and `--log-level`; the runtime options do not change the stored scientific settings.
+A missing or damaged index stops the run; LDSC3 never falls back to direct computation.
+The output records the inherited SNP identifier mode, genome build and `index_id`, and the regression commands use it without the index.
 
-For similar indexed workloads on Longleaf, the [matched worker comparison](../../dev/validation/performance.md#indexed-gene-list-ld-scoring) supports starting with `--workers 8`, 8 allocated CPUs, 128 GiB RAM, and one native numerical thread per worker.
-This workload-specific recommendation leaves the package default at one worker; the linked comparison includes all four tested counts and the limits of extrapolating to a full query workload.
+For indexed scoring of a workload like the one measured on the Longleaf cluster (1,000 gene lists across 22 chromosomes), start with `--workers 8` and a Slurm allocation of `--cpus-per-task=8 --mem=128G`, a provisional starting point rather than an established optimum, while the package default stays at one worker ([performance measurements](../../dev/validation/performance.md)).
 
-## Optional control genes
+## Optional control gene list
 
-Add one exact file when focal sets should be conditioned on a specific assay or
-selection universe:
+When your gene lists were selected from a specific universe, such as the genes measured by an assay, add that universe as one control gene list:
 
 ```bash
---control-gene-list-file /path/to/background-genes.txt
+ldsc ldscore \
+  --gene-ldscore-index-dir /path/to/indexes/baseline_100kb \
+  --query-annot-gene-list-sources "/path/to/gene-lists/*.txt" \
+  --control-gene-list-file /path/to/gene-lists/control-genes.txt \
+  --output-dir results/ldscores/gene-lists-with-control
 ```
 
-It becomes the fixed baseline column `gene_control`. It uses the same catalog,
-exclusion, and padding as focal genes. A requested control is never silently
-dropped: zero resolved genes, zero annotation SNPs, or zero-variance LD scores
-stop the run.
+The control gene list uses the gene-list file format but must be one exact file, not a pattern.
+It becomes the baseline annotation `gene_control`, using the same gene coordinate catalog, gene exclusion and padding as the query annotations, so each query result is conditional on it.
+A requested control gene list is never dropped silently: no resolved genes, no annotation SNPs or LD scores without variation stop the run.
+Without this option, no control is added, in both modes.
 
-## Strict versus exploratory batches
+## Strict versus exploratory resolution
 
-`strict` is the default for defensible final analyses. LDSC checks every focal
-list and the control together; any unresolved or ambiguous row stops before
-substantial calculation and reports the complete batch.
+Strict resolution is the default and suits final analyses.
+LDSC3 checks every gene list and the control gene list together, and any unresolved or ambiguous identifier stops the run before the LD-score calculation, with the whole batch reported.
 
-For preliminary screens of hundreds of pathways, explicitly use
-`--allow-unresolved-genes`. The run uses only resolved genes
-and records exact resolved/total counts. Unusable focal queries are skipped
-without failing usable siblings. This policy deliberately changes submitted
-sets, so the CLI console, result metadata, audit, and summary all identify it.
-The CLI also prints a bounded successful-run notice for zero-SNP support or
-skipped query outcomes.
-
-The flag takes no value and applies to both direct and indexed gene-list runs. Omit it for strict resolution. It does not relax malformed inputs, index integrity, chromosome coverage, or requested-control viability. The retired `--gene-list-resolution-policy` option is rejected without an alias: remove its `strict` option/value pair or replace its `resolved-only` pair with `--allow-unresolved-genes`. Python callers retain `gene_list_resolution_policy="strict"` or `"resolved-only"`, and diagnostics retain those policy names. See [the current resolution contract](../../reference/formats/gene-lists.md#strict-and-exploratory-resolution); source: `build_parser()` in [ldscore_calculator.py](../../../src/ldsc/ldscore_calculator.py).
+For a preliminary screen of hundreds of pathways, add `--allow-unresolved-genes`, which takes no value.
+The run then uses only the resolved genes, records the resolved and total counts, and skips unusable query annotations without failing the usable ones.
+Because this changes the submitted gene lists, the console, the result metadata, the audit and the summary all record it, and the command prints a short notice when genes have no SNP support or query annotations were skipped.
+The option applies to direct and indexed runs; it does not relax malformed inputs, index integrity, chromosome coverage or the checks on a control gene list.
+The retired option `--gene-list-resolution-policy` is rejected: remove `--gene-list-resolution-policy strict`, and replace `--gene-list-resolution-policy resolved-only` with `--allow-unresolved-genes`.
+See [strict and exploratory resolution](../../reference/formats/gene-lists.md#strict-and-exploratory-resolution).
 
 ## Diagnose and curate
 
-The useful repair loop is:
+1. Open `diagnostics/gene_list_resolution_summary.tsv` to find the affected gene lists, including the control gene list.
+2. Filter `diagnostics/gene_list_audit.tsv.gz` to the rejected rows of that gene list.
+3. Fix your gene list first: replace ambiguous names with gene IDs, correct or remove unmatched values, and remove malformed or duplicate rows.
+4. Rerun with `--overwrite` and compare the audit.
+5. Change or rebuild the gene coordinate catalog only when its line-level evidence shows a defect in how it was produced.
 
-1. inspect `diagnostics/gene_list_resolution_summary.tsv` to find affected
-   focal/control sources;
-2. filter `diagnostics/gene_list_audit.tsv.gz` to rejected rows in that source;
-3. fix the user-owned list first—replace ambiguous names with authoritative
-   IDs, correct/remove unmatched values, and remove malformed/duplicate rows;
-4. rerun with `--overwrite` and compare the audit;
-5. change/rebuild the catalog only when its physical line evidence shows an
-   upstream catalog-transformation defect.
+After the identifiers are resolved, `diagnostics/query_annotation_status.tsv` records query annotations skipped for having no SNPs or no LD-score variation.
+Genes without SNP support and genes removed by the MHC exclusion are recorded in the audit but are not unresolved identifiers.
+`diagnostics/ldscore.log` summarizes intentional MHC exclusions on one INFO line per gene list and role, and direct runs also log the annotation-preparation steps ([annotation preparation](../../reference/logs-and-outputs.md#annotation-preparation)); indexed runs read the prepared index instead.
+Every column, reason and repair step is in [gene-list diagnostics and repair](../../reference/results/gene-list-diagnostics.md), and common failures are in [troubleshooting](../troubleshooting.md#ldscore-gene-list-preflight-stopped-or-a-focal-query-is-missing).
 
-After identifier preflight,
-`diagnostics/query_annotation_status.tsv` records focal zero-SNP or
-zero-variance skips. Zero-support genes and explicit MHC exclusions are audited
-but are not unresolved identifiers.
-
-Intentional MHC exclusions are summarized in `diagnostics/ldscore.log` on one INFO line per gene-list source and role, with the count and physical line–gene pairs. An alias includes its canonical ID when different; the full row audit remains unchanged. Direct runs also log the main annotation-preparation milestones before LD-score computation. See [preparation logging](../../reference/logs-and-outputs.md#annotation-preparation) for examples; indexed runs reuse prepared index artifacts and do not scan live annotations.
-
-For every column/reason and step-by-step repair instructions, use the detailed
-[Gene-list diagnostics and repair](../../reference/results/gene-list-diagnostics.md)
-reference. The concise input contract is
-[Gene-list query input](../../reference/formats/gene-lists.md), and index
-construction is covered by
-[Build an exact gene LD-score index](../../wiki/utility-functionalities/build-gene-ldscore-index.md).
-
-## Continue to partitioned S-LDSC
+## Continue to partitioned heritability
 
 ```bash
 ldsc partitioned-h2 \
-  --sumstats-file "/path/to/trait/sumstats.parquet" \
-  --ldscore-dir "/path/to/results/gene-set-ldscores" \
-  --output-dir "/path/to/results/partitioned-h2/trait"
+  --sumstats-file /path/to/trait/sumstats.parquet \
+  --ldscore-dir results/ldscores/gene-lists \
+  --output-dir results/partitioned-h2/trait
 ```
 
-Each focal result is conditional on the supplied baseline block and optional
-`gene_control`. A missing focal output is a workflow status, not evidence for a
-biological null; inspect diagnostics before regression.
-Query runs write the per-query result tree automatically for successful fits.
-Copy the complete regression output directory when moving or sharing those fits: each query's metadata references shared provenance in the enclosing `diagnostics/metadata.json`.
-See [keeping fitted results together](partitioned-heritability.md#reading-the-outputs).
-To summarize nominal conditional-coefficient evidence across fitted query gene lists, pass the aggregate partitioned-h2 result root to `ldsc plot`; do not pass an individual query folder.
+Each query result is conditional on the baseline annotations and on `gene_control` when present.
+A query annotation missing from the output is a workflow status, not evidence of a biological null; check `diagnostics/query_annotation_status.tsv` before the regression.
+Regression failures are handled separately from gene resolution: `--continue-on-query-error` in `partitioned-h2` skips query annotations whose regression fails, whereas `--allow-unresolved-genes` in `ldscore` concerns identifiers.
+The regression options, result files and plots are covered in [Partitioned heritability](partitioned-heritability.md), [query failures and continuation](../../reference/results/partitioned-h2.md#query-failures-and-continuation) and [plotting](plotting.md).
 
-Regression is strict by default: any query error prevents publication of new scientific results. Add the single flag `--continue-on-query-error` to the regression command to skip failed queries and publish successful fits. Inspect regression `diagnostics/query_status.tsv` for all attempted queries and `diagnostics/partitioned-h2.log` for error and block diagnostics. This is separate from LD-score generation's `--allow-unresolved-genes` and `diagnostics/query_annotation_status.tsv`. Shared input/output errors, interrupts, and scans with no successful fits remain fatal. See [regression failure handling](partitioned-heritability.md#when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
+## Many gene lists
 
-## Large pathway batches
+For 1,000 pathways, `partitioned-h2` tests each pathway separately against the same baseline annotations.
+`--query-batch-size` (default 100) sets how many query annotations `ldscore` computes together, in both modes.
+A smaller value lowers memory, but direct mode then repeats the reference-panel pass and indexed mode rereads the stored chromosome data for each query batch.
+More workers hold more chromosome data in memory at once ([parallel execution](../../reference/parallel-execution.md)).
+The baseline and overlap files are shared, and each query batch writes its own query file; the batch widths of `ldscore` and `partitioned-h2` may differ.
+Memory and query batches are covered further in [Calculate LD scores](ld-scores.md#many-query-annotations-and-workers).
 
-For 1,000 pathways, regression tests each pathway separately against the same baseline categories.
-`--query-batch-size` defaults to `100` in direct/indexed `ldscore` and `partitioned-h2`; lower it to reduce active query workspace.
-Direct LD scoring writes and releases one query batch before preparing the next, repeating reference/genotype work across batches.
-Indexed scoring uses a persistent worker pool for one active query batch, reloads chromosome operators for each batch, and streams chromosome fragments into staged output before removing the batch's fragments.
-Smaller indexed batches reduce raw-fragment scratch but add operator reads; final staged output still grows with the number of queries.
-For LD-score generation, `--workers` defaults to 1, accepts positive counts, `-1` for detected available CPUs and `-2` for one fewer worker than that count, and is capped at the chromosome count.
-Negative offsets do not reserve or pin an unused CPU.
-Regression automatically reduces model-array copying and repeated metadata/file writing for either LD-score route; see [regression memory and runtime measurements](../../dev/validation/performance.md#partitioned-heritability-regression).
-
-`--workers` / `workers` defaults to one managed child process, including on HPC.
-Every worker uses **1 BLAS thread**, in serial and parallel execution.
-`joblib.cpu_count()` supplies the detected available CPU count; it does not measure idle CPUs or read the requested scheduler allocation.
-Positive requests above that count fail before capping by available tasks; negative `-k` uses `max(1, detected_count + 1 - k)`.
-LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
-Zero, Boolean, and non-integer Python requests are invalid.
-See [the execution policy](../../reference/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
-
-The saved baseline and overlap artifacts are shared. One query batch writes `ldscore.query.parquet`; multiple batches write numbered `ldscore.query.batchNNNNN.parquet` files, each with the same genome-wide SNP rows. Root `metadata.json.query_batches` records the ordered files, columns, and chromosome row groups. Python writing workflows return `LDScoreSource`; explicit `read_queries(names)` calls load columns without caching them. Generation and regression batch widths may differ. See the [LD-score guide](ld-scores.md) for the implementation sources and the [batch regression guide](partitioned-heritability.md#many-query-annotations) for result writing.
+For the Python API, see [Python usage](../python-usage.md#gene-list-ld-scores).

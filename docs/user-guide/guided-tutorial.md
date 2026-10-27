@@ -346,7 +346,7 @@ ldsc ldscore \
   the same canonical output directory and adds no gene control by default. To
   add one, pass an existing one-column file with `--control-gene-list-file`.
 - For the complete indexed workflow, see [Build an exact gene LD-score
-  index](../wiki/utility-functionalities/build-gene-ldscore-index.md) and [Calculate LD
+  index](workflows/gene-list-ld-scores.md) and [Calculate LD
   scores for gene lists with an index](workflows/gene-list-ld-scores.md).
   Per-chromosome `Finished` lines report durable private staging; the index
   becomes public only after complete reload validation. Stages cannot be

@@ -15,7 +15,6 @@ from ldsc._kernel.ref_panel import (
     ParquetR2RefPanel,
     PlinkRefPanel,
     RefPanelLoader,
-    _read_identity_schema_meta,
     _read_metadata_table,
     _snp_id_series_for_matching,
 )
@@ -57,32 +56,20 @@ def _write_canonical_r2_parquet(
     snp_identifier: str = "chr_pos",
     genome_build: str = "hg38",
 ) -> None:
-    import pyarrow as pa
+    """Write a package-format R2 parquet with no pairs; sidecar tests pair it with their own rows."""
     import pyarrow.parquet as pq
+    from ldsc._kernel.ref_panel_builder import write_r2_parquet
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    frame = pd.DataFrame(
-        {
-            "CHR": [chrom, chrom],
-            "POS_1": [10, 20],
-            "POS_2": [20, 30],
-            "R2": pd.Series([0.4, 0.2], dtype="float32"),
-            "SNP_1": ["rs1", "rs2"],
-            "SNP_2": ["rs2", "rs3"],
-        }
+    write_r2_parquet(
+        pair_chunks=[], path=path, genome_build=genome_build, n_samples=10,
+        snp_identifier=snp_identifier, n_snps=0, sidecar_identity_sha256="0" * 64,
+        ld_window_mode="kb", ld_window_value=1000.0,
     )
-    table = pa.Table.from_pandas(frame, preserve_index=False)
-    metadata = {b"ldsc:sorted_by_build": genome_build.encode("utf-8")}
-    if identity_metadata:
-        metadata.update(
-            {
-                b"ldsc:artifact_type": b"ref_panel_r2",
-                b"ldsc:snp_identifier": snp_identifier.encode("utf-8"),
-                b"ldsc:genome_build": genome_build.encode("utf-8"),
-            }
-        )
-    table = table.replace_schema_metadata(metadata)
-    pq.write_table(table, path)
+    if not identity_metadata:
+        table = pq.read_table(path)
+        stripped = {key: value for key, value in table.schema.metadata.items()
+                    if key not in {b"ldsc:artifact_type", b"ldsc:snp_identifier", b"ldsc:genome_build"}}
+        pq.write_table(table.replace_schema_metadata(stripped), path)
 
 
 def _write_meta_sidecar(
@@ -100,16 +87,6 @@ def _write_meta_sidecar(
             handle.write(f"# ldsc:snp_identifier={snp_identifier}\n")
             handle.write(f"# ldsc:genome_build={genome_build}\n")
         handle.write(rows)
-
-
-class RefPanelIdentityMetadataTest(unittest.TestCase):
-    def test_identity_schema_meta_has_no_schema_version(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "chr1_r2.parquet"
-            _write_canonical_r2_parquet(path)
-            metadata = _read_identity_schema_meta(str(path), expected_artifact_type="ref_panel_r2")
-        self.assertNotIn("schema_version", metadata)
-        self.assertEqual(metadata["artifact_type"], "ref_panel_r2")
 
 
 class RefPanelLoaderTest(unittest.TestCase):
@@ -232,8 +209,8 @@ class PlinkRefPanelTest(unittest.TestCase):
 
     def test_metadata_reader_requires_snp_for_rsid_family(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "meta.tsv"
-            path.write_text("CHR\tPOS\n1\t10\n", encoding="utf-8")
+            path = Path(tmpdir) / "meta.tsv.gz"
+            _write_meta_sidecar(path, "CHR\tPOS\n1\t10\n", snp_identifier="rsid_allele_aware", genome_build="hg19")
 
             with self.assertRaisesRegex(LDSCInputError, "no SNP column was found"):
                 _read_metadata_table(
@@ -330,6 +307,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 pair_chunks=dict_chunks([{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}]),
                 path=build_dir / "chr1_r2.parquet", genome_build="hg38", n_samples=10,
                 snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
+                ld_window_mode="kb", ld_window_value=1000.0,
             )
             panel = ParquetR2RefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
@@ -412,10 +390,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
             )
 
-            with self.assertRaisesRegex(
-                LDSCInputError,
-                "required identity/provenance keys are missing",
-            ):
+            with self.assertRaisesRegex(LDSCInputError, "ldsc:artifact_type is missing"):
                 panel.build_reader("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")

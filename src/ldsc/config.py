@@ -454,7 +454,6 @@ class RefPanelConfig:
     chromosomes: tuple[str, ...] | list[str] | None = None
     maf_min: float | None = None
     keep_indivs_file: str | PathLike[str] | None = None
-    sample_size: int | None = None
     ref_panel_snps_file: str | PathLike[str] | None = None
     genetic_map_hg19_sources: str | PathLike[str] | None = None
     genetic_map_hg38_sources: str | PathLike[str] | None = None
@@ -463,8 +462,6 @@ class RefPanelConfig:
         """Normalize backend path tokens and validate parquet-R2 settings."""
         if self.backend not in {"auto", "plink", "parquet_r2"}:
             raise LDSCConfigError(_invalid_choice_message("RefPanelConfig", "backend", self.backend, "'auto', 'plink', or 'parquet_r2'"))
-        if self.sample_size is not None and self.sample_size <= 0:
-            raise LDSCConfigError(_positive_number_message("RefPanelConfig", "sample_size", self.sample_size))
         if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
             raise LDSCConfigError(_range_message("RefPanelConfig", "maf_min", self.maf_min, "[0, 0.5]"))
         object.__setattr__(self, "plink_prefix", _normalize_optional_path(self.plink_prefix))

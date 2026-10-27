@@ -80,7 +80,7 @@ _HAS_BITARRAY = importlib.util.find_spec("bitarray") is not None
 
 
 def _write_minimal_r2_parquet(path: Path, extra_meta: dict[bytes, bytes] | None = None) -> None:
-    """Write a zero-row canonical R2 parquet table with optional schema metadata."""
+    """Write a zero-row pre-index R2 placeholder for tests that never read its pairs."""
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -122,222 +122,7 @@ def _write_legacy_r2_parquet(path: Path) -> None:
     pq.write_table(table, str(path))
 
 
-class R2SchemaMetaReaderTest(unittest.TestCase):
-    """Tests for R2 parquet schema metadata reader and resolver helpers."""
-
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
-    def test_read_r2_schema_meta_returns_both_fields(self):
-        from ldsc._kernel.ref_panel import _read_r2_schema_meta
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "chr1_r2.parquet"
-            _write_minimal_r2_parquet(
-                path,
-                {b"ldsc:n_samples": b"200", b"ldsc:r2_bias": b"unbiased"},
-            )
-            meta = _read_r2_schema_meta(str(path))
-
-        self.assertEqual(meta.n_samples, 200)
-        self.assertEqual(meta.r2_bias, "unbiased")
-
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
-    def test_read_r2_schema_meta_legacy_file_returns_none_fields(self):
-        from ldsc._kernel.ref_panel import _read_r2_schema_meta
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "chr1_r2.parquet"
-            _write_minimal_r2_parquet(path)
-            meta = _read_r2_schema_meta(str(path))
-
-        self.assertIsNone(meta.n_samples)
-        self.assertIsNone(meta.r2_bias)
-
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
-    def test_read_r2_schema_meta_warns_for_n_samples_without_bias(self):
-        from ldsc._kernel.ref_panel import _read_r2_schema_meta
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "chr1_r2.parquet"
-            _write_minimal_r2_parquet(path, {b"ldsc:n_samples": b"200"})
-            with self.assertLogs("LDSC", level="WARNING"):
-                meta = _read_r2_schema_meta(str(path))
-
-        self.assertEqual(meta.n_samples, 200)
-        self.assertEqual(meta.r2_bias, "raw")
-
-    def test_resolve_unbiased_no_user_n_returns_unbiased(self):
-        from ldsc._kernel.ref_panel import _R2SchemaMeta, _resolve_r2_bias_from_meta
-
-        meta = _R2SchemaMeta(n_samples=100, r2_bias="unbiased")
-        mode, n = _resolve_r2_bias_from_meta(None, None, meta)
-
-        self.assertEqual(mode, "unbiased")
-        self.assertIsNone(n)
-
-    def test_resolve_unbiased_with_user_n_warns_and_returns_unbiased(self):
-        from ldsc._kernel.ref_panel import _R2SchemaMeta, _resolve_r2_bias_from_meta
-
-        meta = _R2SchemaMeta(n_samples=100, r2_bias="unbiased")
-        with self.assertLogs("LDSC", level="WARNING"):
-            mode, n = _resolve_r2_bias_from_meta(None, 999.0, meta)
-
-        self.assertEqual(mode, "unbiased")
-        self.assertIsNone(n)
-
-    def test_resolve_raw_no_user_n_autofills_stored_n(self):
-        from ldsc._kernel.ref_panel import _R2SchemaMeta, _resolve_r2_bias_from_meta
-
-        meta = _R2SchemaMeta(n_samples=150, r2_bias="raw")
-        mode, n = _resolve_r2_bias_from_meta(None, None, meta)
-
-        self.assertEqual(mode, "raw")
-        self.assertEqual(n, 150.0)
-
-    def test_resolve_raw_user_n_overrides_stored_n(self):
-        from ldsc._kernel.ref_panel import _R2SchemaMeta, _resolve_r2_bias_from_meta
-
-        meta = _R2SchemaMeta(n_samples=150, r2_bias="raw")
-        mode, n = _resolve_r2_bias_from_meta(None, 999.0, meta)
-
-        self.assertEqual(mode, "raw")
-        self.assertEqual(n, 999.0)
-
-    def test_resolve_absent_metadata_defaults_to_unbiased(self):
-        from ldsc._kernel.ref_panel import _R2SchemaMeta, _resolve_r2_bias_from_meta
-
-        meta = _R2SchemaMeta(n_samples=None, r2_bias=None)
-        mode, n = _resolve_r2_bias_from_meta(None, None, meta)
-
-        self.assertEqual(mode, "unbiased")
-        self.assertIsNone(n)
-
-    def test_resolve_absent_metadata_raw_mode_with_user_n(self):
-        from ldsc._kernel.ref_panel import _R2SchemaMeta, _resolve_r2_bias_from_meta
-
-        meta = _R2SchemaMeta(n_samples=None, r2_bias=None)
-        mode, n = _resolve_r2_bias_from_meta("raw", 300.0, meta)
-
-        self.assertEqual(mode, "raw")
-        self.assertEqual(n, 300.0)
-
-
-@unittest.skipIf(kernel_ldscore is None, "ldscore kernel is not available")
 class R2AutoLoadCLITest(unittest.TestCase):
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
-    def test_parquet_panel_autofills_raw_and_n_from_schema(self):
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-        from ldsc._kernel.ref_panel import ParquetR2RefPanel
-        from ldsc._kernel.ref_panel_builder import write_runtime_metadata_sidecar
-        from ldsc._kernel.snp_identity import sidecar_identity_sha256
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "hg19"
-            build_dir.mkdir(parents=True)
-            path = build_dir / "chr1_r2.parquet"
-            panel = pd.DataFrame({"CHR": ["1", "1"], "POS": [100, 120], "SNP": ["rs1", "rs2"],
-                                  "A1": ["A", "A"], "A2": ["C", "C"], "CM": [0.0, 0.0], "MAF": [0.3, 0.3]})
-            write_runtime_metadata_sidecar(
-                panel, build_dir / "chr1_meta.tsv.gz", genome_build="hg19", snp_identifier="rsid"
-            )
-            # A hand-built raw-bias index panel (the package writer only emits
-            # unbiased; raw is reserved for future external raw-R2 index panels).
-            schema = pa.schema(
-                [("IDX_1", pa.int32()), ("IDX_2", pa.int32()), ("R2", pa.float32()), ("SIGN_R", pa.bool_())]
-            ).with_metadata({
-                b"ldsc:schema_version": b"1",
-                b"ldsc:artifact_type": b"ref_panel_r2",
-                b"ldsc:snp_identifier": b"rsid",
-                b"ldsc:genome_build": b"hg19",
-                b"ldsc:sorted_by_build": b"hg19",
-                b"ldsc:n_samples": b"200",
-                b"ldsc:r2_bias": b"raw",
-                b"ldsc:n_snps": b"2",
-                b"ldsc:sidecar_identity_sha256": sidecar_identity_sha256(panel).encode("utf-8"),
-            })
-            tbl = pa.table(
-                {"IDX_1": pa.array([0], pa.int32()), "IDX_2": pa.array([1], pa.int32()),
-                 "R2": pa.array([0.5], pa.float32()), "SIGN_R": pa.array([True], pa.bool_())},
-                schema=schema,
-            )
-            pq.write_table(tbl, str(path))
-
-            spec = RefPanelConfig(
-                backend="parquet_r2",
-                r2_dir=str(build_dir),
-            )
-            panel_loader = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"), spec)
-            reader_meta = pd.DataFrame(
-                {"CHR": ["1", "1"], "POS": [100, 120], "SNP": ["rs1", "rs2"], "CM": [0.0, 0.0], "MAF": [0.3, 0.3]}
-            )
-            reader = panel_loader.build_reader("1", metadata=reader_meta)
-            bundle = make_annotation_bundle(
-                metadata=reader_meta,
-                baseline_annotations=pd.DataFrame({"base": [1.0, 1.0]}),
-                query_annotations=pd.DataFrame(index=reader_meta.index),
-                baseline_columns=["base"], query_columns=[], chromosomes=["1"], source_summary={},
-            )
-            result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
-                "1", bundle, panel_loader,
-                LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True),
-                GlobalConfig(snp_identifier="rsid"),
-                regression_snps={"rs1", "rs2"},
-            )
-
-        self.assertEqual(reader.r2_bias_mode, "raw")
-        self.assertAlmostEqual(reader.r2_sample_size, 200.0)
-        # Diagonal 1 plus the off-diagonal 0.5 - (1 - 0.5) / (200 - 2).
-        np.testing.assert_allclose(
-            result.baseline_table[["base", "regression_ld_scores"]],
-            np.full((2, 2), 1.4974747474747474), rtol=1e-7,
-        )
-
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
-    def test_external_parquet_metadata_drops_duplicate_identity_clusters(self):
-        from ldsc._kernel.ref_panel import ParquetR2RefPanel
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            _write_legacy_r2_parquet(root / "chr1_r2.parquet")
-            with gzip.open(root / "chr1_meta.tsv.gz", "wt", encoding="utf-8") as handle:
-                handle.write(
-                    "CHR\tPOS\tSNP\tCM\tMAF\n"
-                    "1\t10\trs1\t0.1\t0.2\n"
-                    "1\t10\trs2\t0.2\t0.3\n"
-                    "1\t20\trs3\t0.3\t0.4\n"
-                )
-            panel = ParquetR2RefPanel(
-                GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
-            )
-
-            with self.assertLogs("LDSC.ref_panel", level="WARNING"):
-                metadata = panel.load_metadata("1")
-
-        self.assertEqual(metadata["SNP"].tolist(), ["rs3"])
-        self.assertEqual(metadata["POS"].tolist(), [20])
-
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
-    def test_external_parquet_metadata_raises_when_identity_cleanup_drops_all_rows(self):
-        from ldsc._kernel.ref_panel import ParquetR2RefPanel
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            _write_legacy_r2_parquet(root / "chr1_r2.parquet")
-            with gzip.open(root / "chr1_meta.tsv.gz", "wt", encoding="utf-8") as handle:
-                handle.write(
-                    "CHR\tPOS\tSNP\tCM\tMAF\n"
-                    "1\t10\trs1\t0.1\t0.2\n"
-                    "1\t10\trs2\t0.2\t0.3\n"
-                )
-            panel = ParquetR2RefPanel(
-                GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
-            )
-
-            with self.assertRaisesRegex(LDSCInputError, "retained no parquet metadata rows"):
-                panel.load_metadata("1")
-
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
     def test_package_parquet_metadata_duplicates_remain_invariant_failures(self):
         from ldsc._kernel.ref_panel import ParquetR2RefPanel
@@ -697,7 +482,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 backend=backend,
                 genome_build=genome_build,
                 plink_prefix=plink_prefix,
-                r2_bias_mode=None,
                 sample_size=None,
                 ref_panel_snps_file=None,
             )
@@ -2172,8 +1956,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 genome_build="hg38",
                 ref_panel_snps_file=None,
                 regr_snps_file=None,
-                r2_bias_mode=None,
-                r2_sample_size=None,
                 ld_wind_snps=10,
                 ld_wind_kb=None,
                 ld_wind_cm=None,
@@ -2229,8 +2011,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 genome_build="hg38",
                 ref_panel_snps_file=None,
                 regr_snps_file=None,
-                r2_bias_mode=None,
-                r2_sample_size=None,
                 ld_wind_snps=10,
                 ld_wind_kb=None,
                 ld_wind_cm=None,
@@ -2285,8 +2065,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 genome_build="hg38",
                 ref_panel_snps_file=None,
                 regr_snps_file=None,
-                r2_bias_mode=None,
-                r2_sample_size=None,
                 ld_wind_snps=10,
                 ld_wind_kb=None,
                 ld_wind_cm=None,
@@ -2418,8 +2196,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             genome_build=None,
             ref_panel_snps_file=None,
             regr_snps_file=None,
-            r2_bias_mode=None,
-            r2_sample_size=None,
             frqfile_chr=None,
             ld_wind_snps=10,
             ld_wind_kb=None,
@@ -2450,8 +2226,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             genome_build=None,
             ref_panel_snps_file=None,
             regr_snps_file=None,
-            r2_bias_mode=None,
-            r2_sample_size=None,
             frqfile_chr=None,
             ld_wind_snps=10,
             ld_wind_kb=None,
@@ -2611,8 +2385,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             genome_build=None,
             ref_panel_snps_file=None,
             regr_snps_file=None,
-            r2_bias_mode="unbiased",
-            r2_sample_size=None,
             frqfile_chr=None,
             keep_indivs_file="samples.keep",
             ld_wind_snps=10,
@@ -2820,8 +2592,6 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
                     chrom="1",
                     metadata=metadata,
                     identifier_mode="chr_pos",
-                    r2_bias_mode="unbiased",
-                    r2_sample_size=None,
                     genome_build="auto",
                 )
 
@@ -2909,7 +2679,7 @@ class IndexReaderDecodeTest(unittest.TestCase):
         ]
         kb.write_r2_parquet(pair_chunks=dict_chunks(rows), path=r2, genome_build="hg19", n_samples=100,
                             snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
-                            sidecar_identity_sha256=sidecar_identity_sha256(full))
+                            sidecar_identity_sha256=sidecar_identity_sha256(full), ld_window_mode="kb", ld_window_value=1000.0)
         return r2, full
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
@@ -2921,8 +2691,8 @@ class IndexReaderDecodeTest(unittest.TestCase):
             retained = full.iloc[[0, 1, 2]][["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"]].reset_index(drop=True)
             reader = SortedR2BlockReader(
                 paths=[str(r2)], chrom="1", metadata=retained,
-                identifier_mode="chr_pos", r2_bias_mode="unbiased",
-                r2_sample_size=None, genome_build="hg19",
+                identifier_mode="chr_pos",
+                genome_build="hg19",
             )
             seen = {}
             for i, j, r2v in reader.iter_all_pairs():
@@ -3161,14 +2931,14 @@ class IndexCrossModeParityTest(unittest.TestCase):
             r2 = meta.with_name("chr1_r2.parquet")
             kb.write_r2_parquet(pair_chunks=dict_chunks(pairs), path=r2, genome_build="hg19", n_samples=100,
                                 snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
-                                sidecar_identity_sha256=sidecar_identity_sha256(panel))
+                                sidecar_identity_sha256=sidecar_identity_sha256(panel), ld_window_mode="kb", ld_window_value=1000.0)
             mode_scores = {}
             for mode in ("rsid", "chr_pos", "rsid_allele_aware", "chr_pos_allele_aware"):
                 reader = kernel_ldscore.SortedR2BlockReader(
                     paths=[str(r2)], chrom="1",
                     metadata=panel[["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"]].copy(),
-                    identifier_mode=mode, r2_bias_mode="unbiased",
-                    r2_sample_size=None, genome_build="hg19",
+                    identifier_mode=mode,
+                    genome_build="hg19",
                 )
                 scores = kernel_ldscore.ld_score_streaming_from_r2_reader(
                     block_left=np.zeros(4, dtype=np.int64),
@@ -3194,20 +2964,8 @@ class RawSchemaRejectedTest(unittest.TestCase):
             meta = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["a"], "A1": ["A"], "A2": ["G"]})
             with self.assertRaisesRegex(LDSCInputError, "index-format|build-r2-panel"):
                 SortedR2BlockReader(paths=[str(path)], chrom="1", metadata=meta,
-                                    identifier_mode="chr_pos", r2_bias_mode="unbiased",
-                                    r2_sample_size=None, genome_build="hg19")
-
-
-class R2TransformClipTest(unittest.TestCase):
-    def test_raw_transform_upper_clips_at_one(self):
-        from ldsc._kernel.ldscore import SortedR2BlockReader
-        reader = SortedR2BlockReader.__new__(SortedR2BlockReader)
-        reader.r2_bias_mode = "raw"
-        reader.r2_sample_size = 100.0
-        # raw r2 = 1.0 -> corrected 1.0 - 0/98 = 1.0; values >1 must clip to 1.0.
-        out = reader._transform_r2(np.array([1.0, 1.05, 0.0], dtype=np.float32))
-        self.assertLessEqual(float(out.max()), 1.0)
-        self.assertEqual(float(out[0]), 1.0)
+                                    identifier_mode="chr_pos",
+                                    genome_build="hg19")
 
 
 class R2DequantizationTest(unittest.TestCase):
@@ -3226,54 +2984,18 @@ class R2DequantizationTest(unittest.TestCase):
             r2 = meta.with_name("chr1_r2.parquet")
             kb.write_r2_parquet(pair_chunks=dict_chunks(pairs), path=r2, genome_build="hg19", n_samples=100,
                                 snp_identifier="chr_pos", min_r2=0.0, n_snps=3,
-                                sidecar_identity_sha256=sidecar_identity_sha256(panel))
+                                sidecar_identity_sha256=sidecar_identity_sha256(panel), ld_window_mode="kb", ld_window_value=1000.0)
             reader = kernel_ldscore.SortedR2BlockReader(
                 paths=[str(r2)], chrom="1", metadata=panel.copy(),
-                identifier_mode="chr_pos", r2_bias_mode="unbiased",
-                r2_sample_size=None, genome_build="hg19")
-            self.assertEqual(reader._r2_scale, 32767.0)
+                identifier_mode="chr_pos",
+                genome_build="hg19")
+            self.assertEqual(reader.contract.r2_scale, 32767.0)
             i, j, r2_values = next(reader.iter_all_pairs())
             self.assertEqual(r2_values.dtype, np.float32)
             # endpoint exact; 0.2 within half-step
             got = dict(zip(zip(i.tolist(), j.tolist()), r2_values.tolist()))
             self.assertEqual(got[(0, 1)], 1.0)
             self.assertAlmostEqual(got[(0, 2)], 0.2, delta=2e-5)
-
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
-    def test_reader_leaves_float32_panel_unscaled(self):
-        # A hand-built float32 R2 index parquet must read with _r2_scale is None.
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-        from ldsc._kernel import ldscore as kernel_ldscore
-        from ldsc._kernel.snp_identity import sidecar_identity_sha256
-        panel = pd.DataFrame({"CHR": ["1", "1"], "POS": [100, 120], "SNP": ["rs1", "rs2"],
-                              "A1": ["A", "A"], "A2": ["C", "G"], "CM": [0.0, 0.0], "MAF": [0.3, 0.3]})
-        with tempfile.TemporaryDirectory() as tmp:
-            meta = _write_index_sidecar(tmp, panel)
-            r2 = meta.with_name("chr1_r2.parquet")
-            schema = pa.schema(
-                [("IDX_1", pa.int32()), ("IDX_2", pa.int32()),
-                 ("R2", pa.float32()), ("SIGN_R", pa.bool_())]
-            ).with_metadata({
-                b"ldsc:schema_version": b"1", b"ldsc:artifact_type": b"ref_panel_r2",
-                b"ldsc:snp_identifier": b"chr_pos", b"ldsc:genome_build": b"hg19",
-                b"ldsc:sorted_by_build": b"hg19", b"ldsc:n_samples": b"100",
-                b"ldsc:r2_bias": b"unbiased", b"ldsc:min_r2": b"0.0", b"ldsc:n_snps": b"2",
-                b"ldsc:sidecar_identity_sha256": sidecar_identity_sha256(panel).encode(),
-                b"ldsc:row_group_size": b"50000",
-            })
-            tbl = pa.table({"IDX_1": pa.array([0], pa.int32()), "IDX_2": pa.array([1], pa.int32()),
-                            "R2": pa.array([0.5], pa.float32()), "SIGN_R": pa.array([True], pa.bool_())},
-                           schema=schema)
-            pq.write_table(tbl, str(r2))
-            reader = kernel_ldscore.SortedR2BlockReader(
-                paths=[str(r2)], chrom="1", metadata=panel.copy(),
-                identifier_mode="chr_pos", r2_bias_mode="unbiased",
-                r2_sample_size=None, genome_build="hg19")
-            self.assertIsNone(reader._r2_scale)
-            i, j, r2_values = next(reader.iter_all_pairs())
-            self.assertAlmostEqual(float(r2_values[0]), 0.5, delta=1e-7)
-
 
 def test_ldscore_parser_regr_snp_region_flag_default_and_removed_alias():
     parser = build_parser()

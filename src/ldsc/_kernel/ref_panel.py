@@ -10,7 +10,6 @@ or reopening a panel. Metadata inspection returns caller-owned chromosome tables
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from types import SimpleNamespace
 import gzip
 import logging
@@ -32,7 +31,7 @@ from ..column_inference import (
     resolve_required_column,
 )
 from ..config import GlobalConfig, LDScoreConfig, RefPanelConfig, validate_config_compatibility
-from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCUsageError
+from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCUsageError
 from ..genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from ..path_resolution import inspect_plink_inputs, split_cli_path_tokens
 from . import formats as legacy_parse
@@ -57,7 +56,6 @@ from .snp_identity import (
 LOGGER = logging.getLogger("LDSC.ref_panel")
 _REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORECASE)
 _REF_PANEL_ARTIFACT_DOC = "docs/troubleshooting.md#build-r2-panel-reference-panel-artifact-is-incompatible"
-_REF_PANEL_EMPTY_DOC = "docs/troubleshooting.md#build-r2-panel-no-reference-panel-artifacts-were-produced"
 
 
 def _snp_id_series_for_matching(metadata: pd.DataFrame, snp_identifier: str, *, context: str) -> pd.Series:
@@ -74,95 +72,6 @@ def _snp_id_series_for_matching(metadata: pd.DataFrame, snp_identifier: str, *, 
     keys = pd.Series(pd.NA, index=metadata.index, dtype="object")
     keys.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].astype(str)
     return keys
-
-
-@dataclass(frozen=True)
-class _R2SchemaMeta:
-    """Parsed LDSC R2 schema metadata from one parquet file."""
-
-    n_samples: int | None
-    r2_bias: str | None
-
-
-def _read_r2_schema_meta(path: str) -> _R2SchemaMeta:
-    """
-    Read LDSC R2 sample-size and bias metadata from an Arrow parquet schema.
-
-    Missing keys are returned as ``None`` so legacy parquet files keep their
-    historical behavior. A file with ``ldsc:n_samples`` but no ``ldsc:r2_bias``
-    is treated as malformed raw-R2 metadata and resolved to ``r2_bias="raw"``
-    with a warning.
-    """
-    try:
-        import pyarrow.parquet as pq
-    except ImportError:
-        return _R2SchemaMeta(n_samples=None, r2_bias=None)
-
-    raw_meta = pq.read_schema(path).metadata or {}
-    n_raw = raw_meta.get(b"ldsc:n_samples")
-    bias_raw = raw_meta.get(b"ldsc:r2_bias")
-    n_samples = int(n_raw.decode("utf-8")) if n_raw is not None else None
-    r2_bias = bias_raw.decode("utf-8") if bias_raw is not None else None
-
-    if n_samples is not None and r2_bias is None:
-        LOGGER.warning(
-            f"R2 reference panel '{path}' records a sample size (ldsc:n_samples) but not whether "
-            "its R2 values were bias-corrected (ldsc:r2_bias). The existing metadata fallback "
-            "treats them as raw, uncorrected values. Verify how this panel was produced and "
-            "restore its original bias metadata or rebuild the panel before interpreting results."
-        )
-        r2_bias = "raw"
-
-    return _R2SchemaMeta(n_samples=n_samples, r2_bias=r2_bias)
-
-
-def _read_identity_schema_meta(path: str, *, expected_artifact_type: str) -> dict[str, object]:
-    """Read and validate LDSC identity metadata from package-written parquet schema metadata."""
-    try:
-        import pyarrow.parquet as pq
-    except ImportError as exc:
-        raise LDSCDependencyError(
-            "Reading LDSC R2 identity schema metadata requires pyarrow. Most likely "
-            "parquet reference-panel input was requested in an environment without pyarrow. "
-            "Install pyarrow or activate the LDSC environment that includes it."
-        ) from exc
-
-    raw = pq.read_schema(path).metadata or {}
-    required_keys = {
-        b"ldsc:artifact_type",
-        b"ldsc:snp_identifier",
-        b"ldsc:genome_build",
-    }
-    if not required_keys.issubset(raw):
-        raise LDSCInputError(
-            "Could not read LDSC reference-panel R2 artifact metadata: required "
-            "identity/provenance keys are missing from the parquet schema. Most likely "
-            "the R2 file was written by an older LDSC version or by another tool. "
-            "Regenerate the reference panel with the current `ldsc build-r2-panel`. "
-            f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
-        )
-    metadata = {
-        "artifact_type": raw[b"ldsc:artifact_type"].decode("utf-8"),
-        "snp_identifier": raw[b"ldsc:snp_identifier"].decode("utf-8"),
-        "genome_build": raw[b"ldsc:genome_build"].decode("utf-8"),
-    }
-    validate_identity_artifact_metadata(metadata, expected_artifact_type=expected_artifact_type)
-    return metadata
-
-
-def _r2_path_has_ldsc_package_schema(path: str) -> bool:
-    """Return whether parquet schema metadata marks a package-written canonical R2 artifact."""
-    try:
-        import pyarrow.parquet as pq
-    except ImportError:
-        return False
-    raw = pq.read_schema(path).metadata or {}
-    package_keys = {
-        b"ldsc:sorted_by_build",
-        b"ldsc:row_group_size",
-        b"ldsc:artifact_type",
-    }
-    return any(key in raw for key in package_keys)
 
 
 def _artifact_global_config(metadata, global_config, source):
@@ -185,47 +94,6 @@ def _validate_r2_identity_matches_config(metadata: dict[str, object], global_con
         artifact_config,
         context="runtime config and parquet R2 artifact",
     )
-
-
-def _resolve_r2_bias_from_meta(
-    r2_bias_mode: str | None,
-    r2_sample_size: float | None,
-    meta: _R2SchemaMeta,
-) -> tuple[str, float | None]:
-    """
-    Resolve effective R2 bias mode and correction sample size.
-
-    User-supplied values take precedence over parquet metadata. When no user
-    mode is supplied, stored ``ldsc:r2_bias`` selects ``"unbiased"`` or
-    ``"raw"``; raw mode auto-fills the sample size from ``ldsc:n_samples`` when
-    available. Legacy files with neither key default to unbiased, matching the
-    pre-metadata behavior.
-    """
-    stored_bias = meta.r2_bias
-    stored_n = float(meta.n_samples) if meta.n_samples is not None else None
-
-    if stored_bias is None and stored_n is not None:
-        LOGGER.warning(
-            "The R2 reference panel records a sample size (ldsc:n_samples) but not whether its "
-            "R2 values were bias-corrected (ldsc:r2_bias). The existing metadata fallback treats "
-            "them as raw, uncorrected values. Verify how the panel was produced and restore "
-            "its original bias metadata or rebuild the panel before interpreting results."
-        )
-        stored_bias = "raw"
-
-    effective_bias = r2_bias_mode if r2_bias_mode is not None else (stored_bias or "unbiased")
-
-    if effective_bias == "unbiased":
-        if r2_sample_size is not None:
-            LOGGER.warning(
-                "The supplied R2 sample size is ignored because this panel is being read as "
-                "already bias-corrected (unbiased R2); no additional sample-size correction is applied. "
-                "Verify that the selected bias mode and ldsc:r2_bias metadata match how the panel was produced."
-            )
-        return "unbiased", None
-
-    resolved_n = r2_sample_size if r2_sample_size is not None else stored_n
-    return "raw", resolved_n
 
 
 class RefPanel(ABC):
@@ -278,7 +146,7 @@ class RefPanel(ABC):
             Reference metadata, a selected-read annotation mapping, window bounds, and
             an owned reader over the same retained SNP rows. Panel identity,
             SNP/sample/MAF restrictions, authoritative reference CM/MAF, and
-            reader bias settings are resolved together. Use the result as a
+            the validated R2 parquet contract are resolved together. Use the result as a
             context manager to close the reader on success or failure.
 
         Notes
@@ -566,19 +434,12 @@ class ParquetR2RefPanel(RefPanel):
                 "input. Remove the keep file or use PLINK mode."
             )
 
-        r2_paths = self.resolve_r2_paths(chrom)
+        # A sidecar without its R2 parquet is an incomplete panel.
+        self.resolve_r2_paths(chrom)
         metadata_paths = self.resolve_metadata_paths(chrom)
-        metadata_is_external = False
         if metadata_paths:
-            require_identity_metadata = any(_r2_path_has_ldsc_package_schema(path) for path in r2_paths)
-            metadata_is_external = not all(_read_metadata_sidecar_identity(path) is not None for path in metadata_paths)
             frames = [
-                _read_metadata_table(
-                    path,
-                    chrom=chrom,
-                    global_config=self.global_config,
-                    require_identity_metadata=require_identity_metadata,
-                )
+                _read_metadata_table(path, chrom=chrom, global_config=self.global_config)
                 for path in metadata_paths
             ]
             frames = [frame for frame in frames if len(frame) > 0]
@@ -600,72 +461,36 @@ class ParquetR2RefPanel(RefPanel):
             )
         metadata = self._apply_snp_restriction(metadata)
         metadata = self._apply_maf_filter(metadata, chrom)
-        if metadata_is_external and not metadata.empty:
-            cleanup = clean_identity_artifact_table(
-                metadata,
-                self.global_config.snp_identifier,
-                context=f"external parquet reference-panel metadata chromosome {chrom}",
-                stage="parquet_metadata_identity_cleanup",
-                logger=LOGGER,
-            )
-            metadata = cleanup.cleaned
-            if len(metadata) == 0:
-                raise LDSCInputError(
-                    f"Reference-panel loading retained no parquet metadata rows on chromosome "
-                    f"{chrom} after SNP identity cleanup. Most likely metadata rows have "
-                    "missing or duplicate SNP identities under the active identifier mode. "
-                    "Regenerate the reference panel or use an identifier mode compatible "
-                    f"with the sidecar. Other causes & fixes: {_REF_PANEL_EMPTY_DOC}"
-                )
         metadata = self._validate_metadata(metadata, chrom)
         return metadata
 
-    def build_reader(
-        self,
-        chrom: str,
-        metadata: pd.DataFrame | None = None,
-        r2_bias_mode: str | None = None,
-        r2_sample_size: float | None = None,
-    ):
+    def build_reader(self, chrom: str, metadata: pd.DataFrame | None = None):
         """
-        Build an owned streaming reader with R2 bias settings resolved.
+        Build an owned streaming reader over one chromosome's validated R2 parquet.
 
-        Runtime overrides are merged with ``RefPanelConfig`` first, then the
-        first chromosome parquet's LDSC schema metadata is used to auto-fill
-        missing R2 bias mode and sample size before constructing
-        ``SortedR2BlockReader``. ``prepare_chromosome`` uses this same factory;
+        The parquet must satisfy the ``build-r2-panel`` metadata contract and
+        record the active SNP identifier and genome build; its values are read
+        as already unbiased. ``prepare_chromosome`` uses this same factory;
         direct callers must close the returned reader.
         """
         metadata = metadata if metadata is not None else self.load_metadata(chrom)
         paths = self.resolve_r2_paths(chrom)
-        # Bias mode comes from parquet metadata (resolved below); sample size
-        # falls back to any explicit RefPanelConfig.sample_size.
-        effective_bias = r2_bias_mode
-        effective_n = r2_sample_size if r2_sample_size is not None else self.spec.sample_size
-
         if paths:
-            if _r2_path_has_ldsc_package_schema(paths[0]):
-                identity_metadata = _read_identity_schema_meta(paths[0], expected_artifact_type="ref_panel_r2")
-                _validate_r2_identity_matches_config(identity_metadata, self.global_config, source=paths[0])
-            stored = _read_r2_schema_meta(paths[0])
-            effective_bias, effective_n = _resolve_r2_bias_from_meta(
-                effective_bias,
-                effective_n,
-                stored,
+            contract = kernel_ldscore.read_r2_parquet_contract(paths[0])
+            _validate_r2_identity_matches_config(
+                {"snp_identifier": contract.snp_identifier, "genome_build": contract.genome_build},
+                self.global_config, source=paths[0],
             )
-
         return kernel_ldscore.SortedR2BlockReader(
             paths=paths,
             chrom=chrom,
             metadata=metadata,
             identifier_mode=self.global_config.snp_identifier,
-            r2_bias_mode=effective_bias,
-            r2_sample_size=effective_n,
             genome_build=self.global_config.genome_build,
         )
 
     def prepare_chromosome(self, chrom, annotations, config, *, genetic_map=None):
-        """Prepare a sidecar-aligned streaming reader with one resolved R2 policy."""
+        """Prepare a sidecar-aligned streaming reader over a contract-validated R2 parquet."""
         reference = self.load_metadata(chrom)
         aligned = _align_annotations(annotations, reference, chrom, self.global_config, "parquet")
         keys = kernel_ldscore.identifier_keys(aligned.metadata, self.global_config.snp_identifier)
@@ -881,10 +706,8 @@ def _read_metadata_table(
     path: str | Path,
     chrom: str | None,
     global_config: GlobalConfig,
-    *,
-    require_identity_metadata: bool = False,
 ) -> pd.DataFrame:
-    """Read one reference-panel metadata table into the normalized column set."""
+    """Read one package-written reference-panel sidecar into the normalized column set."""
     snp_identifier = normalize_snp_identifier_mode(global_config.snp_identifier)
     assert global_config.genome_build in {"hg19", "hg38", None}, (
         f"genome_build reached kernel as {global_config.genome_build!r}; "
@@ -892,17 +715,15 @@ def _read_metadata_table(
     )
 
     identity_metadata = _read_metadata_sidecar_identity(path)
-    if require_identity_metadata and identity_metadata is None:
+    if identity_metadata is None:
         raise LDSCInputError(
-            f"Reference-panel metadata sidecar '{path}' has no LDSC identity metadata, "
-            "but its paired R2 parquet requires package provenance. Most likely the "
-            "sidecar was written by an older LDSC version or copied from an external "
+            f"Reference-panel metadata sidecar '{path}' has no LDSC identity metadata. "
+            "Most likely it was written by an older LDSC version or copied from an external "
             "source. Regenerate the reference panel with the current `ldsc build-r2-panel`. "
             f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
         )
-    if identity_metadata is not None:
-        validate_identity_artifact_metadata(identity_metadata, expected_artifact_type="ref_panel_metadata")
-        _validate_metadata_identity_matches_config(identity_metadata, global_config, source=path)
+    validate_identity_artifact_metadata(identity_metadata, expected_artifact_type="ref_panel_metadata")
+    _validate_metadata_identity_matches_config(identity_metadata, global_config, source=path)
 
     df = pd.read_csv(
         path,

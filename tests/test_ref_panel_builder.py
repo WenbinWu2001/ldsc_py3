@@ -453,6 +453,7 @@ class StandardTableFormattingTest(unittest.TestCase):
                     pair_chunks=dict_chunks([{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]),
                     path=path, genome_build="hg19", n_samples=10,
                     snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
+                    ld_window_mode="kb", ld_window_value=1000.0,
                 )
             self.assertIn("requires pyarrow", str(ctx.exception))
             self.assertNotIn("fastparquet", str(ctx.exception))
@@ -468,6 +469,7 @@ class StandardTableFormattingTest(unittest.TestCase):
                 pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=42,
                 snp_identifier="rsid_allele_aware", row_group_size=50_000,
                 n_snps=2, sidecar_identity_sha256="ab" * 32,
+                ld_window_mode="kb", ld_window_value=1000.0,
             )
             meta = pq.read_schema(str(path)).metadata
             self.assertEqual(meta[b"ldsc:sorted_by_build"], b"hg19")
@@ -487,6 +489,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             kernel_builder.write_r2_parquet(
                 pair_chunks=dict_chunks([]), path=default_path, genome_build="hg19", n_samples=10,
                 snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
+                ld_window_mode="kb", ld_window_value=1000.0,
             )
             self.assertEqual(pq.read_schema(str(default_path)).metadata[b"ldsc:min_r2"], b"0.0")
 
@@ -494,6 +497,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             kernel_builder.write_r2_parquet(
                 pair_chunks=dict_chunks([]), path=filtered_path, genome_build="hg19", n_samples=10,
                 snp_identifier="chr_pos", min_r2=0.3, n_snps=2, sidecar_identity_sha256="0" * 64,
+                ld_window_mode="kb", ld_window_value=1000.0,
             )
             self.assertEqual(pq.read_schema(str(filtered_path)).metadata[b"ldsc:min_r2"], b"0.3")
 
@@ -543,6 +547,7 @@ class StandardTableFormattingTest(unittest.TestCase):
                 kernel_builder.write_r2_parquet(
                     pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
                     snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
+                    ld_window_mode="kb", ld_window_value=1000.0,
                 )
             self.assertEqual(captured.get("compression"), "zstd")
             self.assertEqual(captured.get("compression_level"), 9)
@@ -570,6 +575,7 @@ class StandardTableFormattingTest(unittest.TestCase):
                     kernel_builder.write_r2_parquet(
                         pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
                         snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
+                        ld_window_mode="kb", ld_window_value=1000.0,
                     )
             self.assertIn("snappy", str(cm.warning).lower())
 
@@ -591,6 +597,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             kernel_builder.write_r2_parquet(
                 pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
                 snp_identifier="chr_pos", n_snps=3, sidecar_identity_sha256="0" * 64,
+                ld_window_mode="kb", ld_window_value=1000.0,
             )
             md = pq.ParquetFile(path).metadata
             rg = md.row_group(0)
@@ -3055,7 +3062,7 @@ class R2QuantizationTest(unittest.TestCase):
             path = Path(tmp) / "chr1_r2.parquet"
             kb.write_r2_parquet(pair_chunks=dict_chunks(rows), path=path, genome_build="hg19",
                                 n_samples=100, snp_identifier="chr_pos", n_snps=3,
-                                sidecar_identity_sha256="0" * 64)
+                                sidecar_identity_sha256="0" * 64, ld_window_mode="kb", ld_window_value=1000.0)
             pf = pq.ParquetFile(path)
             self.assertEqual(pf.schema_arrow.field("R2").type, pa.int16())
             meta = pf.schema_arrow.metadata
@@ -3086,6 +3093,7 @@ class IndexWriterTest(unittest.TestCase):
                 pair_chunks=dict_chunks(self._rows()), path=path, genome_build="hg19",
                 n_samples=100, snp_identifier="chr_pos", min_r2=0.0,
                 n_snps=3, sidecar_identity_sha256="deadbeef" * 8,
+                ld_window_mode="kb", ld_window_value=1000.0,
             )
             pf = pq.ParquetFile(path)
             self.assertEqual(pf.schema_arrow.names, ["IDX_1", "IDX_2", "R2", "SIGN_R"])
@@ -3107,6 +3115,7 @@ class IndexWriterTest(unittest.TestCase):
                     pair_chunks=dict_chunks(bad), path=path, genome_build="hg19", n_samples=100,
                     snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
                     sidecar_identity_sha256="0" * 64,
+                    ld_window_mode="kb", ld_window_value=1000.0,
                 )
 
 

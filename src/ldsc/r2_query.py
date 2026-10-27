@@ -22,7 +22,7 @@ import pandas as pd
 from ._cli_help import CLIHelpFormatter
 from ._logging import LOG_LEVEL_HELP
 from ._kernel.identifiers import build_snp_id_series
-from ._kernel.ldscore import _load_full_panel_sidecar, _parquet_schema_layout, _validate_index_binding
+from ._kernel.ldscore import _load_full_panel_sidecar, _validate_index_binding, read_r2_parquet_contracts
 from ._kernel.r2_query import lookup_pairs_in_parquet
 from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from .outputs import QueryR2DirectoryWriter, QueryR2OutputConfig
@@ -30,12 +30,12 @@ from .path_resolution import ensure_output_directory
 from ._kernel.ref_panel import (
     _r2_dir_metadata_paths,
     _r2_dir_r2_paths,
-    _read_r2_schema_meta,
 )
 from ._kernel.snp_identity import (
     COMPLEMENT,
     allele_set_series,
     base_key_series,
+    identity_base_mode,
     identity_mode_family,
     is_allele_aware_mode,
     normalize_snp_identifier_mode,
@@ -139,7 +139,7 @@ class _ChromState:
     a2: np.ndarray               # panel A2 (object), aligned to sidecar rows
     parquet_file: object         # pyarrow.parquet.ParquetFile
     n_snps: int
-    r2_scale: float | None
+    r2_scale: float
 
 
 class R2Panel:
@@ -150,13 +150,12 @@ class R2Panel:
     sidecar-binding check, identity-key map, parquet handle), then cached.
     """
 
-    def __init__(self, paths: dict[str, tuple[str, str]], snp_identifier: str) -> None:
-        """Store the resolved ``{chrom: (meta, parquet)}`` map and active mode."""
+    def __init__(self, paths: dict[str, tuple[str, str]], snp_identifier: str, contracts: dict) -> None:
+        """Store the resolved ``{chrom: (meta, parquet)}`` map, active mode, and validated contracts."""
         self._paths = paths
         self._mode = snp_identifier
+        self._contracts = contracts
         self._state: dict[str, _ChromState] = {}
-        self._n_samples: int | None = None
-        self._n_samples_loaded = False
         self._validate_binding = True
 
     @classmethod
@@ -173,13 +172,15 @@ class R2Panel:
         ``panel_dir`` is required and may name the output root or one build
         child. ``genome_build`` selects hg19/hg38 when needed; an omitted
         ``snp_identifier`` uses the mode recorded in panel metadata. Each
-        chromosome requires a SIGN_R-format Parquet and its matching SNP
-        sidecar. ``validate_binding=True`` checks the sidecar's identity hash
-        and row count when loading a chromosome; disabling it does not relax
-        the required schema. Returns a reusable :class:`R2Panel` handle.
+        chromosome requires a Parquet satisfying the ``build-r2-panel``
+        metadata contract and its matching SNP sidecar; every chromosome's
+        Parquet metadata is validated here, and all defects are reported in
+        one error. An explicit ``snp_identifier`` must be the panel's recorded
+        mode or that mode's base (allele-free) form. ``validate_binding=True``
+        checks the sidecar's identity hash and row count when loading a
+        chromosome; disabling it does not relax the required metadata. Returns
+        a reusable :class:`R2Panel` handle.
         """
-        import pyarrow.parquet as pq
-
         if panel_dir is None:
             raise LDSCUsageError(
                 "Opening an R2 reference panel requires a panel directory. "
@@ -208,19 +209,25 @@ class R2Panel:
                 "and check --genome-build."
             )
 
-        if snp_identifier is None:
-            first_r2 = next(iter(paths.values()))[1]
-            schema_meta = pq.ParquetFile(first_r2).schema_arrow.metadata or {}
-            raw = schema_meta.get(b"ldsc:snp_identifier")
-            if raw is None:
-                raise LDSCInputError(
-                    f"R2Panel could not read `ldsc:snp_identifier` from '{first_r2}'. Most "
-                    "likely the panel predates identity provenance. Pass `snp_identifier=` "
-                    "explicitly (rsid, rsid_allele_aware, chr_pos, or chr_pos_allele_aware)."
-                )
-            snp_identifier = raw.decode("utf-8")
-
-        panel = cls(paths, normalize_snp_identifier_mode(snp_identifier))
+        contracts = dict(zip(paths, read_r2_parquet_contracts([r2 for _, r2 in paths.values()])))
+        panel_modes = sorted({contract.snp_identifier for contract in contracts.values()})
+        if len(panel_modes) > 1:
+            raise LDSCInputError(
+                f"Could not open R2 reference panel '{panel_dir}': its chromosome files record "
+                f"different SNP identifier modes ({', '.join(panel_modes)}). Most likely files from "
+                "different build-r2-panel runs were combined. Use one complete panel directory "
+                "or regenerate the panel."
+            )
+        panel_mode = panel_modes[0]
+        mode = panel_mode if snp_identifier is None else normalize_snp_identifier_mode(snp_identifier)
+        if mode not in {panel_mode, identity_base_mode(panel_mode)}:
+            allowed = sorted({panel_mode, identity_base_mode(panel_mode)})
+            raise LDSCInputError(
+                f"query-r2 cannot use --snp-identifier {mode} with R2 panel '{panel_dir}', which was "
+                f"built in {panel_mode} mode. A panel answers only its own mode or that mode's base "
+                f"form ({' or '.join(allowed)}). Use one of those modes, or a panel built in {mode} mode."
+            )
+        panel = cls(paths, mode, contracts)
         if panel._mode.startswith('chr_pos'):
             from ._genome_build_policy import GenomeBuildCheck
             check = GenomeBuildCheck(genome_build, context='query-r2', logger=LOGGER)
@@ -241,13 +248,9 @@ class R2Panel:
         return self._mode
 
     @property
-    def n_samples(self) -> int | None:
-        """Reference sample size from parquet metadata, or ``None`` if absent."""
-        if not self._n_samples_loaded:
-            first_r2 = next(iter(self._paths.values()))[1]
-            self._n_samples = _read_r2_schema_meta(first_r2).n_samples
-            self._n_samples_loaded = True
-        return self._n_samples
+    def n_samples(self) -> int:
+        """Reference sample size recorded by the first chromosome's parquet."""
+        return next(iter(self._contracts.values())).n_samples
 
     def _chrom_state(self, chrom: str) -> _ChromState:
         """Load and cache per-chromosome state on first touch."""
@@ -262,23 +265,15 @@ class R2Panel:
                 "the intended query chromosome."
             )
         meta_path, r2_path = self._paths[chrom]
-        import pyarrow as pa
+        contract = self._contracts[chrom]
         import pyarrow.parquet as pq
 
-        if _parquet_schema_layout(pq.read_schema(r2_path).names) != "index":
-            raise LDSCInputError(
-                f"R2Panel could not use R2 parquet '{r2_path}': expected columns "
-                "IDX_1/IDX_2/R2/SIGN_R. Most likely this panel uses an older schema. "
-                "Regenerate it with `ldsc build-r2-panel`."
-            )
         sidecar = _load_full_panel_sidecar(r2_path)
         pf = pq.ParquetFile(r2_path)
-        schema_meta = pf.schema_arrow.metadata or {}
-        n_snps = int(schema_meta[b"ldsc:n_snps"].decode("utf-8"))
         if self._validate_binding:
-            identity_hash = schema_meta[b"ldsc:sidecar_identity_sha256"].decode("utf-8")
             _validate_index_binding(
-                sidecar, n_snps=n_snps, identity_hash=identity_hash, context=f"R2Panel[{chrom}] {r2_path}"
+                sidecar, n_snps=contract.n_snps, identity_hash=contract.sidecar_identity_sha256,
+                context=f"R2Panel[{chrom}] {r2_path}",
             )
         key = build_snp_id_series(sidecar, self._mode)
         key_index = pd.Index(key)
@@ -289,18 +284,14 @@ class R2Panel:
                 "Most likely the mode is too coarse for the panel (e.g. duplicate positions "
                 "in chr_pos). Use an allele-aware mode."
             )
-        r2_scale = None
-        if pa.types.is_integer(pf.schema_arrow.field("R2").type):
-            scale_raw = schema_meta.get(b"ldsc:r2_scale")
-            r2_scale = float(scale_raw.decode("utf-8")) if scale_raw is not None else 32767.0
         state = _ChromState(
             sidecar=sidecar,
             key_index=key_index,
             a1=sidecar["A1"].to_numpy(dtype=object),
             a2=sidecar["A2"].to_numpy(dtype=object),
             parquet_file=pf,
-            n_snps=n_snps,
-            r2_scale=r2_scale,
+            n_snps=contract.n_snps,
+            r2_scale=contract.r2_scale,
         )
         self._state[chrom] = state
         return state
@@ -371,7 +362,7 @@ class R2Panel:
             ``status`` (string). Existing result-named columns are replaced.
             ``sign_r`` and ``r`` use query A1 dosage orientation, allowing
             allele swaps and strand complements. Both are missing in base
-            modes; missing sample size also makes ``r`` unavailable.
+            modes.
             Unresolved, cross-chromosome, and unstored pairs have NaN R² and
             status ``not_in_panel``, ``cross_chromosome``, or ``absent``.
             Resolved diagonals have R²=1; numeric results have empty status.
@@ -439,19 +430,10 @@ class R2Panel:
 
         Positive r denotes positive correlation between query A1 dosages;
         query A1 need not be the panel's minor allele. Base modes carry no
-        sign_r, so ``r`` is all-NaN. Panels
-        lacking ``ldsc:n_samples`` also yield an all-NaN ``r`` because raw R2
-        cannot be recovered without the sample size.
+        sign_r, so ``r`` is all-NaN. The required ``ldsc:n_samples`` recovers
+        raw R2 from the stored unbiased value.
         """
         n_samples = self.n_samples
-        if n_samples is None:
-            LOGGER.warning(
-                "query-r2 cannot compute signed r because the panel metadata omits the sample size "
-                "(ldsc:n_samples). The query continues and returns R2, but all r values are unavailable (NaN). "
-                "Restore the original sample-size metadata from the matching panel build, or rebuild "
-                "with the current build-r2-panel; do not guess a sample size."
-            )
-            return np.full(len(r2), np.nan, dtype=np.float64)
         sign_float = sign_col.to_numpy(dtype="float64", na_value=np.nan)
         if not is_allele_aware_mode(self._mode):
             LOGGER.warning(

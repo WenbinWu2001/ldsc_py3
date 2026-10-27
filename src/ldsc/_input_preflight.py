@@ -210,8 +210,8 @@ def inspect_declared_inputs(*, baseline=(), query=(), files=(), scalar_files=(),
 
 
 def inspect_r2_headers(directory, genome_build=None):
-    """Check every selected R2/sidecar path and Parquet footer before pair scans."""
-    import pyarrow.parquet as pq
+    """Check every selected R2/sidecar path and Parquet metadata contract before pair scans."""
+    from ._kernel.ldscore import read_r2_parquet_contract
     from ._kernel.ref_panel import _resolve_r2_build_dir
 
     root = Path(directory)
@@ -231,7 +231,7 @@ def inspect_r2_headers(directory, genome_build=None):
         pair = root / f'chr{chrom}_r2.parquet'
         sidecar = root / f'chr{chrom}_meta.tsv.gz'
         gate.check('reference', sidecar, lambda: _readable(sidecar), chrom=chrom)
-        gate.check('reference', pair, lambda: pq.read_schema(pair), chrom=chrom)
+        gate.check('reference', pair, lambda: read_r2_parquet_contract(pair), chrom=chrom)
     gate.finish()
     return root
 

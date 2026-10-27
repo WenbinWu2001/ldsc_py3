@@ -59,14 +59,14 @@ def lookup_pairs_in_parquet(
     j: np.ndarray,
     *,
     n_snps: int,
-    r2_scale: float | None,
+    r2_scale: float,
 ):
     """Return ``(r2, sign)`` for canonical pairs ``(i, j)`` from one parquet.
 
     ``r2`` is float32 with ``NaN`` where the pair is not stored; ``sign`` is int8
     with ``+1``/``-1`` for stored pairs (panel orientation) and ``0`` where the
-    pair is not stored. When ``r2_scale`` is set the int16 R² column is divided
-    by it (dequantization); a float R² column passes through unscaled.
+    pair is not stored. The int16 R² column is divided by ``r2_scale``
+    (dequantization).
     """
     i = np.asarray(i, dtype=np.int64)
     j = np.asarray(j, dtype=np.int64)
@@ -105,8 +105,7 @@ def lookup_pairs_in_parquet(
             continue
         mpos = pos[matched]
         r2_vals = _arrow_to_numpy(table.column("R2")).astype(np.float32, copy=False)[matched]
-        if r2_scale is not None:
-            r2_vals = r2_vals / np.float32(r2_scale)
+        r2_vals = r2_vals / np.float32(r2_scale)
         sign_vals = _arrow_to_numpy(table.column("SIGN_R")).astype(bool, copy=False)[matched]
         uniq_r2[mpos] = r2_vals
         uniq_sign[mpos] = np.where(sign_vals, np.int8(1), np.int8(-1))

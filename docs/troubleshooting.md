@@ -641,7 +641,7 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
 
 ### ldscore: parquet R2 input is incompatible
 
-**Symptom:** `ldscore could not use R2 parquet ...` / `... sidecar ... missing`
+**Symptom:** `R2 parquet '...' does not match the format written by the current ldsc build-r2-panel: ...` / `ldscore could not use R2 parquet ...` / `... sidecar ... missing`
 
 **Likely causes & how to check** (most probable first):
 
@@ -649,7 +649,7 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
 |---|--------------|--------------|
 | 1 | The R2 parquet was written by an older LDSC version or another tool | Inspect columns; current files contain `IDX_1`, `IDX_2`, `R2`, and `SIGN_R`. The former `SIGN` column is no longer accepted; rebuild according to the [current format requirements](current/parquet-r2-format-and-read-pipeline.md#5-caveats-and-constraints). |
 | 2 | The matching `chrN_meta.tsv.gz` sidecar is missing or was copied from another panel | Confirm each `chrN_r2.parquet` has a same-directory `chrN_meta.tsv.gz` with matching timestamps/provenance |
-| 3 | Parquet schema metadata was stripped or edited | Inspect parquet metadata for `ldsc:sorted_by_build`, `ldsc:n_snps`, and `ldsc:sidecar_identity_sha256` |
+| 3 | Parquet schema metadata was stripped or edited | The error lists each missing or invalid key; current panels record `ldsc:r2_encoding`, `ldsc:r2_scale`, `ldsc:r2_bias=unbiased`, `ldsc:n_samples`, `ldsc:ld_window_mode`/`ldsc:ld_window_value`, `ldsc:sorted_by_build`, `ldsc:n_snps`, `ldsc:sidecar_identity_sha256`, and identity keys, with an int16 `R2` column |
 | 4 | The R2 directory mixes chromosomes or builds from different reference-panel runs | List files in the R2 directory and compare recorded `genome_build` metadata |
 | 5 | Duplicate or conflicting pair rows survived in the R2 artifact | Regenerate from a deduplicated reference-panel source and current `ldsc build-r2-panel` |
 

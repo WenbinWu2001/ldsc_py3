@@ -204,6 +204,8 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             n_snps=len(panel_meta),
             sidecar_identity_sha256=sidecar_identity_sha256(panel_meta),
             row_group_size=row_group_size,
+            ld_window_mode="kb",
+            ld_window_value=1000.0,
         )
         return r2
 
@@ -213,8 +215,6 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             chrom="1",
             metadata=reader_meta,
             identifier_mode="rsid",
-            r2_bias_mode="unbiased",
-            r2_sample_size=None,
             genome_build=genome_build,
         )
 
@@ -290,8 +290,6 @@ class IndexParquetRuntimeTest(unittest.TestCase):
                     chrom="1",
                     metadata=self._reader_meta(["rs1", "rs2"], [100, 120]),
                     identifier_mode="rsid",
-                    r2_bias_mode="unbiased",
-                    r2_sample_size=None,
                     genome_build="hg19",
                 )
             self.assertIn("exactly one file", str(ctx.exception))

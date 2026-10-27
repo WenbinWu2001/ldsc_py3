@@ -249,8 +249,11 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_ref_panel_config_validates_r2_args(self):
         with self.assertRaises(ldsc.LDSCConfigError):
             RefPanelConfig(backend="bad")
-        with self.assertRaises(ldsc.LDSCConfigError):
-            RefPanelConfig(sample_size=0)
+
+    def test_ref_panel_config_rejects_removed_sample_size(self):
+        # Package R2 panels are already unbiased; no reader-side sample-size correction remains.
+        with self.assertRaises(TypeError):
+            RefPanelConfig(backend="parquet_r2", sample_size=100)
 
     def test_ldscore_config_requires_one_window(self):
         config = LDScoreConfig(ld_wind_cm=1.0)

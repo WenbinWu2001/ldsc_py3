@@ -689,9 +689,9 @@ def write_r2_parquet(
     sidecar_identity_sha256: str,
     batch_size: int = 100_000,
     row_group_size: int = 50_000,
+    ld_window_mode: str,
+    ld_window_value: float,
     min_r2: float = 0.0,
-    ld_window_mode: str | None = None,
-    ld_window_value: float | None = None,
 ) -> str:
     """
     Write one canonical 4-column index R2 parquet with LDSC schema metadata.
@@ -766,10 +766,9 @@ def write_r2_parquet(
         b"ldsc:sidecar_identity_sha256": str(sidecar_identity_sha256).encode("utf-8"),
         b"ldsc:r2_encoding": R2_ENCODING.encode("utf-8"),
         b"ldsc:r2_scale": str(R2_QUANT_SCALE).encode("utf-8"),
+        b"ldsc:ld_window_mode": str(ld_window_mode).encode("utf-8"),
+        b"ldsc:ld_window_value": str(ld_window_value).encode("utf-8"),
     }
-    if ld_window_mode is not None:
-        pa_meta[b"ldsc:ld_window_mode"] = str(ld_window_mode).encode("utf-8")
-        pa_meta[b"ldsc:ld_window_value"] = str(ld_window_value).encode("utf-8")
     schema = pa.schema(
         [
             ("IDX_1", pa.int32()),

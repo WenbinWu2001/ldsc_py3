@@ -4,19 +4,22 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 import pytest
 
 from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfig, RefPanelConfig
 from ldsc._kernel import ldscore
 from ldsc._kernel.ref_panel import ParquetR2RefPanel
-from ldsc._kernel.ref_panel_builder import write_runtime_metadata_sidecar
+from ldsc._kernel.ref_panel_builder import write_r2_parquet, write_runtime_metadata_sidecar
 from ldsc._kernel.snp_identity import sidecar_identity_sha256
-from ldsc.errors import LDSCInputError, LDSCUsageError
+from ldsc.errors import LDSCInputError
 
 
-def write_panel(root, *, bias="unbiased", n_samples=200, chrom="1", mode="rsid"):
+# write_panel stores R2=0.5 as round(0.5 * 32767); readers decode stored / 32767 in float32.
+STORED_R2 = float(np.float32(round(0.5 * 32767)) / np.float32(32767))
+
+
+def write_panel(root, *, chrom="1", mode="rsid"):
+    """Write one package-format chromosome with the real sidecar and R2 writers."""
     root.mkdir(parents=True, exist_ok=True)
     metadata = pd.DataFrame({
         "CHR": [chrom, chrom], "POS": [100, 300], "SNP": ["rs1", "rs3"],
@@ -24,19 +27,12 @@ def write_panel(root, *, bias="unbiased", n_samples=200, chrom="1", mode="rsid")
     })
     write_runtime_metadata_sidecar(metadata, root / f"chr{chrom}_meta.tsv.gz",
                                    genome_build="hg19", snp_identifier=mode)
-    footer = {
-        b"ldsc:schema_version": b"1", b"ldsc:artifact_type": b"ref_panel_r2",
-        b"ldsc:snp_identifier": mode.encode(), b"ldsc:genome_build": b"hg19",
-        b"ldsc:sorted_by_build": b"hg19", b"ldsc:n_snps": b"2",
-        b"ldsc:sidecar_identity_sha256": sidecar_identity_sha256(metadata).encode(),
-    }
-    if bias is not None:
-        footer[b"ldsc:r2_bias"] = bias.encode()
-    if n_samples is not None:
-        footer[b"ldsc:n_samples"] = str(n_samples).encode()
-    table = pa.table({"IDX_1": pa.array([0], type=pa.int32()), "IDX_2": pa.array([1], type=pa.int32()),
-                      "R2": pa.array([0.5], type=pa.float32()), "SIGN_R": [True]})
-    pq.write_table(table.replace_schema_metadata(footer), root / f"chr{chrom}_r2.parquet")
+    write_r2_parquet(
+        pair_chunks=[(np.array([0]), np.array([1]), np.array([0.5], dtype=np.float32), np.array([1], dtype=np.int8))],
+        path=root / f"chr{chrom}_r2.parquet", genome_build="hg19", n_samples=200, snp_identifier=mode,
+        n_snps=2, sidecar_identity_sha256=sidecar_identity_sha256(metadata),
+        ld_window_mode="snps", ld_window_value=10.0,
+    )
     return metadata
 
 
@@ -48,22 +44,17 @@ def public_bundle(metadata, values=None):
                             chromosomes=metadata["CHR"].astype(str).unique().tolist(), source_summary={})
 
 
-@pytest.mark.parametrize("bias,stored_n,explicit_n,expected", [
-    ("raw", 200, None, 1.4974747474747474),
-    ("raw", 200, 100, 1.4948979591836735),
-    ("unbiased", 200, 100, 1.5),
-    (None, 200, None, 1.4974747474747474),
-    (None, None, None, 1.5),
-])
-def test_r2_policy_is_applied_through_public_calculation(tmp_path, bias, stored_n, explicit_n, expected):
-    metadata = write_panel(tmp_path, bias=bias, n_samples=stored_n)
+def test_package_r2_is_read_as_unbiased_through_public_calculation(tmp_path):
+    # Package panels store already-unbiased R2 quantized as round(R2 * 32767), so
+    # each SNP scores itself (1) plus its neighbour's decoded R2, with no
+    # second sample-size correction.
+    metadata = write_panel(tmp_path)
     config = GlobalConfig(snp_identifier="rsid")
-    panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path,
-                                                   sample_size=explicit_n))
+    panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
     result = LDScoreCalculator().compute_chromosome(
         "1", public_bundle(metadata), panel, LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True), config,
     )
-    np.testing.assert_allclose(result.baseline_table[["base", "regression_ld_scores"]], expected, rtol=1e-7)
+    np.testing.assert_allclose(result.baseline_table[["base", "regression_ld_scores"]], 1.0 + STORED_R2, rtol=1e-7)
 
 
 @pytest.mark.parametrize("alleles_in_annotation", [False, True])
@@ -83,7 +74,8 @@ def test_prepared_annotations_share_reference_rows_alleles_cm_maf_and_counts(tmp
         np.testing.assert_array_equal(prepared.annotations.read(), [[1, 1], [3, 0]])
         pd.testing.assert_frame_equal(prepared.metadata[reference.columns], reference)
         result = ldscore.compute_chromosome("1", prepared, snp_identifier=mode, snp_batch_size=3)
-        np.testing.assert_allclose(result.ld_scores, [[2.5, 1], [3.5, 0.5]])
+        r2 = STORED_R2
+        np.testing.assert_allclose(result.ld_scores, [[1 + 3 * r2, 1], [3 + r2, r2]], rtol=1e-7)
         np.testing.assert_array_equal(result.M, [4, 1])
         np.testing.assert_array_equal(result.M_5_50, [3, 0])
         reader = prepared.reader
@@ -101,12 +93,17 @@ def test_allele_mismatch_is_rejected_before_reader_creation(tmp_path):
         )
 
 
-def test_parquet_preparation_releases_reader_on_calculation_failure(tmp_path):
-    metadata = write_panel(tmp_path, bias="raw", n_samples=None)
+def test_parquet_preparation_releases_reader_on_calculation_failure(tmp_path, monkeypatch):
+    metadata = write_panel(tmp_path)
     config = GlobalConfig(snp_identifier="rsid")
     panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
     bundle = ldscore.AnnotationBundle(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], [])
-    with pytest.raises(LDSCUsageError, match="sample size"):
+
+    def fail_decode(self, table, row_group_index):
+        raise LDSCInputError("injected decode failure")
+
+    monkeypatch.setattr(ldscore.SortedR2BlockReader, "_decode_index_batch", fail_decode)
+    with pytest.raises(LDSCInputError, match="injected decode failure"):
         with panel.prepare_chromosome("1", bundle, LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True)) as prepared:
             reader = prepared.reader
             ldscore.compute_chromosome("1", prepared, snp_identifier="rsid", snp_batch_size=3)
@@ -137,7 +134,7 @@ def test_public_run_skips_empty_intersection_and_computes_other_chromosome(tmp_p
             bundle, panel, LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True), config,
         )
     assert result.baseline_table["CHR"].tolist() == ["22", "22"]
-    np.testing.assert_allclose(result.baseline_table["base"], [1.5, 1.5])
+    np.testing.assert_allclose(result.baseline_table["base"], [1 + STORED_R2, 1 + STORED_R2], rtol=1e-7)
 
 
 def test_parquet_genetic_maps_are_ignored_at_preparation(tmp_path, caplog):
@@ -194,7 +191,8 @@ def test_reference_preparation_defers_value_reads_and_kernel_returns_only_output
         result = ldscore.compute_chromosome('1',prepared,snp_identifier='rsid',snp_batch_size=1,
             regression_keys={'rs1'},query_batch_size=1)
         assert result.metadata.SNP.tolist() == ['rs1']
-        np.testing.assert_array_equal(result.ld_scores, [[1.5,2,2]])
+        # Quantized R2 is not exactly representable, so compare at float32 output precision.
+        np.testing.assert_allclose(result.ld_scores, [[1 + STORED_R2, 2, 4 * STORED_R2]], rtol=1e-7)
         np.testing.assert_array_equal(result.w_ld, [[1]])
         np.testing.assert_array_equal(result.M, [2,2,4])
         np.testing.assert_array_equal(result.M_5_50, [1,0,4])

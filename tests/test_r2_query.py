@@ -61,6 +61,8 @@ def build_test_panel(
         n_snps=len(sidecar),
         sidecar_identity_sha256=identity_hash,
         min_r2=0.0,
+        ld_window_mode="kb",
+        ld_window_value=1000.0,
     )
     return build_dir, meta_path, r2_path
 
@@ -87,8 +89,7 @@ def test_readers_require_sign_r(tmp_path, reader, old_sign):
             SortedR2BlockReader(
                 paths=[str(r2_path)], chrom="1",
                 metadata=pd.read_csv(meta_path, sep="\t", comment="#"),
-                identifier_mode="chr_pos_allele_aware", r2_bias_mode="unbiased",
-                r2_sample_size=1000, genome_build="hg38",
+                identifier_mode="chr_pos_allele_aware", genome_build="hg38",
             )
         else:
             panel = R2Panel.open(tmp_path, genome_build="hg38")

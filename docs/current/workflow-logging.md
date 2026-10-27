@@ -1,6 +1,6 @@
 # Workflow Logging
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 ## Audience and authority
 
@@ -250,6 +250,17 @@ When a phase total is unknown, progress omits the denominator; any reported comp
 Direct LD scores check declarations and annotation headers, resolve gene-list controls, and validate reference content before annotation staging. PLINK companion mappings and reference scope evidence are reused; annotation headers supply the source scan widths. Gene-index and R2 construction check baseline/auxiliary declarations and PLINK companions together. Index consumers check every component path, small chromosome identity metadata, and Parquet header before opening the first numerical operator. See [`test_staged_input_preflight.py`](../../tests/test_staged_input_preflight.py).
 
 Validation remains staged: BIM/FAM rows and BED dimensions require reference inspection; annotation row alignment, duplicate identities, chromosome contents, and gene support require their content scans. R2 query-scope validation streams pair integrity before preparation and reuses that scope result. Baseline-only R2 runs check sidecar/reader compatibility early and retain pair-content checks in the consuming reader, avoiding an additional full pair scan. Ordinary globs cannot reveal a chromosome that is absent consistently from all matches. Scientific omission, ignored-option, overwrite, and failure-marker policies remain unchanged.
+
+### Validation timing and completeness
+
+Detect run-stopping conditions before substantial computation.
+When a check needs only cheap evidence (paths, headers, BIM tables, artifact metadata, or identifier sets), run it for every input before expensive work such as genotype reading, R² computation, LD-score accumulation, or regression fitting.
+A check that needs expensive evidence, such as MAF computed from genotypes, fails as soon as that evidence exists rather than after unrelated work continues.
+
+Collect every safely discoverable issue before aborting.
+At each validation stage, check all independent inputs (files, chromosomes, queries, and focal/control lists) and raise one error that summarizes every issue found, instead of stopping at the first.
+Use `_input_preflight.InputGate`, write the complete repair table to `diagnostics/input_issues.tsv`, and show at most 10 representative issues in the primary message.
+An unreadable structural contract may stop its own stage immediately; issues in other independent inputs at that stage are still collected.
 
 ## Annotation preparation
 

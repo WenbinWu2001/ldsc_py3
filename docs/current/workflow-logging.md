@@ -23,7 +23,7 @@ Failure tracebacks belong in the saved logs even when `DEBUG` was not selected.
 It never opens a workflow log, creates an output directory, or writes a failure marker, including on syntax errors.
 It accepts no verbosity or logging options; errors must not suggest `--log-level DEBUG` or point to a previous workflow log.
 An unknown build is a successful inspection (exit 0), not a logged workflow failure.
-See the [inspection contract](snp-identifier-genome-build-defaults.md#standalone-build-inspection) for the remaining exit codes.
+See the [inspection contract](../reference/snp-identity-and-genome-build.md#standalone-build-inspection) for the remaining exit codes.
 
 ## Message-writing rules
 
@@ -208,7 +208,7 @@ For example, a notice can report three queries skipped because their LD scores a
 SNP support is measured on the retained reference-SNP universe; LD-score variation is evaluated on regression SNP rows.
 The reason codes, diagnostic schemas, query-selection policy, and console/file routing remain unchanged.
 
-After a successful `munge-sumstats` CLI run, stdout displays a `Munge-sumstats summary:` block with the selected restriction, liftover method, mapping/drop counts and reasons, and whole-run row accounting. The workflow writes the identical block to `diagnostics/sumstats.log` through `log_summary`, which bypasses the module-record threshold like lifecycle audit lines. This summary remains visible at every `--log-level`; Python API runs write it only to the log. See [liftover rules and count interpretation](munge-sumstats.md#liftover-rules).
+After a successful `munge-sumstats` CLI run, stdout displays a `Munge-sumstats summary:` block with the selected restriction, liftover method, mapping/drop counts and reasons, and whole-run row accounting. The workflow writes the identical block to `diagnostics/sumstats.log` through `log_summary`, which bypasses the module-record threshold like lifecycle audit lines. This summary remains visible at every `--log-level`; Python API runs write it only to the log. See [liftover rules and count interpretation](../reference/munge-sumstats.md#liftover-rules).
 
 ## Output-Family Preflight
 
@@ -460,7 +460,7 @@ BIM mode emits query files only and has no baseline-value output.
 
 ## Streaming memory-workflow diagnostics
 
-Annotation, gene-resolution, direct chromosome-drop, and quantile alignment audits are replayed in bounded chunks into their complete output files. Results keep counts/statuses or persistent paths; they do not retain every chromosome's audit frame. Standalone annotate publishes query shards incrementally and detaches its returned bundle from construction scratch. Batch partitioned-h2 stages complete per-fit details privately and publishes them after final summary sorting, preserving overwrite and failure-marker contracts. Explicit `--continue-on-query-error` permits publication of successful query fits after recording failures in `diagnostics/query_status.tsv`. Each query exception is logged with its name, stage, and traceback; singular jackknife errors also log block indices, retained-row intervals, available panel genomic spans, normal-matrix ranks, and before/after-deletion support counts. A final warning summarizes successful and failed counts. Strict scans publish diagnostics alone when any query fails. See [query failure handling](partitioned-h2-results.md#query-failures-and-continuation) and [the memory design](annotation-memory-design.md).
+Annotation, gene-resolution, direct chromosome-drop, and quantile alignment audits are replayed in bounded chunks into their complete output files. Results keep counts/statuses or persistent paths; they do not retain every chromosome's audit frame. Standalone annotate publishes query shards incrementally and detaches its returned bundle from construction scratch. Batch partitioned-h2 stages complete per-fit details privately and publishes them after final summary sorting, preserving overwrite and failure-marker contracts. Explicit `--continue-on-query-error` permits publication of successful query fits after recording failures in `diagnostics/query_status.tsv`. Each query exception is logged with its name, stage, and traceback; singular jackknife errors also log block indices, retained-row intervals, available panel genomic spans, normal-matrix ranks, and before/after-deletion support counts. A final warning summarizes successful and failed counts. Strict scans publish diagnostics alone when any query fails. See [query failure handling](../reference/results/partitioned-h2.md#query-failures-and-continuation) and [the memory design](../dev/design/memory-and-cpu.md).
 
 ### Partitioned query worker diagnostics
 
@@ -470,7 +470,7 @@ Regression forwards its per-model log records to the parent workflow log as befo
 Existing phase timings, deterministic status order, and final sorting remain unchanged.
 Summed worker timings can exceed elapsed wall time.
 
-Ordinary query-model exceptions include the query name and stage. Process death, transport failures, worker initialization failures, interrupts, and output errors remain fatal under both strict and continue policies and can stop the scan before the final status table is written. The coordinator reports affected in-flight query identities and reaps workers before removing scratch. Sources: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py), `_WorkerLog` and `_QueryWorkers` in [_partitioned_h2_parallel.py](../../src/ldsc/_partitioned_h2_parallel.py), and [query-worker policy](regression-configuration.md#43-query-workers-and-memory).
+Ordinary query-model exceptions include the query name and stage. Process death, transport failures, worker initialization failures, interrupts, and output errors remain fatal under both strict and continue policies and can stop the scan before the final status table is written. The coordinator reports affected in-flight query identities and reaps workers before removing scratch. Sources: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py), `_WorkerLog` and `_QueryWorkers` in [_partitioned_h2_parallel.py](../../src/ldsc/_partitioned_h2_parallel.py), and [query-worker policy](../reference/regression-options.md#43-query-workers-and-memory).
 
 
 ## Batch and collection progress
@@ -509,7 +509,7 @@ A handled chromosome failure retains logs, reports the chromosome and batch in t
 A broken pool reports affected in-flight tasks and their paths without claiming a confirmed crash source.
 Reruns follow `--overwrite`, resetting owned logs rather than appending an unrelated run.
 `LDScoreCalculator.run(..., output_config=None)` retains its no-file-output contract.
-See [parallel execution](parallel-execution.md) and [`_ldscore_diagnostics`](../../src/ldsc/_ldscore_diagnostics.py).
+See [parallel execution](../reference/parallel-execution.md) and [`_ldscore_diagnostics`](../../src/ldsc/_ldscore_diagnostics.py).
 
 ## Maintaining this contract
 

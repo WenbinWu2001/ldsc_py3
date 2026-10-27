@@ -140,7 +140,7 @@ The main score array covers selected output rows and active annotation columns, 
 Other allocations include a bounded decoded Arrow batch, pair buffers and CSR construction, annotation/product tiles, sidecar mappings, and output conversion.
 The read-time window filters contributions before sparse construction without allocating a dense window matrix; it can affect both work and the retained sparse operator.
 Each chromosome worker needs its own working set.
-See the [read-side memory model](parquet-r2-format-and-read-pipeline.md#36-read-side-memory-streaming) and the [package resource design](annotation-memory-design.md).
+See the [read-side memory model](../reference/formats/r2-panels.md#36-read-side-memory-streaming) and the [package resource design](../dev/design/memory-and-cpu.md).
 
 ## Practical contract
 
@@ -148,5 +148,5 @@ Keep `chr{chrom}_meta.tsv.gz` alongside `chr{chrom}_r2.parquet` for every
 chromosome and emitted build. The parquet is bound to its sidecar by a SHA-256
 identity hash recorded in the parquet metadata; the reader hard-fails if the
 sidecar is wrong, reordered, or edited. See
-`docs/current/parquet-r2-format-and-read-pipeline.md` §4 for the binding
+`docs/reference/formats/r2-panels.md` §4 for the binding
 specification.

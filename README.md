@@ -4,7 +4,7 @@ Last updated on: 2026-10-27
 
 This repository is the active refactored LDSC package.
 
-Current flag names and retired options are documented in the [LDSC2-to-current CLI flag map](docs/current/legacy-cli-flag-map.md).
+Current flag names and retired options are documented in the [LDSC2-to-current CLI flag map](docs/reference/ldsc2-flag-map.md).
 Munging uses `--input-format` and automatically preserves input frequency as `FRQ`.
 Direct/indexed `ldscore`, index construction, and batch regression use `--workers` for task concurrency.
 
@@ -14,9 +14,9 @@ Every worker uses **1 BLAS thread**, in serial and parallel execution.
 Positive requests above that count fail before capping by available tasks; negative `-k` uses `max(1, detected_count + 1 - k)`.
 LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
 Zero, Boolean, and non-integer Python requests are invalid.
-See [the execution policy](docs/current/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
+See [the execution policy](docs/reference/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
 
-Run `ldsc COMMAND --help` for options grouped by task, with required inputs first and descriptions of defaults, dependencies, and mode restrictions. Contributors should follow the [CLI help guidelines](docs/current/cli-help-guidelines.md).
+Run `ldsc COMMAND --help` for options grouped by task, with required inputs first and descriptions of defaults, dependencies, and mode restrictions. Contributors should follow the [CLI help guidelines](docs/dev/guidelines/cli-help.md).
 
 ## Authors and maintainer
 
@@ -56,11 +56,11 @@ These academic credit instructions are separate from the software license. Cite 
 - `src/ldsc/_kernel/`: internal compute and file-format modules
 - `tests/`: local parity and workflow tests
 - `tutorials/`: package-level usage examples
-- [Contributor entry](docs/current/code-structure.md): authoritative module navigation and links to current workflow, scientific, and artifact contracts
+- [Contributor entry](docs/dev/code-structure.md): authoritative module navigation and links to current workflow, scientific, and artifact contracts
 
 ## Large pathway batches
 
-The annotation and regression workflows are designed for large pathway batches, such as **1,000 pathways in one run, each tested separately against shared baseline categories**. Whole-genome and chromosome-sharded annotation inputs are prepared in bounded chunks sized for the files processed together. Binary columns are detected automatically and stored as packed bits; continuous columns use dense float32. Two input passes validate/classify supplied values, then write retained values directly into private chromosome artifacts, with metadata kept separately for global identity cleanup. Public reads remain float32 in input column order, and no new option is needed. Chromosome working data are released between sequential runs, and parallel work is bounded by `--workers`; annotation preparation itself remains serial. `--query-batch-size` defaults to `100` for direct/indexed `ldscore` and batch `partitioned-h2`; use a smaller positive value to reduce active query workspace. Final HM3 LD-score tables remain aggregate Parquet files, never public chromosome LD shards. See [annotation format policy](docs/current/annotation-memory-design.md#annotation-format-policy) for classification and measured storage sizes.
+The annotation and regression workflows are designed for large pathway batches, such as **1,000 pathways in one run, each tested separately against shared baseline categories**. Whole-genome and chromosome-sharded annotation inputs are prepared in bounded chunks sized for the files processed together. Binary columns are detected automatically and stored as packed bits; continuous columns use dense float32. Two input passes validate/classify supplied values, then write retained values directly into private chromosome artifacts, with metadata kept separately for global identity cleanup. Public reads remain float32 in input column order, and no new option is needed. Chromosome working data are released between sequential runs, and parallel work is bounded by `--workers`; annotation preparation itself remains serial. `--query-batch-size` defaults to `100` for direct/indexed `ldscore` and batch `partitioned-h2`; use a smaller positive value to reduce active query workspace. Final HM3 LD-score tables remain aggregate Parquet files, never public chromosome LD shards. See [annotation format policy](docs/dev/design/memory-and-cpu.md#annotation-format-policy) for classification and measured storage sizes.
 
 Direct and indexed LD-score writing process one query batch at a time and assemble output one chromosome at a time, avoiding a genome-wide query matrix in the parent.
 Consumed chromosome fragments are deleted before the next batch starts; final files remain private until the complete calculation succeeds.
@@ -72,9 +72,9 @@ Standalone `annotate` projects BED files or gene lists onto exactly one SNP grid
 BIM mode writes query annotations only; annotation mode writes aligned `baseline.<chrom>.annot.gz` and `query.<chrom>.annot.gz` files after shared identity cleanup.
 Pass both exported families to downstream `ldscore` with `--baseline-annot-sources` and `--query-annot-sources`; using the original baselines can fail row alignment after cleanup.
 The log reports input/output/dropped SNP counts and these downstream flags.
-See the [standalone guide](docs/wiki/utility-functionalities/annotate.md) for CLI and Python examples.
+See the [standalone guide](docs/user-guide/workflows/annotations.md) for CLI and Python examples.
 Source-backed Python preparation requires an output directory and explicit bundle ownership; new scratch stays under that destination, with the existing gene-index construction transaction as the exception.
-See the [memory and CPU efficiency design guide](docs/current/annotation-memory-design.md) for the package-wide mechanisms, precision contracts, tradeoffs, remaining allocations, and validation evidence.
+See the [memory and CPU efficiency design guide](docs/dev/design/memory-and-cpu.md) for the package-wide mechanisms, precision contracts, tradeoffs, remaining allocations, and validation evidence.
 The [pathway batch guide](docs/wiki/main-functionalities/partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways) explains user settings and measured workloads.
 
 ## Install
@@ -166,7 +166,7 @@ python -m pip install -e ".[dev]"
 The package supports Python 3.11 through 3.13.
 The base install includes NumPy, pandas, SciPy, PyArrow, Matplotlib, threadpoolctl, and joblib.
 Threadpoolctl limits supported native numerical libraries inside workers; joblib supplies the detected CPU budget.
-See [query-worker runtime controls](docs/current/regression-configuration.md#43-query-workers-and-memory).
+See [query-worker runtime controls](docs/reference/regression-options.md#43-query-workers-and-memory).
 Optional extras are split by workflow: `.[plink]` installs `bitarray` for PLINK-backed LD computation, and `.[liftover]` installs `pyliftover` for chain-file liftover in sumstats munging and cross-build reference-panel output.
 Matplotlib is installed by default, but plotting is never automatic and is imported only by figure-producing paths.
 `.[dev]` installs the PLINK and liftover extras plus pytest.
@@ -207,8 +207,8 @@ approved plot from result metadata and writes it below `RESULT_DIR/plots/`;
 it does not accept an output directory and never runs automatically. Use
 `ldsc convert-h2-scale` to recompute liability-scale h2 from a saved observed-scale
 h2 result at one population prevalence or over a sensitivity range. See the
-[scientist-facing plotting manual](tutorials/plotting-results.md) and the
-[developer module contract](docs/current/plotting-module.md).
+[scientist-facing plotting manual](docs/user-guide/workflows/plotting.md) and the
+[developer module contract](docs/dev/design/plotting.md).
 
 Both rg plots annotate saved single-trait observed-scale heritability with jackknife SEs: on the all-pairs heatmap diagonal, or in a partner column and anchor subtitle. Missing or unusable heritability values display `failed`.
 
@@ -219,7 +219,7 @@ must contain numeric, non-missing values.
 
 `ldsc munge-sumstats` writes `sumstats.parquet` by default, with optional
 legacy `sumstats.gz` output through `--output-format tsv.gz` or
-`--output-format both`. Supplying `--trait-name BMI` instead names these files `BMI.parquet` and `BMI.sumstats.gz`; unsafe filename characters are sanitized while the metadata label is preserved. Parquet remains the default format. See [output naming](docs/current/munge-sumstats.md#output-artifacts). Package-written artifacts use canonical `SNP`, `CHR`,
+`--output-format both`. Supplying `--trait-name BMI` instead names these files `BMI.parquet` and `BMI.sumstats.gz`; unsafe filename characters are sanitized while the metadata label is preserved. Parquet remains the default format. See [output naming](docs/reference/munge-sumstats.md#output-artifacts). Package-written artifacts use canonical `SNP`, `CHR`,
 `POS`, `Z`, and `N` columns when possible and always include `CHR`/`POS`. Raw
 files may provide chromosome and position columns through common aliases such as
 `#CHROM`, `CHROM`, `CHR`, `POS`, or `BP`, or explicitly through `--chr` and
@@ -232,7 +232,7 @@ written. The legacy `sumstats.gz` carries no embedded metadata and is
 treated as an rsID lookup artifact at regression time. Footerless Parquet is
 rejected rather than guessed.
 Python run summaries from `munger.build_run_summary()` report parsed input rows, retained rows, exclusive per-stage `drop_counts`, the sample-size rule actually used, and the effective INFO/MAF thresholds (`qc_thresholds`).
-Counts are collected while parsing, excluding headers and blank lines; their totals reconcile with the retained output. Successful CLI runs print the selected restriction, liftover method, and mapping/drop counts to stdout and record the same summary in `diagnostics/sumstats.log` at every log level. See [munging preparation and accounting](docs/current/munge-sumstats.md#preparation-and-run-accounting) and the [liftover behavior table](docs/current/munge-sumstats.md#liftover-rules).
+Counts are collected while parsing, excluding headers and blank lines; their totals reconcile with the retained output. Successful CLI runs print the selected restriction, liftover method, and mapping/drop counts to stdout and record the same summary in `diagnostics/sumstats.log` at every log level. See [munging preparation and accounting](docs/reference/munge-sumstats.md#preparation-and-run-accounting) and the [liftover behavior table](docs/reference/munge-sumstats.md#liftover-rules).
 
 Detailed coordinate and liftover bookkeeping is written to `sumstats.log`. The default
 `snp_identifier` is `chr_pos_allele_aware`, which requires usable `A1/A2`; rerun
@@ -255,7 +255,7 @@ without allele-aware matching. To convert coordinates after QC and after SNP
 restriction, explicitly choose `--output-genome-build`. Matching builds need no liftover. For different builds, packaged HM3 uses automatic quick liftover; an explicit `--liftover-chain-file` overrides it. Custom-list or unrestricted cross-build runs require a chain file. An unresolved source build stops the run. The former HM3 restriction and quick-liftover switches are removed. Liftover is invalid in `rsid`-family modes because
 positions are not the row identity there.
 
-`ldsc build-r2-panel` computes pairwise, bias-adjusted R² and writes chromosome Parquet tables plus required SNP metadata sidecars. It replaces `build-ref-panel` without an alias. The four Parquet columns are `IDX_1`, `IDX_2`, `R2`, and `SIGN_R`; `SIGN_R` is true when Pearson r is nonnegative in the sidecar allele orientation. Panels using the former `SIGN` column are unsupported and must be rebuilt. `query-r2` returns `r2`, nullable `sign_r` (+1/-1 in query allele orientation), `r`, and `status`, with no old-name aliases. See the [R² format contract](docs/current/parquet-r2-format-and-read-pipeline.md#2-parquet-format-specification).
+`ldsc build-r2-panel` computes pairwise, bias-adjusted R² and writes chromosome Parquet tables plus required SNP metadata sidecars. It replaces `build-ref-panel` without an alias. The four Parquet columns are `IDX_1`, `IDX_2`, `R2`, and `SIGN_R`; `SIGN_R` is true when Pearson r is nonnegative in the sidecar allele orientation. Panels using the former `SIGN` column are unsupported and must be rebuilt. `query-r2` returns `r2`, nullable `sign_r` (+1/-1 in query allele orientation), `r`, and `status`, with no old-name aliases. See the [R² format contract](docs/reference/formats/r2-panels.md#2-parquet-format-specification).
 
 `ldsc build-r2-panel` keeps a separate source-build contract for PLINK input:
 provide or infer `--source-genome-build`, and a matching chain file emits the
@@ -304,11 +304,11 @@ When no baseline and no query annotations are supplied, the workflow writes a
 synthetic all-ones baseline column named exactly `base` in
 `ldscore.baseline.parquet`.
 Query annotation inputs still require explicit `--baseline-annot-sources`.
-Regression diagnostics report the SNP population and jackknife block count actually used for fitting. The h2 LD-score regression plot summarizes that same fitted population; see [regression configuration](docs/current/regression-configuration.md).
+Regression diagnostics report the SNP population and jackknife block count actually used for fitting. The h2 LD-score regression plot summarizes that same fitted population; see [regression configuration](docs/reference/regression-options.md).
 
 At default INFO verbosity, workflow logs emphasize major phases, numbered batch start/completion, chromosome work, and aggregate query outcomes. Gene exclusions and audited warnings use counts and diagnostic-file pointers; DEBUG retains successful query timings and source detail. The exact invocation and specific failure evidence remain available. See [batch logging and diagnostic coverage](docs/current/workflow-logging.md#batch-and-collection-progress).
 
-For large query scans, `ldsc partitioned-h2 --continue-on-query-error` skips queries whose model preparation, regression, or result calculation raises an exception and publishes successful fits. Every attempted query is recorded in `diagnostics/query_status.tsv`; failed queries have no scientific results. The log includes query/stage tracebacks and available jackknife block diagnostics. The default remains strict: any query failure prevents publication. Shared input/output failures and scans with no successful queries still fail. See [query failure handling](docs/current/partitioned-h2-results.md#query-failures-and-continuation).
+For large query scans, `ldsc partitioned-h2 --continue-on-query-error` skips queries whose model preparation, regression, or result calculation raises an exception and publishes successful fits. Every attempted query is recorded in `diagnostics/query_status.tsv`; failed queries have no scientific results. The log includes query/stage tracebacks and available jackknife block diagnostics. The default remains strict: any query failure prevents publication. Shared input/output failures and scans with no successful queries still fail. See [query failure handling](docs/reference/results/partitioned-h2.md#query-failures-and-continuation).
 
 The root `partitioned_h2.tsv` includes `query_result_dir`, the exact per-query folder relative to the output directory (for example, `diagnostics/query_annotations/0001_mygeneset`). Use it to locate detailed results while `category` retains the original annotation name. Baseline-only summaries write `NaN` in this column.
 
@@ -320,17 +320,17 @@ The Python equivalent is `RegressionRunner.estimate_partitioned_h2_batch(..., wo
 The default is one managed child, and each worker uses 1 BLAS thread.
 Model preparation borrows shared read-only columns, then materializes its design after filtering; private fitted-model matrices still consume memory.
 Query ordering, scientific schemas, and strict/continue policies are unchanged.
-See [query workers](docs/current/regression-configuration.md#43-query-workers-and-memory).
+See [query workers](docs/reference/regression-options.md#43-query-workers-and-memory).
 
 Use this synthetic `base` directory for `ldsc h2` or `ldsc rg`. A baseline-only
 directory is also accepted by `ldsc partitioned-h2` in its functional-category
 regime, although a single all-ones `base` column is a degenerate one-category
 fit rather than a meaningful partitioned analysis.
 
-Native LD-score runs classify fitted columns as binary or quantitative for interpretation only. Partitioned-h2 preserves numerical legacy enrichment summaries for quantitative columns but logs that those weighted values do not have the ordinary binary-category interpretation; coefficients remain interpretable. `ldsc quantile-h2` consumes one baseline-only or per-query fitted model plus resupplied annotation/reference sources and reports joint-model heritability by target quantile and standardized `tau_star`. Resupplied sources are checked for alignment and agreement with stored counts, annotation sums, and available overlap cross-products; passing these checks does not establish the original annotation value at every SNP. See [the technical contract](docs/current/continuous-annotation-quantile-h2.md) and [the concise workflow](docs/wiki/continuous-annotation-partitioned-ldsc.md).
+Native LD-score runs classify fitted columns as binary or quantitative for interpretation only. Partitioned-h2 preserves numerical legacy enrichment summaries for quantitative columns but logs that those weighted values do not have the ordinary binary-category interpretation; coefficients remain interpretable. `ldsc quantile-h2` consumes one baseline-only or per-query fitted model plus resupplied annotation/reference sources and reports joint-model heritability by target quantile and standardized `tau_star`. Resupplied sources are checked for alignment and agreement with stored counts, annotation sums, and available overlap cross-products; passing these checks does not establish the original annotation value at every SNP. See [the technical contract](docs/reference/results/quantile-h2.md) and [the concise workflow](docs/user-guide/workflows/continuous-annotations.md).
 LD-score generation runs queries in sequential batches (`--query-batch-size`, default 100). A single batch writes `ldscore.query.parquet`; multiple batches write `ldscore.query.batch00001.parquet` and subsequent ordinals. Every file spans the computed chromosomes with one row group per chromosome. Root `metadata.json.query_batches` records filenames, ordered query columns, and row groups; one shared baseline and overlap are written. Older LD-score directories without this manifest must be regenerated. Direct mode repeats reference work for each batch. Direct and indexed modes support `--workers`, capped at chromosome count.
 
-Writing Python workflows return `LDScoreSource`; use `result.read_queries(["pathway_a", "pathway_b"])` for explicit selections across files. These reads have no cache or width limit; the caller owns their RAM cost. For a small single-batch calculation with zero filesystem writes, prepare `AnnotationBundle.from_frames(...)` and call `LDScoreCalculator.run(..., output_config=None)` with a prepared reference adapter. An output directory is required for multiple batches. See the [memory contracts](docs/current/annotation-memory-design.md).
+Writing Python workflows return `LDScoreSource`; use `result.read_queries(["pathway_a", "pathway_b"])` for explicit selections across files. These reads have no cache or width limit; the caller owns their RAM cost. For a small single-batch calculation with zero filesystem writes, prepare `AnnotationBundle.from_frames(...)` and call `LDScoreCalculator.run(..., output_config=None)` with a prepared reference adapter. An output directory is required for multiple batches. See the [memory contracts](docs/dev/design/memory-and-cpu.md).
 
 Gene-list LD scores may also use an explicitly installed exact profile:
 
@@ -352,18 +352,18 @@ During the offline build, each completed chromosome is atomically persisted in a
 A `Finished chromosome N` log line reports that private durability boundary; the public destination remains absent, empty, or at its prior complete version until every chromosome and shared metadata pass reload validation.
 These private shards are not resumable checkpoints and never support chromosome append or incremental index updates.
 See
-[the exact gene-index guide](docs/current/gene-ldscore-index.md) and its
-[mathematical algorithm](docs/current/gene-ldscore-index-mathematics.md).
+[the exact gene-index guide](docs/reference/gene-ldscore-index.md) and its
+[mathematical algorithm](docs/reference/methods/gene-ldscore-index-math.md).
 Task-oriented walkthroughs cover [building the index](docs/wiki/utility-functionalities/build-gene-ldscore-index.md)
-and [using it for gene-list LD scores](docs/wiki/main-functionalities/ldscore-from-gene-list.md).
+and [using it for gene-list LD scores](docs/user-guide/workflows/gene-list-ld-scores.md).
 
 Gene-index metadata retains the semantic `index_id` and one ordered published-row fingerprint.
 New indexes use format version 3; earlier formats, including version 2 indexes built with rounded PLINK LD windows, must be rebuilt and are not supported by the reader.
-See the [fingerprint and reader contract](docs/current/gene-ldscore-index.md#artifact-and-identity-contract).
+See the [fingerprint and reader contract](docs/reference/gene-ldscore-index.md#artifact-and-identity-contract).
 
 Gene-list resolution is strict by default in `annotate`, `ldscore`, and `quantile-h2`. Add the value-free flag `--allow-unresolved-genes` to deliberately use the resolved subset with omission diagnostics. It replaces `--gene-list-resolution-policy resolved-only`; remove `--gene-list-resolution-policy strict` from existing commands. Python policy arguments and metadata retain `strict` / `resolved-only`.
 
-Direct gene-list, BED, and prebuilt-query runs require matching validated baseline/reference chromosome sets. `@` requires autosomes 1–22; globs select actual matches, and file contents determine scope. Every selected focal/control gene must lie within scope under both resolution policies: incomplete coverage fails the whole batch without truncation or automatic pathway skipping. Chromosome-only runs are supported when inputs align. The effective scope is logged and written to `diagnostics/chromosome_scope.json`; input failures, pathway counts, and affected genes appear in diagnostics. See [coverage and repair rules](docs/current/gene-list-diagnostics-and-repair.md#chromosome-scope-and-pathway-coverage), including the trade-off that globs can hide a consistently missing chromosome.
+Direct gene-list, BED, and prebuilt-query runs require matching validated baseline/reference chromosome sets. `@` requires autosomes 1–22; globs select actual matches, and file contents determine scope. Every selected focal/control gene must lie within scope under both resolution policies: incomplete coverage fails the whole batch without truncation or automatic pathway skipping. Chromosome-only runs are supported when inputs align. The effective scope is logged and written to `diagnostics/chromosome_scope.json`; input failures, pathway counts, and affected genes appear in diagnostics. See [coverage and repair rules](docs/reference/results/gene-list-diagnostics.md#chromosome-scope-and-pathway-coverage), including the trade-off that globs can hide a consistently missing chromosome.
 
 ## LDSC2 compatibility boundary
 
@@ -394,8 +394,8 @@ that are costly or impractical for users to recreate:
   convenience, and LDSC3 accepts either `BP` or `POS` when reading them.
 
 See the complete policies for
-[legacy sumstats](docs/current/legacy-sumstats-compatibility.md) and
-[legacy LD-score conversion](docs/current/legacy-ldscore-conversion.md).
+[legacy sumstats](docs/reference/formats/legacy-sumstats.md) and
+[legacy LD-score conversion](docs/reference/formats/legacy-ldscores.md).
 
 For commands, standard filenames, complete suite examples, and practical naming repairs, follow the [legacy LD-score conversion user guide](tutorials/convert-legacy-ldscores.md). The [conversion utility wiki](docs/wiki/utility-functionalities/convert-ldsc2-ldscores.md) provides the concise standard naming and flag reference.
 
@@ -418,7 +418,7 @@ from ldsc import (
 )
 ```
 
-`LDScoreCalculator` delegates reference filtering, annotation alignment, and reader lifetime to `RefPanel.prepare_chromosome()`. PLINK and parquet calculations use the same prepared-state contract, also used by gene-index construction and numerical tests. See the [reference preparation boundary](docs/current/architecture.md) for contributor guidance.
+`LDScoreCalculator` delegates reference filtering, annotation alignment, and reader lifetime to `RefPanel.prepare_chromosome()`. PLINK and parquet calculations use the same prepared-state contract, also used by gene-index construction and numerical tests. See the [reference preparation boundary](docs/dev/architecture.md) for contributor guidance.
 
 Genome-build inference for `chr_pos` tables is public through the Python API:
 use `infer_chr_pos_build()` when you only need the `hg19`/`hg38` decision, and
@@ -427,9 +427,9 @@ canonical 1-based coordinates.
 Inspect one exact file or recognized LDSC artifact directory with `ldsc infer-genome-build PATH`.
 It reports declared or inferred hg19/hg38, or `unknown` when evidence is insufficient, without creating files or logs.
 When artifact metadata records rsID matching, the report adds: “This artifact’s workflow uses rsIDs for SNP matching.”
-See the [helper contract](docs/current/snp-identifier-genome-build-defaults.md#standalone-build-inspection) for supported inputs, dual-build artifacts, and exit codes.
+See the [helper contract](docs/reference/snp-identity-and-genome-build.md#standalone-build-inspection) for supported inputs, dual-build artifacts, and exit codes.
 Workflows also expose inference through `--genome-build auto` for annotation and direct LD-score workflows, and through `--source-genome-build auto` for `munge-sumstats` and `build-r2-panel`.
-The [genome-build policy](docs/current/snp-identifier-genome-build-defaults.md#genome-build-policy) documents explicit assertions consistent with input declarations, normalized build aliases, bounded inference, keep-list validation and column precedence, complete grouped validation errors, and ordinary BED inheritance.
+The [genome-build policy](docs/reference/snp-identity-and-genome-build.md#genome-build-policy) documents explicit assertions consistent with input declarations, normalized build aliases, bounded inference, keep-list validation and column precedence, complete grouped validation errors, and ordinary BED inheritance.
 Under `auto`, every relevant coordinate input participates and conflicts or unresolved inputs produce one grouped error.
 A concrete build supplies the coordinate system for unlabeled inputs and must agree with existing metadata declarations; it never relabels inputs or converts coordinates.
 Ordinary BED files inherit the workflow build.
@@ -443,7 +443,7 @@ Public workflow APIs accept normalized string tokens for inputs:
 - explicit chromosome suites using `@`, for example `baseline.@`
 - PLINK exact prefixes/member paths, plain suite stems such as `1000G.EUR.QC.`, globs, and `@` patterns
 
-PLINK inputs share one discovery and validation implementation across `ldscore`, `build-gene-ldscore-index`, and `build-r2-panel`. Chromosomes come from BIM contents; a numeric suffix such as `.22` is preserved as part of the prefix. Selected trios must be complete, and different trios cannot claim the same chromosome. See [PLINK resolution](docs/current/path-specification.md#plink-prefix-resolution).
+PLINK inputs share one discovery and validation implementation across `ldscore`, `build-gene-ldscore-index`, and `build-r2-panel`. Chromosomes come from BIM contents; a numeric suffix such as `.22` is preserved as part of the prefix. Selected trios must be complete, and different trios cannot claim the same chromosome. See [PLINK resolution](docs/reference/input-paths.md#plink-prefix-resolution).
 
 Inputs are resolved before the internal kernel runs. Public outputs use fixed
 filenames inside the selected `output_dir`.

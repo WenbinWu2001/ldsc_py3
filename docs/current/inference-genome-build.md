@@ -1,6 +1,6 @@
 # Genome-Build and Coordinate-Basis Inference
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 ## Standalone artifact inspection
 
@@ -11,12 +11,12 @@ Insufficient evidence, rsID-only inputs, and ordinary BED intervals without meta
 Interval endpoints are not SNP positions.
 All relevant members participate: unresolved evidence prevents a single inferred result, incompatible builds are errors, and deliberately available hg19/hg38 alternatives receive separate labels.
 The helper reports coordinate basis without converting positions and creates no logs or artifacts.
-See the [complete inspection contract](snp-identifier-genome-build-defaults.md#standalone-build-inspection) for supported inputs, the exact rsID notice, and exit codes.
+See the [complete inspection contract](../reference/snp-identity-and-genome-build.md#standalone-build-inspection) for supported inputs, the exact rsID notice, and exit codes.
 
 ## Workflow inference
 
 Coordinate-dependent workflows resolve builds through their existing `--genome-build auto` or source-build options.
-Their current metadata precedence, bounded sampling, and all-input consistency rules are defined in the [shared build policy](snp-identifier-genome-build-defaults.md#genome-build-policy).
+Their current metadata precedence, bounded sampling, and all-input consistency rules are defined in the [shared build policy](../reference/snp-identity-and-genome-build.md#genome-build-policy).
 The workflow-specific descriptions below concern workflow processing, not the read-only inspection helper.
 
 The package infers the build by comparing a subset of input (CHR, POS) pairs against the packaged HapMap3 coordinate map, then selecting the hypothesis that best explains those positions:
@@ -100,7 +100,7 @@ Use a build-specific R² directory when a workflow requires one build; the inspe
 
 Munging resolves source coordinates before requested conversion and records the final output build in its Parquet identity metadata.
 Source-build evidence must not be substituted for that output build during artifact inspection.
-For current source/output options and conversion behavior, see [munging](munge-sumstats.md) and the [shared policy](snp-identifier-genome-build-defaults.md#genome-build-policy).
+For current source/output options and conversion behavior, see [munging](../reference/munge-sumstats.md) and the [shared policy](../reference/snp-identity-and-genome-build.md#genome-build-policy).
 
 ## Parquet R2 Reference Panels
 

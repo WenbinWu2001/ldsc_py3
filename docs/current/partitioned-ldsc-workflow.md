@@ -6,7 +6,7 @@ This document describes the refactored workflow for computing LD scores and
 running h2, partitioned-h2, and rg regression from one canonical LD-score result
 directory.
 
-Continuous fitted annotations use the same LD-score regression. LDSC3 classifies finite annotation values as binary or quantitative for logs and metadata only; classification never changes coefficients. Quantitative rows retain legacy numerical proportion/enrichment summaries with an interpretation warning. After fitting, `ldsc quantile-h2` can project one complete fitted joint model onto target-value quantiles; see [Continuous-Annotation Quantile Heritability](continuous-annotation-quantile-h2.md).
+Continuous fitted annotations use the same LD-score regression. LDSC3 classifies finite annotation values as binary or quantitative for logs and metadata only; classification never changes coefficients. Quantitative rows retain legacy numerical proportion/enrichment summaries with an interpretation warning. After fitting, `ldsc quantile-h2` can project one complete fitted joint model onto target-value quantiles; see [Continuous-Annotation Quantile Heritability](../reference/results/quantile-h2.md).
 
 ## 1. Overview
 
@@ -241,15 +241,15 @@ unavailable. Regression falls back to `all_reference_snp_count` in that case.
 
 `partitioned-h2 --workers N` controls complete query-plus-baseline models, capped by model count and query batch width.
 The default uses one managed child, and every worker uses 1 BLAS thread.
-Positive requests above `joblib.cpu_count()` fail before the work cap; negative offsets follow [the shared execution policy](parallel-execution.md).
+Positive requests above `joblib.cpu_count()` fail before the work cap; negative offsets follow [the shared execution policy](../reference/parallel-execution.md).
 Read-only maps preserve shared numerical inputs while private model arrays still consume memory.
 Filtering, weighting, SNP order, jackknife blocks, and output ordering are unchanged.
 
-Query scans retain strict publication by default. Explicit `--continue-on-query-error` skips per-query model preparation, fitting, and result calculation exceptions and publishes successful models; all attempted queries are recorded in `diagnostics/query_status.tsv`. The log contains each failure's query/stage/traceback and available jackknife block/rank/support/genomic diagnostics. Shared input/output failures and scans without successful fits remain fatal. The same rule applies to direct and indexed LD scores, with unchanged filtering, weighting, and contiguous block construction. See [query failure handling](partitioned-h2-results.md#query-failures-and-continuation) and `RegressionRunner.estimate_partitioned_h2_batch()`.
+Query scans retain strict publication by default. Explicit `--continue-on-query-error` skips per-query model preparation, fitting, and result calculation exceptions and publishes successful models; all attempted queries are recorded in `diagnostics/query_status.tsv`. The log contains each failure's query/stage/traceback and available jackknife block/rank/support/genomic diagnostics. Shared input/output failures and scans without successful fits remain fatal. The same rule applies to direct and indexed LD scores, with unchanged filtering, weighting, and contiguous block construction. See [query failure handling](../reference/results/partitioned-h2.md#query-failures-and-continuation) and `RegressionRunner.estimate_partitioned_h2_batch()`.
 
 For the tunable estimator parameters (intercept policy, two-step cutoff,
 `chisq_max`, jackknife blocks, counts) and the per-command defaults, see
-[`regression-configuration.md`](regression-configuration.md).
+[`regression-options.md`](../reference/regression-options.md).
 
 `h2` and `rg` use baseline LD scores only, even when query batch files exist.
 They also use the embedded `regression_ld_scores` column from
@@ -314,7 +314,7 @@ samp_prev, pop_prev, query_result_dir
 
 All columns are lowercase snake_case, consistent with `h2` and `rg`.
 
-The root TSV appends `query_result_dir`, the exact per-query folder relative to the output directory, while `category` preserves the original annotation name. Baseline-only runs write `NaN` for this column. Folder ordinals follow the saved summary order and can change between runs; the paths remain usable after re-sorting a saved table. In-memory Python summaries and per-query summary/full-model tables retain only the scientific columns. See [result columns](partitioned-h2-results.md#partitioned_h2tsv).
+The root TSV appends `query_result_dir`, the exact per-query folder relative to the output directory, while `category` preserves the original annotation name. Baseline-only runs write `NaN` for this column. Folder ordinals follow the saved summary order and can change between runs; the paths remain usable after re-sorting a saved table. In-memory Python summaries and per-query summary/full-model tables retain only the scientific columns. See [result columns](../reference/results/partitioned-h2.md#partitioned_h2tsv).
 
 Interpretation. `enrichment = prop_h2 / prop_snps` is the **marginal**
 heritability of the SNPs in a category (overlap-aware, baseline-confounded for a
@@ -327,7 +327,7 @@ overlap; `category_h2_liab` is its liability-scale counterpart
 (`= category_h2_obs · c(samp_prev, pop_prev)`, `NaN` without
 `--samp-prev`/`--pop-prev`). Note that under overlap (almost always), `prop_h2` is
 **not** `category_h2_obs / total_h2_obs` -- see the overlap caveat in
-`partitioned-h2-results.md`. `overlap_annot` flags whether the fitted model's
+`docs/reference/results/partitioned-h2.md`. `overlap_annot` flags whether the fitted model's
 annotations overlap. `--summary-sort-by` defaults to `auto` (→ `coefficient-p`
 for cell-type, `category` for functional); the run logs a regime banner and
 records `analysis_type` / `headline_metric` / `enrichment_p_test` /
@@ -469,7 +469,7 @@ Raw-fragment scratch scales with batch width, while final staged output grows wi
 `workers` is capped at chromosome count.
 Regression chooses its own batch width independently and fits each query over its complete retained genome-wide SNP set, borrowing shared columns and reducing intermediate copies.
 It stores run-wide provenance once in `diagnostics/metadata.json`, referenced by each query's metadata; keep the complete result directory when copying fitted queries.
-Sources: `LDScoreCalculator.run`, `indexed_results`, `RegressionRunner.estimate_partitioned_h2_batch`, the [memory design](annotation-memory-design.md), and the [fitted-result contract](partitioned-h2-results.md).
+Sources: `LDScoreCalculator.run`, `indexed_results`, `RegressionRunner.estimate_partitioned_h2_batch`, the [memory design](../dev/design/memory-and-cpu.md), and the [fitted-result contract](../reference/results/partitioned-h2.md).
 
 `output_paths` records scientific artifacts such as metadata, shared baseline/overlap files, and query batch files; workflow logs such as `diagnostics/ldscore.log` are audit files and are not included.
 `RgOutputConfig(write_per_pair_detail=True)` controls the optional per-pair

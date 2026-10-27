@@ -4,7 +4,7 @@
 
 # LDSC Package Guidance
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 This repository, `ldsc_py3_restructured`, develops the distributable scientific Python package `ldsc` (distribution version `2.0b0`), with source under `src/ldsc/`.
 
@@ -114,7 +114,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
   Annotation workflows read `.annot(.gz)` and write `.annot.gz`; omitting both alleles permits base-identity matching even in allele-aware workflows, while supplying only one allele is invalid.
 - Legacy LD-score input requires `convert-ldsc2-ldscores` with complete chromosome 1–22 reference/weight `<prefix><chrom>.l2.ldscore(.gz)` families, required `.l2.M_5_50`, and optional `.l2.M` under the documented count policy.
   Converted identity is allele-unaware; `.w.l2.ldscore(.gz)`, query/thin conversion suites, and direct regression consumption of fragments are unsupported.
-  Private kernels do not own legacy sumstats, LD-score, count, or annotation-group output files; full contracts live in `docs/current/legacy-sumstats-compatibility.md` and `docs/current/legacy-ldscore-conversion.md`.
+  Private kernels do not own legacy sumstats, LD-score, count, or annotation-group output files; full contracts live in `docs/reference/formats/legacy-sumstats.md` and `docs/reference/formats/legacy-ldscores.md`.
 - Avoid routine provenance hashes; prefer schemas, source labels, declared metadata, and counts.
   Retain hashes only for necessary semantic identity/integrity guarantees, documenting their purpose; existing sidecar binding and index identity exceptions are in `docs/current/sha256-usage-decisions.md`.
 
@@ -150,7 +150,7 @@ These rules apply only when a review is requested; they do not require an extra 
 
 - Maintain affected docstrings, README workflow/input/output descriptions, current contracts, tutorials/wiki guidance, and validation artifacts within authorized change scope; update manuscripts/reports only when requested.
   Core-function documentation should define inputs, outputs, defaults, and caveats; use `scientific-python-docs` for requested or change-affected scientific documentation, not unrelated missing-docstring cleanup.
-- Before changing responsibilities, public entry points, dependencies, main data flows, or scientific constraints, read relevant sections of [docs/current/architecture.md](docs/current/architecture.md).
+- Before changing responsibilities, public entry points, dependencies, main data flows, or scientific constraints, read relevant sections of [docs/dev/architecture.md](docs/dev/architecture.md).
   Read the whole architecture for broad relational refactors; internal refactors leaving these facts unchanged require neither a full reread nor an architecture update.
   Update descriptions made inaccurate within authorized scope using `architecture-doc`; preserve this established location and still-valid content.
 - Every edited/created Markdown document includes and refreshes `Last updated on: YYYY-MM-DD` near its top.
@@ -160,16 +160,18 @@ These rules apply only when a review is requested; they do not require an extra 
 
 | Destination | Responsibility and recording boundary |
 | --- | --- |
-| `docs/current/code-structure.md`, `docs/current/architecture.md`, `docs/current/data-flow.md`, `docs/current/layer-structure.md` | Contributor navigation, execution/dependency architecture, artifact flows, and ownership; current contracts govern unless a confirmed change supersedes them. |
+| `docs/dev/code-structure.md`, `docs/dev/architecture.md`, `docs/dev/data-flow.md`, `docs/current/layer-structure.md` | Contributor navigation, execution/dependency architecture, artifact flows, and ownership; current contracts govern unless a confirmed change supersedes them. |
+| `docs/reference/` | Exact command, format, result, and method contracts; current contracts govern unless a confirmed change supersedes them. |
+| `docs/dev/design/`, `docs/dev/guidelines/` | Implemented design guides (memory and CPU, configuration, plotting) and contributor writing rules (CLI help, user docs). |
 | `docs/current/*-decisions.md` | Preserve existing confirmed decisions; retain dated topic names and do not duplicate records. |
 | `docs/specs/`, `docs/plans/` | Temporary folders for in-flight design specifications and implementation plans only. Once the work is implemented, move lasting rationale into `docs/decisions/` (or the relevant `docs/current/*-decisions.md`) and the contract into `docs/current/`, then delete the spec and plan. |
 | `docs/decisions/` | New authorized standalone `grill-with-docs` decision records with confirmed rationale; use existing topical records where appropriate, keep terminology in its established home, and use ADR format only under `domain-modeling` criteria. |
-| `docs/decisions/2026-10-11-parallel-execution.md` | Confirmed parallel-execution decisions; implemented runtime contract in `docs/current/parallel-execution.md`. |
+| `docs/decisions/2026-10-11-parallel-execution.md` | Confirmed parallel-execution decisions; implemented runtime contract in `docs/reference/parallel-execution.md`. |
 | `status.md` | Authorized current work, constraints, blockers, next steps; refresh in place and link decisions/evidence. |
 | `history.md` | Authorized meaningful events, appended chronologically with dates; consult on demand, not automatically at startup. |
 | `lessons.md` | After a repeated mistake (two or more) or an investigated non-obvious bug, append summary/root cause/correction; create on the first qualifying entry, skipping trivial slips. |
-| `tutorials/`, `docs/wiki/`, `docs/troubleshooting.md` | User workflows, runnable Markdown/notebook examples, and command-specific remediation. |
-| Validation evidence (no dedicated folder) | Summarize durable measurements inline in the host `docs/current/` or `docs/decisions/` document with date, revision, and limits; keep raw logs, fixtures, and probe scripts out of `docs/`. The audits, specs, plans, and archive removed on 2026-10-26 remain in git history at `479fc4d`. |
+| `docs/user-guide/`, `tutorials/`, `docs/wiki/`, `docs/troubleshooting.md` | User workflows, runnable Markdown/notebook examples, and command-specific remediation; `tutorials/` and `docs/wiki/` are being merged into `docs/user-guide/`. |
+| Validation evidence (no dedicated folder) | Summarize durable measurements inline in the host `docs/reference/`, `docs/dev/`, or `docs/decisions/` document with date, revision, and limits; keep raw logs, fixtures, and probe scripts out of `docs/`. The audits, specs, plans, and archive removed on 2026-10-26 remain in git history at `479fc4d`. |
 
 - Use `project-state` only for useful, authorized status/history updates: these destinations do not authorize completion logs, writes during read-only work/side conversations, or empty-file creation.
   `docs/decisions/` contains authorized decision records; `status.md` exists, while `history.md` remains a convention, currently absent.
@@ -184,12 +186,12 @@ These rules apply only when a review is requested; they do not require an extra 
   `src/ldsc/data/readme.txt` and `src/ldsc/data/ATTRIBUTION.txt` record resource roles and unresolved source/reuse questions; do not invent dataset releases or licenses.
 - `tests/fixtures/README.md`, `tests/fixtures/golden/`, and `tests/fixtures/minimal_external_resources/README.md`: immutable expectations and deterministic 32-SNP chromosome-22 1KG-30x subset.
   The minimal fixture guide references optional external `resources/` (including a liftover chain), absent in this checkout; do not claim external-resource checks ran without those inputs.
-- `docs/current/column-schema.md`, `snp-identifier-genome-build-defaults.md`, `ldscore-snp-universe-contract.md`, and `regression-configuration.md`: schema, identity/build, SNP universes, and estimator contracts (all under `docs/current/`).
-- `docs/current/annotation-memory-design.md`, `gene-ldscore-index.md`, `gene-ldscore-index-mathematics.md`, `partitioned-h2-results.md`, and `continuous-annotation-quantile-h2.md`: memory ownership, exact indexes, result interpretation, and post-fit quantiles (all under `docs/current/`).
-- `docs/current/parallel-execution.md`: managed task workers, joblib CPU budgets, one BLAS thread per worker, and chromosome diagnostics.
-- `docs/current/path-specification.md`, `workflow-logging.md`, and `cli-help-guidelines.md`: resolution, output/diagnostic lifecycle, and task-oriented CLI help (all under `docs/current/`).
-- `tutorials/ld-score-calculation.md`, `tutorials/partitioned-ldsc.md`, `tutorials/cell-specific-ldsc.md`, and `tutorials/convert-legacy-ldscores.md`: main worked workflows, complemented by notebooks and `docs/wiki/guided-tutorial.md`.
-- `docs/current/legacy-cli-flag-map.md`: LDSC2 interface mapping, including options without a current equivalent; no document yet records numerical equivalence with LDSC2. `docs/release.md`: maintainer release runbook, not authorization to release.
+- `docs/reference/formats/column-schema.md`, `docs/reference/snp-identity-and-genome-build.md`, `docs/reference/ldscore-snp-universes.md`, and `docs/reference/regression-options.md`: schema, identity/build, SNP universes, and estimator contracts.
+- `docs/dev/design/memory-and-cpu.md`, `docs/reference/gene-ldscore-index.md`, `docs/reference/methods/gene-ldscore-index-math.md`, `docs/reference/results/partitioned-h2.md`, and `docs/reference/results/quantile-h2.md`: memory ownership, exact indexes, result interpretation, and post-fit quantiles.
+- `docs/reference/parallel-execution.md`: managed task workers, joblib CPU budgets, one BLAS thread per worker, and chromosome diagnostics.
+- `docs/reference/input-paths.md`, `docs/current/workflow-logging.md`, and `docs/dev/guidelines/cli-help.md`: resolution, output/diagnostic lifecycle, and task-oriented CLI help.
+- `tutorials/ld-score-calculation.md`, `tutorials/partitioned-ldsc.md`, `tutorials/cell-specific-ldsc.md`, and `tutorials/convert-legacy-ldscores.md`: main worked workflows, complemented by notebooks and `docs/user-guide/guided-tutorial.md`.
+- `docs/reference/ldsc2-flag-map.md`: LDSC2 interface mapping, including options without a current equivalent; no document yet records numerical equivalence with LDSC2. `docs/dev/release.md`: maintainer release runbook, not authorization to release.
   `LICENSE`, `NOTICE`, and `CITATION.cff` preserve licensing, attribution, and citation metadata; retain notices during refactors and packaged resource attribution.
 - `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik`: legacy numerical/format reference.
 - `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/docs/ldsc_papers`: LDSC papers and supplements.

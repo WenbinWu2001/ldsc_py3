@@ -1,6 +1,6 @@
 # LDSC-SEG for Protein-Coding Gene Lists
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 This tutorial tests whether one or more protein-coding gene lists are enriched for trait heritability. For each query gene list, LDSC3 fits the model
 
@@ -32,9 +32,9 @@ Choose either direct mode or fast mode. Both produce the same canonical LD-score
 
 ### Option A: direct mode
 
-Direct mode reads the baseline annotations and PLINK reference panel and projects gene intervals chromosome by chromosome. It writes private query matrices under the output directory while computing LD scores and counts; it does not publish reusable `.annot.gz` queries by default. Allow temporary disk space. Handled completion or failure cleans owned scratch; an interrupted process can leave private files. See [`build_query_shards`](../../src/ldsc/_annotation_queries.py) and the [memory design](../current/annotation-memory-design.md).
+Direct mode reads the baseline annotations and PLINK reference panel and projects gene intervals chromosome by chromosome. It writes private query matrices under the output directory while computing LD scores and counts; it does not publish reusable `.annot.gz` queries by default. Allow temporary disk space. Handled completion or failure cleans owned scratch; an interrupted process can leave private files. See [`build_query_shards`](../../src/ldsc/_annotation_queries.py) and the [memory design](../dev/design/memory-and-cpu.md).
 
-Resource use depends on the reference panel, number of query lists, and concurrency. Start with `--workers 1`; lower `--query-batch-size` from its default 100 to reduce active query workspace. Direct mode prepares, computes, writes, and releases one query batch before starting the next, repeating reference/genotype work across batches. In the [1,000-query chromosome-22 benchmark](../current/annotation-memory-design.md#diagnostics-and-verification), width 100 used 82.2% less peak private scratch than width 1,000 and took 1.903 times as long, with essentially unchanged peak RAM. That pilot used 35-kb padding, unlike the 100-kb example below; whole-genome estimates extrapolated from it are conditional planning projections.
+Resource use depends on the reference panel, number of query lists, and concurrency. Start with `--workers 1`; lower `--query-batch-size` from its default 100 to reduce active query workspace. Direct mode prepares, computes, writes, and releases one query batch before starting the next, repeating reference/genotype work across batches. In the [1,000-query chromosome-22 benchmark](../dev/design/memory-and-cpu.md#diagnostics-and-verification), width 100 used 82.2% less peak private scratch than width 1,000 and took 1.903 times as long, with essentially unchanged peak RAM. That pilot used 35-kb padding, unlike the 100-kb example below; whole-genome estimates extrapolated from it are conditional planning projections.
 
 ```bash
 RESULT_ROOT="${PROJECT_ROOT}/ldsc3/example_output/direct_mode"
@@ -140,7 +140,7 @@ Multiple batches replace `ldscore.query.parquet` with numbered files such as `ld
 Use `diagnostics/ldscore.log` to monitor progress. Start curation with
 `gene_list_resolution_summary.tsv`, then filter `gene_list_audit.tsv.gz`; after
 catalog preflight, `query_annotation_status.tsv` explains run-specific focal
-skips. See [Gene-list diagnostics and repair](../current/gene-list-diagnostics-and-repair.md)
+skips. See [Gene-list diagnostics and repair](../reference/results/gene-list-diagnostics.md)
 for the detailed repair workflow.
 
 Because no control-gene file is supplied, `ldscore.baseline.parquet` contains only the supplied baseline categories; no `gene_control` column is added.
@@ -209,7 +209,7 @@ See [keeping fitted results together](main-functionalities/partitioned-h2.md#kee
 
 Focus on `coefficient` and its one-sided `coefficient_p`. A positive coefficient with a small p-value indicates that the query gene list contributes additional heritability after accounting for the baseline annotations.
 
-For an exploratory summary across all query gene lists, run `ldsc plot --result-dir "${PARTITIONED_H2_DIR}"`. The resulting horizontal scatter plot displays nominal one-sided \(-\log_{10}(P)\) from the separate baseline-conditional query fits; it does not compare raw coefficients, show enrichment, or apply multiple-testing correction. See the [plotting results manual](../../tutorials/plotting-results.md) for interpretation.
+For an exploratory summary across all query gene lists, run `ldsc plot --result-dir "${PARTITIONED_H2_DIR}"`. The resulting horizontal scatter plot displays nominal one-sided \(-\log_{10}(P)\) from the separate baseline-conditional query fits; it does not compare raw coefficients, show enrichment, or apply multiple-testing correction. See the [plotting results manual](../user-guide/workflows/plotting.md) for interpretation.
 
 ## Differences from the LDSC2 workflow
 

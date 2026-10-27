@@ -18,15 +18,15 @@ The LD window must then use the panel's build-window unit and be no wider than i
 
 The output root contains `metadata.json` and `ldscore.baseline.parquet`. One query batch writes `ldscore.query.parquet`; multiple batches write `ldscore.query.batch00001.parquet`, `ldscore.query.batch00002.parquet`, and so on. Query runs also write `ldscore.overlap.parquet`; `diagnostics/` contains the log and applicable audits. Every query file covers the same genome-wide regression rows, with chromosome row groups. The ordered `query_batches` manifest in root metadata records each file, its columns, and its row groups. Current readers require this manifest; regenerate older directories. Default regression rows are packaged HapMap3 candidates after MHC-and-centromere exclusion, while reference contributors and annotation counts use their own retained reference universe.
 
-Direct query scoring requires explicit `--baseline-annot-sources` plus one query route: `--query-annot-sources`, `--query-annot-bed-sources`, or `--query-annot-gene-list-sources`. See the [guided tutorial](../guided-tutorial.md#analysis-3-partition-heritability-with-functional-annotations-known-as-cell-type-specific-regression), [gene-list workflow](ldscore-from-gene-list.md), and [standalone annotation](../utility-functionalities/annotate.md). An exact gene index supplies its own configuration and baseline; omit live overrides in indexed mode.
+Direct query scoring requires explicit `--baseline-annot-sources` plus one query route: `--query-annot-sources`, `--query-annot-bed-sources`, or `--query-annot-gene-list-sources`. See the [guided tutorial](../../user-guide/guided-tutorial.md#analysis-3-partition-heritability-with-functional-annotations-known-as-cell-type-specific-regression), [gene-list workflow](../../user-guide/workflows/gene-list-ld-scores.md), and [standalone annotation](../../user-guide/workflows/annotations.md). An exact gene index supplies its own configuration and baseline; omit live overrides in indexed mode.
 
-Baseline inputs are prebuilt annotation tables. To prepare binary baseline categories from BED files, follow [building baseline annotations with `annotate`](../utility-functionalities/annotate.md#build-baseline-annotations-from-bed-files), including target SNP-grid creation, category-specific interval boundaries, and the all-ones `base` column.
+Baseline inputs are prebuilt annotation tables. To prepare binary baseline categories from BED files, follow [building baseline annotations with `annotate`](../../user-guide/workflows/annotations.md#build-baseline-annotations-from-bed-files), including target SNP-grid creation, category-specific interval boundaries, and the all-ones `base` column.
 
 
 With `--genome-build auto`, baseline and prebuilt query annotations, PLINK BIM shards or R2 metadata, gene-catalog declarations, and coordinate keep lists must agree.
 Every selected shard participates; exact files, globs, and `@` paths use the same inference rule, and PLINK-only auto runs use BIM coordinates.
 A concrete build must agree with input declarations; it supplies the build for unlabeled coordinates without fresh inference or coordinate conversion.
-See the [shared genome-build and keep-list policy](global-config.md#genome-build-inference-checking-and-overrides).
+See the [shared genome-build and keep-list policy](../../user-guide/concepts/snp-identity-and-genome-build.md#genome-build-inference-checking-and-overrides).
 
 ## Effective CM Coordinates and Metadata Export
 
@@ -82,11 +82,11 @@ Every worker uses **1 BLAS thread**, in serial and parallel execution.
 Positive requests above that count fail before capping by available tasks; negative `-k` uses `max(1, detected_count + 1 - k)`.
 LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
 Zero, Boolean, and non-integer Python requests are invalid.
-See [the execution policy](../../current/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
+See [the execution policy](../../reference/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
 
 `--snp-batch-size` sets how many PLINK SNPs each genotype batch processes and defaults to 512; parquet R2 input ignores it.
 LD windows are exact for every batch size, so it changes speed and memory, never LD scores.
-Larger batches are not faster beyond about 512 to 1024; see the [batch-size benchmark](../../current/annotation-memory-design.md#direct-ld-score-computation).
+Larger batches are not faster beyond about 512 to 1024; see the [batch-size benchmark](../../dev/design/memory-and-cpu.md#direct-ld-score-computation).
 
 This optimization targets workloads such as 1,000 pathways, each later tested separately against shared baseline categories.
 `--query-batch-size 100` sets the maximum active query batch and defaults to 100.
@@ -110,7 +110,7 @@ Private scratch stays below the output directory and is cleaned on handled succe
 Metadata is published after all batches succeed.
 Resuming from a completed batch is a possible future feature and is not supported.
 Freed memory can remain reserved by the allocator, so RSS need not drop immediately.
-See the [memory and CPU efficiency design guide](../../current/annotation-memory-design.md) for bit-packing, genotype/R² access, query streaming, index reuse, worker costs, and the allocations that remain.
+See the [memory and CPU efficiency design guide](../../dev/design/memory-and-cpu.md) for bit-packing, genotype/R² access, query streaming, index reuse, worker costs, and the allocations that remain.
 The [direct streaming tests](../../../tests/test_direct_batch_staging.py) and [batch regression guide](partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways) describe correctness checks and measured workflows.
 Sources: `LDScoreCalculator.run`, `LDScoreSource.read_queries`, [direct fragment staging](../../../src/ldsc/_direct_ldscore_batches.py), and `indexed_results` in [_indexed_ldscore_batches.py](../../../src/ldsc/_indexed_ldscore_batches.py).
 

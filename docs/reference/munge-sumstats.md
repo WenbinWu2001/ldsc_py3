@@ -1,0 +1,423 @@
+# Munge-Sumstats
+
+Last updated on: 2026-10-27
+
+This document explains the public shape of `ldsc munge-sumstats`: what it does,
+what it writes, how genome builds are handled, and how to use `--infer-only`
+before spending time on a full run.
+
+## Workflow
+
+`munge-sumstats` converts one raw GWAS summary-statistics file into an
+LDSC-ready artifact family. The workflow accepts one exact file path, or a glob
+that resolves to exactly one file.
+
+The normal workflow is:
+
+1. Resolve the raw input path and preflight resolved output artifacts.
+2. Infer or apply the raw format profile (`plain`, `daner-old`, `daner-new`,
+   or `auto`). VCF-style headers are handled by `plain`.
+3. Infer safe column hints for SNP, chromosome, position, alleles, p-values,
+   sample size, INFO, and signed statistics.
+4. In coordinate-family modes, resolve `source_genome_build`. The public
+   default is `auto`, which infers hg19 versus hg38 from raw `CHR`/`POS`
+   coordinates.
+5. Load the packaged HM3 keep-list by default. `--sumstats-snps-file FILE` replaces it with a custom list; `--no-snp-restriction` disables keep-list filtering. The two override flags are mutually exclusive.
+6. Stream the raw file in chunks: drop required missing values, normalize coordinates, apply INFO/MAF/p-value QC, then apply the SNP restriction before concatenation.
+7. Apply whole-table sample-size filtering and convert p-values into Z scores oriented by the selected signed statistic.
+8. If the resolved source build differs from the requested output build, use an explicit chain file or automatic HM3 quick liftover. Custom-list and unrestricted runs require a chain file. Both methods drop duplicate source and target coordinate groups.
+9. Clean identity keys globally across all retained chunks. Duplicate effective identities are dropped as whole groups.
+10. Write self-describing Parquet by default, optional gzip TSV, and diagnostic audit files. Use the sanitized trait label for data filenames or `sumstats.parquet`/`sumstats.gz` without a label. Report the selected mapping method and counts in stdout and the log after a successful CLI run.
+
+The default identity mode is `chr_pos_allele_aware`, so `A1/A2` are required by
+default. Use `--snp-identifier chr_pos` for coordinate identity without
+allele-aware matching, or `--snp-identifier rsid` for rsID-only identity.
+
+## Preparation and Run Accounting
+
+The public workflow and tests use `_sumstats_input.prepare_munge_input()` to resolve column aliases and hints, DANER sample-size settings, the raw coordinate build/basis, and the optional keep-list. The kernel accepts a `ResolvedMungeInput` and returns a `MungeResult` containing the curated table, counts, coordinate provenance, and separate identity/liftover drop records. CLI parsing and artifact ownership stay in `sumstats_munger.py`; the kernel neither parses CLI flags nor mutates configuration to return results.
+
+Source-build inference reads only `CHR`/`POS` in bounded chunks and stops when sufficient evidence is available. It precedes all QC, and shares its coordinate evidence reader with `--infer-only`. The main parsing pass counts raw records as it reads them; it does not reopen the full raw file to count lines after munging.
+
+For Python users, `munger.build_run_summary()` reports parsed `n_input_rows`, final `n_retained_rows`, and `drop_counts`. Headers, leading `##` metadata, and blank lines are excluded. Every drop belongs to the first stage that removes that row, so `sum(drop_counts.values()) == n_input_rows - n_retained_rows`.
+`qc_thresholds` records the effective `INFO` and `FRQ` thresholds; `None` means that filter did not run because no such column was selected, which the log summary also states.
+`--info-min` and `--maf-min` default to `None`: the LDSC2 defaults (0.9 and 0.01) apply only when the corresponding column is selected, and an explicit threshold without its column fails while the header is resolved.
+
+| Count key | Exclusive removal stage |
+| --- | --- |
+| `NA` | Missing required non-coordinate/non-allele fields |
+| `coordinates` | Missing or invalid source `CHR`/`POS` in coordinate-family modes |
+| `INFO`, `FRQ`, `P` | INFO, folded MAF, and p-value filters, in that order |
+| `sumstats_snps` | SNP keep-list restriction (HM3 by default) |
+| `N`, `NSTUDY` | Whole-table sample-size or study-count filtering |
+| `liftover` | Liftover-stage exclusions, including source/target duplicate coordinates |
+| `identity` | Final global identity cleanup |
+
+All keys are present, including stages with zero drops. Detailed coordinate reason counts in provenance can overlap when a row has multiple invalid fields; the `coordinates` stage count counts that row once. `used_n_rule` reports the strategy actually used: `input_columns`, `fixed_N`, or `fixed_case_control_N`. Per-variant N or case/control columns retain their existing precedence over supplied constant sample sizes. Row-level audit sidecars remain limited to identity and liftover drops.
+
+## Raw Format Profiles
+
+`--input-format` controls only raw-input schema inference before the shared munging
+kernel runs. It does not change the curated output schema. Supported values are
+`auto`, `plain`, `daner-old`, and `daner-new`.
+
+| `--input-format` value | Use when | `auto` inference criterion | Special handling |
+| --- | --- | --- | --- |
+| `auto` | Let the workflow inspect the header and choose a profile. | Not applicable; this is the default dispatcher. | Checks old DANER first, then new DANER, then falls back to `plain`. |
+| `plain` | The file is an ordinary whitespace-delimited summary-statistics table. This includes VCF-style summary-statistics tables with leading `##` metadata and a `#CHROM` header. | Fallback when DANER-specific case/control headers are not detected. | Leading `##` metadata lines are skipped before reading the header. Common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, `BP`, `ID`, and `PVAL` are accepted. If `REF` and `ALT` are present and no clearer `A1/A2` or `EA/NEA` columns exist, inference sets `a1=REF` and `a2=ALT`. |
+| `daner-old` | The file uses old DANER case/control counts encoded in frequency headers. | Header contains at least one `FRQ_A_*` column and at least one `FRQ_U_*` column. | Reads case/control sample sizes from the `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` header names. Select with `--input-format daner-old`. |
+| `daner-new` | The file carries per-SNP case/control count columns. | Header contains `Nca`/`Nco` aliases after header normalization: either `NCA` and `NCO`, or `NCAS` and `NCON`. | Computes per-row sample size from case/control counts. If an old-style `FRQ_U_*` column is also present, inference can use it as the frequency column. Select with `--input-format daner-new`. |
+
+Automatic and explicit profile selection share column aliases, optional-field handling, validation, and the raw reader. In particular, `daner-new` does not require a `FRQ_U_*` column or exact-case `Nca/Nco` headers. The old generic `--format` flag is removed; use `--input-format`. See the [legacy CLI flag map](ldsc2-flag-map.md).
+
+## Sample-Size Column Selection
+
+Per-variant sample size has two alternative column strategies: one direct
+`N`-like column, or a paired case/control count. The selection rules are:
+
+- `--N-col <column>` explicitly selects direct N. If `N_CAS`/`N_CON` aliases
+  are also auto-detected, they are suppressed and the munger emits a warning.
+- `--N-cas-col <cases> --N-con-col <controls>` explicitly selects the
+  case/control strategy. Both flags are required; an inferred direct-N column
+  is suppressed with a warning.
+- The direct and case/control column flags are mutually exclusive. Supplying
+  all three is a usage error.
+- If automatic inference finds both a direct N and a complete case/control
+  pair, the input is ambiguous and munging stops. Choose one strategy
+  explicitly; LDSC3 does not silently overwrite one inferred value with the
+  other.
+
+The paired strategy preserves LDSC2's legacy case/control normalization. For
+variant `i`, define `T_i = N_CAS_i + N_CON_i` and `p_i = N_CAS_i / T_i`. If
+`p_ref` is the mean `p_i` among variants with the maximum `T_i`, the munger
+uses `N_i = T_i * p_i / p_ref`. This is not the harmonic effective-N formula
+`4 / (1/N_CAS_i + 1/N_CON_i)`. With a constant case fraction, the legacy rule
+reduces to total sample count; with a varying case fraction, it scales N
+relative to the case fraction among maximum-total-count variants.
+
+Use `--N-col NEFF` when the data producer documents `NEFF` as the effective
+sample size corresponding to the association statistic and those exact values
+are intended for LDSC—for example, when it reflects imbalance, per-variant
+missingness, meta-analysis participation, or analysis weights. Use the paired
+case/control flags when the counts are the trusted inputs and LDSC2-compatible
+legacy normalization is intended. Because `NEFF` definitions are
+producer-specific, consult the study documentation and compare the candidate
+values rather than treating the strategies as interchangeable.
+
+For example, a file with `NEFF`, `NCAS`, and `NCON` can use the exact `NEFF`
+values with `--N-col NEFF`; no `--ignore NCAS,NCON` workaround is needed. A
+file with `N`, `NCAS`, and `NCON` must choose either `--N-col N` or
+`--N-cas-col NCAS --N-con-col NCON`. Files containing only `N`, only a complete
+case/control pair, or only a nonstandard direct column selected with `--N-col`
+retain their existing behavior.
+
+Constant `--N`, `--N-cas`, and `--N-con` remain fallbacks: per-variant N or case/control columns take precedence. Otherwise use `--N`, or the sum of both case/control constants. For per-variant N, the default `--n-min` is the 90th percentile divided by 1.5; zero also selects this default. Constant N is assigned after filtering and bypasses `--n-min`. These rules preserve LDSC2 `process_n` behavior; see the [legacy source comparison](ldsc2-flag-map.md#legacy-behavior-explicitly-retained). The existing `--chunksize` spelling and current 1,000,000-row default are retained.
+
+## Genome-Build Contract
+
+Coordinate-family modes separate the raw input build from the final output
+build:
+
+| Concept | CLI flag | Python config | Meaning |
+| --- | --- | --- | --- |
+| Source build | `--source-genome-build` | `source_genome_build` | Build of raw `CHR`/`POS`; defaults to `auto`. |
+| Output build | `--output-genome-build` | `output_genome_build` | Final build written to munged sumstats; required in coordinate-family modes. |
+
+Accepted concrete builds are `hg19` and `hg38`; common aliases such as `hg37`,
+`GRCh37`, and `GRCh38` normalize to canonical values. `auto` is accepted only
+for the source build.
+
+Source `auto` checks raw source coordinates and the coordinate keep list together before QC, using the shared [genome-build policy](snp-identity-and-genome-build.md#genome-build-policy).
+A selected raw position column such as `--pos hg19_POS` declares the source build without coordinate inference, including in `--infer-only`.
+Otherwise inference samples up to 5,000 rows per chromosome and retains the existing HM3 confidence criteria.
+A concrete `--source-genome-build hg19` or `hg38` must agree with declarations and supplies the build for unlabeled source positions without fresh inference.
+It does not convert positions or choose the output build.
+
+For keep lists, rsID filtering needs no coordinate-build check, and matching build-specific columns take precedence over generic `POS` without inference.
+Generic `CHR/POS` keep lists without a build declaration must independently supply enough evidence in auto mode, even when the raw source build is known.
+An insufficient small list produces a grouped input report and advises checking its build and supplying a concrete `--source-genome-build`.
+Ordinary column, allele, and identifier validation still applies with a concrete assertion.
+
+In rsID-family modes, genome build is not part of the merge identity. The
+munger rejects source-build, output-build, and liftover flags in those modes.
+The default HM3 restriction remains active because it is a row filter. The parquet footer
+`ldsc:genome_build` key and in-memory `SumstatsTable.config_snapshot` store an
+empty/`null` build for rsID-family artifacts.
+
+## Output Artifacts
+
+The default format remains Parquet. With `--trait-name BMI`, the data files are `BMI.parquet` and optional `BMI.sumstats.gz`. Without a trait label, the output directory contains:
+
+```text
+<output_dir>/
+  sumstats.parquet
+  sumstats.gz
+  diagnostics/
+    sumstats.log
+    dropped_snps/
+      dropped.tsv.gz
+```
+
+`sumstats.parquet` is the default data artifact and is self-describing: it needs
+no `metadata.json` sidecar. `sumstats.gz` is written only with
+`--output-format tsv.gz` or `--output-format both`.
+
+The filename stem preserves letter case, Unicode word characters, dots, and hyphens. Other character runs become underscores; edge dots, underscores, and hyphens are stripped. An explicit label that leaves an empty stem uses `trait`. For example, `BMI / adult` becomes `BMI_adult.parquet`. The metadata retains the original label after the existing surrounding-whitespace normalization. The Python `write_output()` method uses the same rules.
+
+Without `--overwrite`, any existing artifact in the selected filename family or the shared diagnostics blocks the run before output files are opened. With `--overwrite`, the workflow replaces current-run outputs and removes unselected sibling formats for that same resolved stem. Different labels that sanitize to the same stem therefore share collision checks. Files under other stems, including older fixed names, are preserved. Use separate output directories for separate runs because diagnostics are shared within a directory.
+
+Scripts that previously expected `sumstats.parquet` despite supplying a trait label must use the new trait filename or the Python run summary’s `output_paths`. Existing artifacts are not renamed. The fallback `sumstats.gz` is accepted by `load_sumstats()` through the same text compatibility pathway as `*.sumstats.gz`.
+
+## Frequency Preservation
+
+The munger automatically preserves the selected input frequency column as `FRQ` whenever present and omits `FRQ` when absent. Values are not converted to MAF, so an input frequency above 0.5 remains above 0.5. `--maf-min` still applies the unchanged filter to folded `min(FRQ, 1-FRQ)`. `--keep-maf` and `MungeConfig.keep_maf` are removed; no replacement toggle is needed. An explicitly ignored frequency column is not selected.
+
+This rule applies to the returned table, Parquet, and gzip TSV. TSV frequency values are written without three-decimal rounding; other floating columns keep the existing export rounding. Missing fields are serialized as `NA` to preserve column alignment in whitespace readers. See `parse_dat` and `filter_frq` in [`_kernel/sumstats_munger.py`](../../src/ldsc/_kernel/sumstats_munger.py), and `_write_sumstats_tsv_gz` in [`sumstats_munger.py`](../../src/ldsc/sumstats_munger.py).
+
+## Embedded Identity Metadata
+
+The curated `sumstats.parquet` is self-describing: its downstream identity
+payload is written into the Parquet **footer** as discrete `ldsc:*` key/value
+entries, so the data file alone is sufficient for regression. No `metadata.json`
+sidecar is written.
+
+| Footer key | Meaning |
+| --- | --- |
+| `ldsc:artifact_type` | Always `sumstats`. The sole identity guard. |
+| `ldsc:snp_identifier` | Identity mode used when writing the artifact. |
+| `ldsc:genome_build` | Final output build in coordinate-family modes; empty for rsID-family modes (decoded as `null`). |
+| `ldsc:trait_name` | Optional biological trait label supplied by the user; empty otherwise. |
+| `ldsc:qc_info_min`, `ldsc:qc_maf_min` | Effective INFO and MAF thresholds of the munge run; empty when that filter was not applied because its column was absent. Readers ignore them. `SumstatsMunger.write_output` copies them from a table returned by `run` and omits them for a table built by hand or loaded from disk, whose thresholds are unknown. |
+
+The same compatibility state is attached to in-memory results as
+`SumstatsTable.config_snapshot`.
+
+`sumstats.gz` is a plain TSV and carries no embedded metadata; in `both`
+mode only the `.parquet` is self-describing. Legacy `.sumstats` and
+`.sumstats.gz` inputs are accepted through the regression compatibility rule:
+their rsIDs are lookup keys and the canonical LD-score panel supplies identity
+and coordinates. Footerless Parquet is rejected. See
+[`legacy-sumstats.md`](formats/legacy-sumstats.md).
+
+Detailed source-build inference, liftover decisions, method names, and drop
+counts live in `diagnostics/sumstats.log`, not in the footer.
+
+## Dropped-SNP Audit
+
+`diagnostics/dropped_snps/dropped.tsv.gz` is an always-owned audit sidecar. It
+records identity-cleanup and liftover drops when they occur, and is still
+written for clean runs so a missing file is never confused with zero drops.
+
+The audit table uses fields such as `CHR`, `SNP`, `source_pos`, `target_pos`,
+`reason`, `base_key`, `identity_key`, `allele_set`, and `stage` when those
+values are available. Downstream LDSC commands do not consume this file.
+
+## `--infer-only`
+
+`--infer-only` diagnoses the input without writing artifacts. It requires nonempty `--raw-sumstats-file` and `--output-dir` values, but does not create the output directory. Suggested commands preserve column overrides, sample-size constants, filters, and other effective CLI options alongside resolved format/build choices.
+
+It checks selected input columns for all-missing values in bounded chunks, including required inputs and optional filtering columns such as MAF/FRQ and INFO. Ignored columns and aliases replaced by explicit overrides are excluded. The scan stops once every selected column has a nonmissing value; establishing that a column is entirely missing requires reading the whole file. Missing-value tokens and INFO-list handling follow the munging parser. Every entirely missing selected column is reported, and the report is marked `Runnable: no`. Replace or repair those columns, or explicitly ignore optional columns. This check does not replace full munging/QC validation.
+
+The suggested command preserves every column-parsing override: `--snp`, `--chr`, `--pos`, `--a1`, `--a2`, `--p`, `--signed-sumstats`, `--N-col`, `--N-cas-col`, `--N-con-col`, `--frq`, `--info`, `--info-list`, `--nstudy`, and `--ignore`. Other effective nondefault CLI options are preserved too. Format/build inference emits resolved values; options equal to their defaults may be omitted without changing behavior. The suggested command performs munging, so it omits `--infer-only`.
+
+The missingness check covers the selected raw columns mapped to these fields:
+
+| Fields | Selection rules |
+| --- | --- |
+| `SNP`, `CHR`, `POS` | Recognized or explicitly selected identity/coordinate columns present in the input. |
+| `A1`, `A2` | Recognized or explicitly selected allele columns present in the input. |
+| `P` | Selected p-value column. |
+| `Z`, `BETA`, `OR`, `LOG_ODDS`, `SIGNED_SUMSTAT` | Selected signed-statistic column(s); `--signed-sumstats` replaces automatic effect-column aliases, and `--a1-inc` suppresses automatic effect-column selection. |
+| `N`, `N_CAS`, `N_CON` | Selected per-SNP sample-size columns; explicit direct-N or paired case/control selection suppresses the other strategy. Constant sample-size flags are values, not columns to scan. |
+| `FRQ` | Selected frequency/MAF column, including the selected DANER control-frequency column. |
+| `INFO` | Selected scalar INFO or per-study INFO-list column(s); a list containing only missing entries is missing. |
+| `NSTUDY` | Selected study-count column, unless a per-SNP N column or paired case/control columns are selected. |
+
+These are canonical field names; the input headers may differ through aliases or overrides. Columns excluded with `--ignore` or replaced by another selected alias are not scanned. The report names the actual input headers when it finds entirely missing columns.
+
+This no-write contract applies on success and failure, including with `--overwrite`: no log, diagnostics, or `RUN_FAILED` marker is written, and existing output contents and markers remain untouched. The Python inference-only entry point follows the same rule.
+
+In coordinate-family modes, `--infer-only` also requires
+`--output-genome-build` because liftover status cannot be diagnosed without the
+requested final build.
+
+Example:
+
+```bash
+ldsc munge-sumstats \
+  --raw-sumstats-file data/trait.tsv.gz \
+  --snp-identifier chr_pos_allele_aware \
+  --output-genome-build hg38 \
+  --output-dir results/trait \
+  --infer-only
+```
+
+The report includes:
+
+- selected SNP restriction: packaged HM3, custom list, or none
+- detected raw format
+- inferred column hints
+- INFO-list handling
+- missing required fields
+- resolved source genome build, if inference succeeds
+- requested output genome build
+- whether liftover is required, with the selected or suggested method in
+  parentheses
+- a `Next step` block that groups runnable status, missing fields, and a
+  copy-pasteable suggested command
+
+The suggested command is printed even when the report is runnable. In that case,
+it is the resolved command to run next: `auto` inputs are replaced by explicit
+values such as `--input-format plain` and `--source-genome-build hg19`, and the output
+directory is copied from the required `--output-dir` argument. This keeps `auto`
+as the user-friendly input default while making diagnostic output explicit and
+reproducible.
+
+Example report shape:
+
+```text
+Raw sumstats file: data/trait.tsv.gz
+Detected format: plain
+Source genome build: hg19
+Output genome build: hg38
+Liftover required: yes (method: hm3 quick)
+Note: SNP restriction: packaged HM3 (default).
+Note: Using automatic HM3 quick liftover from package-bundled reference HM3 metadata; an explicit chain file overrides it.
+Next step:
+  Runnable: yes
+  Missing fields: none
+  Suggested command:
+    ldsc munge-sumstats \
+      --raw-sumstats-file data/trait.tsv.gz \
+      --output-dir results/trait \
+      --input-format plain \
+      --snp-identifier chr_pos_allele_aware \
+      --output-genome-build hg38 \
+      --source-genome-build hg19
+```
+
+If source-build inference or declaration consistency fails, the report is non-runnable and identifies the affected source.
+An explicit `--source-genome-build` can supply the build for verified unlabeled inputs, but cannot override conflicting metadata or a selected build-specific coordinate column.
+Use matching coordinates, correct erroneous metadata only after verification, or perform an explicit conversion.
+Source and output builds remain separate liftover stages.
+
+With packaged HM3 restriction, a cross-build request is runnable without a method flag: quick liftover is automatic. With a custom list or no restriction, the report requests `--liftover-chain-file <hg19ToHg38.over.chain>` (or the reverse direction). Suggestions preserve the selected restriction instead of switching the SNP set to HM3. An explicit chain file takes precedence; a missing chain path makes the report non-runnable and never falls back to HM3.
+
+For a cross-build request, `--infer-only` checks that a supplied chain path resolves to one existing file and reports the expected source-to-output direction. It does not parse or apply the chain. A chain is ignored when the builds match.
+
+## HM3 Filter and Quick Liftover
+
+Munging restricts rows to the packaged curated HM3 map by default. Choose a custom list with `--sumstats-snps-file FILE`, or disable keep-list filtering with `--no-snp-restriction`. Ordinary missing-value, INFO, MAF, sample-size, and identity QC still applies in every mode. Custom lists replace HM3; they are not intersected with it.
+
+The packaged map contains `A1/A2`, so allele-aware identity modes match its effective allele-aware keys. A coordinate or rsID match alone does not guarantee retention in those modes. Base `chr_pos` and `rsid` modes ignore alleles for keep-list matching. Custom keep-lists may omit alleles and then match by base key. See [SNP identity modes](snp-identity-and-genome-build.md).
+
+HM3 quick liftover uses the package-bundled reference HM3 metadata, which contains coordinates in both builds. It is selected automatically only for packaged HM3 restriction when the resolved source and explicitly requested output builds differ. To opt out of quick liftover, supply `--liftover-chain-file FILE`; the chain replaces the packaged mapping while the HM3 restriction remains active. Neither method changes `SNP` labels.
+
+The former `--use-hm3-snps` and `--use-hm3-quick-liftover` flags, and their `MungeConfig` fields, are removed. Remove them from existing HM3 commands. Add `--no-snp-restriction` (Python: `no_snp_restriction=True`) to retain the previous unrestricted behavior. A custom list still requires a chain for cross-build conversion, even if it happens to contain only HM3 SNPs.
+
+## Liftover Rules
+
+Users must explicitly select `--output-genome-build` in coordinate-family modes. The default source build is `auto`; unresolved source builds abort and request an explicit source build. rsID-family modes continue to reject build and liftover options.
+
+| Situation | Behavior |
+| --- | --- |
+| Source and requested output builds match | No liftover; any supplied chain is ignored |
+| Builds differ, explicit chain file supplied | Use that chain file, including under packaged HM3 restriction |
+| Builds differ, using packaged HM3 restriction (default) without a chain | Automatically use quick liftover from package-bundled reference HM3 metadata |
+| Builds differ, using unrestricted SNPs or a custom list without a chain | Require a chain file; abort before chunk QC |
+| Source build cannot be resolved | Stop and request `--source-genome-build hg19` or `hg38` |
+
+Chain-file mode expects a chain in the resolved source -> requested output
+direction. For example, source `hg19` and output `hg38` expects an
+`hg19ToHg38` chain.
+
+During liftover, the workflow drops rows that cannot be mapped cleanly, including missing coordinates, duplicate source coordinate groups, unmapped coordinates, cross-chromosome mappings, and duplicate target coordinate groups.
+
+After a successful CLI run, a prominent `Munge-sumstats summary:` block appears in stdout and `diagnostics/sumstats.log` at every `--log-level`, including `ERROR`. It names the effective SNP restriction and selected liftover method, distinguishes automatic HM3 mapping from an explicit chain override, and reports mapping input, mapped/retained, and dropped row counts with reasons. Matching-build and rsID runs explicitly report that mapping was not performed. Python API runs record the same summary in the log without printing to stdout.
+
+Mapping counts cover only rows that reach the liftover stage, after keep-list filtering and earlier QC. The summary also reports whole-run input/retained/dropped totals and exclusive drop counts for each stage: `sumstats_snps` is the keep-list drop count, `liftover` is the mapping-stage drop count, and `identity` covers final identity cleanup. Stage counts sum to the whole-run dropped total. Row-level liftover and identity removals are recorded in `diagnostics/dropped_snps/dropped.tsv.gz`; earlier QC and keep-list removals have counts rather than individual audit rows.
+
+## Common Commands
+
+Diagnose first:
+
+```bash
+ldsc munge-sumstats \
+  --raw-sumstats-file data/trait.tsv.gz \
+  --output-genome-build hg38 \
+  --output-dir outputs/trait_hg38 \
+  --infer-only
+```
+
+Run with inferred source build and no liftover if the raw file is already hg38:
+
+```bash
+ldsc munge-sumstats \
+  --raw-sumstats-file data/trait.tsv.gz \
+  --source-genome-build auto \
+  --output-genome-build hg38 \
+  --output-dir outputs/trait_hg38
+```
+
+Run HM3-filtered quick liftover:
+
+```bash
+ldsc munge-sumstats \
+  --raw-sumstats-file data/trait.tsv.gz \
+  --source-genome-build auto \
+  --output-genome-build hg38 \
+  --output-dir outputs/trait_hg38
+```
+
+Run chain-file liftover:
+
+```bash
+ldsc munge-sumstats \
+  --raw-sumstats-file data/trait.tsv.gz \
+  --source-genome-build hg19 \
+  --output-genome-build hg38 \
+  --liftover-chain-file resources/liftover/hg19ToHg38.over.chain \
+  --output-dir outputs/trait_hg38
+```
+
+Run rsID identity:
+
+```bash
+ldsc munge-sumstats \
+  --raw-sumstats-file data/trait.tsv.gz \
+  --snp-identifier rsid \
+  --output-dir outputs/trait_rsid
+```
+
+Do not pass source/output/liftover flags in rsID modes.
+
+## Python API
+
+```python
+from ldsc import MungeConfig, SumstatsMunger
+
+sumstats = SumstatsMunger().run(
+    MungeConfig(
+        raw_sumstats_file="data/trait.tsv.gz",
+        source_genome_build="auto",
+        output_genome_build="hg38",
+        output_dir="outputs/trait_hg38",
+    )
+)
+```
+
+This configuration automatically maps packaged HM3 to the explicitly requested output build when necessary.
+
+To override automatic HM3 mapping, supply a chain file (also required for custom or unrestricted cross-build runs):
+
+```python
+MungeConfig(
+    raw_sumstats_file="data/trait.tsv.gz",
+    source_genome_build="hg19",
+    output_genome_build="hg38",
+    liftover_chain_file="resources/liftover/hg19ToHg38.over.chain",
+    output_dir="outputs/trait_hg38",
+)
+```
+
+`SumstatsMunger.build_run_summary()` takes no table argument: it returns accounting from the most recent successful `run()`. Requesting it before a completed run raises `LDSCUsageError`.

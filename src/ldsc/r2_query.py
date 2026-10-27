@@ -3,7 +3,7 @@
 Public surface for reading a ``ldsc build-r2-panel`` parquet panel by SNP pair:
 the :class:`R2Panel` handle, the one-shot :func:`query_r2` wrapper, and the pure
 :func:`unbiased_r2_to_pearson_r` converter. See
-``docs/current/ref-panel-r2-query.md`` for the current input and output contract.
+``docs/reference/query-r2.md`` for the current input and output contract.
 Stored ``SIGN_R`` values use panel alleles; returned ``sign_r`` values use the
 query alleles after orientation harmonization.
 """

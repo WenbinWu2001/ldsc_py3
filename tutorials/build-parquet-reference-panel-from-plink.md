@@ -3,7 +3,7 @@
 Last updated on: 2026-10-27
 
 The build processes chromosomes serially in one managed child, with **1 BLAS thread**.
-Python scripts must place workflow calls under `if __name__ == "__main__":`; see [parallel execution](../docs/current/parallel-execution.md).
+Python scripts must place workflow calls under `if __name__ == "__main__":`; see [parallel execution](../docs/reference/parallel-execution.md).
 
 `ldsc build-r2-panel` computes pairwise, bias-adjusted R² from PLINK genotypes and writes reusable chromosome tables plus SNP metadata. Use these outputs with `ldsc ldscore` to aggregate LD scores, or with `ldsc query-r2` to inspect particular SNP pairs. The current command has no `build-ref-panel` alias.
 
@@ -21,11 +21,11 @@ ldsc build-r2-panel \
 
 The same arguments work with `python -m ldsc build-r2-panel`. Use a new output directory, or explicitly add `--overwrite` to replace the command's existing artifacts. This example supplies no genetic map or liftover chain, so it writes only hg38 and records missing `CM` values in the SNP sidecar.
 
-For your own data, provide the prefix of a complete `.bed`, `.bim`, `.fam` trio. A quoted chromosome stem, `@` pattern, or ordinary glob can resolve multiple trios; see the [path rules](../docs/current/path-specification.md). The builder processes the resolved chromosomes sequentially. Separate chromosome invocations can share an output root because their diagnostics are scoped by chromosome.
+For your own data, provide the prefix of a complete `.bed`, `.bim`, `.fam` trio. A quoted chromosome stem, `@` pattern, or ordinary glob can resolve multiple trios; see the [path rules](../docs/reference/input-paths.md). The builder processes the resolved chromosomes sequentially. Separate chromosome invocations can share an output root because their diagnostics are scoped by chromosome.
 
 ## Choose the SNP universe and LD window
 
-The `--plink-prefix` argument also accepts a plain stem such as `reference/1000G.EUR.QC.`. Its shared resolver discovers selected BED/BIM/FAM trios and reads BIM chromosomes; numeric filename suffixes remain intact and `@` is optional. Missing trio members, malformed contents, and conflicting chromosome sources fail together, with an audit in `diagnostics/plink_input_issues.tsv`. See the [shared PLINK resolution contract](../docs/current/path-specification.md#plink-prefix-resolution).
+The `--plink-prefix` argument also accepts a plain stem such as `reference/1000G.EUR.QC.`. Its shared resolver discovers selected BED/BIM/FAM trios and reads BIM chromosomes; numeric filename suffixes remain intact and `@` is optional. Missing trio members, malformed contents, and conflicting chromosome sources fail together, with an audit in `diagnostics/plink_input_issues.tsv`. See the [shared PLINK resolution contract](../docs/reference/input-paths.md#plink-prefix-resolution).
 
 By default, all otherwise eligible reference SNPs contribute. PLINK filtering removes unusable variants; explicit `--maf-min`, `--ref-panel-snps-file`, and `--keep-indivs-file` further restrict variants or individuals. In coordinate modes, duplicate-coordinate groups are dropped using the fixed `drop-all` policy. There is no duplicate-position-policy CLI switch.
 
@@ -73,7 +73,7 @@ For reference sample size \(N>2\), the adjusted estimate is \(r^2-(1-r^2)/(N-2)\
 
 `chr22_meta.tsv.gz` is a gzip TSV with leading `# ldsc:*` provenance comments and columns `CHR, POS, SNP, A1, A2, CM, MAF`. Rows are ordered by the emitted build's position. Coordinates are one-based; MAF refers to retained reference individuals. `SNP` preserves the BIM label, which need not be an rsID.
 
-The sidecar is mandatory: its row order defines the pair indices, and its identity hash binds it to the Parquet. Keep the files together. There is no reconstruction from pair endpoints when it is missing. See the [format specification](../docs/current/parquet-r2-format-and-read-pipeline.md) for storage and binding details.
+The sidecar is mandatory: its row order defines the pair indices, and its identity hash binds it to the Parquet. Keep the files together. There is no reconstruction from pair endpoints when it is missing. See the [format specification](../docs/reference/formats/r2-panels.md) for storage and binding details.
 
 ## Inspect the output safely
 
@@ -122,7 +122,7 @@ ldsc query-r2 \
   --output-dir tutorial_outputs/r2_query_chr22
 ```
 
-The result is `query_r2.tsv`, with `r2`, nullable `sign_r`, `r`, and `status`. `sign_r` is +1/-1 in the query's allele orientation; it is not the boolean `SIGN_R` storage column. Base identity modes return missing `sign_r` and `r`. See the [query reference](../docs/current/ref-panel-r2-query.md) for all statuses and allele handling.
+The result is `query_r2.tsv`, with `r2`, nullable `sign_r`, `r`, and `status`. `sign_r` is +1/-1 in the query's allele orientation; it is not the boolean `SIGN_R` storage column. Base identity modes return missing `sign_r` and `r`. See the [query reference](../docs/reference/query-r2.md) for all statuses and allele handling.
 
 ## Compute LD scores
 

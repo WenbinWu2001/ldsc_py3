@@ -41,7 +41,7 @@ LOGGER = logging.getLogger("LDSC.config")
 _GENOME_BUILD_UNSET = object()
 # SNPs per PLINK genotype batch in ldscore, build-gene-ldscore-index, and
 # build-r2-panel. LD windows are exact for any value, so it sets speed and
-# memory only; see docs/current/annotation-memory-design.md for the benchmark.
+# memory only; see docs/dev/design/memory-and-cpu.md for the benchmark.
 DEFAULT_SNP_BATCH_SIZE = 512
 
 

@@ -2,9 +2,9 @@
 
 Last updated on: 2026-10-27
 
-Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
+Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](../reference/munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
-Use the [CLI help guidelines](cli-help-guidelines.md) when writing flag descriptions or organizing their help groups.
+Use the [CLI help guidelines](../dev/guidelines/cli-help.md) when writing flag descriptions or organizing their help groups.
 
 This document records the current public input/output naming contract after the
 LD-score result-directory refactor. The LD-score workflow uses a canonical
@@ -29,14 +29,14 @@ Regression workflows consume this directory with `--ldscore-dir`; fragmented
 inputs such as LD-score files, count vectors, regression-weight files, and
 annotation manifests are no longer public inputs.
 
-Pattern support is command-specific; see [the input-family table](path-specification.md#pattern-support-in-command-help) for `*`, `@`, and exact-one restrictions.
+Pattern support is command-specific; see [the input-family table](../reference/input-paths.md#pattern-support-in-command-help) for `*`, `@`, and exact-one restrictions.
 
 ## Read-only genome-build inspection
 
 `ldsc infer-genome-build PATH` takes one exact file or recognized artifact directory and exposes only `--help`.
 It accepts no output directory, logging options, patterns, build overrides, or column overrides.
 Results go to stdout and errors to stderr; no files, directories, logs, or failure markers are created.
-See the [inspection contract](snp-identifier-genome-build-defaults.md#standalone-build-inspection) for formats, metadata ownership, multiple builds, and exit codes.
+See the [inspection contract](../reference/snp-identity-and-genome-build.md#standalone-build-inspection) for formats, metadata ownership, multiple builds, and exit codes.
 
 ## Shared SNP Identity Contract
 
@@ -213,7 +213,7 @@ Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requi
 | `--snp-identifier` | config | no | SNP identity mode | Defines how SNPs are keyed. Defaults to `chr_pos_allele_aware`; valid values are `rsid`, `rsid_allele_aware`, `chr_pos`, and `chr_pos_allele_aware`. |
 | `--genome-build` | config | no | coordinate and gene-interval interpretation | Build for `chr_pos` identity and gene-list interval projection; defaults to omitted/`None`, while gene-list runs resolve omission to `auto`, including rsID modes. rsID artifact identity metadata remains build-independent. Accepted aliases normalize to hg19 or hg38. |
 | `--ref-panel-snps-file` | input | no | reference-panel SNP universe restriction | Restricts the retained reference-panel SNP universe using identity keys only; duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. Defaults to omitted/`None`, so no additional restriction is applied. |
-| `--regr-snps-file` | input | no | regression row-set override | Replaces the bundled HM3 regression SNP set using identity keys only; defaults to omitted/`None`, so the bundled HM3 set is used. The input must be a headered text table whose required identity columns depend on `--snp-identifier`; see [Regression SNP file format](config-design.md#regression-snp-file-format). Duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. |
+| `--regr-snps-file` | input | no | regression row-set override | Replaces the bundled HM3 regression SNP set using identity keys only; defaults to omitted/`None`, so the bundled HM3 set is used. The input must be a headered text table whose required identity columns depend on `--snp-identifier`; see [Regression SNP file format](../dev/design/configuration.md#regression-snp-file-format). Duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals before LD calculation; defaults to omitted/`None`, so no individual keep filter is applied. PLINK mode only. |
 | `--maf-min` | input metadata | no | retained reference-panel MAF filter | Filters retained reference-panel SNPs by inclusive `MAF >= maf_min`; defaults to omitted/`None`. Applied identically in **both** backends (parquet via the sidecar MAF; PLINK via genotype-derived MAF). |
 | `--regr-snps-exclude-regions` | input transform | no | named regression-region presets | After bundled HM3 or the custom regression list is selected, subtracts `none`, `mhc`, `centromeres`, or `mhc-and-centromeres` (`mhc-and-centromeres` default) from regression/output rows and `w_ld` contributors. It does not change LD-score contributors or reference count vectors. `--genome-build` selects named interval coordinates. The obsolete `--exclude-regions` alias is rejected. |
@@ -225,7 +225,7 @@ Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requi
 | `--export-ref-metadata` | output | no | opt-in reference-metadata sidecar | When set (PLINK backend), writes `ref_metadata/chrN_meta.tsv.gz` (`CHR POS SNP A1 A2 CM MAF`, matching the parquet panel sidecar) next to the LD-score output. Default `False`. Parquet panels already ship this sidecar. |
 | `--common-maf-min` | input metadata | no | common-SNP count threshold | Sets the MAF threshold for common-SNP count vectors and the common-universe overlap matrix; defaults to `0.05` and uses inclusive `MAF >= common_maf_min` (deviates from legacy LDSC's strict `0.05 < FRQ < 0.95`). |
 | `--snp-batch-size` | performance | no | LD-score SNP batch size | Genotype batch size for the PLINK reference-panel backend; defaults to `512`. It changes speed and memory only: pairs outside the requested LD window are dropped for every batch size, unlike LDSC2's `--chunk-size`. The parquet-R2 backend streams stored pairs and ignores this value. |
-| `--workers` | performance | no | cross-chromosome parallelism | Default 1, one managed child; every worker uses 1 BLAS thread. Use joblib.cpu_count() as the detected CPU budget; reject positive requests above it before capping by tasks (and regression query batch size). Negative -k uses max(1, budget + 1 - k); zero is invalid. See [execution policy](parallel-execution.md). |
+| `--workers` | performance | no | cross-chromosome parallelism | Default 1, one managed child; every worker uses 1 BLAS thread. Use joblib.cpu_count() as the detected CPU budget; reject positive requests above it before capping by tasks (and regression query batch size). Negative -k uses max(1, budget + 1 - k); zero is invalid. See [execution policy](../reference/parallel-execution.md). |
 | `--yes-really` | safety override | no | whole-chromosome LD windows | Allows whole-chromosome LD windows; defaults to `False`, so such windows are rejected unless this flag is supplied. |
 
 Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--r2-sources`,
@@ -291,7 +291,7 @@ Each `chr{chrom}_r2.parquet` stores Arrow schema metadata for
 `ldsc:sorted_by_build`, `ldsc:row_group_size`, `ldsc:n_samples`, and
 `ldsc:r2_bias`. Current package-built panels write unbiased R2 values and record
 the PLINK sample count.
-Downstream readers require `ldsc:r2_bias=unbiased` and the rest of the [R2 parquet contract](parquet-r2-format-and-read-pipeline.md#25-parquet-schema-metadata); there are no bias-related flags.
+Downstream readers require `ldsc:r2_bias=unbiased` and the rest of the [R2 parquet contract](../reference/formats/r2-panels.md#25-parquet-schema-metadata); there are no bias-related flags.
 
 When no usable source-to-target liftover method is provided, the builder logs an
 INFO message and emits source-build-only outputs. When a matching liftover chain
@@ -337,7 +337,7 @@ It is not a legacy compatibility command and performs no inference or liftover.
 | `--regr-snps-exclude-regions` | input transform | no | regression-region subtraction | `none`, `mhc`, `centromeres`, or `mhc-and-centromeres`; defaults to `mhc-and-centromeres`. The obsolete `--exclude-regions` alias is rejected. |
 | `--genetic-map-hg19-sources`, `--genetic-map-hg38-sources` | input | no | genetic map | Optional map matching the explicit build for cM windows; accepts comma-separated exact paths without `*` or `@` expansion. Omit for kb/SNP-count windows. |
 | `--snp-batch-size`, `--atom-batch-size` | performance | no | computation batches | Bounds SNP and disjoint-atom matrix work; `--snp-batch-size` defaults to `512`, and `--atom-batch-size` defaults to `64`. Neither changes the index values. |
-| `--workers` | performance | no | chromosome workers | Default 1, one managed child; every worker uses 1 BLAS thread. Use joblib.cpu_count() as the detected CPU budget; reject positive requests above it before capping by tasks (and regression query batch size). Negative -k uses max(1, budget + 1 - k); zero is invalid. See [execution policy](parallel-execution.md). |
+| `--workers` | performance | no | chromosome workers | Default 1, one managed child; every worker uses 1 BLAS thread. Use joblib.cpu_count() as the detected CPU budget; reject positive requests above it before capping by tasks (and regression query batch size). Negative -k uses max(1, budget + 1 - k); zero is invalid. See [execution policy](../reference/parallel-execution.md). |
 | `--overwrite` | output mode | no | publication policy | Replaces only a complete valid owned index through staged publication; defaults to `False`. |
 | `--log-level` | logging | no | workflow log verbosity | Controls the persistent index build-state log; defaults to `INFO`. |
 
@@ -364,7 +364,7 @@ strict legacy rule `MAF > 0.05` (or `0.05 < FRQ < 0.95`). `.l2.M` is optional:
 it remains unavailable for an unpartitioned suite when any chromosome is
 missing, while baseline conversion reconstructs missing values from full
 annotations and frequencies. See
-[`legacy-ldscore-conversion.md`](legacy-ldscore-conversion.md).
+[`legacy-ldscores.md`](../reference/formats/legacy-ldscores.md).
 
 ### `ldsc munge-sumstats`
 
@@ -406,7 +406,7 @@ annotations and frequencies. See
 
 Removed flags: `--use-hm3-snps`, `--use-hm3-quick-liftover`, `--sumstats`, `--sumstats-file` for raw munge input,
 `--merge-alleles`, `--merge-alleles-file`, `--no-alleles`, `--out`,
-`--daner-old`, `--daner-new`, `--format` (use `--input-format daner-old` / `--input-format daner-new`), and `--keep-maf`. Recognized input frequency is always retained as `FRQ` with its original values and omitted when absent; `--maf-min` filtering is unchanged. See [the legacy flag map](legacy-cli-flag-map.md).
+`--daner-old`, `--daner-new`, `--format` (use `--input-format daner-old` / `--input-format daner-new`), and `--keep-maf`. Recognized input frequency is always retained as `FRQ` with its original values and omitted when absent; `--maf-min` filtering is unchanged. See [the legacy flag map](../reference/ldsc2-flag-map.md).
 
 Output names when no trait label is supplied:
 
@@ -463,7 +463,7 @@ Output columns always append `r2`, nullable `sign_r`, signed Pearson `r`, and
 panels lacking `ldsc:n_samples`. `status` is blank for found pairs and may report
 `not_in_panel`, `cross_chromosome`, or `absent`.
 
-The regression commands reject the removed `--no-intercept` flag. Use `--intercept-h2 1` for `h2` or `partitioned-h2`, and `--intercept-h2 1 --intercept-gencov 0` for `rg`. Omitting these flags estimates the intercepts using the existing defaults. See the [legacy flag map](legacy-cli-flag-map.md#regression-intercept-consolidation).
+The regression commands reject the removed `--no-intercept` flag. Use `--intercept-h2 1` for `h2` or `partitioned-h2`, and `--intercept-h2 1 --intercept-gencov 0` for `rg`. Omitting these flags estimates the intercepts using the existing defaults. See the [legacy flag map](../reference/ldsc2-flag-map.md#regression-intercept-consolidation).
 
 ### `ldsc h2`
 
@@ -494,7 +494,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Requires an overlap artifact. With query columns, runs the cell-type regime (baseline plus one query per model); with no query columns, runs one functional-category model jointly over all baseline columns. This includes explicitly converted baseline-only LDSC2 suites. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. Accepts current Parquet or legacy LDSC2 text under the same projection rule as `h2`. |
 | `--trait-name` | input metadata | no | output trait label | Optional label override; defaults to omitted/`None`. If omitted, regression uses the sumstats parquet footer `ldsc:trait_name` when present, then the filename fallback. |
-| `--workers` | performance | no | complete-query worker processes | Default 1, one managed child; every worker uses 1 BLAS thread. Use joblib.cpu_count() as the detected CPU budget; reject positive requests above it before capping by tasks (and regression query batch size). Negative -k uses max(1, budget + 1 - k); zero is invalid. See [execution policy](parallel-execution.md). |
+| `--workers` | performance | no | complete-query worker processes | Default 1, one managed child; every worker uses 1 BLAS thread. Use joblib.cpu_count() as the detected CPU budget; reject positive requests above it before capping by tasks (and regression query batch size). Negative -k uses max(1, budget + 1 - k); zero is invalid. See [execution policy](../reference/parallel-execution.md). |
 | `--query-batch-size` | config | no | active focal query columns | Positive integer, default `100`; bounds query LD-score columns read together and caps active query workers. Each worker fits one separate complete model. Independent of generation batch width and the query error policy. |
 | `--output-dir` | output | yes | result output directory | Required destination for `partitioned_h2.tsv` and diagnostics. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
@@ -567,7 +567,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 
 The CLI intentionally has no `--output-dir` or plot-type flag.
 
-For rg inputs, both plot modes always annotate observed-scale single-trait h2 (jackknife SE) from `files.h2_per_trait` when available; no additional option is needed. Missing declarations/files or unusable h2 values display `failed`. The correlation source remains `files.rg`. See [the plotting input and annotation contract](plotting-module.md#heritability-annotations-in-rg-plots).
+For rg inputs, both plot modes always annotate observed-scale single-trait h2 (jackknife SE) from `files.h2_per_trait` when available; no additional option is needed. Missing declarations/files or unusable h2 values display `failed`. The correlation source remains `files.rg`. See [the plotting input and annotation contract](../dev/design/plotting.md#heritability-annotations-in-rg-plots).
 
 ### `ldsc convert-h2-scale`
 

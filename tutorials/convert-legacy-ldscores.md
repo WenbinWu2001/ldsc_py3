@@ -1,9 +1,9 @@
 # Convert a legacy LD-score suite
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-27
 
 Conversion runs in one managed child process with **1 BLAS thread**.
-Python scripts must place workflow calls under `if __name__ == "__main__":`; see [parallel execution](../docs/current/parallel-execution.md).
+Python scripts must place workflow calls under `if __name__ == "__main__":`; see [parallel execution](../docs/reference/parallel-execution.md).
 
 Use `ldsc convert-ldsc2-ldscores` to import an existing LDSC2 reference/weight LD-score suite into a canonical LDSC3 directory. This reuses the supplied LD scores without recomputing them. Subsequent regression commands consume the converted directory through `--ldscore-dir`.
 
@@ -169,7 +169,7 @@ An unused `.w` file alongside a complete recognized family does not invalidate t
 
 ## References
 
-- [Conversion contract](../docs/current/legacy-ldscore-conversion.md): counts, identity, schemas, discovery, and provenance.
+- [Conversion contract](../docs/reference/formats/legacy-ldscores.md): counts, identity, schemas, discovery, and provenance.
 - [Troubleshooting](../docs/troubleshooting.md#convert-ldsc2-ldscores): repair guidance for rejected suites.
 - [Concise utility wiki](../docs/wiki/utility-functionalities/convert-ldsc2-ldscores.md): standard names and flags.
 - [Implementation](../src/ldsc/legacy_ldscore_converter.py): `build_parser`, `_discover_ldscore_family`, `_discover_associated_family`, `_discover_frequency_family`, and `LegacyLDScoreConverter.convert` define the behavior described here.

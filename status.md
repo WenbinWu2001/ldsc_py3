@@ -1,6 +1,6 @@
 # Handoff: annotation grids and LD-score annotation coverage
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 Status: high-level design confirmed by the user; CLI details and any optional intersection policy remain unresolved.
 This handoff records the next design task, not an implemented feature or a completed specification.
@@ -69,7 +69,7 @@ Deliberately selecting baseline-grid rows A and B is a different, explicit candi
 The current standalone command already accepts BED or gene-list query definitions, but requires `--baseline-annot-sources` for the SNP grid.
 It does not yet accept BIM files directly.
 The [standalone decision record](docs/current/annotate-gene-list-decisions.md#cli-and-python-contract) explicitly excluded BIM replacement when it was written; that exclusion must not override the new user decision above.
-The [annotate wiki](docs/wiki/utility-functionalities/annotate.md#build-baseline-annotations-from-bed-files) currently documents an external BIM-to-minimal-annotation-grid recipe.
+The [annotate wiki](docs/user-guide/workflows/annotations.md#build-baseline-annotations-from-bed-files) currently documents an external BIM-to-minimal-annotation-grid recipe.
 
 Existing standalone behavior to preserve unless a specific change is confirmed:
 
@@ -90,7 +90,7 @@ Existing standalone behavior to preserve unless a specific change is confirmed:
 - Failed authorized overwrites use `RUN_FAILED.txt`.
   The current contract does not promise rollback, restoration, or a new failure-time deletion policy.
 
-The current [LD-score SNP-universe contract](docs/current/ldscore-snp-universe-contract.md#chromosome-coverage-versus-snp-support) describes a prepared baseline/reference intersection.
+The current [LD-score SNP-universe contract](docs/reference/ldscore-snp-universes.md#chromosome-coverage-versus-snp-support) describes a prepared baseline/reference intersection.
 The next session must trace actual reference preparation and alignment before specifying how the new grid authority changes that path.
 Do not assume the newly confirmed strict annotation-coverage behavior is already implemented.
 
@@ -126,7 +126,7 @@ These are observed gaps, not additional approved feature scope; recheck them bef
 | Missing successful partial-run console notices | A CLI run omitted one of two gene rows under `--allow-unresolved-genes` and exited zero without the promised LDSC terminal notice; another successful run skipped a zero-support query without a notice. Inspect [annotate_workflow.py](src/ldsc/annotate_workflow.py), `run_annotate()` final logging, against the standalone decision record's output policy. |
 | Incomplete batched validation | `base.txt` containing a valid gene and an unknown identifier reported the identifier failure but missed its collision with baseline column `base`, because the early Gate A exit precedes naming checks. A missing sibling file also stops the input gate before readable sibling lists receive resolution audits. Inspect `run_annotate()` and [the shared input gate](src/ldsc/_input_preflight.py). |
 | Incomplete strict error guidance | Twelve rejected rows were fully audited, with ten terminal examples, but `_gate_a_error()` omitted per-source rejected/submitted counts, an explicit omitted-example count, an audit filter, and overwrite guidance. |
-| Stale workflow documentation | [data-flow.md](docs/current/data-flow.md) still presents standalone annotate as BED-only. Main standalone decisions, wiki, and tutorials already describe the gene route. |
+| Stale workflow documentation | [data-flow.md](docs/dev/data-flow.md) still presents standalone annotate as BED-only. Main standalone decisions, wiki, and tutorials already describe the gene route. |
 
 No fixes were made during that audit.
 The August list of unresolved questions is historical: most were subsequently settled by the standalone and memory-refactor decisions.
@@ -156,10 +156,10 @@ That temporary location may disappear; this handoff contains the consequential r
 Start with the current instructions, this file, and the relevant sections of:
 
 - [Standalone annotate decisions](docs/current/annotate-gene-list-decisions.md).
-- [LD-score SNP-universe contract](docs/current/ldscore-snp-universe-contract.md).
-- [Architecture](docs/current/architecture.md), especially annotation and reference/LD-score workflow ownership.
-- [Annotation memory design](docs/current/annotation-memory-design.md).
-- [Gene-list input](docs/current/gene-list-input-format.md), [diagnostics and repair](docs/current/gene-list-diagnostics-and-repair.md), [path specification](docs/current/path-specification.md), and [workflow logging](docs/current/workflow-logging.md).
+- [LD-score SNP-universe contract](docs/reference/ldscore-snp-universes.md).
+- [Architecture](docs/dev/architecture.md), especially annotation and reference/LD-score workflow ownership.
+- [Annotation memory design](docs/dev/design/memory-and-cpu.md).
+- [Gene-list input](docs/reference/formats/gene-lists.md), [diagnostics and repair](docs/reference/results/gene-list-diagnostics.md), [path specification](docs/reference/input-paths.md), and [workflow logging](docs/current/workflow-logging.md).
 - [Lessons](lessons.md), particularly reference preparation, physical BIM/BED row mapping, output ownership, and resource lifetime.
 
 Implementation seams:

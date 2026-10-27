@@ -1,10 +1,10 @@
 # Partitioned LDSC
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-27
 
 Goal: run partitioned LDSC in the refactored package by building query annotations, computing baseline-plus-query LD scores, and fitting one partitioned model per query annotation.
 
-After writing partitioned or quantile results, use the [plotting results manual](plotting-results.md) for the functional-enrichment, query-evidence, and continuous-annotation quantile plots.
+After writing partitioned or quantile results, use the [plotting results manual](../docs/user-guide/workflows/plotting.md) for the functional-enrichment, query-evidence, and continuous-annotation quantile plots.
 
 `partitioned-h2` accepts both baseline-only and query-annotation LD-score
 directories. Baseline-only runs fit the functional-category model and keep the
@@ -52,7 +52,7 @@ can synthesize an all-ones `base` column only when both baseline and query
 inputs are omitted for ordinary unpartitioned LD scores; it does not use that
 synthetic path for partitioned/query LDSC.
 
-Binary annotation columns are detected automatically and packed; continuous columns stay dense float32. Generated gene/BED annotations are binary, while supplied baseline and query columns are checked for exact 0/1 values across the complete input. Public reads retain float32 and baseline-then-query input order. This is an internal storage choice requiring no new options; annotation text and LD-score output formats stay the same. See [annotation format policy](../docs/current/annotation-memory-design.md#annotation-format-policy).
+Binary annotation columns are detected automatically and packed; continuous columns stay dense float32. Generated gene/BED annotations are binary, while supplied baseline and query columns are checked for exact 0/1 values across the complete input. Public reads retain float32 and baseline-then-query input order. This is an internal storage choice requiring no new options; annotation text and LD-score output formats stay the same. See [annotation format policy](../docs/dev/design/memory-and-cpu.md#annotation-format-policy).
 
 Annotation preparation remains serial before chromosome computation; `--workers` applies to the subsequent LD-score workers. At INFO, `diagnostics/annotate.log` or `diagnostics/ldscore.log` marks input reading, SNP identity checks and chromosome preparation, and preparation completion with retained counts and elapsed time. A storage summary gives binary/continuous column counts and actual value-file bytes. One CM/MAF compatibility notice covers each preparation run; gene exclusions use counts by role and a pointer to the complete diagnostic audit. Numbered batch start/completion and chromosome progress remain at INFO; successful query details require DEBUG. See [preparation logging](../docs/current/workflow-logging.md#annotation-preparation).
 
@@ -93,7 +93,7 @@ print(result.summary)
 print(result.per_query_artifacts)  # Persistent category/delete-value/metadata paths.
 ```
 
-To preserve successful fits in a large scan that contains failing queries, explicitly add `continue_on_query_error=True` to `estimate_partitioned_h2_batch()`, or add the single flag `--continue-on-query-error` to `ldsc partitioned-h2`. Without the flag, or with the Python default `False`, any query error prevents publication of new scientific results. With it, failed queries are skipped and marked, and successful fits are published. Inspect `result.query_status` or `diagnostics/query_status.tsv` for every attempted query, including those omitted from the scientific summary. The CLI records exceptions and available jackknife block/support details in `diagnostics/partitioned-h2.log`; direct Python calls use the configured LDSC logger. Shared input/output failures, interrupts, and all-query-failed scans still stop. The option does not change block boundaries or substitute coefficients. See [query failure handling](../docs/current/partitioned-h2-results.md#query-failures-and-continuation).
+To preserve successful fits in a large scan that contains failing queries, explicitly add `continue_on_query_error=True` to `estimate_partitioned_h2_batch()`, or add the single flag `--continue-on-query-error` to `ldsc partitioned-h2`. Without the flag, or with the Python default `False`, any query error prevents publication of new scientific results. With it, failed queries are skipped and marked, and successful fits are published. Inspect `result.query_status` or `diagnostics/query_status.tsv` for every attempted query, including those omitted from the scientific summary. The CLI records exceptions and available jackknife block/support details in `diagnostics/partitioned-h2.log`; direct Python calls use the configured LDSC logger. Shared input/output failures, interrupts, and all-query-failed scans still stop. The option does not change block boundaries or substitute coefficients. See [query failure handling](../docs/reference/results/partitioned-h2.md#query-failures-and-continuation).
 
 ```python
 # After a successful batch return, inspect failures separately from scientific results.
@@ -117,7 +117,7 @@ Both writing routes use a persistent worker pool, stream one chromosome fragment
 Smaller batches reduce raw-fragment scratch but add repeated reference work or operator reads; final staged output still grows with the full query count.
 Direct and indexed `workers` default to 1 and are capped at the chromosome count.
 Freed pages can remain reserved by the allocator, so RSS need not immediately fall.
-See `LDScoreCalculator.run`, `indexed_results`, and `LDScoreSource.read_queries` in the [memory design](../docs/current/annotation-memory-design.md).
+See `LDScoreCalculator.run`, `indexed_results`, and `LDScoreSource.read_queries` in the [memory design](../docs/dev/design/memory-and-cpu.md).
 
 Regression over either LD-score route automatically borrows aligned columns and reduces intermediate copies while retaining each model's complete SNP set and numerical precision.
 Batch width bounds loaded query columns; worker count controls the number of complete concurrent fits and their private estimator workspaces.
@@ -131,7 +131,7 @@ Standalone accepts exactly one of `ref_snp_annot_sources` and `ref_snp_bim_sourc
 Returned bundles reference exported files only.
 Annotation-grid mode exports aligned baseline/query families; pass them together through downstream `baseline_annot_sources` and `query_annot_sources` (CLI `--baseline-annot-sources` and `--query-annot-sources`).
 BIM mode exports generated query columns only.
-See the [developer memory design](../docs/current/annotation-memory-design.md).
+See the [developer memory design](../docs/dev/design/memory-and-cpu.md).
 
 ## CLI
 
@@ -152,7 +152,7 @@ Every worker uses **1 BLAS thread**, in serial and parallel execution.
 Positive requests above that count fail before capping by available tasks; negative `-k` uses `max(1, detected_count + 1 - k)`.
 LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
 Zero, Boolean, and non-integer Python requests are invalid.
-See [the execution policy](../docs/current/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
+See [the execution policy](../docs/reference/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
 
 The CLI supports BED-driven LD-score generation directly:
 
@@ -222,7 +222,7 @@ The CLI example above is strict. Add `--continue-on-query-error` to its `partiti
 The command writes `tutorial_outputs/partitioned_h2/partitioned_h2.tsv` and
 `tutorial_outputs/partitioned_h2/diagnostics/partitioned-h2.log`.
 The summary columns are documented in
-[partitioned-h2-results.md](../docs/current/partitioned-h2-results.md).
+[partitioned-h2.md](../docs/reference/results/partitioned-h2.md).
 If any partitioned-h2 owned output already exists, including a stale
 `diagnostics/query_annotations/` tree from an earlier per-query run, the command fails
 before writing; add `--overwrite` only when replacing the previous summary is

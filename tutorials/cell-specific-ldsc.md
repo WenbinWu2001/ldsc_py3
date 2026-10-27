@@ -1,10 +1,10 @@
 # Cell-Specific LDSC
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-27
 
 Goal: estimate cell-specific enrichment by running partitioned LDSC with one query annotation per cell type.
 
-After writing the aggregate query result, use the [plotting results manual](plotting-results.md) to create and interpret the horizontal nominal-p-value summary across the separate baseline-conditional fits.
+After writing the aggregate query result, use the [plotting results manual](../docs/user-guide/workflows/plotting.md) to create and interpret the horizontal nominal-p-value summary across the separate baseline-conditional fits.
 
 In this package, cell-specific LDSC is the `partitioned-h2` workflow applied to cell-type annotations. Baseline annotations stay in the model as covariates, and each cell-type query column is tested in a baseline-plus-one-query model through `RegressionRunner.estimate_partitioned_h2_batch()`.
 
@@ -37,7 +37,7 @@ as `--genome-build auto` rather than a separate command.
 
 ## Python API
 
-Batch regression is strict by default: any per-query error prevents publication of new scientific results. To skip failed queries and publish successful fits, set `continue_on_query_error=True` in `estimate_partitioned_h2_batch()` below. The equivalent single CLI flag is `--continue-on-query-error`. Inspect `result.query_status` or `diagnostics/query_status.tsv` for `success`, `unestimable` (singular jackknife deletion), or `failed` statuses. Failed queries have no scientific result row or model folder. Shared loading/output failures, interrupts, and scans with no successful fits still fail. See [the failure contract](../docs/current/partitioned-h2-results.md#query-failures-and-continuation).
+Batch regression is strict by default: any per-query error prevents publication of new scientific results. To skip failed queries and publish successful fits, set `continue_on_query_error=True` in `estimate_partitioned_h2_batch()` below. The equivalent single CLI flag is `--continue-on-query-error`. Inspect `result.query_status` or `diagnostics/query_status.tsv` for `success`, `unestimable` (singular jackknife deletion), or `failed` statuses. Failed queries have no scientific result row or model folder. Shared loading/output failures, interrupts, and scans with no successful fits still fail. See [the failure contract](../docs/reference/results/partitioned-h2.md#query-failures-and-continuation).
 
 The writing workflow returns an `LDScoreSource` with shared baseline values and saved query paths. Completed query tables are released after writing. Regression reads only the columns it needs, including selections spanning several saved query files.
 
@@ -86,7 +86,7 @@ Both writing routes use a persistent worker pool, stream one chromosome fragment
 Smaller batches reduce raw-fragment scratch but add repeated reference work or operator reads; final staged output still grows with the full query count.
 Direct and indexed `workers` default to 1 and are capped at the chromosome count.
 Freed pages can remain reserved by the allocator, so RSS need not immediately fall.
-See `LDScoreCalculator.run`, `indexed_results`, and `LDScoreSource.read_queries` in the [memory design](../docs/current/annotation-memory-design.md).
+See `LDScoreCalculator.run`, `indexed_results`, and `LDScoreSource.read_queries` in the [memory design](../docs/dev/design/memory-and-cpu.md).
 
 Regression over either LD-score route automatically borrows aligned columns and reduces intermediate copies while retaining each model's complete SNP set and numerical precision.
 Batch width bounds loaded query columns; worker count controls the number of complete concurrent fits and their private estimator workspaces.
@@ -100,7 +100,7 @@ Standalone accepts exactly one of `ref_snp_annot_sources` and `ref_snp_bim_sourc
 Returned bundles reference exported files only.
 Annotation-grid mode exports aligned baseline/query families; pass them together through downstream `baseline_annot_sources` and `query_annot_sources` (CLI `--baseline-annot-sources` and `--query-annot-sources`).
 BIM mode exports generated query columns only.
-See the [developer memory design](../docs/current/annotation-memory-design.md).
+See the [developer memory design](../docs/dev/design/memory-and-cpu.md).
 
 ## Concurrent query fits
 
@@ -115,13 +115,13 @@ Every worker uses **1 BLAS thread**, in serial and parallel execution.
 Positive requests above that count fail before capping by available tasks; negative `-k` uses `max(1, detected_count + 1 - k)`.
 LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
 Zero, Boolean, and non-integer Python requests are invalid.
-See [the execution policy](../docs/current/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
+See [the execution policy](../docs/reference/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
 
-For a Python script, pass `workers=4` under an `if __name__ == "__main__":` guard. From a notebook, launch the CLI in a subprocess, as demonstrated in [the runnable notebook](cell-specific-ldsc.ipynb). See [query workers and memory](../docs/current/regression-configuration.md#43-query-workers-and-memory) for native-library controls, macOS requirements, process failures, and the measured runtime/memory trade-off. Source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../src/ldsc/regression_runner.py).
+For a Python script, pass `workers=4` under an `if __name__ == "__main__":` guard. From a notebook, launch the CLI in a subprocess, as demonstrated in [the runnable notebook](cell-specific-ldsc.ipynb). See [query workers and memory](../docs/reference/regression-options.md#43-query-workers-and-memory) for native-library controls, macOS requirements, process failures, and the measured runtime/memory trade-off. Source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../src/ldsc/regression_runner.py).
 
 ## CLI
 
-Intercepts are estimated by default. To request the standard fixed intercepts, add `--intercept-h2 1`. This fixes the h2 intercept to 1. The removed `--no-intercept` shortcut is rejected; see the [legacy flag map](../docs/current/legacy-cli-flag-map.md#regression-intercept-consolidation).
+Intercepts are estimated by default. To request the standard fixed intercepts, add `--intercept-h2 1`. This fixes the h2 intercept to 1. The removed `--no-intercept` shortcut is rejected; see the [legacy flag map](../docs/reference/ldsc2-flag-map.md#regression-intercept-consolidation).
 
 First compute baseline-plus-cell-type LD scores. This can project BED files directly without materializing intermediate query `.annot.gz` files:
 
@@ -163,7 +163,7 @@ the query files in its ordered `query_batches` manifest. One batch uses `ldscore
 `coefficient`, and `coefficient_p`.
 The root table also includes `query_result_dir`: join this relative path to `tutorial_outputs/cell_specific_ldsc/` to open that row's detailed results. The path stays attached to its gene set if you re-sort the table; `category` keeps the original name.
 For full column definitions, see
-[partitioned-h2-results.md](../docs/current/partitioned-h2-results.md).
+[partitioned-h2.md](../docs/reference/results/partitioned-h2.md).
 For query-annotation runs, the command writes by default
 `tutorial_outputs/cell_specific_ldsc/diagnostics/query_annotations/manifest.tsv` and one
 sanitized folder per successfully fitted cell-type query annotation. Each folder contains the

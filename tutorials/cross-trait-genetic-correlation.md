@@ -1,15 +1,15 @@
 # Cross-Trait Genetic Correlation
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-27
 
 Genetic-correlation fitting runs serially in one managed child with **1 BLAS thread**.
-Python scripts must place workflow calls under `if __name__ == "__main__":`; see [parallel execution](../docs/current/parallel-execution.md).
+Python scripts must place workflow calls under `if __name__ == "__main__":`; see [parallel execution](../docs/reference/parallel-execution.md).
 
-Munging uses the supplied trait label for data filenames (for example, `trait.parquet` and optional `trait.sumstats.gz`). Without a label, filenames are `sumstats.parquet` and `sumstats.gz`. Parquet remains the default; see [output naming](../docs/current/munge-sumstats.md#output-artifacts).
+Munging uses the supplied trait label for data filenames (for example, `trait.parquet` and optional `trait.sumstats.gz`). Without a label, filenames are `sumstats.parquet` and `sumstats.gz`. Parquet remains the default; see [output naming](../docs/reference/munge-sumstats.md#output-artifacts).
 
 Goal: estimate genetic correlation for two or more traits from munged summary statistics and one matched LD-score reference.
 
-After writing the rg result, plot it as an all-pairs heatmap or anchor-trait forest plot. Both include single-trait observed-scale heritability and jackknife SE: on the heatmap diagonal or in the anchor plot's partner column and subtitle. See [plot saved results](#plot-saved-results) below and the [plotting results manual](plotting-results.md).
+After writing the rg result, plot it as an all-pairs heatmap or anchor-trait forest plot. Both include single-trait observed-scale heritability and jackknife SE: on the heatmap diagonal or in the anchor plot's partner column and subtitle. See [plot saved results](#plot-saved-results) below and the [plotting results manual](../docs/user-guide/workflows/plotting.md).
 
 The regression step expects:
 
@@ -133,7 +133,7 @@ that needs the raw kernel object. For user-facing analyses, prefer
 When both traits are produced by `SumstatsMunger.run()` in the same workflow,
 their known `GlobalConfig` snapshots are checked against the LD-score snapshot
 before regression. Current `<trait>.parquet` artifacts recover that snapshot from
-their footer. Legacy `.sumstats.gz` has no embedded identity metadata and enters the rsID compatibility pathway; the LD-score panel defines the canonical identity. Footerless Parquet is rejected and must be regenerated. See [legacy compatibility](../docs/current/legacy-sumstats-compatibility.md).
+their footer. Legacy `.sumstats.gz` has no embedded identity metadata and enters the rsID compatibility pathway; the LD-score panel defines the canonical identity. Footerless Parquet is rejected and must be regenerated. See [legacy compatibility](../docs/reference/formats/legacy-sumstats.md).
 
 In `chr_pos_allele_aware` mode, both trait tables and the
 LD-score table merge by normalized `CHR:POS:<allele_set>` identity, and
@@ -151,11 +151,11 @@ source/target coordinate groups, writes count summaries to `diagnostics/sumstats
 audits row-level drops in `diagnostics/dropped_snps/dropped.tsv.gz`; examples appear only at
 `DEBUG`, not in the compatibility sidecar.
 
-Successful munging CLI runs display the selected SNP restriction, liftover method, mapping/drop counts and reasons, and whole-run row totals in stdout and `diagnostics/sumstats.log` at every log level. Python calls record the same summary only in the log; inspect `trait_1_munger.build_run_summary()` for exclusive stage counts and `trait_1.provenance["coordinate_provenance"]["liftover"]` for mapping counts. Mapping input excludes earlier QC and keep-list removals. See the [liftover behavior table and count interpretation](../docs/current/munge-sumstats.md#liftover-rules).
+Successful munging CLI runs display the selected SNP restriction, liftover method, mapping/drop counts and reasons, and whole-run row totals in stdout and `diagnostics/sumstats.log` at every log level. Python calls record the same summary only in the log; inspect `trait_1_munger.build_run_summary()` for exclusive stage counts and `trait_1.provenance["coordinate_provenance"]["liftover"]` for mapping counts. Mapping input excludes earlier QC and keep-list removals. See the [liftover behavior table and count interpretation](../docs/reference/munge-sumstats.md#liftover-rules).
 
 ## CLI
 
-Intercepts are estimated by default. To request the standard fixed intercepts, add `--intercept-h2 1 --intercept-gencov 0`. This fixes both traits’ h2 intercepts to 1 and each covariance intercept to 0. In single-annotation fits, fixing only the covariance intercept fails because it conflicts with automatic two-step estimation. The removed `--no-intercept` shortcut is rejected; see the [legacy flag map](../docs/current/legacy-cli-flag-map.md#regression-intercept-consolidation).
+Intercepts are estimated by default. To request the standard fixed intercepts, add `--intercept-h2 1 --intercept-gencov 0`. This fixes both traits’ h2 intercepts to 1 and each covariance intercept to 0. In single-annotation fits, fixing only the covariance intercept fails because it conflicts with automatic two-step estimation. The removed `--no-intercept` shortcut is rejected; see the [legacy flag map](../docs/reference/ldsc2-flag-map.md#regression-intercept-consolidation).
 
 ```bash
 ldsc munge-sumstats \
@@ -226,4 +226,4 @@ These write `plots/rg_heatmap.png` and `plots/rg_anchor_forest.png` below their 
 
 Both use the separately fitted estimates in `h2_per_trait.tsv`, matched by `trait_name`, rather than the trait estimates within individual pair fits. The plotted fields are `total_h2_obs` and `total_h2_obs_se`, even when saved liability-scale fields exist. Correlation is unchanged by observed-to-liability conversion, while heritability annotations explicitly use the observed scale.
 
-Values use two decimals; finite h2 estimates outside 0–1 remain visible, and zero SE is valid. A missing source/row or an unusable estimate–SE pair displays `failed`. Malformed tables, missing required columns, duplicate trait rows, and unsafe metadata paths instead cause an error. See [plotting interpretation](plotting-results.md#genetic-correlation-heatmap) and [troubleshooting](../docs/troubleshooting.md#plot-rg-heritability-source-is-invalid).
+Values use two decimals; finite h2 estimates outside 0–1 remain visible, and zero SE is valid. A missing source/row or an unusable estimate–SE pair displays `failed`. Malformed tables, missing required columns, duplicate trait rows, and unsafe metadata paths instead cause an error. See [plotting interpretation](../docs/user-guide/workflows/plotting.md#genetic-correlation-heatmap) and [troubleshooting](../docs/troubleshooting.md#plot-rg-heritability-source-is-invalid).

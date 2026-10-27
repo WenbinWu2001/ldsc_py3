@@ -36,7 +36,7 @@ and the diagonal is added internally as one.
 This module returns in-memory results and writes no artifacts. Public result
 normalization and aggregation live in ``ldsc.ldscore_calculator``; canonical
 output layout belongs to ``ldsc.outputs``. See
-``docs/current/parquet-r2-format-and-read-pipeline.md`` for the file contract.
+``docs/reference/formats/r2-panels.md`` for the file contract.
 """
 
 from __future__ import annotations

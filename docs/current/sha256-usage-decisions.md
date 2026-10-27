@@ -4,7 +4,7 @@ Last updated on: 2026-10-27
 
 Status: the design, removal remedies, and reader consequences were confirmed on 2026-09-10. Both fingerprint removals are implemented and verified.
 
-Current compatibility note (2026-10-26): the [format-version-3 index contract](gene-ldscore-index.md#artifact-and-identity-contract) requires complete rebuilding of earlier indexes.
+Current compatibility note (2026-10-26): the [format-version-3 index contract](../reference/gene-ldscore-index.md#artifact-and-identity-contract) requires complete rebuilding of earlier indexes.
 That requirement supersedes the earlier-format reader compatibility statements preserved below.
 The retained fingerprint purposes still apply; semantic identity now also records the selected window unit/value and allele-aware matching where applicable.
 
@@ -16,7 +16,7 @@ Retain only necessary SHA256 fingerprints and avoid routine or redundant hashing
 
 The inspected repository is the local `ldsc_py3_restructured` checkout on `restructure`, at `9d3fe47`. The repository's [change discipline](../../AGENTS.md#change-discipline) permits hashes only when strictly necessary for artifact semantic identity or integrity validation and requires their exact guarantees to be documented.
 
-The [gene-index artifact contract](gene-ldscore-index.md#artifact-and-identity-contract) describes a content-derived `index_id`, while complete builds have no cache, resume, incremental-update, or append contract. The source owners are [gene_ldscore_index.py](../../src/ldsc/gene_ldscore_index.py), `calculate_index_id`, `_builder_index_identity`, `_load_gene_ldscore_index`, and `_published_row_metadata_sha256` (formerly `_index_row_digests`).
+The [gene-index artifact contract](../reference/gene-ldscore-index.md#artifact-and-identity-contract) describes a content-derived `index_id`, while complete builds have no cache, resume, incremental-update, or append contract. The source owners are [gene_ldscore_index.py](../../src/ldsc/gene_ldscore_index.py), `calculate_index_id`, `_builder_index_identity`, `_load_gene_ldscore_index`, and `_published_row_metadata_sha256` (formerly `_index_row_digests`).
 
 The reference-panel binding hashes ordered physical SNP identities in [snp_identity.py](../../src/ldsc/_kernel/snp_identity.py), `sidecar_identity_sha256`, and is checked by [ldscore.py](../../src/ldsc/_kernel/ldscore.py), `_validate_index_binding`. Gene-index row verification covers row identities and metadata rather than numerical payloads. At the evidence revision, the legacy converter wrote source-file hashes in [legacy_ldscore_converter.py](../../src/ldsc/legacy_ldscore_converter.py), `_build_provenance`, without a runtime comparison against expected source checksums.
 

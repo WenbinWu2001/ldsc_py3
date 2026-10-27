@@ -1,16 +1,16 @@
 # Heritability Estimates
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-27
 
 LD scoring defaults to `workers=1`, and single-trait fitting uses one managed child.
 Each computational worker uses **1 BLAS thread**.
-Python scripts must place workflow calls under `if __name__ == "__main__":`; see [parallel execution](../docs/current/parallel-execution.md).
+Python scripts must place workflow calls under `if __name__ == "__main__":`; see [parallel execution](../docs/reference/parallel-execution.md).
 
-Munging uses the supplied trait label for data filenames (for example, `trait.parquet` and optional `trait.sumstats.gz`). Without a label, filenames are `sumstats.parquet` and `sumstats.gz`. Parquet remains the default; see [output naming](../docs/current/munge-sumstats.md#output-artifacts).
+Munging uses the supplied trait label for data filenames (for example, `trait.parquet` and optional `trait.sumstats.gz`). Without a label, filenames are `sumstats.parquet` and `sumstats.gz`. Parquet remains the default; see [output naming](../docs/reference/munge-sumstats.md#output-artifacts).
 
 Goal: estimate SNP heritability for one trait with the refactored package, starting from raw summary statistics and ordinary unpartitioned LD scores built from an R2-table reference panel.
 
-After writing the h2 result, use the [plotting results manual](plotting-results.md) to create and interpret its binned LD Score regression diagnostic.
+After writing the h2 result, use the [plotting results manual](../docs/user-guide/workflows/plotting.md) to create and interpret its binned LD Score regression diagnostic.
 
 The examples below assume chromosome-pattern annotation inputs such as
 `annotations/baseline.1.annot.gz` and a package-built R2 directory such as
@@ -105,7 +105,7 @@ print("sumstats_config =", sumstats.config_snapshot)
 print("dataset_config =", dataset.config_snapshot)
 ```
 
-`SumstatsMunger` captures `GlobalConfig` provenance into `SumstatsTable.config_snapshot` and writes the same settings into the `<trait>.parquet` footer. If you pass `trait_name=` in Python or `--trait-name` in the CLI, the footer also stores that biological label for downstream result tables. `RegressionRunner.build_dataset()` checks that current sumstats and LD-score snapshots agree on critical settings such as `snp_identifier` and `genome_build`. If current snapshots are incompatible, the workflow raises an error instead of silently merging inconsistent artifacts. Sumstats loaded from a current `<trait>.parquet` recover that snapshot and trait label from the footer. Legacy `.sumstats.gz` has no embedded metadata and enters the rsID compatibility pathway, with the LD-score panel defining the canonical identity. Footerless Parquet is rejected and must be regenerated; see [legacy compatibility](../docs/current/legacy-sumstats-compatibility.md).
+`SumstatsMunger` captures `GlobalConfig` provenance into `SumstatsTable.config_snapshot` and writes the same settings into the `<trait>.parquet` footer. If you pass `trait_name=` in Python or `--trait-name` in the CLI, the footer also stores that biological label for downstream result tables. `RegressionRunner.build_dataset()` checks that current sumstats and LD-score snapshots agree on critical settings such as `snp_identifier` and `genome_build`. If current snapshots are incompatible, the workflow raises an error instead of silently merging inconsistent artifacts. Sumstats loaded from a current `<trait>.parquet` recover that snapshot and trait label from the footer. Legacy `.sumstats.gz` has no embedded metadata and enters the rsID compatibility pathway, with the LD-score panel defining the canonical identity. Footerless Parquet is rejected and must be regenerated; see [legacy compatibility](../docs/reference/formats/legacy-sumstats.md).
 
 `SumstatsMunger.run()` is also the shared implementation path behind
 `ldsc munge-sumstats`: the CLI parser maps arguments into `MungeConfig`, then
@@ -148,11 +148,11 @@ through the same metadata path as any other LD-score result. The written
 chromosome-aligned and listed in root `metadata.json` for chromosome-scoped
 inspection.
 
-Successful munging CLI runs display the selected SNP restriction, liftover method, mapping/drop counts and reasons, and whole-run row totals in stdout and `diagnostics/sumstats.log` at every log level. Python calls record the same summary only in the log; inspect `munger.build_run_summary()` for exclusive stage counts and `sumstats.provenance["coordinate_provenance"]["liftover"]` for mapping counts. Mapping input excludes earlier QC and keep-list removals. See the [liftover behavior table and count interpretation](../docs/current/munge-sumstats.md#liftover-rules).
+Successful munging CLI runs display the selected SNP restriction, liftover method, mapping/drop counts and reasons, and whole-run row totals in stdout and `diagnostics/sumstats.log` at every log level. Python calls record the same summary only in the log; inspect `munger.build_run_summary()` for exclusive stage counts and `sumstats.provenance["coordinate_provenance"]["liftover"]` for mapping counts. Mapping input excludes earlier QC and keep-list removals. See the [liftover behavior table and count interpretation](../docs/reference/munge-sumstats.md#liftover-rules).
 
 ## CLI
 
-Intercepts are estimated by default. To request the standard fixed intercepts, add `--intercept-h2 1`. This fixes the h2 intercept to 1. The removed `--no-intercept` shortcut is rejected; see the [legacy flag map](../docs/current/legacy-cli-flag-map.md#regression-intercept-consolidation).
+Intercepts are estimated by default. To request the standard fixed intercepts, add `--intercept-h2 1`. This fixes the h2 intercept to 1. The removed `--no-intercept` shortcut is rejected; see the [legacy flag map](../docs/reference/ldsc2-flag-map.md#regression-intercept-consolidation).
 
 The regression CLI reads the canonical LD-score result directory written by
 `ldsc ldscore`.

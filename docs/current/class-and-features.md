@@ -2,7 +2,7 @@
 
 Last updated on: 2026-10-27
 
-This document summarizes the public package surface. For workflow-level file streams, see [data-flow.md](data-flow.md).
+This document summarizes the public package surface. For workflow-level file streams, see [data-flow.md](../dev/data-flow.md).
 
 ## Feature Inventory
 
@@ -49,7 +49,7 @@ identity metadata lives in the `sumstats.parquet` footer.
 For log filenames and API boundary details, see
 [workflow-logging.md](workflow-logging.md). For the dedicated munger workflow,
 metadata, `--infer-only`, HM3, and liftover guide, see
-[munge-sumstats.md](munge-sumstats.md).
+[munge-sumstats.md](../reference/munge-sumstats.md).
 
 ## Public Classes And Result Types
 
@@ -74,7 +74,7 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 | `ReferencePanelBuilder` | emit standard parquet reference artifacts from PLINK |
 | `R2Panel` | open package-built index-format panels and query adjusted R2/sign for SNP pairs |
 | `RefPanelLoader` | load runtime PLINK or parquet reference-panel adapters |
-| `LDScoreCalculator` | chromosome LD-score calculation and deterministic aggregation; `workers` selects managed processes, including one child by default, with 1 BLAS thread each; see [execution policy](parallel-execution.md) |
+| `LDScoreCalculator` | chromosome LD-score calculation and deterministic aggregation; `workers` selects managed processes, including one child by default, with 1 BLAS thread each; see [execution policy](../reference/parallel-execution.md) |
 | `SumstatsMunger` | normalize raw GWAS tables into curated LDSC-ready tables |
 | `RegressionRunner` | prepared datasets and h2, partitioned-h2, and rg fits; batch `workers` controls complete query-plus-baseline processes, including one child by default, with 1 BLAS thread each |
 | `LDScoreDirectoryWriter` | write canonical chromosome-aligned LD-score artifacts plus conditional query diagnostics and compact gene provenance |

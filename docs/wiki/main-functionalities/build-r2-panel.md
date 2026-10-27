@@ -3,7 +3,7 @@
 Last updated on: 2026-10-27
 
 This serial workflow reuses one managed child across chromosomes, with **1 BLAS thread**.
-For Python scripts, place workflow calls under `if __name__ == "__main__":`; see [the execution policy](../../current/parallel-execution.md).
+For Python scripts, place workflow calls under `if __name__ == "__main__":`; see [the execution policy](../../reference/parallel-execution.md).
 
 `ldsc build-r2-panel` turns PLINK reference genotypes into reusable pairwise R² tables. These describe LD in the reference individuals; they are inputs to [LD-score calculation](ldscore.md) and [pair queries](../utility-functionalities/query-r2.md).
 
@@ -13,7 +13,7 @@ A small generic `CHR/POS` keep list with insufficient evidence fails with advice
 A concrete source build must agree with input declarations and supplies the build for unlabeled coordinates without fresh inference.
 Matching named position columns take precedence over generic `POS`, and rsID filtering needs no coordinate-build validation.
 With cM windows, map selection and validation follow source inference; supply the map for each emitted build.
-See the [shared policy](global-config.md#genome-build-inference-checking-and-overrides).
+See the [shared policy](../../user-guide/concepts/snp-identity-and-genome-build.md#genome-build-inference-checking-and-overrides).
 
 ## Minimal command
 
@@ -59,8 +59,8 @@ The aggregate difference depends on pair count and annotation weights, so it has
   Benchmark a chromosome before a large run.
 - The current names are `build-r2-panel` and `SIGN_R`; no old-name aliases are supported.
 
-For every flag, a runnable fixture example, and Python usage, see the [build tutorial](../../../tutorials/build-parquet-reference-panel-from-plink.md) and [argument inventory](../../current/io-argument-inventory.md). The [storage specification](../../current/parquet-r2-format-and-read-pipeline.md) defines types, quantization, and binding.
+For every flag, a runnable fixture example, and Python usage, see the [build tutorial](../../../tutorials/build-parquet-reference-panel-from-plink.md) and [argument inventory](../../current/io-argument-inventory.md). The [storage specification](../../reference/formats/r2-panels.md) defines types, quantization, and binding.
 
 Source: [`ReferencePanelBuilder.run` and command arguments](../../../src/ldsc/ref_panel_builder.py), and [`write_r2_parquet`](../../../src/ldsc/_kernel/ref_panel_builder.py).
 
-Developers can find the genotype-reader, columnar pair-emission, storage, and sparse-projection tradeoffs in the [memory and CPU efficiency design guide](../../current/annotation-memory-design.md#genotype-access-and-r2-panel-construction).
+Developers can find the genotype-reader, columnar pair-emission, storage, and sparse-projection tradeoffs in the [memory and CPU efficiency design guide](../../dev/design/memory-and-cpu.md#genotype-access-and-r2-panel-construction).

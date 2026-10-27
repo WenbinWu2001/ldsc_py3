@@ -2,7 +2,7 @@
 
 Last updated on: 2026-10-27
 
-This reference supplements [the contributor entry](code-structure.md) with a layer-by-function ownership matrix.
+This reference supplements [the contributor entry](../dev/code-structure.md) with a layer-by-function ownership matrix.
 
 The continuous-annotation extension keeps semantics and post-fit work in the public layers: `annotation_semantics.py` owns advisory classification; routine annotation fingerprints are not computed, `regression_runner.py` persists one delete matrix per fitted model, `quantile_h2.py` owns source reconstruction and projection, and `outputs.py` owns the result family. The regression kernel is unchanged.
 
@@ -108,7 +108,7 @@ writes a canonical result directory:
 Regression commands consume that directory through `--ldscore-dir`. Public
 regression workflows no longer require callers to pass separate LD-score,
 count, weight, or annotation-manifest files.
-`LDScoreDirectoryWriter` writes genome-wide Parquet files with one row group per chromosome. Root metadata records `baseline_row_groups` and the required ordered `query_batches` manifest with each query file's name, columns, and row groups. Multiple batches use `ldscore.query.batch00001.parquet` and subsequent ordinals; the legacy single-file `query_row_groups` field is populated only for a single query batch. Current readers require the manifest. Writing workflows return `LDScoreSource` with resident baseline values and explicit uncached query reads. See `write_batches` in [outputs.py](../../src/ldsc/outputs.py) and the [memory design](annotation-memory-design.md).
+`LDScoreDirectoryWriter` writes genome-wide Parquet files with one row group per chromosome. Root metadata records `baseline_row_groups` and the required ordered `query_batches` manifest with each query file's name, columns, and row groups. Multiple batches use `ldscore.query.batch00001.parquet` and subsequent ordinals; the legacy single-file `query_row_groups` field is populated only for a single query batch. Current readers require the manifest. Writing workflows return `LDScoreSource` with resident baseline values and explicit uncached query reads. See `write_batches` in [outputs.py](../../src/ldsc/outputs.py) and the [memory design](../dev/design/memory-and-cpu.md).
 
 Public result-directory writers use coherent artifact families. A missing
 output directory is created with a warning, an existing directory is reused, and

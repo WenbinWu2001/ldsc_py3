@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -112,7 +112,7 @@ Last updated on: 2026-10-26
   the authoritative `restructure` tip via
   `git diff --binary origin/main restructure | git apply --index`, verify
   `git diff restructure` is empty, and commit one `Squash merge restructure`.
-  Full runbook in `docs/release.md`.
+  Full runbook in `docs/dev/release.md`.
 - **Takeaway:** When two branches share content but not history (squash/rebase
   workflows), do not rely on 3-way merge; reconstruct the target tree
   deterministically from the authoritative side and assert tree-equality.

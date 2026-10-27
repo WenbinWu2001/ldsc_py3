@@ -29,7 +29,7 @@ The panel must contain current `SIGN_R` Parquet files and their matching `chrN_m
 Without a concrete build option, coordinate-panel shards and their sidecar declarations must agree on one build.
 `--genome-build hg19` or `--genome-build hg38` must agree with the selected coordinate panel's declarations and does not convert coordinates.
 Pair endpoints are interpreted in that panel build; the command does not independently infer a build from the requested pairs.
-See the shared [genome-build policy](../../current/snp-identifier-genome-build-defaults.md#genome-build-policy).
+See the shared [genome-build policy](../../reference/snp-identity-and-genome-build.md#genome-build-policy).
 
 ## Results
 
@@ -60,6 +60,6 @@ The command writes `diagnostics/metadata.json` with provenance and status counts
 | `--overwrite` | Replace existing command-owned outputs; default off |
 | `--log-level LEVEL` | DEBUG, INFO (default), WARNING, or ERROR |
 
-Small queries prune Parquet row groups; larger batches use a streaming scan. Both return the same values. A reusable Python `R2Panel.open(...)` handle caches chromosome state; use `query_r2(...)` for one-off calls. See the [API and format reference](../../current/ref-panel-r2-query.md) and the [runnable tutorial](../../../tutorials/build-parquet-reference-panel-from-plink.md#query-pairs).
+Small queries prune Parquet row groups; larger batches use a streaming scan. Both return the same values. A reusable Python `R2Panel.open(...)` handle caches chromosome state; use `query_r2(...)` for one-off calls. See the [API and format reference](../../reference/query-r2.md) and the [runnable tutorial](../../../tutorials/build-parquet-reference-panel-from-plink.md#query-pairs).
 
 Source: [`R2Panel.query_pairs`, CLI arguments, and metadata](../../../src/ldsc/r2_query.py), and [`QueryR2DirectoryWriter`](../../../src/ldsc/outputs.py).

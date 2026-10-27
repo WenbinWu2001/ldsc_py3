@@ -1,6 +1,6 @@
 # Partitioned heritability
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 `ldsc partitioned-h2` reads a canonical LD-score directory and tests how its
 annotations contribute to SNP heritability.
@@ -14,18 +14,18 @@ annotations contribute to SNP heritability.
 
 For a complete gene-set workflow—from an explicit complete index through
 LD-score calculation and regression—follow [Calculate LD scores for gene lists
-with an index](ldscore-from-gene-list.md). For the general end-to-end workflow and output
-interpretation, see [the guided tutorial](../guided-tutorial.md) and the
+with an index](../../user-guide/workflows/gene-list-ld-scores.md). For the general end-to-end workflow and output
+interpretation, see [the guided tutorial](../../user-guide/guided-tutorial.md) and the
 [partitioned LDSC technical reference](../../current/partitioned-ldsc-workflow.md).
 
 
-LD scoring accepts prebuilt annotation columns, BED intervals, or gene lists as mutually exclusive query routes. BED files can be prepared by users or obtained from an external resource in the required format, and support optional padding. Gene lists require a coordinate catalog for direct projection. See [annotation preparation](../utility-functionalities/annotate.md).
+LD scoring accepts prebuilt annotation columns, BED intervals, or gene lists as mutually exclusive query routes. BED files can be prepared by users or obtained from an external resource in the required format, and support optional padding. Gene lists require a coordinate catalog for direct projection. See [annotation preparation](../../user-guide/workflows/annotations.md).
 
 ## Baseline-only functional partitioning
 
 Coordinate-family summary statistics and LD-score artifacts must agree on their genome build before fitting.
 This command has no build override; supply matching upstream artifacts if the grouped build check fails.
-See the [genome-build policy](../../current/snp-identifier-genome-build-defaults.md#genome-build-policy), including the separate legacy LDSC2 text projection path.
+See the [genome-build policy](../../reference/snp-identity-and-genome-build.md#genome-build-policy), including the separate legacy LDSC2 text projection path.
 
 To fit all supplied baseline categories jointly, use a canonical LD-score directory built with baseline annotations and no query columns:
 
@@ -36,7 +36,7 @@ ldsc partitioned-h2 \
   --output-dir results/functional_partitioning
 ```
 
-The root `partitioned_h2.tsv` reports one row per baseline category. For binary categories, interpret `enrichment` with its two-sided `enrichment_p`. For focal query models, prefer the conditional `coefficient` and one-sided `coefficient_p`; each query is fitted separately with the baseline. Quantitative annotations require [continuous-annotation interpretation](../continuous-annotation-partitioned-ldsc.md). The [result schema](../../current/partitioned-h2-results.md) explains the saved columns, complete-model diagnostics, and distinctions between category and total heritability. Source: `run_partitioned_h2_from_args` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
+The root `partitioned_h2.tsv` reports one row per baseline category. For binary categories, interpret `enrichment` with its two-sided `enrichment_p`. For focal query models, prefer the conditional `coefficient` and one-sided `coefficient_p`; each query is fitted separately with the baseline. Quantitative annotations require [continuous-annotation interpretation](../../user-guide/workflows/continuous-annotations.md). The [result schema](../../reference/results/partitioned-h2.md) explains the saved columns, complete-model diagnostics, and distinctions between category and total heritability. Source: `run_partitioned_h2_from_args` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
 
 ## Testing enrichment for a large batch of pathways
 
@@ -66,7 +66,7 @@ Current regression automatically borrows aligned baseline/query column views, ap
 Shared worker inputs remain read-only.
 These changes reduce copying for regression over both direct and indexed LD-score inputs, without changing float64 calculations, SNP/query ordering, counts, overlaps, or error policies.
 No new option is needed; batch and worker defaults are unchanged.
-See the [regression memory contract](../../current/annotation-memory-design.md) and `_dataset_from_query_values` / `_fit_h2_dataset` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
+See the [regression memory contract](../../dev/design/memory-and-cpu.md) and `_dataset_from_query_values` / `_fit_h2_dataset` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
 
 The aggregate `partitioned_h2.tsv` keeps the requested final ordering.
 Per-query category tables, coefficient delete values, and metadata are written as fits finish, staged privately until successful sorted publication under `diagnostics/query_annotations/`.
@@ -75,9 +75,9 @@ Python `estimate_partitioned_h2_batch(..., output_dir=...)` returns the aggregat
 Republishing those persistent artifacts copies them and preserves the original results.
 Source: `PartitionedH2DirectoryWriter` in [outputs.py](../../../src/ldsc/outputs.py).
 
-The saved root summary appends `query_result_dir`, the exact per-query folder relative to the output directory; `category` retains the original gene-set name. Use this path to find detailed results after re-sorting the table. Baseline-only summaries use `NaN` because no per-query folders exist. See [the output contract](../../current/partitioned-h2-results.md#partitioned_h2tsv).
+The saved root summary appends `query_result_dir`, the exact per-query folder relative to the output directory; `category` retains the original gene-set name. Use this path to find detailed results after re-sorting the table. Baseline-only summaries use `NaN` because no per-query folders exist. See [the output contract](../../reference/results/partitioned-h2.md#partitioned_h2tsv).
 
-New temporary files stay below the selected output directory and are cleaned on handled completion or failure. Existing overwrite/failure-marker behavior is preserved. Released allocations can remain reserved by Python/NumPy, so RSS need not fall after every fit. See the [memory design](../../current/annotation-memory-design.md) for ownership, indexing, and exact-quantile details.
+New temporary files stay below the selected output directory and are cleaned on handled completion or failure. Existing overwrite/failure-marker behavior is preserved. Released allocations can remain reserved by Python/NumPy, so RSS need not fall after every fit. See the [memory design](../../dev/design/memory-and-cpu.md) for ownership, indexing, and exact-quantile details.
 
 ## Keep fitted results together
 
@@ -89,7 +89,7 @@ The `files` entries in query metadata remain relative to the aggregate result ro
 For `quantile-h2`, still select one successful `diagnostics/query_annotations/<query>/` folder inside the complete result tree.
 The current `load_fitted_partitioned_model()` reader resolves shared provenance automatically, with query-specific values taking precedence.
 If the shared metadata is missing, restore the enclosing `diagnostics/metadata.json` from the same fitted run and preserve its directory layout.
-See [shared-metadata troubleshooting](../../troubleshooting.md#quantile-h2-shared-fitted-model-metadata-is-missing), the [result contract](../../current/partitioned-h2-results.md), and the reader in [quantile_h2.py](../../../src/ldsc/quantile_h2.py).
+See [shared-metadata troubleshooting](../../troubleshooting.md#quantile-h2-shared-fitted-model-metadata-is-missing), the [result contract](../../reference/results/partitioned-h2.md), and the reader in [quantile_h2.py](../../../src/ldsc/quantile_h2.py).
 
 ## Memory and runtime measurements
 
@@ -136,7 +136,7 @@ This loads at most 100 query columns at once and fits up to four complete baseli
 Every worker uses 1 BLAS thread, including serial and baseline-only calculation.
 OpenMP and Arrow CPU/I/O limits are separately one; unsupported numerical limits are recorded and computation continues.
 Zero, Boolean, and non-integer requests are invalid.
-See [the execution policy](../../current/parallel-execution.md) for allocation limits, process startup, and diagnostics.
+See [the execution policy](../../reference/parallel-execution.md) for allocation limits, process startup, and diagnostics.
 
 Workers borrow read-only maps of the shared baseline/trait arrays and current query batch from private output scratch.
 More workers still need more RAM for private filtered model matrices and estimators, and the maps need disk space.
@@ -172,4 +172,4 @@ The CLI log, `diagnostics/partitioned-h2.log`, records query names, stages, exce
 
 Shared input loading, output failures, and interrupts remain fatal. A scan with no successful fits also fails, retaining its query diagnostics. Baseline-only regressions have no independent query to skip. This flag is separate from `ldscore --allow-unresolved-genes`, which controls gene identifier resolution before regression.
 
-For Python, use `runner.estimate_partitioned_h2_batch(..., continue_on_query_error=True)` and inspect `result.query_status`. The method logs through the configured LDSC logger; the CLI owns the log-file handler. Sources: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py) and the [result contract](../../current/partitioned-h2-results.md#query-failures-and-continuation).
+For Python, use `runner.estimate_partitioned_h2_batch(..., continue_on_query_error=True)` and inspect `result.query_status`. The method logs through the configured LDSC logger; the CLI owns the log-file handler. Sources: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py) and the [result contract](../../reference/results/partitioned-h2.md#query-failures-and-continuation).

@@ -13,7 +13,7 @@ These rules apply to both PLINK and parquet-R² references, without an additiona
 - Validated baseline and reference chromosome sets must match exactly. Mixing `@` with a chr22-only group fails.
 - Every selected focal/control gene must lie within the shared scope. Selected genes are unique successfully resolved genes after explicit gene-region exclusions, before SNP-support filtering. A chr22-only pathway is fully covered by matching chr21–22 baseline/reference inputs; a selected chr1 gene would fail the entire batch under both `strict` and `resolved-only`. Pathways are never automatically truncated or skipped for incomplete coverage. Query BED regions and prebuilt-query SNPs must also lie within scope.
 
-Quote CLI glob patterns so the package receives them intact. Users own glob selection: a missing file can be undetectable if it disappears from the matches and the remaining required artifacts consistently cover the same subset. Check the chromosomes resolved and entering analysis in `diagnostics/ldscore.log` and `diagnostics/chromosome_scope.json`. See the [pass/fail examples](../docs/current/gene-list-input-format.md#direct-query-chromosome-scope) and [coverage diagnostics](../docs/current/gene-list-diagnostics-and-repair.md#chromosome-scope-and-pathway-coverage). Public indexed workflows still require complete autosomes 1–22.
+Quote CLI glob patterns so the package receives them intact. Users own glob selection: a missing file can be undetectable if it disappears from the matches and the remaining required artifacts consistently cover the same subset. Check the chromosomes resolved and entering analysis in `diagnostics/ldscore.log` and `diagnostics/chromosome_scope.json`. See the [pass/fail examples](../docs/reference/formats/gene-lists.md#direct-query-chromosome-scope) and [coverage diagnostics](../docs/reference/results/gene-list-diagnostics.md#chromosome-scope-and-pathway-coverage). Public indexed workflows still require complete autosomes 1–22.
 
 ## Read validation progress
 
@@ -23,9 +23,9 @@ At INFO, `diagnostics/ldscore.log` records phase start/completion/failure, elaps
 
 ## Reference inputs and conventions
 
-The examples below assume chromosome-pattern annotation inputs such as `annotations/baseline.1.annot.gz` and a package-built R2 directory such as `r2_ref_panel_1kg30x_1cM_hm3/hg38`. Canonical Parquet files have exactly four columns: `IDX_1`, `IDX_2`, `R2`, and `SIGN_R`. The endpoint indices reference rows in the required `chr*_meta.tsv.gz` sidecar, which supplies SNP identities, alleles, `MAF`, and `CM`. Schema metadata binds the pair table to that sidecar. External raw R2 and the older identity-expanded format are unsupported; use `build-r2-panel` to construct a canonical panel. See the [format and read pipeline](../docs/current/parquet-r2-format-and-read-pipeline.md).
+The examples below assume chromosome-pattern annotation inputs such as `annotations/baseline.1.annot.gz` and a package-built R2 directory such as `r2_ref_panel_1kg30x_1cM_hm3/hg38`. Canonical Parquet files have exactly four columns: `IDX_1`, `IDX_2`, `R2`, and `SIGN_R`. The endpoint indices reference rows in the required `chr*_meta.tsv.gz` sidecar, which supplies SNP identities, alleles, `MAF`, and `CM`. Schema metadata binds the pair table to that sidecar. External raw R2 and the older identity-expanded format are unsupported; use `build-r2-panel` to construct a canonical panel. See the [format and read pipeline](../docs/reference/formats/r2-panels.md).
 
-PLINK plain prefixes such as `reference/1000G.EUR.QC.` work in both `ldscore` and `build-gene-ldscore-index`; no `@` is required. The shared resolver checks complete trios and reads BIM chromosome values, including for filenames ending in `.1` through `.22`. Gene-index construction still requires all autosomes. See [PLINK resolution and coverage](../docs/current/path-specification.md#plink-prefix-resolution).
+PLINK plain prefixes such as `reference/1000G.EUR.QC.` work in both `ldscore` and `build-gene-ldscore-index`; no `@` is required. The shared resolver checks complete trios and reads BIM chromosome values, including for filenames ending in `.1` through `.22`. Gene-index construction still requires all autosomes. See [PLINK resolution and coverage](../docs/reference/input-paths.md#plink-prefix-resolution).
 
 Input-token rules used below:
 
@@ -35,7 +35,7 @@ Input-token rules used below:
 
 Output directories stay literal; only input fields are expanded.
 
-Live annotation preparation is serial for both whole-genome and chromosome-sharded inputs, before the chromosome workers selected by `--workers`. Two bounded input passes automatically classify supplied columns, then write packed binary and dense float32 values directly to private stores. Generated gene/BED annotations are packed during projection. Public reads retain float32 and input column order; no dtype option is needed. At INFO, `diagnostics/ldscore.log` reports input reading, SNP identity checks and chromosome preparation, storage column counts/file bytes, and completion with retained counts and elapsed preparation time. One CM/MAF compatibility notice covers each preparation run; intentional gene exclusions use counts by role and a diagnostic audit pointer. Each numbered LD-score batch logs start/completion, chromosome work remains visible, and the final query-status summary covers the complete run. Individual successful query/source details require DEBUG. See [annotation format policy](../docs/current/annotation-memory-design.md#annotation-format-policy) and [preparation logging](../docs/current/workflow-logging.md#annotation-preparation). LD-score computation and final output writing still follow.
+Live annotation preparation is serial for both whole-genome and chromosome-sharded inputs, before the chromosome workers selected by `--workers`. Two bounded input passes automatically classify supplied columns, then write packed binary and dense float32 values directly to private stores. Generated gene/BED annotations are packed during projection. Public reads retain float32 and input column order; no dtype option is needed. At INFO, `diagnostics/ldscore.log` reports input reading, SNP identity checks and chromosome preparation, storage column counts/file bytes, and completion with retained counts and elapsed preparation time. One CM/MAF compatibility notice covers each preparation run; intentional gene exclusions use counts by role and a diagnostic audit pointer. Each numbered LD-score batch logs start/completion, chromosome work remains visible, and the final query-status summary covers the complete run. Individual successful query/source details require DEBUG. See [annotation format policy](../docs/dev/design/memory-and-cpu.md#annotation-format-policy) and [preparation logging](../docs/current/workflow-logging.md#annotation-preparation). LD-score computation and final output writing still follow.
 
 SNP restriction files used for the reference-panel or regression universes are
 identity-only filters. Duplicate restriction keys collapse to one retained key,
@@ -109,14 +109,14 @@ Important output behavior:
 
 Performance behavior for canonical parquet R2 input:
 
-- the reader streams each stored pair once, in bounded batches, keeps the pairs inside the requested LD window, and caches no row groups; see [LD-score computation from R² Parquets](../docs/current/ldscore-parquet-accumulation.md#5-the-streaming-algorithm)
+- the reader streams each stored pair once, in bounded batches, keeps the pairs inside the requested LD window, and caches no row groups; see [LD-score computation from R² Parquets](../docs/reference/methods/ld-score-computation.md#5-the-streaming-algorithm)
 - `snp_batch_size` / `--snp-batch-size` applies only to PLINK input and is ignored with `--r2-dir`; with PLINK input it changes speed and memory, not LD scores (default `512`)
 
 Unlike legacy LDSC, which widened each SNP's LD window to a multiple of `--chunk-size` and so only approximated the requested window, `ldsc` sums exactly the SNP pairs inside the requested window for both PLINK and parquet input.
 PLINK LD scores therefore do not depend on the batch size, and they equal legacy LDSC run with `--chunk-size 1`.
 Parquet LD scores apply the same window rule but differ slightly from PLINK, because parquet R² is stored as int16 and a parquet `--ld-wind-snps` window counts panel rows rather than retained SNPs.
 A cM window also differs when the panel's `CM`, interpolated from a genetic map, differs from the `.bim` `CM` the PLINK run uses.
-See [Exact PLINK LD windows](../docs/current/legacy-cli-flag-map.md#exact-plink-ld-windows) for the measured difference from published LDSC2 LD scores.
+See [Exact PLINK LD windows](../docs/reference/ldsc2-flag-map.md#exact-plink-ld-windows) for the measured difference from published LDSC2 LD scores.
 
 ## Case 1: Ordinary Unpartitioned LD Scores
 
@@ -278,10 +278,10 @@ Start diagnosis with `gene_list_resolution_summary.tsv`, then filter
 query-local viability. Valid siblings continue through SNP-support or variance
 skips; when every focal query is skipped, only diagnostics are written.
 
-See [Gene-List Query Input](../docs/current/gene-list-input-format.md) for exact
+See [Gene-List Query Input](../docs/reference/formats/gene-lists.md) for exact
 resolution, coordinate, naming, and partial-success rules.
 For repair procedures and every diagnostic term, see
-[Gene-list diagnostics and repair](../docs/current/gene-list-diagnostics-and-repair.md).
+[Gene-list diagnostics and repair](../docs/reference/results/gene-list-diagnostics.md).
 
 ## Optional: Read One Chromosome From A Result Directory
 
@@ -349,7 +349,7 @@ Smaller batches add repeated reference work or operator reads; staged final outp
 Every worker uses 1 BLAS thread; serial calculation uses one managed child.
 Completed results and optional reference metadata stay private until computation succeeds.
 There is no checkpoint or resume workflow.
-See [the execution policy](../docs/current/parallel-execution.md) for CPU budgets, failure cleanup, and chromosome logs.
+See [the execution policy](../docs/reference/parallel-execution.md) for CPU budgets, failure cleanup, and chromosome logs.
 The [direct assembly measurements](../docs/wiki/main-functionalities/ldscore.md#direct-assembly-measurements) used precomputed chromosome scores and do not establish a smaller safe production RAM allocation.
 
 ## Case 5: Reuse an Exact Gene LD-Score Index
@@ -421,12 +421,12 @@ the closed log moves to
 remain in hidden state and are archived on retry. This keeps the destination
 absent or empty until a complete index is published.
 
-This live build log contains the same annotation-preparation milestones before `Starting chromosome N`. Index annotation preparation remains serial; the preparation parallelism study is closed, and `--workers` continues to control only subsequent chromosome computation. See [the measured decision](../docs/current/annotation-memory-design.md#bounded-source-preparation).
+This live build log contains the same annotation-preparation milestones before `Starting chromosome N`. Index annotation preparation remains serial; the preparation parallelism study is closed, and `--workers` continues to control only subsequent chromosome computation. See [the measured decision](../docs/dev/design/memory-and-cpu.md#bounded-source-preparation).
 
 Current indexes require format version 3; earlier formats, including version 2 indexes built with rounded PLINK LD windows, must be rebuilt completely.
 Chromosome metadata carries the published-row fingerprint, which covers the effective SNP key in all four identity modes.
 The semantic `index_id` includes the explicit build, matching mode, and selected window unit/value.
-See the [artifact and identity contract](../docs/current/gene-ldscore-index.md#artifact-and-identity-contract).
+See the [artifact and identity contract](../docs/reference/gene-ldscore-index.md#artifact-and-identity-contract).
 
 ## Optional: Materialize BED or Gene Projections for Reuse
 
@@ -483,7 +483,7 @@ Standalone gene annotation measures support on the cleaned input SNP grid and re
 Empty and globally unsupported focal lists are skipped, usable siblings continue, and an all-skipped batch fails.
 All-one queries are retained.
 No control-gene route is accepted.
-See the [standalone guide](../docs/wiki/utility-functionalities/annotate.md) for coverage, diagnostics, and build rules.
+See the [standalone guide](../docs/user-guide/workflows/annotations.md) for coverage, diagnostics, and build rules.
 
 The returned bundle references the exported baseline/query families, or just query files in BIM mode.
 Construction scratch is released before return; an explicit chromosome read can prepare private data again under the output directory.

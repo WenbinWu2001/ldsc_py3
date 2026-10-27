@@ -1,8 +1,8 @@
 # Standalone Annotate Gene-list Decisions
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
-Status: standalone BED/gene-list CLI and `run_annotate()` are implemented using staged chromosome access. Direct/indexed workflow migration is implemented; see the [memory design](annotation-memory-design.md). The decision table remains the behavior contract.
+Status: standalone BED/gene-list CLI and `run_annotate()` are implemented using staged chromosome access. Direct/indexed workflow migration is implemented; see the [memory design](../dev/design/memory-and-cpu.md). The decision table remains the behavior contract.
 
 ## Problem and scope
 
@@ -48,7 +48,7 @@ Use a general public `run_annotate()` entry point and rename the parser helper t
 
 ## Catalog, build, and projection semantics
 
-Reuse the existing [gene-list input contract](gene-list-input-format.md#gene-list-source-format): exact case-sensitive identifiers or names, no implicit alias repair or Ensembl-version stripping, one identifier per nonblank row, and within-source deduplication by canonical gene ID. Preserve source and row audit ordering and established annotation-name collision rules.
+Reuse the existing [gene-list input contract](../reference/formats/gene-lists.md#gene-list-source-format): exact case-sensitive identifiers or names, no implicit alias repair or Ensembl-version stripping, one identifier per nonblank row, and within-source deduplication by canonical gene ID. Preserve source and row audit ordering and established annotation-name collision rules.
 
 The catalog contains one declared build and one-based inclusive intervals.
 Convert `[start, end]` once to internal `[start - 1, end)`, then pad both sides and clip the start at zero.
@@ -76,7 +76,7 @@ Collect safely discoverable missing, unreadable, invalid, and inconsistent grid 
 Every selected gene must be inside the validated scope after resolution, deduplication, and explicit gene exclusion.
 A pathway need not contain genes on every covered chromosome.
 Do not import direct ldscore's baseline/reference-set equality check: standalone annotate has no reference panel.
-Preserve the documented glob-selection caveat from [path specification](path-specification.md#direct-ld-score-query-scope).
+Preserve the documented glob-selection caveat from [path specification](../reference/input-paths.md#direct-ld-score-query-scope).
 
 Gate B measures support on grid SNP rows remaining after existing annotation identity cleanup.
 Count surviving SNP rows intersecting each padded gene interval; query counts measure the interval union without double-counting overlap.
@@ -138,7 +138,7 @@ The [annotation memory decisions](annotation-memory-decisions.md#confirmed-datas
 Resolve gene lists once and reuse the batch across chromosomes. Accumulate coverage/support/status summaries without whole-genome annotation matrices. Globally determine which query columns are retained before publishing a complete scientific family; the refactor determines the necessary bounded passes or private staging. Standalone annotate writes shards incrementally and returns an object referencing persistent outputs. Do not build a second storage framework, eagerly retain all chromosome DataFrames, reread a whole-genome source once per chromosome, or rematerialize whole-genome annotations on return.
 
 The memory-refactor discussion subsequently approved dataset-wide annotation identity cleanup, resource-owning bundle handles with explicit closure and borrowing, and bounded private baseline staging.
-It also requires new annotation/analysis staging inside the supplied output directory; the implemented lifecycle is described in [annotation memory design](annotation-memory-design.md).
+It also requires new annotation/analysis staging inside the supplied output directory; the implemented lifecycle is described in [annotation memory design](../dev/design/memory-and-cpu.md).
 Those decisions govern this feature's integration, including the deliberate correction of layout-dependent duplicate handling.
 The October 20 output contract requires cleaned baseline exports in annotation-grid mode.
 The returned bundle reads exported files only, releasing construction scratch before return.
@@ -149,7 +149,7 @@ Standalone query-mode scope is settled and should not be reopened as an unresolv
 
 The standalone implementation uses `annotate_workflow.run_annotate()`, metadata-only `_annotation_bim` staging, shared chunk normalization, output-contained shard storage, staged gene resolution, and `AnnotationDirectoryWriter`.
 Affected parser/export tests now use `run_annotate()` and `parse_annotate_args()`.
-Documentation/tutorial migration, full checks, and matched resource measurements are complete; see [diagnostics and verification](annotation-memory-design.md#diagnostics-and-verification).
+Documentation/tutorial migration, full checks, and matched resource measurements are complete; see [diagnostics and verification](../dev/design/memory-and-cpu.md#diagnostics-and-verification).
 
 Validate independently expected SNP membership, interval boundaries, overlap unions, padding, clipping, exact aliases and duplicates, and explicit exclusions. For example, an unpadded catalog interval `[101, 110]` must mark one-based SNP positions 101 and 110 but not 100 or 111, matching BED `[100, 110)`. Repeat with matching BED intervals and padding using independently derived expected values.
 

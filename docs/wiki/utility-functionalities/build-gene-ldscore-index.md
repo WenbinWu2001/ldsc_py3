@@ -4,14 +4,14 @@ Last updated on: 2026-10-27
 
 For the mathematical construction of the disjoint atoms, stored operator, and
 sufficient statistics—and the full downstream indexed-assembly derivation—see
-[Exact gene LD-score index: mathematical algorithm](../../current/gene-ldscore-index-mathematics.md).
+[Exact gene LD-score index: mathematical algorithm](../../reference/methods/gene-ldscore-index-math.md).
 
 ## Goal
 
 `--workers` controls a chromosome process pool and defaults to one managed child.
 Every worker uses 1 BLAS thread, whether serial or parallel.
-Annotation preparation remains serial, preserving the conclusion of the [preparation evaluation](../../current/annotation-memory-design.md#bounded-source-preparation).
-See [the execution policy](../../current/parallel-execution.md) and [index transport probe](../../decisions/2026-10-11-parallel-execution.md#final-decisions-and-remaining-boundaries).
+Annotation preparation remains serial, preserving the conclusion of the [preparation evaluation](../../dev/design/memory-and-cpu.md#bounded-source-preparation).
+See [the execution policy](../../reference/parallel-execution.md) and [index transport probe](../../decisions/2026-10-11-parallel-execution.md#final-decisions-and-remaining-boundaries).
 
 Build one complete reusable index that contains the fixed baseline LD scores,
 an embedded caller-supplied gene catalog, exact disjoint-gene atoms, and the sparse
@@ -171,7 +171,7 @@ unsupported.
 
 If validation fails, use the full issue table under the hidden build-state
 directory to repair the upstream catalog transformation. See
-[Gene-list diagnostics and repair](../../current/gene-list-diagnostics-and-repair.md)
+[Gene-list diagnostics and repair](../../reference/results/gene-list-diagnostics.md)
 for every column/reason and the recommended workflow.
 
 To use custom regression SNPs while retaining the standard region subtraction:
@@ -240,7 +240,7 @@ It covers all four identity modes without a separate effective-row digest.
 Current readers require format version 3; earlier formats, including version 2 indexes built with rounded PLINK LD windows, must be rebuilt completely.
 The semantic ID includes the explicit build, matching mode, and selected window unit/value.
 These checks do not establish complete integrity of numerical payloads.
-See the [artifact and identity contract](../../current/gene-ldscore-index.md#artifact-and-identity-contract).
+See the [artifact and identity contract](../../reference/gene-ldscore-index.md#artifact-and-identity-contract).
 
 ## Rerun and failure behavior
 
@@ -303,7 +303,7 @@ print(index.chromosomes)
 ## Next step
 
 Pass the same directory to `ldsc ldscore --gene-ldscore-index-dir`; see
-[Calculate LD scores](../main-functionalities/ldscore-from-gene-list.md).
+[Calculate LD scores](../../user-guide/workflows/gene-list-ld-scores.md).
 
 ## Memory during index reuse
 
@@ -318,4 +318,4 @@ Multiple batches produce numbered query Parquet files with an ordered `query_bat
 Raw-fragment scratch is bounded by batch width, while final staged output grows with the full query count.
 More workers retain more operators concurrently, and smaller batches repeat operator reads more often.
 
-Validation and computation remain separate passes and can add I/O, especially for small inputs. Gene-index construction retains its existing sibling staging/lock/publication mechanism; score-generation scratch stays under the user output directory. Query batches are not resumable checkpoints. See [the implemented memory design](../../current/annotation-memory-design.md) and `indexed_results` in [_indexed_ldscore_batches.py](../../../src/ldsc/_indexed_ldscore_batches.py).
+Validation and computation remain separate passes and can add I/O, especially for small inputs. Gene-index construction retains its existing sibling staging/lock/publication mechanism; score-generation scratch stays under the user output directory. Query batches are not resumable checkpoints. See [the implemented memory design](../../dev/design/memory-and-cpu.md) and `indexed_results` in [_indexed_ldscore_batches.py](../../../src/ldsc/_indexed_ldscore_batches.py).

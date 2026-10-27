@@ -1,0 +1,370 @@
+# Column Schema: Canonical Names, Data Types, and Ordering
+
+Last updated on: 2026-10-27
+
+This document is the single source of truth for column conventions across all
+Python-written artifacts in this package. It governs `column_inference.py`, all
+kernel output routines, and any doc or test that asserts column layout.
+
+---
+
+## 1. Canonical Column Names
+
+All written artifacts use the canonical name. The alias families below are
+accepted on **read** only; they are never written.
+
+| Canonical | Input aliases | Context |
+|-----------|--------------|---------|
+| `CHR` | `#CHROM`, `CHROM`, `CHROMOSOME` | all |
+| `POS` | `BP`, `POSITION`, `BASE_PAIR`, `BASEPAIR` | all |
+| `SNP` | `RSID`, `RS`, `ID`, `MARKERNAME`, `MARKERID`, `SNPID`, `MARKER` | all |
+| `CM` | `CMBP`, `CENTIMORGAN` | annotation, LD-score |
+| `MAF` | `FREQ`, `FREQUENCY` | ref panel, annotation |
+| `FRQ` | `EAF`, `MAF`, `FRQ_U` | sumstats only |
+| `A1` | `ALLELE1`, `ALLELE_1`, `EFFECT_ALLELE`, `REFERENCE_ALLELE`, `INC_ALLELE`, `EA` | alleles |
+| `A2` | `ALLELE2`, `ALLELE_2`, `OTHER_ALLELE`, `NON_EFFECT_ALLELE`, `DEC_ALLELE`, `NEA` | alleles |
+| `N` | `WEIGHT` | sumstats |
+| `N_CAS` | `NCASE`, `N_CASE`, `N_CASES`, `NCAS`, `CASES_N` | sumstats |
+| `N_CON` | `NCONTROL`, `N_CONTROL`, `N_CONTROLS`, `NCON`, `CONTROLS_N` | sumstats |
+| `NSTUDY` | `N_STUDY`, `NSTUDIES`, `N_STUDIES` | sumstats |
+| `Z` | `ZSCORE`, `GC_ZSCORE` | sumstats |
+| `P` | `PVALUE`, `P_VALUE`, `PVAL`, `P_VAL`, `GC_PVALUE` | sumstats |
+| `BETA` | `B`, `EFFECT`, `EFFECTS` | sumstats |
+| `OR` | *(none)* | sumstats |
+| `LOG_ODDS` | *(none)* | sumstats |
+| `INFO` | `IMPINFO` | sumstats |
+| `R2` | *(none)* | pairwise LD |
+| `L2` | *(none)* | LD-score output |
+
+---
+
+## 2. Data Types
+
+### In-memory (canonical) dtypes
+
+These dtypes govern pandas DataFrames during processing and are the source of
+truth for any computation or validation.
+
+| Column(s) | dtype | Notes |
+|-----------|-------|-------|
+| `CHR` | `str` (pandas `object`) | No `chr` prefix: `"1"`, `"22"`, `"X"`, `"MT"` |
+| `SNP`, `SNP_1`, `SNP_2` | `str` | |
+| `A1`, `A2` | `str` | Always uppercased on read |
+| `POS`, `POS_1`, `POS_2` | `np.int64` | Explicit `astype(np.int64)`, not plain `int` |
+| `CM` | `float64` | |
+| `MAF` | `float64` | Values ∈ [0, 0.5]; always minor-allele frequency |
+| `FRQ` | `float64` | Values ∈ [0, 1]; effect-allele frequency from sumstats |
+| `N`, `N_CAS`, `N_CON`, `NSTUDY` | `float64` | Non-integer in meta-analysis / effective N |
+| `Z`, `P`, `BETA`, `OR`, `LOG_ODDS`, `INFO` | `float64` | |
+| `R2` | `float64` | |
+| `L2` (and annotation-specific LD columns) | `float64` | |
+
+`AnnotationBundle.read()` returns `float32`, including binary-only selections. Private annotation storage separates packed binary columns from dense float32 continuous columns. Generated BED/gene membership, gene controls, and synthetic `base` are binary by construction. Supplied columns are binary only when all parsed values are exactly zero or one across every input chunk and chromosome, before float32 narrowing. Type does not depend on baseline/query membership. Continuous values remain dense even when mostly zero. Missing/nonnumeric annotation validation is unchanged; zero is not a missing-value code.
+
+Packed files store eight SNP rows per uint8 in column-major order, with explicit little bit order and logical row count in the descriptor.
+Public default reads preserve baseline-then-query input order through explicit column mapping, independently of the binary/continuous files.
+Numerical kernels accumulate LD scores, annotation sums, and overlap products in float64.
+The `.annot.gz` writer retains generated integer query text `0`/`1` and supplied baseline values at float32 precision; LD-score Parquet values retain float32.
+See [annotation format policy](../../dev/design/memory-and-cpu.md#annotation-format-policy) for the two-pass preparation, encoding, selected reads, and size contracts.
+
+### On-disk dtypes (parquet)
+
+LD-score annotation columns are narrowed to `float32` before parquet writes.
+Pairwise R² values are stored as int16 (symmetric quantization, scale 32767)
+and dequantized to float32 on read; this cuts the R² column ~63% vs float32
+with no material effect on LD scores (per-pair error ≤ 1.5e-5). Munged sumstats Parquet preserves
+the numeric precision produced by the munger because downstream regression
+uses those values as primary trait data. Text-based formats (`.annot.gz` and
+legacy `.sumstats.gz`) are unaffected; their size is governed by the number of
+decimal digits printed, not numpy dtype.
+
+| Parquet artifact | Columns cast to `float32` on write | Columns kept as-is |
+| --- | --- | --- |
+| `sumstats.parquet` | none | `CHR` (str), `POS` (int64 when complete), `SNP` (str), alleles (str), `Z`/`N`/`FRQ` (numeric precision preserved) |
+| `ldscore.baseline.parquet`, `ldscore.query.parquet` or `ldscore.query.batchNNNNN.parquet` | `regression_ld_scores`, all LD-score / annotation columns | `CHR` (str), `POS` (int64), `SNP` (str) |
+| `ldscore.overlap.parquet` | none (written directly, not through the chromosome-aligned writer) | `row_annotation` (str), `col_annotation` (str), `overlap_all_snps` / `overlap_common_snps` (`float64`, kept precise because overlap counts can exceed float32's exact-integer range) |
+| Pairwise R² parquet | `SIGN_R` (bool) | `IDX_1`, `IDX_2` (int32 sidecar-row indices); `R2` (int16 on-disk, symmetric quantization scale 32767, dequantized to float32 on read) |
+
+Pairwise R² parquet schema metadata also stores `ldsc:sorted_by_build`,
+`ldsc:row_group_size`, `ldsc:n_samples`, `ldsc:r2_bias`, `ldsc:n_snps`,
+`ldsc:sidecar_identity_sha256`, `ldsc:r2_encoding` (`"int16_symmetric"`),
+`ldsc:r2_scale` (`"32767"`), and the minimal identity provenance keys
+`ldsc:artifact_type`, `ldsc:snp_identifier`, and `ldsc:genome_build`.
+Readers require `ldsc:r2_bias=unbiased`, so users never supply sample-size arguments.
+The sidecar-binding keys bind the parquet to its exact
+sidecar and are validated at load time. Old package-written artifacts
+without current identity provenance must be regenerated with the current
+package.
+
+Reference-panel metadata sidecars (`chr{chrom}_meta.tsv.gz`) remain TSV files,
+but current package-written sidecars start with comment lines carrying the same
+minimal identity provenance as `ldsc:artifact_type`, `ldsc:snp_identifier`, and
+`ldsc:genome_build`.
+
+`N`, `N_CAS`, `N_CON`, and `NSTUDY` remain `float64` in memory and are **not**
+subject to float32 narrowing. Curated `sumstats.parquet` keeps `N` as numeric
+data; legacy `.sumstats.gz` writes the selected curated columns as text with the
+configured float format.
+
+The casting is applied by a narrow helper (`_cast_parquet_floats`) called at the
+write site in `outputs.py`. It selects all `float64` columns and recasts them;
+no column names need to be listed explicitly. LD-score output parquet files are
+written with one row group per chromosome and record that layout in root
+`metadata.json`; sumstats Parquet is sorted by `CHR`, `POS`, and original row
+order, and records its row groups in `diagnostics/sumstats.log`.
+
+### Why `object` dtype for strings?
+pandas has no native string dtype in the numpy layer. `str` columns are stored as
+Python `str` objects in a numpy pointer array; the column's `.dtype` reports
+`object`. This is the standard interoperability convention with numpy/scipy and
+requires no special handling.
+
+### Why `float64` for `N`-family columns?
+Effective sample sizes from meta-analysis and binary-trait liability-scale
+conversions can be non-integer. Using `float64` avoids `NA`-handling issues
+with numpy `int64` (which cannot represent `NaN`) and matches legacy LDSC
+convention. float32 is unsafe here: it can only represent integers exactly up to
+2²⁴ = 16,777,216, and modern mega-GWAS meta-analyses routinely exceed this.
+
+### Allele orientation and frequency (`A1`, `A2`, `MAF`, `FRQ`)
+
+**Why orientation is enforced.**
+PLINK's usual convention (`A1` minor, `A2` major) is common but not guaranteed.
+On chromosome 22 of a 1000 Genomes 30x panel (438,232 SNPs, 3,202 samples), the `.bim` `A2` allele was the major allele for 94.74% of SNPs, so the package enforces the orientation rather than assuming it.
+For a biallelic SNP, `A1` dosage is `2 - A2` dosage and $\mathrm{corr}(2-x, 2-y) = \mathrm{corr}(x, y)$.
+Orienting both SNPs of a pair consistently therefore fixes the sign of $r$, and the builder needs to negate only the standardized columns whose `.bim` `A2` is the minor allele.
+Orientation is applied in the builder between genotype reading and correlation, not inside `nextSNPs`, because it is a build policy rather than a read primitive.
+
+**Unifying rule:** the frequency column always means **frequency of `A1`**. The
+two regimes differ only in what `A1` *is* and what that implies:
+
+- **Outside sumstats** (reference panel, LD-score artifacts, annotation):
+  `A1 ≡ minor allele`, so `MAF = freq(A1)` and is **guaranteed ≤ 0.5**.
+- **In sumstats**: `A1 ≡ effect allele`, so `FRQ = freq(A1)` is **unconstrained**
+  (may exceed 0.5), and is **never folded or reoriented**.
+
+The PLINK association case (`A1` = minor = effect) is just the point where the
+two regimes coincide.
+
+#### Is the frequency always the MAF (≤ 0.5)?
+
+- **Reference panel / LD-score / annotation `MAF`:** yes — `A1` is the minor
+  allele, so `MAF = freq(A1) ≤ 0.5` by construction. (Numerically this equals the
+  folded `min(p, 1−p)`; the guarantee added by canonicalization is that the value
+  belongs to `A1`.)
+- **Sumstats `FRQ`:** no — `FRQ = freq(A1=effect)`, not folded; `--maf-min` folds
+  only a local mask for the threshold and never mutates the column or the alleles.
+  When a raw sumstats file provides a column named `MAF`, the munger renames it to
+  `FRQ` on output.
+
+#### Folded vs oriented frequency (external sidecars)
+
+- **Folded** = `min(p, 1−p)`: orientation-free, ≤ 0.5, named **`MAF`**.
+- **Oriented** = frequency of the named `A1` allele (may exceed 0.5), named with
+  an **`FRQ`-family** column: `FRQ`, `FREQ`, `FREQUENCY`, `EAF`, `A1_FRQ`,
+  `FRQ_A1`, `FREQ_A1`.
+
+An external sidecar can be re-canonicalized to `A1`=minor **only** if it carries
+an oriented `FRQ`-family column (`canonicalize_alleles` swaps `A1`/`A2` and sets
+`freq := 1 − freq` where `freq(A1) > 0.5`). A `MAF`-only sidecar is identity-only:
+its alleles still match, but its folded frequency cannot drive re-orientation.
+
+### `A1` and `A2`
+
+`A1` and `A2` remain the canonical written LDSC column names for compatibility.
+Their meaning depends on the artifact:
+
+- **Sumstats:** `A1` is the allele the signed statistic is relative to (the
+  effect/increasing allele); `A2` is the counterpart. Positive `Z`, `BETA`,
+  `LOG_ODDS`, and `OR > 1` mean the effect is increasing with respect to `A1`.
+  `A1` is **not** necessarily the minor or genome-reference allele.
+- **Reference panel / LD-score / annotation:** `A1` is the **minor allele** and
+  `A2` the major allele — identity-and-frequency labels only, with no effect or
+  reference meaning.
+
+For **matching**, even in allele-aware modes, `{A1, A2}` is treated as an
+unordered, strand-aware set; orientation is never used for identity (a sumstats
+`A1`=effect and a panel `A1`=minor still match, with any disagreement resolved as
+a sign flip at alignment).
+
+**Panel and query correlation signs:** stored `SIGN_R` is boolean and describes correlation between panel A1 (minor-allele) dosages. In allele-aware `query-r2` results, nullable `sign_r` (+1/-1) and Pearson `r` are harmonized to query A1 dosages, which need not be minor alleles. Swapping one endpoint's allele order reverses the returned sign but leaves R² unchanged. Base modes return missing `sign_r` and `r`.
+
+Aliases such as `REFERENCE_ALLELE` are interpreted in the signed-statistic sense
+only. They do not claim that `A1` is the genome reference allele. Genome
+`REF`/`ALT` columns are therefore not global aliases; they are applied only by
+format-aware inference when the workflow can make the semantics explicit.
+
+### SNP identity modes
+
+The public SNP identifier modes are exactly `rsid`, `rsid_allele_aware`,
+`chr_pos`, and `chr_pos_allele_aware`. The default is
+`chr_pos_allele_aware`. These mode names are exact; aliases such as `RSID`,
+`BP`, or `POSITION` are input-column aliases only.
+
+Base modes are fully allele-blind. `rsid` uses only `SNP`; `chr_pos` uses only
+`CHR:POS`. If `A1/A2` columns are present in base modes, they may be preserved
+for output or signed-statistic orientation, but they do not affect identity,
+duplicate filtering, retention, or drop reasons.
+
+Allele-aware modes use `A1/A2` only to build safer internal merge keys; they do
+not rewrite the written `A1`/`A2` columns or make `A1` the minor allele. The
+key builder treats `(A1, A2)` as an unordered, strand-aware set:
+
+1. Clean each allele by trimming whitespace and uppercasing it.
+2. Reject missing, non-`A/C/G/T`, identical, or strand-ambiguous pairs
+   (`A/T` or `C/G`).
+3. Sort the observed pair lexicographically to form an observed allele-set
+   label.
+4. Complement both alleles, sort that complement pair, and compare the two
+   labels.
+5. Use the lexicographically smaller label as the canonical allele set.
+6. Append that canonical set to the base identity key, producing
+   `SNP:<allele_set>` or `CHR:POS:<allele_set>`.
+
+For example, with `chr_pos_allele_aware`, `CHR=1`, `POS=100`, `A1=C`, and
+`A2=A`, the observed sorted label is `A:C`; the complement pair is `G/T`, whose
+sorted label is `G:T`; the canonical allele set is `min("A:C", "G:T") =
+"A:C"`; and the effective key is `1:100:A:C`. This key matches rows with allele
+pairs `(A, C)`, `(C, A)`, `(G, T)`, or `(T, G)` at the same base key. The
+canonical label is not emitted as `A1/A2`; those columns keep their source
+allele order in output artifacts.
+
+### Duplicate SNP identity policy
+
+Mutable variant-source rows use one conservative duplicate policy in every SNP
+identifier mode: compute the effective identity key for the active mode, find
+every key that occurs more than once, and drop every row in each duplicate
+group. No row is selected as a representative and duplicate rows are not
+aggregated. The workflow emits a summarized warning and records the dropped
+rows and counts in its diagnostics.
+
+This policy applies independently to baseline annotation rows and PLINK BIM
+metadata before their intersection in direct PLINK-backed LD-score calculation
+and gene LD-score index construction. Consequently, `rsid` drops a complete
+duplicate-`SNP` group, while `chr_pos` drops a complete duplicate normalized
+`(CHR, POS)` group. Cleanup can therefore remove an ambiguous multiallelic
+coordinate without silently collapsing biologically distinct variants.
+
+Allele-aware artifact cleanup additionally drops rows with missing alleles,
+invalid or non-SNP alleles, identical pairs, strand-ambiguous pairs, and the
+package-wide multiallelic base-key clusters defined by the allele-aware
+identity contract. Duplicate effective-key groups still use the same drop-all
+rule after the effective key is computed.
+
+Restriction files have deliberately different semantics because they define a
+set of requested identities rather than variant metadata. Repeated restriction
+keys collapse to one retained membership key; they do not cause that identity
+to disappear. Package-written immutable artifacts must already contain unique
+effective identities. A duplicate found while validating or loading such an
+artifact is an integrity or compatibility error and is not repaired at load
+time.
+
+To munge raw summary statistics without allele columns, choose the base `rsid`
+or `chr_pos` SNP identifier mode; there is no separate allele-skip flag.
+
+Restriction files may omit alleles. Allele-free restrictions match by base key
+and can keep multiple candidate rows until later artifact cleanup. Packaged HM3
+restrictions are allele-free base-key filters. Allele-bearing restrictions in
+allele-aware modes match by the effective allele-aware key. Restriction files
+are identity-only filters: duplicate restriction keys collapse to one retained
+key, and non-identity columns such as `CM`, `MAF`, or other metadata are
+ignored. Annotation files may omit alleles even in allele-aware modes because
+they describe genomic membership; if annotation files include alleles, those
+alleles participate in allele-aware matching.
+
+### Annotation `CM`/`MAF` are population-agnostic (reference panel is authoritative)
+
+`CM` (genetic-map distance) and `MAF` (allele frequency) are population-specific
+and belong to the reference panel, not the annotation. Annotation files carry
+only `CHR`/`POS` (+ optional `SNP`, `A1`, `A2`); `SNP` is required only in
+rsID-family identifier modes. `CM` is optional on read and any input `CM`/`MAF`
+values are **ignored** (the reader reduces `CM` to a NaN placeholder and never
+carries `MAF`). For LD-score calculation, `CM` and `MAF` come exclusively from
+the reference panel: the parquet sidecar (`chrN_meta.tsv.gz`) for the parquet
+backend, and the `.bim`/genotypes (or an interpolated genetic map) for the PLINK
+backend. `annotate` output keeps the legacy positional `CHR BP SNP CM` layout but
+writes the explicit missing token **`NA`** for `CM` and **no** `MAF` column, so
+every row has the same field count as its header while the artifacts stay
+population-agnostic. Readers normalize `NA` back to a missing `CM`; annotation
+value columns must be numeric and non-missing. This `BP` spelling is a narrow text-interoperability
+choice, not a promise that LDSC3 output is supported as LDSC2 input. LDSC3
+normalizes `BP` back to canonical internal `POS` when reading annotations.
+
+Annotation `A1` and `A2` must either both be present or both be omitted. Omitting them is supported in every SNP identifier mode: annotations then match by base SNP identity, and allele-aware LD-score calculation obtains alleles from the reference panel. Supplying only one allele column is a structural error; removing both does not require switching the workflow to a base identifier mode.
+
+### `CHR` format
+`normalize_chromosome` (in `chromosome_inference.py`) strips the `chr` prefix on
+read. All Python-written artifacts store bare labels: `"1"`, `"22"`, `"X"`,
+`"MT"`. External files (e.g., the hm3 curated map with `chr` prefix) are
+normalized on read; their on-disk format is not changed.
+
+---
+
+## 3. Column Ordering in Written Artifacts
+
+**Rule:** SNP metadata columns appear in a stable workflow-specific order.
+Annotation text artifacts use **(CHR, BP, SNP, ...)** on disk and canonical
+**(CHR, POS, SNP, ...)** in memory. Munged sumstats use
+**(SNP, CHR, POS, ...)** to keep the legacy leading `SNP` convention while
+adding coordinates. Pairwise R2 uses the documented pairwise coordinate
+variant. Public LD-score result tables currently use **(CHR, SNP, POS, ...)** to
+match `LDScoreResult` and regression-loader validation.
+
+Column order does not define row identity. In `rsid`-family modes, `SNP`
+supplies the base identifier. In `chr_pos`-family modes, `SNP` is only a label
+and matching uses `CHR` and `POS`; munger liftover updates those coordinate
+columns without rewriting `SNP`. Liftover-specific duplicate coordinate
+handling is therefore based on `CHR/POS` groups, not rsID labels.
+
+This applies to artifacts **written by this package**. External input files
+(user-supplied annotation files, the hm3 curated map, PLINK BIM files, etc.) are
+normalized on read regardless of their on-disk column order; the input order is
+not preserved in any output.
+
+For annotation output files specifically, the workflow writer reconstructs the
+column layout from its internal representation rather than passing through the
+input file unchanged. The leading on-disk columns (`CHR, BP, SNP, CM`) follow
+the annotation rule unconditionally. The annotation-specific columns that follow
+`CM` retain their input order (the kernel does not reorder them).
+
+| Artifact | Leading columns | Remaining columns |
+|----------|----------------|-------------------|
+| Annotation (`.annot.gz`) | `CHR, BP, SNP, CM` | annotation columns (input order preserved); `BP` normalizes to internal `POS` on read |
+| LD-score output (`ldscore.baseline.parquet`) | `CHR, SNP, POS, regression_ld_scores` | baseline LD-score columns |
+| LD-score query output (single or numbered batch file) | `CHR, SNP, POS` | query LD-score columns |
+| LD-score overlap (`ldscore.overlap.parquet`) | `row_annotation, col_annotation` | `overlap_all_snps, overlap_common_snps` (long-form annotation overlap matrix) |
+| Munged sumstats (`sumstats.parquet` or `.sumstats.gz`) | `SNP, CHR, POS, A1, A2` | `Z, N, FRQ` |
+| Canonical pairwise R² parquet | `IDX_1, IDX_2, R2, SIGN_R` | index-only format; SNP identity lives in the paired `chrN_meta.tsv.gz` sidecar, not in the parquet |
+| Dropped-SNP audit sidecar (`diagnostics/dropped_snps/*.tsv.gz`) | `CHR, SNP, source_pos, target_pos, reason, base_key, identity_key, allele_set, stage` | |
+
+Dropped-SNP audit sidecars are always written by liftover-aware public
+workflows, including header-only files for clean processed outputs. They use
+nullable read dtypes: `CHR`, `SNP`, and `reason` as strings, and `source_pos`
+and `target_pos` as nullable integer positions. Identity fields are nullable
+when a drop reason has no effective identity key. Sumstats and reference-panel
+sidecars may include identity reasons (`missing_allele`, `invalid_allele`,
+`strand_ambiguous_allele`, `multi_allelic_base_key`, `duplicate_identity`) and
+liftover reasons (`missing_coordinate`, `source_duplicate`,
+`unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision`);
+reference-panel sidecars do not emit `missing_coordinate`.
+
+---
+
+## 4. Implementation Locations
+
+The following locations must be kept consistent with this document.
+
+| Location | What to keep in sync |
+|----------|---------------------|
+| `src/ldsc/column_inference.py` — `INTERNAL_SUMSTATS_ARTIFACT_SPECS` | Tuple order: `CHR, POS, SNP, ...` |
+| `src/ldsc/column_inference.py` — `INTERNAL_LDSCORE_ARTIFACT_SPECS` | Strict reload specs still include optional metadata fields used by internal/legacy readers: `CHR, POS, SNP, CM, MAF` |
+| `src/ldsc/column_inference.py` — `INTERNAL_ANNOT_ARTIFACT_SPECS` | Already correct: `CHR, POS, SNP, CM, MAF` |
+| `src/ldsc/_kernel/ldscore.py` — `ANNOT_META_COLUMNS` | `("CHR", "POS", "SNP", "CM", "MAF")` |
+| `src/ldsc/ldscore_calculator.py` — `_split_ldscore_table` | Public output order: baseline `CHR, SNP, POS, regression_ld_scores, ...`; query `CHR, SNP, POS, ...` |
+| `src/ldsc/outputs.py` — `_write_chromosome_aligned_parquet` | One row group per `CHR` in `ldscore.baseline.parquet` and each query batch file |
+| `src/ldsc/outputs.py` — `required_baseline` / `required_query` validation lists | Baseline requires `CHR`, `POS`, `SNP`, `regression_ld_scores`, and baseline columns; query requires `CHR`, `POS`, `SNP`, and query columns |
+
+`regression_ld_scores` is the historical `w_ld`: an LD score computed over the
+regression SNP universe. It is stored with the baseline LD-score table because
+both h2 and rg use it as one component when the regression kernel computes
+final model-dependent weights.

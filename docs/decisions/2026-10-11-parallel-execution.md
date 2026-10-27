@@ -1,9 +1,9 @@
 # Parallel execution decisions
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 This record consolidates the user's finalized parallelization annotations and subsequent `workers` / `joblib.cpu_count()` decisions.
-The implementation now follows these decisions; the maintained runtime contract is [parallel-execution.md](../current/parallel-execution.md).
+The implementation now follows these decisions; the maintained runtime contract is [parallel-execution.md](../reference/parallel-execution.md).
 The earlier inline, inherited-BLAS, and `threads` interfaces have been replaced.
 The final numerical policy is one BLAS thread per worker for every calculation, whether execution is serial or parallel.
 This supersedes the earlier allowance for serial multithreading and user-selected higher BLAS limits.

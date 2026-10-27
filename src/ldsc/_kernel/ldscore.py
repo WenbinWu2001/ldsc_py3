@@ -718,21 +718,6 @@ def assert_cm_usable(cm: pd.Series, chrom: str) -> None:
         )
 
 
-def require_reference_maf(metadata: pd.DataFrame, chrom: str) -> None:
-    """Raise when the reference panel supplies no usable MAF for a chromosome.
-
-    MAF is mandatory: M_5_50 common-SNP counts, the partitioned-h2 common-overlap
-    correction, and any ``--maf-min`` filter are meaningless without it.
-    """
-    if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
-        raise LDSCInputError(
-            f"ldscore requires MAF for the reference panel but none is available on "
-            f"chromosome {chrom}. Most likely a parquet panel was built without allele "
-            "frequencies (sidecar MAF=NA). Rebuild the reference panel with MAF, or use a "
-            "PLINK panel (MAF is computed from genotypes)."
-        )
-
-
 def build_window_coordinates(metadata: pd.DataFrame, args: argparse.Namespace) -> tuple[np.ndarray, float]:
     """Build the coordinate array and maximum distance for the active LD window mode."""
     selectors = np.array([args.ld_wind_snps is not None, args.ld_wind_kb is not None, args.ld_wind_cm is not None], dtype=bool)

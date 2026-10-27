@@ -315,14 +315,6 @@ class RefPanel(ABC):
         maf_min = self.spec.maf_min
         if maf_min is None or len(metadata) == 0:
             return metadata.reset_index(drop=True)
-        if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
-            LOGGER.warning(
-                f"Cannot apply --maf-min={maf_min} on chromosome {chrom} because MAF metadata is unavailable. "
-                f"Processing continues with all {len(metadata)} reference-SNP rows at this stage, without "
-                "the requested MAF filter. Restore the matching original SNP frequency metadata or rebuild "
-                "the panel before relying on this threshold in the analysis."
-            )
-            return metadata.reset_index(drop=True)
         keep = metadata["MAF"] >= maf_min
         removed = int((~keep).sum())
         if removed:
@@ -974,7 +966,18 @@ def _read_metadata_table(
             "without allele-frequency values. Regenerate the panel with MAF metadata."
         )
     maf = pd.to_numeric(df[maf_col], errors="coerce").astype(float)
-    out["MAF"] = pd.Series(maf).map(lambda value: value if pd.isna(value) else min(value, 1.0 - value))
+    missing_maf = maf.isna()
+    if missing_maf.any():
+        labels = out["SNP"] if "SNP" in out else out["CHR"].astype(str) + ":" + out["POS"].astype(str)
+        examples = ", ".join(labels[missing_maf].head(5))
+        raise LDSCInputError(
+            f"Reference-panel metadata sidecar '{path}' has missing or non-numeric MAF for "
+            f"{int(missing_maf.sum())} of {len(maf)} SNP rows (first: {examples}). "
+            "`ldsc build-r2-panel` records MAF from genotypes for every row, so the sidecar "
+            "was most likely edited or produced by another tool. Regenerate the reference "
+            f"panel with the current `ldsc build-r2-panel`. Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
+        )
+    out["MAF"] = np.minimum(maf, 1.0 - maf)
 
     a1_col = resolve_optional_column(df.columns, A1_COLUMN_SPEC, context=context)
     a2_col = resolve_optional_column(df.columns, A2_COLUMN_SPEC, context=context)
@@ -1003,7 +1006,6 @@ def _read_metadata_table(
 def _prepare_window(metadata, chrom, config, snp_identifier):
     """Validate retained reference metadata and derive one LD-window traversal."""
     kernel_ldscore.validate_retained_identifier_uniqueness(metadata, snp_identifier, chrom)
-    kernel_ldscore.require_reference_maf(metadata, chrom)
     kernel_ldscore.validate_window_positions_sorted(metadata, chrom)
     coords, distance = kernel_ldscore.build_window_coordinates(metadata, config)
     block_left = kernel_ldscore.get_block_lefts(coords, distance)

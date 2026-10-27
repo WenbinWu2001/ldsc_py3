@@ -3493,15 +3493,6 @@ def test_assert_cm_usable_accepts_two_distinct_values():
     kernel_ldscore.assert_cm_usable(pd.Series([0.0, 0.1, 0.1]), chrom="1")  # no raise
 
 
-def test_require_reference_maf_raises_when_all_missing():
-    with pytest.raises(LDSCInputError, match="MAF"):
-        kernel_ldscore.require_reference_maf(pd.DataFrame({"MAF": [np.nan, np.nan]}), chrom="1")
-
-
-def test_require_reference_maf_passes_with_any_value():
-    kernel_ldscore.require_reference_maf(pd.DataFrame({"MAF": [0.1, np.nan]}), chrom="1")  # no raise
-
-
 @serial_calculation
 def test_public_plink_calculation_prepares_genotypes_once():
     pytest.importorskip("bitarray")

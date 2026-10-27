@@ -30,6 +30,7 @@ class InputGate:
     issues_path: Path | None = None
     issues: list = field(default_factory=list)
     causes: list[Exception] = field(default_factory=list, repr=False)
+    troubleshooting: str = 'docs/troubleshooting.md#staged-input-validation'
 
     def check(self, role, source, operation, *, chrom=''):
         """Retain a check's value or record its typed error, repair, and original cause."""
@@ -88,7 +89,7 @@ class InputGate:
             details += f'. {omitted} more input issues are listed in the complete repair table'
         error = LDSCInputError(f"{self.name} failed: {count} input issue{'s' if count != 1 else ''}. "
                                f'{details}.{location} '
-                               'Other causes & fixes: docs/troubleshooting.md#staged-input-validation')
+                               f'Other causes & fixes: {self.troubleshooting}')
         error.input_issues = frame
         if len(self.causes) == 1:
             raise error from self.causes[0]

@@ -1171,6 +1171,14 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         )
         return prefix
 
+    def _skip_selection_pre_pass(self):
+        """Tests that stub _build_chromosome also stub the SNP-selection pre-pass."""
+        return mock.patch.object(
+            ref_panel_builder.ReferencePanelBuilder,
+            "_check_chromosome_selections",
+            side_effect=lambda chrom_sources, *_args: chrom_sources,
+        )
+
     def _write_plink_prefix_rows(self, root: Path, stem: str, rows: list[tuple]):
         prefix = root / stem
         Path(str(prefix) + ".bed").write_bytes(b"\x6c\x1b\x01" + b"\x00" * len(rows))
@@ -1416,7 +1424,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             dropped = self._read_dropped_sidecar(sidecar)
             self.assertEqual(len(dropped), 0)
 
-    def test_dropped_snps_sidecar_written_header_only_on_restriction_empty_skip(self):
+    def test_dropped_snps_sidecar_written_header_only_on_restriction_empty_chromosome(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
@@ -1433,7 +1441,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 global_config=GlobalConfig(snp_identifier="rsid")
             )
 
-            with self.assertRaisesRegex(LDSCInputError, "no chromosome artifacts"):
+            with self.assertRaisesRegex(LDSCInputError, r"\(chromosome 1\): all 1 SNPs were removed at SNP restriction"):
                 builder.run(config)
 
             sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
@@ -1510,7 +1518,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg38")
             )
 
-            with mock.patch.object(
+            with self._skip_selection_pre_pass(), mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
                 "_build_chromosome",
                 side_effect=AssertionError("chromosome build should not run"),
@@ -1651,50 +1659,92 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
 
             self.assertEqual(captured["keep_snps"], [2])
 
-    def test_all_dropped_chromosome_is_skipped_without_poisoning_other_chromosomes(self):
+    def _run_chr_pos_build(self, tmpdir: Path, *, kept_snps=(0,), plink_prefix="panel.@"):
+        """Run builder.run() with liftover and genotype/R2 work replaced by stubs."""
+        config = ReferencePanelBuildConfig(
+            plink_prefix=tmpdir / plink_prefix,
+            source_genome_build="hg19",
+            output_dir=tmpdir / "out",
+            ld_wind_kb=1.0,
+        )
+        builder = ref_panel_builder.ReferencePanelBuilder(
+            global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
+        )
+
+        def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
+            keep = np.asarray(keep_snps, dtype=int)
+            hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
+            return keep, hg19, {}, ref_panel_builder._empty_unified_drop_frame()
+
+        with mock.patch.object(
+            builder,
+            "_resolve_mappable_snp_positions",
+            side_effect=fake_resolve,
+        ), mock.patch(
+            "ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"
+        ), mock.patch(
+            "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
+        ), mock.patch(
+            "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile"
+        ) as mock_bed:
+            mock_bed.return_value.kept_snps = list(kept_snps)
+            mock_bed.return_value.maf = np.full(len(kept_snps), 0.3)
+            mock_bed.return_value.freq = 1 - np.full(len(kept_snps), 0.3)
+            mock_bed.return_value.m = len(kept_snps)
+            mock_bed.return_value.n = 1
+            mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
+            try:
+                return builder.run(config), mock_bed
+            except LDSCInputError as error:
+                error.mock_bed = mock_bed
+                raise
+
+    def test_emptied_autosomes_fail_together_before_genotype_reading(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
+            # Shared positions make chr_pos identities duplicate, removing every SNP.
             self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100), ("1", "rs2", 100)])
             self._write_plink_prefix_rows(tmpdir, "panel.2", [("2", "rs3", 200)])
-            config = ReferencePanelBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-            )
-            builder = ref_panel_builder.ReferencePanelBuilder(
-                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
-            )
+            self._write_plink_prefix_rows(tmpdir, "panel.3", [("3", "rs4", 300), ("3", "rs5", 300)])
 
-            def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
-                keep = np.asarray(keep_snps, dtype=int)
-                hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
-                return keep, hg19, {}, ref_panel_builder._empty_unified_drop_frame()
+            with self.assertRaises(LDSCInputError) as caught:
+                self._run_chr_pos_build(tmpdir)
 
-            with mock.patch.object(
-                builder,
-                "_resolve_mappable_snp_positions",
-                side_effect=fake_resolve,
-            ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"
-            ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
-            ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile"
-            ) as mock_bed:
-                mock_bed.return_value.kept_snps = [0]
-                mock_bed.return_value.maf = np.array([0.3])
-                mock_bed.return_value.freq = 1 - np.array([0.3])
-                mock_bed.return_value.m = 1
-                mock_bed.return_value.n = 1
-                mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
+            message = str(caught.exception)
+            self.assertIn("(chromosome 1): all 2 SNPs were removed at identity cleanup", message)
+            self.assertIn("(chromosome 3): all 2 SNPs were removed at identity cleanup", message)
+            self.assertNotIn("chromosome 2)", message)
+            self.assertIn("build-r2-panel-no-reference-panel-artifacts-were-produced", message)
+            caught.exception.mock_bed.assert_not_called()
+            issues = pd.read_csv(tmpdir / "out" / "diagnostics" / "input_issues.tsv", sep="\t", dtype=str)
+            self.assertEqual(issues.chrom.tolist(), ["1", "3"])
+            dropped = tmpdir / "out" / "diagnostics" / "dropped_snps"
+            self.assertEqual(len(self._read_dropped_sidecar(dropped / "chr1_dropped.tsv.gz")), 2)
+            self.assertFalse(list((tmpdir / "out").glob("hg19/chr*_r2.parquet")))
 
-                result = builder.run(config)
+    def test_emptied_sex_chromosome_is_skipped_with_a_warning(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            # '@' suites cover autosomes; X reaches the builder inside a whole-genome trio.
+            self._write_plink_prefix_rows(tmpdir, "panel", [("2", "rs3", 200), ("X", "rsx1", 100), ("X", "rsx2", 100)])
+
+            with self.assertLogs("LDSC", level="WARNING") as logs:
+                result, _ = self._run_chr_pos_build(tmpdir, plink_prefix="panel")
 
             self.assertEqual(result.chromosomes, ["2"])
-            self.assertTrue((tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz").exists())
-            self.assertTrue((tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz").exists())
-            self.assertEqual(len(self._read_dropped_sidecar(tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz")), 0)
+            self.assertTrue(any("Skipping chromosome X: all 2 SNPs were removed at identity cleanup" in line
+                                for line in logs.output))
+
+    def test_autosome_emptied_by_genotype_filtering_fails_when_reached(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
+            self._write_plink_prefix_rows(tmpdir, "panel.2", [("2", "rs3", 200)])
+
+            with self.assertRaisesRegex(LDSCInputError, "chromosome 1.*genotype filtering removed all 1 SNPs") as caught:
+                self._run_chr_pos_build(tmpdir, kept_snps=())
+
+            self.assertEqual(caught.exception.mock_bed.call_count, 1)
 
     def test_builder_run_collects_artifact_paths_from_resolved_suite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1713,7 +1763,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     "meta_hg38": str(out_root / "hg38" / f"chr{chrom}_meta.tsv.gz"),
                 }
 
-            with mock.patch.object(
+            with self._skip_selection_pre_pass(), mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
                 "_build_chromosome",
                 side_effect=fake_build,
@@ -1774,7 +1824,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     "meta_hg19": str(out_root / "hg19" / f"chr{chrom}_meta.tsv.gz"),
                 }
 
-            with mock.patch.object(
+            with self._skip_selection_pre_pass(), mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
                 "_build_chromosome",
                 side_effect=fake_build,
@@ -1809,7 +1859,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     "meta_hg19": str(out_root / "hg19" / f"chr{chrom}_meta.tsv.gz"),
                 }
 
-            with mock.patch.object(
+            with self._skip_selection_pre_pass(), mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
                 "_build_chromosome",
                 side_effect=fake_build,
@@ -1846,7 +1896,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     "meta_hg19": str(out_root / "hg19" / f"chr{chrom}_meta.tsv.gz"),
                 }
 
-            with mock.patch.object(
+            with self._skip_selection_pre_pass(), mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
                 "_build_chromosome",
                 side_effect=fake_build,
@@ -1882,7 +1932,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 }
 
             with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
-                with mock.patch.object(
+                with self._skip_selection_pre_pass(), mock.patch.object(
                     ref_panel_builder.ReferencePanelBuilder,
                     "_build_chromosome",
                     side_effect=fake_build,
@@ -1907,7 +1957,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             existing.write_text("existing\n", encoding="utf-8")
             builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            with mock.patch.object(
+            with self._skip_selection_pre_pass(), mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
                 "_build_chromosome",
                 side_effect=AssertionError("chromosome build should not run"),
@@ -1927,7 +1977,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             existing.write_text("existing\n", encoding="utf-8")
             builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            with mock.patch.object(
+            with self._skip_selection_pre_pass(), mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
                 "_build_chromosome",
                 return_value={"r2_hg19": str(existing), "r2_hg38": "r2", "meta_hg19": "m19", "meta_hg38": "m38"},
@@ -1953,7 +2003,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             )
             builder._workflow_log_path = output_dir / "diagnostics" / "build-r2-panel.log"
 
-            with mock.patch.object(
+            with self._skip_selection_pre_pass(), mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
                 "_build_chromosome",
                 return_value={
@@ -1982,7 +2032,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             stale.write_text("stale\n", encoding="utf-8")
             builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            with mock.patch.object(
+            with self._skip_selection_pre_pass(), mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
                 "_build_chromosome",
                 side_effect=AssertionError("chromosome build should not run"),
@@ -2005,7 +2055,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             stale_drop.write_text("stale\n", encoding="utf-8")
             builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            with mock.patch.object(
+            with self._skip_selection_pre_pass(), mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
                 "_build_chromosome",
                 return_value={
@@ -2040,7 +2090,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
             )
 
-            with mock.patch.object(
+            with self._skip_selection_pre_pass(), mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
                 "_build_chromosome",
                 return_value={
@@ -2080,7 +2130,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 }
 
             with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
-                with mock.patch.object(
+                with self._skip_selection_pre_pass(), mock.patch.object(
                     ref_panel_builder.ReferencePanelBuilder,
                     "_build_chromosome",
                     side_effect=fake_build,
@@ -2111,7 +2161,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
-                with mock.patch.object(
+                with self._skip_selection_pre_pass(), mock.patch.object(
                     ref_panel_builder.ReferencePanelBuilder,
                     "_build_chromosome",
                     return_value={"r2_hg19": "r2", "meta_hg19": "m19"},
@@ -2612,7 +2662,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             )
             builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            with mock.patch.object(
+            with self._skip_selection_pre_pass(), mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
                 "_build_chromosome",
                 return_value={"r2_hg19": "r2-19", "r2_hg38": "r2-38", "meta_hg19": "m19", "meta_hg38": "m38"},

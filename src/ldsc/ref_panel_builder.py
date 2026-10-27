@@ -131,6 +131,32 @@ class _BuildState:
     translator_cache: dict[tuple[str, str], kernel_builder.LiftOverTranslator] = field(default_factory=dict)
 
 
+_AUTOSOMES = frozenset(map(str, range(1, 23)))
+_EMPTIED_AUTOSOME_REPAIR = (
+    "Check that the SNP restriction file, --snp-identifier mode, --source-genome-build, and liftover chain "
+    "match this PLINK input (identity, liftover, and duplicate-position drops are listed in "
+    "diagnostics/dropped_snps/); a panel missing an autosome changes downstream LD scores"
+)
+
+
+@dataclass
+class _ChromosomeSelection:
+    """One chromosome's SNPs after the BIM-level selection stages.
+
+    ``empty_stage`` names the stage that removed every SNP, or is ``None``
+    when SNPs remain for genotype reading.
+    """
+    bim: Any
+    fam: Any
+    chrom_df: pd.DataFrame
+    keep_snps: Any
+    sidecar_path: Path
+    n_bim_snps: int
+    hg19_lookup: dict | None = None
+    hg38_lookup: dict | None = None
+    empty_stage: str | None = None
+
+
 def _emitted_genome_builds(config: ReferencePanelBuildConfig) -> list[str]:
     """Return source and optional target builds emitted by one build config."""
     source_build = config.source_genome_build
@@ -469,6 +495,9 @@ class ReferencePanelBuilder:
                     "Coordinate duplicate filtering applies only for chr_pos-family snp_identifier modes; "
                     "keeping duplicate CHR/POS rows in rsid source-only reference-panel builds."
                 )
+            chrom_sources = self._check_chromosome_selections(
+                chrom_sources, config, build_state, output_dir / "diagnostics" / "input_issues.tsv"
+            )
             chrom_records: list[tuple[str, dict[str, str]]] = []
             for prefix, chrom in chrom_sources:
                 LOGGER.info('Computing and publishing reference chromosome %s (%d/%d).', chrom, len(chrom_records)+1, len(chrom_sources))
@@ -690,22 +719,53 @@ class ReferencePanelBuilder:
         )
 
 
-    @report_phase(LOGGER, 'computation/publication', 'reference chromosome')
-    def _build_chromosome(
+    def _check_chromosome_selections(self, chrom_sources, config, build_state, issues_path):
+        """Run SNP selection on every chromosome before any genotype reading.
+
+        Autosomes left without SNPs are collected into one error, because a
+        panel missing an autosome silently changes downstream LD scores. Other
+        chromosomes left without SNPs are skipped with a warning. Returns the
+        ``(prefix, chrom)`` pairs that keep SNPs.
+        """
+        from ._annotation_preflight import input_issue
+        from ._input_preflight import InputGate
+        from ._progress import PhaseProgress
+
+        issues, buildable = [], []
+        with PhaseProgress(LOGGER, 'validation', 'reference-panel SNP selection', len(chrom_sources)) as progress:
+            for prefix, chrom in chrom_sources:
+                selection = self._select_chromosome_snps(prefix, chrom, config, build_state)
+                progress.advance(object=f'chromosome {chrom}')
+                if selection.empty_stage is None:
+                    buildable.append((prefix, chrom))
+                elif chrom in _AUTOSOMES:
+                    details = f"all {selection.n_bim_snps} SNPs were removed at {selection.empty_stage}"
+                    issues.append(dict(input_issue('reference panel PLINK input', prefix, chrom, 'no_snps_remain', details),
+                                       repair=_EMPTIED_AUTOSOME_REPAIR))
+                else:
+                    LOGGER.warning(
+                        f"Skipping chromosome {chrom}: all {selection.n_bim_snps} SNPs were removed at "
+                        f"{selection.empty_stage}; the panel will not include this chromosome."
+                    )
+        InputGate('Reference-panel SNP selection', issues_path, issues,
+                  troubleshooting=_BUILD_REF_PANEL_EMPTY_DOC).finish()
+        return buildable
+
+    def _select_chromosome_snps(
         self,
         prefix: str,
         chrom: str,
         config: ReferencePanelBuildConfig,
         build_state: _BuildState,
-    ) -> dict[str, str] | None:
-        """Build all parquet and metadata artifacts for one chromosome.
+    ) -> _ChromosomeSelection:
+        """Apply the BIM-level SNP selection stages to one chromosome.
 
-        The per-chromosome dropped-SNP sidecar is always written for any
-        chromosome this method is invoked on. Reason rows cover source identity
-        cleanup and liftover-stage drops; restriction-file and PLINK filtering
-        drops are outside that audit vocabulary.
+        Stages are SNP restriction, identity cleanup, and liftover plus
+        duplicate-position filtering; none reads genotypes. The dropped-SNP
+        sidecar is always written. Reason rows cover source identity cleanup
+        and liftover-stage drops; restriction-file drops are outside that
+        audit vocabulary.
         """
-        LOGGER.info(f"Building reference-panel artifacts for chromosome {chrom} from '{prefix}'.")
         sidecar_path = Path(config.output_dir) / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
         try:
             bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
@@ -757,8 +817,8 @@ class ReferencePanelBuilder:
             keep_snps = chrom_metadata["_plink_row_index"].to_numpy(dtype=int)[keep_mask]
             if len(keep_snps) == 0:
                 _write_dropped_sidecar(_empty_unified_drop_frame(), sidecar_path, chrom)
-                LOGGER.info(f"Skipping chromosome {chrom} because no SNPs remain after restriction.")
-                return None
+                return _ChromosomeSelection(bim, fam, chrom_df, keep_snps, sidecar_path, len(chrom_df),
+                                            empty_stage="SNP restriction")
 
         dropped_frames: list[pd.DataFrame] = []
         identity_input = chrom_metadata.loc[keep_snps].copy()
@@ -784,8 +844,8 @@ class ReferencePanelBuilder:
         if len(keep_snps) == 0:
             dropped_df = _concat_drop_frames(dropped_frames)
             _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
-            LOGGER.info(f"Skipping chromosome {chrom}: no SNPs remain after identity cleanup.")
-            return None
+            return _ChromosomeSelection(bim, fam, chrom_df, keep_snps, sidecar_path, len(chrom_df),
+                                        empty_stage="identity cleanup")
 
         keep_snps, hg19_lookup, hg38_lookup, liftover_drop_frame = self._resolve_mappable_snp_positions(
             build_state=build_state,
@@ -818,9 +878,31 @@ class ReferencePanelBuilder:
                 )
         dropped_df = _concat_drop_frames(dropped_frames)
         _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
-        if len(keep_snps) == 0:
-            LOGGER.info(f"Skipping chromosome {chrom}: no SNPs remain after duplicate-position filtering.")
-            return None
+        return _ChromosomeSelection(
+            bim, fam, chrom_df, keep_snps, sidecar_path, len(chrom_df), hg19_lookup, hg38_lookup,
+            empty_stage=None if len(keep_snps) else "liftover and duplicate-position filtering",
+        )
+
+    @report_phase(LOGGER, 'computation/publication', 'reference chromosome')
+    def _build_chromosome(
+        self,
+        prefix: str,
+        chrom: str,
+        config: ReferencePanelBuildConfig,
+        build_state: _BuildState,
+    ) -> dict[str, str] | None:
+        """Build all parquet and metadata artifacts for one chromosome.
+
+        SNP selection is recomputed here rather than kept from the pre-pass,
+        so only one chromosome's BIM-level state is in memory at a time.
+        Genotype filtering that removes every SNP stops the run for an
+        autosome and skips any other chromosome with a warning.
+        """
+        LOGGER.info(f"Building reference-panel artifacts for chromosome {chrom} from '{prefix}'.")
+        selection = self._select_chromosome_snps(prefix, chrom, config, build_state)
+        bim, fam, keep_snps = selection.bim, selection.fam, selection.keep_snps
+        hg19_lookup, hg38_lookup = selection.hg19_lookup, selection.hg38_lookup
+        sidecar_path = selection.sidecar_path
 
         keep_indivs = None
         if config.keep_indivs_file is not None:
@@ -855,7 +937,21 @@ class ReferencePanelBuilder:
                 freq_values=geno.freq,
             )
             if len(metadata) == 0:
-                LOGGER.info(f"Skipping chromosome {chrom} because no SNPs remain after PLINK filtering.")
+                maf_rule = f"MAF below --maf-min {config.maf_min}, " if config.maf_min is not None else ""
+                if chrom in _AUTOSOMES:
+                    raise LDSCInputError(
+                        f"build-r2-panel stopped at chromosome {chrom}: PLINK genotype filtering removed all "
+                        f"{len(build_keep_snps)} SNPs that passed SNP selection ({maf_rule}monomorphic, or "
+                        "all genotypes missing among the kept individuals). A panel without this autosome "
+                        "would change downstream LD scores. Most likely --maf-min is too high or "
+                        "--keep-indivs-file selects individuals without variation on this chromosome. "
+                        "Correct an unintended threshold or individual selection; any revised filter "
+                        f"changes the panel. Other causes & fixes: {_BUILD_REF_PANEL_EMPTY_DOC}"
+                    )
+                LOGGER.warning(
+                    f"Skipping chromosome {chrom}: PLINK genotype filtering removed all "
+                    f"{len(build_keep_snps)} SNPs that passed SNP selection."
+                )
                 return None
             if set(metadata["CHR"]) != {chrom}:
                 raise LDSCInternalError(

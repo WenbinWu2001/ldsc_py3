@@ -217,6 +217,8 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             ), mock.patch.object(
                 builder, "_prepare_build_state", return_value=mock.sentinel.state
             ), mock.patch.object(
+                builder, "_check_chromosome_selections", side_effect=lambda chrom_sources, *_args: chrom_sources
+            ), mock.patch.object(
                 builder,
                 "_build_chromosome",
                 return_value={"r2_hg19": "r2-19", "r2_hg38": "r2-38", "meta_hg19": "m19", "meta_hg38": "m38"},

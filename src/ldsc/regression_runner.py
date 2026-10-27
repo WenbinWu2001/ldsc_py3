@@ -2790,14 +2790,14 @@ def _add_scalar_prevalence_arguments(parser) -> None:
         '--samp-prev', type=float, default=None, metavar='VALUE',
         help=(
             'Sample case fraction, strictly between 0 and 1, for liability-scale estimates. Requires '
-            '--pop-prev; omit both to report observed-scale estimates only.'
+            '--pop-prev; omit both, or pass nan for both, to report observed-scale estimates only.'
         ),
     )
     parser.add_argument(
         '--pop-prev', type=float, default=None, metavar='VALUE',
         help=(
             'Population case fraction, strictly between 0 and 1, for liability-scale estimates. Requires '
-            '--samp-prev; omit both to report observed-scale estimates only.'
+            '--samp-prev; omit both, or pass nan for both, to report observed-scale estimates only.'
         ),
     )
 

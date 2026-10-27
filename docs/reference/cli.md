@@ -234,8 +234,8 @@ Estimate heritability from munged sumstats and LD scores.
 | `--n-blocks` | Number of SNP blocks for jackknife standard errors; must be at least 2. Default: 200, capped at the number of retained SNPs. |
 | `--allow-identity-downgrade` | Allow allele-aware and allele-unaware inputs in the same identity family by matching without alleles. rsid and chr_pos families still cannot be mixed. Default: off; require compatible identity modes. |
 | `--trait-name` | Trait label used in summaries. If omitted, use the stored trait name or derive one from the input filename. |
-| `--samp-prev` | Sample case fraction, strictly between 0 and 1, for liability-scale estimates. Requires --pop-prev; omit both to report observed-scale estimates only. |
-| `--pop-prev` | Population case fraction, strictly between 0 and 1, for liability-scale estimates. Requires --samp-prev; omit both to report observed-scale estimates only. |
+| `--samp-prev` | Sample case fraction, strictly between 0 and 1, for liability-scale estimates. Requires --pop-prev; omit both, or pass nan for both, to report observed-scale estimates only. |
+| `--pop-prev` | Population case fraction, strictly between 0 and 1, for liability-scale estimates. Requires --samp-prev; omit both, or pass nan for both, to report observed-scale estimates only. |
 | `--overwrite` | Replace this command's existing output files and remove obsolete outputs from an earlier run. Default: off; stop if output files already exist. |
 | `--log-level` | Set detail in the workflow log. DEBUG includes troubleshooting details. INFO includes progress and summaries. WARNING includes warnings and errors. ERROR includes errors only. Each level includes more severe messages. Default: INFO. Run headers and completion status are always recorded. |
 
@@ -255,8 +255,8 @@ Estimate partitioned heritability with independent query models.
 | `--n-blocks` | Number of SNP blocks for jackknife standard errors; must be at least 2. Default: 200, capped at the number of retained SNPs. |
 | `--allow-identity-downgrade` | Allow allele-aware and allele-unaware inputs in the same identity family by matching without alleles. rsid and chr_pos families still cannot be mixed. Default: off; require compatible identity modes. |
 | `--trait-name` | Trait label used in summaries. If omitted, use the stored trait name or derive one from the input filename. |
-| `--samp-prev` | Sample case fraction, strictly between 0 and 1, for liability-scale estimates. Requires --pop-prev; omit both to report observed-scale estimates only. |
-| `--pop-prev` | Population case fraction, strictly between 0 and 1, for liability-scale estimates. Requires --samp-prev; omit both to report observed-scale estimates only. |
+| `--samp-prev` | Sample case fraction, strictly between 0 and 1, for liability-scale estimates. Requires --pop-prev; omit both, or pass nan for both, to report observed-scale estimates only. |
+| `--pop-prev` | Population case fraction, strictly between 0 and 1, for liability-scale estimates. Requires --samp-prev; omit both, or pass nan for both, to report observed-scale estimates only. |
 | `--summary-sort-by` | Order partitioned_h2.tsv by the selected column. Default: auto, coefficient-p for per-query fits and category for baseline-only fits. P-values sort ascending; other numeric values sort descending. |
 | `--workers` | Maximum complete query-plus-baseline models running simultaneously; also capped by query batch size. Default: 1, one managed child process. Positive N requests at most N workers; -1 uses the detected available CPU count from joblib.cpu_count(); -2 uses one fewer (minimum one). Reject zero and positive requests above the detected count, then cap by available tasks. Each worker uses 1 BLAS thread, in serial and parallel execution. Detection does not measure idle CPUs or read your scheduler allocation; choose a value consistent with that allocation. More workers can use more memory. |
 | `--query-batch-size` | Maximum number of query annotations loaded at once; each query is fitted separately with the shared baseline. Default: 100; a smaller positive value reduces memory and caps active query workers. |

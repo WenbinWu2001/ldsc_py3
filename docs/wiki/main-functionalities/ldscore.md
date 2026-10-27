@@ -1,6 +1,6 @@
 # Calculate LD scores
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 `ldsc ldscore` computes a reusable LD-score directory from PLINK genotypes or a precomputed R² panel. Regression consumes that directory. Ordinary unpartitioned scoring uses a synthetic all-ones `base` annotation:
 
@@ -82,6 +82,10 @@ Positive requests above that count fail before capping by available tasks; negat
 LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
 Zero, Boolean, and non-integer Python requests are invalid.
 See [the execution policy](../../current/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
+
+`--snp-batch-size` sets how many PLINK SNPs each genotype batch processes and defaults to 512; parquet R2 input ignores it.
+LD windows are exact for every batch size, so it changes speed and memory, never LD scores.
+Larger batches are not faster beyond about 512 to 1024; see the [batch-size benchmark](../../current/annotation-memory-design.md#direct-ld-score-computation).
 
 This optimization targets workloads such as 1,000 pathways, each later tested separately against shared baseline categories.
 `--query-batch-size 100` sets the maximum active query batch and defaults to 100.

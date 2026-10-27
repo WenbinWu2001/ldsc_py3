@@ -110,7 +110,7 @@ Important output behavior:
 Performance behavior for canonical parquet R2 input:
 
 - the reader streams each stored pair once, in bounded batches, keeps the pairs inside the requested LD window, and caches no row groups; see [LD-score computation from R² Parquets](../docs/current/ldscore-parquet-accumulation.md#5-the-streaming-algorithm)
-- `snp_batch_size` / `--snp-batch-size` applies only to PLINK input and is ignored with `--r2-dir`; with PLINK input it changes speed and memory, not LD scores (default `128`)
+- `snp_batch_size` / `--snp-batch-size` applies only to PLINK input and is ignored with `--r2-dir`; with PLINK input it changes speed and memory, not LD scores (default `512`)
 
 Unlike legacy LDSC, which widened each SNP's LD window to a multiple of `--chunk-size` and so only approximated the requested window, `ldsc` sums exactly the SNP pairs inside the requested window for both PLINK and parquet input.
 LD scores therefore do not depend on the batch size, and they equal legacy LDSC run with `--chunk-size 1`.

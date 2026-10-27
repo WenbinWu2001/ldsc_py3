@@ -60,7 +60,9 @@ from ._kernel.snp_identity import (
     empty_identity_drop_frame,
     identity_mode_family,
 )
-from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
+from .config import (
+    DEFAULT_SNP_BATCH_SIZE, GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner,
+)
 from ._coordinates import normalize_chr_pos_frame
 from ._progress import report_phase
 from .path_resolution import ensure_output_directory, preflight_output_artifact_family, remove_output_artifacts, resolve_file_group, inspect_plink_inputs, resolve_scalar_path
@@ -1502,10 +1504,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     runtime.add_argument(
-        '--snp-batch-size', dest='snp_batch_size', default=128, type=int, metavar='N',
+        '--snp-batch-size', dest='snp_batch_size', default=DEFAULT_SNP_BATCH_SIZE, type=int, metavar='N',
         help=(
-            'Number of reference SNPs processed per genotype batch. Default: 128; larger batches may '
-            'improve speed but use more memory.'
+            f'Number of reference SNPs processed per genotype batch. Default: {DEFAULT_SNP_BATCH_SIZE}; larger '
+            'batches may improve speed but use more memory. Stored pairs do not depend on it.'
         ),
     )
     runtime.add_argument(

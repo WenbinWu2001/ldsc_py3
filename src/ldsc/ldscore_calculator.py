@@ -55,6 +55,7 @@ from .ldscore_source import LDScoreSource
 from ._kernel.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, identity_mode_family, is_allele_aware_mode
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from .config import (
+    DEFAULT_SNP_BATCH_SIZE,
     GlobalConfig,
     AnnotationBuildConfig,
     LDScoreConfig,
@@ -1344,11 +1345,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     runtime.add_argument(
-        '--snp-batch-size', default=128, type=int, metavar='N',
+        '--snp-batch-size', default=DEFAULT_SNP_BATCH_SIZE, type=int, metavar='N',
         help=(
-            'Number of reference SNPs processed per PLINK genotype batch. Default: 128; larger batches use '
-            'more memory. LD scores do not depend on it. Ignored with --r2-dir; rejected with '
-            '--gene-ldscore-index-dir.'
+            f'Number of reference SNPs processed per PLINK genotype batch. Default: {DEFAULT_SNP_BATCH_SIZE}; '
+            'larger batches use more memory. LD scores do not depend on it. Ignored with --r2-dir; '
+            'rejected with --gene-ldscore-index-dir.'
         ),
     )
     runtime.add_argument(
@@ -1584,7 +1585,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
         forbidden["--regr-snps-exclude-regions"] = getattr(args, "regr_snps_exclude_regions")
     if getattr(args, "common_maf_min", 0.05) != 0.05:
         forbidden["--common-maf-min"] = getattr(args, "common_maf_min")
-    if getattr(args, "snp_batch_size", 128) != 128:
+    if getattr(args, "snp_batch_size", DEFAULT_SNP_BATCH_SIZE) != DEFAULT_SNP_BATCH_SIZE:
         forbidden["--snp-batch-size"] = getattr(args, "snp_batch_size")
     if bool(getattr(args, "export_ref_metadata", False)):
         forbidden["--export-ref-metadata"] = True
@@ -2149,7 +2150,7 @@ def _normalize_run_args(
     if not hasattr(normalized_args, "padding_bp") or normalized_args.padding_bp is None:
         normalized_args.padding_bp = 0
     if not hasattr(normalized_args, "snp_batch_size"):
-        normalized_args.snp_batch_size = 128
+        normalized_args.snp_batch_size = DEFAULT_SNP_BATCH_SIZE
     normalized_args.snp_identifier = normalized_mode
     normalized_args.output_dir = normalize_path_token(args.output_dir)
     normalized_args.r2_dir = _r2_dir_from_args(normalized_args)
@@ -2355,7 +2356,7 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         ld_wind_kb=getattr(args, "ld_wind_kb", None),
         ld_wind_cm=getattr(args, "ld_wind_cm", None),
         regr_snps_file=getattr(args, "regr_snps_file", None),
-        snp_batch_size=getattr(args, "snp_batch_size", 128),
+        snp_batch_size=getattr(args, "snp_batch_size", DEFAULT_SNP_BATCH_SIZE),
         query_batch_size=getattr(args, "query_batch_size", 100),
         common_maf_min=getattr(args, "common_maf_min", 0.05),
         whole_chromosome_ok=getattr(args, "yes_really", False),

@@ -39,6 +39,10 @@ from .path_resolution import normalize_optional_path_token, normalize_path_token
 
 LOGGER = logging.getLogger("LDSC.config")
 _GENOME_BUILD_UNSET = object()
+# SNPs per PLINK genotype batch in ldscore, build-gene-ldscore-index, and
+# build-r2-panel. LD windows are exact for any value, so it sets speed and
+# memory only; see docs/current/annotation-memory-design.md for the benchmark.
+DEFAULT_SNP_BATCH_SIZE = 512
 
 
 SNPIdentifierMode = Literal["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"]
@@ -499,8 +503,9 @@ class LDScoreConfig:
         HapMap3 when ``None``. Prepared-input calculator callers pass resolved
         restrictions through ``regression_snps`` instead.
     snp_batch_size : int, optional
-        Number of SNPs processed per LD-score sliding batch. Default is
-        ``128``.
+        Number of SNPs per PLINK genotype batch. LD windows are exact for any
+        value, so it changes speed and memory, not LD scores; parquet R2
+        input ignores it. Default is ``512``.
     query_batch_size : int, optional
         Positive maximum number of focal query columns prepared, computed,
         and written as one execution batch; default ``100``. Multiple batches
@@ -537,7 +542,7 @@ class LDScoreConfig:
     ld_wind_kb: float | None = None
     ld_wind_cm: float | None = None
     regr_snps_file: str | PathLike[str] | None = None
-    snp_batch_size: int = 128
+    snp_batch_size: int = DEFAULT_SNP_BATCH_SIZE
     query_batch_size: int = 100
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
@@ -619,7 +624,8 @@ class GeneLDScoreIndexBuildConfig:
         Named regions subtracted after regression-SNP selection. Default is
         ``"mhc-and-centromeres"``.
     snp_batch_size : int, optional
-        Positive PLINK genotype work batch size. Default is 128.
+        Positive PLINK genotype work batch size; changes speed and memory, not
+        the index values. Default is ``512``.
     atom_batch_size : int, optional
         Positive offline internal atom-column batch size. Default is 64.
     workers : int, optional
@@ -656,7 +662,7 @@ class GeneLDScoreIndexBuildConfig:
     keep_indivs_file: str | None = None
     regr_snps_file: str | None = None
     regr_snps_exclude_regions: str = "mhc-and-centromeres"
-    snp_batch_size: int = 128
+    snp_batch_size: int = DEFAULT_SNP_BATCH_SIZE
     atom_batch_size: int = 64
     workers: int = 1
 
@@ -776,7 +782,9 @@ class ReferencePanelBuildConfig:
         ``None``.
     snp_batch_size : int, optional
         Number of SNPs loaded per pairwise-R2 computation batch. Larger values
-        may improve throughput but use more memory. Default is ``128``.
+        may improve throughput but use more memory; stored pairs are the same
+        for any value (R2 may differ by one int16 unit from float32 summation
+        order). Default is ``512``.
     min_r2 : float, optional
         Opt-in unbiased-R2 floor for emitted pairs. ``0.0`` (the default, and
         any non-positive value) writes every retained pair, preserving exact
@@ -805,7 +813,7 @@ class ReferencePanelBuildConfig:
     maf_min: float | None = None
     ref_panel_snps_file: str | PathLike[str] | None = None
     keep_indivs_file: str | PathLike[str] | None = None
-    snp_batch_size: int = 128
+    snp_batch_size: int = DEFAULT_SNP_BATCH_SIZE
     min_r2: float = 0.0
     overwrite: bool = False
 

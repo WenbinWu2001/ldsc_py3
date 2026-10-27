@@ -1255,9 +1255,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
             gene_catalog_build=None,
         )
 
-    def test_build_parser_defaults_snp_batch_size_to_128(self):
+    def test_build_parser_defaults_snp_batch_size_to_512(self):
         parser = ldscore_workflow.build_parser()
-        self.assertEqual(parser.get_default("snp_batch_size"), 128)
+        self.assertEqual(parser.get_default("snp_batch_size"), 512)
 
     def test_build_parser_accepts_snp_batch_size_and_rejects_chunk_size(self):
         parser = ldscore_workflow.build_parser()

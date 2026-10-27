@@ -173,7 +173,7 @@ The convenience wrapper creates the workflow log. Direct `ReferencePanelBuilder.
 | `--keep-indivs-file` | Optional one-IID-per-row restriction |
 | `--maf-min` | Optional MAF cutoff in [0, 0.5] |
 | `--min-r2` | Optional adjusted-R² sparsification threshold; default 0 keeps all within-window pairs; a positive value makes the panel usable for `query-r2` only |
-| `--snp-batch-size` | Genotype computation batch size; default 128 |
+| `--snp-batch-size` | Genotype computation batch size; default 512; stored pairs do not depend on it |
 | `--overwrite` | Replace owned outputs and remove stale owned artifacts after success |
 | `--log-level` | Workflow log verbosity: DEBUG, INFO (default), WARNING, ERROR |
 

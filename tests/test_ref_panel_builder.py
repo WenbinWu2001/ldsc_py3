@@ -784,9 +784,9 @@ class ReferencePanelBuildConfigNoDuplicatePolicyTest(unittest.TestCase):
 
 
 class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
-    def test_build_parser_defaults_snp_batch_size_to_128(self):
+    def test_build_parser_defaults_snp_batch_size_to_512(self):
         parser = ref_panel_builder.build_parser()
-        self.assertEqual(parser.get_default("snp_batch_size"), 128)
+        self.assertEqual(parser.get_default("snp_batch_size"), 512)
 
     def test_build_parser_accepts_snp_batch_size(self):
         parser = ref_panel_builder.build_parser()

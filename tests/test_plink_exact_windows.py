@@ -54,3 +54,26 @@ def test_plink_and_parquet_backends_agree_on_the_same_window(tmp_path, window):
     # int16 R2 storage rounds each pair by at most 0.5/32767 (1.5e-5); a SNP
     # here has at most 31 partners, so scores agree within 31 * 1.5e-5.
     np.testing.assert_allclose(from_parquet[SCORES], from_plink[SCORES], rtol=0, atol=5e-4)
+
+
+@pytest.mark.parametrize("window", WINDOWS, ids=lambda w: "".join(w))
+def test_build_r2_panel_pairs_do_not_depend_on_snp_batch_size(tmp_path, window):
+    """The builder walks the same chunks but emits only in-window pairs.
+
+    Pairs, their order, and signs are identical. The builder correlates float32
+    genotypes, so the batch shape changes summation order inside the matrix
+    product; a value at an int16 rounding boundary may then move by one stored
+    unit (1/32767 in R2).
+    """
+    import pyarrow.parquet as pq
+
+    tables = {}
+    for batch in (2, 3, 512):
+        out = tmp_path / f"batch{batch}"
+        assert cli.run_cli(["build-r2-panel", "--plink-prefix", str(PLINK), "--output-dir", str(out), *IDENTITY,
+                            "--source-genome-build", "hg38", *window, "--snp-batch-size", str(batch)]) == 0
+        tables[batch] = pq.read_table(out / "hg38" / "chr22_r2.parquet").to_pandas()
+    for batch in (3, 512):
+        pd.testing.assert_frame_equal(tables[batch][["IDX_1", "IDX_2", "SIGN_R"]], tables[2][["IDX_1", "IDX_2", "SIGN_R"]])
+        stored_units = (tables[batch]["R2"].astype(int) - tables[2]["R2"].astype(int)).abs()
+        assert stored_units.max() <= 1

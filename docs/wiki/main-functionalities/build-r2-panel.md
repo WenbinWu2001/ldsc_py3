@@ -54,7 +54,9 @@ The aggregate difference depends on pair count and annotation weights, so it has
   A positive threshold omits smaller values, so `ldsc ldscore` rejects the panel; it remains usable for `query-r2`.
 - Unstored pairs are unavailable in `query-r2`, not measured zero LD. Diagonal R²=1 is implicit.
 - SNP restrictions use the PLINK source build. Coordinate duplicate groups use fixed `drop-all` handling; no duplicate-policy flag exists.
-- Unrestricted builds stream genotypes; explicitly restricted builds keep the selected genotype payload in memory. Window density, sample count, and batch size affect resources. Benchmark a chromosome before a large run.
+- Unrestricted builds stream genotypes; explicitly restricted builds keep the selected genotype payload in memory.
+  Window density, sample count, and `--snp-batch-size` (default 512) affect resources; the stored pairs do not depend on the batch size.
+  Benchmark a chromosome before a large run.
 - The current names are `build-r2-panel` and `SIGN_R`; no old-name aliases are supported.
 
 For every flag, a runnable fixture example, and Python usage, see the [build tutorial](../../../tutorials/build-parquet-reference-panel-from-plink.md) and [argument inventory](../../current/io-argument-inventory.md). The [storage specification](../../current/parquet-r2-format-and-read-pipeline.md) defines types, quantization, and binding.

@@ -83,7 +83,7 @@ from ._annotation_sources import prepare_annotation_sources
 from .chromosome_inference import normalize_chromosome, normalize_chromosome_series
 from ._coordinates import positive_int_position_series
 from .column_inference import normalize_genome_build
-from .config import GeneLDScoreIndexBuildConfig, GlobalConfig
+from .config import DEFAULT_SNP_BATCH_SIZE, GeneLDScoreIndexBuildConfig, GlobalConfig
 from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 from .gene_list_resolver import (
     GeneCatalog,
@@ -270,10 +270,10 @@ def build_parser() -> argparse.ArgumentParser:
         help='Maximum simultaneous chromosome builds. ' + WORKERS_HELP,
     )
     runtime.add_argument(
-        '--snp-batch-size', type=int, default=128, metavar='N',
+        '--snp-batch-size', type=int, default=DEFAULT_SNP_BATCH_SIZE, metavar='N',
         help=(
-            'Number of reference SNPs processed per PLINK genotype batch. Default: 128; larger batches use '
-            'more memory. LD scores do not depend on it.'
+            f'Number of reference SNPs processed per PLINK genotype batch. Default: {DEFAULT_SNP_BATCH_SIZE}; '
+            'larger batches use more memory. LD scores do not depend on it.'
         ),
     )
     runtime.add_argument(

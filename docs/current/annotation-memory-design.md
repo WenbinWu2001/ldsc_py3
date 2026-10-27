@@ -332,6 +332,25 @@ With exactly 1,000 queries, the default uses ten batches of up to 100.
 The active output-row accumulator scales with batch width.
 Only compact counts, baseline-by-query overlaps, and diagnostic/source descriptors scale with the total requested query count; saved query LD values do not accumulate in memory.
 
+`--snp-batch-size` defaults to **512** for PLINK input in `ldscore`, `build-gene-ldscore-index`, and `build-r2-panel`; parquet R2 input ignores it.
+LD windows are exact for every batch size, so the setting changes only speed and memory.
+Each batch computes about one batch width of out-of-window pairs per SNP before dropping them, and holds a few `(window + batch) × batch` float64 blocks beside the `samples × window` genotype block.
+Measured on 2026-10-27 at revision `38c98d8` (macOS, Apple Accelerate, one BLAS thread) by timing the PLINK kernel alone; LD scores were identical at every size, and memory is the peak above the loaded process:
+
+| Batch | 1KG EUR chr22: 489 samples, 1 cM, about 2,470 SNPs per side | 1KG 30x chr22: 3,202 samples, 30,000-SNP stretch, 1 Mb, about 9,300 SNPs per side |
+|---|---|---|
+| 128 | 11.6 s, +0.59 GB | 25.0 s, +0.75 GB |
+| 256 | 10.7 s, +0.57 GB | 21.0 s, +1.07 GB |
+| 512 | 11.7 s, +0.80 GB | 17.7 s, +1.19 GB |
+| 1024 | 13.7 s, +0.94 GB | 17.0 s, +1.35 GB |
+| 2048 | 16.7 s, +1.25 GB | 17.6 s, +1.24 GB |
+| 4096 | 23.6 s, +1.67 GB | not run |
+
+512 was within about 4% of the fastest size on both panels; larger batches add time and memory without changing results.
+Limits: one machine, one chromosome stretch per panel, and single runs; Linux BLAS libraries may favor somewhat larger batches.
+Memory outside the kernel does not depend on the batch size, including each chromosome's in-memory genotypes (`SNPs × samples / 4` bytes) and annotation reads, and it repeats for each `--workers` process.
+`build-r2-panel` uses the same chunk walk but was not timed; its stored pairs are identical for any batch size, with R2 differing by at most one int16 unit from float32 summation order (see `tests/test_plink_exact_windows.py`).
+
 For direct file-writing workflows, [`stage_direct_chromosome()`](../../src/ldsc/_direct_ldscore_batches.py) writes the existing post-kernel float32 query table to a private Parquet fragment before the worker returns.
 The parent receives baseline data, counts, overlaps, variation summaries, and diagnostic descriptors, then combines them without a genome-wide query matrix.
 [`_query_variation.py`](../../src/ldsc/_query_variation.py) combines each chromosome's first values and within-chromosome variation flags, including columns that are constant within chromosomes but differ between chromosomes.

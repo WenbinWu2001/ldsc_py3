@@ -65,6 +65,11 @@ def _rows(*items: tuple[str, int, str]) -> pd.DataFrame:
     return pd.DataFrame(items, columns=["CHR", "POS", "SNP"])
 
 
+def test_builder_defaults_snp_batch_size_to_512():
+    assert gene_ldscore_index.build_parser().get_default("snp_batch_size") == 512
+    assert GeneLDScoreIndexBuildConfig.__dataclass_fields__["snp_batch_size"].default == 512
+
+
 def test_builder_parser_requires_catalog_and_hides_partial_chromosome_control():
     parser = gene_ldscore_index.build_parser()
     help_text = parser.format_help()

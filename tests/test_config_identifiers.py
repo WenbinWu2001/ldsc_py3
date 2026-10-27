@@ -258,7 +258,7 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_ldscore_config_requires_one_window(self):
         config = LDScoreConfig(ld_wind_cm=1.0)
         self.assertEqual(config.ld_wind_cm, 1.0)
-        self.assertEqual(config.snp_batch_size, 128)
+        self.assertEqual(config.snp_batch_size, 512)
         self.assertFalse(hasattr(config, "chunk_size"))
         self.assertEqual(config.common_maf_min, 0.05)
         with self.assertRaises(ldsc.LDSCConfigError):
@@ -324,7 +324,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.genetic_map_hg38_sources, "maps/hg38.txt")
         self.assertEqual(config.liftover_chain_hg38_to_hg19_file, "liftover/hg38ToHg19.over.chain")
         self.assertEqual(config.output_dir, "out")
-        self.assertEqual(config.snp_batch_size, 128)
+        self.assertEqual(config.snp_batch_size, 512)
         self.assertTrue(config.overwrite)
 
         with self.assertRaisesRegex(ldsc.LDSCConfigError, "ld_wind_cm"):

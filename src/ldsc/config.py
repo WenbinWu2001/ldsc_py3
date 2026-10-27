@@ -781,10 +781,10 @@ class ReferencePanelBuildConfig:
         Opt-in unbiased-R2 floor for emitted pairs. ``0.0`` (the default, and
         any non-positive value) writes every retained pair, preserving exact
         pairwise completeness. A positive value drops pairs whose unbiased R2
-        is below the threshold, reducing output size and memory at the cost of
-        completeness (the read path treats absent pairs as R2=0). The applied
-        value is recorded as ``ldsc:min_r2`` parquet metadata. Default is
-        ``0.0``.
+        is below the threshold, reducing output size and memory; ``ldscore``
+        rejects such a panel, while ``query-r2`` reports dropped pairs as
+        absent. The applied value is recorded as ``ldsc:min_r2`` parquet
+        metadata. Default is ``0.0``.
     overwrite : bool, optional
         If ``True``, replace current panel artifacts and remove stale
         workflow-owned parquet, metadata, dropped-SNP, or log siblings after a

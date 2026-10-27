@@ -125,7 +125,7 @@ Build and read workflows have different working sets. Streaming avoids materiali
 
 ### Build side (`build-r2-panel`)
 
-Unrestricted builds stream genotypes from disk. With `--ref-panel-snps-file`, the selected genotype payload is read into RAM. Individual filtering is applied during the read. Pair computation retains the current batch and window-spanning carry-over columns, plus pending pair batches; memory therefore depends on retained individuals, selected SNPs, window density, and `--snp-batch-size`. Wider windows also increase computation and output size. A positive `--min-r2` reduces emitted pairs at the cost of scientific completeness. See `ReferencePanelBuilder._build_chromosome` in `src/ldsc/ref_panel_builder.py` and `yield_pairwise_r2_rows` in `src/ldsc/_kernel/ref_panel_builder.py`.
+Unrestricted builds stream genotypes from disk. With `--ref-panel-snps-file`, the selected genotype payload is read into RAM. Individual filtering is applied during the read. Pair computation retains the current batch and window-spanning carry-over columns, plus pending pair batches; memory therefore depends on retained individuals, selected SNPs, window density, and `--snp-batch-size`. Wider windows also increase computation and output size. A positive `--min-r2` reduces emitted pairs, and `ldscore` rejects such a panel (`query-r2` still reads it). See `ReferencePanelBuilder._build_chromosome` in `src/ldsc/ref_panel_builder.py` and `yield_pairwise_r2_rows` in `src/ldsc/_kernel/ref_panel_builder.py`.
 
 ### Read side (`ldscore`)
 

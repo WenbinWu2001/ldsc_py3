@@ -213,9 +213,12 @@ def inspect_r2_headers(directory, genome_build=None, *, ldscore_args=None):
     """Check every selected R2/sidecar path and Parquet metadata contract before pair scans.
 
     With ``ldscore_args`` (parsed ldscore options), each file's recorded build
-    window must also admit the requested LD window.
+    window must also admit the requested LD window, and the file must store
+    every pair (``ldsc:min_r2`` not positive).
     """
-    from ._kernel.ldscore import read_r2_parquet_contract, validate_ldscore_window_within_r2_panel_window
+    from ._kernel.ldscore import (
+        read_r2_parquet_contract, reject_truncated_r2_panel, validate_ldscore_window_within_r2_panel_window,
+    )
     from ._kernel.ref_panel import _resolve_r2_build_dir
 
     root = Path(directory)
@@ -240,6 +243,7 @@ def inspect_r2_headers(directory, genome_build=None, *, ldscore_args=None):
         if contract is not None and ldscore_args is not None:
             gate.check('reference', pair, lambda: validate_ldscore_window_within_r2_panel_window(
                 ldscore_args, parquet_paths=[str(pair)], chrom=chrom), chrom=chrom)
+            gate.check('reference', pair, lambda: reject_truncated_r2_panel([str(pair)], chrom), chrom=chrom)
     gate.finish()
     return root
 

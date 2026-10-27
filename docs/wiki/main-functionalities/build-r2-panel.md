@@ -1,6 +1,6 @@
 # Build an R² Panel
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 This serial workflow reuses one managed child across chromosomes, with **1 BLAS thread**.
 For Python scripts, place workflow calls under `if __name__ == "__main__":`; see [the execution policy](../../current/parallel-execution.md).
@@ -50,7 +50,8 @@ The aggregate difference depends on pair count and annotation weights, so it has
 ## Controls and caveats
 
 - `--ref-panel-snps-file`, `--keep-indivs-file`, and `--maf-min` explicitly restrict SNPs, individuals, or MAF. Match the reference individuals to the population whose LD you need.
-- `--min-r2 0` keeps negative and zero estimates within the window. A positive threshold omits smaller values; this changes subsequent LD-score sums.
+- `--min-r2 0` keeps negative and zero estimates within the window.
+  A positive threshold omits smaller values, so `ldsc ldscore` rejects the panel; it remains usable for `query-r2`.
 - Unstored pairs are unavailable in `query-r2`, not measured zero LD. Diagonal R²=1 is implicit.
 - SNP restrictions use the PLINK source build. Coordinate duplicate groups use fixed `drop-all` handling; no duplicate-policy flag exists.
 - Unrestricted builds stream genotypes; explicitly restricted builds keep the selected genotype payload in memory. Window density, sample count, and batch size affect resources. Benchmark a chromosome before a large run.

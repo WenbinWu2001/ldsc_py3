@@ -502,9 +502,9 @@ class ParquetR2RefPanel(RefPanel):
                 metadata[column] = lookup.loc[keys, column].to_numpy()
         if config.ld_wind_cm is not None:
             _resolve_genetic_map(self, chrom, reference)
-        kernel_ldscore.validate_ldscore_window_within_r2_panel_window(
-            config, parquet_paths=self.resolve_r2_paths(chrom), chrom=chrom,
-        )
+        parquet_paths = self.resolve_r2_paths(chrom)
+        kernel_ldscore.validate_ldscore_window_within_r2_panel_window(config, parquet_paths=parquet_paths, chrom=chrom)
+        kernel_ldscore.reject_truncated_r2_panel(parquet_paths, chrom)
         reader = self.build_reader(chrom, metadata=metadata)
         try:
             # --ld-wind-snps counts panel rows, so a window no wider than the

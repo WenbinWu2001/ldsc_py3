@@ -709,9 +709,9 @@ def write_r2_parquet(
     matching sidecar, so the reader hard-fails on a binding mismatch.
 
     ``min_r2`` records the unbiased-R2 floor applied upstream during pair
-    emission; it is provenance only and does not itself filter rows here. The
-    table is pairwise-complete only when ``ldsc:min_r2`` is ``"0.0"`` (or any
-    non-positive value), because the read path treats absent pairs as R2=0.
+    emission; it does not itself filter rows here. The table is
+    pairwise-complete only when ``ldsc:min_r2`` is non-positive; ldscore
+    rejects any other value, and query-r2 reports absent pairs as absent.
 
     ``ld_window_mode`` and ``ld_window_value`` record the build-time LD window
     that bounded emitted pairs. LD-score calculation uses these fields to reject

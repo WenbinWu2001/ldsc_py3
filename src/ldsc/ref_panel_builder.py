@@ -1497,8 +1497,8 @@ def build_parser() -> argparse.ArgumentParser:
         '--min-r2', dest='min_r2', default=0.0, type=float, metavar='VALUE',
         help=(
             'Minimum adjusted R2 to store. Default: 0; zero or negative values keep every pair within the '
-            'window. A positive value discards smaller R2 values. LD-score accumulation treats missing '
-            'pairs as zero; query-r2 reports NaN with status=absent.'
+            'window. A positive value discards smaller R2 values; ldscore then rejects the panel, and '
+            'query-r2 reports discarded pairs as NaN with status=absent.'
         ),
     )
     runtime.add_argument(

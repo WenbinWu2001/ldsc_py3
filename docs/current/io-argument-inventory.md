@@ -265,7 +265,7 @@ LD-score output schema:
 | `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts, diagnostic metadata, always-written `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz` audit files, and build-r2-panel workflow logs may be replaced; defaults to `False`, so existing owned outputs are refused. Concrete chromosome prefixes own and clean only that chromosome's package. `@` chromosome-suite runs own the full panel package and can remove stale target-build, out-of-scope chromosome, dropped-SNP, metadata, or log siblings after success. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; defaults to `INFO`; these records go to the build-r2-panel workflow log and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
 | `--snp-batch-size` | performance | no | SNP computation batch size | Number of SNPs decoded per pairwise-R2 computation batch; larger values size the pairwise working set (decoded window and correlation block) and can improve throughput. Memory includes genotype batches and window-spanning carry-over columns; explicit SNP restrictions also retain the selected genotype payload in RAM. Benchmark batch size and window density for the intended sample count. Defaults to `128`. |
-| `--min-r2` | output mode | no | pair-emission threshold | Optional unbiased-R2 floor for emitted pairs. Defaults to `0.0`, which writes every retained pair. Positive values reduce output size by omitting low-R2 pairs; LD-score accumulation treats missing pairs as zero, while query-r2 reports NaN with `status=absent`. The threshold is recorded in parquet metadata as `ldsc:min_r2`. |
+| `--min-r2` | output mode | no | pair-emission threshold | Optional unbiased-R2 floor for emitted pairs. Defaults to `0.0`, which writes every retained pair. Positive values reduce output size by omitting low-R2 pairs; `ldscore` then rejects the panel because LD scores would count the omitted pairs as zero, while `query-r2` reports them as NaN with `status=absent`. The threshold is recorded in parquet metadata as `ldsc:min_r2`, which every reader requires. |
 
 Removed flags: `--bfile`, `--out`, `--panel-label`, `--keep-indivs`, `--maf`,
 `--genetic-map-hg19`, `--genetic-map-hg38`, old liftover-chain names without
@@ -673,7 +673,7 @@ LD-score `chunk_size`; `use_hm3_ref_panel_snps`, `use_hm3_regression_snps`,
 | `ReferencePanelBuildConfig` | `keep_indivs_file` | input | PLINK individual keep file |
 | `ReferencePanelBuildConfig` | `maf_min` | input metadata | retained SNP MAF filter |
 | `ReferencePanelBuildConfig` | `snp_batch_size` | performance | SNP computation batch size |
-| `ReferencePanelBuildConfig` | `min_r2` | output mode | optional unbiased-R2 emission floor; default `0.0` writes every retained pair |
+| `ReferencePanelBuildConfig` | `min_r2` | output mode | optional unbiased-R2 emission floor; default `0.0` writes every retained pair; `ldscore` rejects panels built with a positive value |
 | `ReferencePanelBuildConfig` | `output_dir` | output | required constructor field selecting the artifact directory |
 | `run_build_ref_panel(**kwargs)` | same config field names except global settings | input/output | requires `plink_prefix` and `output_dir`; reads `snp_identifier` from the registered `GlobalConfig`; ignores `GlobalConfig.genome_build`; writes the build-r2-panel workflow log |
 

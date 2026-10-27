@@ -1,6 +1,6 @@
 # Parquet R2 Table: Format Specification and Read Pipeline
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 This document defines the canonical **index** format for parquet-backed pairwise
 R² reference panels and describes how the read pipeline validates, binds, and
@@ -137,7 +137,7 @@ the panel was built for, as provenance only.
 | `ldsc:row_group_size` | string(int) | intended row-group size (informational) |
 | `ldsc:n_samples` | string(int) | reference individuals used to compute R² |
 | `ldsc:r2_bias` | string | `"unbiased"` for package panels; `"raw"` reserved for external raw-R² panels needing correction |
-| `ldsc:min_r2` | string(float) | unbiased-R² floor applied upstream; `"0.0"` means complete |
+| `ldsc:min_r2` | string(float) | required; unbiased-R² floor applied at build, at most 1; non-positive means complete. `ldscore` rejects a positive value; `query-r2` accepts it |
 | `ldsc:n_snps` | string(int) | length of the panel sidecar = size of the index space |
 | `ldsc:sidecar_identity_sha256` | string(hex) | binding hash of the sidecar identity (§4) |
 | `ldsc:r2_encoding` | string | R² storage encoding; `"int16_symmetric"` for package panels. Absent on legacy float32 panels. |

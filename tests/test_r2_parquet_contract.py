@@ -72,6 +72,9 @@ DEFECTS = {
     "missing n": (dict(drop=[b"ldsc:n_samples"]), "ldsc:n_samples"),
     "nonpositive n": (dict(set_meta={b"ldsc:n_samples": b"0"}), "ldsc:n_samples"),
     "missing window": (dict(drop=[b"ldsc:ld_window_mode", b"ldsc:ld_window_value"]), "ldsc:ld_window_mode"),
+    "missing pair floor": (dict(drop=[b"ldsc:min_r2"]), "ldsc:min_r2"),
+    "non-numeric pair floor": (dict(set_meta={b"ldsc:min_r2": b"none"}), "ldsc:min_r2"),
+    "pair floor above one": (dict(set_meta={b"ldsc:min_r2": b"1.5"}), "ldsc:min_r2"),
     "missing binding": (dict(drop=[b"ldsc:sidecar_identity_sha256"]), "ldsc:sidecar_identity_sha256"),
     "missing identity": (dict(drop=[b"ldsc:artifact_type"]), "ldsc:artifact_type"),
 }

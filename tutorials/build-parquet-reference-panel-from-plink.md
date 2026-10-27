@@ -1,6 +1,6 @@
 # Build an R² Panel from PLINK
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-27
 
 The build processes chromosomes serially in one managed child, with **1 BLAS thread**.
 Python scripts must place workflow calls under `if __name__ == "__main__":`; see [parallel execution](../docs/current/parallel-execution.md).
@@ -31,7 +31,10 @@ By default, all otherwise eligible reference SNPs contribute. PLINK filtering re
 
 Choose exactly one window: `--ld-wind-snps N`, `--ld-wind-kb KB`, or `--ld-wind-cm CM`. The SNP-count window counts positions in the retained SNP sequence. A cM window requires a genetic map for every emitted build; SNP-count and kb windows do not. Provided maps populate sidecar `CM`; the builder does not use the BIM cM placeholder as the authoritative genetic map.
 
-`--min-r2` defaults to zero, which keeps every pair within the window, including negative adjusted values. A positive threshold omits smaller values. Missing pairs contribute zero in LD-score accumulation, while `query-r2` reports `r2=NaN` and `status=absent`. Do not interpret an absent query pair as measured zero LD.
+`--min-r2` defaults to zero, which keeps every pair within the window, including negative adjusted values.
+A positive threshold omits smaller values, and `ldsc ldscore` then rejects the panel, because LD scores would count the omitted pairs as zero.
+Such a panel serves only `query-r2`, which reports omitted pairs as `r2=NaN` and `status=absent`.
+Do not interpret an absent query pair as measured zero LD.
 
 The reference individuals determine the population whose LD is estimated. An IID restriction file contains one individual ID per row. SNP restrictions are headered identity tables in the PLINK source build; use `SNP` for rsID modes or `CHR`/`POS` for coordinate modes, with allele columns when available. Allele-free restrictions match by base identity even in allele-aware modes.
 
@@ -169,7 +172,7 @@ The convenience wrapper creates the workflow log. Direct `ReferencePanelBuilder.
 | `--ref-panel-snps-file` | Optional headered SNP restriction in the source build |
 | `--keep-indivs-file` | Optional one-IID-per-row restriction |
 | `--maf-min` | Optional MAF cutoff in [0, 0.5] |
-| `--min-r2` | Optional adjusted-R² sparsification threshold; default 0 keeps all within-window pairs |
+| `--min-r2` | Optional adjusted-R² sparsification threshold; default 0 keeps all within-window pairs; a positive value makes the panel usable for `query-r2` only |
 | `--snp-batch-size` | Genotype computation batch size; default 128 |
 | `--overwrite` | Replace owned outputs and remove stale owned artifacts after success |
 | `--log-level` | Workflow log verbosity: DEBUG, INFO (default), WARNING, ERROR |

@@ -820,6 +820,8 @@ class R2ParquetContract:
     n_samples: int
     r2_scale: float
     ld_window: _LDWindowSpec
+    # Build-time adjusted-R2 floor; pairs below a positive value were not stored.
+    min_r2: float
 
 
 def read_r2_parquet_contract(path) -> R2ParquetContract:
@@ -829,9 +831,9 @@ def read_r2_parquet_contract(path) -> R2ParquetContract:
     ``R2``/``SIGN_R`` columns with an int16 ``R2``, the writer's
     ``ldsc:r2_encoding`` and ``ldsc:r2_scale``, already-unbiased values
     (``ldsc:r2_bias="unbiased"``) with a positive ``ldsc:n_samples``, and
-    complete binding, identity, and LD-window metadata. Decoding is
-    ``R2 = stored / r2_scale`` with no further correction. No value is
-    defaulted; see :func:`read_r2_parquet_contracts` for the error.
+    complete binding, identity, LD-window, and ``ldsc:min_r2`` metadata.
+    Decoding is ``R2 = stored / r2_scale`` with no further correction. No
+    value is defaulted; see :func:`read_r2_parquet_contracts` for the error.
     """
     return read_r2_parquet_contracts([path])[0]
 
@@ -924,12 +926,15 @@ def _check_r2_parquet_contract(path) -> tuple[R2ParquetContract | None, list[str
     window_mode = parsed("ld_window_mode", str, lambda mode: mode in {"snps", "kb", "cm"}, "snps, kb, or cm")
     window_value = parsed("ld_window_value", float, lambda value: bool(np.isfinite(value)) and value > 0,
                           "a positive number")
+    min_r2 = parsed("min_r2", float, lambda value: bool(np.isfinite(value)) and value <= 1,
+                    "a number no greater than 1")
     if problems:
         return None, problems
     return R2ParquetContract(
         path=str(path), snp_identifier=snp_identifier, genome_build=genome_build,
         sorted_by_build=sorted_by_build, n_snps=n_snps, sidecar_identity_sha256=identity_hash,
         n_samples=n_samples, r2_scale=r2_scale, ld_window=_LDWindowSpec(window_mode, window_value),
+        min_r2=min_r2,
     ), []
 
 
@@ -1009,6 +1014,25 @@ def validate_ldscore_window_within_r2_panel_window(
             panel=panel_spec,
             chrom=chrom,
         )
+
+
+def reject_truncated_r2_panel(parquet_paths: Sequence[str], chrom: str) -> None:
+    """Reject an R2 parquet panel that omitted pairs below a positive ``ldsc:min_r2``.
+
+    LD scores sum every SNP pair in the window, so pairs the panel did not
+    store would count as zero. Such panels stay valid for ``query-r2``, which
+    reports unstored pairs as absent.
+    """
+    for path in parquet_paths:
+        min_r2 = read_r2_parquet_contract(path).min_r2
+        if min_r2 > 0:
+            raise LDSCInputError(
+                f"ldscore cannot use R2 parquet '{path}' (chromosome {chrom}): the panel omits SNP pairs with "
+                f"adjusted R2 below {min_r2:g} (ldsc:min_r2, set by `build-r2-panel --min-r2`). LD scores sum "
+                "every SNP pair in the window, so the omitted pairs would count as zero and change the scores. "
+                "Rebuild the panel without `--min-r2` (the default keeps every pair). Panels built with a "
+                "positive `--min-r2` remain usable for `ldsc query-r2`."
+            )
 
 
 # Parquet R2 adapter.

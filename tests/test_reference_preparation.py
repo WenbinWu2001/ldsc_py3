@@ -18,10 +18,11 @@ from ldsc.errors import LDSCInputError
 STORED_R2 = float(np.float32(round(0.5 * 32767)) / np.float32(32767))
 
 
-def write_panel(root, *, chrom="1", mode="rsid", ld_window=("snps", 10.0)):
+def write_panel(root, *, chrom="1", mode="rsid", ld_window=("snps", 10.0), min_r2=0.0):
     """Write one package-format chromosome with the real sidecar and R2 writers.
 
     ``ld_window`` is the recorded build window; a run must use its unit.
+    ``min_r2`` is recorded as the build-time pair floor.
     """
     root.mkdir(parents=True, exist_ok=True)
     metadata = pd.DataFrame({
@@ -34,7 +35,7 @@ def write_panel(root, *, chrom="1", mode="rsid", ld_window=("snps", 10.0)):
         pair_chunks=[(np.array([0]), np.array([1]), np.array([0.5], dtype=np.float32), np.array([1], dtype=np.int8))],
         path=root / f"chr{chrom}_r2.parquet", genome_build="hg19", n_samples=200, snp_identifier=mode,
         n_snps=2, sidecar_identity_sha256=sidecar_identity_sha256(metadata),
-        ld_window_mode=ld_window[0], ld_window_value=ld_window[1],
+        ld_window_mode=ld_window[0], ld_window_value=ld_window[1], min_r2=min_r2,
     )
     return metadata
 
@@ -138,6 +139,19 @@ def test_public_run_skips_empty_intersection_and_computes_other_chromosome(tmp_p
         )
     assert result.baseline_table["CHR"].tolist() == ["22", "22"]
     np.testing.assert_allclose(result.baseline_table["base"], [1 + STORED_R2, 1 + STORED_R2], rtol=1e-7)
+
+
+def test_parquet_panel_with_a_pair_floor_is_rejected_at_preparation(tmp_path):
+    # The LDScoreCalculator Python API skips the CLI preflight, so preparation
+    # itself must refuse a panel that omitted pairs below --min-r2.
+    metadata = write_panel(tmp_path, min_r2=0.05)
+    panel = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"),
+                              RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
+    with pytest.raises(LDSCInputError, match="omits SNP pairs with adjusted R2 below 0.05"):
+        panel.prepare_chromosome(
+            "1", ldscore.AnnotationBundle(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], []),
+            LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True),
+        )
 
 
 def test_parquet_genetic_maps_are_ignored_at_preparation(tmp_path, caplog):

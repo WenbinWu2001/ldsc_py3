@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -161,7 +161,7 @@ Runtime compatibility is carried by the Parquet footer and paired SNP sidecar, n
 | `ldsc:n_samples` | Parquet footer | Reference sample size for bias handling and recovering Pearson r |
 | `ldsc:r2_bias` | Parquet footer | Package-built panels store `unbiased` R² |
 | `ldsc:r2_encoding`, `ldsc:r2_scale` | Parquet footer | Package output uses `int16_symmetric` with divisor 32767 |
-| `ldsc:min_r2` | Parquet footer | Build-time sparsification threshold; nonpositive means no R² filtering |
+| `ldsc:min_r2` | Parquet footer | Required build-time sparsification threshold; nonpositive means no R² filtering; `ldscore` rejects a positive value |
 | `ldsc:ld_window_mode`, `ldsc:ld_window_value` | Parquet footer | Build window used for downstream compatibility checks |
 | `ldsc:row_group_size` | Parquet footer | Informational intended row-group size |
 

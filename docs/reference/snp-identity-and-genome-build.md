@@ -232,7 +232,7 @@ clusters.
 
 Multi-allelic base-key clusters are dropped because allele-aware modes exist for safer merging, not for retaining multi-allelic sites.
 Computing LD scores over retained same-position clusters would need its own design for same-position pair semantics, LD-window traversal, and R2 endpoint indexing.
-That design must also revisit the parquet `--ld-wind-snps` ordering of same-position SNPs, which relies on this drop; see [`--ld-wind-snps` counts panel rows](../current/ld-window-parquet-r2-sidecar-behavior.md#--ld-wind-snps-counts-panel-rows).
+That design must also revisit the parquet `--ld-wind-snps` ordering of same-position SNPs, which relies on this drop; see [`--ld-wind-snps` counts panel rows](formats/r2-panels.md#37-ld-windows-and-sidecar-values-in-ldscore).
 
 ### Validity table
 

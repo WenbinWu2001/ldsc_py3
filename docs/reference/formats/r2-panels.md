@@ -141,7 +141,7 @@ to the analysis universe when the reader builds its remap (§3).
 | `ldsc:sidecar_identity_sha256` | string(hex) | binding hash of the sidecar identity (§4) |
 | `ldsc:r2_encoding` | string | required; must be `"int16_symmetric"` |
 | `ldsc:r2_scale` | string(int) | required; must be `"32767"`. The reader divides the int16 values by this to recover float32 R². |
-| `ldsc:ld_window_mode`, `ldsc:ld_window_value` | string, string(float) | required; build window unit (`snps`, `kb`, or `cm`) and positive width. `ldscore` rejects a window in another unit or wider than this one ([window rules](../../current/ld-window-parquet-r2-sidecar-behavior.md)) |
+| `ldsc:ld_window_mode`, `ldsc:ld_window_value` | string, string(float) | required; build window unit (`snps`, `kb`, or `cm`) and positive width. `ldscore` rejects a window in another unit or wider than this one ([window rules](#37-ld-windows-and-sidecar-values-in-ldscore)) |
 
 Stored as UTF-8 byte strings, accessed via
 `pq.ParquetFile(path).schema_arrow.metadata`.
@@ -315,8 +315,54 @@ The read-time window still filters pairs before sparse construction, so it can c
 Each chromosome worker adds its own working set, while staged output and file cache have separate lifetimes.
 See the [package resource model](../../dev/design/memory-and-cpu.md#precision-universes-and-resource-accounting).
 
-The builder has a different working set: its genotype batches include window-spanning carry-over columns, and explicitly restricted builds keep selected genotypes in RAM.
-See [build-side memory](../../current/ld-window-parquet-r2-sidecar-behavior.md#build-side-build-r2-panel).
+The builder has a different working set.
+Unrestricted builds stream genotypes from disk; with `--ref-panel-snps-file`, the selected genotypes are read into RAM, with individual filtering applied during the read.
+Pair computation keeps the current batch, window-spanning carry-over columns and pending pair batches, so memory depends on retained individuals, selected SNPs, window density and `--snp-batch-size`; wider windows also increase computation and output size.
+A positive `--min-r2` reduces the stored pairs, and `ldscore` rejects such a panel (`query-r2` still reads it).
+See `ReferencePanelBuilder._build_chromosome` in `src/ldsc/ref_panel_builder.py` and `yield_pairwise_r2_rows` in `src/ldsc/_kernel/ref_panel_builder.py`.
+
+### 3.7 LD windows and sidecar values in `ldscore`
+
+`ldscore` builds its LD window from the sidecar: `--ld-wind-snps` counts sidecar rows, `--ld-wind-kb` uses sidecar `POS`, and `--ld-wind-cm` uses sidecar `CM`.
+Exactly one of the three options is required.
+
+**Window coverage.**
+An R² panel stores only the SNP pairs inside the window it was built with, recorded as `ldsc:ld_window_mode` and `ldsc:ld_window_value`, so `ldscore` accepts only a window the panel is known to cover:
+
+| Requested window | Result |
+| --- | --- |
+| Same unit, no wider than the build window | Accepted. |
+| Same unit, wider than the build window | `LDSCUsageError`: "is wider than the input R2 parquet panel window". |
+| Different unit, for example a kb panel with `--ld-wind-snps` | `LDSCUsageError`: "windows in different units cannot be checked for coverage". |
+
+A window in a different unit is rejected even when the panel happens to cover it, because coverage is not inferred from per-SNP coordinates.
+The CLI checks every selected chromosome file in its header preflight, before pair scans, annotation preparation or LD-score computation.
+`LDScoreCalculator.run` runs the same checks for every chromosome before computing any, and lists all issues in one `LDSCInputError`.
+`ParquetR2RefPanel.prepare_chromosome` repeats the check for each chromosome it prepares, for example through `LDScoreCalculator.compute_chromosome`.
+Because `build-r2-panel` chooses the stored pairs from the `CM` values as written to the sidecar (section 2.7), a window no wider than the panel's never needs a pair the panel did not store, in any unit.
+A PLINK `--ld-wind-cm` run matches an R² panel cM run only when both use the same `CM` values: `.bim` column 3, or the genetic map the panel was built with.
+Code: `validate_ldscore_window_within_r2_panel_window` in `src/ldsc/_kernel/ldscore.py` and `inspect_r2_headers` in `src/ldsc/_input_preflight.py`.
+
+**`--ld-wind-snps` counts panel rows.**
+For an R² panel, `--ld-wind-snps K` spans `K` sidecar rows on each side, whatever SNPs the run keeps.
+When the run keeps fewer SNPs than the panel (`--maf-min`, `--ref-panel-snps-file`, or annotations that cover part of the panel), its SNPs have fewer than `K` contributors on each side.
+The PLINK backend counts the SNPs the run keeps, as LDSC2 did, so the two backends then differ for the same options.
+Each such run logs one warning with the number of affected chromosomes, one example with its kept and panel SNP counts, and the location of the per-chromosome counts.
+Every R² panel `--ld-wind-snps` run writes `diagnostics/ld_window_snp_counts.tsv` with `CHR`, `panel_snps`, `kept_snps`, `ld_wind_snps` and `counting_basis` (`panel_rows`), listed in the `files` entry of `metadata.json`.
+SNPs that share a position are computed in sidecar row order and written sorted by `CHR`, `POS`, then `SNP`.
+That output order matches an annotation-ordered run only because SNPs that share `CHR`, `POS` and `SNP` never reach computation: the identity policy drops them as duplicate or multi-allelic.
+If that policy changes to keep such SNPs, `ParquetR2RefPanel.prepare_chromosome` would also need to return them to annotation order.
+Code: `build_window_coordinates` in `src/ldsc/_kernel/ldscore.py`, `ParquetR2RefPanel.prepare_chromosome` in `src/ldsc/_kernel/ref_panel.py`, and `_ld_window_snp_counts` in `src/ldsc/ldscore_calculator.py`.
+
+**`CM` and `MAF` come from the reference panel.**
+Annotation `CM` and `MAF` values are ignored.
+For an R² panel the sidecar supplies both for every retained SNP; the PLINK backend uses `.bim` `CM`, or a genetic map interpolated at the `.bim` positions, and genotype `MAF`.
+`--ld-wind-cm` requires a non-missing `CM` for every retained SNP; otherwise chromosome computation raises "--ld-wind-cm requires non-missing CM values for all retained SNPs."
+Sidecars from builds without a genetic map store `CM=NA`; those panels were built with a kb or SNP-count window, so the window-unit rule rejects `--ld-wind-cm` first.
+For PLINK input, `--ld-wind-cm` also rejects an unusable `.bim` `CM` (fewer than two distinct finite values on a chromosome) with an error that `--yes-really` does not bypass; supply `--genetic-map-hg19-sources` or `--genetic-map-hg38-sources` instead ([troubleshooting](../../user-guide/troubleshooting.md#ldscore-unusable-cm-for-ld-wind-cm)).
+Any missing or non-numeric sidecar `MAF` is an error when the sidecar is read.
+`--maf-min` filters on the sidecar `MAF`, and the common-SNP counts and the common-SNP overlap matrix use inclusive `MAF >= common_maf_min` from the sidecar; all-SNP counts come from the retained annotation rows.
+Without baseline annotations, `ldscore` builds an all-ones `base` annotation from the sidecar.
 
 ---
 

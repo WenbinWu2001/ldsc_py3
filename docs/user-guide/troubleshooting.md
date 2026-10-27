@@ -654,7 +654,7 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
 | 4 | The R2 directory mixes chromosomes or builds from different reference-panel runs | List files in the R2 directory and compare recorded `genome_build` metadata |
 | 5 | Duplicate or conflicting pair rows survived in the R2 artifact | Regenerate from a deduplicated reference-panel source and current `ldsc build-r2-panel` |
 | 6 | The panel was built with a positive `--min-r2`, so it omits low-R2 pairs | The error names `ldsc:min_r2`; rebuild the panel without `--min-r2` for `ldscore`, and keep the truncated panel only for `ldsc query-r2` |
-| 7 | The LD window is in a different unit from the panel's build window, or wider than it (`windows in different units cannot be checked for coverage` / `is wider than the input R2 parquet panel window`) | The error names both windows; rerun with the panel's unit and a value no wider, or rebuild the panel with the requested window. See [LD window behavior for parquet R2 panels](../current/ld-window-parquet-r2-sidecar-behavior.md#window-rules-against-the-panels-build-window) |
+| 7 | The LD window is in a different unit from the panel's build window, or wider than it (`windows in different units cannot be checked for coverage` / `is wider than the input R2 parquet panel window`) | The error names both windows; rerun with the panel's unit and a value no wider, or rebuild the panel with the requested window. See [LD windows for R² panels](../reference/formats/r2-panels.md#37-ld-windows-and-sidecar-values-in-ldscore) |
 
 **Remedies:**
 

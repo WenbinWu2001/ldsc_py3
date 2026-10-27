@@ -39,7 +39,7 @@ On each page that names S-LDSC, the first mention gives the full name and citati
 | rsID-family mode | `rsid` or `rsid_allele_aware`. | "rsID mode" when both are meant | |
 | genome build | The reference assembly that positions refer to: hg19 (GRCh37) or hg38 (GRCh38); `auto` infers it. | "assembly", "build version", "reference build" | `--genome-build`; `GlobalConfig.genome_build`; `ldsc infer-genome-build` |
 | liftover | Converting positions between hg19 and hg38 with a chain file, or with the HM3 map during munging. | "lift-over", "lift over", "coordinate conversion" | `--liftover-chain-file`; `--output-genome-build` |
-| A1, A2 | A1 is the allele the signed statistic refers to; A2 is the other allele. A1 is not necessarily the genome reference allele. | "reference allele" and "ref/alt" as names for A1 and A2 | columns `A1`, `A2`; `--a1`, `--a2` |
+| A1, A2 | In summary statistics, A1 is the allele the signed statistic refers to; in reference-panel, LD-score and annotation files, A1 is the minor allele. A2 is the other allele. A1 is not necessarily the genome reference allele. | "reference allele" and "ref/alt" as names for A1 and A2 | columns `A1`, `A2`; `--a1`, `--a2` |
 | one-based position | A SNP position that counts the first base as 1. | "1-indexed" | column `POS` |
 | zero-based half-open interval | A BED interval whose start counts from 0 and whose end is excluded. | "0-indexed interval" | BED files |
 

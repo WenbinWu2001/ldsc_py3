@@ -251,3 +251,42 @@ def test_rg_duplicate_trait_names_are_summarized(tmp_path, caplog):
     assert len(caplog.records) == 1
     assert "Renamed 40 duplicate rg trait labels" in caplog.text
     assert "diagnostics/metadata.json" in caplog.text
+
+
+def _rg_tables(tmp_path, named_paths):
+    from dataclasses import replace
+    from ldsc import load_sumstats
+
+    if not (tmp_path / "trait.parquet").exists():
+        cli_inputs(tmp_path)
+    table = load_sumstats(tmp_path / "trait.parquet")
+    return [replace(table, trait_name=name, source_path=str(tmp_path / path)) for name, path in named_paths]
+
+
+def test_rg_label_collisions_add_path_parts_instead_of_hashes(tmp_path):
+    from ldsc.regression_runner import _disambiguate_trait_names
+
+    named_paths = [
+        ("SCZ", "pgc/v3/trait.parquet"), ("SCZ", "ukb/v3/trait.parquet"), ("BIP", "pgc/v3/bip.parquet"),
+        ("ADHD", "same/adhd1.parquet"), ("ADHD", "same/adhd2.parquet"),
+        ("MDD", "a/x/mdd1.parquet"), ("MDD", "a/x/mdd2.parquet"), ("MDD", "b/x/mdd1.parquet"),
+    ]
+    # Parent directories are tried first; same-directory files fall back to the
+    # shortest distinguishing path that ends in the file name.
+    expected = ["SCZ@pgc/v3", "SCZ@ukb/v3", "BIP", "ADHD@adhd1.parquet", "ADHD@adhd2.parquet",
+                "MDD@a/x/mdd1.parquet", "MDD@a/x/mdd2.parquet", "MDD@b/x/mdd1.parquet"]
+    labels = [table.trait_name for table in _disambiguate_trait_names(_rg_tables(tmp_path, named_paths))]
+    reversed_labels = [table.trait_name for table in
+                       _disambiguate_trait_names(_rg_tables(tmp_path, named_paths[::-1]))]
+    assert labels == expected
+    assert reversed_labels == expected[::-1]
+
+
+def test_rg_rejects_trait_name_that_matches_a_tie_breaker_label(tmp_path):
+    from ldsc.errors import LDSCInputError
+    from ldsc.regression_runner import _disambiguate_trait_names
+
+    tables = _rg_tables(tmp_path, [("SCZ", "pgc/trait.parquet"), ("SCZ", "ukb/trait.parquet"),
+                                   ("SCZ@pgc", "other/trait.parquet")])
+    with pytest.raises(LDSCInputError, match=r"'SCZ@pgc'.*--trait-name"):
+        _disambiguate_trait_names(tables)

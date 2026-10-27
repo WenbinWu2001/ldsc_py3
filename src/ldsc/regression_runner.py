@@ -50,7 +50,6 @@ paths. Final HM3 LD tables remain aggregate files.
 from __future__ import annotations
 
 from contextlib import contextmanager
-import hashlib
 import json
 import logging
 import math
@@ -2412,11 +2411,6 @@ def _trait_label(table: SumstatsTable) -> str:
     return "trait"
 
 
-def _source_key(table: SumstatsTable) -> str:
-    """Return a stable source string for duplicate trait-name disambiguation."""
-    return str(Path(table.source_path).resolve()) if table.source_path else _trait_label(table)
-
-
 def _numeric_attr(obj: object | None, attr: str, field: str) -> float:
     """Return a numeric scalar attribute or NaN when unavailable."""
     if obj is None:
@@ -3398,37 +3392,46 @@ def _write_or_remove_legacy_sumstats_audit(
     return path
 
 
+def _distinguishing_path_suffixes(paths: Sequence[Path]) -> list[str]:
+    """Return the shortest trailing path parts that tell distinct paths apart.
+
+    Parent directories are tried first, so files sharing a name show only their
+    directories. Files in the same directory fall back to suffixes ending in the
+    file name. One suffix length is used for the whole group, which keeps the
+    labels independent of input order.
+    """
+    for parts in ([path.parent.parts for path in paths], [path.parts for path in paths]):
+        for depth in range(1, max(map(len, parts)) + 1):
+            suffixes = [Path(*item[-depth:]).as_posix() for item in parts]
+            if len(set(suffixes)) == len(suffixes):
+                return suffixes
+    return [path.as_posix() for path in paths]
+
+
 def _disambiguate_trait_names(tables: Sequence[SumstatsTable]) -> list[SumstatsTable]:
-    """Return tables with deterministic unique trait names for rg outputs."""
+    """Return tables with deterministic unique trait names for rg outputs.
+
+    A label shared by several inputs becomes ``label@<path suffix>``, using the
+    shortest source-path suffix that separates that group.
+    """
     labels = [_trait_label(table) for table in tables]
-    duplicates = {label for label in labels if labels.count(label) > 1}
-    if not duplicates:
-        return [replace(table, trait_name=label) for table, label in zip(tables, labels)]
-
-    proposed: list[str] = []
-    for table, label in zip(tables, labels):
-        if label not in duplicates:
-            proposed.append(label)
+    unique = list(labels)
+    for label in dict.fromkeys(labels):
+        members = [index for index, item in enumerate(labels) if item == label]
+        if len(members) == 1:
             continue
-        source = Path(table.source_path) if table.source_path else Path(label)
-        parent = source.parent.name or "source"
-        proposed.append(f"{label}@{parent}")
-
-    seen: dict[str, int] = {}
-    unique: list[str] = []
-    for table, label in zip(tables, proposed):
-        if label not in seen:
-            seen[label] = 1
-            unique.append(label)
-            continue
-        source_hash = hashlib.sha1(_source_key(table).encode("utf-8")).hexdigest()[:8]
-        final = f"{label}@{source_hash}"
-        while final in seen:
-            source_hash = hashlib.sha1(f"{_source_key(table)}:{seen[label]}".encode("utf-8")).hexdigest()[:8]
-            final = f"{label}@{source_hash}"
-        seen[label] += 1
-        seen[final] = 1
-        unique.append(final)
+        suffixes = _distinguishing_path_suffixes([Path(tables[index].source_path) for index in members])
+        for index, suffix in zip(members, suffixes):
+            unique[index] = f"{label}@{suffix}"
+    collisions = [label for label in dict.fromkeys(unique) if unique.count(label) > 1]
+    if collisions:
+        sources = ", ".join(f"'{table.source_path}'" for table, label in zip(tables, unique) if label == collisions[0])
+        raise LDSCInputError(
+            f"rg cannot give each input a unique trait label: '{collisions[0]}' would label {sources}. "
+            "Most likely one trait name contains '@' and equals the label generated to separate "
+            "inputs that share a trait name. Re-run `ldsc munge-sumstats` for one of these inputs "
+            "with a distinct --trait-name."
+        )
 
     renamed = sum(original != resolved for original, resolved in zip(labels, unique))
     if renamed:

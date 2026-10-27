@@ -1,6 +1,6 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `column_inference.py`, all
@@ -89,10 +89,9 @@ Pairwise R² parquet schema metadata also stores `ldsc:sorted_by_build`,
 `ldsc:row_group_size`, `ldsc:n_samples`, `ldsc:r2_bias`, `ldsc:n_snps`,
 `ldsc:sidecar_identity_sha256`, `ldsc:r2_encoding` (`"int16_symmetric"`),
 `ldsc:r2_scale` (`"32767"`), and the minimal identity provenance keys
-`ldsc:artifact_type`, `ldsc:snp_identifier`, and `ldsc:genome_build`. The R2
-bias keys let downstream readers distinguish
-package-built unbiased R2 from raw sample R2 without requiring users to repeat
-sample-size arguments. The sidecar-binding keys bind the parquet to its exact
+`ldsc:artifact_type`, `ldsc:snp_identifier`, and `ldsc:genome_build`.
+Readers require `ldsc:r2_bias=unbiased`, so users never supply sample-size arguments.
+The sidecar-binding keys bind the parquet to its exact
 sidecar and are validated at load time. Old package-written artifacts
 without current identity provenance must be regenerated with the current
 package.

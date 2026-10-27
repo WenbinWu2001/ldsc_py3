@@ -1,6 +1,6 @@
 # Reference-Panel R² Pair Query
 
-Last updated on: 2026-09-11
+Last updated on: 2026-10-27
 
 Query the adjusted (unbiased) R² stored in a `ldsc build-r2-panel` index-format
 panel for a list of SNP pairs, and convert it to a signed Pearson correlation
@@ -14,9 +14,8 @@ See the [panel format](parquet-r2-format-and-read-pipeline.md) and the [query wi
 
 Three public objects are exported from `ldsc`:
 
-- `R2Panel.open(...)` — a reusable handle. Open once, query many times; each
-  chromosome is loaded lazily on first touch and cached (sidecar, schema
-  metadata, sidecar-binding check, identity-key map, parquet handle).
+- `R2Panel.open(...)` — a reusable handle. Open once, query many times.
+  `open()` validates every chromosome's parquet footer up front; each chromosome's sidecar, sidecar-binding check, identity-key map, and parquet handle are loaded lazily on first touch and cached.
 - `query_r2(pairs, ...)` — a one-shot wrapper that opens a panel, queries, and
   returns the result.
 - `unbiased_r2_to_pearson_r(r2_adj, n, sign=None)` — a pure converter.
@@ -60,8 +59,8 @@ queried pair; the two endpoints are columns suffixed `_1` and `_2`:
 | `A1_1, A2_1` | `A1_2, A2_2` | allele-aware modes (matching + sign) |
 | `SNP_1` | `SNP_2` | `rsid*` modes |
 
-The SNP identifier mode defaults to the panel's recorded `ldsc:snp_identifier`
-and can be overridden with `snp_identifier=` / `--snp-identifier`.
+The SNP identifier mode defaults to the panel's recorded `ldsc:snp_identifier`.
+`snp_identifier=` / `--snp-identifier` accepts only that mode or its base form (`rsid` or `chr_pos`); any other mode fails at `R2Panel.open()`.
 
 **Base modes ignore alleles.** In `rsid` / `chr_pos` mode only the matching
 columns are read; any `A1_*`/`A2_*` columns are dropped before resolution and
@@ -77,7 +76,7 @@ The result preserves input rows and columns and writes `r2`, `sign_r`, `r`, and 
 | `r2` | adjusted (unbiased) R² as stored, dequantized to float; `NaN` when not available |
 | `sign_r` | harmonized sign `+1`/`-1` (allele-aware modes); `NA` in base modes or where `r2` is `NaN` |
 | `status` | empty (`""`) for a valid `r2`; otherwise the cause of the `NaN` |
-| `r` | signed Pearson `r` (always emitted); `NaN` where `r2` is `NaN`, `sign_r` is `NA`, or the panel lacks `ldsc:n_samples` |
+| `r` | signed Pearson `r` (always emitted); `NaN` where `r2` is `NaN` or `sign_r` is `NA` |
 
 `status` is always present and carries one of a closed vocabulary, only for
 `NaN`-`r2` rows:

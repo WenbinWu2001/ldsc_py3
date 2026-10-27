@@ -1,6 +1,6 @@
 # Architecture
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 `ldsc` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
@@ -220,7 +220,8 @@ Architecture invariant: computation stays chromosome-wise, global filtering uses
 
 ### `ldsc._kernel.ref_panel`, `ldsc._kernel.ldscore`
 
-`RefPanel.prepare_chromosome(chrom, annotations, config)` is the shared preparation boundary for `LDScoreCalculator.compute_chromosome()` and PLINK gene-index construction. The PLINK/parquet adapters own source resolution, identity and SNP restrictions, sample/MAF filtering, annotation alignment, authoritative reference CM/MAF, LD-window validation, and reader policy. They return `PreparedChromosome`: metadata, a selected annotation accessor mapping retained reference SNPs to stored annotation rows, window bounds, and one owned reader. Packed binary and dense float32 annotation stores remain behind that accessor. PLINK preparation preserves physical BIM/BED row indices through sorting and filtering. Parquet preparation calls `ParquetR2RefPanel.build_reader()`, so bias/sample-size metadata and sidecar binding follow the same path in production and adapter tests.
+`RefPanel.prepare_chromosome(chrom, annotations, config)` is the shared preparation boundary for `LDScoreCalculator.compute_chromosome()` and PLINK gene-index construction. The PLINK/parquet adapters own source resolution, identity and SNP restrictions, sample/MAF filtering, annotation alignment, authoritative reference CM/MAF, LD-window validation, and reader policy. They return `PreparedChromosome`: metadata, a selected annotation accessor mapping retained reference SNPs to stored annotation rows, window bounds, and one owned reader. Packed binary and dense float32 annotation stores remain behind that accessor. PLINK preparation preserves physical BIM/BED row indices through sorting and filtering.
+Parquet preparation calls `ParquetR2RefPanel.build_reader()`, so the R2 parquet contract check and sidecar binding follow the same path in production and adapter tests.
 
 `_kernel.ldscore.compute_chromosome()` projects baseline/query annotations and regression weights together, then derives counts and overlap. It consumes prepared state without reopening sources. Use prepared state in a `with` block: readers close on success or failure, and metadata caches retain tables only. Separate `load_metadata()` inspection may read PLINK data independently; one chromosome calculation itself constructs one BED reader. `tests/test_reference_preparation.py` covers known raw/unbiased results, alignment, authoritative metadata, physical row mapping, and failure cleanup; `tests/test_ldscore_workflow.py` verifies the public single-reader path.
 
@@ -238,7 +239,7 @@ Shared allele-aware cleanup and duplicate-group removal retain audit diagnostics
 Contradictory baseline/PLINK coordinates or usable alleles fail with a repair table before chromosome workers; cross-chromosome rsID checks use a temporary SQLite join.
 Empty intersections fail, PLINK `CHR/POS/SNP/A1/A2` metadata is authoritative, and canonical sorting maps back to preserved physical BIM/BED indices.
 The private kernel owns disjoint half-open atoms, Boolean gene-to-atom CSR membership, bounded SNP-by-atom blocks, sufficient statistics, and float64 `Y @ z` assembly.
-Each index directory is one immutable format-version-2 artifact with no restart, resume, incremental update, component reuse, or legacy-index loader.
+Each index directory is one immutable format-version-3 artifact with no restart, resume, incremental update, component reuse, or legacy-index loader.
 Earlier formats require a complete rebuild.
 Indexed output is still a self-contained canonical LD-score directory written by `LDScoreDirectoryWriter`; it inherits identity/build and rejects live overrides.
 Architecture invariant: online assembly uses only the explicitly named complete index and never discovers an index or falls back to live computation.

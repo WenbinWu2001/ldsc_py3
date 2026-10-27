@@ -1,6 +1,6 @@
 # Supported Column Alias Inference
 
-Last updated on: 2026-09-11
+Last updated on: 2026-10-27
 
 Column aliases are centralized in `src/ldsc/column_inference.py`. The registry
 is used by the main workflows (`munge-sumstats`, annotation loading,
@@ -142,8 +142,9 @@ The companion `chrN_meta.tsv.gz` sidecar defines the SNP universe and accepts
 the standard column aliases for `CHR`, `POS`, `SNP`, `A1`, `A2`, `CM`, and
 `MAF`.
 
-The same index parquet serves all four identifier modes; no separate allele-aware
-artifact is needed. Alias-tolerant loading (accepted synonyms for `CHR`, `BP`,
+Each index parquet records the identifier mode it was built in; `ldscore` requires
+the run's mode to match, and `query-r2` also accepts the base form of that mode.
+Alias-tolerant loading (accepted synonyms for `CHR`, `BP`,
 etc.) applies to the metadata sidecar, not to the parquet pair columns.
 
 External R2 parquet inputs in other formats are not supported; they must be

@@ -663,7 +663,7 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
    not hand-edit or independently copy sidecars.
 3. Use one consistent R2 directory per genome build and reference-panel run.
 
-**Developer reference:** `_kernel.ldscore.SortedR2BlockReader`, sidecar-binding guards, and parquet row decoders · **Exception:** `LDSCInputError`
+**Developer reference:** `_kernel.ldscore.read_r2_parquet_contracts`, `_kernel.ldscore.SortedR2BlockReader`, sidecar-binding guards, and `validate_ldscore_window_within_r2_panel_window` · **Exception:** `LDSCInputError`; `LDSCUsageError` for LD-window mismatches (cause 7)
 
 ### ldscore: genome build could not be resolved consistently
 
@@ -700,7 +700,6 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
 | Likely cause | Check |
 |---|---|
 | PLINK `.bim` has an all-zero `CM` column (the common PLINK default) | Inspect the third `.bim` column; it is `0` for every SNP |
-| Parquet panel built without a genetic map (sidecar `CM=NA`) | Inspect `chr*_meta.tsv.gz` `CM` column |
 | Genome build for the genetic map could not be determined (rsID modes) | Confirm whether `--genome-build` was passed |
 
 **Remedies:**
@@ -709,8 +708,9 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
    `--genetic-map-hg38-sources <file>` or `--genetic-map-hg19-sources <file>`.
    ldscore interpolates `CM` at the `.bim` positions (PLINK backend).
 2. Provide a `.bim` whose third column carries real genetic-map positions, or a
-   parquet panel built with `ldsc build-r2-panel --genetic-map-<build>-sources`.
+   parquet panel built with `ldsc build-r2-panel --genetic-map-<build>-sources --ld-wind-cm`.
 3. Use a physical-distance window instead: `--ld-wind-kb 1000` or `--ld-wind-snps`.
+   With a parquet panel, use the panel's own window unit, no wider than its build window.
 4. In rsID identifier modes, pass `--genome-build hg19` / `--genome-build hg38`
    so the matching genetic map can be selected.
 
@@ -788,7 +788,7 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
 
 ### build-r2-panel: reference-panel artifact is incompatible
 
-**Symptom:** `Reference-panel metadata sidecar is missing...` / `...required identity/provenance keys are missing...`
+**Symptom:** `Reference-panel metadata sidecar is missing...` / `...required identity/provenance keys are missing...` / `...has missing, non-numeric, or out-of-range MAF for ... SNP rows...`
 
 **Likely causes & how to check** (most probable first):
 
@@ -799,6 +799,7 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
 | 3 | A parent directory with multiple build children was passed without a concrete build | Check for `hg19/` and `hg38/` children under `--r2-dir` |
 | 4 | The metadata sidecar lacks required SNP identity columns for the active mode | Inspect sidecar columns for SNP or CHR/POS plus A1/A2 in allele-aware modes |
 | 5 | The selected chromosome/build was not generated | List `chr*_r2.parquet` files in the selected build directory |
+| 6 | The sidecar was edited or produced by another tool, leaving `MAF` missing, non-numeric, or outside [0, 0.5] | The error names the count and first SNPs; `build-r2-panel` writes the minor-allele (`A1`) frequency for every row |
 
 **Remedies:**
 

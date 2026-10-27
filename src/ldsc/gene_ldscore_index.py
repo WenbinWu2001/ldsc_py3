@@ -1919,7 +1919,7 @@ def _load_gene_ldscore_index(
     Parameters
     ----------
     index_dir : path-like
-        Directory containing one complete format-version-2 index covering
+        Directory containing one complete format-version-3 index covering
         autosomes 1 through 22. Earlier formats require a complete rebuild;
         no profile discovery or compatibility migration is performed.
 

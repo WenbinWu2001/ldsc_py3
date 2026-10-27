@@ -484,8 +484,11 @@ class RefPanelConfig:
 class LDScoreConfig:
     """Configuration for chromosome-wise LD-score calculation.
 
-    Exactly one LD-window field must be provided. The remaining fields control
-    regression row selection, annotation counts, and execution batch sizes.
+    Exactly one LD-window field must be provided. With a parquet R2 panel the
+    window must use the panel's build-window unit and be no wider than it, and
+    ``ld_wind_snps`` counts panel sidecar rows rather than retained SNPs. The
+    remaining fields control regression row selection, annotation counts, and
+    execution batch sizes.
 
     Parameters
     ----------

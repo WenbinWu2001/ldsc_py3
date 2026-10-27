@@ -154,11 +154,11 @@ Runtime compatibility is carried by the Parquet footer and paired SNP sidecar, n
 | Field | Location | Downstream usage |
 | --- | --- | --- |
 | `ldsc:artifact_type` | Parquet footer or sidecar header | Identifies `ref_panel_r2` or `ref_panel_metadata` |
-| `ldsc:snp_identifier` | Both | Build provenance; query-r2 uses the recorded mode by default, but the pair indices are mode-independent |
+| `ldsc:snp_identifier` | Both | Build identity mode; `ldscore` requires an exact match, and `query-r2` accepts this mode or its base form |
 | `ldsc:genome_build` | Both | Coordinate-build identity |
 | `ldsc:sorted_by_build` | Parquet footer | Declares the build defining index/position order |
 | `ldsc:n_snps`, `ldsc:sidecar_identity_sha256` | Parquet footer | Bind pair indices to the sidecar's SNP count, identity, and order |
-| `ldsc:n_samples` | Parquet footer | Reference sample size for bias handling and recovering Pearson r |
+| `ldsc:n_samples` | Parquet footer | Reference sample size (at least 3, equal across a panel's chromosome files) that `query-r2` uses to recover Pearson r |
 | `ldsc:r2_bias` | Parquet footer | Package-built panels store `unbiased` R² |
 | `ldsc:r2_encoding`, `ldsc:r2_scale` | Parquet footer | Package output uses `int16_symmetric` with divisor 32767 |
 | `ldsc:min_r2` | Parquet footer | Required build-time sparsification threshold; nonpositive means no R² filtering; `ldscore` rejects a positive value |
@@ -223,11 +223,13 @@ ldscore/
     gene_list_resolution_summary.tsv
     chromosome_scope.json
     input_issues.tsv
+    ld_window_snp_counts.tsv
 ```
 
 `ldscore.query.parquet` is present for a single query batch. Multiple batches instead use `ldscore.query.batch00001.parquet` and subsequent ordinals, with `files.query_batch00001` keys. Baseline-only output has no query file. All current directories require the ordered `query_batches` manifest, including an empty list for baseline-only output.
 `query_annotation_status.tsv` is present for BED/gene-list query runs;
 The row-complete audit and per-source summary are present for gene-list runs.
+`ld_window_snp_counts.tsv` is present only for parquet-R2 runs with `--ld-wind-snps`; it records each chromosome's `panel_snps`, `kept_snps`, `ld_wind_snps`, and `counting_basis` (`panel_rows`).
 `ldscore.overlap.parquet` holds the annotation overlap matrix (long form:
 `row_annotation`, `col_annotation`, `overlap_all_snps`, `overlap_common_snps`)
 that `partitioned-h2` requires. It is written only for runs with two or more

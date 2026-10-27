@@ -396,10 +396,9 @@ Requirements:
 - parquet R2 directories must use the fixed `chr{chrom}_r2.parquet` naming
   contract, with a mandatory paired `chr{chrom}_meta.tsv.gz` sidecar for each
   chromosome (the sidecar defines the index space)
-- package-built R2 parquet files record `ldsc:r2_bias` and `ldsc:n_samples` in
-  schema metadata; R2 bias mode and sample size are read solely from this
-  metadata (there are no bias-related flags), so external raw-R2 panels must
-  declare `ldsc:r2_bias=raw` and `ldsc:n_samples` to be corrected
+- package-built R2 parquet files record `ldsc:r2_bias=unbiased`, `ldsc:n_samples`,
+  and the rest of the [R2 parquet contract](parquet-r2-format-and-read-pipeline.md#25-parquet-schema-metadata) in schema metadata;
+  there are no bias-related flags, and panels that do not match the contract must be rebuilt
 
 Examples:
 

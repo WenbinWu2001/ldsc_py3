@@ -1,6 +1,6 @@
 # Munge summary statistics
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 `ldsc munge-sumstats` converts a raw GWAS table into LDSC3-ready summary statistics. See the current [munge-sumstats guide](../../current/munge-sumstats.md) for the full workflow and output contract.
 
@@ -86,7 +86,8 @@ To opt out of automatic quick liftover, add `--liftover-chain-file /path/to/sour
 
 The example writes `mdd2025.parquet`, `diagnostics/sumstats.log`, and `diagnostics/dropped_snps/dropped.tsv.gz`. Use `--output-format both` to additionally write `mdd2025.sumstats.gz`. Without `--trait-name`, the data filenames are `sumstats.parquet` and `sumstats.gz`; Parquet remains the default.
 
-After success, stdout and the log show a `Munge-sumstats summary:` block at every log level. It names the restriction and selected mapping method and reports mapping input, mapped/retained, dropped rows, and drop reasons. Whole-run row totals and exclusive per-stage drops are separate: `sumstats_snps` counts keep-list removals, `liftover` counts mapping removals, and `identity` counts final identity cleanup. Mapping input excludes rows already removed by earlier QC or the keep-list. The dropped-SNP sidecar covers liftover and identity removals, not every QC stage. See [count interpretation](../../current/munge-sumstats.md#liftover-rules).
+After success, stdout and the log show a `Munge-sumstats summary:` block at every log level.
+When no INFO or frequency column is selected, the block states that the default `--info-min` 0.9 or `--maf-min` 0.01 filter was not applied; an explicit `--info-min` or `--maf-min` without its column stops the run instead. It names the restriction and selected mapping method and reports mapping input, mapped/retained, dropped rows, and drop reasons. Whole-run row totals and exclusive per-stage drops are separate: `sumstats_snps` counts keep-list removals, `liftover` counts mapping removals, and `identity` counts final identity cleanup. Mapping input excludes rows already removed by earlier QC or the keep-list. The dropped-SNP sidecar covers liftover and identity removals, not every QC stage. See [count interpretation](../../current/munge-sumstats.md#liftover-rules).
 
 ## Override column-name inference
 

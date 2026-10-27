@@ -1,6 +1,6 @@
 # Partitioned LDSC Workflow: Technical Reference
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-27
 
 This document describes the refactored workflow for computing LD scores and
 running h2, partitioned-h2, and rg regression from one canonical LD-score result
@@ -159,7 +159,8 @@ LD scores can be computed from:
 In `--r2-dir` mode, matching `chr*_meta.tsv.gz` sidecars are discovered
 automatically. The sidecar is mandatory for the canonical index-format R2
 parquet — it defines the index space and provides MAF and cM metadata. A missing
-sidecar is a hard error. The same R2 parquet serves all four identifier modes.
+sidecar is a hard error.
+The run's identifier mode must equal the panel's recorded mode.
 External R2 parquet formats are not supported.
 
 ### Summary Statistics

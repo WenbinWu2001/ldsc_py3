@@ -137,7 +137,8 @@ ldsc ldscore \
   --output-dir tutorial_outputs/ldscores_chr22
 ```
 
-For scientific analyses, build the intended genome-wide reference population and window. Ordinary unpartitioned `ldscore` can synthesize an all-ones baseline; partitioned/query LD scores require explicit baseline annotations. A downstream cM window requires usable sidecar CM values. A wider window cannot recover pairs omitted during panel construction.
+For scientific analyses, build the intended genome-wide reference population and window. Ordinary unpartitioned `ldscore` can synthesize an all-ones baseline; partitioned/query LD scores require explicit baseline annotations. A downstream cM window requires usable sidecar CM values.
+The panel stores no pairs beyond its build window, so `ldscore` rejects a window in another unit or wider than the build window.
 
 ## Build from Python
 

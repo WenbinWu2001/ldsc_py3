@@ -58,8 +58,9 @@ restrictions, including the packaged HM3 map, match by the effective
 allele-aware key in allele-aware modes. Annotation files may omit alleles in
 allele-aware modes because they describe genomic membership; if
 annotation alleles are present, they participate in allele-aware matching.
-Package-built R2 parquets use the 4-column index format and serve all four
-identifier modes. External R2 parquet formats are not supported.
+Package-built R2 parquets use the 4-column index format and record the identifier
+mode they were built in, which `ldscore` requires the run to match.
+External R2 parquet formats are not supported.
 
 ## Format Policy
 
@@ -208,7 +209,7 @@ Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requi
 | `--gene-exclude-regions` | input transform | no | live gene exclusion policy | Excludes `none` or `mhc` from live gene-list projection before padding; defaults to `none`. It is independent of SNP `--regr-snps-exclude-regions`; the non-default `mhc` choice is rejected outside live gene-list mode. |
 | `--control-gene-list-file` | input | no | fixed gene control | Supplies one existing one-column control gene-list file for live or indexed gene-list runs. When omitted (the default), no `gene_control` column is added. Supplying it requires a gene-list run. |
 | `--plink-prefix` | input | conditional | PLINK reference panel prefix | Selects PLINK reference-panel input; defaults to omitted/`None` and is required when `--r2-dir` is omitted. Supports an exact complete `.bed/.bim/.fam` prefix, a plain chromosome-suite stem, a PLINK-prefix glob, or an `@` suite. |
-| `--r2-dir` | input | conditional | package-built parquet R2 directory | Selects parquet reference-panel input; defaults to omitted/`None` and is required when `--plink-prefix` is omitted. Use a build-specific directory such as `ref_panel/hg38`. The directory must contain paired `chrN_r2.parquet` (4-column index format) and `chrN_meta.tsv.gz` sidecar files; the sidecar is mandatory. One parquet serves all identifier modes. |
+| `--r2-dir` | input | conditional | package-built parquet R2 directory | Selects parquet reference-panel input; defaults to omitted/`None` and is required when `--plink-prefix` is omitted. Use a build-specific directory such as `ref_panel/hg38`. The directory must contain paired `chrN_r2.parquet` (4-column index format) and `chrN_meta.tsv.gz` sidecar files; the sidecar is mandatory. The run's `--snp-identifier` must equal the panel's recorded mode. |
 | `--snp-identifier` | config | no | SNP identity mode | Defines how SNPs are keyed. Defaults to `chr_pos_allele_aware`; valid values are `rsid`, `rsid_allele_aware`, `chr_pos`, and `chr_pos_allele_aware`. |
 | `--genome-build` | config | no | coordinate and gene-interval interpretation | Build for `chr_pos` identity and gene-list interval projection; defaults to omitted/`None`, while gene-list runs resolve omission to `auto`, including rsID modes. rsID artifact identity metadata remains build-independent. Accepted aliases normalize to hg19 or hg38. |
 | `--ref-panel-snps-file` | input | no | reference-panel SNP universe restriction | Restricts the retained reference-panel SNP universe using identity keys only; duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. Defaults to omitted/`None`, so no additional restriction is applied. |
@@ -230,8 +231,8 @@ Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requi
 Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--r2-sources`,
 `--metadata-sources`, `--keep`, `--maf`, `--baseline-annot`,
 `--query-annot`, `--query-annot-bed`, `--chunk-size`, `--r2-bias-mode`,
-`--r2-sample-size`, legacy `--out`. R2 bias mode and sample size are now read
-solely from parquet schema metadata (`ldsc:r2_bias` / `ldsc:n_samples`).
+`--r2-sample-size`, legacy `--out`.
+Parquet R2 values are always already unbiased; their bias and sample size are recorded only in schema metadata (`ldsc:r2_bias` / `ldsc:n_samples`).
 
 LD-score output schema:
 
@@ -289,10 +290,8 @@ Fixed output names:
 Each `chr{chrom}_r2.parquet` stores Arrow schema metadata for
 `ldsc:sorted_by_build`, `ldsc:row_group_size`, `ldsc:n_samples`, and
 `ldsc:r2_bias`. Current package-built panels write unbiased R2 values and record
-the PLINK sample count. Downstream LD-score runs read R2 bias mode and sample
-size from this metadata; there are no bias-related flags. External raw-R2 panels
-must declare `ldsc:r2_bias=raw` and `ldsc:n_samples` in their parquet schema to
-be corrected.
+the PLINK sample count.
+Downstream readers require `ldsc:r2_bias=unbiased` and the rest of the [R2 parquet contract](parquet-r2-format-and-read-pipeline.md#25-parquet-schema-metadata); there are no bias-related flags.
 
 When no usable source-to-target liftover method is provided, the builder logs an
 INFO message and emits source-build-only outputs. When a matching liftover chain
@@ -380,8 +379,8 @@ annotations and frequencies. See
 | `--output-dir` | output | yes | munged output directory | Required for every CLI run, including `--infer-only`. Normal runs write trait-named data artifacts and shared diagnostics under this directory; inference-only runs do not create it. |
 | `--output-format` | output mode | no | curated sumstats format | One of `parquet`, `tsv.gz`, or `both`; defaults to `parquet`. |
 | `--N`, `--N-cas`, `--N-con` | model/QC | no | sample-size fallbacks | Per-variant N or case/control columns take precedence; otherwise use `--N`, then `--N-cas + --N-con`. Each defaults to `None`. |
-| `--info-min` | QC | no | INFO threshold | Minimum INFO value retained by the munging kernel; defaults to `0.9`. |
-| `--maf-min` | QC | no | MAF threshold | Minimum folded MAF retained by the munging kernel; defaults to `0.01`. Stored FRQ is not folded. |
+| `--info-min` | QC | no | INFO threshold | Minimum INFO value retained by the munging kernel; defaults to omitted/`None`, which applies `0.9` only when an INFO column is selected and otherwise skips the filter. An explicit value without a selected INFO column is an error. |
+| `--maf-min` | QC | no | MAF threshold | Minimum folded MAF retained by the munging kernel; defaults to omitted/`None`, which applies `0.01` only when a frequency column is selected and otherwise skips the filter. An explicit value without a selected frequency column is an error. Stored FRQ is not folded. |
 | `--n-min` | QC | no | minimum sample size | Minimum per-variant N; omitted or zero uses its 90th percentile divided by 1.5. Constant N bypasses this filter, preserving LDSC2 behavior. |
 | `--chunksize` | performance | no | raw chunk size | Number of raw rows streamed per munging chunk; defaults to `1000000`. |
 | `--snp` | input metadata | no | raw SNP column hint | Identifies the raw SNP/variant identifier column; defaults to omitted/`None`, so common aliases are inferred. |
@@ -450,7 +449,7 @@ INFO flags.
 | `--output-dir` | output | yes | result directory | Writes the canonical result directory (`query_r2.tsv` plus `diagnostics/metadata.json` and `diagnostics/query-r2.log`). |
 | `--overwrite` | output control | no | overwrite toggle | Replaces existing query-r2 output artifacts in `--output-dir`; defaults to `False`. |
 | `--log-level` | output control | no | log verbosity | Verbosity of `diagnostics/query-r2.log`; defaults to `INFO`. |
-| `--snp-identifier` | input metadata | no | query identity mode | Overrides panel metadata; defaults to omitted/`None`. If omitted, `R2Panel.open()` reads `ldsc:snp_identifier` from parquet metadata. |
+| `--snp-identifier` | input metadata | no | query identity mode | Defaults to omitted/`None`, which uses the panel's recorded `ldsc:snp_identifier`. The only other accepted value is that mode's base form (`rsid` or `chr_pos`); `R2Panel.open()` rejects any other mode. |
 | `--genome-build` | input selector | no | panel build selector | Concrete `hg19`/`hg38` selector for build-r2-panel directory layouts; defaults to omitted/`None`. |
 
 Removed flags: `--out` (replaced by the required `--output-dir` result directory),

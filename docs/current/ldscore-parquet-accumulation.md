@@ -1,6 +1,6 @@
 # LD-score Computation from R² Parquets — Mathematical Specification
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 This document defines, in math, **how LD scores are computed from a parquet R²
 reference panel** by the streaming accumulator. It is the conceptual companion to
@@ -37,7 +37,6 @@ SNPs after intersection/restriction), in **genomic (position-sorted) order**.
 | $\mathrm{IDX}_1,\mathrm{IDX}_2$ | on-disk int32 | a stored pair's two **panel** indices, with $\mathrm{IDX}_1<\mathrm{IDX}_2$ |
 | $q$ | on-disk int16 | the quantized R² of a pair as stored on disk |
 | $s$ | scalar | dequantization scale, $s=32767$ (`ldsc:r2_scale`) |
-| $N$ | scalar | reference sample size (only used for the *raw*→unbiased correction of external panels; §6.4) |
 | $K$ | scalar | maximum decoded pairs buffered before projection (§5) |
 | $O$ | ordered retained-row indices | output SNP rows, a subset of the contributor universe |
 | $C_{\mathrm{out}}$ | matrix $\mathbb{R}^{\lvert O\rvert\times n_a}$ | production float64 accumulator, equal to $(RA)[O,:]$ |
@@ -271,11 +270,9 @@ far more slowly.)
 ### 6.4 The stored R² is already unbiased
 `build-r2-panel` writes the **unbiased** estimate $r^2$ (`_unbiased_r2_array`,
 tagged `ldsc:r2_bias=unbiased`), so the decoded $v_{ij}=q/s$ is the final value and
-no correction is applied. The raw→unbiased map
-$v_{ij}\leftarrow v_{ij}-\tfrac{1-v_{ij}}{N-2}$ is applied **only** for external
-*raw*-R² panels (those declaring `ldsc:r2_bias=raw` with `ldsc:n_samples=N` in
-parquet schema metadata), once per pair at decode.
-Either way the $v_{ij}$ entering §5 is the final R². Negative decoded $v_{ij}$ values are preserved, not floored.
+no correction is applied.
+Readers reject any panel whose metadata does not declare `ldsc:r2_bias=unbiased`, so the $v_{ij}$ entering §5 is always the final R².
+Negative decoded $v_{ij}$ values are preserved, not floored.
 
 ### 6.5 Numerical precision
 The score accumulator, sparse operator values, and annotation operands are float64.

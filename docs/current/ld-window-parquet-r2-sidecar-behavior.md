@@ -72,7 +72,7 @@ For a parquet panel, `--ld-wind-snps K` spans `K` sidecar rows on each side, wha
 A window no wider than the panel's then never needs a pair the panel did not store.
 When the run keeps fewer SNPs than the panel (ldscore `--maf-min`, `--ref-panel-snps-file`, or annotations covering part of the panel), its SNPs have fewer than `K` contributors per side.
 The PLINK backend counts the SNPs the run keeps, as LDSC2 did, so the two backends then differ for the same flags.
-Each such run logs one warning naming the affected chromosomes.
+Each such run logs one warning with the number of affected chromosomes, one example with its kept and panel SNP counts, and the location of the per-chromosome counts.
 Every parquet `--ld-wind-snps` run writes `diagnostics/ld_window_snp_counts.tsv` with `CHR`, `panel_snps`, `kept_snps`, `ld_wind_snps`, and `counting_basis` (`panel_rows`), listed in `metadata.json` `files`.
 Kept SNPs must be in sidecar row order; several SNPs at one position listed in a different order from the sidecar stop the run with an `LDSCInputError`.
 See `build_window_coordinates` in `src/ldsc/_kernel/ldscore.py` and `_ld_window_snp_counts` in `src/ldsc/ldscore_calculator.py`.
@@ -95,8 +95,8 @@ raises:
 ```
 
 Package-built sidecars from source-only runs (no genetic map supplied) write
-`CM=NA` for every SNP. Use `--ld-wind-snps` or `--ld-wind-kb` in that case, or
-regenerate with a genetic-map input.
+`CM=NA` for every SNP.
+Such a panel was built with a kb or SNP-count window, so the window-unit rule above rejects `--ld-wind-cm` before this check; use the panel's own unit, or rebuild the panel with a genetic map and `--ld-wind-cm`.
 
 ## Annotation interaction
 

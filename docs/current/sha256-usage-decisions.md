@@ -1,10 +1,10 @@
 # SHA256 Usage Decisions
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 Status: the design, removal remedies, and reader consequences were confirmed on 2026-09-10. Both fingerprint removals are implemented and verified.
 
-Current compatibility note (2026-10-26): the [format-version-2 index contract](gene-ldscore-index.md#artifact-and-identity-contract) requires complete rebuilding of earlier indexes.
+Current compatibility note (2026-10-26): the [format-version-3 index contract](gene-ldscore-index.md#artifact-and-identity-contract) requires complete rebuilding of earlier indexes.
 That requirement supersedes the earlier-format reader compatibility statements preserved below.
 The retained fingerprint purposes still apply; semantic identity now also records the selected window unit/value and allele-aware matching where applicable.
 

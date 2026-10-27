@@ -1,6 +1,6 @@
 # Build an exact gene LD-score index
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 For the mathematical construction of the disjoint atoms, stored operator, and
 sufficient statistics—and the full downstream indexed-assembly derivation—see
@@ -206,7 +206,7 @@ Choose a smaller window if it spans an entire retained chromosome; the builder h
 
 ## Output and identity
 
-Current indexes use format version 2.
+Current indexes use format version 3.
 Previously built formats must be rebuilt completely; there is no backward compatibility or migration.
 
 ```text
@@ -237,7 +237,7 @@ batch sizes do not define identity. There are no suite or profile IDs.
 
 Each chromosome also records one ordered `CHR SNP POS A1 A2` fingerprint, `published_row_metadata_sha256`.
 It covers all four identity modes without a separate effective-row digest.
-Current readers require format version 2; earlier formats must be rebuilt completely.
+Current readers require format version 3; earlier formats, including version 2 indexes built with rounded PLINK LD windows, must be rebuilt completely.
 The semantic ID includes the explicit build, matching mode, and selected window unit/value.
 These checks do not establish complete integrity of numerical payloads.
 See the [artifact and identity contract](../../current/gene-ldscore-index.md#artifact-and-identity-contract).

@@ -13,7 +13,8 @@ ldsc ldscore \
   --output-dir results/unpartitioned_ldscores
 ```
 
-This illustrative command selects one concrete chromosome; use the matching complete PLINK suite for a genome-wide analysis. For R² input, replace `--plink-prefix` with `--r2-dir /data/r2/hg19` and keep each Parquet with its required matching sidecar. See [building R² panels](build-r2-panel.md).
+This illustrative command selects one concrete chromosome; use the matching complete PLINK suite for a genome-wide analysis. For R² input, replace `--plink-prefix` with `--r2-dir /data/r2/hg19` and keep each Parquet with its required matching sidecar.
+The LD window must then use the panel's build-window unit and be no wider than it, so this `--ld-wind-kb 1000` command needs a panel built with `--ld-wind-kb` of at least 1000. See [building R² panels](build-r2-panel.md).
 
 The output root contains `metadata.json` and `ldscore.baseline.parquet`. One query batch writes `ldscore.query.parquet`; multiple batches write `ldscore.query.batch00001.parquet`, `ldscore.query.batch00002.parquet`, and so on. Query runs also write `ldscore.overlap.parquet`; `diagnostics/` contains the log and applicable audits. Every query file covers the same genome-wide regression rows, with chromosome row groups. The ordered `query_batches` manifest in root metadata records each file, its columns, and its row groups. Current readers require this manifest; regenerate older directories. Default regression rows are packaged HapMap3 candidates after MHC-and-centromere exclusion, while reference contributors and annotation counts use their own retained reference universe.
 

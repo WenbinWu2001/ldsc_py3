@@ -1,6 +1,6 @@
 # Munge-Sumstats
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`
@@ -40,6 +40,8 @@ The public workflow and tests use `_sumstats_input.prepare_munge_input()` to res
 Source-build inference reads only `CHR`/`POS` in bounded chunks and stops when sufficient evidence is available. It precedes all QC, and shares its coordinate evidence reader with `--infer-only`. The main parsing pass counts raw records as it reads them; it does not reopen the full raw file to count lines after munging.
 
 For Python users, `munger.build_run_summary()` reports parsed `n_input_rows`, final `n_retained_rows`, and `drop_counts`. Headers, leading `##` metadata, and blank lines are excluded. Every drop belongs to the first stage that removes that row, so `sum(drop_counts.values()) == n_input_rows - n_retained_rows`.
+`qc_thresholds` records the effective `INFO` and `FRQ` thresholds; `None` means that filter did not run because no such column was selected, which the log summary also states.
+`--info-min` and `--maf-min` default to `None`: the LDSC2 defaults (0.9 and 0.01) apply only when the corresponding column is selected, and an explicit threshold without its column fails while the header is resolved.
 
 | Count key | Exclusive removal stage |
 | --- | --- |

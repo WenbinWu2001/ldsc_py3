@@ -1,6 +1,6 @@
 # Classes And Features
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 This document summarizes the public package surface. For workflow-level file streams, see [data-flow.md](data-flow.md).
 
@@ -174,8 +174,8 @@ metadata, `--infer-only`, HM3, and liftover guide, see
   annotations include alleles, they participate in allele-aware
   matching.
 - Package-built R2 parquets use the 4-column index format (`IDX_1`, `IDX_2`,
-  `R2`, `SIGN_R`) and serve all four identifier modes from one file. External R2
-  parquet formats are not supported; panels must be built with
+  `R2`, `SIGN_R`) and record the identifier mode they were built in.
+  External R2 parquet formats are not supported; panels must be built with
   `ldsc build-r2-panel`.
 - `ldsc query-r2` and `R2Panel` read the same package-built index-format panels.
   They accept either a panel directory or one explicit sidecar/parquet pair and

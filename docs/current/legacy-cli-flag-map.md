@@ -60,7 +60,7 @@ Sources: LDSC2 [`ldsc.py`, intercept flags](</Users/wenbinwu/Documents_local/Res
 | `--n-min` | `--n-min` | Default is the 90th percentile of per-variant N divided by **1.5**. Omitted and zero values both invoke that default. Keep rows with `N >= n_min`. Constant N is assigned after the filter and bypasses it, as in LDSC2. |
 | `--nstudy`, `--nstudy-min` | Same names | Study-count filtering applies when per-variant N is absent. Omitted/zero thresholds use the maximum study count. A per-variant N strategy takes precedence over this study-count filter. |
 | `--chunksize` | `--chunksize` | Spelling retained. Current default is 1,000,000 input rows per chunk; LDSC2's parser default is 5,000,000. This cleanup does not change the current default. It is separate from the old LD-score `--chunk-size` flag below. |
-| `--maf-min` | `--maf-min` | Current QC behavior is unchanged: compare folded `min(FRQ, 1-FRQ)` with the inclusive threshold, default 0.01. This does not overwrite the stored frequency. |
+| `--maf-min` | `--maf-min` | Compare folded `min(FRQ, 1-FRQ)` with the inclusive threshold. The LDSC2 default 0.01 applies only when a frequency column is selected; without one the default filter is skipped, and an explicit value is an error (LDSC2 skipped it silently). This does not overwrite the stored frequency. |
 
 The existing per-variant case/control normalization is also unchanged: define total T and case fraction p per row, then `N_i = T_i * p_i / mean(p among rows with maximum T)`. It must not be replaced with simply summing the paired per-variant columns or with an effective-N formula as part of flag cleanup. See [“Sample-Size Column Selection”](munge-sumstats.md#sample-size-column-selection).
 
@@ -73,7 +73,8 @@ Legacy numerical source: [`munge_sumstats.py:327`, `process_n`](</Users/wenbinwu
 LDSC2 computed PLINK LD scores in chunks of `--chunk-size` SNPs (default 50) and widened each SNP's window to a multiple of the chunk, so the chunk size changed the LD scores.
 LDSC2's own code comment notes that these windows differ from the definition in the paper.
 The current PLINK backend keeps the chunked computation but drops every pair outside the requested window, so `--snp-batch-size` in `ldsc ldscore` and `ldsc build-gene-ldscore-index` changes only speed and memory.
-Its LD scores equal LDSC2 run with `--chunk-size 1` and match the parquet-R2 backend, which always used exact windows.
+Its LD scores equal LDSC2 run with `--chunk-size 1` and use the same window rule as the parquet-R2 backend, which always used exact windows.
+The two backends still differ slightly, because parquet R² is stored as int16 and a parquet `--ld-wind-snps` window counts panel rows rather than retained SNPs.
 Gene LD-score indexes built with the earlier rounded windows (`format_version` 2) are rejected and must be rebuilt.
 Published LDSC2 LD scores remain usable unchanged through `ldsc convert-ldsc2-ldscores`.
 

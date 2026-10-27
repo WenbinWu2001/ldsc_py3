@@ -1,6 +1,6 @@
 # Config Design: Immutable Config + Provenance-Carrying Results
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-27
 
 `--workers` / `workers` defaults to one managed child process, including on HPC.
 Every worker uses **1 BLAS thread**, in serial and parallel execution.
@@ -348,10 +348,10 @@ ldscore = ldsc.LDScoreCalculator().run(
 )
 ```
 
-For parquet R2 panels, R2 bias mode and sample size are read solely from the
+For parquet R2 panels, R2 bias and sample size are recorded only in the
 parquet schema (`ldsc:r2_bias` and `ldsc:n_samples`); there are no
-`RefPanelConfig` bias fields. External raw-R2 panels must declare
-`ldsc:r2_bias=raw` and `ldsc:n_samples` in their parquet metadata to be corrected.
+`RefPanelConfig` bias or sample-size fields.
+Readers accept only already-unbiased panels written by the current `build-r2-panel`; other panels must be rebuilt.
 
 ### Regression-region exclusion
 

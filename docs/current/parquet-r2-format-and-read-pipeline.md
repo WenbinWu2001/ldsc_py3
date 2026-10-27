@@ -26,7 +26,7 @@ Removing that expansion/collapse round-trip:
 
 - shrinks the identity overhead to two `int32` columns,
 - makes the per-pair read hot path a pure integer gather (mode-independent), and
-- lets a **single** parquet serve all four SNP identifier modes.
+- keeps the stored pairs independent of how sidecar SNPs are matched, so each reader applies the recorded mode in its remap (§2.4).
 
 A `SIGN_R` bit (sign of the Pearson correlation r) is preserved for downstream
 consumers, though LD-score calculation uses the bias-adjusted R² values and ignores this sign bit.
@@ -114,37 +114,38 @@ These numbers describe that panel; they are not error bounds for other inputs.
 
 All encodings are recorded in the parquet footer and PyArrow auto-decodes them.
 The int16→float32 **dequantization is a reader-side step** (divide by
-`ldsc:r2_scale`), not a Parquet codec; see §3.2. A `float32` R² column is read unscaled; the required index and `SIGN_R` columns still apply.
+`ldsc:r2_scale`), not a Parquet codec; see §3.2.
+Readers reject any other R² dtype, encoding, or scale; a panel with a `float32` R² column must be rebuilt.
 
 ### 2.4 SNP Identity Modes — handled entirely off the parquet
 
 The four identifier modes are `rsid`, `rsid_allele_aware`, `chr_pos`, and
 `chr_pos_allele_aware` (package default `chr_pos_allele_aware`). The index
-parquet is **identifier-mode-agnostic**: it stores only indices, so the *same*
-file is read in any mode. The mode affects only how sidecar SNPs are matched to
-the analysis universe when the reader builds its remap (§3); it never changes
-which parquet is required. `ldsc:snp_identifier` in the metadata records the mode
-the panel was built for, as provenance only.
+parquet stores only indices; the mode affects only how sidecar SNPs are matched
+to the analysis universe when the reader builds its remap (§3).
+`ldsc:snp_identifier` records the mode the panel was built in, and readers enforce it: `ldscore` requires the active `--snp-identifier` to equal the recorded mode, and `query-r2` accepts the recorded mode or its base form (`rsid` or `chr_pos`).
 
 ### 2.5 Parquet Schema Metadata
 
 | Key | Type | Description |
 |---|---|---|
 | `ldsc:artifact_type` | string | `ref_panel_r2` |
-| `ldsc:snp_identifier` | string | mode the panel was built for (provenance only) |
+| `ldsc:snp_identifier` | string | mode the panel was built in; `ldscore` requires an exact match, `query-r2` also accepts its base form |
 | `ldsc:genome_build` | string | genome build of the sidecar coordinates |
 | `ldsc:sorted_by_build` | string | build defining the `IDX`/position sort order (`"hg19"` or `"hg38"`); required |
 | `ldsc:row_group_size` | string(int) | intended row-group size (informational) |
-| `ldsc:n_samples` | string(int) | reference individuals used to compute R² |
-| `ldsc:r2_bias` | string | `"unbiased"` for package panels; `"raw"` reserved for external raw-R² panels needing correction |
+| `ldsc:n_samples` | string(int) | reference individuals used to compute R²; required, at least 3, and equal across a panel's chromosome files for `query-r2` |
+| `ldsc:r2_bias` | string | required; must be `"unbiased"` (stored values are already bias-corrected) |
 | `ldsc:min_r2` | string(float) | required; unbiased-R² floor applied at build, at most 1; non-positive means complete. `ldscore` rejects a positive value; `query-r2` accepts it |
 | `ldsc:n_snps` | string(int) | length of the panel sidecar = size of the index space |
 | `ldsc:sidecar_identity_sha256` | string(hex) | binding hash of the sidecar identity (§4) |
-| `ldsc:r2_encoding` | string | R² storage encoding; `"int16_symmetric"` for package panels. Absent on legacy float32 panels. |
-| `ldsc:r2_scale` | string(int) | dequant divisor for an integer R² column (`"32767"`). The reader divides the int16 values by this to recover float32 R². |
+| `ldsc:r2_encoding` | string | required; must be `"int16_symmetric"` |
+| `ldsc:r2_scale` | string(int) | required; must be `"32767"`. The reader divides the int16 values by this to recover float32 R². |
+| `ldsc:ld_window_mode`, `ldsc:ld_window_value` | string, string(float) | required; build window unit (`snps`, `kb`, or `cm`) and positive width. `ldscore` rejects a window in another unit or wider than this one ([window rules](ld-window-parquet-r2-sidecar-behavior.md)) |
 
 Stored as UTF-8 byte strings, accessed via
 `pq.ParquetFile(path).schema_arrow.metadata`.
+Both readers check every key above (except the informational `ldsc:row_group_size`) in `read_r2_parquet_contracts` before decoding any pair and report all defects of all files in one error; no value is defaulted.
 
 ### 2.6 Canonical Example
 
@@ -161,6 +162,8 @@ ldsc:n_snps                  = "969730"
 ldsc:sidecar_identity_sha256 = "a1b2…(64 hex chars)"
 ldsc:r2_encoding             = "int16_symmetric"
 ldsc:r2_scale                = "32767"
+ldsc:ld_window_mode          = "cm"
+ldsc:ld_window_value         = "1.0"
 ```
 
 **Data rows (sorted by non-decreasing `IDX_1`):** R² is stored on disk as int16
@@ -250,16 +253,13 @@ i = remap[IDX_1]; j = remap[IDX_2]
 keep = (i >= 0) & (j >= 0)
 ```
 
-Endpoints not in the analysis universe map to `-1` and are dropped. When the R²
-column is an integer dtype (quantized panels), the reader **dequantizes**
-(`r2 = int16_values / ldsc:r2_scale`, scale resolved once at open in
-`_resolve_r2_scale`) to `float32` before the optional raw→unbiased R² correction
-(`_transform_r2`); a float32 R² column (legacy) skips dequant. `SIGN_R` is not read
-(unused by LD-score computation).
+Endpoints not in the analysis universe map to `-1` and are dropped.
+The reader **dequantizes** the int16 column (`r2 = int16_values / ldsc:r2_scale`, with the scale taken from the validated contract) to `float32` and applies no further correction.
+`SIGN_R` is not read (unused by LD-score computation).
 Each decoded batch is a numeric
 `(i:int32, j:int32, r2:float32)` triple of retained-matrix index pairs.
 
-The public chromosome workflow calls `ParquetR2RefPanel.prepare_chromosome`, which aligns annotation rows to the filtered sidecar, takes authoritative CM/MAF from that sidecar, validates LD windows, and calls `build_reader`. That single reader factory uses `_resolve_r2_bias_from_meta` to resolve `ldsc:r2_bias` and `ldsc:n_samples`; production and adapter tests share the same path. The numerical kernel receives this prepared state, and its context manager closes the reader after success or failure. External raw R² values receive the existing sample-size correction in both ordinary and regression-weight LD scores; package-built unbiased panels receive no second correction.
+The public chromosome workflow calls `ParquetR2RefPanel.prepare_chromosome`, which aligns annotation rows to the filtered sidecar, takes authoritative CM/MAF from that sidecar, validates LD windows, and calls `build_reader`. That single reader factory checks the parquet against the shared contract (`read_r2_parquet_contract`) and the active identity configuration; production and adapter tests share the same path. The numerical kernel receives this prepared state, and its context manager closes the reader after success or failure. Stored values are already unbiased, so ordinary and regression-weight LD scores apply no sample-size correction.
 
 ### 3.3 Pair streaming (`iter_all_pairs`)
 
@@ -368,5 +368,5 @@ canonical index format offline. Existing 10-column panels must be regenerated.
 | `ref_panel_builder.py` | build loop: sidecar built first, hash + `n_snps` passed to the writer |
 | `_kernel/ldscore.py` | `SortedR2BlockReader` index path: full-sidecar load, binding validation, `build_index_remap`, gather decode, `iter_all_pairs` streaming; `ld_score_streaming_from_r2_reader` pair accumulation; raw/legacy and block/query/cache paths removed |
 | `_kernel/ldscore_projection.py` | `ProjectionAccumulator`: selected-output float64 scores, rectangular sparse pair operators, bounded annotation operands, and shared weight projection |
-| `_kernel/ref_panel.py` | mandatory sidecar loading; shared `prepare_chromosome` alignment/window policy and `build_reader` bias resolution |
+| `_kernel/ref_panel.py` | mandatory sidecar loading; shared `prepare_chromosome` alignment/window policy and `build_reader` contract and identity checks |
 | `tests/` | index writer/reader/binding/remap tests; cross-mode parity gate; build→read parity |

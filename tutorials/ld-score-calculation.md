@@ -113,7 +113,8 @@ Performance behavior for canonical parquet R2 input:
 - `snp_batch_size` / `--snp-batch-size` applies only to PLINK input and is ignored with `--r2-dir`; with PLINK input it changes speed and memory, not LD scores (default `512`)
 
 Unlike legacy LDSC, which widened each SNP's LD window to a multiple of `--chunk-size` and so only approximated the requested window, `ldsc` sums exactly the SNP pairs inside the requested window for both PLINK and parquet input.
-LD scores therefore do not depend on the batch size, and they equal legacy LDSC run with `--chunk-size 1`.
+PLINK LD scores therefore do not depend on the batch size, and they equal legacy LDSC run with `--chunk-size 1`.
+Parquet LD scores apply the same window rule but differ slightly from PLINK, because parquet R² is stored as int16 and a parquet `--ld-wind-snps` window counts panel rows rather than retained SNPs.
 See [Exact PLINK LD windows](../docs/current/legacy-cli-flag-map.md#exact-plink-ld-windows) for the measured difference from published LDSC2 LD scores.
 
 ## Case 1: Ordinary Unpartitioned LD Scores
@@ -421,7 +422,7 @@ absent or empty until a complete index is published.
 
 This live build log contains the same annotation-preparation milestones before `Starting chromosome N`. Index annotation preparation remains serial; the preparation parallelism study is closed, and `--workers` continues to control only subsequent chromosome computation. See [the measured decision](../docs/current/annotation-memory-design.md#bounded-source-preparation).
 
-Current indexes require format version 2; earlier formats must be rebuilt completely.
+Current indexes require format version 3; earlier formats, including version 2 indexes built with rounded PLINK LD windows, must be rebuilt completely.
 Chromosome metadata carries the published-row fingerprint, which covers the effective SNP key in all four identity modes.
 The semantic `index_id` includes the explicit build, matching mode, and selected window unit/value.
 See the [artifact and identity contract](../docs/current/gene-ldscore-index.md#artifact-and-identity-contract).

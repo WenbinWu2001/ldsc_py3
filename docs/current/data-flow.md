@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -207,7 +207,7 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| build-specific R2 parquet | `hg38/chr22_r2.parquet` with 4 columns: `IDX_1`, `IDX_2` (int32 sidecar-row indices), `R2` (float32 unbiased), `SIGN_R` (bool, Pearson r ≥ 0 between the `A1`/minor allele dosages of the pair) | one row per unordered SNP pair inside the LD window; row groups sorted by `IDX_1` (equivalent to `POS_1` order since sidecar is position-sorted); schema metadata records minimal identity provenance plus `ldsc:n_samples`, `ldsc:r2_bias`, `ldsc:n_snps`, and `ldsc:sidecar_identity_sha256`; serves all four identifier modes from one file; paired sidecar is mandatory |
+| build-specific R2 parquet | `hg38/chr22_r2.parquet` with 4 columns: `IDX_1`, `IDX_2` (int32 sidecar-row indices), `R2` (int16 quantized unbiased R², divided by `ldsc:r2_scale`=32767 on read), `SIGN_R` (bool, Pearson r ≥ 0 between the `A1`/minor allele dosages of the pair) | one row per unordered SNP pair inside the LD window; row groups sorted by `IDX_1` (equivalent to `POS_1` order since sidecar is position-sorted); schema metadata records the identity keys plus `ldsc:n_samples`, `ldsc:r2_bias`, `ldsc:r2_encoding`, `ldsc:r2_scale`, `ldsc:min_r2`, `ldsc:ld_window_mode`/`ldsc:ld_window_value`, `ldsc:n_snps`, and `ldsc:sidecar_identity_sha256` ([contract](parquet-r2-format-and-read-pipeline.md#25-parquet-schema-metadata)); paired sidecar is mandatory |
 | build-specific runtime metadata sidecar | `hg38/chr22_meta.tsv.gz` with leading `# ldsc:*` identity-provenance comments and `CHR POS SNP CM MAF A1 A2` columns | mandatory authoritative per-SNP universe for the matching R2 parquet; defines the index space referenced by `IDX_1`/`IDX_2`; `A1` is the **minor allele** and `MAF = freq(A1) ≤ 0.5` (canonical orientation); current package-written sidecars carry `artifact_type`, `snp_identifier`, and `genome_build` |
 | dropped-SNP audit sidecar | `diagnostics/dropped_snps/chr22_dropped.tsv.gz` with `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written for each processed chromosome; header-only when no rows were dropped; identity reasons include `missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, and `duplicate_identity`; liftover reasons include `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision` |
 | diagnostic metadata | JSON provenance | `diagnostics/metadata.json` for full-suite runs or `diagnostics/metadata.chr<chrom>.json` for concrete single-chromosome runs; not consumed downstream |
@@ -273,7 +273,7 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| annotated pair table | input columns plus `r2`, `sign`, `r`, `status` | `status` is blank for found pairs and can report `not_in_panel`, `cross_chromosome`, or `absent`; the always-emitted signed `r` is all-NaN in base modes or when the panel lacks sample-size metadata |
+| annotated pair table | input columns plus `r2`, `sign_r`, `r`, `status` | `status` is blank for found pairs and can report `not_in_panel`, `cross_chromosome`, or `absent`; the always-emitted signed `r` is all-NaN in base modes |
 
 ### Modules used
 

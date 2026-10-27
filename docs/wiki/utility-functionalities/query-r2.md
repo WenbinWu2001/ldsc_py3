@@ -1,6 +1,6 @@
 # Query Pairwise R² and Signed r
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 `ldsc query-r2` looks up specific SNP pairs in a [build-r2-panel](../main-functionalities/build-r2-panel.md) output directory. It returns bias-adjusted R² and, in allele-aware modes, Pearson r in your query allele orientation. This lets you inspect local LD without loading the full pair table.
 
@@ -44,7 +44,7 @@ See the shared [genome-build policy](../../current/snp-identifier-genome-build-d
 
 The Python result uses nullable Int8 for `sign_r`; the TSV writes missing values as `NaN`. There is no `sign` output alias. Stored `SIGN_R` is a boolean in panel allele orientation, whereas returned `sign_r` is harmonized to query alleles. Swapping exactly one endpoint's allele order reverses `sign_r` and `r` without changing `r2`.
 
-`absent` means the resolved pair was not stored, for example because of the build window or a positive `--min-r2` threshold. It does not establish zero correlation. A resolved diagonal has R²=1. Base `rsid`/`chr_pos` modes ignore alleles and return missing `sign_r` and `r`; signed r also needs the panel's sample-size metadata.
+`absent` means the resolved pair was not stored, for example because of the build window or a positive `--min-r2` threshold. It does not establish zero correlation. A resolved diagonal has R²=1. Base `rsid`/`chr_pos` modes ignore alleles and return missing `sign_r` and `r`.
 
 The command writes `diagnostics/metadata.json` with provenance and status counts, plus `diagnostics/query-r2.log`. `--overwrite` replaces owned outputs; `--log-level` changes log-file verbosity.
 
@@ -55,7 +55,7 @@ The command writes `diagnostics/metadata.json` with provenance and status counts
 | `--panel-dir DIR` | Required panel output root or build child |
 | `--pairs FILE` | Required TSV or `.csv`; `-` reads TSV from stdin |
 | `--output-dir DIR` | Required result directory |
-| `--snp-identifier MODE` | Defaults to panel provenance; override to select a public identity mode |
+| `--snp-identifier MODE` | Defaults to the panel's recorded mode; the only other accepted value is that mode's base form (`rsid` or `chr_pos`) |
 | `--genome-build hg19\|hg38` | Select the coordinate build when needed |
 | `--overwrite` | Replace existing command-owned outputs; default off |
 | `--log-level LEVEL` | DEBUG, INFO (default), WARNING, or ERROR |

@@ -106,7 +106,8 @@ def query_r2(
     panel_dir : str or os.PathLike
         Required build-r2-panel output directory or its genome-build child.
     snp_identifier : str or None, optional
-        One of the four public identity modes. None uses panel provenance.
+        The panel's recorded identity mode or its base (allele-free) form.
+        None uses the recorded mode.
     genome_build : {"hg19", "hg38"} or None, optional
         Select the coordinate build when the panel directory contains both.
         A concrete value must agree with normalized input declarations.
@@ -145,9 +146,10 @@ class _ChromState:
 class R2Panel:
     """Handle over a build-r2-panel index-format R² panel for pair queries.
 
-    Open once with :meth:`open`, then call :meth:`query_pairs` many times. Each
-    chromosome is loaded lazily on first touch (sidecar, schema metadata,
-    sidecar-binding check, identity-key map, parquet handle), then cached.
+    Open once with :meth:`open`, then call :meth:`query_pairs` many times.
+    :meth:`open` validates every chromosome's parquet footer up front. Each
+    chromosome's sidecar, sidecar-binding check, identity-key map, and parquet
+    handle are loaded lazily on first touch, then cached.
     """
 
     def __init__(self, paths: dict[str, tuple[str, str]], snp_identifier: str, contracts: dict) -> None:
@@ -600,8 +602,8 @@ def build_parser() -> argparse.ArgumentParser:
     identity.add_argument(
         '--snp-identifier', default=None,
         help=(
-            'SNP matching rule for pair endpoints: rsid, rsid_allele_aware, chr_pos, or '
-            'chr_pos_allele_aware. If omitted, read the mode from panel metadata; pair columns must support '
+            'SNP matching rule for pair endpoints: the mode recorded by the panel (the default) or the '
+            'base form of that mode (rsid or chr_pos), which ignores alleles. Pair columns must support '
             'the selected mode.'
         ),
     )

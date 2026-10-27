@@ -1,6 +1,6 @@
 # ldsc3_Jerry
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 This repository is the active refactored LDSC package.
 
@@ -231,7 +231,8 @@ regression commands need only that one file -- no `metadata.json` sidecar is
 written. The legacy `sumstats.gz` carries no embedded metadata and is
 treated as an rsID lookup artifact at regression time. Footerless Parquet is
 rejected rather than guessed.
-Python run summaries from `munger.build_run_summary()` report parsed input rows, retained rows, exclusive per-stage `drop_counts`, and the sample-size rule actually used. Counts are collected while parsing, excluding headers and blank lines; their totals reconcile with the retained output. Successful CLI runs print the selected restriction, liftover method, and mapping/drop counts to stdout and record the same summary in `diagnostics/sumstats.log` at every log level. See [munging preparation and accounting](docs/current/munge-sumstats.md#preparation-and-run-accounting) and the [liftover behavior table](docs/current/munge-sumstats.md#liftover-rules).
+Python run summaries from `munger.build_run_summary()` report parsed input rows, retained rows, exclusive per-stage `drop_counts`, the sample-size rule actually used, and the effective INFO/MAF thresholds (`qc_thresholds`).
+Counts are collected while parsing, excluding headers and blank lines; their totals reconcile with the retained output. Successful CLI runs print the selected restriction, liftover method, and mapping/drop counts to stdout and record the same summary in `diagnostics/sumstats.log` at every log level. See [munging preparation and accounting](docs/current/munge-sumstats.md#preparation-and-run-accounting) and the [liftover behavior table](docs/current/munge-sumstats.md#liftover-rules).
 
 Detailed coordinate and liftover bookkeeping is written to `sumstats.log`. The default
 `snp_identifier` is `chr_pos_allele_aware`, which requires usable `A1/A2`; rerun
@@ -357,7 +358,7 @@ Task-oriented walkthroughs cover [building the index](docs/wiki/utility-function
 and [using it for gene-list LD scores](docs/wiki/main-functionalities/ldscore-from-gene-list.md).
 
 Gene-index metadata retains the semantic `index_id` and one ordered published-row fingerprint.
-New indexes use format version 2; previous formats must be rebuilt and are not supported by the reader.
+New indexes use format version 3; earlier formats, including version 2 indexes built with rounded PLINK LD windows, must be rebuilt and are not supported by the reader.
 See the [fingerprint and reader contract](docs/current/gene-ldscore-index.md#artifact-and-identity-contract).
 
 Gene-list resolution is strict by default in `annotate`, `ldscore`, and `quantile-h2`. Add the value-free flag `--allow-unresolved-genes` to deliberately use the resolved subset with omission diagnostics. It replaces `--gene-list-resolution-policy resolved-only`; remove `--gene-list-resolution-policy strict` from existing commands. Python policy arguments and metadata retain `strict` / `resolved-only`.

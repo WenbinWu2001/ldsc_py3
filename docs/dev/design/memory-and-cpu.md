@@ -160,7 +160,6 @@ Production preparation does not consume `--workers`; existing chromosome computa
 
 Type follows processing logic and complete value evidence, independently of baseline/query membership.
 No dtype flag or user-supplied type declaration is required.
-The [September 15 decisions](../../current/annotation-memory-decisions.md#confirmed-annotation-storage-scope-2026-09-15) govern this package-wide policy.
 
 | Annotation source or case | Classification | Private representation |
 | --- | --- | --- |
@@ -604,7 +603,7 @@ Whole-genome RAM and runtime figures remain conditional projections; the older b
 | Implemented change | Revision / evidence | Interpretation boundary |
 | --- | --- | --- |
 | Sequential execution/output query batches | `cf1dfac`; [`test_ldscore_query_batches.py`](../../../tests/test_ldscore_query_batches.py) and the benchmark above | Smaller width reduced scratch in the measured local workload but repeated traversal increased wall time; this predates later assembly changes. |
-| Lossless binary annotation storage | `59ee02b`; [storage decisions](../../current/annotation-memory-decisions.md#confirmed-annotation-storage-scope-2026-09-15) and the size measurement above | Exact classification and decoding verified; 32-fold binary payload reduction is not a job-RSS measurement. |
+| Lossless binary annotation storage | `59ee02b`; [annotation format policy](#annotation-format-policy) and the size measurement above | Exact classification and decoding verified; 32-fold binary payload reduction is not a job-RSS measurement. |
 | Indexed active-batch staging and streamed assembly | `659738a`; [`test_indexed_batch_staging.py`](../../../tests/test_indexed_batch_staging.py), [LD-score guide](../../wiki/main-functionalities/ldscore.md) | Bounds outstanding raw fragments and parent arrays; per-batch operator reloads add work. |
 | Regression metadata/file reuse and fewer model copies | `7a478e6`; [`test_partitioned_publication.py`](../../../tests/test_partitioned_publication.py), [`test_regression_memory.py`](../../../tests/test_regression_memory.py), [regression guide](../../wiki/main-functionalities/partitioned-h2.md) | Measures and preserves full-model fits; neither changes the estimator nor eliminates worker-private matrices. |
 | Direct file-writing streamed assembly | `3a4d729`; [`test_direct_batch_staging.py`](../../../tests/test_direct_batch_staging.py), [replay measurements](../../wiki/main-functionalities/ldscore.md#direct-assembly-measurements) | Local end-to-end parity is separate from precomputed full-row assembly replays, which do not measure genotype computation. |

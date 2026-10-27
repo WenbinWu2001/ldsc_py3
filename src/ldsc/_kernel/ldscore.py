@@ -711,8 +711,18 @@ def assert_cm_usable(cm: pd.Series, chrom: str) -> None:
         )
 
 
-def build_window_coordinates(metadata: pd.DataFrame, args: argparse.Namespace) -> tuple[np.ndarray, float]:
-    """Build the coordinate array and maximum distance for the active LD window mode."""
+def build_window_coordinates(
+    metadata: pd.DataFrame,
+    args: argparse.Namespace,
+    *,
+    snp_positions: np.ndarray | None = None,
+) -> tuple[np.ndarray, float]:
+    """Build the coordinate array and maximum distance for the active LD window mode.
+
+    ``--ld-wind-snps`` counts retained rows unless ``snp_positions`` gives each
+    retained SNP's row in a larger SNP universe (the parquet panel sidecar),
+    in which case it counts rows of that universe.
+    """
     selectors = np.array([args.ld_wind_snps is not None, args.ld_wind_kb is not None, args.ld_wind_cm is not None], dtype=bool)
     if selectors.sum() != 1:
         raise LDSCUsageError(
@@ -722,7 +732,20 @@ def build_window_coordinates(metadata: pd.DataFrame, args: argparse.Namespace) -
         )
 
     if args.ld_wind_snps is not None:
-        return np.arange(len(metadata), dtype=float), float(args.ld_wind_snps)
+        if snp_positions is None:
+            return np.arange(len(metadata), dtype=float), float(args.ld_wind_snps)
+        positions = np.asarray(snp_positions, dtype=float)
+        disordered = np.flatnonzero(np.diff(positions) <= 0)
+        if disordered.size:
+            snp = metadata["SNP"].iloc[disordered[0] + 1]
+            raise LDSCInputError(
+                f"ldscore cannot apply `--ld-wind-snps` on chromosome {metadata['CHR'].iloc[0]}: the retained "
+                f"SNPs are not in the R2 panel's row order (first out of order: {snp}). Most likely several "
+                "SNPs share a position and the annotation lists them in a different order from the panel "
+                "sidecar `chrN_meta.tsv.gz`. Order those annotation rows as in the sidecar, or rebuild the "
+                "panel and rerun with a kb or cM window."
+            )
+        return positions, float(args.ld_wind_snps)
     if args.ld_wind_kb is not None:
         return metadata["POS"].to_numpy(dtype=float), float(args.ld_wind_kb) * 1000.0
     if metadata["CM"].isna().any():
@@ -764,7 +787,8 @@ class _LDWindowSpec:
 
 def _format_ld_window_spec(spec: _LDWindowSpec) -> str:
     """Return the CLI spelling of one LD-window specification."""
-    return f"{spec.flag} {spec.value}"
+    value = int(spec.value) if spec.mode == "snps" else spec.value
+    return f"{spec.flag} {value}"
 
 
 def _requested_ld_window_spec(args: argparse.Namespace) -> _LDWindowSpec:
@@ -955,10 +979,13 @@ def validate_ldscore_window_within_r2_panel_window(
     parquet_paths: Sequence[str],
     chrom: str,
 ) -> None:
-    """Reject ldscore windows wider than the recorded R2 parquet build window.
+    """Reject ldscore windows the R2 parquet panel is not known to cover.
 
-    The check is deliberately limited to the recorded parquet LD-window mode
-    and value; it does not infer pair coverage from per-SNP coordinates.
+    The rule uses only the recorded parquet LD-window mode and value, so it is
+    decided before any computation: a window in another unit is rejected, and
+    a same-unit window must be no wider than the panel's. Coverage is not
+    inferred from per-SNP coordinates. For ``--ld-wind-snps`` this relies on
+    counting panel rows (see :func:`build_window_coordinates`).
     """
     panel_spec = _r2_panel_ld_window_spec(parquet_paths)
     if panel_spec is None:
@@ -966,19 +993,15 @@ def validate_ldscore_window_within_r2_panel_window(
     requested_spec = _requested_ld_window_spec(args)
 
     if requested_spec.mode != panel_spec.mode:
-        LOGGER.warning(
-            f"ldscore cannot directly compare the requested LD window to the R2 parquet "
-            f"panel window because their modes differ: the R2 parquet panel was built "
-            f"with `{_format_ld_window_spec(panel_spec)}`, but this ldscore run requested "
-            f"`{_format_ld_window_spec(requested_spec)}`. Most likely the run is mixing "
-            "a reference panel built under one LD-window coordinate system with an "
-            "ldscore request in another. Continuing, but the requested window may require "
-            "SNP pairs not stored in the parquet, so LD scores may miss some SNP-pair "
-            "contributions. To avoid this risk, rebuild the R2 parquet panel with the "
-            "same LD-window mode as this ldscore run, or rerun ldscore with the panel's "
-            f"recorded mode `{panel_spec.flag}`."
+        requested, panel = _format_ld_window_spec(requested_spec), _format_ld_window_spec(panel_spec)
+        raise LDSCUsageError(
+            f"ldscore cannot use the R2 parquet reference panel for chromosome {chrom} with "
+            f"`{requested}`: the panel was built with `{panel}`, and windows in different units "
+            "cannot be checked for coverage from their settings, so the run could silently miss "
+            f"SNP pairs the panel never stored. Rerun with the panel's window `{panel}` (or a "
+            f"narrower `{panel_spec.flag}` value), or rebuild the panel with "
+            f"`ldsc build-r2-panel {requested}`."
         )
-        return
 
     if requested_spec.value > panel_spec.value:
         _raise_ldscore_window_exceeds_panel_window(
@@ -1081,6 +1104,11 @@ class SortedR2BlockReader:
         """Release the parquet handle owned by this chromosome reader."""
         if self._pf is not None:
             self._pf.close()
+
+    @property
+    def panel_rows(self) -> np.ndarray:
+        """Panel sidecar row of each retained SNP, in retained order."""
+        return self._retained_build_idx
 
     def _init_index_path(self, path: str, retained_metadata: pd.DataFrame) -> None:
         """Validate index-format metadata, the sidecar binding, and build the remap."""

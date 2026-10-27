@@ -46,6 +46,7 @@ class StagedLDScoreBatch:
     annotation_types: dict = field(default_factory=dict)
     identity_drops_by_chrom: dict = field(default_factory=dict)
     snp_universe_policy: dict | None = None
+    ld_window_snp_counts: pd.DataFrame | None = None
 
 
 def write_query_fragments(result: StagedLDScoreBatch, path: Path, compression):

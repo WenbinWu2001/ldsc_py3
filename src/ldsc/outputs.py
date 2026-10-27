@@ -640,6 +640,8 @@ class LDScoreDirectoryWriter:
             "gene_list_audit": ("diagnostics/gene_list_audit.tsv.gz", batch is not None),
             "gene_list_resolution_summary": ("diagnostics/gene_list_resolution_summary.tsv", batch is not None),
             "gene_catalog_issues": ("diagnostics/gene_catalog_issues.tsv", getattr(batch, "catalog", None) is not None and not batch.catalog.issues.empty),
+            "ld_window_snp_counts": ("diagnostics/ld_window_snp_counts.tsv",
+                                     scientific and getattr(result, "ld_window_snp_counts", None) is not None),
         }
         if scientific:
             if len(query_batches) > 1:
@@ -792,6 +794,7 @@ class LDScoreDirectoryWriter:
         for chrom, artifact in identity_drops_by_chrom.items():
             artifact.write_to(paths[f"dropped_snps_chr{chrom}"])
         self._write_query_diagnostic_files(result, paths)
+        self._write_ld_window_snp_counts(result, paths)
         metadata = self.build_metadata(
             result,
             files=family.metadata_files(exclude=("query_status", "gene_list_audit", "gene_list_resolution_summary", "gene_catalog_issues", "chromosome_scope", "input_issues")),
@@ -801,6 +804,13 @@ class LDScoreDirectoryWriter:
         paths["metadata"].write_text(json.dumps(_to_serializable(metadata), indent=2, sort_keys=True), encoding="utf-8")
         remove_output_artifacts(stale_paths)
         return {name: str(path) for name, path in paths.items()}
+
+    @staticmethod
+    def _write_ld_window_snp_counts(result: Any, paths: dict[str, Path]) -> None:
+        """Write per-chromosome panel/kept SNP counts behind a parquet ``--ld-wind-snps`` window."""
+        if "ld_window_snp_counts" in paths:
+            paths["ld_window_snp_counts"].parent.mkdir(parents=True, exist_ok=True)
+            result.ld_window_snp_counts.to_csv(paths["ld_window_snp_counts"], sep="\t", index=False)
 
     @staticmethod
     def _write_query_diagnostic_files(result: Any, paths: dict[str, Path]) -> None:

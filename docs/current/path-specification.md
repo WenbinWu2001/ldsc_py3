@@ -1,6 +1,6 @@
 # Input Path Specification
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -115,7 +115,7 @@ independent optional files:
   `sumstats.gz`, `diagnostics/dropped_snps/dropped.tsv.gz`, and
   `diagnostics/sumstats.log`
   for CLI/workflow runs
-- `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query Parquet files, optional `ldscore.overlap.parquet`, and `diagnostics/ldscore.log` for CLI/workflow runs
+- `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query Parquet files, optional `ldscore.overlap.parquet`, `diagnostics/ld_window_snp_counts.tsv` for parquet `--ld-wind-snps` runs, and `diagnostics/ldscore.log` for CLI/workflow runs
 - `convert-ldsc2-ldscores`: canonical `metadata.json`,
   `ldscore.baseline.parquet`, optional `ldscore.overlap.parquet`,
   `diagnostics/conversion_issues.tsv.gz`, and

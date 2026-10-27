@@ -18,8 +18,11 @@ from ldsc.errors import LDSCInputError
 STORED_R2 = float(np.float32(round(0.5 * 32767)) / np.float32(32767))
 
 
-def write_panel(root, *, chrom="1", mode="rsid"):
-    """Write one package-format chromosome with the real sidecar and R2 writers."""
+def write_panel(root, *, chrom="1", mode="rsid", ld_window=("snps", 10.0)):
+    """Write one package-format chromosome with the real sidecar and R2 writers.
+
+    ``ld_window`` is the recorded build window; a run must use its unit.
+    """
     root.mkdir(parents=True, exist_ok=True)
     metadata = pd.DataFrame({
         "CHR": [chrom, chrom], "POS": [100, 300], "SNP": ["rs1", "rs3"],
@@ -31,7 +34,7 @@ def write_panel(root, *, chrom="1", mode="rsid"):
         pair_chunks=[(np.array([0]), np.array([1]), np.array([0.5], dtype=np.float32), np.array([1], dtype=np.int8))],
         path=root / f"chr{chrom}_r2.parquet", genome_build="hg19", n_samples=200, snp_identifier=mode,
         n_snps=2, sidecar_identity_sha256=sidecar_identity_sha256(metadata),
-        ld_window_mode="snps", ld_window_value=10.0,
+        ld_window_mode=ld_window[0], ld_window_value=ld_window[1],
     )
     return metadata
 
@@ -60,7 +63,7 @@ def test_package_r2_is_read_as_unbiased_through_public_calculation(tmp_path):
 @pytest.mark.parametrize("alleles_in_annotation", [False, True])
 def test_prepared_annotations_share_reference_rows_alleles_cm_maf_and_counts(tmp_path, alleles_in_annotation):
     mode = "chr_pos_allele_aware"
-    reference = write_panel(tmp_path, mode=mode)
+    reference = write_panel(tmp_path, mode=mode, ld_window=("cm", 1.0))
     metadata = pd.DataFrame({"CHR": ["1"] * 3, "SNP": ["rs1", "missing", "rs3"],
                              "POS": [100, 200, 300], "CM": [9.0] * 3, "MAF": [0.9] * 3})
     if alleles_in_annotation:
@@ -138,7 +141,7 @@ def test_public_run_skips_empty_intersection_and_computes_other_chromosome(tmp_p
 
 
 def test_parquet_genetic_maps_are_ignored_at_preparation(tmp_path, caplog):
-    metadata = write_panel(tmp_path)
+    metadata = write_panel(tmp_path, ld_window=("cm", 1.0))
     panel = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(
         backend="parquet_r2", r2_dir=tmp_path, genetic_map_hg19_sources="unused-map.tsv",
     ))

@@ -653,6 +653,7 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
 | 3 | Parquet schema metadata was stripped or edited | The error lists each missing or invalid key; current panels record `ldsc:r2_encoding`, `ldsc:r2_scale`, `ldsc:r2_bias=unbiased`, `ldsc:n_samples`, `ldsc:ld_window_mode`/`ldsc:ld_window_value`, `ldsc:sorted_by_build`, `ldsc:n_snps`, `ldsc:sidecar_identity_sha256`, and identity keys, with an int16 `R2` column |
 | 4 | The R2 directory mixes chromosomes or builds from different reference-panel runs | List files in the R2 directory and compare recorded `genome_build` metadata |
 | 5 | Duplicate or conflicting pair rows survived in the R2 artifact | Regenerate from a deduplicated reference-panel source and current `ldsc build-r2-panel` |
+| 6 | The LD window is in a different unit from the panel's build window, or wider than it (`windows in different units cannot be checked for coverage` / `is wider than the input R2 parquet panel window`) | The error names both windows; rerun with the panel's unit and a value no wider, or rebuild the panel with the requested window. See [LD window behavior for parquet R2 panels](current/ld-window-parquet-r2-sidecar-behavior.md#window-rules-against-the-panels-build-window) |
 
 **Remedies:**
 

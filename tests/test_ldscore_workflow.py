@@ -1563,7 +1563,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
             query = root/'query.annot'
             pd.read_csv(inputs.baseline_annot_sources,sep='\t').drop(columns='base').assign(query=[0,1,0]).to_csv(query,sep='\t',index=False)
             result = ldscore_workflow.run_ldscore_from_args(build_parser().parse_args([*argv,'--query-annot-sources',str(query)]))
-            self.assertEqual(set(result.output_paths),{'baseline','query','metadata','overlap','chromosome_scope','dropped_snps_chr22'})
+            # A parquet --ld-wind-snps run also records its panel/kept SNP counts.
+            self.assertEqual(set(result.output_paths),{'baseline','query','metadata','overlap','chromosome_scope',
+                                                      'dropped_snps_chr22','ld_window_snp_counts'})
             for path in result.output_paths.values():
                 self.assertTrue(Path(path).is_file())
             pd.testing.assert_frame_equal(pd.read_parquet(result.output_paths['query']),result.read_queries(result.query_columns))
@@ -2848,7 +2850,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
                 )
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
-    def test_ldscore_warns_when_requested_window_mode_differs_from_r2_panel_mode(self):
+    def test_ldscore_rejects_requested_window_mode_differing_from_r2_panel_mode(self):
         from ldsc._kernel import ref_panel_builder as kb
         from ldsc._kernel.snp_identity import sidecar_identity_sha256
 
@@ -2886,17 +2888,18 @@ class R2PanelWindowValidationTest(unittest.TestCase):
                 r2_table=str(r2),
                 snp_identifier="chr_pos",
             )
-            with self.assertLogs("LDSC.ldscore", level="WARNING") as caught:
+            with self.assertRaises(LDSCUsageError) as caught:
                 kernel_ldscore.validate_ldscore_window_within_r2_panel_window(
                     args,
                     parquet_paths=[str(r2)],
                     chrom="1",
                 )
 
-        message = "\n".join(caught.output)
-        self.assertIn("R2 parquet panel was built with `--ld-wind-cm 1.0`", message)
-        self.assertIn("ldscore run requested `--ld-wind-kb 100.0`", message)
-        self.assertIn("may require SNP pairs not stored in the parquet", message)
+        message = str(caught.exception)
+        self.assertIn("with `--ld-wind-kb 100.0`", message)
+        self.assertIn("the panel was built with `--ld-wind-cm 1.0`", message)
+        self.assertIn("windows in different units cannot be checked for coverage", message)
+        self.assertIn("ldsc build-r2-panel --ld-wind-kb 100.0", message)
 
 
 class IndexCrossModeParityTest(unittest.TestCase):

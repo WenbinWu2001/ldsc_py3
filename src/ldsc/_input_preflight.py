@@ -209,9 +209,13 @@ def inspect_declared_inputs(*, baseline=(), query=(), files=(), scalar_files=(),
                            declarations=declarations, widths=widths, columns=columns, files=resolved)
 
 
-def inspect_r2_headers(directory, genome_build=None):
-    """Check every selected R2/sidecar path and Parquet metadata contract before pair scans."""
-    from ._kernel.ldscore import read_r2_parquet_contract
+def inspect_r2_headers(directory, genome_build=None, *, ldscore_args=None):
+    """Check every selected R2/sidecar path and Parquet metadata contract before pair scans.
+
+    With ``ldscore_args`` (parsed ldscore options), each file's recorded build
+    window must also admit the requested LD window.
+    """
+    from ._kernel.ldscore import read_r2_parquet_contract, validate_ldscore_window_within_r2_panel_window
     from ._kernel.ref_panel import _resolve_r2_build_dir
 
     root = Path(directory)
@@ -219,7 +223,8 @@ def inspect_r2_headers(directory, genome_build=None):
     if genome_build == 'auto' and len(children) > 1 and not list(root.glob('chr*_r2.parquet')):
         gate = InputGate('R2 declarations and headers')
         for child in children:
-            gate.check('reference', child, lambda child=child: inspect_r2_headers(child, child.name))
+            gate.check('reference', child,
+                       lambda child=child: inspect_r2_headers(child, child.name, ldscore_args=ldscore_args))
         gate.finish()
         return root
     root = _resolve_r2_build_dir(directory, genome_build)
@@ -231,7 +236,10 @@ def inspect_r2_headers(directory, genome_build=None):
         pair = root / f'chr{chrom}_r2.parquet'
         sidecar = root / f'chr{chrom}_meta.tsv.gz'
         gate.check('reference', sidecar, lambda: _readable(sidecar), chrom=chrom)
-        gate.check('reference', pair, lambda: read_r2_parquet_contract(pair), chrom=chrom)
+        contract = gate.check('reference', pair, lambda: read_r2_parquet_contract(pair), chrom=chrom)
+        if contract is not None and ldscore_args is not None:
+            gate.check('reference', pair, lambda: validate_ldscore_window_within_r2_panel_window(
+                ldscore_args, parquet_paths=[str(pair)], chrom=chrom), chrom=chrom)
     gate.finish()
     return root
 

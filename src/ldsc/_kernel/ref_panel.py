@@ -502,15 +502,21 @@ class ParquetR2RefPanel(RefPanel):
                 metadata[column] = lookup.loc[keys, column].to_numpy()
         if config.ld_wind_cm is not None:
             _resolve_genetic_map(self, chrom, reference)
-        block_left = _prepare_window(metadata, chrom, config, self.global_config.snp_identifier)
         kernel_ldscore.validate_ldscore_window_within_r2_panel_window(
             config, parquet_paths=self.resolve_r2_paths(chrom), chrom=chrom,
         )
-        values = aligned.annotations
         reader = self.build_reader(chrom, metadata=metadata)
+        try:
+            # --ld-wind-snps counts panel rows, so a window no wider than the
+            # panel's stays inside its stored pairs when this run keeps fewer SNPs.
+            block_left = _prepare_window(metadata, chrom, config, self.global_config.snp_identifier,
+                                         snp_positions=reader.panel_rows)
+        except BaseException:
+            reader.close()
+            raise
         return kernel_ldscore.PreparedChromosome(
             backend="parquet_r2", reader=reader, metadata=metadata,
-            annotations=values, block_left=block_left,
+            annotations=aligned.annotations, block_left=block_left,
             baseline_columns=list(annotations.baseline_columns), query_columns=list(annotations.query_columns),
             cm_source="parquet_sidecar",
         )
@@ -824,11 +830,11 @@ def _read_metadata_table(
     return out
 
 
-def _prepare_window(metadata, chrom, config, snp_identifier):
+def _prepare_window(metadata, chrom, config, snp_identifier, *, snp_positions=None):
     """Validate retained reference metadata and derive one LD-window traversal."""
     kernel_ldscore.validate_retained_identifier_uniqueness(metadata, snp_identifier, chrom)
     kernel_ldscore.validate_window_positions_sorted(metadata, chrom)
-    coords, distance = kernel_ldscore.build_window_coordinates(metadata, config)
+    coords, distance = kernel_ldscore.build_window_coordinates(metadata, config, snp_positions=snp_positions)
     block_left = kernel_ldscore.get_block_lefts(coords, distance)
     kernel_ldscore.check_whole_chromosome_window(
         block_left, SimpleNamespace(yes_really=config.whole_chromosome_ok), chrom,

@@ -50,6 +50,7 @@ class _LDScorePublication:
     snp_universe_policy: dict | None
     legacy_ldsc2_import: dict | None
     overlap: LDScoreOverlap | None
+    ld_window_snp_counts: pd.DataFrame | None = None
     query_columns: list[str] = field(default_factory=list)
     query_statuses: tuple[QueryAnnotationStatus, ...] = ()
     query_batches: list[dict] = field(default_factory=list)
@@ -95,6 +96,7 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
                         snp_universe_policy=result.snp_universe_policy,
                         legacy_ldsc2_import=None if streamed else result.legacy_ldsc2_import,
                         overlap=None if result.overlap is None else result.overlap.select_queries([]),
+                        ld_window_snp_counts=getattr(result, "ld_window_snp_counts", None),
                     )
                     baseline_rg = _write_chromosome_aligned_parquet(shared.baseline_table, stage / "ldscore.baseline.parquet", compression)
                     for chrom, artifact in result.identity_drops_by_chrom.items():
@@ -149,6 +151,7 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
                 from .overlap_matrix import overlap_to_long_frame
                 overlap_to_long_frame(shared.overlap).to_parquet(paths["overlap"], index=False)
             writer._write_query_diagnostic_files(shared, paths)
+            writer._write_ld_window_snp_counts(shared, paths)
             metadata = writer.build_metadata(shared,
                 files=staged_family.metadata_files(exclude=("query_status", "gene_list_audit", "gene_list_resolution_summary", "gene_catalog_issues", "chromosome_scope", "input_issues")),
                 baseline_rg=baseline_rg,

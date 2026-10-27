@@ -254,6 +254,11 @@ class LDScoreResult:
         for natively computed LDSC3 results.
     annotation_types : dict of str to str, optional
         Per-column semantic classification used for interpretation only.
+    ld_window_snp_counts : pandas.DataFrame or None, optional
+        For a parquet R2 panel with ``--ld-wind-snps``, one row per chromosome
+        with ``CHR``, ``panel_snps`` (sidecar rows), ``kept_snps`` (SNPs this
+        run kept), ``ld_wind_snps``, and ``counting_basis="panel_rows"``.
+        ``None`` for kb/cM windows and PLINK panels.
     """
     baseline_table: pd.DataFrame
     query_table: pd.DataFrame | None
@@ -275,6 +280,7 @@ class LDScoreResult:
     identity_drops_by_chrom: dict[str, TsvDiagnostics] = field(default_factory=dict, repr=False)
     annotation_types: dict[str, str] = field(default_factory=dict)
     chromosome_scope: dict[str, Any] = field(default_factory=dict)
+    ld_window_snp_counts: pd.DataFrame | None = field(default=None, repr=False)
 
     def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""
@@ -470,6 +476,7 @@ class LDScoreCalculator:
                           pool=pool, log_paths=log_paths, export_root=export_root, worker_count=worker_count)
             if output_config is None:
                 result = self._run_batch(annotation_bundle=annotation_bundle, **kwargs)
+                _warn_ld_window_snp_subset(result.ld_window_snp_counts, "LDScoreResult.ld_window_snp_counts")
                 _log_annotation_classification(result)
                 return result
 
@@ -487,6 +494,10 @@ class LDScoreCalculator:
                             with TemporaryDirectory(prefix=".ldsc-fragments-", dir=output_config.output_dir) as fragments:
                                 result = self._run_batch(annotation_bundle=active, fragment_dir=fragments,
                                     batch_label=f"batch {ordinal + 1}/{len(groups)}", **kwargs)
+                                if ordinal == 0:  # every batch shares the same chromosomes and counts
+                                    _warn_ld_window_snp_subset(
+                                        result.ld_window_snp_counts,
+                                        str(Path(output_config.output_dir) / "diagnostics" / "ld_window_snp_counts.tsv"))
                                 yield result
                                 del result
                         del active
@@ -589,6 +600,7 @@ class LDScoreCalculator:
                 regression_regions=regression_regions,
                 chromosome_results=chromosome_results,
             ),
+            ld_window_snp_counts=_ld_window_snp_counts(ref_panel, ldscore_config, chromosome_results),
         )
         statuses = tuple(getattr(annotation_bundle, "query_statuses", ()))
         if isinstance(result, StagedLDScoreBatch) and statuses:
@@ -1095,7 +1107,8 @@ def build_parser() -> argparse.ArgumentParser:
         '--r2-dir', dest='r2_dir', default=None, metavar='DIR',
         help=(
             'Precomputed reference-panel directory containing chrN_r2.parquet and required chrN_meta.tsv.gz '
-            'files. Direct mode requires exactly one of --r2-dir or --plink-prefix. Cannot be combined with '
+            'files. The LD window must use the unit the panel was built with and be no wider. Direct mode '
+            'requires exactly one of --r2-dir or --plink-prefix. Cannot be combined with '
             '--gene-ldscore-index-dir; no default.'
         ),
     )
@@ -1151,9 +1164,9 @@ def build_parser() -> argparse.ArgumentParser:
     window.add_argument(
         '--ld-wind-snps', default=None, type=int, metavar='N',
         help=(
-            'Maximum LD-window distance on either side of each SNP, counted in retained reference-panel SNP '
-            'positions. No default; specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm. '
-            'Direct mode only.'
+            'Maximum LD-window distance on either side of each SNP, counted in retained SNPs with '
+            '--plink-prefix and in panel rows with --r2-dir. No default; specify exactly one of '
+            '--ld-wind-snps, --ld-wind-kb, or --ld-wind-cm. Direct mode only.'
         ),
     )
 
@@ -1433,7 +1446,8 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                     'control_gene_list_file', 'gene_coordinate_file', 'regr_snps_file', 'ref_panel_snps_file', 'keep_indivs_file')],
                 plink=getattr(args, 'plink_prefix', None), require_complete_suite=has_queries,
                 mode=getattr(args, 'snp_identifier', 'rsid'), issues_path=output_dir/'diagnostics/input_issues.tsv',
-                checks=[('reference', args.r2_dir, lambda: inspect_r2_headers(args.r2_dir, getattr(args, 'genome_build', None)))]
+                checks=[('reference', args.r2_dir, lambda: inspect_r2_headers(
+                    args.r2_dir, getattr(args, 'genome_build', None), ldscore_args=args))]
                        if getattr(args, 'r2_dir', None) else ())
             batch = catalog = None
             if _has_cli_tokens(getattr(args,"query_annot_gene_list_sources",None)):
@@ -2398,6 +2412,45 @@ def _snp_universe_policy(
             "weight_contributors": "same_filtered_regression_set",
         },
     }
+
+
+def _ld_window_snp_counts(ref_panel, ldscore_config: LDScoreConfig, chromosome_results) -> pd.DataFrame | None:
+    """Per-chromosome panel and kept SNP counts behind a parquet ``--ld-wind-snps`` window.
+
+    On a parquet panel the window counts panel (sidecar) rows, so a chromosome
+    keeping fewer SNPs than the panel gives its SNPs fewer than K contributors
+    per side. ``None`` for kb/cM windows and PLINK panels.
+    """
+    if ldscore_config.ld_wind_snps is None or getattr(getattr(ref_panel, "spec", None), "backend", None) != "parquet_r2":
+        return None
+    rows = [
+        {
+            "CHR": str(result.chrom),
+            "panel_snps": kernel_ldscore.read_r2_parquet_contract(ref_panel.resolve_r2_paths(result.chrom)[0]).n_snps,
+            "kept_snps": int(result.reference_snp_count),
+            "ld_wind_snps": int(ldscore_config.ld_wind_snps),
+            "counting_basis": "panel_rows",
+        }
+        for result in chromosome_results
+    ]
+    return pd.DataFrame(rows, columns=["CHR", "panel_snps", "kept_snps", "ld_wind_snps", "counting_basis"])
+
+
+def _warn_ld_window_snp_subset(counts: pd.DataFrame | None, where: str) -> None:
+    """Warn once per run when a parquet ``--ld-wind-snps`` window spans dropped panel SNPs."""
+    if counts is None:
+        return
+    subset = counts.loc[counts["kept_snps"] < counts["panel_snps"]]
+    if subset.empty:
+        return
+    first = subset.iloc[0]
+    window = int(first["ld_wind_snps"])
+    LOGGER.warning(
+        f"ldscore `--ld-wind-snps {window}` counts positions in the parquet R2 panel; this run kept fewer "
+        f"SNPs than the panel on {len(subset)} chromosome(s) (e.g. chr{first['CHR']}: {first['kept_snps']} of "
+        f"{first['panel_snps']}), so those SNPs have fewer than {window} LD contributors per side. "
+        f"Per-chromosome counts: {where}."
+    )
 
 
 def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_dir: str) -> None:

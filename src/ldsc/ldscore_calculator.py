@@ -82,6 +82,7 @@ from ._kernel import ldscore as kernel_ldscore
 from ._kernel import regions as kernel_regions
 from ._kernel.overlap import OverlapContribution, sum_overlap_contributions
 from ._kernel.regions import REGR_SNPS_EXCLUDE_REGIONS_CHOICES, regr_snps_exclude_regions_choice_to_presets
+from ._kernel.ref_panel_builder import SIDECAR_FLOAT_FORMAT
 from ._kernel.identifiers import build_snp_id_series, read_snp_restriction_keys
 from ._kernel.snp_identity import RestrictionIdentityKeys
 from ._row_alignment import assert_same_snp_rows
@@ -2467,7 +2468,8 @@ def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_d
     export_dir = Path(output_dir) / "ref_metadata"
     export_dir.mkdir(parents=True, exist_ok=True)
     path = export_dir / f"chr{chrom}_meta.tsv.gz"
-    metadata[columns].to_csv(path, sep="\t", index=False, na_rep="NA", float_format="%.6g", compression="gzip")
+    metadata[columns].to_csv(path, sep="\t", index=False, na_rep="NA", float_format=SIDECAR_FLOAT_FORMAT,
+                             compression="gzip")
     LOGGER.info(f"Wrote reference-metadata sidecar '{path}'.")
 
 

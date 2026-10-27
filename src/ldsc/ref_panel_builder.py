@@ -891,6 +891,9 @@ class ReferencePanelBuilder:
                 if build == "hg38" and build_state.genetic_map_hg38 is not None
                 else None
             )
+            if cm_values is not None:
+                # Window on the CM the sidecar will store, which ldscore reads back.
+                cm_values = kernel_builder.round_to_sidecar_precision(cm_values)
             if cm_values is None and config.ld_wind_cm is not None:
                 raise LDSCUsageError(
                     f"build-r2-panel cannot compute cM LD windows for chromosome {chrom} "

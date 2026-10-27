@@ -40,6 +40,17 @@ LOGGER = logging.getLogger("LDSC.ref_panel_builder.kernel")
 _BUILD_REF_PANEL_LIFTOVER_DOC = (
     "docs/troubleshooting.md#build-r2-panel-liftover-or-genetic-map-configuration-is-incomplete"
 )
+# Text format of float columns (CM, MAF) in every reference-metadata sidecar.
+SIDECAR_FLOAT_FORMAT = "%.9g"
+
+
+def round_to_sidecar_precision(values) -> np.ndarray:
+    """Return ``values`` exactly as a sidecar stores them and readers parse them back.
+
+    Build-time decisions such as the cM window use these values, so the pairs a
+    panel stores match the window ``ldscore`` later rebuilds from the sidecar.
+    """
+    return np.char.mod(SIDECAR_FLOAT_FORMAT, np.asarray(values, dtype=float)).astype(float)
 
 
 GENETIC_MAP_CM_SPEC = ColumnSpec(
@@ -871,7 +882,7 @@ def write_runtime_metadata_sidecar(
     with gzip.open(path, "wt", encoding="utf-8") as handle:
         for key, value in identity_metadata.items():
             handle.write(f"# ldsc:{key}={value}\n")
-        df.to_csv(handle, sep="\t", index=False, na_rep="NA", float_format="%.6g")
+        df.to_csv(handle, sep="\t", index=False, na_rep="NA", float_format=SIDECAR_FLOAT_FORMAT)
     return str(path)
 
 def build_restriction_mask(

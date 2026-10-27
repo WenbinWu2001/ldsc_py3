@@ -638,6 +638,31 @@ class ParquetRefPanelTest(unittest.TestCase):
 
             self.assertEqual(metadata["MAF"].tolist(), [0.0, 0.5, 0.25])
 
+    def test_sidecar_metadata_reads_back_the_values_the_builder_used(self):
+        # build-r2-panel windows on round_to_sidecar_precision(CM); the reader must
+        # return exactly those values for CM and MAF.
+        from ldsc._kernel.ref_panel_builder import round_to_sidecar_precision, write_runtime_metadata_sidecar
+
+        cm = np.array([12.3456789012345, 123.456789012345, 0.000123456789012])
+        maf = np.array([0.0123456789012, 0.333333333333, 1.23456789012e-05])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
+            write_runtime_metadata_sidecar(
+                pd.DataFrame({"CHR": ["1"] * 3, "POS": [10, 20, 30], "SNP": ["rs1", "rs2", "rs3"],
+                              "A1": ["A"] * 3, "A2": ["G"] * 3, "CM": cm, "MAF": maf}),
+                build_dir / "chr1_meta.tsv.gz", genome_build="hg38", snp_identifier="chr_pos",
+            )
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            metadata = panel.load_metadata("1")
+
+            np.testing.assert_array_equal(metadata["CM"].to_numpy(dtype=float), round_to_sidecar_precision(cm))
+            np.testing.assert_array_equal(metadata["MAF"].to_numpy(dtype=float), round_to_sidecar_precision(maf))
+
     def test_sidecar_metadata_loading_normalizes_float_chromosomes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"

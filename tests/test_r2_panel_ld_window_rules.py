@@ -155,3 +155,65 @@ def test_no_ld_window_warning_without_a_snp_subset(tmp_path, panels, source, win
     if table:
         counts = pd.read_csv(path, sep="\t")
         assert (counts["kept_snps"] == counts["panel_snps"]).all()
+
+
+def test_cm_panel_stores_every_pair_inside_the_window_its_sidecar_records(tmp_path):
+    """Build-time windowing uses the CM values the sidecar stores, so the two agree exactly.
+
+    ``ldscore`` rebuilds a parquet cM window from the sidecar CM. The map places two
+    SNP pairs on the 1 cM edge: 20.0000004 to 21.0000008 is outside it, but reads
+    as 20 to 21 at 6 significant digits; 30.0000000004 to 31.0000000009 is outside
+    it at full precision but reads as 30 to 31 at 9 digits, so it is inside the
+    window the sidecar records.
+    """
+    bim = pd.read_csv(f"{PLINK}.bim", sep=r"\s+", header=None, names=["CHR", "SNP", "CM", "POS", "A1", "A2"])
+    cm = 5.0 + 0.7 * np.arange(len(bim))
+    cm[10:20] = 20.0000004 + 0.7 * np.arange(10)
+    cm[11] = 21.0000008
+    cm[20:] = 30.0000000004 + 0.7 * np.arange(len(bim) - 20)
+    cm[21] = 31.0000000009
+    genetic_map = tmp_path / "hg38.map"
+    pd.DataFrame({"CHR": bim["CHR"], "POS": bim["POS"], "CM": cm}).to_csv(
+        genetic_map, sep="\t", index=False, float_format="%.13f")
+    out = tmp_path / "panel"
+    assert cli.run_cli(["build-r2-panel", "--plink-prefix", str(PLINK), "--output-dir", str(out), *IDENTITY,
+                        "--source-genome-build", "hg38", "--genetic-map-hg38-sources", str(genetic_map),
+                        "--ld-wind-cm", "1"]) == 0
+
+    stored_cm = pd.read_csv(out / "hg38" / "chr22_meta.tsv.gz", sep="\t", comment="#")["CM"].to_numpy()
+    rows = np.arange(len(stored_cm))
+    upper = rows[:, None] < rows[None, :]
+    within = upper & ~(np.abs(stored_cm[:, None] - stored_cm[None, :]) > 1.0)
+    expected = set(zip(*np.nonzero(within)))
+    pairs = pd.read_parquet(out / "hg38" / "chr22_r2.parquet", columns=["IDX_1", "IDX_2"])
+    stored = {(min(i, j), max(i, j)) for i, j in zip(pairs["IDX_1"], pairs["IDX_2"]) if i != j}
+    assert stored == expected
+    assert (10, 11) not in expected and (20, 21) in expected
+
+
+def _genotype_maf(prefix):
+    """Minor-allele frequency of each SNP, from decoded dosages (no missing calls)."""
+    freq = _dosages(prefix).mean(axis=1) / 2
+    return np.minimum(freq, 1 - freq)
+
+
+def test_both_sidecar_writers_keep_nine_significant_digits_of_maf(tmp_path, panels):
+    """MAF = k / 6404 here, so 6 significant digits would be off by up to 5e-6 relative."""
+    maf = pd.Series(_genotype_maf(PLINK), index=pd.read_csv(
+        f"{PLINK}.bim", sep=r"\s+", header=None, usecols=[3]).iloc[:, 0].to_numpy())
+    output = tmp_path / "out"
+    assert _ldscore(output, "--plink-prefix", str(PLINK), "--ld-wind-snps", "3", "--export-ref-metadata") == 0
+    for path in (panels["snps3"] / "hg38" / "chr22_meta.tsv.gz", output / "ref_metadata" / "chr22_meta.tsv.gz"):
+        sidecar = pd.read_csv(path, sep="\t", comment="#")
+        np.testing.assert_allclose(sidecar["MAF"].to_numpy(), maf.loc[sidecar["POS"]].to_numpy(), rtol=5e-9, atol=0,
+                                   err_msg=str(path))
+
+
+def test_build_maf_filter_holds_for_the_stored_maf(tmp_path):
+    """Rounding is monotone, so every stored MAF still meets the build --maf-min."""
+    out = tmp_path / "panel"
+    assert cli.run_cli(["build-r2-panel", "--plink-prefix", str(PLINK), "--output-dir", str(out), *IDENTITY,
+                        "--source-genome-build", "hg38", "--ld-wind-snps", "3", "--maf-min", "0.3"]) == 0
+
+    stored = pd.read_csv(out / "hg38" / "chr22_meta.tsv.gz", sep="\t", comment="#")["MAF"]
+    assert 0 < len(stored) < 32 and (stored >= 0.3).all()

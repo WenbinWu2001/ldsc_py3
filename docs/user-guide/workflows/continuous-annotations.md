@@ -29,14 +29,14 @@ Keep the complete `partitioned-h2` output directory when copying fitted results,
 Each query's `metadata.json` references run-wide provenance in the enclosing `diagnostics/metadata.json` through `"global_metadata": "../../metadata.json"`.
 The current model reader resolves that reference automatically; a copied query folder alone is incomplete.
 If the parent metadata is missing, restore it from the same fitted run in its original relative location.
-See [keeping fitted results together](../../wiki/main-functionalities/partitioned-h2.md#keep-fitted-results-together) and [shared-metadata troubleshooting](../troubleshooting.md#quantile-h2-shared-fitted-model-metadata-is-missing).
+See [keeping fitted results together](partitioned-heritability.md#reading-the-outputs) and [shared-metadata troubleshooting](../troubleshooting.md#quantile-h2-shared-fitted-model-metadata-is-missing).
 
 These selection rules also apply when the preceding regression used `--workers` to fit queries concurrently.
 Every successful folder contains one model's coefficients and jackknife delete values, with its shared provenance retained in the enclosing result tree.
 Worker count does not change the quantile reconstruction inputs.
-See [concurrent query fitting](../../wiki/main-functionalities/partitioned-h2.md#fit-queries-concurrently).
+See [concurrent query fitting](partitioned-heritability.md#fit-queries-concurrently).
 
-If regression used `--continue-on-query-error`, failed queries appear only in `diagnostics/query_status.tsv` and the regression log; they have no fitted model or uncertainty estimates to supply to `quantile-h2`. Select a successful query from `diagnostics/query_annotations/manifest.tsv`. Without this flag, any query error prevents new scientific publication. See [query failure handling](../../wiki/main-functionalities/partitioned-h2.md#choose-what-happens-when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
+If regression used `--continue-on-query-error`, failed queries appear only in `diagnostics/query_status.tsv` and the regression log; they have no fitted model or uncertainty estimates to supply to `quantile-h2`. Select a successful query from `diagnostics/query_annotations/manifest.tsv`. Without this flag, any query error prevents new scientific publication. See [query failure handling](partitioned-heritability.md#when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
 
 ## 2. Prepare the resupplied sources
 

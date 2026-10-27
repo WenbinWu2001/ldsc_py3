@@ -167,10 +167,10 @@ Each focal result is conditional on the supplied baseline block and optional
 biological null; inspect diagnostics before regression.
 Query runs write the per-query result tree automatically for successful fits.
 Copy the complete regression output directory when moving or sharing those fits: each query's metadata references shared provenance in the enclosing `diagnostics/metadata.json`.
-See [keeping fitted results together](../../wiki/main-functionalities/partitioned-h2.md#keep-fitted-results-together).
+See [keeping fitted results together](partitioned-heritability.md#reading-the-outputs).
 To summarize nominal conditional-coefficient evidence across fitted query gene lists, pass the aggregate partitioned-h2 result root to `ldsc plot`; do not pass an individual query folder.
 
-Regression is strict by default: any query error prevents publication of new scientific results. Add the single flag `--continue-on-query-error` to the regression command to skip failed queries and publish successful fits. Inspect regression `diagnostics/query_status.tsv` for all attempted queries and `diagnostics/partitioned-h2.log` for error and block diagnostics. This is separate from LD-score generation's `--allow-unresolved-genes` and `diagnostics/query_annotation_status.tsv`. Shared input/output errors, interrupts, and scans with no successful fits remain fatal. See [regression failure handling](../../wiki/main-functionalities/partitioned-h2.md#choose-what-happens-when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
+Regression is strict by default: any query error prevents publication of new scientific results. Add the single flag `--continue-on-query-error` to the regression command to skip failed queries and publish successful fits. Inspect regression `diagnostics/query_status.tsv` for all attempted queries and `diagnostics/partitioned-h2.log` for error and block diagnostics. This is separate from LD-score generation's `--allow-unresolved-genes` and `diagnostics/query_annotation_status.tsv`. Shared input/output errors, interrupts, and scans with no successful fits remain fatal. See [regression failure handling](partitioned-heritability.md#when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
 
 ## Large pathway batches
 
@@ -181,7 +181,7 @@ Indexed scoring uses a persistent worker pool for one active query batch, reload
 Smaller indexed batches reduce raw-fragment scratch but add operator reads; final staged output still grows with the number of queries.
 For LD-score generation, `--workers` defaults to 1, accepts positive counts, `-1` for detected available CPUs and `-2` for one fewer worker than that count, and is capped at the chromosome count.
 Negative offsets do not reserve or pin an unused CPU.
-Regression automatically reduces model-array copying and repeated metadata/file writing for either LD-score route; see [regression memory and runtime measurements](../../wiki/main-functionalities/partitioned-h2.md#memory-and-runtime-measurements).
+Regression automatically reduces model-array copying and repeated metadata/file writing for either LD-score route; see [regression memory and runtime measurements](../../dev/validation/performance.md#partitioned-heritability-regression).
 
 `--workers` / `workers` defaults to one managed child process, including on HPC.
 Every worker uses **1 BLAS thread**, in serial and parallel execution.
@@ -191,4 +191,4 @@ LD scoring and index construction cap by chromosomes; regression caps by complet
 Zero, Boolean, and non-integer Python requests are invalid.
 See [the execution policy](../../reference/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
 
-The saved baseline and overlap artifacts are shared. One query batch writes `ldscore.query.parquet`; multiple batches write numbered `ldscore.query.batchNNNNN.parquet` files, each with the same genome-wide SNP rows. Root `metadata.json.query_batches` records the ordered files, columns, and chromosome row groups. Python writing workflows return `LDScoreSource`; explicit `read_queries(names)` calls load columns without caching them. Generation and regression batch widths may differ. See the [LD-score guide](../../wiki/main-functionalities/ldscore.md#memory-for-many-pathways) for the implementation sources and the [batch regression guide](../../wiki/main-functionalities/partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways) for result writing.
+The saved baseline and overlap artifacts are shared. One query batch writes `ldscore.query.parquet`; multiple batches write numbered `ldscore.query.batchNNNNN.parquet` files, each with the same genome-wide SNP rows. Root `metadata.json.query_batches` records the ordered files, columns, and chromosome row groups. Python writing workflows return `LDScoreSource`; explicit `read_queries(names)` calls load columns without caching them. Generation and regression batch widths may differ. See the [LD-score guide](../../wiki/main-functionalities/ldscore.md#memory-for-many-pathways) for the implementation sources and the [batch regression guide](partitioned-heritability.md#many-query-annotations) for result writing.

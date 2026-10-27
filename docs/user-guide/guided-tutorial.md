@@ -391,13 +391,13 @@ ldsc partitioned-h2 \
 
 1. `partitioned-h2` reports the total h2 implied by the partitioned model; this is not necessarily identical to the standalone unpartitioned h2 estimate above.
 2. Query-annotation runs automatically save each successful query's complete baseline-plus-query fit under `diagnostics/query_annotations/`; `--write-per-query-results` has been removed and must be omitted.
-3. Error handling is strict by default: any query error prevents publication of new scientific results. Add `--continue-on-query-error` to skip failed query fits and publish successful ones. Check `diagnostics/query_status.tsv` for every attempted query and `diagnostics/partitioned-h2.log` for tracebacks and available block diagnostics. Shared input/output failures, interrupts, and all-query-failed scans still stop. See [query error handling](../wiki/main-functionalities/partitioned-h2.md#choose-what-happens-when-a-query-fails), implemented by `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py).
+3. Error handling is strict by default: any query error prevents publication of new scientific results. Add `--continue-on-query-error` to skip failed query fits and publish successful ones. Check `diagnostics/query_status.tsv` for every attempted query and `diagnostics/partitioned-h2.log` for tracebacks and available block diagnostics. Shared input/output failures, interrupts, and all-query-failed scans still stop. See [query error handling](workflows/partitioned-heritability.md#when-a-query-fails), implemented by `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py).
 
 4. The command above uses one managed child with 1 BLAS thread.
    With four CPUs available and allocated, add `--workers 4` to fit four complete query-plus-baseline models concurrently.
    `--query-batch-size 100` bounds loaded query columns and caps concurrency.
    Current regression reduces model-array copying automatically for both direct and indexed LD-score inputs; each active fit still needs its complete retained SNP set and private estimator workspace.
-   See [concurrent query fitting](../wiki/main-functionalities/partitioned-h2.md#fit-queries-concurrently) and the [measured regression improvements](../wiki/main-functionalities/partitioned-h2.md#memory-and-runtime-measurements).
+   See [concurrent query fitting](workflows/partitioned-heritability.md#fit-queries-concurrently) and the [measured regression improvements](../dev/validation/performance.md#partitioned-heritability-regression).
 
 **Outputs:**
 
@@ -428,7 +428,7 @@ Here:
 Copy all of `${PARTITIONED_H2_OUTPUT_DIR}` when moving or sharing fitted queries.
 Run-wide provenance is stored once in `diagnostics/metadata.json`; each query's metadata links to it with `"global_metadata": "../../metadata.json"`.
 The current model reader follows that reference, so keep the enclosing result tree when selecting a query for `quantile-h2`.
-See [keeping fitted results together](../wiki/main-functionalities/partitioned-h2.md#keep-fitted-results-together).
+See [keeping fitted results together](workflows/partitioned-heritability.md#reading-the-outputs).
 
 For a continuous annotation, continue with [Continuous annotations in partitioned LDSC](workflows/continuous-annotations.md). That post-fit workflow uses one complete fitted model and its saved jackknife coefficient values; it does not combine different per-query regressions.
 
@@ -488,6 +488,6 @@ See the [sumstats compatibility contract](../reference/formats/legacy-sumstats.m
 
 ## Further workflow references
 
-- [LD-score calculation](../wiki/main-functionalities/ldscore.md), [heritability](../wiki/main-functionalities/h2.md), and [partitioned heritability](../wiki/main-functionalities/partitioned-h2.md).
+- [LD-score calculation](../wiki/main-functionalities/ldscore.md), [heritability](../wiki/main-functionalities/h2.md), and [partitioned heritability](workflows/partitioned-heritability.md).
 - [BED preparation](../wiki/utility-functionalities/how-to-customize-your-bed-files.md), [reusable annotations](workflows/annotations.md), and [resource navigation](reference-data.md).
 - [Global configuration](concepts/snp-identity-and-genome-build.md) and [interface changes](../wiki/main-functionalities/changes-from-LDSC2.md).

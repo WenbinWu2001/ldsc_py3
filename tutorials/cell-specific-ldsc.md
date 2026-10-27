@@ -90,7 +90,7 @@ See `LDScoreCalculator.run`, `indexed_results`, and `LDScoreSource.read_queries`
 
 Regression over either LD-score route automatically borrows aligned columns and reduces intermediate copies while retaining each model's complete SNP set and numerical precision.
 Batch width bounds loaded query columns; worker count controls the number of complete concurrent fits and their private estimator workspaces.
-See [regression memory and runtime measurements](../docs/wiki/main-functionalities/partitioned-h2.md#memory-and-runtime-measurements) for measured phase improvements and their limits.
+See [regression memory and runtime measurements](../docs/dev/validation/performance.md#partitioned-heritability-regression) for measured phase improvements and their limits.
 
 Generation and regression batch widths are independent. To inspect values explicitly, call `source.read_queries(["query_name"])`; reads preserve requested column order and have no cache or width cap. Current readers require the `query_batches` manifest; regenerate older directories. For the small prepared-input Python route that writes nothing, see [LD-score calculation without writes](ld-score-calculation.md#small-python-calculations-without-writes).
 

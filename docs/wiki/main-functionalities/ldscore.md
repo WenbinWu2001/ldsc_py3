@@ -111,7 +111,7 @@ Metadata is published after all batches succeed.
 Resuming from a completed batch is a possible future feature and is not supported.
 Freed memory can remain reserved by the allocator, so RSS need not drop immediately.
 See the [memory and CPU efficiency design guide](../../dev/design/memory-and-cpu.md) for bit-packing, genotype/R² access, query streaming, index reuse, worker costs, and the allocations that remain.
-The [direct streaming tests](../../../tests/test_direct_batch_staging.py) and [batch regression guide](partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways) describe correctness checks and measured workflows.
+The [direct streaming tests](../../../tests/test_direct_batch_staging.py) and [batch regression guide](../../user-guide/workflows/partitioned-heritability.md#many-query-annotations) describe correctness checks and measured workflows.
 Sources: `LDScoreCalculator.run`, `LDScoreSource.read_queries`, [direct fragment staging](../../../src/ldsc/_direct_ldscore_batches.py), and `indexed_results` in [_indexed_ldscore_batches.py](../../../src/ldsc/_indexed_ldscore_batches.py).
 
 ## Direct assembly measurements

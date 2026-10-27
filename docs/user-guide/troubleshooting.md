@@ -979,7 +979,7 @@ Then select the successful query folder within that tree as `--partitioned-h2-re
 Use the current LDSC3 reader, which resolves shared provenance and gives fit-specific fields precedence.
 Restoring missing metadata from the original run does not require recomputing LD scores or refitting the model.
 Do not substitute metadata from another run or reconstruct provenance from unrelated results.
-See [keeping fitted results together](../wiki/main-functionalities/partitioned-h2.md#keep-fitted-results-together) and the [output contract](../reference/results/partitioned-h2.md).
+See [keeping fitted results together](workflows/partitioned-heritability.md#reading-the-outputs) and the [output contract](../reference/results/partitioned-h2.md).
 
 **Developer reference:** `load_fitted_partitioned_model()` in [quantile_h2.py](../../src/ldsc/quantile_h2.py) · **Exception:** `LDSCInputError`
 

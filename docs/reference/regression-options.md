@@ -238,7 +238,7 @@ Per-query times summed across workers can exceed elapsed wall time.
 `query_worker_native_threads` records the fixed target of 1, not proof of backend verification; runtime logs carry verification details.
 
 Mechanisms: [`RegressionRunner`](../../src/ldsc/regression_runner.py), [`_QueryWorkers`](../../src/ldsc/_partitioned_h2_parallel.py), and [`_worker_runtime`](../../src/ldsc/_worker_runtime.py).
-The earlier [query-worker benchmark](../wiki/main-functionalities/partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways) remains historical evidence; it does not define the current serial policy.
+The earlier [query-worker benchmark](../dev/validation/performance.md#partitioned-heritability-regression) remains historical evidence; it does not define the current serial policy.
 
 ### Defaults (both regimes)
 

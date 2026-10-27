@@ -75,7 +75,7 @@ The log reports input/output/dropped SNP counts and these downstream flags.
 See the [standalone guide](docs/user-guide/workflows/annotations.md) for CLI and Python examples.
 Source-backed Python preparation requires an output directory and explicit bundle ownership; new scratch stays under that destination, with the existing gene-index construction transaction as the exception.
 See the [memory and CPU efficiency design guide](docs/dev/design/memory-and-cpu.md) for the package-wide mechanisms, precision contracts, tradeoffs, remaining allocations, and validation evidence.
-The [pathway batch guide](docs/wiki/main-functionalities/partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways) explains user settings and measured workloads.
+The [pathway batch guide](docs/user-guide/workflows/partitioned-heritability.md#many-query-annotations) explains user settings and measured workloads.
 
 ## Install
 

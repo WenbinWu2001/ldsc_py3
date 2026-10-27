@@ -41,3 +41,23 @@ A workload-specific four-worker result from the same pilot does not change the d
 
 These pilots do not establish LD-score scaling across chromosomes, genome-wide memory needs, or representative input and output performance on HPC storage.
 The initial Arrow CPU and I/O thread defaults have not been validated on representative HPC storage.
+
+## Partitioned heritability regression
+
+Longleaf pilots measured two regression changes separately before they were integrated at revision `7a478e6`.
+The values are phase medians, comparing the earlier implementation with the optimized one:
+
+| Phase and workload | Wall time, s | CPU time, s | Measured resource change |
+| --- | ---: | ---: | --- |
+| Model fitting: 60 queries, 20 workers | 60.83 → 31.74 | 898.84 → 401.08 | Peak anonymous memory: 37.25 → 27.13 GiB |
+| Publication: 100 completed fits | 5.456 → 1.917 | 3.355 → 0.650 | Logical writes: 139.856 → 1.667 MiB; anonymous memory roughly unchanged |
+
+The model comparison used two earlier and two optimized runs on the same node and BLAS backend, with 1,127,525 aligned SNP rows and 53 baseline columns per fit, from direct LD-score inputs; indexed inputs use the same fitting code.
+The publication comparison used four earlier and two optimized runs with the full 18,841-entry annotation dictionary.
+Scientific results agreed exactly within each tested BLAS backend; differences across backends were also present between unchanged runs.
+Both changes reduced measured phase wall time and CPU time, but these pilots do not establish a full production-job speedup or a smaller safe memory request, and fewer publication writes do not imply proportionally less anonymous memory or file cache.
+The raw pilot report, with workload boundaries, repetitions, cache measurements and numerical checks, is kept outside the repository.
+
+An earlier local benchmark on chromosome 22 with 1,000 queries, before the current copy and publication improvements, measured 74.17, 47.63 and 30.47 seconds with 1, 2 and 4 workers, including preparation and publication.
+Its sampled peak process-tree RSS was 472, 1,048 and 1,507 MiB; these are not full-genome memory estimates.
+

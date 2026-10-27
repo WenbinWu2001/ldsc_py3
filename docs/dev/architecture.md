@@ -14,7 +14,7 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 - [plotting.md](design/plotting.md): plotting, post-fit h2 conversion, dispatch, and derived-output ownership
 - [gene-lists.md](../reference/formats/gene-lists.md): gene-list parsing, catalog, projection, and diagnostics
 - [query-r2.md](../reference/query-r2.md): pairwise R2 lookup contract for package-built panels
-- [liftover-harmonization-decisions.md](../current/liftover-harmonization-decisions.md): current liftover contracts and follow-up handoff prompt
+- [snp-identity-and-genome-build.md](../reference/snp-identity-and-genome-build.md): genome-build policy, inference, and the shared liftover rules
 - [partitioned-h2.md](../reference/results/partitioned-h2.md): partitioned-h2 result columns and interpretation
 - [quantile-h2.md](../reference/results/quantile-h2.md): continuous-annotation post-fit contracts
 - [layer-structure.md](../current/layer-structure.md): layer-by-function object matrix

@@ -168,6 +168,18 @@ After munging liftover it is the output build; each R2 output records its own em
 Neither should be read as an assertion about the original pre-liftover coordinates.
 SNP identity and file-format validation remain separate: an explicit build does not permit invalid alleles, missing required columns, broken sidecar bindings, or incompatible identity modes.
 
+## Liftover
+
+`munge-sumstats` and `build-r2-panel` share one liftover implementation, `src/ldsc/_kernel/liftover.py`; workflow-specific options and drop accounting are in the [munge-sumstats reference](munge-sumstats.md#liftover-rules) and the [R² panel tutorial](../../tutorials/build-parquet-reference-panel-from-plink.md).
+Liftover is available only in coordinate-family modes.
+
+- Chain mapping takes and returns one-based positions; the 0-based coordinates of `pyliftover` are converted on both sides.
+- When a position maps to several places, the first hit on the same chromosome is used; a position with no same-chromosome hit is dropped as a cross-chromosome mapping.
+- Only `CHR` and `POS` change: the strand of a chain hit is ignored, so alleles are never complemented.
+- SNPs whose source or target positions collide are dropped as whole groups; no representative row is kept, because no row of a colliding group is a safer choice than another.
+- There is no option to turn colliding positions into an error instead of a drop.
+- HM3 quick liftover is available only in munging, because the HM3 map covers only HapMap3 SNPs and cannot lift a full reference panel.
+
 ## Design Decisions
 
 ### The invariant pair
@@ -223,7 +235,7 @@ Allele columns may be preserved in base modes, but they never affect identity,
 duplicate filtering, retention, or drop reasons.
 
 Allele-aware modes require usable `A1/A2` on package-written identity
-artifacts: munged sumstats, reference-panel metadata, R2 parquet endpoints, and
+artifacts: munged sumstats, reference-panel metadata, R² panel sidecars, and
 LD-score artifacts. They drop missing, invalid/non-SNP, identical,
 strand-ambiguous allele pairs, multi-allelic base-key clusters, and duplicate
 effective-key clusters. Artifact duplicates are handled by computing the
@@ -281,7 +293,7 @@ because they serve different user models.
 
 | Workflow | Identifier default | Genome-build default | Notes |
 |---|---|---|---|
-| `annotate` | `chr_pos_allele_aware` | `None` (CLI requires explicit for coordinate-family modes) | Raises unless `--genome-build` is supplied or inferable by that workflow. |
+| `annotate` | `chr_pos_allele_aware` | `None`; the gene-list route treats omission as `auto` in every mode | The BED route in coordinate-family modes requires `--genome-build`; rsID-family BED runs need no build (`annotate_workflow.py`, `annotation_builder.py`). |
 | `munge-sumstats` | `chr_pos_allele_aware` | source: `auto`; output: required for coordinate-family modes | Pass `--output-genome-build hg19` or `--output-genome-build hg38`; the raw source build is inferred unless `--source-genome-build hg19/hg38` is supplied. rsid-family modes reject source/output/liftover build flags and store `genome_build=None`. Requires usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. The removed `--no-alleles` flag is not accepted. |
 | `ldscore` | `chr_pos_allele_aware` | `None`; gene-list route treats omission as `auto` | Coordinate modes require a concrete/inferred build. Gene-list projection also requires a build in rsID modes, but shared rsID artifact metadata remains `genome_build=None`. |
 | `build-r2-panel` | registry or `--snp-identifier` | **ignored** | Uses `--source-genome-build` (separate field); `GlobalConfig.genome_build` is never consulted. |

@@ -748,7 +748,7 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
 | # | Likely cause | How to check |
 |---|--------------|--------------|
 | 1 | `--ld-wind-cm` was requested without the source-build genetic map | Confirm the matching `--genetic-map-hg19-sources` or `--genetic-map-hg38-sources` option is present |
-| 2 | Liftover enabled an opposite-build output without that build's genetic map | Check whether a chain file or HM3 quick liftover emits the other build |
+| 2 | Liftover enabled an opposite-build output without that build's genetic map | Check whether a liftover chain file emits the other build |
 | 3 | The genetic map is for the wrong build or lacks the failing chromosome | Inspect CHR values in the map and compare them to `--source-genome-build` |
 | 4 | Genetic map shards overlap or are not sorted by chromosome/position | Sort and deduplicate map rows by CHR/POS |
 | 5 | A chain file is missing, reversed, or incompatible with the source/target pair | Check the chain filename and source-target CLI flag direction |

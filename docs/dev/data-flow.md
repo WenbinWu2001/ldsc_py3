@@ -151,9 +151,9 @@ refused unless `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is
 supplied; unrelated files in the output directory are left untouched. With
 overwrite enabled, stale owned artifacts inside the current package that were
 not produced by the successful run are removed.
-Reference-panel liftover is coordinate behavior: chain-file liftover and HM3
-quick liftover are valid only when the active SNP identifier mode is in the
-`chr_pos` family.
+Reference-panel liftover is coordinate behavior: chain-file liftover is valid
+only when the active SNP identifier mode is in the `chr_pos` family; there is
+no HM3 quick liftover for reference panels.
 Reference-panel liftover requires a matching chain file. Duplicate-position
 filtering applies only in `chr_pos`-family modes and always drops all colliding
 source or target coordinate groups. The sidecar also records unmapped and

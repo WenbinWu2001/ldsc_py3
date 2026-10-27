@@ -1,4 +1,4 @@
-# ldsc3_Jerry
+# ldsc
 
 Last updated on: 2026-10-27
 
@@ -36,7 +36,7 @@ The upstream declarations inspected specify GPLv3 but do not explicitly distingu
 
 ## Citation
 
-If you use this refactored software, cite **Wenbin Wu, Anthony Abrantes, Brendan Bulik-Sullivan, and Hilary Finucane. ldsc3_Jerry (version 2.0b0)**, with [the repository URL](https://github.com/WenbinWu2001/ldsc_py3) and the exact version or commit used. [CITATION.cff](CITATION.cff) provides the software citation metadata. The installed distribution, import, and command are named `ldsc`; `ldsc3_Jerry` is the current README and citation title.
+If you use this refactored software, cite **Wenbin Wu, Anthony Abrantes, Brendan Bulik-Sullivan, and Hilary Finucane. ldsc (version 2.0b0)**, with [the repository URL](https://github.com/WenbinWu2001/ldsc_py3) and the exact version or commit used. [CITATION.cff](CITATION.cff) provides the software citation metadata. The installed distribution, import, and command are named `ldsc`, which is also the citation title.
 
 Also cite the scientific methods used in your analysis:
 

@@ -21,6 +21,7 @@ Rules for writers and terms still under proposal follow the term tables.
 
 The digit in LDSC2 and LDSC3 is the Python version, not the software version.
 `ldsc` in code font is the command and the import name, never a prose name.
+The software title in `README.md` and `CITATION.cff` is the distribution name, `ldsc`.
 On each page that names S-LDSC, the first mention gives the full name and citation, for example "partitioned heritability, estimated with stratified LD score regression (S-LDSC; Finucane et al. 2015)", so that searches for "S-LDSC" find the page.
 `partitioned-h2` in code font names the command; prose uses "partitioned heritability".
 

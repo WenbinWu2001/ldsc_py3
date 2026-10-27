@@ -152,11 +152,5 @@ class ColumnInferenceTest(unittest.TestCase):
 
 
 def test_maf_alias_family_is_folded_only():
-    # MAF (folded) no longer absorbs FRQ/FREQ; those are the oriented family.
+    # MAF (folded) does not absorb FRQ/FREQ, which are oriented frequencies.
     assert ci.MAF_COLUMN_ALIASES == ("MAF",)
-
-
-def test_oriented_frq_alias_family_exists():
-    fam = set(ci.ORIENTED_FRQ_COLUMN_ALIASES)
-    assert {"FRQ", "FREQ", "FREQUENCY", "EAF", "A1_FRQ", "FRQ_A1", "FREQ_A1"} <= fam
-    assert "MAF" not in fam  # MAF stays folded, never oriented

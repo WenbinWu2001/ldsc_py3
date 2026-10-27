@@ -95,11 +95,6 @@ POS_COLUMN_SPEC = ColumnSpec("POS", POS_COLUMN_ALIASES, "position")
 SNP_COLUMN_SPEC = ColumnSpec("SNP", SNP_COLUMN_ALIASES, "SNP identifier")
 CM_COLUMN_SPEC = ColumnSpec("CM", CM_COLUMN_ALIASES, "centiMorgan")
 MAF_COLUMN_SPEC = ColumnSpec("MAF", MAF_COLUMN_ALIASES, "folded minor-allele frequency")
-# Oriented frequency of the A1 allele (may exceed 0.5). Distinct from folded MAF
-# so external sidecars can signal orientation by column name (design 2026-06-07
-# allele-orientation-canonicalization, section 2.1).
-ORIENTED_FRQ_COLUMN_ALIASES = ("FRQ", "FREQ", "FREQUENCY", "EAF", "A1_FRQ", "FRQ_A1", "FREQ_A1")
-ORIENTED_FRQ_COLUMN_SPEC = ColumnSpec("FRQ", ORIENTED_FRQ_COLUMN_ALIASES, "oriented A1-allele frequency")
 A1_COLUMN_SPEC = ColumnSpec(
     "A1",
     ("A1", "ALLELE1", "ALLELE_1", "EFFECT_ALLELE", "REFERENCE_ALLELE", "REF", "EA"),

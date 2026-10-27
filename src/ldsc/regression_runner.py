@@ -1304,9 +1304,11 @@ class RegressionRunner:
         Parameters
         ----------
         sumstats_tables : sequence of SumstatsTable
-            Munged summary-statistic tables for two or more traits. Trait names
-            should already be unique; the CLI wrapper performs filename-based
-            disambiguation before calling this method.
+            Munged summary-statistic tables for two or more traits, each with
+            ``A1``/``A2``. Inputs sharing a trait label are relabeled
+            ``label@<path suffix>`` with the shortest source-path suffix that
+            separates them, as in ``ldsc rg``; a shared label without source
+            paths raises ``LDSCInputError``.
         ldscore_result : LDScoreSource or LDScoreResult
             Canonical LD-score result. Only baseline LD scores are used for rg.
         anchor_index : int or None, optional
@@ -1345,6 +1347,7 @@ class RegressionRunner:
         # Reject allele-free traits before any fit; a pair-level error would be
         # recorded as a failed pair instead of stopping the run.
         _require_rg_alleles(tables)
+        tables = _disambiguate_trait_names(tables)
 
         _regression_genome_build(tables, ldscore_result,
                                  _ldscore_identity_mode(ldscore_result, self.global_config), context="rg")
@@ -3454,6 +3457,12 @@ def _disambiguate_trait_names(tables: Sequence[SumstatsTable]) -> list[SumstatsT
         members = [index for index, item in enumerate(labels) if item == label]
         if len(members) == 1:
             continue
+        if any(not tables[index].source_path for index in members):
+            raise LDSCInputError(
+                f"rg cannot give each input a unique trait label: '{label}' labels {len(members)} inputs, and "
+                "at least one has no source path to tell them apart. Give each SumstatsTable a distinct "
+                "trait_name."
+            )
         suffixes = _distinguishing_path_suffixes([Path(tables[index].source_path) for index in members])
         for index, suffix in zip(members, suffixes):
             unique[index] = f"{label}@{suffix}"

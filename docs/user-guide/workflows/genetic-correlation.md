@@ -116,6 +116,7 @@ When several inputs share a label, `rg` relabels each of them as `label@<suffix>
 Parent directories are tried first, so `pgc/v3/SCZ.parquet` and `ukb/v3/SCZ.parquet` become `SCZ@pgc/v3` and `SCZ@ukb/v3`.
 Inputs in the same directory get a suffix ending in the file name, such as `SCZ@SCZ_a.parquet` and `SCZ@SCZ_b.parquet`.
 One suffix length is used for the whole group, so the labels do not depend on input order; the suffix comes from the path as you typed it, relative or absolute.
+Python `RegressionRunner.estimate_rg_pairs()` applies the same rule to each table's `source_path`.
 
 The new labels appear in all output tables and figures and in `diagnostics/metadata.json`; the log reports how many labels were changed.
 To use such an input as the anchor, pass its new label or its path to `--anchor-trait`.

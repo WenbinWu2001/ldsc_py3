@@ -829,6 +829,8 @@ if __name__ == "__main__":
 
 The result has four parts: `result.rg`, `result.rg_full` and `result.h2_per_trait` match `rg.tsv`, `rg_full.tsv` and `h2_per_trait.tsv`, and `result.per_pair_metadata` holds one record per pair.
 A pair whose fit fails is recorded with `NaN` estimates and `status="failed"`, and the other pairs are still fitted.
+Every trait needs `A1` and `A2`; tables without them stop the call before any fit.
+Tables that share a trait label are relabeled `label@<suffix>` from their `source_path`, as in [inputs that share a trait label](workflows/genetic-correlation.md#inputs-that-share-a-trait-label); tables loaded with `load_sumstats()` carry their path, and tables that share a label without a path must be given distinct `trait_name` values.
 Exporting the tables with `to_csv()` does not create a plotting input; `plot_result()` needs the directory and metadata written by `RgDirectoryWriter`.
 Pass `overwrite=True` to `RgOutputConfig` or `plot_result()` only to replace existing outputs, and `write_per_pair_detail=True` to `RgOutputConfig` to also write `diagnostics/pairs/`.
 The `h2_per_trait` columns `total_h2_obs` and `total_h2_obs_se` are the values the plot shows on the heatmap diagonal or beside the anchor plot.

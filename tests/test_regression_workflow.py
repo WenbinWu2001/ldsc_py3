@@ -1721,6 +1721,29 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(result.per_pair_metadata[0]["effective_snp_identifier"], "rsid")
         self.assertFalse(result.per_pair_metadata[0]["identity_downgrade_applied"])
 
+    def test_estimate_rg_pairs_relabels_shared_trait_names_like_the_cli(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        traits = [
+            replace(self.make_sumstats_table(), trait_name="SCZ", source_path="pgc/v3/SCZ.parquet"),
+            replace(self.make_sumstats_table(), trait_name="SCZ", source_path="ukb/v3/SCZ.parquet"),
+        ]
+
+        with _stub_h2_kernel(self.make_rg_kernel_result().hsq1), mock.patch.object(
+            regression_runner.reg, "RG", return_value=self.make_rg_kernel_result(rg=0.5, p=0.01)
+        ):
+            result = runner.estimate_rg_pairs(traits, self.make_ldscore_result())
+
+        # Documented example in docs/user-guide/workflows/genetic-correlation.md.
+        self.assertEqual(result.h2_per_trait["trait_name"].tolist(), ["SCZ@pgc/v3", "SCZ@ukb/v3"])
+        self.assertEqual(result.rg[["trait_1", "trait_2"]].values.tolist(), [["SCZ@pgc/v3", "SCZ@ukb/v3"]])
+
+    def test_estimate_rg_pairs_rejects_shared_trait_names_without_source_paths(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        traits = [replace(self.make_sumstats_table(), trait_name="SCZ", source_path=None) for _ in range(2)]
+
+        with self.assertRaisesRegex(LDSCInputError, r"'SCZ'(.|\n)*distinct trait_name"):
+            runner.estimate_rg_pairs(traits, self.make_ldscore_result())
+
     def test_estimate_rg_pairs_anchor_mode_uses_anchor_against_rest_in_input_order(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         traits = [

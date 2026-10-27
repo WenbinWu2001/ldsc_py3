@@ -560,7 +560,28 @@ print(index.snp_identifier, index.genome_build)
 Opening an index validates each chromosome and releases its data before loading the next.
 The returned object holds the shared metadata, the embedded gene coordinate catalog (`gene_catalog`), per-gene support counts and the paths of the chromosome files, not the stored operators.
 
-Assemble gene-list LD scores from an index with the command `ldsc ldscore --gene-ldscore-index-dir`, described in [Calculate LD scores from gene lists](workflows/gene-list-ld-scores.md#step-2-assemble-gene-list-ld-scores); from a notebook, run it through `subprocess`.
+### Assemble gene-list LD scores from an index
+
+`run_ldscore(gene_ldscore_index_dir=...)` is the Python form of `ldsc ldscore --gene-ldscore-index-dir`, described in [Calculate LD scores from gene lists](workflows/gene-list-ld-scores.md#step-2-assemble-gene-list-ld-scores).
+
+```python
+from ldsc import run_ldscore
+
+if __name__ == "__main__":
+    source = run_ldscore(
+        output_dir="results/ldscores/gene-lists",
+        gene_ldscore_index_dir="/path/to/indexes/baseline_100kb",
+        query_annot_gene_list_sources="/path/to/gene-lists/*.txt",
+        # control_gene_list_file="/path/to/gene-lists/control-genes.txt",
+        # workers=8,
+    )
+
+    print(source.query_columns)
+    print(source.config_snapshot)
+```
+
+The gene LD-score index supplies the SNP identifier mode and genome build, so the registered `GlobalConfig.snp_identifier` and `GlobalConfig.genome_build` are ignored for this call, and `source.config_snapshot` records the index values.
+The keyword arguments that indexed mode accepts are those of the command: `control_gene_list_file`, `gene_list_resolution_policy`, `workers`, `query_batch_size`, `overwrite` and `output_dir`; the scientific options stored in the index are rejected.
 The resulting directory opens with `load_ldscore_from_dir()` like any other LD-score directory.
 
 ## Annotations

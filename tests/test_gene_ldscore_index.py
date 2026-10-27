@@ -21,7 +21,7 @@ import pytest
 from scipy import sparse
 
 from ldsc import cli, gene_ldscore_index, ldscore_calculator
-from ldsc.config import GeneLDScoreIndexBuildConfig, GlobalConfig
+from ldsc.config import GeneLDScoreIndexBuildConfig, GlobalConfig, reset_global_config, set_global_config
 from ldsc._kernel import ldscore as kernel_ldscore
 from ldsc._kernel.gene_ldscore_index import AtomStatistics, build_disjoint_atoms
 from ldsc.errors import LDSCInputError, LDSCUsageError
@@ -2037,6 +2037,43 @@ def test_python_indexed_mode_rejects_explicit_identity_even_when_equal_to_ordina
             query_annot_gene_list_sources=(tmp_path / "genes.txt",),
             snp_identifier="chr_pos_allele_aware",
         )
+
+
+@pytest.mark.parametrize("registered", [
+    GlobalConfig(),
+    GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+    GlobalConfig(snp_identifier="rsid_allele_aware"),
+])
+def test_python_indexed_mode_inherits_index_identity_over_registered_global_config(
+    registered, tmp_path, monkeypatch
+):
+    chromosome, catalog, index_identity = _artifact_payload()
+    index_dir = publish_gene_ldscore_index(
+        tmp_path / "index", index_identity=index_identity, gene_catalog=catalog,
+        chromosomes={"22": chromosome}, overwrite=False,
+    )
+    genes = tmp_path / "focal.txt"
+    genes.write_text("G1\n", encoding="utf-8")
+    real_load = gene_ldscore_index._load_gene_ldscore_index
+    monkeypatch.setattr(
+        gene_ldscore_index,
+        "_load_gene_ldscore_index",
+        lambda path, **_kwargs: real_load(path, _allow_partial_for_tests=True),
+    )
+
+    set_global_config(registered)
+    try:
+        result = ldscore_calculator.run_ldscore(
+            output_dir=tmp_path / "out",
+            gene_ldscore_index_dir=index_dir,
+            query_annot_gene_list_sources=str(genes),
+        )
+    finally:
+        reset_global_config()
+
+    assert result.config_snapshot.snp_identifier == "rsid"
+    assert result.config_snapshot.genome_build is None
+    assert (tmp_path / "out" / "ldscore.query.parquet").exists()
 
 
 def test_indexed_strict_unresolved_stops_at_gate_a_with_complete_audit(tmp_path):

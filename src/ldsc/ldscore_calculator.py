@@ -1952,6 +1952,11 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
     query, no query, or an exact index raises ``LDSCUsageError`` even when its
     value is zero.
 
+    With ``gene_ldscore_index_dir``, the gene LD-score index supplies the SNP
+    identifier mode and genome build, as on the command line; the registered
+    ``GlobalConfig.snp_identifier`` and ``genome_build`` are ignored, and the
+    returned ``config_snapshot`` records the index values.
+
     Gene-list resolution defaults to ``gene_list_resolution_policy="strict"``.
     For deliberate subset analysis, pass
     ``gene_list_resolution_policy="resolved-only"`` to omit allowlisted rejected
@@ -2027,8 +2032,11 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
         if action.dest != "help" and action.default is not argparse.SUPPRESS
     }
     global_config = get_global_config()
-    defaults["snp_identifier"] = global_config.snp_identifier
-    defaults["genome_build"] = global_config.genome_build
+    if kwargs.get("gene_ldscore_index_dir") is None:
+        # Indexed mode inherits identity and build from the index; the parser
+        # defaults stand for "not supplied" in its live-override check.
+        defaults["snp_identifier"] = global_config.snp_identifier
+        defaults["genome_build"] = global_config.genome_build
     defaults["log_level"] = global_config.log_level
     defaults.update(kwargs)
     args = argparse.Namespace(**defaults)

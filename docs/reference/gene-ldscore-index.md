@@ -123,6 +123,7 @@ Online
 indexed assembly does not rematch sources and rejects live `--snp-identifier`
 and `--genome-build` options even when they equal the index. A matching direct
 run must explicitly use the index's mode and coordinate build.
+In Python, `run_ldscore(gene_ldscore_index_dir=...)` ignores the registered `GlobalConfig.snp_identifier` and `GlobalConfig.genome_build` and records the index values in the result's `config_snapshot`.
 
 An individual chromosome may have zero regression rows after restriction and
 region subtraction, which produces a warning. Public construction always

@@ -978,7 +978,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         with self.assertRaisesRegex(LDSCInputError, "query rows must match baseline rows"):
             runner.build_dataset(self.make_sumstats_table(), result, query_columns=["query2"])
 
-    def test_old_common_count_metadata_key_is_not_recognized(self):
+    def test_missing_requested_common_counts_fail_without_all_count_substitution(self):
         old_result = replace(
             self.make_ldscore_result(),
             count_records=[
@@ -994,10 +994,13 @@ class RegressionWorkflowTest(unittest.TestCase):
         )
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
 
-        dataset = runner.build_dataset(self.make_sumstats_table(), old_result)
+        # The old metadata key is not a common-SNP count, and all-SNP counts never stand in for it.
+        with self.assertRaisesRegex(LDSCInputError, r"common-SNP count(.|\n)*--count-kind all"):
+            runner.build_dataset(self.make_sumstats_table(), old_result)
 
+        all_runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(use_common_counts=False))
+        dataset = all_runner.build_dataset(self.make_sumstats_table(), old_result)
         self.assertEqual(dataset.count_key_used_for_regression, "all_reference_snp_counts")
-        self.assertNotIn("common_reference_snp_counts", dataset.reference_snp_count_totals)
 
     def test_build_dataset_chr_pos_mode_merges_on_coordinates_not_snp(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())

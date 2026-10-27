@@ -101,7 +101,7 @@ An LD-score directory converted from LDSC2 with [`convert-ldsc2-ldscores`](migra
 
 Defaults used by this command:
 
-- `--count-kind common` scales estimates by common-SNP counts, falling back to all-SNP counts only when the LD-score directory has no common-SNP counts; `--count-kind all` uses all-SNP counts and fails if they are unavailable.
+- `--count-kind common` scales estimates by common-SNP counts and `--count-kind all` by all-SNP counts; the run stops before fitting if the LD-score directory lacks the requested counts for a baseline annotation, or for a query annotation unless `--continue-on-query-error` records that query as failed; the other kind is never substituted.
 - The intercept is estimated; add `--intercept-h2 1` to fix it at 1 (the replacement for LDSC2 `--no-intercept`; see the [flag map](../../reference/ldsc2-flag-map.md#regression-intercept-consolidation)).
 - `--n-blocks 200` sets the block jackknife.
 - Results are on the observed scale; for a binary trait, add `--samp-prev` and `--pop-prev` as described in [liability scale](liability-scale.md).

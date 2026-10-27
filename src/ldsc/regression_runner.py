@@ -21,8 +21,8 @@ rejected rows are recorded in a stable diagnostic audit. Legacy LD-score
 fragments are never read here and require explicit conversion first.
 
 Regression chooses either the metadata ``common_reference_snp_counts`` vector or
-``all_reference_snp_counts`` through ``--count-kind common|all``. The default
-``common`` mode falls back to all-SNP counts when common counts are unavailable.
+``all_reference_snp_counts`` through ``--count-kind common|all`` (default
+``common``). Requested counts must be present; the other kind is never substituted.
 Regression merges by the effective key for the resolved SNP identifier mode.
 Base modes are allele-blind; allele-aware/base mixes can run under the base mode
 only when ``--allow-identity-downgrade`` or
@@ -1098,6 +1098,12 @@ class RegressionRunner:
             raise LDSCInputError(PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE)
         queries = list(ldscore_result.query_columns if query_columns is None else query_columns)
         queries = _validate_partitioned_query_columns(ldscore_result, queries)
+        # Check requested counts before fitting: baseline counts are shared by
+        # every model; query counts too unless continuation was requested, which
+        # records a query lacking its counts as a failed query instead.
+        model_columns = [*ldscore_result.baseline_columns, *([] if continue_on_query_error else queries)]
+        _select_count_key(_count_totals_for_columns(ldscore_result.count_records, model_columns),
+                          config.use_common_counts, model_columns)
         worker_count = _resolve_worker_count(workers, max(1, len(queries)),
                                              task_unit="query-plus-baseline model", batch_size=query_batch_size)
         sort_by = _resolve_summary_sort(summary_sort_by, has_queries=bool(queries))
@@ -1819,23 +1825,32 @@ def _select_count_key(
     use_common_counts: bool,
     columns: Sequence[str] = (),
 ) -> str:
-    """Pick the regression count vector key, preferring common-SNP counts by default."""
-    if use_common_counts and COMMON_COUNT_KEY in count_totals:
-        return COMMON_COUNT_KEY
-    if use_common_counts and ALL_COUNT_KEY in count_totals:
-        return ALL_COUNT_KEY
-    if not use_common_counts and ALL_COUNT_KEY in count_totals:
-        return ALL_COUNT_KEY
-    if not use_common_counts:
+    """Return the requested count vector key; the other count kind is never substituted."""
+    if use_common_counts:
+        if COMMON_COUNT_KEY in count_totals:
+            return COMMON_COUNT_KEY
         raise LDSCInputError(
-            "Regression requested all-SNP counts, but all-SNP counts are unavailable for LD-score column(s) "
-            f"{list(columns)}. This is expected for an imported unpartitioned LDSC2 suite when one or more "
-            "chromosome .M files were missing. Use the default common counts or convert a suite with complete .M files."
+            "Regression requested common-SNP counts (`--count-kind common`, the default), but the LD-score "
+            "directory does not record a common-SNP count for every requested LD-score column "
+            f"({_preview_names(columns)}). All-SNP counts are never substituted. Most likely the metadata.json "
+            "was written by an older LDSC3 version or edited by hand. Regenerate or reconvert the LD-score "
+            "directory, or pass `--count-kind all` (`RegressionConfig(use_common_counts=False)`) to scale "
+            "estimates by all-SNP counts."
         )
+    if ALL_COUNT_KEY in count_totals:
+        return ALL_COUNT_KEY
     raise LDSCInputError(
-        "Regression could not find a complete reference-SNP count vector for the requested LD-score columns. "
-        "Regenerate or reconvert the LD-score directory."
+        "Regression requested all-SNP counts, but all-SNP counts are unavailable for LD-score column(s) "
+        f"{list(columns)}. This is expected for an imported unpartitioned LDSC2 suite when one or more "
+        "chromosome .M files were missing. Use the default common counts or convert a suite with complete .M files."
     )
+
+
+def _preview_names(names: Sequence[str], limit: int = 5) -> str:
+    """Join the first ``limit`` names for a message and count the rest."""
+    names = list(names)
+    preview = ", ".join(names[:limit])
+    return f"{preview}, ... ({len(names) - limit} more)" if len(names) > limit else preview
 
 
 def _validate_partitioned_query_columns(ldscore_result: LDScoreSource | LDScoreResult, query_columns: Sequence[str]) -> list[str]:
@@ -3259,9 +3274,9 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
     model.add_argument(
         '--count-kind', choices=('common', 'all'), default='common',
         help=(
-            'Reference SNP counts used to scale regression estimates: common uses common-variant counts, '
-            'all uses all-reference counts. Default: common, falling back to all counts when common counts '
-            'are unavailable. Requested counts must be present.'
+            'Reference SNP counts used to scale regression estimates: common uses common-SNP counts, '
+            'all uses all-SNP counts. Default: common. The requested counts must be in the LD-score '
+            'directory; the other kind is never substituted.'
         ),
     )
     if include_h2_intercept:

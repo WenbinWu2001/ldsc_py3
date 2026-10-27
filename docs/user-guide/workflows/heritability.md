@@ -106,7 +106,7 @@ The defaults follow the published LDSC settings; change them only for a specific
 
 | Option | Default and purpose |
 | --- | --- |
-| `--count-kind` | `common` (default) scales by common-SNP counts, using all-SNP counts only when the LD-score directory has no common-SNP counts; `all` requires all-SNP counts |
+| `--count-kind` | `common` (default) scales by common-SNP counts and `all` by all-SNP counts; the requested counts must be in the LD-score directory, and the other kind is never substituted |
 | `--intercept-h2` | Estimated by default; `--intercept-h2 1` fixes the intercept at the standard value (this replaces the LDSC2 `--no-intercept`) |
 | `--two-step-cutoff` | 30 by default for a single-annotation model with a free intercept; cannot be combined with `--intercept-h2` |
 | `--chisq-max` | No cap for a single-annotation model; with several annotations, $\max(0.001 \cdot \max N, 80)$ |

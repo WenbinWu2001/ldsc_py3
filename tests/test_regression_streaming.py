@@ -144,6 +144,45 @@ def batch_inputs(tmp_path):
     return table, load_ldscore_from_dir(str(tmp_path))
 
 
+def _without_common_count(tmp_path, column):
+    table, _ = batch_inputs(tmp_path / "ld")
+    metadata_path = tmp_path / "ld" / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    for record in metadata["counts"]:
+        if record["column"] == column:
+            del record["common_reference_snp_count"]
+    metadata_path.write_text(json.dumps(metadata))
+    return table, load_ldscore_from_dir(str(tmp_path / "ld"))
+
+
+@pytest.mark.parametrize(("column", "continue_on_query_error"), [
+    ("second", False), ("base", False), ("base", True),
+])
+def test_partitioned_batch_rejects_missing_requested_common_counts_before_fitting(
+    tmp_path, monkeypatch, column, continue_on_query_error
+):
+    table, source = _without_common_count(tmp_path, column)
+    runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(n_blocks=6))
+    monkeypatch.setattr(runner, "prepare_inputs",
+                        lambda *args, **kwargs: pytest.fail("regression inputs were prepared before count validation"))
+
+    with pytest.raises(workflow.LDSCInputError, match=r"common-SNP count(.|\n)*--count-kind all"):
+        runner.estimate_partitioned_h2_batch(table, source, output_dir=tmp_path / "out",
+                                             continue_on_query_error=continue_on_query_error)
+
+
+def test_partitioned_continuation_records_query_without_common_counts_as_failed(tmp_path):
+    table, source = _without_common_count(tmp_path, "second")
+    runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(n_blocks=6))
+
+    result = runner.estimate_partitioned_h2_batch(table, source, output_dir=tmp_path / "out",
+                                                  continue_on_query_error=True)
+
+    assert result.query_status.status.tolist() == ["success", "failed", "success"]
+    assert "common-SNP count" in result.query_status.loc[1, "error_message"]
+    assert set(result.summary.category) == {"first", "third"}
+
+
 @pytest.mark.parametrize("batch_size", [1, 2, 1000])
 def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypatch, batch_size):
     table, source = batch_inputs(tmp_path / "ld")

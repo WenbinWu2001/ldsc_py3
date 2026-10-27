@@ -1099,8 +1099,9 @@ class RegressionConfig:
     n_blocks : int, optional
         Requested number of block-jackknife partitions. Default is ``200``.
     use_common_counts : bool, optional
-        If ``True``, prefer the LD-score metadata ``common_reference_snp_counts`` vector
-        when it is available; otherwise use ``all_reference_snp_counts``.
+        If ``True``, scale estimates by the LD-score metadata common-SNP counts;
+        if ``False``, by the all-SNP counts. The selected counts must be present
+        for every model column, and the other kind is never substituted.
         Default is ``True``.
     use_intercept : bool, optional
         If ``False``, constrain the intercept to the LDSC default for the model

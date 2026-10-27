@@ -278,7 +278,7 @@ This writes `plots/rg_heatmap.png` below the rg result directory, with plot meta
 
 The diagonal uses the saved single-trait estimates in `h2_per_trait.tsv`, matched by trait name. It retains finite estimates outside 0–1; missing or unusable estimate–SE pairs display `failed`. Liability columns do not change the displayed h2 scale. Plotting reads the saved results without rerunning regression.
 
-For a result produced with `ldsc rg --anchor-trait ...`, the same plot command instead writes `plots/rg_anchor_forest.png`: correlations have points and one-SE bars, partner h2 estimates appear in a separate text column, and the anchor's h2 appears in the subtitle. See [the rg wiki page](../wiki/main-functionalities/rg.md) and [the plotting manual](workflows/plotting.md) for interpretation and malformed-input behavior.
+For a result produced with `ldsc rg --anchor-trait ...`, the same plot command instead writes `plots/rg_anchor_forest.png`: correlations have points and one-SE bars, partner h2 estimates appear in a separate text column, and the anchor's h2 appears in the subtitle. See [the rg wiki page](workflows/genetic-correlation.md) and [the plotting manual](workflows/plotting.md) for interpretation and malformed-input behavior.
 
 ## Analysis 3: partition heritability with functional annotations (known as cell-type-specific regression)
 

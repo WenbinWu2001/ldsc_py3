@@ -767,3 +767,67 @@ The LD-score table includes a `regression_ld_scores` column (LDSC2's `w_ld`); th
 **Saved results.**
 `estimate_h2()` returns an in-memory estimate and writes nothing.
 `plot_result()` and `convert_h2_scale()` read a saved `h2` result directory, which `ldsc h2` writes; for example, `convert_h2_scale("results/trait_h2", samp_prev=0.5, pop_prev=0.01)` writes the liability-scale table under `results/trait_h2/postprocessing/liability-scale/`.
+
+## Genetic correlation
+
+This section is the Python counterpart of [Estimate genetic correlation](workflows/genetic-correlation.md).
+
+`RegressionRunner.estimate_rg_pairs()` fits two or more traits against one LD-score directory and returns the same tables as `ldsc rg`.
+Save them with `RgDirectoryWriter` to get a result directory that `plot_result()` can read:
+
+```python
+from ldsc import (
+    GlobalConfig,
+    RegressionConfig,
+    RegressionRunner,
+    RgDirectoryWriter,
+    RgOutputConfig,
+    load_ldscore_from_dir,
+    load_sumstats,
+    plot_result,
+    set_global_config,
+)
+
+if __name__ == "__main__":
+    GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
+    set_global_config(GLOBAL_CONFIG)
+
+    trait_1 = load_sumstats("results/traits/trait_1/trait_1.parquet", trait_name="trait_1")
+    trait_2 = load_sumstats("results/traits/trait_2/trait_2.parquet", trait_name="trait_2")
+    ldscore_result = load_ldscore_from_dir("results/unpartitioned_ldscores")
+
+    runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
+    result = runner.estimate_rg_pairs([trait_1, trait_2], ldscore_result)
+    print(result.rg)
+    print(result.h2_per_trait[["trait_name", "total_h2_obs", "total_h2_obs_se"]])
+
+    RgDirectoryWriter().write(result, RgOutputConfig(output_dir="results/trait_1_trait_2_rg"))
+    plot = plot_result("results/trait_1_trait_2_rg")
+    print(plot.path)
+```
+
+The result has four parts: `result.rg`, `result.rg_full` and `result.h2_per_trait` match `rg.tsv`, `rg_full.tsv` and `h2_per_trait.tsv`, and `result.per_pair_metadata` holds one record per pair.
+A pair whose fit fails is recorded with `NaN` estimates and `status="failed"`, and the other pairs are still fitted.
+Exporting the tables with `to_csv()` does not create a plotting input; `plot_result()` needs the directory and metadata written by `RgDirectoryWriter`.
+Pass `overwrite=True` to `RgOutputConfig` or `plot_result()` only to replace existing outputs, and `write_per_pair_detail=True` to `RgOutputConfig` to also write `diagnostics/pairs/`.
+The `h2_per_trait` columns `total_h2_obs` and `total_h2_obs_se` are the values the plot shows on the heatmap diagonal or beside the anchor plot.
+
+**Anchor and intercept options.**
+Pass `anchor_index=0` (or another input position) to fit only the pairs with that trait; `plot_result()` then draws the anchor forest plot.
+Fixed intercepts are set on the configuration:
+
+```python
+fixed = RegressionConfig(intercept_h2=1.0, intercept_gencov=0.0)
+anchor_result = runner.estimate_rg_pairs([trait_1, trait_2], ldscore_result, anchor_index=0, config=fixed)
+```
+
+**Trait labels.**
+Python does not relabel inputs that share a trait name, unlike `ldsc rg`.
+Give each table a distinct name, for example with `load_sumstats(path, trait_name=...)`; plotting rejects a result with duplicate trait names.
+
+**Munging in the same script.**
+`SumstatsMunger().run(MungeConfig(...))` returns a `SumstatsTable` that can be passed to `estimate_rg_pairs()` directly; see [Munge summary statistics](#munge-summary-statistics).
+Tables made by the munger, and Parquet files read by `load_sumstats()`, carry the `GlobalConfig` used to make them; their settings are checked against the LD scores before fitting.
+An LDSC2 `.sumstats.gz` file is matched to the LD scores by rsID; a Parquet file without the footer is rejected.
+
+`RegressionRunner.estimate_rg()` fits one pair and returns the low-level estimator object; prefer `estimate_rg_pairs()`, which returns the same tables as the command.

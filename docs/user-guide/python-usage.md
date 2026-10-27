@@ -28,6 +28,8 @@ print(get_global_config())
 `GlobalConfig()` defaults to `snp_identifier="chr_pos_allele_aware"`, `genome_build="auto"` and `log_level="INFO"`, and `reset_global_config()` restores these defaults.
 Workflow functions such as `run_ldscore` read the registered configuration and reject `snp_identifier`, `genome_build` and `log_level` as keyword arguments; `run_annotate`, `RegressionRunner` and `SumstatsMunger.run` also accept an explicit `global_config=`.
 Saved LD-score directories and munged summary statistics keep the SNP identity and build recorded when they were written, and regression uses those records rather than the session setting.
+The regression functions `run_h2`, `run_partitioned_h2`, `run_rg` and `run_quantile_h2` therefore take only the log level from the registered configuration.
+They also reject, before writing anything, a keyword name the command does not have, a value outside the command's choices, and a non-boolean value for an on/off option.
 See [SNP identity and genome build](concepts/snp-identity-and-genome-build.md).
 
 **Run workflows under `if __name__ == "__main__":`.**
@@ -54,18 +56,14 @@ Worker counts and process start-up are described in [parallel execution](../refe
 
 ## Partitioned heritability
 
-The Python workflow mirrors the two CLI steps in [partitioned heritability](workflows/partitioned-heritability.md): `run_ldscore` writes the LD-score directory and returns an `LDScoreSource`, and `RegressionRunner.estimate_partitioned_h2_batch` fits one baseline-plus-query model per query annotation.
+The Python workflow mirrors the two CLI steps in [partitioned heritability](workflows/partitioned-heritability.md): `run_ldscore` writes the LD-score directory, and `run_partitioned_h2` fits one baseline-plus-query model per query annotation and writes the same result directory as `ldsc partitioned-h2`.
 Set the SNP identifier mode and genome build once with `set_global_config`; `run_ldscore` rejects them as keyword arguments.
 
 ```python
-from ldsc import (
-    GlobalConfig, RegressionConfig, RegressionRunner,
-    load_sumstats, run_ldscore, set_global_config,
-)
+from ldsc import GlobalConfig, run_ldscore, run_partitioned_h2, set_global_config
 
 def main():
-    global_config = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19")
-    set_global_config(global_config)
+    set_global_config(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"))
     ldscore_dir = "results/partitioned_ldscores"
 
     source = run_ldscore(
@@ -78,17 +76,15 @@ def main():
         output_dir=ldscore_dir,
     )
 
-    sumstats = load_sumstats("results/trait/trait.parquet", trait_name="trait")
-    runner = RegressionRunner(global_config=global_config, regression_config=RegressionConfig())
-    result = runner.estimate_partitioned_h2_batch(
-        sumstats, source,
+    result = run_partitioned_h2(
+        sumstats_file="results/trait/trait.parquet",
+        ldscore_dir=ldscore_dir,
         workers=1,
         query_batch_size=100,
         output_dir="results/partitioned_h2",
-        metadata={"ldscore_dir": ldscore_dir, "trait_name": "trait"},
     )
     print(result.summary)
-    print(result.per_query_artifacts)  # Persistent per-query table, delete-value and metadata paths.
+    print(result.query_status)
 
 if __name__ == "__main__":
     main()
@@ -97,12 +93,36 @@ if __name__ == "__main__":
 `run_ldscore` accepts the `ldscore` option names without the leading `--`, for example `ref_panel_snps_file`, `regr_snps_file`, `plink_prefix` or `query_annot_sources`.
 The returned `LDScoreSource` holds the baseline LD scores and the saved query file paths, not the query LD scores; regression reads only the query columns it needs.
 To reopen a saved directory in a later session, use `load_ldscore_from_dir(ldscore_dir)`.
-`load_sumstats` reads munged summary statistics and recovers their SNP identity and genome build from the Parquet footer; it also accepts LDSC2 `.sumstats(.gz)` files.
 
-`RegressionConfig` holds the regression settings, for example `RegressionConfig(intercept_h2=1.0)` for a fixed intercept or `use_common_counts=False` for all-SNP counts (CLI `--count-kind all`).
-`estimate_partitioned_h2_batch` also takes `query_columns` to fit a subset of queries, or an empty list to fit the baseline annotations as one joint model, as well as `summary_sort_by` and `overwrite`.
+`run_partitioned_h2` accepts the `partitioned-h2` option names without the leading `--`, for example `trait_name`, `count_kind="all"` for all-SNP counts, `intercept_h2=1.0` for a fixed intercept, `summary_sort_by`, `continue_on_query_error` and `overwrite`; see [regression options](../reference/regression-options.md).
+It writes `partitioned_h2.tsv`, the per-query results and `diagnostics/partitioned-h2.log`, which `plot_result()` and `run_quantile_h2` read later.
 It returns a `PartitionedH2BatchResult` with `summary`, `output_paths`, `per_query_artifacts` and `query_status`.
 The in-memory `summary` has the scientific columns only; the saved `partitioned_h2.tsv` adds `query_result_dir`.
+
+### Fit loaded inputs
+
+`RegressionRunner.estimate_partitioned_h2_batch` fits the same models from a loaded `SumstatsTable` and `LDScoreSource`:
+
+```python
+from ldsc import RegressionConfig, RegressionRunner, load_sumstats
+
+# Inside main(), after run_ldscore(...) returns source.
+sumstats = load_sumstats("results/trait/trait.parquet", trait_name="trait")
+runner = RegressionRunner(regression_config=RegressionConfig())
+result = runner.estimate_partitioned_h2_batch(
+    sumstats, source,
+    workers=1,
+    query_batch_size=100,
+    output_dir="results/partitioned_h2_loaded",
+    metadata={"ldscore_dir": "results/partitioned_ldscores", "trait_name": "trait"},
+)
+print(result.per_query_artifacts)  # Persistent per-query table, delete-value and metadata paths.
+```
+
+`load_sumstats` reads munged summary statistics and recovers their SNP identity and genome build from the Parquet footer; it also accepts LDSC2 `.sumstats(.gz)` files.
+`RegressionConfig` holds the regression settings, for example `RegressionConfig(intercept_h2=1.0)` or `use_common_counts=False` (CLI `--count-kind all`).
+`estimate_partitioned_h2_batch` also takes `query_columns` to fit a subset of queries, or an empty list to fit the baseline annotations as one joint model, as well as `summary_sort_by` and `overwrite`.
+It writes no workflow log and records only the `metadata` it is given.
 
 ### Inspect query values
 
@@ -127,8 +147,9 @@ Batch regression is strict by default, matching the CLI.
 
 ```python
 # Inside main(), replacing the strict call above.
-result = runner.estimate_partitioned_h2_batch(
-    sumstats, source,
+result = run_partitioned_h2(
+    sumstats_file="results/trait/trait.parquet",
+    ldscore_dir=ldscore_dir,
     output_dir="results/partitioned_h2",
     continue_on_query_error=True,
 )
@@ -136,7 +157,8 @@ failed = result.query_status.loc[result.query_status["status"] != "success"]
 print(failed[["query_annotation", "stage", "error_type", "error_message"]])
 ```
 
-Direct Python calls send errors to the `LDSC` logger and do not install the `diagnostics/partitioned-h2.log` file handler; they still write `diagnostics/query_status.tsv`.
+`run_partitioned_h2` writes the query tracebacks to `diagnostics/partitioned-h2.log`, as the command does.
+`RegressionRunner.estimate_partitioned_h2_batch(..., continue_on_query_error=True)` installs no log file and sends them to the `LDSC` logger; both write `diagnostics/query_status.tsv`.
 
 ### Reuse query annotations and check SNP retention
 
@@ -197,16 +219,16 @@ See [reference and regression SNPs](../reference/ldscore-snp-universes.md).
 ### Parallel fits from a notebook
 
 Workers are started with `spawn`, so Python scripts must run workflow calls under `if __name__ == "__main__":` at every worker count (see [parallel execution](../reference/parallel-execution.md)).
-`estimate_partitioned_h2_batch(..., workers=4, query_batch_size=100)` fits four models at once from an importable script.
+`run_partitioned_h2(..., workers=4, query_batch_size=100)` fits four models at once from an importable script.
 From a notebook that cannot start importable workers, run the CLI in a subprocess; see [Cell-type enrichment](#cell-type-enrichment).
 
 ## Cell-type enrichment
 
-[Cell-type enrichment](workflows/cell-type-enrichment.md) uses the same Python calls as [partitioned heritability](#partitioned-heritability): pass the cell-type BED files, prebuilt annotation files or gene lists to `run_ldscore`, then call `RegressionRunner.estimate_partitioned_h2_batch`, which fits each cell-type query in its own baseline-plus-query model.
+[Cell-type enrichment](workflows/cell-type-enrichment.md) uses the same Python calls as [partitioned heritability](#partitioned-heritability): pass the cell-type BED files, prebuilt annotation files or gene lists to `run_ldscore`, then call `run_partitioned_h2`, which fits each cell-type query in its own baseline-plus-query model.
 
 ### Run parallel fits from a notebook
 
-Workers are started with `spawn`, so `estimate_partitioned_h2_batch(..., workers=4)` must run from an importable script under `if __name__ == "__main__":` (see [parallel execution](../reference/parallel-execution.md)).
+Workers are started with `spawn`, so `run_partitioned_h2(..., workers=4)` must run from an importable script under `if __name__ == "__main__":` (see [parallel execution](../reference/parallel-execution.md)).
 A notebook that cannot start such workers can run the CLI in a subprocess instead:
 
 ```python
@@ -255,6 +277,36 @@ for row in summary.itertuples(index=False):
 
 `keep_default_na=False` keeps empty `error_message` cells of successful queries as empty strings.
 `diagnostics/metadata.json` records the requested and effective worker counts of the run.
+
+## Continuous annotations
+
+This section is the Python counterpart of [continuous annotations](workflows/continuous-annotations.md).
+`run_quantile_h2` is the Python form of `ldsc quantile-h2`: it reads one saved partitioned-heritability model, groups SNPs into quantiles of a continuous target annotation and writes `quantile_h2.tsv` and `standardized_coefficients.tsv` without refitting.
+
+```python
+from ldsc import plot_result, run_quantile_h2
+
+def main():
+    result = run_quantile_h2(
+        partitioned_h2_result_dir="results/partitioned_h2",
+        baseline_annot_sources="/path/to/baseline/baseline.@.annot.gz",
+        target_annot_sources="/path/to/target/target.@.annot.gz",
+        target_annotation="continuous_score",
+        ref_metadata_sources="/path/to/r2-panel/hg19/chr@_meta.tsv.gz",
+        num_quantiles=5,
+        output_dir="results/continuous_score_quantiles",
+    )
+    print(result.quantile_h2[["quantile", "n_snps", "h2_obs", "enrichment"]])
+    print(result.standardized_coefficients)
+    plot_result("results/continuous_score_quantiles")
+
+if __name__ == "__main__":
+    main()
+```
+
+Pass the annotation sources used for the fitted model; for one query model, point `partitioned_h2_result_dir` to its folder under `diagnostics/query_annotations/` and add its query source.
+For a gene-list query, also pass the original gene settings; `gene_list_resolution_policy="resolved-only"` corresponds to `--allow-unresolved-genes`.
+`run_quantile_h2` returns a `QuantileH2Result` with `quantile_h2`, `standardized_coefficients`, `metadata` and `output_paths`.
 
 ## Migrating from LDSC2
 
@@ -732,49 +784,60 @@ See the [query reference](../reference/query-r2.md#python-api).
 
 This section is the Python counterpart of [Estimate SNP heritability](workflows/heritability.md).
 
-Load munged summary statistics, compute or load unpartitioned LD scores, then fit:
+Compute or reuse unpartitioned LD scores, then fit with `run_h2`, the Python form of `ldsc h2`:
 
 ```python
-from ldsc import (
-    GlobalConfig,
-    RegressionConfig,
-    RegressionRunner,
-    load_ldscore_from_dir,
-    load_sumstats,
-    run_ldscore,
-    set_global_config,
-)
+from ldsc import GlobalConfig, convert_h2_scale, plot_result, run_h2, run_ldscore, set_global_config
 
-if __name__ == "__main__":
-    GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="auto")
-    set_global_config(GLOBAL_CONFIG)
+def main():
+    set_global_config(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="auto"))
 
-    sumstats = load_sumstats("results/trait_sumstats/trait.parquet", trait_name="trait")
-
-    ldscore_result = run_ldscore(
+    run_ldscore(
         output_dir="results/unpartitioned_ldscores",
         r2_dir="/path/to/resources/r2_panel/hg38",
         ld_wind_cm=1.0,
     )
-    # An LD-score directory written earlier can be loaded instead:
-    # ldscore_result = load_ldscore_from_dir("results/unpartitioned_ldscores")
 
-    runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
-    dataset = runner.build_dataset(sumstats, ldscore_result)
-    h2 = runner.estimate_h2(dataset)
+    summary = run_h2(
+        sumstats_file="results/trait_sumstats/trait.parquet",
+        ldscore_dir="results/unpartitioned_ldscores",
+        output_dir="results/trait_h2",
+    )
+    print(summary[["trait_name", "total_h2_obs", "total_h2_obs_se", "intercept"]])
 
-    print("h2 =", float(h2.tot))
-    print("h2_se =", float(h2.tot_se))
-    print("intercept =", float(h2.intercept))
+    plot_result("results/trait_h2")
+    convert_h2_scale("results/trait_h2", samp_prev=0.5, pop_prev=0.01)
+
+if __name__ == "__main__":
+    main()
 ```
 
-To munge in the same script, `SumstatsMunger().run(MungeConfig(...))` returns the same `SumstatsTable` that `load_sumstats()` reads back; see [Munge summary statistics](#munge-summary-statistics).
-`run_ldscore()` writes the LD-score directory and returns an `LDScoreSource` that `RegressionRunner` uses directly; without annotations it computes the all-ones `base` annotation.
+`run_h2` accepts the `h2` option names without the leading `--`, for example `trait_name`, `count_kind`, `intercept_h2`, `two_step_cutoff`, `chisq_max`, `n_blocks`, `samp_prev`, `pop_prev` and `overwrite`; see [regression options](../reference/regression-options.md).
+It writes `h2.tsv`, the regression-bin diagnostic, `diagnostics/metadata.json` and `diagnostics/h2.log`, and returns the one-row summary saved in `h2.tsv`.
+`plot_result()` and `convert_h2_scale()` read that directory; the conversion above writes the liability-scale table under `results/trait_h2/postprocessing/liability-scale/`.
+`run_ldscore()` without annotations computes the all-ones `base` annotation.
 LD-score directories from older versions that lack the `query_batches` manifest in `metadata.json` must be regenerated.
+To munge in the same script, run `SumstatsMunger().run(MungeConfig(...))` and pass the munged Parquet file it writes as `sumstats_file`; see [Munge summary statistics](#munge-summary-statistics).
+
+### Fit loaded inputs
+
+`RegressionRunner` fits the same model from a loaded `SumstatsTable` and LD scores, and writes nothing:
+
+```python
+from ldsc import RegressionConfig, RegressionRunner, load_ldscore_from_dir, load_sumstats
+
+# Inside main().
+sumstats = load_sumstats("results/trait_sumstats/trait.parquet", trait_name="trait")
+ldscore_result = load_ldscore_from_dir("results/unpartitioned_ldscores")
+runner = RegressionRunner(regression_config=RegressionConfig())
+dataset = runner.build_dataset(sumstats, ldscore_result)
+h2 = runner.estimate_h2(dataset)
+print(float(h2.tot), float(h2.tot_se), float(h2.intercept))
+```
 
 `RegressionConfig` holds the regression options: `n_blocks`, `use_common_counts` (the CLI's `--count-kind`), `intercept_h2`, `two_step_cutoff`, `chisq_max`, `samp_prev`, `pop_prev` and `allow_identity_downgrade`.
 `RegressionConfig(use_intercept=False)` is equivalent to fixing the intercept at 1.
-See [regression options](../reference/regression-options.md).
+`SumstatsMunger().run(MungeConfig(...))` returns the same `SumstatsTable` that `load_sumstats()` reads back.
 
 **Provenance checks.**
 Munged Parquet files store the `GlobalConfig` used to make them in their footer, together with the trait label; `load_sumstats()` restores both as `SumstatsTable.config_snapshot` and `trait_name`.
@@ -786,71 +849,74 @@ An LDSC2 `.sumstats.gz` file has no stored settings and is matched to the LD sco
 The LD-score table includes a `regression_ld_scores` column (LDSC2's `w_ld`); the final regression weights are computed from it during fitting.
 
 **Saved results.**
-`estimate_h2()` returns an in-memory estimate and writes nothing.
-`plot_result()` and `convert_h2_scale()` read a saved `h2` result directory, which `ldsc h2` writes; for example, `convert_h2_scale("results/trait_h2", samp_prev=0.5, pop_prev=0.01)` writes the liability-scale table under `results/trait_h2/postprocessing/liability-scale/`.
+`estimate_h2()` returns the kernel estimator and writes nothing.
+`plot_result()` and `convert_h2_scale()` need a result directory written by `run_h2` or `ldsc h2`.
 
 ## Genetic correlation
 
 This section is the Python counterpart of [Estimate genetic correlation](workflows/genetic-correlation.md).
 
-`RegressionRunner.estimate_rg_pairs()` fits two or more traits against one LD-score directory and returns the same tables as `ldsc rg`.
-Save them with `RgDirectoryWriter` to get a result directory that `plot_result()` can read:
+`run_rg` is the Python form of `ldsc rg`: it fits two or more traits against one LD-score directory and writes the same result directory, which `plot_result()` reads:
 
 ```python
-from ldsc import (
-    GlobalConfig,
-    RegressionConfig,
-    RegressionRunner,
-    RgDirectoryWriter,
-    RgOutputConfig,
-    load_ldscore_from_dir,
-    load_sumstats,
-    plot_result,
-    set_global_config,
-)
+from ldsc import plot_result, run_rg
 
-if __name__ == "__main__":
-    GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
-    set_global_config(GLOBAL_CONFIG)
-
-    trait_1 = load_sumstats("results/traits/trait_1/trait_1.parquet", trait_name="trait_1")
-    trait_2 = load_sumstats("results/traits/trait_2/trait_2.parquet", trait_name="trait_2")
-    ldscore_result = load_ldscore_from_dir("results/unpartitioned_ldscores")
-
-    runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
-    result = runner.estimate_rg_pairs([trait_1, trait_2], ldscore_result)
+def main():
+    result = run_rg(
+        sumstats_sources=[
+            "results/traits/trait_1/trait_1.parquet",
+            "results/traits/trait_2/trait_2.parquet",
+        ],
+        ldscore_dir="results/unpartitioned_ldscores",
+        output_dir="results/trait_1_trait_2_rg",
+    )
     print(result.rg)
     print(result.h2_per_trait[["trait_name", "total_h2_obs", "total_h2_obs_se"]])
 
-    RgDirectoryWriter().write(result, RgOutputConfig(output_dir="results/trait_1_trait_2_rg"))
     plot = plot_result("results/trait_1_trait_2_rg")
     print(plot.path)
+
+if __name__ == "__main__":
+    main()
 ```
 
+`run_rg` accepts the `rg` option names without the leading `--`; `sumstats_sources` takes a list of paths or quoted `*` patterns.
 The result has four parts: `result.rg`, `result.rg_full` and `result.h2_per_trait` match `rg.tsv`, `rg_full.tsv` and `h2_per_trait.tsv`, and `result.per_pair_metadata` holds one record per pair.
 A pair whose fit fails is recorded with `NaN` estimates and `status="failed"`, and the other pairs are still fitted.
-Every trait needs `A1` and `A2`; tables without them stop the call before any fit.
-Tables that share a trait label are relabeled `label@<suffix>` from their `source_path`, as in [inputs that share a trait label](workflows/genetic-correlation.md#inputs-that-share-a-trait-label); tables loaded with `load_sumstats()` carry their path, and tables that share a label without a path must be given distinct `trait_name` values.
-Exporting the tables with `to_csv()` does not create a plotting input; `plot_result()` needs the directory and metadata written by `RgDirectoryWriter`.
-Pass `overwrite=True` to `RgOutputConfig` or `plot_result()` only to replace existing outputs, and `write_per_pair_detail=True` to `RgOutputConfig` to also write `diagnostics/pairs/`.
+Every trait needs `A1` and `A2`; inputs without them stop the call before any fit.
+Inputs that share a trait label are relabeled `label@<suffix>` from their paths, as in [inputs that share a trait label](workflows/genetic-correlation.md#inputs-that-share-a-trait-label).
 The `h2_per_trait` columns `total_h2_obs` and `total_h2_obs_se` are the values the plot shows on the heatmap diagonal or beside the anchor plot.
 
-**Anchor and intercept options.**
-Pass `anchor_index=0` (or another input position) to fit only the pairs with that trait; `plot_result()` then draws the anchor forest plot.
-Fixed intercepts are set on the configuration:
+**Anchor, intercept and prevalence options.**
+`anchor_trait="trait_1"` (a trait name or input path) fits only the pairs with that trait, and `plot_result()` then draws the anchor forest plot.
+`intercept_h2=1.0` and `intercept_gencov=0.0` fix the intercepts, and `write_per_pair_detail=True` also writes `diagnostics/pairs/`.
+For liability-scale estimates, `samp_prev=[0.5, float("nan")]` and `pop_prev=[0.01, float("nan")]` give one value per trait in resolved `sumstats_sources` order, with `nan` for a quantitative trait; `prevalence_manifest` matches prevalences by trait name instead.
+
+### Fit loaded tables
+
+`RegressionRunner.estimate_rg_pairs()` fits loaded `SumstatsTable` objects and returns the same tables; save them with `RgDirectoryWriter` to get a directory that `plot_result()` can read:
 
 ```python
-fixed = RegressionConfig(intercept_h2=1.0, intercept_gencov=0.0)
-anchor_result = runner.estimate_rg_pairs([trait_1, trait_2], ldscore_result, anchor_index=0, config=fixed)
+from ldsc import (
+    RegressionConfig, RegressionRunner, RgDirectoryWriter, RgOutputConfig,
+    load_ldscore_from_dir, load_sumstats,
+)
+
+# Inside main().
+trait_1 = load_sumstats("results/traits/trait_1/trait_1.parquet", trait_name="trait_1")
+trait_2 = load_sumstats("results/traits/trait_2/trait_2.parquet", trait_name="trait_2")
+ldscore_result = load_ldscore_from_dir("results/unpartitioned_ldscores")
+
+runner = RegressionRunner(regression_config=RegressionConfig(intercept_h2=1.0, intercept_gencov=0.0))
+result = runner.estimate_rg_pairs([trait_1, trait_2], ldscore_result, anchor_index=0)
+RgDirectoryWriter().write(result, RgOutputConfig(output_dir="results/trait_1_trait_2_rg_loaded"))
 ```
 
-**Trait labels.**
-Python does not relabel inputs that share a trait name, unlike `ldsc rg`.
-Give each table a distinct name, for example with `load_sumstats(path, trait_name=...)`; plotting rejects a result with duplicate trait names.
-
-**Munging in the same script.**
+`anchor_index` is the input position of the anchor trait.
+Tables that share a trait label are relabeled from their `source_path`; tables loaded with `load_sumstats()` carry their path, and tables that share a label without a path must be given distinct `trait_name` values.
+Exporting the tables with `to_csv()` does not create a plotting input; `plot_result()` needs the directory and metadata written by `RgDirectoryWriter` or `run_rg`.
 `SumstatsMunger().run(MungeConfig(...))` returns a `SumstatsTable` that can be passed to `estimate_rg_pairs()` directly; see [Munge summary statistics](#munge-summary-statistics).
 Tables made by the munger, and Parquet files read by `load_sumstats()`, carry the `GlobalConfig` used to make them; their settings are checked against the LD scores before fitting.
 An LDSC2 `.sumstats.gz` file is matched to the LD scores by rsID; a Parquet file without the footer is rejected.
 
-`RegressionRunner.estimate_rg()` fits one pair and returns the low-level estimator object; prefer `estimate_rg_pairs()`, which returns the same tables as the command.
+`RegressionRunner.estimate_rg()` fits one pair and returns the low-level estimator object; prefer `estimate_rg_pairs()` or `run_rg`, which return the same tables as the command.

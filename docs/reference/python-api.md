@@ -2,7 +2,7 @@
 
 Last updated on: 2026-10-27
 
-The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 81 names on 2026-10-27).
+The supported Python interface is the set of names exported by the `ldsc` package (`ldsc.__all__`, 84 names on 2026-10-27).
 Modules whose names start with an underscore, including `ldsc._kernel`, are private even when a name defined there is re-exported.
 This page lists every exported name with the first paragraph of its docstring, taken from the installed package; `help(ldsc.<name>)` shows the full docstring, and a future documentation build will generate this page.
 Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and the command-line equivalents in the [command-line reference](cli.md).
@@ -41,8 +41,11 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `resolve_genome_build` | Resolve a genome-build hint to a concrete build or ``None``. |
 | `run_annotate` | Write BED or focal gene-list annotations and return a live shard handle. |
 | `run_build_ref_panel` | Run the reference-panel builder with CLI-equivalent keyword arguments. |
+| `run_h2` | Estimate SNP heritability and save the ``h2`` result directory. |
 | `run_ldscore` | Run LD-score calculation from Python using public CLI-style names. |
-| `run_quantile_h2_from_args` | Run the verified post-fit continuous-annotation quantile workflow. |
+| `run_partitioned_h2` | Estimate partitioned heritability and save the ``partitioned-h2`` result directory. |
+| `run_quantile_h2` | Project a saved partitioned-h2 model onto quantiles and save the result directory. |
+| `run_rg` | Estimate genetic correlation and save the ``rg`` result directory. |
 | `unbiased_r2_to_pearson_r` | Convert adjusted (unbiased) R² to a signed Pearson correlation r. |
 
 ## Configuration
@@ -88,7 +91,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `PlotArtifact` | One saved LDSC figure and its live Matplotlib objects. |
 | `PreparedRegressionInputs` | Shared trait alignment before model-dependent column/count filtering. |
 | `QuantileAssignment` | Legacy-compatible quantile membership and realized boundaries. |
-| `QuantileH2Result` | Compact result family returned by :func:`run_quantile_h2_from_args`. |
+| `QuantileH2Result` | Compact result family returned by :func:`run_quantile_h2`. |
 | `RawSumstatsInference` | Header-level inference report for one raw summary-statistics file. |
 | `RefPanelLoader` | Instantiate the backend requested by a :class:`RefPanelConfig`. |
 | `ReferencePanelBuildResult` | Summary of files produced by one reference-panel build run. |

@@ -156,6 +156,8 @@ These rules apply only when a review is requested; they do not require an extra 
 - Every edited/created Markdown document includes and refreshes `Last updated on: YYYY-MM-DD` near its top.
   Put each Markdown/LaTeX prose sentence on its own source line, preserving required syntax, exact quotations, and protected originals; do not reformat unrelated files.
   Markdown/Quarto/notebook math uses `$...$` inline and `$$...$$` display; LaTeX uses `$...$` inline and `\[...\]` display; chat uses `\(...\)` inline and `$$...$$` display.
+- Read [docs/dev/DOCS_VOCABULARY.md](docs/dev/DOCS_VOCABULARY.md) before every writing task, including small edits; newly written documentation, docstrings, CLI help text, and messages use its approved terms.
+  Only the user approves, edits, or removes entries; record new candidate terms under its proposed terms, and flag existing violations with location and preferred term instead of rewriting them without authorization.
 - Keep working rules here and records in their established destinations; update this documentation map with real paths when adding/moving design documents or tutorials.
 
 | Destination | Responsibility and recording boundary |
@@ -163,6 +165,7 @@ These rules apply only when a review is requested; they do not require an extra 
 | `docs/dev/code-structure.md`, `docs/dev/architecture.md`, `docs/dev/data-flow.md`, `docs/current/layer-structure.md` | Contributor navigation, execution/dependency architecture, artifact flows, and ownership; current contracts govern unless a confirmed change supersedes them. |
 | `docs/reference/` | Exact command, format, result, and method contracts; current contracts govern unless a confirmed change supersedes them. |
 | `docs/dev/design/`, `docs/dev/guidelines/` | Implemented design guides (memory and CPU, configuration, plotting) and contributor writing rules (CLI help, user docs). |
+| `docs/dev/DOCS_VOCABULARY.md` | The one glossary: names, approved terms with identifiers and symbols, rules for writers, and proposed terms; the established terminology home for `domain-modeling` and decision records. |
 | `docs/current/*-decisions.md` | Preserve existing confirmed decisions; retain dated topic names and do not duplicate records. |
 | `docs/specs/`, `docs/plans/` | Temporary folders for in-flight design specifications and implementation plans only. Once the work is implemented, move lasting rationale into `docs/decisions/` (or the relevant `docs/current/*-decisions.md`) and the contract into `docs/current/`, then delete the spec and plan. |
 | `docs/decisions/` | New authorized standalone `grill-with-docs` decision records with confirmed rationale; use existing topical records where appropriate, keep terminology in its established home, and use ADR format only under `domain-modeling` criteria. |

@@ -103,7 +103,7 @@ the two-step estimator is **not applicable** (the kernel rejects it for
 `n_annot > 1`). Outlier control is therefore done with the `chisq_max` cap
 instead of the two-step estimator.
 
-### 1.4 Parameter glossary
+### 1.4 Parameter reference
 
 | Parameter (CLI / config) | Backbone role | How to choose (empirical) |
 |---|---|---|

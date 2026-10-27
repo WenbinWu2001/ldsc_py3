@@ -359,6 +359,63 @@ class SumstatsMungerTest(unittest.TestCase):
                     self.assertEqual(table.data["SNP"].tolist(), kept)
                     self.assertEqual({key: summary.drop_counts[key] for key in drops}, drops)
 
+    def test_parquet_footer_records_effective_qc_thresholds(self):
+        # A saved sumstats.parquet must say which INFO/MAF filters ran; an empty
+        # value means the filter was not applied because its column was absent.
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            absent = tmpdir / "absent.txt"
+            self._write_raw_sumstats(absent)
+            present = tmpdir / "present.txt"
+            present.write_text(
+                "SNP A1 A2 P BETA N INFO FRQ\n"
+                "rs1 A G 0.05 0.1 1000 0.95 0.30\n",
+                encoding="utf-8",
+            )
+            cases = {
+                "absent": (absent, {}, (b"", b"")),
+                "defaults": (present, {}, (b"0.9", b"0.01")),
+                "explicit": (present, {"info_min": 0.8, "maf_min": 0.05}, (b"0.8", b"0.05")),
+            }
+            for name, (raw_path, thresholds, expected) in cases.items():
+                with self.subTest(case=name):
+                    table = SumstatsMunger().run(
+                        MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path,
+                                    output_dir=tmpdir / f"out-{name}", **thresholds),
+                        global_config=GlobalConfig(snp_identifier="rsid"),
+                    )
+                    footer = pq.read_schema(table.provenance["output_files"]["parquet"]).metadata
+                    self.assertEqual((footer[b"ldsc:qc_info_min"], footer[b"ldsc:qc_maf_min"]), expected)
+
+    def test_write_output_keeps_qc_thresholds_only_when_the_table_records_them(self):
+        # A table from run() knows which filters ran, so a re-saved copy keeps the
+        # footer record; a table built by hand does not, so the keys stay absent.
+        import pyarrow.parquet as pq
+
+        def qc_keys(path):
+            footer = pq.read_schema(path).metadata
+            return footer.get(b"ldsc:qc_info_min"), footer.get(b"ldsc:qc_maf_min")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.txt"
+            raw_path.write_text("SNP A1 A2 P BETA N INFO\nrs1 A G 0.05 0.1 1000 0.95\n", encoding="utf-8")
+            table = SumstatsMunger().run(
+                MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path,
+                            output_dir=tmpdir / "run", info_min=0.8),
+                global_config=GlobalConfig(snp_identifier="rsid"),
+            )
+            copy = SumstatsMunger().write_output(table.subset_to(["rs1"]), tmpdir / "copy")
+            self.assertEqual(qc_keys(copy), (b"0.8", b""))
+
+            hand_built = sumstats_workflow.SumstatsTable(
+                data=table.data, has_alleles=True, source_path=None, trait_name=None,
+                config_snapshot=table.config_snapshot,
+            )
+            self.assertEqual(qc_keys(SumstatsMunger().write_output(hand_built, tmpdir / "hand")), (None, None))
+
     def test_cli_summary_reports_default_qc_filters_not_applied(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             raw_path = Path(tmpdir) / "raw.txt"

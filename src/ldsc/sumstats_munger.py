@@ -162,7 +162,10 @@ class SumstatsTable:
         Optional trait label for regression summaries.
     provenance : dict, optional
         Lightweight run metadata retained for debugging and output summaries.
-        Default is an empty dict.
+        Tables from :meth:`SumstatsMunger.run` record ``qc_thresholds``, the
+        effective ``info_min`` and ``maf_min`` (``None`` for a filter not
+        applied), which :meth:`SumstatsMunger.write_output` writes to the Parquet
+        footer. Default is an empty dict.
     config_snapshot : GlobalConfig or None, optional
         Shared configuration captured when the table was produced in-process or
         recovered from the ``sumstats.parquet`` footer. It is ``None`` for a
@@ -628,11 +631,14 @@ class SumstatsMunger:
                 default_stage=None,
             )
             table_config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
+            qc_thresholds = {"info_min": request.qc.info_min, "maf_min": request.qc.maf_min}
             primary_sumstats_file, parquet_row_groups = _write_sumstats_outputs(
                 data,
                 output_files=output_files,
                 output_format=munge_config.output_format,
-                footer_metadata=_sumstats_footer_metadata(table_config_snapshot, raw_sumstats_config.trait_name),
+                footer_metadata=_sumstats_footer_metadata(
+                    table_config_snapshot, raw_sumstats_config.trait_name, qc_thresholds,
+                ),
             )
             _log_sumstats_provenance(
                 coordinate_metadata=coordinate_metadata,
@@ -662,6 +668,7 @@ class SumstatsMunger:
                     "column_hints": dict(raw_sumstats_config.column_hints),
                     "coordinate_provenance": coordinate_metadata,
                     "metadata": coordinate_metadata,
+                    "qc_thresholds": qc_thresholds,
                 },
                 config_snapshot=table_config_snapshot,
             )
@@ -735,7 +742,10 @@ class SumstatsMunger:
         ordinary overwrite policy. Artifacts for other stems are preserved.
         This helper does not create ``diagnostics/sumstats.log`` because no raw
         munging kernel is run. A config snapshot is required so the Parquet footer can record
-        identity provenance for downstream recovery.
+        identity provenance for downstream recovery. The footer records the QC
+        thresholds only when ``sumstats.provenance`` holds ``qc_thresholds``, as
+        tables returned by :meth:`run` do; a table built by hand or loaded from
+        disk does not, so the ``ldsc:qc_*`` keys are omitted.
         """
         if sumstats.config_snapshot is None:
             raise LDSCInputError(
@@ -758,7 +768,9 @@ class SumstatsMunger:
             sumstats.data,
             output_files=output_files,
             output_format=output_format,
-            footer_metadata=_sumstats_footer_metadata(sumstats.config_snapshot, sumstats.trait_name),
+            footer_metadata=_sumstats_footer_metadata(
+                sumstats.config_snapshot, sumstats.trait_name, sumstats.provenance.get("qc_thresholds"),
+            ),
         )
         remove_output_artifacts(stale_paths)
         return primary_sumstats_file
@@ -1911,12 +1923,17 @@ def _write_sumstats_tsv_gz(data: pd.DataFrame, path: str) -> None:
     frame.to_csv(path, sep="\t", index=False, float_format="%.3f", compression="gzip", na_rep="NA")
 
 
-def _sumstats_footer_metadata(config_snapshot: GlobalConfig, trait_name: str | None) -> dict[bytes, bytes]:
+def _sumstats_footer_metadata(
+    config_snapshot: GlobalConfig, trait_name: str | None, qc_thresholds: dict[str, float | None] | None = None,
+) -> dict[bytes, bytes]:
     """Return discrete ``ldsc:*`` Parquet footer keys for a curated sumstats artifact.
 
     Mirrors the reference-panel footer convention in ``_kernel/ref_panel.py``. A
     ``None`` ``genome_build`` (rsID-family) or ``trait_name`` is encoded as an
-    empty string and decoded back to ``None`` on read.
+    empty string and decoded back to ``None`` on read. ``qc_thresholds`` (the run's
+    effective ``info_min`` and ``maf_min``) adds ``ldsc:qc_info_min`` and
+    ``ldsc:qc_maf_min``; an empty value means that filter was not applied. Both
+    keys are omitted when the thresholds are unknown, and readers ignore them.
     """
     identity = identity_artifact_metadata(
         artifact_type="sumstats",
@@ -1928,6 +1945,9 @@ def _sumstats_footer_metadata(config_snapshot: GlobalConfig, trait_name: str | N
         for key, value in identity.items()
     }
     footer[b"ldsc:trait_name"] = ("" if trait_name is None else str(trait_name)).encode("utf-8")
+    if qc_thresholds is not None:
+        for key, value in qc_thresholds.items():
+            footer[f"ldsc:qc_{key}".encode("utf-8")] = ("" if value is None else repr(float(value))).encode("utf-8")
     return footer
 
 

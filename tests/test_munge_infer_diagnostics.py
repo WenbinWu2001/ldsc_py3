@@ -14,13 +14,15 @@ def test_infer_only_rejects_blank_output_before_reading():
 
 def test_suggested_command_preserves_overrides(tmp_path, capsys):
     raw = tmp_path / 'raw file.tsv'
-    raw.write_text('chromosome_custom SNP BP A1 A2 P effect\n1 rs1 100 A G 0.05 0.2\n')
+    # FRQ backs --maf-min, so the report is runnable and the replayed command would run.
+    raw.write_text('chromosome_custom SNP BP A1 A2 P effect FRQ\n1 rs1 100 A G 0.05 0.2 0.3\n')
     options = ['--chr', 'chromosome_custom', '--signed-sumstats', 'effect,0',
                '--N-cas', '78576', '--N-con', '77189', '--maf-min', '0.02',
                '--trait-name', 'trait with spaces', '--output-format', 'both',
                '--ignore', 'unused', '--a1', 'A1']
-    workflow.main(['--raw-sumstats-file', str(raw), '--output-dir', str(tmp_path / 'out'),
-                   '--snp-identifier', 'rsid', '--infer-only', *options])
+    inference = workflow.main(['--raw-sumstats-file', str(raw), '--output-dir', str(tmp_path / 'out'),
+                               '--snp-identifier', 'rsid', '--infer-only', *options])
+    assert inference.runnable, inference.missing_fields
     command = capsys.readouterr().out.split('Suggested command:\n')[1]
     tokens = shlex.split(command.replace('\\\n', ''))
     replay = workflow.build_parser().parse_args(tokens[2:])

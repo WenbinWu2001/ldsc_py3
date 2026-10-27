@@ -91,9 +91,9 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `PlotArtifact` | One saved LDSC figure and its live Matplotlib objects. |
 | `PreparedRegressionInputs` | Shared trait alignment before model-dependent column/count filtering. |
 | `QuantileAssignment` | Legacy-compatible quantile membership and realized boundaries. |
-| `QuantileH2Result` | Compact result family returned by :func:`run_quantile_h2`. |
+| `QuantileH2Result` | Compact result family returned by `run_quantile_h2()`. |
 | `RawSumstatsInference` | Header-level inference report for one raw summary-statistics file. |
-| `RefPanelLoader` | Instantiate the backend requested by a :class:`RefPanelConfig`. |
+| `RefPanelLoader` | Instantiate the backend requested by a `RefPanelConfig`. |
 | `ReferencePanelBuildResult` | Summary of files produced by one reference-panel build run. |
 | `RegressionDataset` | Merged regression-ready dataset built from sumstats and LD-score tables. |
 | `RgResultFamily` | Result family returned by multi-trait genetic-correlation workflows. |

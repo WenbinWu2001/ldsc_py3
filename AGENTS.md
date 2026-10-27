@@ -116,7 +116,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
   Converted identity is allele-unaware; `.w.l2.ldscore(.gz)`, query/thin conversion suites, and direct regression consumption of fragments are unsupported.
   Private kernels do not own legacy sumstats, LD-score, count, or annotation-group output files; full contracts live in `docs/reference/formats/legacy-sumstats.md` and `docs/reference/formats/legacy-ldscores.md`.
 - Avoid routine provenance hashes; prefer schemas, source labels, declared metadata, and counts.
-  Retain hashes only for necessary semantic identity/integrity guarantees, documenting their purpose; existing sidecar binding and index identity exceptions are in `docs/current/sha256-usage-decisions.md`.
+  Retain hashes only for necessary semantic identity/integrity guarantees, documenting their purpose; the retained hashes are the R² panel sidecar binding (`docs/reference/formats/r2-panels.md`, section 4) and the gene LD-score index identity: `index_id`, its input fingerprints, and `published_row_metadata_sha256` (`docs/reference/gene-ldscore-index.md`).
 
 ## Existing warning, error, and diagnostic policy
 

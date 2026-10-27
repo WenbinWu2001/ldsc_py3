@@ -241,7 +241,7 @@ The former private LD-score, regression-weight, count, and `.annotation_groups.t
 
 The converted directory must identify itself as an imported LDSC2 suite and record enough source and discovery provenance to make the conversion auditable. It remains a normal current `artifact_type="ldscore"` directory and adds a `legacy_ldsc2_import` metadata block containing the profile, converter version, source directories and selected prefixes, selected/ignored/missing files, intersection counts, source/effective build inference, count origins, fixed legacy common-frequency rule, coordinate disagreement summaries, and diagnostic paths. Original legacy files remain untouched.
 
-Routine source-file checksums are not computed or written. The converter records explicit source/discovery metadata and validates scientific inputs and counts; it does not verify source-byte integrity against expected hashes. See the [confirmed SHA256 decisions](../../current/sha256-usage-decisions.md).
+Routine source-file checksums are not computed or written. The converter records explicit source/discovery metadata and validates scientific inputs and counts; it does not verify source-byte integrity against expected hashes. The package's retained hashes are listed in the [gene LD-score index reference](../gene-ldscore-index.md#artifact-and-identity-contract).
 
 For unpartitioned conversion, the `base` count record stores
 `all_reference_snp_count: null` when any chromosome lacks `.l2.M`, plus the

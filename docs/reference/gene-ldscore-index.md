@@ -228,6 +228,8 @@ region policy, genetic map, gene catalog, chromosome coverage, build/identifier,
 window and MAF rules, padding, and gene-region policy. Batching, threads,
 logging, output path, and overwrite are resource or publication controls and do
 not change the identity.
+The input fingerprints behind `index_id` (normalized baseline content, whole PLINK BED file bytes, parsed BIM metadata, selected individual IDs, sorted regression keys, and the genetic map) only define the identity; indexed scoring never re-reads those inputs to check them again.
+Identical inputs and settings must produce identical fingerprints and the same `index_id`; changing what a fingerprint covers changes the identity of every index.
 
 Root and chromosome metadata record `format_version: 3` and repeat the immutable identity mode and hg19/hg38 build.
 Version 3 marks exact PLINK LD windows; version 2 operators used LDSC2's batch-rounded windows, so the loader rejects them and asks for a rebuild.
@@ -240,7 +242,7 @@ These fingerprints identify declared inputs/settings and verify row metadata; th
 Earlier index formats are unsupported and must be rebuilt completely with the current package.
 There is no compatibility adapter, migration, or partial component reuse.
 The semantic `index_id` retains content-based identity, now including the selected window unit/value and allele-aware identity where applicable.
-See the [fingerprint rationale](../current/sha256-usage-decisions.md) for the retained hash roles.
+Together with the R² panel sidecar binding ([R² panel format](formats/r2-panels.md#4-index--sidecar-binding)), these are the package's only hashes; routine provenance hashes are not computed.
 
 Gene indexes do not support incremental updates, chromosome append, profile
 addition, or common-layer reuse. Any input or configuration change requires a

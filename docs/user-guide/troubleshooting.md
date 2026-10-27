@@ -549,8 +549,6 @@ loaded by the current strict reader and must be rebuilt; ordinary canonical
 LD-score directories already produced from them are unaffected.
 An `Unsupported gene LD-score index format version 2` error means the index predates exact PLINK LD windows; rebuild it with the current `ldsc build-gene-ldscore-index`.
 
-The retired `effective_identity_sha256` field alone does not require rebuilding: otherwise-valid existing indexes still load. New indexes omit this redundant field and require an updated reader; upgrade the reader if an older installation reports a missing effective-identity digest. The retained `published_row_metadata_sha256`, semantic `index_id`, and input fingerprints remain required under their existing contracts.
-
 **Developer reference:** integrity checks include metadata IDs, mode/build agreement, the ordered published-row metadata digest, chromosome coverage, duplicate effective identities, Parquet rows, NPZ members, CSR structure/dtypes, and dimensions.
 
 ### ldscore: gene-list preflight stopped or a focal query is missing

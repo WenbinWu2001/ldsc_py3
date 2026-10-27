@@ -68,6 +68,7 @@ def _make_ldscore_result() -> LDScoreResult:
                 "group": "baseline",
                 "column": "base",
                 "all_reference_snp_count": 10.0,
+                "common_reference_snp_count": 8.0,
             }
         ],
         baseline_columns=["base"],

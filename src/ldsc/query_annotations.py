@@ -433,8 +433,8 @@ def _all_query_annotations_skipped_message(statuses: Sequence[QueryAnnotationSta
         reasons += f"; {len(statuses) - MAX_CONSOLE_GENE_ISSUES} more in the status table"
     return (
         f"The run could not continue because all {len(statuses)} requested query annotations were skipped "
-        f"({reasons}). Check diagnostics/query_annotation_status.tsv for each query's skip reason. "
-        "Correct unintended input problems before rerunning. "
+        f"({reasons}). Check diagnostics/query_annotation_status.tsv for each query's gene resolution, "
+        "retained SNP support, and LD-score variation. Correct unintended input problems before rerunning. "
         "Use a fresh output directory, or --overwrite if replacing this run's owned outputs is intended."
     )
 

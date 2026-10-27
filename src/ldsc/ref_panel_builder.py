@@ -1132,30 +1132,6 @@ class ReferencePanelBuilder:
             build_state.translator_cache[key] = translator
         return translator.map_positions(chrom, positions)
 
-    def _translate_positions(
-        self,
-        build_state: _BuildState,
-        chrom: str,
-        positions,
-        source_build: str,
-        target_build: str,
-    ):
-        """Translate positions between builds without returning drop statistics."""
-        if source_build == target_build:
-            return positions.copy()
-        key = (source_build, target_build)
-        translator = build_state.translator_cache.get(key)
-        if translator is None:
-            translator = kernel_builder.LiftOverTranslator(
-                source_build=source_build,
-                target_build=target_build,
-                chain_path=build_state.liftover_chain_paths.get(key),
-                chain_flag_hint=_chain_flag_hint(source_build, target_build),
-                workflow_label="reference-panel liftover",
-            )
-            build_state.translator_cache[key] = translator
-        return translator.translate_positions(chrom, positions)
-
     def _positions_from_lookup(self, kept_snps: Sequence[int], lookup: dict[int, int]):
         """Materialize retained positions in the same order as ``kept_snps``."""
         return np.asarray([lookup[int(idx)] for idx in kept_snps], dtype=int)

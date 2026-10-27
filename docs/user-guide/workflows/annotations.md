@@ -2,50 +2,63 @@
 
 Last updated on: 2026-10-27
 
-`ldsc annotate` projects BED intervals or gene lists onto a BIM or baseline-annotation SNP grid and writes reusable binary query files.
-Direct `ldsc ldscore` accepts BED files and gene lists too, so standalone annotation is optional for queries.
-To prepare baseline categories from BED files, use the [baseline preparation recipe](#build-baseline-annotations-from-bed-files) below.
+`ldsc annotate` projects BED intervals or gene lists onto a SNP grid and writes reusable annotation files (`.annot.gz`), one query annotation per BED file or gene list.
+`ldsc ldscore` reads BED files and gene lists itself, so this step is optional for query annotations; use it when you want annotation files on disk to inspect, share or reuse across LD-score runs.
+It is also the way to build binary baseline annotations from BED files, as in the [baseline recipe](#build-baseline-annotations-from-bed-files) below.
+The exact contract, including every validation outcome, is in the [`annotate` reference](../../reference/annotate.md).
 
+## Inputs you need
 
-Auto build resolution checks every selected annotation or BIM grid shard together with the gene-catalog declaration, when supplied.
-It accepts exact paths and globs as well as `@` suites and does not require chromosome 1 merely for inference.
-Existing command-specific chromosome coverage requirements still apply.
-A concrete build must agree with grid and catalog declarations; unlabeled coordinates use that assertion without inference or conversion.
-Ordinary BED is unchecked and inherits the resolved projection build.
-See the [shared policy](../concepts/snp-identity-and-genome-build.md#genome-build-inference-checking-and-overrides).
+A run takes `--output-dir`, exactly one SNP grid and exactly one query route.
 
-## Inputs
+| SNP grid option | Rows come from | Output |
+| --- | --- | --- |
+| `--ref-snp-annot-sources` | Existing annotation files, such as a baseline annotation suite | Aligned `baseline.<chrom>.annot.gz` (your baseline values) and `query.<chrom>.annot.gz` (the new query annotations). |
+| `--ref-snp-bim-sources` | PLINK `.bim` or `.bim.gz` files | `query.<chrom>.annot.gz` only; no baseline values are created. |
 
-Supply `--output-dir` and exactly one SNP-grid option:
+The two grid options are mutually exclusive, and a BIM grid cannot be combined with separately supplied baseline annotations.
+A BIM grid uses only the chromosome, SNP name, one-based position and, in allele-aware modes, the alleles of each six-column, headerless `.bim` row; the `CM` column is ignored, and no `.bed` or `.fam` files are needed.
+Pass actual `.bim` file names, not a PLINK prefix.
+`annotate` has no `--baseline-annot-sources` option; `ldscore` keeps that option.
 
-| Grid option | Output |
-| --- | --- |
-| `--ref-snp-annot-sources` | Supplied baseline values and generated queries, exported as aligned `baseline.<chrom>.annot.gz` and `query.<chrom>.annot.gz`. |
-| `--ref-snp-bim-sources` | Generated `query.<chrom>.annot.gz` only; no baseline values are invented. |
+| Query route | Option | Required with it |
+| --- | --- | --- |
+| BED files | `--query-annot-bed-sources` | Nothing else; `--padding-bp` is optional and defaults to 0. |
+| Gene lists | `--query-annot-gene-list-sources` | `--gene-coordinate-file` and an explicit `--padding-bp` (0 for gene bodies). |
 
-BIM mode reads six-column headerless `.bim`/`.bim.gz` files directly, without BED/FAM companions.
-Only SNP metadata is used: chromosome, SNP ID, one-based BP, and alleles under the selected identity policy; CM is ignored.
-The two grid options are mutually exclusive; BIM plus supplied baseline annotations is unsupported.
-The old standalone `--baseline-annot-sources` flag is removed without an alias.
-Downstream `ldscore` retains that flag.
+For the coordinate-family modes `chr_pos` and `chr_pos_allele_aware` (the default), pass `--genome-build` as `auto`, `hg19` or `hg38`; on the gene-list route an omitted genome build is treated as `auto`.
+`auto` checks every selected grid file, and the gene coordinate catalog when present, together; a concrete genome build must agree with the genome builds those inputs declare.
+BED files are not checked: they are assumed to use the resolved genome build, and nothing is lifted over.
+See [genome build](../../reference/annotate.md#genome-build) and the [shared policy](../concepts/snp-identity-and-genome-build.md#genome-build-inference-checking-and-overrides).
 
-Select exactly one query route:
+## Prepare BED files
 
-- `--query-annot-bed-sources`: user-created or externally obtained BED files. The first three fields are chromosome, 0-based start, and exclusive end. See [BED format](../../reference/formats/bed-intervals.md). Omitted padding is zero; explicit nonnegative `--padding-bp` expands both ends and clips starts at zero.
-- `--query-annot-gene-list-sources`: one-column lists resolved exactly against `--gene-coordinate-file`. Explicit nonnegative `--padding-bp` is required; `0` selects gene bodies. Resolution is strict by default; add `--allow-unresolved-genes` to use the resolved subset. Use `--gene-exclude-regions none` or `mhc`. Standalone annotate has no control-gene-list option.
+Use one text BED file per query annotation, with at least three tab-separated fields: chromosome, start and end.
 
-The selected source supplies the annotation grid.
-Exact paths and globs select the actual input contents.
-BIM `@` suites and annotation-grid gene-list runs require autosomes 1–22.
-The existing BED-plus-annotation `@` route retains its available-member behavior; prefer explicit paths or globs for an intentionally partial scope.
-Resolved genes outside this scope fail under either resolution policy after explicit exclusions.
-Catalog and grid projection builds must agree; rsID identity records projection-build provenance separately.
+```text
+chr1	1000	1250
+chr1	5000	5400
+```
+
+- Intervals are zero-based half-open intervals, so the first line covers the one-based SNP positions 1001 to 1250.
+- Extra columns are allowed but ignored: each annotation is binary interval membership, not a weight from a score column.
+- Use intervals in the same genome build as the SNP grid.
+- Each file's name without its final extension becomes the query annotation name, so names must be unique and must not equal a baseline column; `enhancers.bed.gz` becomes `enhancers.bed`.
+- Plain text and gzip are accepted; comment, `track`, `browser` and one leading header line are skipped.
+- `--padding-bp` adds the same number of base pairs to both ends of every interval in the run; keep it at 0 when the intervals already contain the padding you want.
+
+Text BED files are different from the binary PLINK `.bed` genotype files.
+Pass BED files as exact paths or a quoted `*` pattern such as `"beds/*.bed"`; `@` is not expanded for BED sources.
+An unreadable or malformed BED file stops the run, a BED file without intervals is skipped, and a BED file that overlaps no grid SNP is kept as an all-zero column.
+The full format is in [BED input format](../../reference/formats/bed-intervals.md).
+
+## Annotate from gene lists
 
 ```bash
 ldsc annotate \
-  --ref-snp-annot-sources 'baseline/baseline.@.annot.gz' \
-  --query-annot-gene-list-sources 'pathways/*.txt' \
-  --gene-coordinate-file genes.hg19.tsv.gz \
+  --ref-snp-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
+  --query-annot-gene-list-sources "pathways/*.txt" \
+  --gene-coordinate-file /path/to/genes/gene-coordinates.hg19.tsv.gz \
   --padding-bp 100000 \
   --gene-exclude-regions none \
   --snp-identifier rsid \
@@ -53,159 +66,157 @@ ldsc annotate \
   --output-dir annotations/pathways
 ```
 
-The example uses strict resolution. `--allow-unresolved-genes` takes no value and explicitly permits the audited resolved subset; structural input and coverage checks still apply. The retired `--gene-list-resolution-policy` option is rejected without an alias. Python `run_annotate()` still accepts `gene_list_resolution_policy="resolved-only"`; omission or `None` means strict. See [the resolution contract](../../reference/formats/gene-lists.md#strict-and-exploratory-resolution); sources: `add_annotate_arguments()` in [annotation_builder.py](../../../src/ldsc/annotation_builder.py) and `run_annotate()` in [annotate_workflow.py](../../../src/ldsc/annotate_workflow.py).
+The gene list and gene coordinate catalog formats are described in [Calculate LD scores from gene lists](gene-list-ld-scores.md#gene-lists-and-coordinate-authority).
+Resolution is strict: any unresolved or ambiguous identifier stops the run after the diagnostics are written.
+Add `--allow-unresolved-genes`, which takes no value, to continue with the resolved genes and record the omissions; input structure, naming and chromosome coverage checks still apply ([strict and exploratory resolution](../../reference/formats/gene-lists.md#strict-and-exploratory-resolution)).
+`--gene-exclude-regions` is `none` (default) or `mhc`, which removes genes whose unpadded interval overlaps the MHC.
+`annotate` has no control gene list option; a control gene list exists only in `ldscore`, where it becomes the baseline annotation `gene_control`.
 
-For BED input, replace the gene-list/catalog/exclusion options with `--query-annot-bed-sources 'beds/*.bed'`; padding remains available.
+## Annotate from BED files
 
-## Outputs and validation
-
-The output contains `query.<chrom>.annot.gz`, one file per surviving chromosome with all usable query columns.
-Rows retain the selected grid identities and order after global identity cleanup.
-The canonical header is `CHR BP SNP CM`, optional allele columns, then query columns; `CM` is explicitly `NA`, and generated values are integer `0`/`1`.
-Ordinary prebuilt quantitative annotations remain supported by `ldscore` and are normalized to float32.
-
-Annotation-grid mode exports the real baseline columns separately with identical metadata, row membership, row order, and chromosome shards.
-Continuous baseline values retain float32 precision; original input files are unchanged.
-Use the exported pair together in downstream `ldscore`:
-
-```bash
-ldsc ldscore \
-  --baseline-annot-sources 'annotations/pathways/baseline.@.annot.gz' \
-  --query-annot-sources 'annotations/pathways/query.@.annot.gz' \
-  --plink-prefix 'panel/reference.@' \
-  --snp-identifier rsid --genome-build hg19 \
-  --ld-wind-kb 1000 --output-dir ldscores/pathways
-```
-
-Use a glob instead of `@` for an intentionally smaller chromosome scope.
-Use the exported baseline files rather than the original baseline inputs: identity cleanup may remove rows, and pairing cleaned queries with the original rows can fail downstream alignment.
-BIM mode exports only generated query columns.
-Those files can be supplied to either downstream annotation flag according to their intended modeling role; supplying them as queries still requires actual aligned baseline annotations.
-No automatic baseline synthesis or alignment with a separate baseline source is performed by BIM-mode `annotate`.
-Do not split each query column into its own chromosome suite.
-
-Gene Gate A reports safely discoverable source, naming, catalog, and identifier issues.
-After header and catalog validation, naming collisions and unresolved identifiers are reported together before SNP-grid preparation.
-Query names come from source filenames: rename a conflicting file and inspect both `gene_list_resolution_summary.tsv` and `gene_list_audit.tsv.gz` under `diagnostics/`.
-Naming collisions remain fatal with `--allow-unresolved-genes`, including empty or fully unresolved colliding queries.
-Gate B evaluates support only on grid rows surviving identity cleanup.
-Empty and globally unsupported focal queries are skipped while usable siblings continue; an all-skipped batch fails.
-All-one queries remain valid.
-A query supported on another chromosome retains its zero-valued shards.
-Standalone annotate performs no reference-panel or regression-design tests.
-
-`diagnostics/` contains metadata, the command log, statuses, applicable input/scope/catalog diagnostics, a complete drop audit, and gene audits/summaries in gene mode.
-Metadata `snp_rows` records input, output, and dropped logical SNP rows, in total and per chromosome.
-Aligned column sources count the same SNP row once; all removed duplicate occurrences count toward drops.
-The log reports totals even when zero rows were dropped and includes exported paths and the downstream baseline/query flags.
-Gene support is labeled `annotation_snp_count`; reference-panel counts are unevaluated.
-See the [complete condition–outcome table](../../reference/annotate.md#gene-list-queries).
-
-At the default INFO level, `diagnostics/annotate.log` marks input reading, SNP identity checks and chromosome preparation, and preparation completion with retained counts and elapsed time. Gene projection and output writing follow preparation. Intentional exclusions use one line per gene set with line–gene pairs; CM/MAF notices appear once per annotation file read. Complete audit rows remain available. See [the messages and their meaning](../../reference/logs-and-outputs.md#annotation-preparation).
-
-## Build baseline annotations from BED files
-
-This route is useful when rebuilding binary baseline categories for a new reference panel or assembling custom baseline regions. For example, the [East Asian partitioned-LD-score workflow](https://github.com/mkanai/eas_partitioned_ldscore#datasets) uses the authors' baseline BED files to annotate a different reference SNP set. BED intervals can be projected onto another panel in the same genome build; changing genome builds still requires matching interval coordinates. Existing annotation tables are sufficient when they already cover the intended reference SNPs.
-
-The current command is named `ldsc annotate`, and its interval option is `--query-annot-bed-sources` even when preparing future baseline columns. The generated files are ordinary SNP annotation tables: their role in LD scoring is selected by passing them through `--baseline-annot-sources` or `--query-annot-sources`. The `query.<chrom>.annot.gz` filename does not permanently assign a regression role.
-
-### 1. Define the target SNP rows
-
-Supply the panel's BIM files directly with `--ref-snp-bim-sources 'panel/reference.@.bim'`.
-Use the SNPs intended to contribute to LD scores, rather than restricting the grid to HapMap3 regression SNPs.
-The example assumes a complete hg19 autosomal BIM suite; matching BED/FAM files are needed later for PLINK LD scoring, but not for annotation generation.
-Use actual BIM filenames, not a PLINK prefix.
-Identity cleanup applies globally before interval projection.
-
-### 2. Project the baseline BED categories
-
-Place one genome-wide BED file per category in `baseline_beds/`, with unique filenames such as `Coding_UCSC.bed` and `Coding_UCSC.extend.500.bed`.
-Each filename stem becomes one column.
-BED coordinates must match the panel build and use the [0-based, half-open convention](../../reference/formats/bed-intervals.md#standard-bed).
+For BED input, replace the gene-list, gene coordinate catalog and exclusion options with `--query-annot-bed-sources`:
 
 ```bash
 ldsc annotate \
-  --ref-snp-bim-sources 'panel/reference.@.bim' \
-  --query-annot-bed-sources 'baseline_beds/*.bed' \
+  --ref-snp-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
+  --query-annot-bed-sources "beds/*.bed" \
+  --snp-identifier chr_pos_allele_aware \
+  --genome-build hg38 \
+  --output-dir annotations/beds
+```
+
+## Chromosome scope
+
+Exact paths and globs select the files they match, and the file contents decide which chromosomes are included.
+A BIM chromosome suite (`@`) and an annotation-grid suite in a gene-list run require all autosomes 1 to 22.
+An annotation-grid suite with BED files uses whichever chromosome files exist; use explicit paths or globs when you intend a partial chromosome set.
+In gene-list runs, a selected gene outside the grid's chromosomes fails the run under either resolution policy, and gene lists are never truncated.
+
+## Use the outputs
+
+Each `query.<chrom>.annot.gz` holds all usable query annotations for one chromosome.
+Its columns are `CHR`, `BP`, `SNP`, `CM` (always `NA`), the allele columns when present, and then the query annotations as integers 0 and 1.
+With an annotation grid, `baseline.<chrom>.annot.gz` holds your baseline values on exactly the same rows, in the same order and chromosome files; continuous baseline values keep float32 precision, and your original files are unchanged.
+Rows follow the grid after SNP identity cleanup, which may remove duplicate or invalid SNPs.
+`annotate` applies no reference-panel restriction; `ldscore` aligns the files to the reference panel when it computes LD scores.
+
+Pass the exported pair together to `ldscore`:
+
+```bash
+ldsc ldscore \
+  --baseline-annot-sources "annotations/pathways/baseline.@.annot.gz" \
+  --query-annot-sources "annotations/pathways/query.@.annot.gz" \
+  --plink-prefix "/path/to/plink/1000G.EUR.QC.@" \
+  --snp-identifier rsid \
+  --ld-wind-kb 1000 \
+  --output-dir results/ldscores/pathways
+```
+
+- Use the exported baseline files, not your original baseline inputs: SNP identity cleanup may have removed rows, and pairing the cleaned query files with the original rows can fail alignment in `ldscore`.
+- Use a glob instead of `@` for a deliberately smaller chromosome set.
+- Query files from a BIM grid can serve as either baseline or query annotations, according to their role in your model; used as query annotations, they still need actual baseline annotations on the same rows, which `annotate` does not create for a BIM grid.
+- Pass each family as one chromosome suite; do not split query columns into separate suites.
+
+The full output list is in [`annotate` outputs](../../reference/annotate.md#outputs) and [artifact metadata](../../reference/formats/artifact-metadata.md#annotate).
+
+## Check the results
+
+`diagnostics/query_annotation_status.tsv` records the outcome of every query annotation, and gene-list runs add `diagnostics/gene_list_resolution_summary.tsv` and `diagnostics/gene_list_audit.tsv.gz`.
+Gene-list problems in the inputs, the gene coordinate catalog, query names and identifiers are all reported together before the SNP grid is read; a query name that collides with another query, a baseline column or a reserved name fails even with `--allow-unresolved-genes`, so rename the gene list file.
+Gene SNP support is then measured on the grid rows that survive SNP identity cleanup and reported as `annotation_snp_count`; `annotate` makes no reference-panel or regression check.
+Empty gene lists and gene-list query annotations that overlap no grid SNP are skipped while the others continue, whereas a BED file without overlap is kept as an all-zero column.
+A run in which every query annotation is skipped fails, and an annotation that is 1 on every row is kept.
+After a successful run with omitted genes, unsupported genes or skipped query annotations, the command prints a short notice naming them.
+The complete condition-and-outcome table is in [validation and outcomes](../../reference/annotate.md#validation-and-outcomes).
+
+`diagnostics/metadata.json` records, in `snp_rows`, the input, output and dropped SNP rows, in total and per chromosome; aligned columns count a SNP row once.
+`diagnostics/annotate.log` reports the same totals, the exported paths and the `ldscore` options to use them, and at the default INFO level marks reading the inputs, checking SNP identities and preparing chromosomes, and completing preparation; projection and writing follow ([annotation preparation](../../reference/logs-and-outputs.md#annotation-preparation)).
+Error remedies are in [troubleshooting](../troubleshooting.md#annotate).
+
+## Build baseline annotations from BED files
+
+This recipe rebuilds binary baseline annotations for a new reference panel or assembles custom baseline regions, for example by projecting another study's published baseline BED files onto your reference panel's SNPs.
+BED intervals can be projected onto any reference panel in the same genome build; a different genome build needs intervals in that genome build.
+If existing annotation files already cover your reference SNPs, you do not need this recipe.
+
+The interval option is called `--query-annot-bed-sources` even when you prepare future baseline annotations.
+The output files are ordinary annotation files; their role is chosen later, by passing them to `ldscore` through `--baseline-annot-sources` or `--query-annot-sources`, and the `query.<chrom>.annot.gz` file name does not fix that role.
+
+### 1. Define the target SNPs
+
+Use the reference panel's `.bim` files as the grid: `--ref-snp-bim-sources "panel/reference.@.bim"`.
+Include all SNPs meant to contribute to LD scores, not only the HM3 regression SNPs.
+The example assumes a complete hg19 autosomal `.bim` suite; the matching `.bed` and `.fam` files are needed later for PLINK LD scores but not for annotation.
+SNP identity cleanup is applied across the whole grid before projection.
+
+### 2. Project the baseline BED files
+
+Put one genome-wide BED file per baseline annotation in `baseline_beds/`, with unique names such as `Coding_UCSC.bed` and `Coding_UCSC.extend.500.bed`; each name without its extension becomes one column.
+The BED coordinates must use the reference panel's genome build.
+
+```bash
+ldsc annotate \
+  --ref-snp-bim-sources "panel/reference.@.bim" \
+  --query-annot-bed-sources "baseline_beds/*.bed" \
   --padding-bp 0 \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg19 \
   --output-dir annotations/projected_baseline
 ```
 
-**Use final category boundaries in the BED files.** Different categories can already encode different padding widths, so one projection command with `--padding-bp 0` preserves all of them. A filename containing `extend.500` does not cause automatic expansion. Likewise, flanking-only regions and intervals expanded to include their original region are different definitions; preserve the source model's definition. A nonzero `--padding-bp` applies the same additional expansion to every BED in this invocation.
+Write the final interval boundaries into the BED files.
+Different annotations can already encode different padding, so one run with `--padding-bp 0` keeps all of them; a name containing `extend.500` does not expand anything by itself.
+Flanking-only regions and regions expanded to include the original interval are different definitions, so keep the source model's definition.
+A nonzero `--padding-bp` adds the same padding to every BED file in the run.
 
-Check `annotations/projected_baseline/diagnostics/query_annotation_status.tsv` and the output headers against the intended category list. Empty BED files are skipped and malformed ones stop the run ([BED query rules](../../reference/annotate.md#bed-queries)); a BED file that overlaps no grid row is kept as an all-zero column, so successful completion alone does not establish that every planned baseline category survived. A category supported on another chromosome retains its zero-valued chromosome rows.
+Compare `annotations/projected_baseline/diagnostics/query_annotation_status.tsv` and the output header with your intended list of annotations.
+Empty BED files are skipped and malformed ones stop the run, but a BED file that overlaps no grid SNP is kept as an all-zero column, so a successful run alone does not prove that every planned annotation is usable ([BED queries](../../reference/annotate.md#bed-queries)).
 
 ### 3. Add an all-SNP column only if required by your model
 
-BIM mode creates only the supplied region annotations and has no implicit `base` column.
-For a baseline model that includes an all-SNP category, append `base = 1` to the retained rows and save a new suite:
+A BIM grid creates only the annotations in your BED files and has no `base` column.
+If your baseline model includes an all-SNP annotation, append a `base` column of ones and save a new suite:
 
-```python
-from pathlib import Path
-import gzip
-
-projected = Path("annotations/projected_baseline")
-baseline = Path("annotations/custom_baseline")
-baseline.mkdir(parents=True)
-for chrom in range(1, 23):
-    with gzip.open(projected / f"query.{chrom}.annot.gz", "rt") as source:
-        with gzip.open(baseline / f"baseline.{chrom}.annot.gz", "wt") as output:
-            output.write(source.readline().rstrip("\n") + "\tbase\n")
-            for line in source:
-                output.write(line.rstrip("\n") + "\t1\n")
+```bash
+mkdir -p annotations/custom_baseline
+for chrom in $(seq 1 22); do
+  gzip -dc "annotations/projected_baseline/query.${chrom}.annot.gz" \
+    | awk 'BEGIN { OFS = "\t" } NR == 1 { print $0, "base"; next } { print $0, 1 }' \
+    | gzip > "annotations/custom_baseline/baseline.${chrom}.annot.gz"
+done
 ```
 
-This preserves the validated output row order and allele columns. Keep the projection diagnostics alongside the derived suite as its construction record. For a deliberately chromosome-limited run, replace the chromosome loops and `@` patterns with the same explicit chromosome scope throughout.
+This keeps the validated row order and allele columns.
+Keep the projection diagnostics with the new suite as the record of how it was built.
+For a deliberately chromosome-limited run, use the same chromosome set in the loop and replace `@` with matching explicit paths throughout.
 
-### 4. Use the tables as baseline inputs
+### 4. Use the files as baseline annotations
 
 ```bash
 ldsc ldscore \
-  --plink-prefix 'panel/reference.@' \
-  --baseline-annot-sources 'annotations/custom_baseline/baseline.@.annot.gz' \
+  --plink-prefix "panel/reference.@" \
+  --baseline-annot-sources "annotations/custom_baseline/baseline.@.annot.gz" \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg19 \
   --ld-wind-kb 1000 \
-  --output-dir results/custom_baseline_ldscores
+  --output-dir results/ldscores/custom_baseline
 ```
 
-All categories in these tables now belong to the baseline group. A later gene-list or BED query can use its own `--padding-bp` in the `ldscore` invocation; that setting does not alter the prebuilt baseline values.
+Every annotation in these files is now a baseline annotation.
+A later BED or gene-list query run can use its own `--padding-bp`, which does not change these baseline values.
 
-This recipe produces binary region-membership annotations. It does not reconstruct the complete baseline-LD v2.2 model, which also contains quantitative annotations and MAF-bin indicators. BED score fields and overlap multiplicities are not preserved by this projection route. Adding existing quantitative columns or combining outputs from separate padding groups requires alignment checks and column assembly into one baseline file per chromosome; passing two chromosome suites together is not a column-merge operation.
+This recipe produces binary region-membership annotations only.
+It does not rebuild the complete baseline-LD v2.2 model, which also contains continuous annotations and MAF-bin indicators, and BED score fields and overlapping-interval counts are not kept.
+Adding existing continuous columns, or combining outputs made with different padding, requires aligning the rows and assembling the columns into one baseline file per chromosome; passing two chromosome suites together does not merge their columns.
 
-Implementation sources: `run_annotate()` in [annotate_workflow.py](../../../src/ldsc/annotate_workflow.py), `prepare_bed_queries()` and `build_query_shards()` in [_annotation_queries.py](../../../src/ldsc/_annotation_queries.py), and `_layout()` / `prepare_annotation_sources()` in [_annotation_sources.py](../../../src/ldsc/_annotation_sources.py).
+## Rerun and resources
 
-## Memory and Python ownership
+If the output directory already holds any `query.*.annot.gz` or `baseline.*.annot.gz` file, even for a chromosome outside the current run, `annotate` stops before writing.
+Add `--overwrite` only for an intended rerun; a successful overwrite removes stale annotation files that the new run did not produce, and a failed one leaves a failure marker ([logs and outputs](../../reference/logs-and-outputs.md#output-family-preflight)).
+A missing output directory is created.
 
-Preparation scans whole-genome and chromosome-sharded files in bounded chunks sized for the sources processed together.
-It checks SNP identities globally using metadata, then copies retained numeric values directly into private chromosome artifacts.
-Cross-chromosome duplicate identities are removed before projection.
-Projection and writing proceed chromosome by chromosome; the returned bundle references exported files only, without original-input dependencies.
-Binary values use the existing packed storage (eight SNP rows per byte), while continuous values use float32 stores.
-Export reads bounded numeric row tiles; public reads return float32, and downstream arithmetic remains float64.
-No whole-genome annotation matrix is returned.
-New private files stay under the selected output directory.
-Use `with run_annotate(...) as bundle:` or close a Python bundle after reading it.
+`annotate` runs serially; it reads inputs in bounded chunks and writes chromosome by chromosome, keeping its intermediate files under the output directory.
+Released memory may not show as a drop in the process's resident memory right away.
+Direct `ldscore` additionally offers chromosome workers and query batches for large pathway collections ([Calculate LD scores](ld-scores.md#many-query-annotations-and-workers)).
 
-This architecture supports large pathway batches, including 1,000 pathways subsequently tested separately against shared baseline categories. Standalone annotate is sequential; direct LD scoring additionally supports bounded chromosome workers and query batching. Released arrays become reusable memory, but process RSS may not immediately decrease. See the [developer memory design](../../dev/design/memory-and-cpu.md) and [LD-score guide](ld-scores.md). Existing artifacts require `--overwrite`; failure markers and stale-output cleanup retain their command contracts.
-
-### Python grid selection
-
-```python
-from ldsc import GlobalConfig, run_annotate
-
-with run_annotate(
-    ref_snp_bim_sources="panel/reference.@.bim",
-    query_annot_bed_sources="baseline_beds/*.bed",
-    global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"),
-    output_dir="annotations/from_bim",
-) as bundle:
-    print(bundle.query_columns)
-    print(bundle.output_paths["query_annotations"])
-```
-
-For an existing annotation grid, replace `ref_snp_bim_sources` with `ref_snp_annot_sources`.
-That result also exposes `bundle.output_paths["baseline_annotations"]`; pass both path lists to downstream `run_ldscore(baseline_annot_sources=..., query_annot_sources=..., ...)`.
-The previous standalone Python keyword `baseline_annot_sources` is removed without an alias.
+For the Python API, see [Python usage](../python-usage.md#annotations).

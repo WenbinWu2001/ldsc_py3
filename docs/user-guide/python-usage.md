@@ -562,3 +562,58 @@ The returned object holds the shared metadata, the embedded gene coordinate cata
 
 Assemble gene-list LD scores from an index with the command `ldsc ldscore --gene-ldscore-index-dir`, described in [Calculate LD scores from gene lists](workflows/gene-list-ld-scores.md#step-2-assemble-gene-list-ld-scores); from a notebook, run it through `subprocess`.
 The resulting directory opens with `load_ldscore_from_dir()` like any other LD-score directory.
+
+## Annotations
+
+`run_annotate()` is the Python form of `ldsc annotate`.
+Its keyword arguments carry the command-line option names with underscores: exactly one of `ref_snp_annot_sources` or `ref_snp_bim_sources`, exactly one of `query_annot_bed_sources` or `query_annot_gene_list_sources`, and `output_dir`.
+The SNP identifier mode and genome build come from `global_config=GlobalConfig(...)` or the registered global configuration, and `genome_build=` overrides the genome build for one call.
+The former keyword `baseline_annot_sources` is not accepted; use `ref_snp_annot_sources` for an annotation grid.
+
+### Project BED files onto a SNP grid
+
+```python
+from ldsc import GlobalConfig, run_annotate
+
+with run_annotate(
+    ref_snp_bim_sources="panel/reference.@.bim",
+    query_annot_bed_sources="baseline_beds/*.bed",
+    global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"),
+    output_dir="annotations/from_bim",
+    # overwrite=True,  # replace existing annotation files and remove stale ones
+) as bundle:
+    print(bundle.query_columns)
+    print(bundle.chromosomes)
+    print(bundle.output_paths["query_annotations"])
+```
+
+For an annotation grid, replace `ref_snp_bim_sources` with `ref_snp_annot_sources`.
+That result also has `bundle.output_paths["baseline_annotations"]`; pass both path lists to `run_ldscore(baseline_annot_sources=..., query_annot_sources=..., ...)`.
+
+### Project gene lists
+
+```python
+from ldsc import GlobalConfig, run_annotate
+
+with run_annotate(
+    ref_snp_annot_sources="/path/to/baseline/baseline.@.annot.gz",
+    query_annot_gene_list_sources="pathways/*.txt",
+    gene_coordinate_file="/path/to/genes/gene-coordinates.hg19.tsv.gz",
+    padding_bp=100000,
+    gene_exclude_regions="none",
+    global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg19"),
+    output_dir="annotations/pathways",
+    # gene_list_resolution_policy="resolved-only",  # exploratory screens only
+) as bundle:
+    print(bundle.query_columns)
+    print(bundle.query_statuses)
+```
+
+`gene_list_resolution_policy=None` (the default) means strict resolution; `"resolved-only"` is the equivalent of `--allow-unresolved-genes`.
+`run_annotate()` prints no console notice; it returns the query statuses and output paths instead.
+
+### Bundle lifetime
+
+The returned bundle refers to the exported annotation files (only query files for a BIM grid), not to your original inputs.
+Construction scratch is released before the call returns; reading a chromosome from the bundle can prepare private data again under the output directory.
+Use `with run_annotate(...) as bundle:` or call `bundle.close()` when you are done; closing keeps every exported file and your original inputs.

@@ -489,5 +489,5 @@ See the [sumstats compatibility contract](../reference/formats/legacy-sumstats.m
 ## Further workflow references
 
 - [LD-score calculation](workflows/ld-scores.md), [heritability](../wiki/main-functionalities/h2.md), and [partitioned heritability](workflows/partitioned-heritability.md).
-- [BED preparation](../wiki/utility-functionalities/how-to-customize-your-bed-files.md), [reusable annotations](workflows/annotations.md), and [resource navigation](reference-data.md).
+- [BED preparation](workflows/annotations.md), [reusable annotations](workflows/annotations.md), and [resource navigation](reference-data.md).
 - [Global configuration](concepts/snp-identity-and-genome-build.md) and [interface changes](workflows/migrating-from-ldsc2.md).

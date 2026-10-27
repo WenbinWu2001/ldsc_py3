@@ -276,7 +276,9 @@ class MungeRunSummary:
     retained rows. Coordinate reason counts in provenance may overlap, whereas
     these stage totals count each removed row once. ``used_n_rule`` identifies
     the strategy actually used: ``input_columns``, ``fixed_N``, or
-    ``fixed_case_control_N``.
+    ``fixed_case_control_N``. ``qc_thresholds`` records the effective ``INFO``
+    and ``FRQ`` (minor-allele frequency) thresholds; ``None`` means the filter
+    did not run because no such column was selected.
     """
     n_input_rows: int
     n_retained_rows: int
@@ -284,6 +286,7 @@ class MungeRunSummary:
     inferred_columns: dict[str, str]
     used_n_rule: str
     output_paths: dict[str, str]
+    qc_thresholds: dict[str, float | None]
 
 
 def _sumstats_table_identifier_mode(config_snapshot: GlobalConfig | None) -> str:
@@ -675,6 +678,7 @@ class SumstatsMunger:
                 inferred_columns={**dict(raw_sumstats_config.column_hints), "detected_format": inference.detected_format},
                 used_n_rule=result.used_n_rule,
                 output_paths=run_output_paths,
+                qc_thresholds={"INFO": request.qc.info_min, "FRQ": request.qc.maf_min},
             )
             log_summary(_render_munge_summary(self._last_summary, coordinate_metadata, munge_config))
             log_outputs(**run_output_paths)
@@ -861,6 +865,10 @@ def _render_munge_summary(summary: MungeRunSummary, metadata: dict[str, Any], co
         f"  Rows: {summary.n_input_rows} input; {summary.n_retained_rows} retained; {summary.n_input_rows - summary.n_retained_rows} dropped",
         "  Drop counts by stage: " + "; ".join(f"{stage}={count}" for stage, count in summary.drop_counts.items()),
     ])
+    skipped = [label for field, label in (("INFO", "INFO (no INFO column)"), ("FRQ", "MAF (no frequency column)"))
+               if summary.qc_thresholds[field] is None]
+    if skipped:
+        lines.append("  QC filters not applied: " + "; ".join(skipped))
     return "\n".join(lines)
 
 
@@ -1220,17 +1228,19 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     filters.add_argument(
-        '--info-min', default=0.9, type=float, metavar='VALUE',
+        '--info-min', default=None, type=float, metavar='VALUE',
         help=(
-            'Keep SNPs with INFO at or above this value. Default: 0.9; skip this filter if no INFO column '
-            'is available. Use --info or --info-list to select a nonstandard column.'
+            'Keep SNPs with INFO at or above this value. Default: 0.9 when an INFO column is selected; '
+            'without one the default filter is skipped, and an explicit value is an error. Use --info or '
+            '--info-list to select a nonstandard column.'
         ),
     )
     filters.add_argument(
-        '--maf-min', default=0.01, type=float, metavar='VALUE',
+        '--maf-min', default=None, type=float, metavar='VALUE',
         help=(
             'Keep SNPs whose minor-allele frequency min(FRQ, 1-FRQ) is at or above this value. Default: '
-            '0.01; skip this filter if frequency is absent. Output FRQ preserves the original frequency.'
+            '0.01 when a frequency column is selected; without one the default filter is skipped, and an '
+            'explicit value is an error. Output FRQ preserves the original frequency.'
         ),
     )
 
@@ -1693,6 +1703,13 @@ def _apply_missing_column_report(
     if columns.get("N") is not None or columns.get("N_CAS") is not None:
         munge_input._resolve_sample_size_column_strategy(columns, selected, source_path)
     targets = set(selected.values())
+    _, conflicts = munge_input.resolve_qc_thresholds(config, targets)
+    if conflicts:
+        inference = replace(
+            inference,
+            notes=(*inference.notes, *(message for _, message in conflicts)),
+            missing_fields=(*inference.missing_fields, *(f"column required by {flag}" for flag, _ in conflicts)),
+        )
     if "N" in targets or {"N_CAS", "N_CON"}.issubset(targets):
         selected = {column: target for column, target in selected.items() if target != "NSTUDY"}
 

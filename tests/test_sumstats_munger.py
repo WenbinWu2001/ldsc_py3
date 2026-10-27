@@ -309,12 +309,75 @@ class SumstatsMungerTest(unittest.TestCase):
                     global_config=GlobalConfig(snp_identifier="rsid"),
                 )
 
+    def test_run_rejects_explicit_qc_thresholds_without_columns_before_writing(self):
+        # An explicit threshold is a request; silently skipping it would change
+        # the curated SNP set without the user knowing.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            raw_path = Path(tmpdir) / "raw.txt"
+            self._write_raw_sumstats(raw_path)
+            output = Path(tmpdir) / "out"
+            with self.assertRaises(ldsc.LDSCInputError) as ctx:
+                SumstatsMunger().run(
+                    MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, output_dir=output,
+                                info_min=0.8, maf_min=0.05),
+                    global_config=GlobalConfig(snp_identifier="rsid"),
+                )
+            message = str(ctx.exception)
+            self.assertIn("--info-min=0.8", message)
+            self.assertIn("--info COLUMN", message)
+            self.assertIn("--maf-min=0.05", message)
+            self.assertIn("--frq COLUMN", message)
+            self.assertFalse(any(output.glob("*sumstats*")))
+
+    def test_run_applies_default_qc_thresholds_only_to_present_columns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            absent = tmpdir / "absent.txt"
+            self._write_raw_sumstats(absent)
+            present = tmpdir / "present.txt"
+            present.write_text(
+                "SNP A1 A2 P BETA N INFO FRQ\n"
+                "rs1 A G 0.05 0.1 1000 0.95 0.30\n"
+                "rs2 A C 0.05 0.1 1000 0.50 0.30\n"
+                "rs3 A C 0.05 0.1 1000 0.95 0.005\n",
+                encoding="utf-8",
+            )
+            cases = {
+                absent: ({"INFO": None, "FRQ": None}, ["rs1"], {"INFO": 0, "FRQ": 0}),
+                present: ({"INFO": 0.9, "FRQ": 0.01}, ["rs1"], {"INFO": 1, "FRQ": 1}),
+            }
+            for raw_path, (thresholds, kept, drops) in cases.items():
+                with self.subTest(raw=raw_path.name):
+                    munger = SumstatsMunger()
+                    table = munger.run(
+                        MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path,
+                                    output_dir=tmpdir / f"out-{raw_path.stem}"),
+                        global_config=GlobalConfig(snp_identifier="rsid"),
+                    )
+                    summary = munger.build_run_summary()
+                    self.assertEqual(summary.qc_thresholds, thresholds)
+                    self.assertEqual(table.data["SNP"].tolist(), kept)
+                    self.assertEqual({key: summary.drop_counts[key] for key in drops}, drops)
+
+    def test_cli_summary_reports_default_qc_filters_not_applied(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            raw_path = Path(tmpdir) / "raw.txt"
+            self._write_raw_sumstats(raw_path)
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                sumstats_workflow.main([
+                    "--raw-sumstats-file", str(raw_path), "--output-dir", str(Path(tmpdir) / "out"),
+                    "--snp-identifier", "rsid", "--no-snp-restriction",
+                ])
+            self.assertIn("QC filters not applied: INFO (no INFO column); MAF (no frequency column)",
+                          stdout.getvalue())
+
     def test_kernel_p_to_z_matches_legacy_direction_convention(self):
         z = kernel_munge.p_to_z(pd.Series([0.1, 0.1, 0.1]), pd.Series([1, 2, 3]))
         np.testing.assert_allclose(np.asarray(z), [1.644854, 1.644854, 1.644854], atol=1e-5)
 
     def test_kernel_filters_reject_invalid_p_info_frq_and_alleles(self):
-        args = kernel_munge.MungeQC()
+        args = kernel_munge.MungeQC(info_min=0.9, maf_min=0.01)
         assert_series_equal(
             kernel_munge.filter_pvals(pd.Series([0, 0.1, 1, 2])),
             pd.Series([False, True, True, False]),
@@ -333,7 +396,7 @@ class SumstatsMungerTest(unittest.TestCase):
         )
 
     def test_kernel_filter_frq_is_inclusive_at_maf_min(self):
-        args = kernel_munge.MungeQC()
+        args = kernel_munge.MungeQC(info_min=0.9, maf_min=0.01)
         # Folded MAF exactly at the floor is kept (inclusive >=); just below is dropped.
         assert_series_equal(
             kernel_munge.filter_frq(pd.Series([0.0099, 0.01, 0.9901]), args),

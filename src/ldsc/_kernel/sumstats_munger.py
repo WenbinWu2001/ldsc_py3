@@ -76,10 +76,14 @@ class _SumstatsRestriction:
 
 @dataclass(frozen=True)
 class MungeQC:
-    """Resolved numeric thresholds and constant sample sizes."""
+    """Resolved numeric thresholds and constant sample sizes.
 
-    info_min: float = 0.9
-    maf_min: float = 0.01
+    ``info_min``/``maf_min`` are ``None`` when the corresponding filter does
+    not run because its column was not selected.
+    """
+
+    info_min: float | None = None
+    maf_min: float | None = None
     n_min: float | None = None
     nstudy_min: float | None = None
     N: float | None = None
@@ -188,7 +192,7 @@ def filter_pvals(P, *, warning_counts=None):
 
 
 def filter_info(info, qc: MungeQC, *, warning_counts=None):
-    '''Remove INFO < qc.info_min (default 0.9) and complain about out-of-bounds INFO.'''
+    '''Remove INFO < qc.info_min and complain about out-of-bounds INFO.'''
     if type(info) is pd.Series:  # one INFO column
         jj = ((info > 2.0) | (info < 0)) & info.notnull()
         ii = info >= qc.info_min
@@ -306,14 +310,14 @@ def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
                     continue
 
             ii = np.array([True for i in range(len(dat))])
-            if 'INFO' in dat.columns:
+            if qc.info_min is not None:
                 old = ii.sum()
                 ii &= filter_info(dat['INFO'], qc, warning_counts=warning_counts)
                 new = ii.sum()
                 drops['INFO'] += old - new
                 old = new
 
-            if 'FRQ' in dat.columns:
+            if qc.maf_min is not None:
                 old = ii.sum()
                 ii &= filter_frq(dat['FRQ'], qc, warning_counts=warning_counts)
                 new = ii.sum()
@@ -344,9 +348,11 @@ def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
     msg = (
         f"Read {tot_snps} input SNP rows from --raw-sumstats-file.\n"
         f"Removed {drops['NA']} SNPs with missing values.\n"
-        f"Removed {drops['INFO']} SNPs with INFO < {qc.info_min}.\n"
-        f"Removed {drops['FRQ']} SNPs with MAF < {qc.maf_min}.\n"
-        f"Removed {drops['P']} SNPs with out-of-bounds p-values.\n"
+        + (f"Removed {drops['INFO']} SNPs with INFO < {qc.info_min}.\n" if qc.info_min is not None
+           else "INFO filter not applied: no INFO column was selected.\n")
+        + (f"Removed {drops['FRQ']} SNPs with MAF < {qc.maf_min}.\n" if qc.maf_min is not None
+           else "MAF filter not applied: no allele-frequency column was selected.\n")
+        + f"Removed {drops['P']} SNPs with out-of-bounds p-values.\n"
         f"{len(dat)} SNPs remain."
     )
     LOGGER.info(msg)

@@ -388,8 +388,10 @@ class WorkflowConfigTest(unittest.TestCase):
 
     def test_munge_config_defaults(self):
         config = MungeConfig(output_dir="out")
-        self.assertEqual(config.info_min, 0.9)
-        self.assertEqual(config.maf_min, 0.01)
+        # None means "apply the documented default (0.9 / 0.01) only when the
+        # column exists"; an explicit value is required to be applicable.
+        self.assertIsNone(config.info_min)
+        self.assertIsNone(config.maf_min)
         self.assertEqual(config.chunk_size, 1_000_000)
         self.assertEqual(config.output_format, "parquet")
         self.assertEqual(config.source_genome_build, "auto")

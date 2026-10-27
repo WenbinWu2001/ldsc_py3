@@ -31,6 +31,18 @@ def test_suggested_command_preserves_overrides(tmp_path, capsys):
     assert not (tmp_path / 'out').exists()
 
 
+def test_infer_only_reports_explicit_qc_threshold_without_column(tmp_path, capsys):
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text('SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 1000\n')
+    inference = workflow.main(['--raw-sumstats-file', str(raw), '--output-dir', str(tmp_path / 'out'),
+                               '--snp-identifier', 'rsid', '--infer-only', '--maf-min', '0.02'])
+    assert not inference.runnable
+    assert any('--maf-min' in field for field in inference.missing_fields)
+    assert not any('--info-min' in field for field in inference.missing_fields)
+    assert '--frq COLUMN' in capsys.readouterr().out
+    assert not (tmp_path / 'out').exists()
+
+
 @pytest.mark.parametrize('compressed', [False, True])
 @pytest.mark.parametrize('extra,blocked', [([], True), (['--ignore', 'N', '--N', '100'], False)])
 def test_infer_only_checks_entire_columns(tmp_path, capsys, compressed, extra, blocked):

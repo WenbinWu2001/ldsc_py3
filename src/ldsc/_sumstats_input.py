@@ -228,6 +228,42 @@ def _resolve_sample_size_column_strategy(columns, cname_translation, source_path
         )
 
 
+# LDSC2 QC defaults; each applies only when its column is selected.
+DEFAULT_INFO_MIN = 0.9
+DEFAULT_MAF_MIN = 0.01
+_QC_THRESHOLDS = (
+    ("INFO", "info_min", "--info-min", DEFAULT_INFO_MIN, "an INFO column", "INFO",
+     "imputation-quality", "--info COLUMN (or --info-list COLUMN for comma-separated per-study values)"),
+    ("FRQ", "maf_min", "--maf-min", DEFAULT_MAF_MIN, "an allele-frequency column", "MAF",
+     "allele-frequency", "--frq COLUMN"),
+)
+
+
+def resolve_qc_thresholds(config, mapped_fields):
+    """Resolve effective INFO/FRQ thresholds against the selected columns.
+
+    A ``None`` threshold applies the LDSC2 default only when its column is
+    mapped; an explicit threshold requires the column. Returns the effective
+    thresholds keyed by canonical field (``None`` for a filter that will not
+    run) and ``(flag, message)`` conflicts for explicit thresholds whose column
+    is absent.
+    """
+    thresholds, conflicts = {}, []
+    for field, attribute, flag, default, needs, label, kind, hint in _QC_THRESHOLDS:
+        requested = getattr(config, attribute)
+        if field in mapped_fields:
+            thresholds[field] = default if requested is None else requested
+            continue
+        thresholds[field] = None
+        if requested is not None:
+            conflicts.append((flag, (
+                f"{flag}={requested} requires {needs}, but none was selected. Most likely the "
+                f"{kind} column has a name LDSC does not recognize or was passed to --ignore. "
+                f"Select it with {hint}, or omit {flag} to run without {label} filtering."
+            )))
+    return thresholds, conflicts
+
+
 def _suggest_allele_fix(file_cnames):
     clean_to_original = {clean_header(column): column for column in file_cnames}
     if 'REF' in clean_to_original and 'ALT' in clean_to_original:
@@ -271,7 +307,6 @@ def prepare_munge_input(
         info_list_columns=config.info_list_columns or tuple(column for column in raw_config.column_hints.get('info_list', '').split(',') if column),
     )
     qc = MungeQC(N=config.N, N_cas=config.N_cas, N_con=config.N_con,
-                 info_min=config.info_min, maf_min=config.maf_min,
                  n_min=config.n_min, nstudy_min=config.nstudy_min)
     _validate_explicit_sample_size_column_strategy(columns)
     file_cnames = read_header(source_path)  # note keys not cleaned
@@ -364,6 +399,14 @@ def prepare_munge_input(
                 "Most likely an explicit column hint conflicts with an auto-detected alias. "
                 "Use --ignore for the extra column or remove the conflicting hint."
             )
+
+    thresholds, conflicts = resolve_qc_thresholds(config, set(cname_translation.values()))
+    if conflicts:
+        raise LDSCInputError(
+            f"munge-sumstats cannot apply the requested QC thresholds to '{source_path}'. "
+            + " ".join(message for _, message in conflicts)
+        )
+    qc = replace(qc, info_min=thresholds['INFO'], maf_min=thresholds['FRQ'])
 
     if (not qc.N) and (not (qc.N_cas and qc.N_con)) and ('N' not in cname_translation.values()) and\
             (any(x not in cname_translation.values() for x in ['N_CAS', 'N_CON'])):

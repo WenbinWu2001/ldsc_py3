@@ -904,12 +904,17 @@ class MungeConfig:
         Constant sample-size fallbacks. Per-variant N or paired case/control
         columns take precedence. Otherwise ``N`` is used when supplied, or
         ``N_cas + N_con`` when both counts are supplied. Defaults are ``None``.
-    info_min : float, optional
-        Minimum INFO score. Default is ``0.9``.
-    maf_min : float, optional
-        Minimum folded minor-allele frequency. Default is ``0.01``. The input
-        frequency is preserved as ``FRQ`` without folding whenever present;
-        ``FRQ`` is omitted when no frequency column is selected.
+    info_min : float or None, optional
+        Minimum INFO score. Default is ``None``: apply the LDSC2 threshold
+        ``0.9`` when an INFO column is selected and skip INFO filtering
+        otherwise. An explicit value requires an INFO column; without one the
+        run fails before reading rows.
+    maf_min : float or None, optional
+        Minimum folded minor-allele frequency. Default is ``None``: apply the
+        LDSC2 threshold ``0.01`` when a frequency column is selected and skip
+        MAF filtering otherwise. An explicit value requires a frequency column.
+        The input frequency is preserved as ``FRQ`` without folding whenever
+        present; ``FRQ`` is omitted when no frequency column is selected.
     n_min, nstudy_min : float or None, optional
         Optional row filters for sample size and study count. For per-variant
         N, an omitted or zero ``n_min`` uses its 90th percentile divided by
@@ -999,8 +1004,8 @@ class MungeConfig:
     N: float | None = None
     N_cas: float | None = None
     N_con: float | None = None
-    info_min: float = 0.9
-    maf_min: float = 0.01
+    info_min: float | None = None
+    maf_min: float | None = None
     n_min: float | None = None
     nstudy_min: float | None = None
     chunk_size: int = 1_000_000
@@ -1018,12 +1023,12 @@ class MungeConfig:
 
     def __post_init__(self) -> None:
         """Validate munging thresholds and normalize optional file paths."""
-        if self.info_min < 0:
+        if self.info_min is not None and self.info_min < 0:
             raise LDSCConfigError(
                 f"Could not construct MungeConfig: info_min={self.info_min!r} must be non-negative. "
                 "Most likely a negative INFO threshold was supplied. Set info_min to 0 or higher."
             )
-        if self.maf_min < 0 or self.maf_min > 0.5:
+        if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
             raise LDSCConfigError(_range_message("MungeConfig", "maf_min", self.maf_min, "[0, 0.5]"))
         if self.chunk_size <= 0:
             raise LDSCConfigError(_positive_number_message("MungeConfig", "chunk_size", self.chunk_size))

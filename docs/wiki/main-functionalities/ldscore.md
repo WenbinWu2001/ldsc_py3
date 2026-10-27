@@ -74,7 +74,7 @@ These evidence links require the enclosing research workspace; the table and lim
 
 ## Memory for many pathways
 
-Live annotation inputs are prepared serially before chromosome computation. Whole-genome and chromosome-sharded inputs use bounded chunks sized for aligned source groups; duplicate cleanup remains global, including rsIDs repeated across chromosomes. At INFO, `diagnostics/ldscore.log` marks input reading, SNP identity checks and chromosome preparation, and completion with retained counts and elapsed time. See [preparation logging](../../current/workflow-logging.md#annotation-preparation). The preparation milestone does not report completed LD-score calculation.
+Live annotation inputs are prepared serially before chromosome computation. Whole-genome and chromosome-sharded inputs use bounded chunks sized for aligned source groups; duplicate cleanup remains global, including rsIDs repeated across chromosomes. At INFO, `diagnostics/ldscore.log` marks input reading, SNP identity checks and chromosome preparation, and completion with retained counts and elapsed time. See [preparation logging](../../reference/logs-and-outputs.md#annotation-preparation). The preparation milestone does not report completed LD-score calculation.
 
 `--workers` / `workers` defaults to one managed child process, including on HPC.
 Every worker uses **1 BLAS thread**, in serial and parallel execution.

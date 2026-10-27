@@ -306,7 +306,7 @@ synthetic all-ones baseline column named exactly `base` in
 Query annotation inputs still require explicit `--baseline-annot-sources`.
 Regression diagnostics report the SNP population and jackknife block count actually used for fitting. The h2 LD-score regression plot summarizes that same fitted population; see [regression configuration](docs/reference/regression-options.md).
 
-At default INFO verbosity, workflow logs emphasize major phases, numbered batch start/completion, chromosome work, and aggregate query outcomes. Gene exclusions and audited warnings use counts and diagnostic-file pointers; DEBUG retains successful query timings and source detail. The exact invocation and specific failure evidence remain available. See [batch logging and diagnostic coverage](docs/current/workflow-logging.md#batch-and-collection-progress).
+At default INFO verbosity, workflow logs emphasize major phases, numbered batch start/completion, chromosome work, and aggregate query outcomes. Gene exclusions and audited warnings use counts and diagnostic-file pointers; DEBUG retains successful query timings and source detail. The exact invocation and specific failure evidence remain available. See [batch logging and diagnostic coverage](docs/reference/logs-and-outputs.md#batch-and-collection-progress).
 
 For large query scans, `ldsc partitioned-h2 --continue-on-query-error` skips queries whose model preparation, regression, or result calculation raises an exception and publishes successful fits. Every attempted query is recorded in `diagnostics/query_status.tsv`; failed queries have no scientific results. The log includes query/stage tracebacks and available jackknife block diagnostics. The default remains strict: any query failure prevents publication. Shared input/output failures and scans with no successful queries still fail. See [query failure handling](docs/reference/results/partitioned-h2.md#query-failures-and-continuation).
 
@@ -450,7 +450,7 @@ filenames inside the selected `output_dir`.
 
 ## Input validation stages
 
-Input validation is separate from output-overwrite protection. Direct LD scores validate reference inputs before annotation staging; gene-index and R2 builders check companion and auxiliary declarations together. Index consumers inspect every chromosome's component paths and small headers before loading operators. Independent defects at each gate are reported together with machine-readable repair diagnostics. Alignment, identity cleanup, and post-filter support are later content-dependent checks; a successful path gate does not guarantee a valid scientific dataset. See [staged validation and progress](docs/current/workflow-logging.md#staged-input-validation) and [repair guidance](docs/user-guide/troubleshooting.md#staged-input-validation).
+Input validation is separate from output-overwrite protection. Direct LD scores validate reference inputs before annotation staging; gene-index and R2 builders check companion and auxiliary declarations together. Index consumers inspect every chromosome's component paths and small headers before loading operators. Independent defects at each gate are reported together with machine-readable repair diagnostics. Alignment, identity cleanup, and post-filter support are later content-dependent checks; a successful path gate does not guarantee a valid scientific dataset. See [staged validation and progress](docs/reference/logs-and-outputs.md#staged-input-validation) and [repair guidance](docs/user-guide/troubleshooting.md#staged-input-validation).
 
 ## Output Collision Policy
 
@@ -466,15 +466,15 @@ For workflows that accept `--output-dir` or `output_dir`, the value is always a 
 
 Gene-index retries accept an output directory containing only `RUN_FAILED.txt` and recognized legacy build diagnostics. The marker remains until successful publication; unrelated contents still block replacement. See [gene-index retry guidance](docs/user-guide/troubleshooting.md#build-gene-ldscore-index-output-directory-is-nonempty-but-invalid).
 
-Failure markers, logs, audits, scratch, and result files use the same normalized destination, including `~` and environment-variable expansion. A root failure marker does not count as a scientific output collision. See [workflow logging](docs/current/workflow-logging.md) for the marker lifecycle and [`test_output_directory_retries.py`](tests/test_output_directory_retries.py) for coverage across commands.
+Failure markers, logs, audits, scratch, and result files use the same normalized destination, including `~` and environment-variable expansion. A root failure marker does not count as a scientific output collision. See [workflow logging](docs/reference/logs-and-outputs.md) for the marker lifecycle and [`test_output_directory_retries.py`](tests/test_output_directory_retries.py) for coverage across commands.
 
 The overwrite flag applies only to the fixed files owned by that workflow. It
 does not remove unrelated files and never cleans a whole directory.
 The derived `plot` and `convert-h2-scale` commands instead use the fixed nested destinations described above.
 
-Directory writers share their artifact declarations with workflow preflight. Conditional files, including chromosome drop reports, are checked before the workflow log opens; successful overwrites reconcile the files actually produced. See [Output-Family Preflight](docs/current/workflow-logging.md#output-family-preflight) for ownership and cleanup rules.
+Directory writers share their artifact declarations with workflow preflight. Conditional files, including chromosome drop reports, are checked before the workflow log opens; successful overwrites reconcile the files actually produced. See [Output-Family Preflight](docs/reference/logs-and-outputs.md#output-family-preflight) for ownership and cleanup rules.
 
-At the default INFO level, workflow logs mark validation, staging, computation, and publication phases with elapsed time, plus periodic counts and the current object at long-running chunk checkpoints. Annotation preparation retains its input-reading, identity-checking, and retained-count completion milestones. CM/MAF notices appear once per input file read, and intentional gene exclusions are summarized on one line per gene set. See [annotation preparation logging](docs/current/workflow-logging.md#annotation-preparation) for examples and interpretation.
+At the default INFO level, workflow logs mark validation, staging, computation, and publication phases with elapsed time, plus periodic counts and the current object at long-running chunk checkpoints. Annotation preparation retains its input-reading, identity-checking, and retained-count completion milestones. CM/MAF notices appear once per input file read, and intentional gene exclusions are summarized on one line per gene set. See [annotation preparation logging](docs/reference/logs-and-outputs.md#annotation-preparation) for examples and interpretation.
 
 ## Verification
 

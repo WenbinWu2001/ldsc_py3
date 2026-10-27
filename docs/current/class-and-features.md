@@ -47,7 +47,7 @@ are written to `diagnostics/dropped_snps/dropped.tsv.gz`, and downstream
 identity metadata lives in the `sumstats.parquet` footer.
 
 For log filenames and API boundary details, see
-[workflow-logging.md](workflow-logging.md). For the dedicated munger workflow,
+[workflow-logging.md](../reference/logs-and-outputs.md). For the dedicated munger workflow,
 metadata, `--infer-only`, HM3, and liftover guide, see
 [munge-sumstats.md](../reference/munge-sumstats.md).
 

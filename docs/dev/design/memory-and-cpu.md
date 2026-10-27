@@ -572,7 +572,7 @@ A storage summary reports binary/continuous column counts and actual value-file 
 There is no per-chunk progress output.
 Intentional gene-region exclusions are summarized once per source and role, combining line–gene pairs across audit chunks while retaining only one source's message.
 CM/MAF notices appear once per source during its classification pass.
-Complete row audits and existing failure footers are preserved; see [workflow logging](../../current/workflow-logging.md#annotation-preparation).
+Complete row audits and existing failure footers are preserved; see [workflow logging](../../reference/logs-and-outputs.md#annotation-preparation).
 
 Annotation identity audits, gene row audits, and quantile alignment diagnostics have complete streamed output routes.
 Most result bookkeeping uses compact summaries or persistent paths.

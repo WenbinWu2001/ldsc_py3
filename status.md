@@ -159,7 +159,7 @@ Start with the current instructions, this file, and the relevant sections of:
 - [LD-score SNP-universe contract](docs/reference/ldscore-snp-universes.md).
 - [Architecture](docs/dev/architecture.md), especially annotation and reference/LD-score workflow ownership.
 - [Annotation memory design](docs/dev/design/memory-and-cpu.md).
-- [Gene-list input](docs/reference/formats/gene-lists.md), [diagnostics and repair](docs/reference/results/gene-list-diagnostics.md), [path specification](docs/reference/input-paths.md), and [workflow logging](docs/current/workflow-logging.md).
+- [Gene-list input](docs/reference/formats/gene-lists.md), [diagnostics and repair](docs/reference/results/gene-list-diagnostics.md), [path specification](docs/reference/input-paths.md), and [workflow logging](docs/reference/logs-and-outputs.md).
 - [Lessons](lessons.md), particularly reference preparation, physical BIM/BED row mapping, output ownership, and resource lifetime.
 
 Implementation seams:

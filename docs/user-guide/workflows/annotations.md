@@ -101,7 +101,7 @@ The log reports totals even when zero rows were dropped and includes exported pa
 Gene support is labeled `annotation_snp_count`; reference-panel counts are unevaluated.
 See the [complete condition–outcome table](../../reference/annotate.md#gene-list-queries).
 
-At the default INFO level, `diagnostics/annotate.log` marks input reading, SNP identity checks and chromosome preparation, and preparation completion with retained counts and elapsed time. Gene projection and output writing follow preparation. Intentional exclusions use one line per gene set with line–gene pairs; CM/MAF notices appear once per annotation file read. Complete audit rows remain available. See [the messages and their meaning](../../current/workflow-logging.md#annotation-preparation).
+At the default INFO level, `diagnostics/annotate.log` marks input reading, SNP identity checks and chromosome preparation, and preparation completion with retained counts and elapsed time. Gene projection and output writing follow preparation. Intentional exclusions use one line per gene set with line–gene pairs; CM/MAF notices appear once per annotation file read. Complete audit rows remain available. See [the messages and their meaning](../../reference/logs-and-outputs.md#annotation-preparation).
 
 ## Build baseline annotations from BED files
 

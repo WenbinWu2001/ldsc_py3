@@ -54,7 +54,7 @@ tutorial_outputs/r2_panel_chr22/
         └── chr22_dropped.tsv.gz
 ```
 
-A suite invocation uses `diagnostics/metadata.json` and `diagnostics/build-r2-panel.log`. Diagnostics record provenance and processing decisions. The dropped-SNP audit is header-only when it has no rows to report. `--log-level` controls the workflow log's verbosity; it does not enable ordinary terminal progress. Failed authorized overwrites leave a `RUN_FAILED` marker; see the [logging contract](../docs/current/workflow-logging.md).
+A suite invocation uses `diagnostics/metadata.json` and `diagnostics/build-r2-panel.log`. Diagnostics record provenance and processing decisions. The dropped-SNP audit is header-only when it has no rows to report. `--log-level` controls the workflow log's verbosity; it does not enable ordinary terminal progress. Failed authorized overwrites leave a `RUN_FAILED` marker; see the [logging contract](../docs/reference/logs-and-outputs.md).
 
 ### Pair table
 

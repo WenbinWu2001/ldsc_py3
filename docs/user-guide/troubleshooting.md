@@ -2,7 +2,7 @@
 
 Last updated on: 2026-10-27
 
-This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](../current/workflow-logging.md#diagnostics-and-troubleshooting).
+This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](../dev/design/logging.md#diagnostics-and-troubleshooting).
 It also retains guidance for failed-run artifacts, documented query omissions, and cleanup warnings that users need to interpret.
 Simple validation errors should explain their cause and repair in the primary message rather than require a separate reference entry.
 Entries are organized by the command you run.

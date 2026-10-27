@@ -10,7 +10,7 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 - [data-flow.md](data-flow.md): user-visible file streams and flowcharts
 - [class-and-features.md](../current/class-and-features.md): public API surface and major types
 - [code-structure.md](code-structure.md): module map and change guide
-- [workflow-logging.md](../current/workflow-logging.md): per-run log naming, preflight, and API boundaries
+- [logs-and-outputs.md](../reference/logs-and-outputs.md): per-run log naming, preflight, and API boundaries
 - [plotting.md](design/plotting.md): plotting, post-fit h2 conversion, dispatch, and derived-output ownership
 - [gene-lists.md](../reference/formats/gene-lists.md): gene-list parsing, catalog, projection, and diagnostics
 - [query-r2.md](../reference/query-r2.md): pairwise R2 lookup contract for package-built panels
@@ -164,7 +164,7 @@ log path with scientific outputs before entering the context, and result
 The same module owns the small `RUN_FAILED` marker helper used at public
 materializing boundaries. The helper adds failure visibility for authorized
 overwrites but performs no rollback, restoration, quarantine, or action-order
-change. See [workflow-logging.md](../current/workflow-logging.md).
+change. See [logs-and-outputs.md](../reference/logs-and-outputs.md).
 
 ### `ldsc.plotting`, `ldsc.h2_scale`
 
@@ -311,7 +311,7 @@ overwrite is supplied. Architecture invariant: public output customization
 chooses the directory name and explicit overwrite policy, not per-run filename
 prefixes.
 
-Each directory writer exposes `artifact_family()` as the single declaration of its named outputs, conditional siblings, and derived roots. Workflows use it for early collision checks; writers use the final declaration for writing, metadata `files`, and stale cleanup. `ArtifactFamily` describes paths and delegates collision checks to `path_resolution`; it does not introduce a publication transaction. LD-score preparation no longer predicts a cleanup list that survives computation. See [workflow-logging.md, Output-Family Preflight](../current/workflow-logging.md#output-family-preflight) and `tests/test_artifact_declarations.py` for the lifecycle contract and overwrite/reload checks.
+Each directory writer exposes `artifact_family()` as the single declaration of its named outputs, conditional siblings, and derived roots. Workflows use it for early collision checks; writers use the final declaration for writing, metadata `files`, and stale cleanup. `ArtifactFamily` describes paths and delegates collision checks to `path_resolution`; it does not introduce a publication transaction. LD-score preparation no longer predicts a cleanup list that survives computation. See [logs and outputs, Output-Family Preflight](../reference/logs-and-outputs.md#output-family-preflight) and `tests/test_artifact_declarations.py` for the lifecycle contract and overwrite/reload checks.
 
 ### Query execution and result ownership
 

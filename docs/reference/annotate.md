@@ -104,4 +104,4 @@ Python callers receive the statuses and output paths instead; `run_annotate()` p
 
 Annotation files use the columns `CHR`, `BP`, `SNP` and `CM` with an explicit `CM=NA`, keep the allele columns, carry no `MAF`, and store query values as integers 0 and 1.
 Pass the exported files to `ldscore` with `--baseline-annot-sources` and `--query-annot-sources`; columns from a BIM grid can also serve as baseline annotations when they define the intended baseline model.
-Diagnostics are written before scientific outputs, and output preflight, `--overwrite` and failure markers follow the [logging and output rules](../current/workflow-logging.md#output-family-preflight).
+Diagnostics are written before scientific outputs, and output preflight, `--overwrite` and failure markers follow the [logging and output rules](logs-and-outputs.md#output-family-preflight).

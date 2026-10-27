@@ -280,7 +280,7 @@ Monitor a running build with:
 tail -f "${INDEX_ROOT}/.${INDEX_NAME}.build-state/build-gene-ldscore-index.log"
 ```
 
-At INFO, the first preparation milestone is `Reading annotation inputs`, followed by `Checking SNP identities and preparing chromosome annotations`. Global identity checks include duplicate rsIDs spanning chromosome files. `Annotation preparation complete` reports retained chromosome/SNP counts and elapsed preparation time before any `Starting chromosome N` computation message. CM/MAF notices appear once per source file read. These messages describe step boundaries; the workflow's final `Finished` or `Failed` footer establishes the overall outcome. See [preparation logging](../../current/workflow-logging.md#annotation-preparation).
+At INFO, the first preparation milestone is `Reading annotation inputs`, followed by `Checking SNP identities and preparing chromosome annotations`. Global identity checks include duplicate rsIDs spanning chromosome files. `Annotation preparation complete` reports retained chromosome/SNP counts and elapsed preparation time before any `Starting chromosome N` computation message. CM/MAF notices appear once per source file read. These messages describe step boundaries; the workflow's final `Finished` or `Failed` footer establishes the overall outcome. See [preparation logging](../../reference/logs-and-outputs.md#annotation-preparation).
 
 On success, the closed log moves to
 `${INDEX_DIR}/diagnostics/build-gene-ldscore-index.log`. The log is

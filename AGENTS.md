@@ -121,7 +121,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
 ## Existing warning, error, and diagnostic policy
 
 - Preserve the repository's current policy; warning-visibility defaults from initialization skills/templates do not override it.
-  `src/ldsc/_logging.py` and `docs/current/workflow-logging.md` define file-authoritative workflow logs, CLI stderr errors only during logged workflows, and no package-installed Python API console handler.
+  `src/ldsc/_logging.py`, `docs/reference/logs-and-outputs.md`, and `docs/dev/design/logging.md` define file-authoritative workflow logs, CLI stderr errors only during logged workflows, and no package-installed Python API console handler.
   CLI calls without a workflow log retain the existing verbosity fallback; do not introduce blanket warning-display or suppression changes.
 - Assume users do not inspect file logs after a successful run, especially under batch schedulers such as SLURM.
   If an unrequested input-resolution, filtering, ambiguity, or compatibility condition can silently change the scientific analysis, fail before substantial computation with a nonzero, actionable error and machine-readable diagnostics.
@@ -190,7 +190,7 @@ These rules apply only when a review is requested; they do not require an extra 
 - `docs/reference/formats/column-schema.md`, `docs/reference/snp-identity-and-genome-build.md`, `docs/reference/ldscore-snp-universes.md`, and `docs/reference/regression-options.md`: schema, identity/build, SNP universes, and estimator contracts.
 - `docs/dev/design/memory-and-cpu.md`, `docs/reference/gene-ldscore-index.md`, `docs/reference/methods/gene-ldscore-index-math.md`, `docs/reference/results/partitioned-h2.md`, and `docs/reference/results/quantile-h2.md`: memory ownership, exact indexes, result interpretation, and post-fit quantiles.
 - `docs/reference/parallel-execution.md`: managed task workers, joblib CPU budgets, one BLAS thread per worker, and chromosome diagnostics.
-- `docs/reference/input-paths.md`, `docs/current/workflow-logging.md`, and `docs/dev/guidelines/cli-help.md`: resolution, output/diagnostic lifecycle, and task-oriented CLI help.
+- `docs/reference/input-paths.md`, `docs/reference/logs-and-outputs.md`, and `docs/dev/guidelines/cli-help.md`: resolution, output/diagnostic lifecycle, and task-oriented CLI help.
 - `tutorials/ld-score-calculation.md`, `tutorials/partitioned-ldsc.md`, `tutorials/cell-specific-ldsc.md`, and `tutorials/convert-legacy-ldscores.md`: main worked workflows, complemented by notebooks and `docs/user-guide/guided-tutorial.md`.
 - `docs/reference/ldsc2-flag-map.md`: LDSC2 interface mapping, including options without a current equivalent; no document yet records numerical equivalence with LDSC2. `docs/dev/release.md`: maintainer release runbook, not authorization to release.
   `LICENSE`, `NOTICE`, and `CITATION.cff` preserve licensing, attribution, and citation metadata; retain notices during refactors and packaged resource attribution.

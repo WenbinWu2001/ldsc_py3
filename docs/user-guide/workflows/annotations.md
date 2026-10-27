@@ -189,7 +189,7 @@ No whole-genome annotation matrix is returned.
 New private files stay under the selected output directory.
 Use `with run_annotate(...) as bundle:` or close a Python bundle after reading it.
 
-This architecture supports large pathway batches, including 1,000 pathways subsequently tested separately against shared baseline categories. Standalone annotate is sequential; direct LD scoring additionally supports bounded chromosome workers and query batching. Released arrays become reusable memory, but process RSS may not immediately decrease. See the [developer memory design](../../dev/design/memory-and-cpu.md) and [LD-score guide](../../wiki/main-functionalities/ldscore.md). Existing artifacts require `--overwrite`; failure markers and stale-output cleanup retain their command contracts.
+This architecture supports large pathway batches, including 1,000 pathways subsequently tested separately against shared baseline categories. Standalone annotate is sequential; direct LD scoring additionally supports bounded chromosome workers and query batching. Released arrays become reusable memory, but process RSS may not immediately decrease. See the [developer memory design](../../dev/design/memory-and-cpu.md) and [LD-score guide](ld-scores.md). Existing artifacts require `--overwrite`; failure markers and stale-output cleanup retain their command contracts.
 
 ### Python grid selection
 

@@ -66,7 +66,7 @@ Direct and indexed LD-score writing process one query batch at a time and assemb
 Consumed chromosome fragments are deleted before the next batch starts; final files remain private until the complete calculation succeeds.
 Direct mode preserves its post-kernel float32 scores, while indexed mode retains float64 through query filtering; numerical accumulation, counts, and overlaps remain float64.
 This happens automatically with the existing options and preserves the small, materialized no-output Python API.
-See [direct assembly measurements and their limits](docs/wiki/main-functionalities/ldscore.md#direct-assembly-measurements) before changing a job's RAM allocation.
+See [direct assembly measurements and their limits](docs/dev/validation/performance.md#direct-ld-score-assembly) before changing a job's RAM allocation.
 
 Standalone `annotate` projects BED files or gene lists onto exactly one SNP grid: `--ref-snp-bim-sources` for metadata-only BIM input, or `--ref-snp-annot-sources` for existing baseline annotations.
 BIM mode writes query annotations only; annotation mode writes aligned `baseline.<chrom>.annot.gz` and `query.<chrom>.annot.gz` files after shared identity cleanup.

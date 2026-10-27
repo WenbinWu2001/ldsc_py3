@@ -410,7 +410,7 @@ The entire active fragment directory is removed before the next batch, including
 On failure, workers finish shutdown before borrowed annotation or fragment workspaces are removed.
 Worker count and query batch size control different dimensions of memory; more workers can increase total process-tree memory and may be slower for small inputs.
 Baseline tables, worker kernel arrays, and staged final outputs have separate lifetimes, so bounded query fragments do not establish a whole-job RAM limit.
-See [the replay measurements](../../wiki/main-functionalities/ldscore.md#direct-assembly-measurements) and [`test_direct_batch_staging.py`](../../../tests/test_direct_batch_staging.py) for the evidence boundary.
+See [the replay measurements](../validation/performance.md#direct-ld-score-assembly) and [`test_direct_batch_staging.py`](../../../tests/test_direct_batch_staging.py) for the evidence boundary.
 
 **Public LD tables aggregate chromosomes within each query batch.** One batch uses `ldscore.query.parquet`; multiple batches use ordered `ldscore.query.batch00001.parquet` files.
 Root `metadata.json.query_batches` records each file, ordered query columns, and chromosome row groups.
@@ -604,9 +604,9 @@ Whole-genome RAM and runtime figures remain conditional projections; the older b
 | --- | --- | --- |
 | Sequential execution/output query batches | `cf1dfac`; [`test_ldscore_query_batches.py`](../../../tests/test_ldscore_query_batches.py) and the benchmark above | Smaller width reduced scratch in the measured local workload but repeated traversal increased wall time; this predates later assembly changes. |
 | Lossless binary annotation storage | `59ee02b`; [annotation format policy](#annotation-format-policy) and the size measurement above | Exact classification and decoding verified; 32-fold binary payload reduction is not a job-RSS measurement. |
-| Indexed active-batch staging and streamed assembly | `659738a`; [`test_indexed_batch_staging.py`](../../../tests/test_indexed_batch_staging.py), [LD-score guide](../../wiki/main-functionalities/ldscore.md) | Bounds outstanding raw fragments and parent arrays; per-batch operator reloads add work. |
+| Indexed active-batch staging and streamed assembly | `659738a`; [`test_indexed_batch_staging.py`](../../../tests/test_indexed_batch_staging.py), [LD-score guide](../../user-guide/workflows/ld-scores.md) | Bounds outstanding raw fragments and parent arrays; per-batch operator reloads add work. |
 | Regression metadata/file reuse and fewer model copies | `7a478e6`; [`test_partitioned_publication.py`](../../../tests/test_partitioned_publication.py), [`test_regression_memory.py`](../../../tests/test_regression_memory.py), [regression guide](../../user-guide/workflows/partitioned-heritability.md) | Measures and preserves full-model fits; neither changes the estimator nor eliminates worker-private matrices. |
-| Direct file-writing streamed assembly | `3a4d729`; [`test_direct_batch_staging.py`](../../../tests/test_direct_batch_staging.py), [replay measurements](../../wiki/main-functionalities/ldscore.md#direct-assembly-measurements) | Local end-to-end parity is separate from precomputed full-row assembly replays, which do not measure genotype computation. |
+| Direct file-writing streamed assembly | `3a4d729`; [`test_direct_batch_staging.py`](../../../tests/test_direct_batch_staging.py), [replay measurements](../validation/performance.md#direct-ld-score-assembly) | Local end-to-end parity is separate from precomputed full-row assembly replays, which do not measure genotype computation. |
 
 The indexed, regression, and direct rows summarize the optimizations integrated during the October session.
 Their detailed evidence remains attached to the corresponding implementation or workflow guide rather than being generalized into a universal speedup or RAM recommendation.

@@ -93,7 +93,7 @@ exclusion policies. Do not pass live overrides. Production indexes always
 cover autosomes 1–22 and old indexes must be rebuilt for the current catalog
 schema. Runtime controls `--workers` and `--query-batch-size` are accepted in indexed mode; they do not override the stored scientific configuration.
 
-For similar indexed workloads on Longleaf, the [matched worker comparison](../../wiki/main-functionalities/ldscore.md#choosing-workers-for-indexed-scoring) supports starting with `--workers 8`, 8 allocated CPUs, 128 GiB RAM, and one native numerical thread per worker.
+For similar indexed workloads on Longleaf, the [matched worker comparison](../../dev/validation/performance.md#indexed-gene-list-ld-scoring) supports starting with `--workers 8`, 8 allocated CPUs, 128 GiB RAM, and one native numerical thread per worker.
 This workload-specific recommendation leaves the package default at one worker; the linked comparison includes all four tested counts and the limits of extrapolating to a full query workload.
 
 ## Optional control genes
@@ -191,4 +191,4 @@ LD scoring and index construction cap by chromosomes; regression caps by complet
 Zero, Boolean, and non-integer Python requests are invalid.
 See [the execution policy](../../reference/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
 
-The saved baseline and overlap artifacts are shared. One query batch writes `ldscore.query.parquet`; multiple batches write numbered `ldscore.query.batchNNNNN.parquet` files, each with the same genome-wide SNP rows. Root `metadata.json.query_batches` records the ordered files, columns, and chromosome row groups. Python writing workflows return `LDScoreSource`; explicit `read_queries(names)` calls load columns without caching them. Generation and regression batch widths may differ. See the [LD-score guide](../../wiki/main-functionalities/ldscore.md#memory-for-many-pathways) for the implementation sources and the [batch regression guide](partitioned-heritability.md#many-query-annotations) for result writing.
+The saved baseline and overlap artifacts are shared. One query batch writes `ldscore.query.parquet`; multiple batches write numbered `ldscore.query.batchNNNNN.parquet` files, each with the same genome-wide SNP rows. Root `metadata.json.query_batches` records the ordered files, columns, and chromosome row groups. Python writing workflows return `LDScoreSource`; explicit `read_queries(names)` calls load columns without caching them. Generation and regression batch widths may differ. See the [LD-score guide](ld-scores.md) for the implementation sources and the [batch regression guide](partitioned-heritability.md#many-query-annotations) for result writing.

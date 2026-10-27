@@ -58,7 +58,7 @@ OUTPUT_ROOT="${INPUT_ROOT}/tutorial_output"
    Start with `--workers 1`, allow temporary disk space under the output directory, and lower `--query-batch-size` to reduce active query workspace.
    Direct mode repeats reference work across batches.
    Indexed mode processes one query batch at a time with a persistent worker pool, reloads chromosome operators for each batch, and streams chromosome fragments into staged output before deleting those fragments.
-   Smaller indexed batches bound raw scratch more tightly but add operator-read overhead; see [current LD-score memory controls](../wiki/main-functionalities/ldscore.md#memory-for-many-pathways).
+   Smaller indexed batches bound raw scratch more tightly but add operator-read overhead; see [current LD-score memory controls](workflows/ld-scores.md#many-query-annotations-and-workers).
    In the historical direct-mode [1,000-query chromosome-22 benchmark](../dev/design/memory-and-cpu.md#diagnostics-and-verification), width 100 used 82.2% less peak private scratch than width 1,000 and took 1.903 times as long, with essentially unchanged peak RAM.
    That benchmark does not measure the current indexed implementation, and whole-genome figures derived from it are conditional projections.
 
@@ -306,7 +306,7 @@ RAW_QUERY_BED_SOURCES="$INPUT_ROOT/resources/example_raw_annot/*.bed"  # put all
 BASELINE_ANNOT_SOURCES="${INPUT_ROOT}/resources/1000G_EUR_Phase3_baseline/baseline.@.annot.gz"
 ```
 
-Place your raw query files in the same directory and use a quoted glob to select them together. Direct LDSC prepares, computes, writes, and releases one query batch before starting the next, repeating reference work across batches. The saved baseline artifact is shared. Chromosome concurrency is controlled separately by `--workers`, which defaults to 1 and is capped at the chromosome count in both direct and indexed calculation. See [LD-score memory controls](../wiki/main-functionalities/ldscore.md#memory-for-many-pathways) for the implementation sources and tradeoffs.
+Place your raw query files in the same directory and use a quoted glob to select them together. Direct LDSC prepares, computes, writes, and releases one query batch before starting the next, repeating reference work across batches. The saved baseline artifact is shared. Chromosome concurrency is controlled separately by `--workers`, which defaults to 1 and is capped at the chromosome count in both direct and indexed calculation. See [LD-score memory controls](workflows/ld-scores.md#many-query-annotations-and-workers) for the implementation sources and tradeoffs.
 
 ```bash
 PARTITIONED_LDSCORE_OUTPUT_DIR="${OUTPUT_ROOT}/partitioned_ldscore"
@@ -352,7 +352,7 @@ ldsc ldscore \
   becomes public only after complete reload validation. Stages cannot be
   resumed or used for incremental chromosome updates.
 
-**Genetic coordinates:** a cM window with PLINK input needs informative BIM CM values or a matching explicit genetic map through `--genetic-map-hg19-sources` (comma-separated exact paths). With R² input, CM comes from the required matching `chrN_meta.tsv.gz` sidecars. Genetic-map flags do not replace those sidecar values. See [effective CM coordinates](../wiki/main-functionalities/ldscore.md#effective-cm-coordinates-and-metadata-export).
+**Genetic coordinates:** a cM window with PLINK input needs informative BIM CM values or a matching explicit genetic map through `--genetic-map-hg19-sources` (comma-separated exact paths). With R² input, CM comes from the required matching `chrN_meta.tsv.gz` sidecars. Genetic-map flags do not replace those sidecar values. See [effective CM coordinates](workflows/ld-scores.md#plink-input).
 
 **Outputs:**
 
@@ -488,6 +488,6 @@ See the [sumstats compatibility contract](../reference/formats/legacy-sumstats.m
 
 ## Further workflow references
 
-- [LD-score calculation](../wiki/main-functionalities/ldscore.md), [heritability](../wiki/main-functionalities/h2.md), and [partitioned heritability](workflows/partitioned-heritability.md).
+- [LD-score calculation](workflows/ld-scores.md), [heritability](../wiki/main-functionalities/h2.md), and [partitioned heritability](workflows/partitioned-heritability.md).
 - [BED preparation](../wiki/utility-functionalities/how-to-customize-your-bed-files.md), [reusable annotations](workflows/annotations.md), and [resource navigation](reference-data.md).
 - [Global configuration](concepts/snp-identity-and-genome-build.md) and [interface changes](workflows/migrating-from-ldsc2.md).

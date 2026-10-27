@@ -5,7 +5,7 @@ Last updated on: 2026-10-27
 This serial workflow reuses one managed child across chromosomes, with **1 BLAS thread**.
 For Python scripts, place workflow calls under `if __name__ == "__main__":`; see [the execution policy](../../reference/parallel-execution.md).
 
-`ldsc build-r2-panel` turns PLINK reference genotypes into reusable pairwise R² tables. These describe LD in the reference individuals; they are inputs to [LD-score calculation](ldscore.md) and [pair queries](../utility-functionalities/query-r2.md).
+`ldsc build-r2-panel` turns PLINK reference genotypes into reusable pairwise R² tables. These describe LD in the reference individuals; they are inputs to [LD-score calculation](../../user-guide/workflows/ld-scores.md) and [pair queries](../utility-functionalities/query-r2.md).
 
 
 `--source-genome-build auto` checks every BIM shard and coordinate keep list before restricting SNPs.

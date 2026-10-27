@@ -350,3 +350,141 @@ preview = infer_raw_sumstats(
 print(preview.detected_format, preview.column_hints, preview.missing_fields)
 print(preview.runnable, preview.suggested_args)
 ```
+
+## LD scores
+
+`run_ldscore()` is the Python form of `ldsc ldscore`.
+It takes the command-line option names without the leading `--` and with underscores, for example `baseline_annot_sources`, `query_annot_bed_sources`, `plink_prefix`, `r2_dir`, `ld_wind_cm`, `workers` and `output_dir`.
+The SNP identifier mode, genome build and log level are not keyword arguments: set them once with `set_global_config(GlobalConfig(...))`, and `run_ldscore()` rejects `snp_identifier`, `genome_build` or `log_level` passed directly.
+Per-run SNP controls such as `ref_panel_snps_file` and `regr_snps_file` stay ordinary keyword arguments.
+Put workflow calls in a script under `if __name__ == "__main__":`, as explained in [parallel execution](../reference/parallel-execution.md).
+
+### Compute an LD-score directory
+
+```python
+from ldsc import GlobalConfig, run_ldscore, set_global_config
+
+if __name__ == "__main__":
+    set_global_config(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
+
+    source = run_ldscore(
+        output_dir="results/ldscores/baseline",
+        baseline_annot_sources="/path/to/baseline/baseline.@.annot.gz",
+        r2_dir="/path/to/r2-panel/hg38",
+        ld_wind_cm=1.0,
+        # overwrite=True,  # replace existing LD-score files and remove stale query files
+    )
+
+    print(source.baseline_columns)
+    print(source.baseline_table.loc[:, ["CHR", "SNP", "POS", "regression_ld_scores"]].head())
+    print(source.output_paths["baseline"])
+    print(source.output_paths["metadata"])
+    print(source.config_snapshot)
+```
+
+Omit `baseline_annot_sources` to compute the unpartitioned all-ones `base` LD score.
+Add `query_annot_bed_sources="beds/*.bed"` to compute BED query annotations; their names are then in `source.query_columns`.
+
+`run_ldscore()` always writes an LD-score directory and returns an `LDScoreSource`.
+The returned object holds the shared baseline table, counts and metadata, but not the query LD scores.
+`output_paths` lists the scientific files and diagnostics, but not `diagnostics/ldscore.log`.
+
+### Read selected query columns
+
+```python
+from ldsc import load_ldscore_from_dir
+
+source = load_ldscore_from_dir("results/ldscores/bed_queries")
+queries = source.read_queries(["enhancers", "promoters"])
+```
+
+`read_queries()` loads the named query columns, even when they are stored in different query batch files, and returns them in the requested order after the SNP columns.
+It does not cache values or limit how many columns you request, so the memory for the returned table is yours to budget.
+`load_ldscore_from_dir()` opens any existing LD-score directory, including one written by the command line.
+
+### Read one chromosome
+
+Ordinary readers such as `pandas.read_parquet("ldscore.baseline.parquet")` read whole files.
+For large outputs, the row-group records in `metadata.json` let you read one chromosome:
+
+```python
+import json
+from pathlib import Path
+
+import pyarrow.parquet as pq
+
+ldscore_dir = Path("results/ldscores/baseline")
+metadata = json.loads((ldscore_dir / "metadata.json").read_text())
+
+if metadata["row_group_layout"] != "one_per_chromosome":
+    raise ValueError(f"Unsupported row-group layout: {metadata['row_group_layout']!r}")
+
+baseline_row_group = {
+    entry["chrom"]: entry["row_group_index"] for entry in metadata["baseline_row_groups"]
+}
+parquet_file = pq.ParquetFile(ldscore_dir / "ldscore.baseline.parquet")
+baseline_chr22 = parquet_file.read_row_group(baseline_row_group["22"]).to_pandas()
+print(baseline_chr22.head())
+```
+
+For query files, iterate over `metadata["query_batches"]`: each entry has `file`, `query_columns` and `row_groups`, with row-group records shaped like the baseline ones.
+`query_batches` is empty when the directory has no query annotations.
+To read selected query columns genome-wide, `read_queries()` is simpler.
+
+### Calculate small LD scores without writing files
+
+For a small calculation that fits in one query batch, `LDScoreCalculator.run(..., output_config=None)` computes LD scores from prepared in-memory inputs and writes no annotation, diagnostic, log or output files; it may still read existing reference-panel files.
+
+```python
+from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfig
+
+if __name__ == "__main__":
+    config = GlobalConfig(snp_identifier="rsid", genome_build="hg19")
+    # metadata, baseline_values and query_values are aligned in-memory DataFrames.
+    # ref_panel is an already-configured PlinkRefPanel or ParquetR2RefPanel.
+    with AnnotationBundle.from_frames(
+        metadata, baseline_values, query_values, config_snapshot=config,
+    ) as annotations:
+        result = LDScoreCalculator().run(
+            annotations, ref_panel, LDScoreConfig(ld_wind_cm=1, query_batch_size=100),
+            config, output_config=None,
+        )
+    # result.query_table and the in-memory diagnostics remain available after the block.
+```
+
+- `metadata` must contain `CHR`, a one-based integer `POS`, and `SNP` for an rsID-family mode; supply both `A1` and `A2` or neither.
+- The frames align by position; annotation values must be finite numbers, and annotation names must be unique and differ from the metadata columns.
+- `from_frames()` stores columns of exact 0/1 values as binary and copies other columns as float32; reads always return float32.
+- It drops every member of a group of SNPs with the same SNP identity, does not infer the genome build and performs no liftover, so configure the reference panel for the same SNP identifier mode and genome build.
+- The calculator takes already-resolved `regression_snps` and `regression_regions` arguments; omitting them uses every retained reference SNP as a regression SNP and excludes no regions, unlike `run_ldscore()`, which applies the HM3 map and the MHC and centromere exclusion by default.
+  Pass the same restrictions when you compare the two.
+- More than one query batch requires an output directory, `LDScoreOutputConfig(output_dir=...)`.
+
+The result is an in-memory `LDScoreResult` rather than an `LDScoreSource`.
+
+### Check a CHR/POS table's genome build
+
+`infer_chr_pos_build()` reports the inferred genome build of a `CHR`/`POS` table; `resolve_chr_pos_table()` also returns the table with canonical chromosome labels and one-based positions.
+
+```python
+import pandas as pd
+from ldsc import infer_chr_pos_build, resolve_chr_pos_table
+
+# The table needs enough SNPs that overlap HapMap3 to support inference.
+table = pd.read_csv("filters/snps_chr_pos.tsv.gz", sep="\t")
+
+normalized, inference = resolve_chr_pos_table(table, context="my SNP table")
+decision = infer_chr_pos_build(normalized.loc[:, ["CHR", "POS"]], context="normalized SNP table")
+
+print(inference.genome_build)
+print(inference.coordinate_basis)
+print(decision.summary_message)
+```
+
+Workflows run the same check themselves when the genome build is `auto`.
+
+### Configuration and provenance
+
+`GlobalConfig` carries only the shared settings `snp_identifier`, `genome_build` and `log_level`.
+Every result keeps a frozen `config_snapshot` of the settings it was computed with; changing the registered `GlobalConfig` later does not alter existing results.
+Combining results computed under incompatible SNP identifier modes or genome builds raises `ConfigMismatchError`.

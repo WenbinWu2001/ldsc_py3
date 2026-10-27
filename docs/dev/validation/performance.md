@@ -61,3 +61,44 @@ The raw pilot report, with workload boundaries, repetitions, cache measurements 
 An earlier local benchmark on chromosome 22 with 1,000 queries, before the current copy and publication improvements, measured 74.17, 47.63 and 30.47 seconds with 1, 2 and 4 workers, including preparation and publication.
 Its sampled peak process-tree RSS was 472, 1,048 and 1,507 MiB; these are not full-genome memory estimates.
 
+## Indexed gene-list LD scoring
+
+A matched Longleaf comparison at revision `e4cefba` used the first 1,000 query files, all 22 chromosomes, 1,134,471 SNP rows, 53 baseline columns, a saved gene LD-score index and `--query-batch-size 1000`.
+Every run requested 128 GiB and used one native numerical thread per worker.
+It predates the bounded indexed-batch implementation (`659738a`), so it does not establish the optimum worker count or memory request for the current implementation.
+
+| Workers and allocated CPUs | Total elapsed | Chromosome interval | Reserved CPU-hours |
+| --- | ---: | ---: | ---: |
+| 22 | 4:47 | 6.00 s | 1.7539 |
+| 8 | 3:00 | 25.17 s | 0.4000 |
+| 4 | 5:28 | 40.03 s | 0.3644 |
+| 1 | 8:05 | 140.13 s | 0.1347 |
+
+Eight workers had the shortest total elapsed time and reserved 77.2% fewer CPU-hours than 22; one worker reserved the fewest CPU-hours but finished slowest.
+At the benchmark's Longleaf billing settings, 128 GiB contributed 32 billing units for every allocation, so fewer CPUs did not lower the hourly rate.
+Twenty-two workers computed chromosomes fastest, while start-up, input preparation, result assembly and output writing dominated total time; more workers do not speed up those serial stages.
+These were single runs on shared nodes in fixed order, with uncontrolled cache, file-system and load effects.
+All checked outputs matched exactly across the four settings, including SNP and query order, LD-score values, counts, overlaps and query statuses.
+
+With that earlier implementation, a full 22-worker run finished in 2:03:14, and a full 8-worker run timed out at 4:00:15 during serial assembly, after staging about 159 GiB of raw scores.
+The current implementation keeps raw fragments to one active query batch, so that staging volume no longer applies, but neither these runs nor the bounded design establishes a memory request below 128 GiB.
+One-batch time should not be multiplied by the number of batches: repeated operator reads, output volume and cache pressure affect a full run.
+The raw benchmark report, commands and validator output are kept outside the repository.
+
+## Direct LD-score assembly
+
+Longleaf replays on 2026-10-15 at revision `03aa8ca` compared materialized direct assembly with chromosome-fragment assembly.
+Each used precomputed scores for 22 chromosomes, 22 persistent workers, 53 baseline columns, 1,134,471 output SNP rows and 1,000 queries per batch, and measured assembly and writing only, without reference preparation or LD-score computation.
+
+| Replay workload | Median whole-job cgroup peak, materialized → streamed | Median wall seconds | Median combined CPU seconds |
+| --- | ---: | ---: | ---: |
+| One batch | 42.15 → 22.74 GiB | 155.32 → 102.25 | 210.35 → 168.81 |
+| Three batches, original node | 43.84 → 25.99 GiB | 340.69 → 178.92 | 472.50 → 340.23 |
+| Three batches, independent node | 43.62 → 25.71 GiB | 399.80 → 172.22 | 503.53 → 265.83 |
+
+All 28 valid replays passed exact comparisons of saved values, schemas, SNP and query order, row groups, filtering statuses, counts, overlaps and scientific metadata within each backend, and both variants wrote the same output rows.
+No comparison group showed a wall or CPU increase above the 5% screening threshold; this does not guarantee a production speedup.
+Active fragments totaled about 257 MiB across all 22 files, and sampled workload-file peaks were about 0.644 GiB for one batch and 1.115 GiB for three batches (1.259 GiB allocated blocks), excluding fixed inputs and logs.
+Because the replays omitted reference preparation and computation, they do not establish production memory savings or a smaller safe memory request.
+The integrated implementation is also covered by local tests with small PLINK and R² panel calculations, including metadata parity and failure cleanup ([`test_direct_batch_staging.py`](../../../tests/test_direct_batch_staging.py)); the raw replay report is kept outside the repository.
+

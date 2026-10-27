@@ -187,27 +187,39 @@ Diagnostic metadata records `artifact_type=query_r2_result`, the relative `files
 ```text
 annotate/
   query.<chrom>.annot.gz
+  baseline.<chrom>.annot.gz                  # annotation grid only
   diagnostics/
     metadata.json
     annotate.log
     dropped_snps/dropped.tsv.gz
+    query_annotation_status.tsv
+    gene_list_audit.tsv.gz                   # gene lists only
+    gene_list_resolution_summary.tsv         # gene lists only
+    gene_catalog_issues.tsv                  # when catalog issues exist
+    input_issues.tsv                         # when input issues exist
+    chromosome_scope.json                    # when a scope record exists
 ```
 
-`diagnostics/metadata.json` is provenance only.
+`diagnostics/metadata.json` is provenance only; no downstream workflow reads it.
+Fields come from `AnnotationDirectoryWriter.write()` in `src/ldsc/outputs.py` and the provenance built by `run_annotate()` in `src/ldsc/annotate_workflow.py`.
 
-| Field | Explanation | Downstream usage |
-| --- | --- | --- |
-| `artifact_type` | Must be `annotation_projection`. | None. |
-| `files` | Relative map of query annotation shards and diagnostics. | None. |
-| `snp_identifier` | SNP identity mode used when writing projected annotations. | None for diagnostic JSON. Query shard columns are runtime data. |
-| `genome_build` | Genome-build assumption for projected annotations. | None for diagnostic JSON. |
-| `baseline_annot_sources` | Source annotation paths/tokens. | None. |
-| `query_annot_bed_sources` | Source BED paths/tokens. | None. |
-| `chromosomes` | Chromosomes written. | None. |
-| `query_columns` | Projected query annotation columns. | None. |
-| `baseline_columns` | Baseline annotation columns used as the SNP template. | None. |
-| `n_snps` | Number of retained SNP rows after annotation identity cleanup. | None. |
-| `padding_bp` | BED or gene interval padding applied before projection. | None. |
+| Field | Explanation |
+| --- | --- |
+| `artifact_type` | Always `annotation_projection`. |
+| `files` | Relative paths of the annotation files and diagnostics. |
+| `snp_identifier`, `genome_build` | SNP identifier mode and genome build of the run. |
+| `grid_kind` | `annotation` or `bim`. |
+| `ref_snp_annot_sources`, `ref_snp_bim_sources` | Grid inputs as supplied; the unused one is empty. |
+| `query_source_kind` | `bed` or `gene_list`. |
+| `query_sources`, `query_annot_bed_sources`, `query_annot_gene_list_sources` | Query inputs as supplied. |
+| `gene_coordinate_file`, `gene_catalog_build` | Gene coordinate catalog and its declared build; empty for BED queries. |
+| `projection_genome_build` | Concrete build used to project intervals. |
+| `padding_bp` | Padding applied to every interval. |
+| `gene_exclude_regions`, `gene_list_resolution_policy` | Gene exclusion policy and resolution policy (`strict` or `resolved-only`). |
+| `chromosomes` | Chromosomes written. |
+| `n_snps` | SNP rows kept after SNP identity cleanup. |
+| `snp_rows` | Input, output and dropped logical SNP rows, in total and under `by_chromosome`. |
+| `baseline_columns`, `query_columns` | Exported baseline columns (annotation grid only) and query columns. |
 
 ### `ldscore`
 

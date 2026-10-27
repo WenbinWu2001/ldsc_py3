@@ -97,10 +97,9 @@ requirements:
 - `start < end`
 
 Files that violate these requirements identify the file and line where parsing
-failed. In `ldsc annotate`, the problem raises a user-facing input error. In a
-multi-query `ldsc ldscore` run, the concrete BED query is instead marked
-`skipped/malformed_input` in `diagnostics/query_annotation_status.tsv` so valid
-siblings can continue. An all-skipped run writes diagnostics and then fails.
+failed.
+`ldsc annotate` and `ldsc ldscore` read every requested BED file before projection and stop with one `BED query content validation failed` error that lists every unreadable or malformed file; `annotate` also writes the list to `diagnostics/input_issues.tsv`.
+A BED file without intervals is not an error: it is skipped as `empty_input` in `diagnostics/query_annotation_status.tsv`, and a run whose queries are all skipped writes its diagnostics and then fails.
 
 ## Workflow-Specific Handling
 

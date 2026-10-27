@@ -188,7 +188,7 @@ are written.
 Removed standalone flags: `--baseline-annot-sources`, `--bed-files`, `--baseline-annot`, `--bed-padding-bp`.
 Downstream `ldscore --baseline-annot-sources` is unchanged.
 
-Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requires `--gene-coordinate-file` and explicit nonnegative `--padding-bp`, and supports the opt-in flag `--allow-unresolved-genes` (omission keeps strict resolution) and `--gene-exclude-regions {none,mhc}`. It has no control list. `--output-dir` remains required; the complete contract is in [annotate gene-list decisions](annotate-gene-list-decisions.md).
+Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requires `--gene-coordinate-file` and explicit nonnegative `--padding-bp`, and supports the opt-in flag `--allow-unresolved-genes` (omission keeps strict resolution) and `--gene-exclude-regions {none,mhc}`. It has no control list. `--output-dir` remains required; the complete contract is in [annotate reference](../reference/annotate.md).
 
 ### `ldsc ldscore`
 

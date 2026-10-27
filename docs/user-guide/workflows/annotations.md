@@ -99,7 +99,7 @@ Metadata `snp_rows` records input, output, and dropped logical SNP rows, in tota
 Aligned column sources count the same SNP row once; all removed duplicate occurrences count toward drops.
 The log reports totals even when zero rows were dropped and includes exported paths and the downstream baseline/query flags.
 Gene support is labeled `annotation_snp_count`; reference-panel counts are unevaluated.
-See the [complete condition–outcome table](../../current/annotate-gene-list-decisions.md#validation-gates-and-conditionoutcome-table).
+See the [complete condition–outcome table](../../reference/annotate.md#gene-list-queries).
 
 At the default INFO level, `diagnostics/annotate.log` marks input reading, SNP identity checks and chromosome preparation, and preparation completion with retained counts and elapsed time. Gene projection and output writing follow preparation. Intentional exclusions use one line per gene set with line–gene pairs; CM/MAF notices appear once per annotation file read. Complete audit rows remain available. See [the messages and their meaning](../../current/workflow-logging.md#annotation-preparation).
 
@@ -135,7 +135,7 @@ ldsc annotate \
 
 **Use final category boundaries in the BED files.** Different categories can already encode different padding widths, so one projection command with `--padding-bp 0` preserves all of them. A filename containing `extend.500` does not cause automatic expansion. Likewise, flanking-only regions and intervals expanded to include their original region are different definitions; preserve the source model's definition. A nonzero `--padding-bp` applies the same additional expansion to every BED in this invocation.
 
-Check `annotations/projected_baseline/diagnostics/query_annotation_status.tsv` and the output headers against the intended category list. Empty, malformed, or globally unsupported inputs can be skipped under the query-source rules; successful completion alone does not establish that every planned baseline category survived. A category supported on another chromosome retains its zero-valued chromosome rows.
+Check `annotations/projected_baseline/diagnostics/query_annotation_status.tsv` and the output headers against the intended category list. Empty BED files are skipped and malformed ones stop the run ([BED query rules](../../reference/annotate.md#bed-queries)); a BED file that overlaps no grid row is kept as an all-zero column, so successful completion alone does not establish that every planned baseline category survived. A category supported on another chromosome retains its zero-valued chromosome rows.
 
 ### 3. Add an all-SNP column only if required by your model
 

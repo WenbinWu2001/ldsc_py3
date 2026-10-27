@@ -106,6 +106,7 @@ catalog. Blank values mean that the field is not knowable or not applicable.
 | `details` | Human-readable conflicting IDs, first duplicate line, catalog defect, exclusion, or support context. |
 | `coverage_status` | `covered` or `uncovered` for selected genes, including their duplicate aliases; blank when excluded, rejected, or not assessed. Resolution disposition is preserved. |
 | `reference_snp_count` | Measured retained computational reference-SNP count for this gene; zero is a valid measurement and blank is unknown or not applicable. |
+| `annotation_snp_count` | `annotate` only: measured count of surviving annotation-grid rows in this gene's interval; `reference_snp_count` is then blank, because `annotate` has no reference panel. |
 
 Every readable nonblank input row appears exactly once. Rows sort by focal then
 control, focal ordinal, and physical input line; the order never depends on
@@ -118,7 +119,7 @@ filesystem enumeration or dictionary construction.
 | `retained` | First usable occurrence of this canonical gene in this source. No repair is needed. |
 | `duplicate` | A later row in the same source resolves to a gene already selected. The gene remains in the analysis once. Remove the redundant row if desired. |
 | `excluded` | An explicit gene-region policy, currently MHC exclusion, intentionally removed the gene. This is not failed resolution. |
-| `unsupported` | The gene resolved but overlaps zero retained reference-panel SNPs. This is nonfatal and does not change the annotation on this panel. |
+| `unsupported` | The gene resolved but overlaps zero retained reference-panel SNPs (in `annotate`, zero surviving annotation-grid rows). This is nonfatal and does not change the annotation on this panel. |
 | `rejected` | The row cannot provide one valid usable catalog interval. Strict mode stops; `resolved-only` may omit approved row-level failures. |
 
 ### Row reasons and repairs
@@ -127,6 +128,7 @@ filesystem enumeration or dictionary construction.
 | --- | --- | --- |
 | `duplicate_canonical_gene` | This source already selected the same canonical gene on the line named in `details`. | Keep one authoritative-ID row in the list. |
 | `excluded_gene_region` | The unpadded interval overlaps the requested gene-exclusion region. | Keep it if exclusion is intentional; otherwise choose a different explicit policy in direct mode or a different index. |
+| `zero_annotation_snp_support` | `annotate` only: no surviving annotation-grid row falls in the projected interval. | Usually no list repair is necessary. Check the grid, build or padding if the result is surprising. |
 | `zero_reference_snp_support` | No retained panel SNP falls in the projected interval. | Usually no list repair is necessary. Check panel/build/padding if the result is surprising. |
 | `unmatched_identifier` | Neither exact `gene_id` nor exact case-sensitive `gene_name` exists in the catalog. | Correct spelling/version/case, replace with the authoritative ID, or remove the row. Do not assume version suffixes are stripped. |
 | `ambiguous_gene_name` | The exact name maps to multiple catalog genes. | Replace the name in the list with the intended authoritative `gene_id`. |
@@ -174,6 +176,7 @@ stop prevented SNP-support evaluation.
 The common identity columns are `query`, `source`, and `input_type`; `status`,
 `reason`, `n_annotation_snps`, and `details` describe the final run-specific
 outcome.
+In `annotate`, support counts describe the annotation grid, and `n_annotation_snps` counts the marked grid rows over all chromosomes.
 
 | Status | Reason | Meaning |
 | --- | --- | --- |

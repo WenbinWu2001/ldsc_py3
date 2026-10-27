@@ -68,7 +68,7 @@ Deliberately selecting baseline-grid rows A and B is a different, explicit candi
 
 The current standalone command already accepts BED or gene-list query definitions, but requires `--baseline-annot-sources` for the SNP grid.
 It does not yet accept BIM files directly.
-The [standalone decision record](docs/current/annotate-gene-list-decisions.md#cli-and-python-contract) explicitly excluded BIM replacement when it was written; that exclusion must not override the new user decision above.
+The [standalone decision record](docs/reference/annotate.md#inputs) explicitly excluded BIM replacement when it was written; that exclusion must not override the new user decision above.
 The [annotate wiki](docs/user-guide/workflows/annotations.md#build-baseline-annotations-from-bed-files) currently documents an external BIM-to-minimal-annotation-grid recipe.
 
 Existing standalone behavior to preserve unless a specific change is confirmed:
@@ -155,7 +155,7 @@ That temporary location may disappear; this handoff contains the consequential r
 
 Start with the current instructions, this file, and the relevant sections of:
 
-- [Standalone annotate decisions](docs/current/annotate-gene-list-decisions.md).
+- [Standalone annotate decisions](docs/reference/annotate.md).
 - [LD-score SNP-universe contract](docs/reference/ldscore-snp-universes.md).
 - [Architecture](docs/dev/architecture.md), especially annotation and reference/LD-score workflow ownership.
 - [Annotation memory design](docs/dev/design/memory-and-cpu.md).

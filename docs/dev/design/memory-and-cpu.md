@@ -270,7 +270,7 @@ It skips empty or globally unsupported focal queries while retaining usable sibl
 It fails when all focal queries are skipped.
 Its audits use `annotation_snp_count`; reference-panel support remains unevaluated.
 Direct LD scoring evaluates support on retained reference rows and applies its additional regression-specific viability rules.
-See the [gene-list condition–outcome table](../../current/annotate-gene-list-decisions.md#validation-gates-and-conditionoutcome-table).
+See the [gene-list condition–outcome table](../../reference/annotate.md#gene-list-queries).
 
 ## Genotype access and R2 panel construction
 

@@ -8,33 +8,90 @@ kernel output routines, and any doc or test that asserts column layout.
 
 ---
 
-## 1. Canonical Column Names
+## 1. Canonical Column Names and Accepted Aliases
 
-All written artifacts use the canonical name. The alias families below are
-accepted on **read** only; they are never written.
+Written artifacts always use the canonical name.
+Aliases are accepted only when reading input headers and are never written.
+The alias registry is `src/ldsc/column_inference.py`; the tables below list its contents.
 
-| Canonical | Input aliases | Context |
-|-----------|--------------|---------|
-| `CHR` | `#CHROM`, `CHROM`, `CHROMOSOME` | all |
-| `POS` | `BP`, `POSITION`, `BASE_PAIR`, `BASEPAIR` | all |
-| `SNP` | `RSID`, `RS`, `ID`, `MARKERNAME`, `MARKERID`, `SNPID`, `MARKER` | all |
-| `CM` | `CMBP`, `CENTIMORGAN` | annotation, LD-score |
-| `MAF` | `FREQ`, `FREQUENCY` | ref panel, annotation |
-| `FRQ` | `EAF`, `MAF`, `FRQ_U` | sumstats only |
-| `A1` | `ALLELE1`, `ALLELE_1`, `EFFECT_ALLELE`, `REFERENCE_ALLELE`, `INC_ALLELE`, `EA` | alleles |
-| `A2` | `ALLELE2`, `ALLELE_2`, `OTHER_ALLELE`, `NON_EFFECT_ALLELE`, `DEC_ALLELE`, `NEA` | alleles |
-| `N` | `WEIGHT` | sumstats |
-| `N_CAS` | `NCASE`, `N_CASE`, `N_CASES`, `NCAS`, `CASES_N` | sumstats |
-| `N_CON` | `NCONTROL`, `N_CONTROL`, `N_CONTROLS`, `NCON`, `CONTROLS_N` | sumstats |
-| `NSTUDY` | `N_STUDY`, `NSTUDIES`, `N_STUDIES` | sumstats |
-| `Z` | `ZSCORE`, `GC_ZSCORE` | sumstats |
-| `P` | `PVALUE`, `P_VALUE`, `PVAL`, `P_VAL`, `GC_PVALUE` | sumstats |
-| `BETA` | `B`, `EFFECT`, `EFFECTS` | sumstats |
-| `OR` | *(none)* | sumstats |
-| `LOG_ODDS` | *(none)* | sumstats |
-| `INFO` | `IMPINFO` | sumstats |
-| `R2` | *(none)* | pairwise LD |
-| `L2` | *(none)* | LD-score output |
+Headers are compared after lowercasing and removing punctuation, so `p-value`, `P_VALUE` and `pvalue` are the same header.
+Matches are ranked: the canonical name, then an alias, then a header ending in the canonical name, then a header ending in an alias.
+Two headers tied at the best rank stop the run with an error instead of a guess.
+
+### Shared metadata columns
+
+These aliases apply to annotation files, reference-panel metadata, sidecars, SNP restriction files and coordinate inference.
+
+| Canonical | Accepted aliases |
+| --- | --- |
+| `CHR` | `CHR`, `#CHROM`, `CHROM`, `CHROMOSOME` |
+| `POS` | `POS`, `BP`, `POSITION`, `BASE_PAIR`, `BASEPAIR` |
+| `SNP` | `SNP`, `SNPID`, `SNP_ID`, `RSID`, `RS_ID`, `RS`, `ID`, `MARKERNAME`, `MARKER`, `MARKERID` |
+| `CM` | `CM`, `CMBP`, `CENTIMORGAN` |
+| `MAF` | `MAF` |
+
+`MAF` accepts only the name `MAF`, a folded minor-allele frequency.
+
+Allele columns in SNP restriction files and sidecars also accept genome-oriented names, because SNP identity treats the two alleles as an unordered set:
+
+| Canonical | Accepted aliases |
+| --- | --- |
+| `A1` | `A1`, `ALLELE1`, `ALLELE_1`, `EFFECT_ALLELE`, `REFERENCE_ALLELE`, `REF`, `EA` |
+| `A2` | `A2`, `ALLELE2`, `ALLELE_2`, `OTHER_ALLELE`, `NON_EFFECT_ALLELE`, `ALT`, `NEA` |
+
+SNP restriction files in coordinate-family modes also accept a build-specific position column: the prefix `hg19_`, `hg37_` or `grch37_` (hg19) or `hg38_` or `grch38_` (hg38), followed by `pos`, `bp`, `position`, `base_pair` or `basepair`.
+`build-r2-panel` chooses the column from the source genome build of the PLINK files; `ldscore` and `munge-sumstats` use the genome build resolved for the run.
+
+### Raw summary statistics
+
+`munge-sumstats` resolves raw headers with these aliases; explicit column options such as `--snp`, `--a1` and `--signed-sumstats` take priority.
+
+| Canonical | Accepted aliases |
+| --- | --- |
+| `SNP` | `SNP`, `MARKERNAME`, `MARKERID`, `SNPID`, `SNP_ID`, `RS`, `RSID`, `RS_ID`, `ID`, `RS_NUMBER`, `RS_NUMBERS`, `MARKER` |
+| `CHR` | `CHR`, `#CHROM`, `CHROM`, `CHROMOSOME` |
+| `POS` | `POS`, `BP`, `POSITION`, `BASE_PAIR`, `BASEPAIR` |
+| `NSTUDY` | `NSTUDY`, `N_STUDY`, `NSTUDIES`, `N_STUDIES` |
+| `P` | `P`, `PVALUE`, `P_VALUE`, `PVAL`, `P_VAL`, `GC_PVALUE` |
+| `A1` | `A1`, `ALLELE1`, `ALLELE_1`, `EFFECT_ALLELE`, `REFERENCE_ALLELE`, `INC_ALLELE`, `EA` |
+| `A2` | `A2`, `ALLELE2`, `ALLELE_2`, `OTHER_ALLELE`, `NON_EFFECT_ALLELE`, `DEC_ALLELE`, `NEA` |
+| `N` | `N`, `WEIGHT` |
+| `N_CAS` | `NCASE`, `CASES_N`, `N_CASE`, `N_CASES`, `N_CAS`, `NCAS`, `Nca` |
+| `N_CON` | `N_CONTROLS`, `N_CON`, `NCONTROL`, `CONTROLS_N`, `N_CONTROL`, `N_CTRL`, `NCON`, `Nco` |
+| `INFO` | `INFO`, `IMPINFO` |
+| `FRQ` | `EAF`, `FRQ`, `MAF`, `FRQ_U`, `F_U` |
+
+Signed statistics:
+
+| Canonical | Accepted aliases |
+| --- | --- |
+| `Z` | `ZSCORE`, `Z-SCORE`, `GC_ZSCORE`, `Z` |
+| `OR` | `OR` |
+| `BETA` | `B`, `BETA`, `EFFECTS`, `EFFECT` |
+| `LOG_ODDS` | `LOG_ODDS` |
+| `SIGNED_SUMSTAT` | `SIGNED_SUMSTAT` |
+
+In raw summary statistics, `A1` and `A2` keep their signed-statistic meaning, so genome `REF` and `ALT` columns are not aliases there (see [`A1` and `A2`](#a1-and-a2)).
+`NEFF` is not an alias for `N`.
+Sample-size selection, INFO-list columns and `--infer-only` are described in the [munge-sumstats reference](../munge-sumstats.md).
+
+### Other inputs
+
+| Input | Column names |
+| --- | --- |
+| R² panel pair files | Fixed columns `IDX_1`, `IDX_2`, `R2` and `SIGN_R`, with no aliases; the sidecar uses the shared metadata aliases. |
+| Genetic maps | The cM column accepts `CM`, `GENETIC_MAP_CM`, `GENETICMAPCM`, `GENETIC_MAP(CM)` and `GENETICMAP(CM)`; this family is defined in `src/ldsc/_kernel/ref_panel_builder.py`, the only alias family outside the registry. |
+| Package-written artifacts | Munged summary statistics, annotation files and LD-score directories are read with canonical names only, which catches schema drift in files the package wrote. |
+
+### Setting values
+
+| Setting | Accepted values |
+| --- | --- |
+| `--snp-identifier` / `snp_identifier` | Exactly `rsid`, `rsid_allele_aware`, `chr_pos` or `chr_pos_allele_aware` (default). |
+| `--genome-build` / `genome_build` | `hg19` (also `hg37`, `grch37`), `hg38` (also `grch38`), or `auto`. |
+
+SNP identifier mode names are exact: values such as `RSID`, `chrpos` or `chr_pos_alleles` are rejected.
+To add an alias, edit the registry; to find local exceptions, search for `ColumnSpec(` outside it.
 
 ---
 
@@ -157,18 +214,6 @@ two regimes coincide.
   When a raw sumstats file provides a column named `MAF`, the munger renames it to
   `FRQ` on output.
 
-#### Folded vs oriented frequency (external sidecars)
-
-- **Folded** = `min(p, 1−p)`: orientation-free, ≤ 0.5, named **`MAF`**.
-- **Oriented** = frequency of the named `A1` allele (may exceed 0.5), named with
-  an **`FRQ`-family** column: `FRQ`, `FREQ`, `FREQUENCY`, `EAF`, `A1_FRQ`,
-  `FRQ_A1`, `FREQ_A1`.
-
-An external sidecar can be re-canonicalized to `A1`=minor **only** if it carries
-an oriented `FRQ`-family column (`canonicalize_alleles` swaps `A1`/`A2` and sets
-`freq := 1 − freq` where `freq(A1) > 0.5`). A `MAF`-only sidecar is identity-only:
-its alleles still match, but its folded frequency cannot drive re-orientation.
-
 ### `A1` and `A2`
 
 `A1` and `A2` remain the canonical written LDSC column names for compatibility.
@@ -190,9 +235,9 @@ a sign flip at alignment).
 **Panel and query correlation signs:** stored `SIGN_R` is boolean and describes correlation between panel A1 (minor-allele) dosages. In allele-aware `query-r2` results, nullable `sign_r` (+1/-1) and Pearson `r` are harmonized to query A1 dosages, which need not be minor alleles. Swapping one endpoint's allele order reverses the returned sign but leaves R² unchanged. Base modes return missing `sign_r` and `r`.
 
 Aliases such as `REFERENCE_ALLELE` are interpreted in the signed-statistic sense
-only. They do not claim that `A1` is the genome reference allele. Genome
-`REF`/`ALT` columns are therefore not global aliases; they are applied only by
-format-aware inference when the workflow can make the semantics explicit.
+only. They do not claim that `A1` is the genome reference allele.
+In raw summary statistics, genome `REF`/`ALT` columns are therefore not aliases; they are applied only by format-aware inference when the workflow can make the semantics explicit.
+SNP restriction files and sidecars accept `REF` and `ALT` as `A1` and `A2`, because matching there ignores allele order.
 
 ### SNP identity modes
 

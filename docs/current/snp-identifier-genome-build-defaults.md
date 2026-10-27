@@ -230,6 +230,9 @@ effective-key clusters. Artifact duplicates are handled by computing the
 effective merge key for the active mode and dropping all rows in duplicate-key
 clusters.
 
+Multi-allelic base-key clusters are dropped because allele-aware modes exist for safer merging, not for retaining multi-allelic sites.
+Computing LD scores over retained same-position clusters would need its own design for same-position pair semantics, LD-window traversal, and R2 endpoint indexing.
+
 ### Validity table
 
 | `snp_identifier` | `genome_build` | Valid? | Notes |

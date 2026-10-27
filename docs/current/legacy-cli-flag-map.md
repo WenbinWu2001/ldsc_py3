@@ -1,6 +1,6 @@
 # LDSC2 to Current CLI Flag Map
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-26
 
 This document maps changed LDSC2 flags to the supported `ldsc` commands and records the flag-cleanup decisions. “Removed” means the parser rejects the old option; there are no compatibility aliases. A retired option whose behavior is now automatic has that behavior described explicitly below. The [IO argument inventory](io-argument-inventory.md) lists the complete current surface, and [munge-sumstats](munge-sumstats.md) describes its input and artifact contracts.
 
@@ -93,6 +93,23 @@ These mappings describe current workflows and are not additional changes made by
 
 Sources: LDSC2 [`ldsc.py`, parser](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/ldsc.py:424>) and [`munge_sumstats.py`, parser](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/munge_sumstats.py:454>); current [`cli.build_parser`](../../src/ldsc/cli.py), [`ldscore_calculator.build_parser`](../../src/ldsc/ldscore_calculator.py), [`regression_runner` argument builders](../../src/ldsc/regression_runner.py), and the [IO inventory, command sections](io-argument-inventory.md). Unlisted unsupported legacy options should not be assumed to have an automatic replacement.
 
+## LDSC2 options with no current equivalent
+
+These LDSC2 options have no counterpart in any current subcommand's `--help`; the parser rejects them.
+Line references are to the LDSC2 repository.
+
+| LDSC2 option | Current situation |
+| --- | --- |
+| `ldsc.py --per-allele`, `--pq-exp` (`ldsc.py:477`, `:481`) | No per-allele or $p(1-p)$-exponent LD-score scaling exists, and there is no workaround. |
+| `ldsc.py --cts-bin`, `--cts-breaks`, `--cts-names`, `--no-print-annot` (`ldsc.py:460-485`) | No on-the-fly binning of a SNP-to-value file. Continuous-valued annotation files are accepted as query annotations, and `quantile-h2` summarizes a continuous target after fitting. Binning by hand remains possible but is lossy. |
+| `ldsc.py --M` (`ldsc.py:538`) | No manual SNP-count override. Counts come from the LD-score directory; `--count-kind` selects common or all-SNP counts. |
+| `ldsc.py --print-cov` (`ldsc.py:549`) | No covariance-matrix output. |
+| `ldsc.py --print-delete-vals` (`ldsc.py:552`) | No flag; partitioned fits always write `diagnostics/coefficient_delete_values.parquet` ([partitioned-h2 results](partitioned-h2-results.md)). |
+| `ldsc.py --invert-anyway` (`ldsc.py:564`) | No forced inversion of ill-conditioned matrices. |
+| `ldsc.py --return-silly-things` (`ldsc.py:570`) | No flag; the default matches LDSC2's default behavior. |
+| `ldsc.py --pickle`, `--print-all-cts` (`ldsc.py:560`, `:546`) | No equivalent output options. |
+| `make_annot.py --nomerge` (`make_annot.py:43`) | Annotation projection is membership-only; there is no mode proportional to the number of overlapping intervals. |
+
 ## Naming audit boundary
 
-Current README, `docs/current`, `docs/wiki`, troubleshooting guidance, tutorials, public configuration docstrings, code comments, tests, and the annotation-memory benchmark use the current names. The shared `--workers` spelling remains current for both LD-score computation and gene-index building. References to the abandoned `--workers` spelling are limited to this decision record, historical records, rejection tests, and the annotation-memory benchmark's independent orchestration option. Dated `docs/audits`, `docs/archive`, `docs/plans`, and `docs/specs` may retain historical names and are not the current CLI reference. The original [flag audit](../audits/flag-cleanup/README.md) is a snapshot of behavior before this cleanup.
+Current README, `docs/current`, `docs/wiki`, troubleshooting guidance, tutorials, public configuration docstrings, code comments, and tests use the current names. The shared `--workers` spelling remains current for both LD-score computation and gene-index building. References to the abandoned `--threads` spelling are limited to this decision record, rejection tests, and git history.

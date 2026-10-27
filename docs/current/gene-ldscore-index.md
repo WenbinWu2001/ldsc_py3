@@ -24,7 +24,7 @@ online matrix products, annotation counts, and overlap sufficient statistics—s
 
 `--workers` controls a reusable chromosome process pool during index building.
 The default of one still uses a managed child; every worker uses 1 BLAS thread.
-The [focused transport probe](../audits/parallel-execution/index-transport.md) measured the additional process memory and verified compact task transport before migration.
+A [focused transport probe](../decisions/2026-10-11-parallel-execution.md#final-decisions-and-remaining-boundaries) measured the additional process memory and verified compact task transport before migration.
 
 ```bash
 ldsc build-gene-ldscore-index \
@@ -161,7 +161,7 @@ the supplied baseline matrix or its LD-reference universe.
 The builder consumes annotation values and reconstructs the numerical baseline
 payload; it does not import the suite's precomputed LD-score or count files.
 
-Before launching chromosome workers, [`_run_gene_ldscore_index_build()`](../../src/ldsc/gene_ldscore_index.py) calls shared [`prepare_annotation_sources()`](../../src/ldsc/_annotation_sources.py). This serial phase scans and validates the complete baseline suite, applies global duplicate cleanup using metadata alone, and copies retained values into private NumPy/Parquet shards inside the existing build transaction. Automatic tiles use each aligned group's width, so unrelated chromosome shards do not shrink them. `--workers` controls the subsequent chromosome calculations. The [parallelism evaluation](../audits/annotation-memory/preparation-parallelism.md#decision) is complete: preparation remains serial because the measured speed gains did not justify the memory and implementation costs. See the [storage design](annotation-memory-design.md#bounded-source-preparation) and [local preparation measurements](../audits/annotation-memory/annotation-preparation.md).
+Before launching chromosome workers, [`_run_gene_ldscore_index_build()`](../../src/ldsc/gene_ldscore_index.py) calls shared [`prepare_annotation_sources()`](../../src/ldsc/_annotation_sources.py). This serial phase scans and validates the complete baseline suite, applies global duplicate cleanup using metadata alone, and copies retained values into private NumPy/Parquet shards inside the existing build transaction. Automatic tiles use each aligned group's width, so unrelated chromosome shards do not shrink them. `--workers` controls the subsequent chromosome calculations. The parallelism evaluation is complete: preparation remains serial because the measured speed gains did not justify the memory and implementation costs. See the [storage design](annotation-memory-design.md#bounded-source-preparation) for the measurements.
 
 At INFO, the live build log marks annotation input reading, SNP identity checking and chromosome preparation, and completion with retained counts and elapsed preparation time. These milestones precede `Starting chromosome N`; preparation completion means annotation shards are ready, while computation and index publication still follow. The CM/MAF notice appears once per source file read. See [annotation preparation logging](workflow-logging.md#annotation-preparation) for the exact messages and failure interpretation.
 

@@ -1,11 +1,11 @@
 # LD-score Computation from R² Parquets — Mathematical Specification
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-26
 
 This document defines, in math, **how LD scores are computed from a parquet R²
 reference panel** by the streaming accumulator. It is the conceptual companion to
 [the artifact format and read pipeline](parquet-r2-format-and-read-pipeline.md).
-The [original pair-streaming specification](../specs/2026-06-06-ldscore-parquet-pair-streaming-design.md) records the earlier full-reference CSR design; the current selected-output realization is described below.
+§8 records why the earlier sliding-block method was replaced; the current selected-output realization is described below.
 
 Every symbol is defined in §1 before it is used. Read §1 first.
 
@@ -287,7 +287,7 @@ Linearity proves the mathematical result, not bitwise equality between floating-
 Changing $K$, tile layout, query width, or backend can reorder sums and alter roundoff.
 Validate against independent float64 expectations with the established numerical tolerances, and compare transport-only changes at matched layouts.
 There is no universal per-SNP LD-score error bound independent of pair count and annotation weights.
-See [`test_ldscore_projection.py`](../../tests/test_ldscore_projection.py), [`test_ldscore_streaming.py`](../../tests/test_ldscore_streaming.py), and the [transport parity audit](../audits/2026-10-15_direct-streaming.md).
+See [`test_ldscore_projection.py`](../../tests/test_ldscore_projection.py), [`test_ldscore_streaming.py`](../../tests/test_ldscore_streaming.py), and [`test_direct_batch_staging.py`](../../tests/test_direct_batch_staging.py).
 
 ---
 
@@ -304,3 +304,24 @@ This bounds particular components independently of total stored pair count, but 
 The read-time window can change the retained sparse operator even though every stored pair is scanned.
 Worker concurrency, genotype/index state, filesystem cache, and staged final outputs must be accounted for separately.
 See [memory and CPU efficiency design](annotation-memory-design.md#precision-universes-and-resource-accounting).
+
+---
+
+## 8. Approaches not adopted
+
+The Parquet path originally imitated the genotype backend's sliding-block accumulation.
+For each block it re-queried and re-scattered an $O(b)$-wide band once per $c$-wide batch, which costs $O(b^3/c)$ per block for window width $b$.
+That tiling exists only because the genotype backend must recompute R² per window; a Parquet panel already stores R² as an explicit pair list, so pair streaming removes the redundant work.
+
+The June 2026 single-thread measurements at revision `7568f72` compared three realizations:
+
+| | sliding block + row-group cache | streaming with `np.add.at` | chunked float64 CSR |
+|---|---:|---:|---:|
+| chr22 wall time | 47 s | 483 s | 45 s |
+| chr6 wall time | did not finish in 38 min | 111 min | 2 min 36 s |
+| chr6 peak RSS | 4.71 GiB | 2.60 GiB | 3.35 GiB |
+
+Chromosome 6 contains the MHC, with LD windows up to 21,465 SNPs.
+`np.add.at` was correct but slow because NumPy's unbuffered scatter dominated.
+A float32 sparse product was rejected because it accumulates row sums in float32 and lost about 3e-3 against a float64 reference.
+These measurements predate the current selected-output implementation; they justify the design choice, not current runtimes.

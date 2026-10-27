@@ -123,7 +123,7 @@ ldsc_py3_restructured/
 | `ldsc._kernel.ref_panel` | runtime PLINK/parquet adapters; `RefPanel.prepare_chromosome` owns reference filtering, annotation alignment, window/bias policy, and reader lifetime |
 | `ldsc._kernel.r2_query` | low-level index-format parquet pair lookup used by `ldsc.r2_query` |
 | `ldsc._kernel.ldscore` | `PreparedChromosome` data contract, LD-score projection from prepared state, streaming R2 reader, annotation/window/count primitives; no LDSC2 artifact emitters |
-| `ldsc._kernel.regression` | LDSC estimators for `Hsq` and `RG` |
+| `ldsc._kernel.regression` | LDSC estimators for `Hsq` and `RG`; `Hsq.summary`, `Gencov.summary`, and `RG.summary` are kept deliberately because `estimate_h2`/`estimate_rg` return these estimators to Python users, even though no internal caller uses the summaries |
 | `ldsc._kernel._jackknife`, `ldsc._kernel._irwls` | supporting numerical routines used by regression |
 | `ldsc._kernel.formats`, `ldsc._kernel.identifiers` | retained PLINK/list primitives and SNP identifier helpers; obsolete legacy regression-artifact readers are removed |
 
@@ -234,28 +234,5 @@ ldsc_py3_restructured/
 
 `query-r2` requires `--output-dir`; `QueryR2DirectoryWriter` writes its result directory. Region presets affect regression rows and weights, not the LD-reference contributor universe. `build-r2-panel` has no region-pruning fields; use its explicit reference-SNP restriction when pruning is intended. Reference preparation supplies population-specific CM/MAF; annotation CM is an `NA` placeholder. Parquet LD scores use pair streaming, and PLINK filtering happens during adapter preparation.
 
-Historical decisions formerly indexed by root `design_map.md` remain available below. They record decisions at their dates; current contracts above govern current work. The [old map](../archive/design/2026-09-10-design-map.md) and [completed threshold audit](../audits/threshold-comparison/README.md) preserve prior evidence without competing with this entry.
-
-- [2026-05-02-logging-harmonization-implementation-plan](../plans/2026-05-02-logging-harmonization-implementation-plan.md)
-- [2026-05-09-batch-rg-implementation-plan](../plans/2026-05-09-batch-rg-implementation-plan.md)
-- [2026-05-10-liftover-harmonization](../plans/2026-05-10-liftover-harmonization.md)
-- [2026-05-11-ref-panel-stale-class2-warning](../plans/2026-05-11-ref-panel-stale-class2-warning.md)
-- [2026-06-04-logging-console-file-routing-plan](../plans/2026-06-04-logging-console-file-routing-plan.md)
-- [2026-06-05-ldscore-chromosome-parallelism-plan](../plans/2026-06-05-ldscore-chromosome-parallelism-plan.md)
-- [2026-06-06-ref-panel-r2-query-plan](../plans/2026-06-06-ref-panel-r2-query-plan.md)
-- [2026-06-06-sumstats-self-describing-artifact-plan](../plans/2026-06-06-sumstats-self-describing-artifact-plan.md)
-- [2026-06-11-cm-maf-source-of-truth-plan](../plans/2026-06-11-cm-maf-source-of-truth-plan.md)
-- [2026-06-11-overlap-aware-partitioned-h2-plan](../plans/2026-06-11-overlap-aware-partitioned-h2-plan.md)
-- [2026-05-02-logging-harmonization-design](../specs/2026-05-02-logging-harmonization-design.md)
-- [2026-05-09-batch-rg-design](../specs/2026-05-09-batch-rg-design.md)
-- [2026-05-10-liftover-harmonization](../specs/2026-05-10-liftover-harmonization.md)
-- [2026-05-11-ref-panel-stale-class2-warning](../specs/2026-05-11-ref-panel-stale-class2-warning.md)
-- [2026-06-01-build-ref-panel-memory-optimization-design](../specs/2026-06-01-build-ref-panel-memory-optimization-design.md)
-- [2026-06-02-build-ref-panel-reader-streaming-design](../specs/2026-06-02-build-ref-panel-reader-streaming-design.md)
-- [2026-06-03-pair-emission-columnar-and-doc-sync-design](../specs/2026-06-03-pair-emission-columnar-and-doc-sync-design.md)
-- [2026-06-05-ldscore-chromosome-parallelism-design](../specs/2026-06-05-ldscore-chromosome-parallelism-design.md)
-- [2026-06-06-ref-panel-r2-query-design](../specs/2026-06-06-ref-panel-r2-query-design.md)
-- [2026-06-06-region-exclusion-design](../specs/2026-06-06-region-exclusion-design.md)
-- [2026-06-06-sumstats-self-describing-artifact-design](../specs/2026-06-06-sumstats-self-describing-artifact-design.md)
-- [2026-06-11-cm-maf-source-of-truth-design](../specs/2026-06-11-cm-maf-source-of-truth-design.md)
-- [2026-06-11-overlap-aware-partitioned-h2-design](../specs/2026-06-11-overlap-aware-partitioned-h2-design.md)
+Confirmed design rationale lives in the `*-decisions.md` records in this directory and in [`docs/decisions/`](../decisions/).
+Earlier dated specifications, implementation plans, audits, and the archived design map were removed on 2026-10-26; they remain in git history, for example `git show 479fc4d:docs/specs/<file>`.

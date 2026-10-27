@@ -1,6 +1,6 @@
 # Continuous annotations in partitioned LDSC
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-26
 
 This page starts after the partitioned-LDSC steps in the [guided tutorial](guided-tutorial.md). The regression itself does not use quantile bins: fit the continuous annotation directly, then use `ldsc quantile-h2` to summarize how the complete fitted joint model distributes heritability from low to high target values.
 
@@ -101,7 +101,7 @@ The diagnostics directory contains the run log, full provenance, and a compresse
 
 ## Quantitative-count precision
 
-The earlier [memory completion review, R1](../audits/annotation-memory/completion-review.md#r1--quantitative-annotation-counts-change-beyond-tolerance) identified batch-dependent float32 annotation-count discrepancies. LD-score calculation now sums the normalized float32 annotation values in float64 for both all-SNP and common-SNP counts. The existing validation tolerances are unchanged. Regenerate affected LD-score directories before refitting; do not loosen downstream validation to accommodate older incorrect counts. See the [numerical verification](../audits/annotation-memory/sequential-query-batches.md) and `annotation_statistics` in [_kernel/overlap.py](../../src/ldsc/_kernel/overlap.py).
+An earlier memory completion review identified batch-dependent float32 annotation-count discrepancies. LD-score calculation now sums the normalized float32 annotation values in float64 for both all-SNP and common-SNP counts. The existing validation tolerances are unchanged. Regenerate affected LD-score directories before refitting; do not loosen downstream validation to accommodate older incorrect counts. See [`test_ldscore_query_batches.py`](../../tests/test_ldscore_query_batches.py) and `annotation_statistics` in [_kernel/overlap.py](../../src/ldsc/_kernel/overlap.py).
 
 ## Memory during exact quantile analysis
 

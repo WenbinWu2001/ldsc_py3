@@ -374,7 +374,7 @@ After query-status validation, the ordinary LD-score writer publishes:
 | `metadata.json` | annotation counts, SNP-universe totals/policies, columns, ordered `query_batches`, `index_id`, and provenance |
 | `diagnostics/` | query resolution/status and workflow audit records |
 
-Execution groups the same matrix products into query batches. Each chromosome worker retains one operator, writes and releases that chromosome's query batches, then releases the operator. The coordinator combines float64 fragments in canonical chromosome order and writes one genome-wide batch at a time. `workers` controls chromosome workers and is capped at chromosome count; `query_batch_size` controls query width. These runtime choices do not change the matrices or scientific definitions above. One batch uses the single query filename; multiple batches use numbered files recorded in the required manifest. See `indexed_results` in [_indexed_ldscore_batches.py](../../src/ldsc/_indexed_ldscore_batches.py) and the [numerical verification](../audits/annotation-memory/sequential-query-batches.md).
+Execution groups the same matrix products into query batches. For each batch, a persistent worker pool reloads one chromosome operator per task and writes float64 fragments; the coordinator combines them in canonical chromosome order and writes one genome-wide batch at a time. `workers` controls chromosome workers and is capped at chromosome count; `query_batch_size` controls query width. These runtime choices do not change the matrices or scientific definitions above. One batch uses the single query filename; multiple batches use numbered files recorded in the required manifest. See `indexed_results` in [_indexed_ldscore_batches.py](../../src/ldsc/_indexed_ldscore_batches.py) and [`test_gene_index_streaming.py`](../../tests/test_gene_index_streaming.py).
 
 Scientific matrix products and stored operator values use float64. The canonical
 Parquet writer narrows LD-score columns to the public float32 storage dtype.
@@ -423,8 +423,15 @@ separate direct run, so persisted float32 scores and downstream results are
 compared under the validation tolerance rather than by requiring bitwise
 identity. Annotation membership, identities, row/column order, binary counts,
 and query statuses remain exact contracts. Continuous baseline overlap values
-obey the same formulas and use the design specification's validated absolute
-tolerance of $10^{-7}$.
+obey the same formulas and use a validated absolute tolerance of $10^{-7}$.
+
+**Validation evidence (August 3 and 5, 2026).**
+On chromosome 22 of `1000G.EUR.QC` (hg19; 141,123 reference SNPs; 17,380 regression rows after HM3 restriction and region exclusion; 838 atoms; $\mathrm{nnz}(Y)=614{,}523$), direct and indexed runs were compared for the `rsid` and `chr_pos` identity modes.
+Every LD-score value was identical after the normal float32 output cast, for both the Phase 3 baseline and baselineLD v2.2 suites.
+Binary-baseline overlaps were exactly identical.
+The baselineLD v2.2 continuous overlaps differed by at most $7.654\times10^{-8}$, which is the empirical basis for the $10^{-7}$ overlap tolerance.
+Matching downstream `partitioned-h2` runs on a synthetic sumstats table gave identical results (maximum absolute difference 0).
+Each chromosome-22 index build took 103–153 s with 1.30–1.76 GB peak RSS.
 
 ## 7. File-to-symbol map
 
@@ -443,7 +450,7 @@ tolerance of $10^{-7}$.
 
 - [Exact gene LD-score index user guide](gene-ldscore-index.md)
 - [Gene-list indexed `ldscore` tutorial](../wiki/main-functionalities/ldscore-from-gene-list.md)
-- [Current defensive gene-list and index specification](../specs/2026-08-15-defensive-gene-list-input-design.md)
+- [Gene-list input format](gene-list-input-format.md) and [gene-list diagnostics and repair](gene-list-diagnostics-and-repair.md)
 - [General LD-score accumulation mathematics](ldscore-parquet-accumulation.md)
 - Builder and online orchestration:
   [`src/ldsc/gene_ldscore_index.py`](../../src/ldsc/gene_ldscore_index.py)

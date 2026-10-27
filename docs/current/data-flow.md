@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -221,7 +221,7 @@ in the same orientation as the swapped labels. This happens at the standardized-
 SNP getter inside the builder; `nextSNPs` itself stays orientation-free, and the
 r²-based in-PLINK LD-score path is unaffected (R² is sign-invariant). A frequency
 tie at exactly 0.5 keeps PLINK order. See
-`docs/specs/2026-06-07-allele-orientation-canonicalization-design.md`.
+[allele orientation](column-schema.md#allele-orientation-and-frequency-a1-a2-maf-frq).
 
 ### Modules used
 

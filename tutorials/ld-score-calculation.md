@@ -419,7 +419,7 @@ the closed log moves to
 remain in hidden state and are archived on retry. This keeps the destination
 absent or empty until a complete index is published.
 
-This live build log contains the same annotation-preparation milestones before `Starting chromosome N`. Index annotation preparation remains serial; the preparation parallelism study is closed, and `--workers` continues to control only subsequent chromosome computation. See [the measured decision](../docs/audits/annotation-memory/preparation-parallelism.md#decision).
+This live build log contains the same annotation-preparation milestones before `Starting chromosome N`. Index annotation preparation remains serial; the preparation parallelism study is closed, and `--workers` continues to control only subsequent chromosome computation. See [the measured decision](../docs/current/annotation-memory-design.md#bounded-source-preparation).
 
 Current indexes require format version 2; earlier formats must be rebuilt completely.
 Chromosome metadata carries the published-row fingerprint, which covers the effective SNP key in all four identity modes.

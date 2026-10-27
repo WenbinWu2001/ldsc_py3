@@ -155,7 +155,7 @@ Last updated on: 2026-10-26
 
 ## Float32 reduction order can invalidate aggregate metadata
 
-- Summary/root cause/correction: A completion audit found batch-dependent quantitative annotation counts after column-major inputs became detached row-major reads and row tiles were reduced separately in float32; reduce normalized annotation values in float64 and verify signed/high-offset counts against independent `math.fsum` values across batch widths and C/F layouts without loosening tolerances. LD-score equivalence on binary fixtures does not establish quantitative count equivalence. See the [completion review](docs/audits/annotation-memory/completion-review.md).
+- Summary/root cause/correction: A completion audit found batch-dependent quantitative annotation counts after column-major inputs became detached row-major reads and row tiles were reduced separately in float32; reduce normalized annotation values in float64 and verify signed/high-offset counts against independent `math.fsum` values across batch widths and C/F layouts without loosening tolerances. LD-score equivalence on binary fixtures does not establish quantitative count equivalence. The completion review that found it was removed from the tree; see `git show 479fc4d:docs/audits/annotation-memory/completion-review.md`.
 
 ## Optional coordinates must not shift frequency columns in TSV
 
@@ -195,7 +195,7 @@ Last updated on: 2026-10-26
 
 ## Worker counts need one CPU-budget policy
 
-- Summary/root cause/correction: The thread-option audit confirmed that gene-index construction used machine-wide CPU counts while both LD-score modes used CPU affinity, and only indexed-query API calls rejected non-integer thread values; share validation and worker resolution, then select inline execution from the resolved count. Implemented in `_parallelism.py` and verified through real builds and both scoring workflows under restricted affinity, including effective-one executor avoidance. See `docs/audits/2026-09-14-thread-option-consistency.md`.
+- Summary/root cause/correction: The thread-option audit confirmed that gene-index construction used machine-wide CPU counts while both LD-score modes used CPU affinity, and only indexed-query API calls rejected non-integer thread values; share validation and worker resolution, then select inline execution from the resolved count. Implemented in `_parallelism.py` and verified through real builds and both scoring workflows under restricted affinity, including effective-one executor avoidance. The audit was removed from the tree; see `git show 479fc4d:docs/audits/2026-09-14-thread-option-consistency.md`.
 
 - Recurrence: A query-specific resolver introduced extra CPU/SLURM caps after the shared policy was established; reuse `_resolve_worker_count` with the bounded query work count, and test partitioned fitting alongside direct/indexed LD scoring and index construction under the same affinity and scheduler settings.
 

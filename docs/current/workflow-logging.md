@@ -247,7 +247,7 @@ One captured failure becomes the error's direct cause; multiple captured failure
 The declaration-validation phase reports `failed_inputs` as the number of distinct role/source/chromosome combinations with issues.
 When a phase total is unknown, progress omits the denominator; any reported completed count uses `completed=N`.
 
-Direct LD scores check declarations and annotation headers, resolve gene-list controls, and validate reference content before annotation staging. PLINK companion mappings and reference scope evidence are reused; annotation headers supply the source scan widths. Gene-index and R2 construction check baseline/auxiliary declarations and PLINK companions together. Index consumers check every component path, small chromosome identity metadata, and Parquet header before opening the first numerical operator. See the [verified call-order audit](../audits/2026-09-14-staged-input-preflight.md).
+Direct LD scores check declarations and annotation headers, resolve gene-list controls, and validate reference content before annotation staging. PLINK companion mappings and reference scope evidence are reused; annotation headers supply the source scan widths. Gene-index and R2 construction check baseline/auxiliary declarations and PLINK companions together. Index consumers check every component path, small chromosome identity metadata, and Parquet header before opening the first numerical operator. See [`test_staged_input_preflight.py`](../../tests/test_staged_input_preflight.py).
 
 Validation remains staged: BIM/FAM rows and BED dimensions require reference inspection; annotation row alignment, duplicate identities, chromosome contents, and gene support require their content scans. R2 query-scope validation streams pair integrity before preparation and reuses that scope result. Baseline-only R2 runs check sidecar/reader compatibility early and retain pair-content checks in the consuming reader, avoiding an additional full pair scan. Ordinary globs cannot reveal a chromosome that is absent consistently from all matches. Scientific omission, ignored-option, overwrite, and failure-marker policies remain unchanged.
 
@@ -306,7 +306,7 @@ the failure, it remains with the usual `Failed` footer and traceback. A
 successful materializing retry removes its applicable marker after normal
 success. No-overwrite failures create no marker.
 
-The marker helper uses `path_resolution.normalize_path_token`, matching output preflight and publication. CLI marker scope follows the last occurrence of a destination option, as argparse does. Marker-only directories do not collide with writer artifact families. Gene-index preflight, direct publication, and interrupted-publication recovery share recognition of owned diagnostics; this excludes symlinks, special files, and unrelated empty subdirectories. Existing recovery of a validated owned backup preserves the failure marker until the current build succeeds. See the [output-directory audit](../audits/2026-09-14-output-directory-retries.md).
+The marker helper uses `path_resolution.normalize_path_token`, matching output preflight and publication. CLI marker scope follows the last occurrence of a destination option, as argparse does. Marker-only directories do not collide with writer artifact families. Gene-index preflight, direct publication, and interrupted-publication recovery share recognition of owned diagnostics; this excludes symlinks, special files, and unrelated empty subdirectories. Existing recovery of a validated owned backup preserves the failure marker until the current build succeeds. See [`test_output_directory_retries.py`](../../tests/test_output_directory_retries.py).
 
 CLI help and `munge-sumstats --infer-only` bypass the marker lifecycle entirely. Even with `--overwrite`, they create no output directories or files and never create, replace, or remove a failure marker. This also applies when inference or argument parsing fails.
 
@@ -429,7 +429,7 @@ Log creation depends on the API's output contract:
 `diagnostics/sumstats.log`. `MungeRunSummary.output_paths` excludes the log
 path but includes data artifacts such as the dropped-SNP audit sidecar.
 
-For historical implementation rationale, see the [logging harmonization design](../specs/2026-05-02-logging-harmonization-design.md) and the [console/file routing plan](../plans/2026-06-04-logging-console-file-routing-plan.md).
+The May 2026 logging harmonization design and the June console/file routing plan that preceded this contract remain in git history.
 The current behavior above supersedes their earlier assumptions.
 
 ### Standalone annotation row counts and downstream inputs
@@ -503,11 +503,11 @@ See [parallel execution](parallel-execution.md) and [`_ldscore_diagnostics`](../
 ## Maintaining this contract
 
 Use this page for current rules rather than copying dated implementation instructions.
-The [May harmonization design](../specs/2026-05-02-logging-harmonization-design.md) remains useful for the shared workflow context, exact invocation, input/output sections, and separation of logs from scientific outputs.
+The May 2026 harmonization design introduced the shared workflow context, exact invocation, input/output sections, and separation of logs from scientific outputs.
 Its message-only formatter, console-verbosity rules, regression calls without output directories, direct LD-score API log exclusion, and failure footer without exception details are superseded.
 The current command is `build-r2-panel`, and short-run elapsed times use seconds as specified above.
 
-The [June refinement plan](../plans/2026-06-04-logging-refinement-plan.md) contributes self-contained errors, command-oriented troubleshooting, original exception context, and synchronized reference links.
+The June 2026 refinement work contributed self-contained errors, command-oriented troubleshooting, original exception context, and synchronized reference links.
 Its source counts, line numbers, command map, companion-document paths, and batch/commit instructions describe that historical implementation effort.
 They are not current message-writing requirements.
 Mandatory conversion of every logging call to f-strings, a fixed two-sentence cap, and logging every otherwise silent public I/O function are not standing rules.

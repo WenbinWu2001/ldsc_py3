@@ -1,6 +1,6 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 This document is the single source of truth for column conventions across all
 Python-written artifacts in this package. It governs `column_inference.py`, all
@@ -129,8 +129,12 @@ convention. float32 is unsafe here: it can only represent integers exactly up to
 
 ### Allele orientation and frequency (`A1`, `A2`, `MAF`, `FRQ`)
 
-See `docs/specs/2026-06-07-allele-orientation-canonicalization-design.md`
-for the full rationale.
+**Why orientation is enforced.**
+PLINK's usual convention (`A1` minor, `A2` major) is common but not guaranteed.
+On chromosome 22 of a 1000 Genomes 30x panel (438,232 SNPs, 3,202 samples), the `.bim` `A2` allele was the major allele for 94.74% of SNPs, so the package enforces the orientation rather than assuming it.
+For a biallelic SNP, `A1` dosage is `2 - A2` dosage and $\mathrm{corr}(2-x, 2-y) = \mathrm{corr}(x, y)$.
+Orienting both SNPs of a pair consistently therefore fixes the sign of $r$, and the builder needs to negate only the standardized columns whose `.bim` `A2` is the minor allele.
+Orientation is applied in the builder between genotype reading and correlation, not inside `nextSNPs`, because it is a build policy rather than a read primitive.
 
 **Unifying rule:** the frequency column always means **frequency of `A1`**. The
 two regimes differ only in what `A1` *is* and what that implies:

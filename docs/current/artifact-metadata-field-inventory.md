@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-26
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -232,6 +232,9 @@ The row-complete audit and per-source summary are present for gene-list runs.
 `row_annotation`, `col_annotation`, `overlap_all_snps`, `overlap_common_snps`)
 that `partitioned-h2` requires. It is written only for runs with two or more
 annotation columns; a single-annotation (e.g. base-only) run omits it.
+Its storage grows as $O(B(B+Q))$ for $B$ baseline and $Q$ query columns.
+The name-keyed long format survives zero-variance column drops and reordering, because regression assembles each model's overlap matrix by annotation name.
+Embedding the matrix in `metadata.json` was rejected because it would reach tens of MB for cell-type panels; `.npz` or position-aligned records were rejected as fragile.
 
 `metadata.json` is downstream-required. Query workflows also persist `diagnostics/chromosome_scope.json`, including validated baseline/reference chromosome sets, the content-resolved PLINK chromosome-to-prefix mapping when applicable, the effective analysis scope, validation status, and ordinary-glob selection caveat. Structural input failures populate `diagnostics/input_issues.tsv` with `input_role`, `source`, `chrom`, `reason`, `details`, and `repair`; unavailable later assessments remain unknown. These diagnostics can exist without scientific outputs after a failed preflight.
 

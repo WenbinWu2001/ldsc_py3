@@ -1,6 +1,6 @@
 # Regression Configuration Reference (Advanced)
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-26
 
 This document describes the tunable configuration of the regression module
 (`ldsc h2`, `ldsc rg`, `ldsc partitioned-h2`). **You do not need any of this for
@@ -117,6 +117,10 @@ instead of the two-step estimator.
 | `--prevalence-manifest` (`rg` only) | TSV of per-trait prevalences looked up by exact munged trait name, as an alternative to the positional `--samp-prev`/`--pop-prev` lists (mutually exclusive). | Use for multi-trait/glob runs where positional alignment is error-prone. Columns `trait_name`, `samp_prev`, `pop_prev` (whitespace/tab-delimited; `#` comment lines ignored). May contain extra traits (a standing repository); every resolved trait must have a row. Duplicate resolved munged names abort the run (use the positional list, or re-munge with distinct names). |
 | `--allow-identity-downgrade` / `allow_identity_downgrade` | SNP-identity compatibility override (not a statistical knob) | Mechanical/compatibility only; see `io-argument-inventory.md`. |
 
+Liability-scale conversion rescales only heritability-type quantities: total and category h2, `rg` genetic covariance, and their standard errors.
+The intercept and the coefficients (`tau` with its SE, z, and p) stay on the observed scale, matching legacy LDSC, whose `h2_obs_to_liab` and `gencov_obs_to_liab` (`ldscore/regressions.py:107` and `:75`) scale only those quantities.
+The shared factor is `liability_conversion_factor` in [`_kernel/regression.py`](../../src/ldsc/_kernel/regression.py).
+
 ### 1.5 Requesting fixed intercepts
 
 The removed LDSC2 `--no-intercept` shortcut is replaced by explicit values:
@@ -232,7 +236,7 @@ Per-query times summed across workers can exceed elapsed wall time.
 `query_worker_native_threads` records the fixed target of 1, not proof of backend verification; runtime logs carry verification details.
 
 Mechanisms: [`RegressionRunner`](../../src/ldsc/regression_runner.py), [`_QueryWorkers`](../../src/ldsc/_partitioned_h2_parallel.py), and [`_worker_runtime`](../../src/ldsc/_worker_runtime.py).
-The earlier [query-worker benchmark](../audits/2026-09-15_partitioned-query-workers.md) remains historical evidence; it does not define the current serial policy.
+The earlier [query-worker benchmark](../wiki/main-functionalities/partitioned-h2.md#testing-enrichment-for-a-large-batch-of-pathways) remains historical evidence; it does not define the current serial policy.
 
 ### Defaults (both regimes)
 

@@ -1,6 +1,6 @@
 # Partitioned heritability
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 `ldsc partitioned-h2` reads a canonical LD-score directory and tests how its
 annotations contribute to SNP heritability.
@@ -144,7 +144,6 @@ Query completion order does not change the requested status order or the stable 
 The INFO log reports requested/effective workers and phase timings; run-wide worker counts are stored in root metadata and available through each successful query's shared metadata reference.
 A historical local 1,000-query chromosome-22 benchmark, before the current copy and publication improvements, measured 74.17, 47.63, and 30.47 seconds with 1, 2, and 4 workers, respectively, including preparation and publication.
 Its sampled peak process-tree RSS was 472, 1,048, and 1,507 MiB; these are not full-genome RAM estimates.
-See the [benchmark and limits](../../audits/2026-09-15_partitioned-query-workers.md#end-to-end-benchmark).
 
 The Python option is `runner.estimate_partitioned_h2_batch(..., workers=4, query_batch_size=100)`. Put parallel calls in an importable script under `if __name__ == "__main__":`; from a notebook, use the CLI in a subprocess for parallel fitting. Both error policies below apply to ordinary query-model exceptions. Worker death, transport errors, output errors, and interrupts abort under either policy, identify affected queries, and trigger child-process cleanup. Sources: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py), the shared resolver in [_parallelism.py](../../../src/ldsc/_parallelism.py), and process ownership in [_partitioned_h2_parallel.py](../../../src/ldsc/_partitioned_h2_parallel.py).
 

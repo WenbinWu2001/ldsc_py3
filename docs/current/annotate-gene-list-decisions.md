@@ -1,8 +1,8 @@
 # Standalone Annotate Gene-list Decisions
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
-Status: standalone BED/gene-list CLI and `run_annotate()` are implemented using staged chromosome access. Direct/indexed workflow migration is implemented under the [memory implementation plan](../plans/2026-09-10-annotation-workflow-memory.md). The decision table remains the behavior contract; implementation evidence is recorded in the [memory audit](../audits/annotation-memory/progress.md).
+Status: standalone BED/gene-list CLI and `run_annotate()` are implemented using staged chromosome access. Direct/indexed workflow migration is implemented; see the [memory design](annotation-memory-design.md). The decision table remains the behavior contract.
 
 ## Problem and scope
 
@@ -149,7 +149,7 @@ Standalone query-mode scope is settled and should not be reopened as an unresolv
 
 The standalone implementation uses `annotate_workflow.run_annotate()`, metadata-only `_annotation_bim` staging, shared chunk normalization, output-contained shard storage, staged gene resolution, and `AnnotationDirectoryWriter`.
 Affected parser/export tests now use `run_annotate()` and `parse_annotate_args()`.
-Documentation/tutorial migration, full checks, and matched resource measurements are complete; see the [verification record](../audits/annotation-memory/progress.md) and [resource results](../audits/annotation-memory/results.md).
+Documentation/tutorial migration, full checks, and matched resource measurements are complete; see [diagnostics and verification](annotation-memory-design.md#diagnostics-and-verification).
 
 Validate independently expected SNP membership, interval boundaries, overlap unions, padding, clipping, exact aliases and duplicates, and explicit exclusions. For example, an unpadded catalog interval `[101, 110]` must mark one-based SNP positions 101 and 110 but not 100 or 111, matching BED `[100, 110)`. Repeat with matching BED intervals and padding using independently derived expected values.
 

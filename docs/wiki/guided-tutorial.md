@@ -59,9 +59,8 @@ OUTPUT_ROOT="${INPUT_ROOT}/tutorial_output"
    Direct mode repeats reference work across batches.
    Indexed mode processes one query batch at a time with a persistent worker pool, reloads chromosome operators for each batch, and streams chromosome fragments into staged output before deleting those fragments.
    Smaller indexed batches bound raw scratch more tightly but add operator-read overhead; see [current LD-score memory controls](main-functionalities/ldscore.md#memory-for-many-pathways).
-   In the historical direct-mode [1,000-query chromosome-22 benchmark](../audits/annotation-memory/sequential-query-batches.md#resource-measurements-and-limits), width 100 used 82.2% less peak private scratch than width 1,000 and took 1.903 times as long, with essentially unchanged peak RAM.
-   That report separates measured results from conditional whole-genome projections; it does not measure the current indexed implementation.
-   The [earlier local benchmark](../audits/annotation-memory/results.md) predates sequential output batching.
+   In the historical direct-mode [1,000-query chromosome-22 benchmark](../current/annotation-memory-design.md#diagnostics-and-verification), width 100 used 82.2% less peak private scratch than width 1,000 and took 1.903 times as long, with essentially unchanged peak RAM.
+   That benchmark does not measure the current indexed implementation, and whole-genome figures derived from it are conditional projections.
 
 ## Config you should follow across all steps
 

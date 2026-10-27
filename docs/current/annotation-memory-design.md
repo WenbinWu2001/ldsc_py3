@@ -1,6 +1,6 @@
 # Memory and CPU efficiency design
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 <a id="annotation-and-workflow-memory-design"></a>
 
@@ -11,7 +11,7 @@ It records mechanisms, owners, scientific invariants, costs, and remaining large
 Munging-specific optimization remains outside the current work; shared identity helpers are included because other workflows use them.
 
 Current code and the contracts linked below define implemented behavior.
-Dated decisions, specifications, and benchmark reports retain the design and measurements at their original revisions; they are not evidence that a historical implementation is still current.
+Dated decisions and the measurements recorded below describe their original revisions; they are not evidence that a historical implementation is still current.
 In particular, sequential query execution alone did not bound indexed fragments before `659738a`, and the June 1 panel-building spec predates implemented unrestricted BED streaming.
 The older annotation benchmark scripts were removed from the active tree on September 15, 2026; their links below point to archived Git revisions.
 
@@ -77,7 +77,7 @@ Small requests prune row groups using `IDX_1` footer ranges; absent statistics c
 Larger requests scan the file sequentially, matching numeric keys without constructing an all-pairs DataFrame.
 Returned arrays still scale with requested pairs, and a reused panel handle can retain metadata for every chromosome it touches.
 This query access pattern is separate from the full sequential reader used for LD-score calculation.
-See [the pair-query design](../specs/2026-06-06-ref-panel-r2-query-design.md) and [`test_r2_query.py`](../../tests/test_r2_query.py).
+See [the pair-query reference](ref-panel-r2-query.md) and [`test_r2_query.py`](../../tests/test_r2_query.py).
 
 ## Ownership and lifetime
 
@@ -147,9 +147,8 @@ Source metadata staging is removed after each source finishes; group selection l
 [`FrameSpool`](../../src/ldsc/_annotation_storage.py) uses one file of independently serialized frames per spool, including diagnostic spools; descriptors keep no open handles.
 Selection preserves source order within each chromosome and applies requested chromosome filtering only after global identity cleanup.
 Preparation remains serial before the gene-index builder starts chromosome workers.
-The [preparation benchmark report](../audits/annotation-memory/annotation-preparation.md) records the earlier dense implementation; its timing/RSS numbers are historical, not measurements of packed storage.
 
-The subsequent [parallelism evaluation](../audits/annotation-memory/preparation-parallelism.md#decision) tested chromosome selection and writing after committing the shared global identity index.
+A September 15 parallelism evaluation tested chromosome selection and writing after committing the shared global identity index.
 Four process workers reduced local preparation time by 25.3% on 1.89 million real baseline rows, while increasing sampled process-tree RSS from 399 to 1,075 MiB.
 Threads regressed, and a synthetic 1,000-query workload had no worthwhile total gain.
 Numeric writing did not dominate either workload.
@@ -284,6 +283,7 @@ It does not imply that direct LD scoring or index construction streams all genot
 This path retains SNP/MAF bookkeeping and reads genotype batches again for computation instead of retaining the whole selected bitarray.
 An explicitly restricted build retains its selected genotype payload.
 The builder requests float32 standardized genotype blocks; the direct LD/index numerical path keeps its existing float64 computation.
+When float32 builder genotypes were introduced, R² shifted by roughly 1e-6 to 1e-5 relative to float64, which was accepted for R² sums.
 The build-side sliding window retains the current batch and window-spanning carry-over columns, so its cost depends on individuals, SNP density, window width, and SNP batch size.
 It never needs a dense chromosome-wide correlation matrix, but a dense wide window can still be expensive.
 The chromosome owner releases the reader after writing.
@@ -293,7 +293,7 @@ Vectorized triangle/window masks select cross-block and within-block pairs.
 `_PendingPairs` retains numeric arrays for left-endpoint groups until all their right neighbors have been seen, then emits stable ordered pairs.
 `write_r2_parquet()` converts these arrays directly to Arrow without an intervening pandas frame.
 Its writer buffer flushes at its configured pair threshold and can overshoot by one incoming chunk; a row-group size controls file layout, not total process RAM.
-See the [build optimization spec](../specs/2026-06-01-build-ref-panel-memory-optimization-design.md), [reader streaming spec](../specs/2026-06-02-build-ref-panel-reader-streaming-design.md), and [columnar emission spec](../specs/2026-06-03-pair-emission-columnar-and-doc-sync-design.md) for the sequence of changes.
+See [`test_ref_panel_builder.py`](../../tests/test_ref_panel_builder.py) and the [R² format reference](parquet-r2-format-and-read-pipeline.md).
 
 The [R² format](parquet-r2-format-and-read-pipeline.md) stores two int32 sidecar indices, quantized int16 R², and a bit-packed correlation sign instead of repeating identity strings per pair.
 The identity sidecar is stored once per SNP and bound to pair indices by the required identity hash.
@@ -392,7 +392,7 @@ The entire active fragment directory is removed before the next batch, including
 On failure, workers finish shutdown before borrowed annotation or fragment workspaces are removed.
 Worker count and query batch size control different dimensions of memory; more workers can increase total process-tree memory and may be slower for small inputs.
 Baseline tables, worker kernel arrays, and staged final outputs have separate lifetimes, so bounded query fragments do not establish a whole-job RAM limit.
-See [the replay measurements](../wiki/main-functionalities/ldscore.md#direct-assembly-measurements) and [local integration validation](../audits/2026-10-15_direct-streaming.md) for the evidence boundary.
+See [the replay measurements](../wiki/main-functionalities/ldscore.md#direct-assembly-measurements) and [`test_direct_batch_staging.py`](../../tests/test_direct_batch_staging.py) for the evidence boundary.
 
 **Public LD tables aggregate chromosomes within each query batch.** One batch uses `ldscore.query.parquet`; multiple batches use ordered `ldscore.query.batch00001.parquet` files.
 Root `metadata.json.query_batches` records each file, ordered query columns, and chromosome row groups.
@@ -525,7 +525,10 @@ Figure-producing paths import Matplotlib lazily, avoiding its startup work for n
 Multi-trait `estimate_rg_pairs()` retains loaded trait tables and compact pair summaries, but builds each pair's aligned dataset separately.
 It computes the standalone per-trait heritability summaries once per trait; those are distinct from the pair-specific fits on pair-specific SNP intersections.
 There is no all-pairs merged-data cache or substitution of one trait's full-support fit for a pair-specific estimate.
-The [multi-trait design](../specs/2026-05-09-batch-rg-design.md) records why merge caching was deferred; current control flow is in `RegressionRunner.estimate_rg_pairs()`.
+Current control flow is in `RegressionRunner.estimate_rg_pairs()`.
+A per-trait merge cache was rejected at design time: for fewer than ten traits it was estimated to save about 10% of wall time while holding 0.8–1.2 GB of extra state and roughly 3.5 times the code.
+Reusing one heritability fit across pairs is statistically invalid, because `RatioJackknife` in [`_kernel/_jackknife.py`](../../src/ldsc/_kernel/_jackknife.py) combines the `hsq1`, `hsq2`, and `gencov` delete-block vectors element by element, so all three must come from the same pair-specific SNP partition.
+Parallelizing independent pairs across processes was identified as the larger potential gain and remains unimplemented.
 
 ## Exact global quantiles
 
@@ -558,7 +561,7 @@ Most result bookkeeping uses compact summaries or persistent paths.
 `FrameSpool`, `IdentityDropSpool`, `TsvDiagnostics`, and quantile `AlignmentDiagnostics` preserve the stage-specific record order without an all-chromosome diagnostic DataFrame.
 Gene audit rows are replayed in bounded chunks, but coverage failures still collect complete affected-gene lists in summary cells and error strings.
 Batch regression also retains the full legacy-sumstats projection drop table through fitting.
-These are remaining diagnostic-retention gaps identified in [completion-review R3](../audits/annotation-memory/completion-review.md); complete records should remain available on disk while subsequent work retains counts, bounded examples, and paths.
+These are remaining diagnostic-retention gaps (item R3 of the September 10 completion review); complete records should remain available on disk while subsequent work retains counts, bounded examples, and paths.
 Direct results include source-cleanup drops even for a chromosome whose annotation rows were all removed.
 
 The focused contract tests are [`test_annotation_format.py`](../../tests/test_annotation_format.py), [`test_annotation_storage.py`](../../tests/test_annotation_storage.py), [`test_annotation_preparation.py`](../../tests/test_annotation_preparation.py), [`test_annotate_streaming.py`](../../tests/test_annotate_streaming.py), [`test_ldscore_streaming.py`](../../tests/test_ldscore_streaming.py), [`test_reference_preparation.py`](../../tests/test_reference_preparation.py), [`test_gene_index_streaming.py`](../../tests/test_gene_index_streaming.py), [`test_regression_streaming.py`](../../tests/test_regression_streaming.py), and [`test_quantile_streaming.py`](../../tests/test_quantile_streaming.py).
@@ -569,22 +572,23 @@ Both `ldsc --help` and `python -m ldsc --help` passed.
 The [local benchmark harness](https://github.com/WenbinWu2001/ldsc_py3/blob/dc023e80a2a9caf9f2c7a35aa327e24e31c65087/benchmarks/annotation_memory.py) measures simultaneous process-tree peak RSS, elapsed time, peak private logical disk bytes, and persistent output size separately.
 These measurements complement correctness and ownership tests; they do not replace them.
 
-Matched local resource results, dimensions, reproduction commands, and limitations are recorded in [the benchmark report](../audits/annotation-memory/results.md).
 Peak memory, runtime, private disk, and persistent output size are reported separately; small inputs do not necessarily benefit in RSS or runtime.
 
-September 14 sequential-query implementation, numerical/lifetime verification, and two local 1,000-query chromosome-22 benchmarks are recorded in [the batch verification report](../audits/annotation-memory/sequential-query-batches.md).
-Reducing generation width from 1,000 to 100 used 82.2% less peak private scratch and took 1.903 times as long, with essentially unchanged peak RSS.
+The September 14 sequential-query benchmarks ran at revision `cf1dfac` on chromosome 22 with 1,000 gene lists, 53 binary baselines, 489 individuals, 141,123 reference SNPs, and 17,380 output SNPs.
+Reducing generation width from 1,000 to 100 used 82.2% less peak private scratch and took 1.903 times as long, with essentially unchanged peak RSS (about 1.17 GiB).
+All 17,380,000 query LD values per run matched the preserved pre-change width-1,000 result exactly, as did baseline tables, row order, counts, and overlaps.
+The numerical checks are in [`test_ldscore_query_batches.py`](../../tests/test_ldscore_query_batches.py), [`test_ldscore_streaming.py`](../../tests/test_ldscore_streaming.py), [`test_gene_index_streaming.py`](../../tests/test_gene_index_streaming.py), and [`test_regression_streaming.py`](../../tests/test_regression_streaming.py).
 Whole-genome RAM and runtime figures remain conditional projections; the older benchmark report predates this implementation.
 
 ### Recent optimization sequence and evidence
 
 | Implemented change | Revision / evidence | Interpretation boundary |
 | --- | --- | --- |
-| Sequential execution/output query batches | `cf1dfac`; [batch verification](../audits/annotation-memory/sequential-query-batches.md) | Smaller width reduced scratch in the measured local workload but repeated traversal increased wall time; this predates later assembly changes. |
+| Sequential execution/output query batches | `cf1dfac`; [`test_ldscore_query_batches.py`](../../tests/test_ldscore_query_batches.py) and the benchmark above | Smaller width reduced scratch in the measured local workload but repeated traversal increased wall time; this predates later assembly changes. |
 | Lossless binary annotation storage | `59ee02b`; [storage decisions](annotation-memory-decisions.md#confirmed-annotation-storage-scope-2026-09-15) and the size measurement above | Exact classification and decoding verified; 32-fold binary payload reduction is not a job-RSS measurement. |
 | Indexed active-batch staging and streamed assembly | `659738a`; [`test_indexed_batch_staging.py`](../../tests/test_indexed_batch_staging.py), [LD-score guide](../wiki/main-functionalities/ldscore.md) | Bounds outstanding raw fragments and parent arrays; per-batch operator reloads add work. |
 | Regression metadata/file reuse and fewer model copies | `7a478e6`; [`test_partitioned_publication.py`](../../tests/test_partitioned_publication.py), [`test_regression_memory.py`](../../tests/test_regression_memory.py), [regression guide](../wiki/main-functionalities/partitioned-h2.md) | Measures and preserves full-model fits; neither changes the estimator nor eliminates worker-private matrices. |
-| Direct file-writing streamed assembly | `3a4d729`; [integration audit](../audits/2026-10-15_direct-streaming.md), [replay measurements](../wiki/main-functionalities/ldscore.md#direct-assembly-measurements) | Local end-to-end parity is separate from precomputed full-row assembly replays, which do not measure genotype computation. |
+| Direct file-writing streamed assembly | `3a4d729`; [`test_direct_batch_staging.py`](../../tests/test_direct_batch_staging.py), [replay measurements](../wiki/main-functionalities/ldscore.md#direct-assembly-measurements) | Local end-to-end parity is separate from precomputed full-row assembly replays, which do not measure genotype computation. |
 
 The indexed, regression, and direct rows summarize the optimizations integrated during the October session.
 Their detailed evidence remains attached to the corresponding implementation or workflow guide rather than being generalized into a universal speedup or RAM recommendation.
@@ -594,7 +598,12 @@ Do not extrapolate a short indexed run by multiplying its elapsed time by the nu
 ### Deliberate limits and approaches not adopted
 
 - Preparation stays serial after the measured process/thread tradeoff described above.
-- Projection keeps explicit float64 operands: the [Boolean-operand evaluation](../audits/2026-09-16-boolean-projection/REPORT.md) found that implicit promotion could introduce repeated copies and no reliable overall benefit.
+- Projection keeps explicit float64 operands.
+  A September 16 evaluation (NumPy 2.4.5, SciPy 1.17.1) found that both libraries multiply a float64 operator by a Boolean operand through a hidden full float64 copy on every call: about 16 MiB extra per full-budget tile, for dense and CSR operators alike.
+  The nominal 87.5% operand saving is therefore not realized, and wide CSR projections used more temporary memory.
+  Boolean operands also carry a dtype hazard: on an adversarial CSR row of 100,000 copies of 0.1, a float32 operator times a Boolean operand lost 1.44 against `math.fsum`, versus 1.88e-8 for float64.
+  All 243 native-operand measurements with float64 operators matched the explicit-float64 results exactly.
+  Splitting mixed binary/continuous groups failed the `rtol=atol=1e-14` check (maximum difference 7.96e-12), so it was not adopted either.
 - Generated queries are batch-owned, but explicit `AnnotationBundle.read()` and `LDScoreSource.read_queries()` selections remain caller-owned materializations with no automatic width cap.
 - Genome-wide baseline data, chromosome genotype payloads or index operators, model-private regression arrays, and the exact quantile target vector remain substantial allocations.
 - Restriction caches and reusable pair-panel metadata intentionally trade retained memory for avoided parsing; they are not constant-memory streams.

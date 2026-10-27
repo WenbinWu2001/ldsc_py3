@@ -4,7 +4,7 @@ Last updated on: 2026-10-26
 
 These are the agreed rules for writing flag descriptions and organizing `--help` across all public `ldsc` commands. A user should be able to identify the inputs they need, understand what an option changes, and choose a valid combination without knowing the package implementation.
 
-The [help audit](../audits/flag-cleanup/help-text-audit.md) records the starting problems. The [IO argument inventory](io-argument-inventory.md) describes the current options, and the [legacy flag map](legacy-cli-flag-map.md) records approved spelling and behavior decisions. These rules have been applied across the public command parsers; see the [implementation record](../audits/flag-cleanup/help-polish-followup.md).
+The [IO argument inventory](io-argument-inventory.md) describes the current options, and the [legacy flag map](legacy-cli-flag-map.md) records approved spelling and behavior decisions. These rules have been applied across the public command parsers.
 
 ## Required description content
 

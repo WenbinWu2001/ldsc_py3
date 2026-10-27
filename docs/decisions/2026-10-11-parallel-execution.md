@@ -1,6 +1,6 @@
 # Parallel execution decisions
 
-Last updated on: 2026-10-12
+Last updated on: 2026-10-26
 
 This record consolidates the user's finalized parallelization annotations and subsequent `workers` / `joblib.cpu_count()` decisions.
 The implementation now follows these decisions; the maintained runtime contract is [parallel-execution.md](../current/parallel-execution.md).
@@ -195,7 +195,12 @@ The user's latest decisions on 2026-10-12 govern:
 There is no remaining serial-versus-parallel BLAS choice.
 The only qualification to the word "always" is the retained best-effort enforcement rule: every worker requests one thread, but an unsupported or unverifiable backend must be reported accurately.
 Worker count still differs from software-thread count and actual CPU use because coordination, native runtime helpers, and Arrow pools are separate.
-The [focused local transport probe](../audits/parallel-execution/index-transport.md) completed the gene-index migration gate.
+A focused local transport probe completed the gene-index migration gate.
+It used two synthetic chromosomes, each with four PLINK SNPs plus 25,000 supplied annotation rows and 64 quantitative columns, and two workers.
+Threads took 2.01 s with 329.3 MiB sampled peak summed RSS; spawned processes took 2.29 s with 638.2 MiB.
+Each task serialized about 5.1 KB of storage descriptors and catalog metadata rather than baseline arrays.
+Both runs produced the same index identity and gene-support counts, and twenty exact comparisons of baseline tables, sparse operators, counts, overlaps, and atom statistics passed.
+Each setting ran once, and summed RSS counts shared pages more than once, so these numbers show the direction of the memory cost rather than a stable overhead estimate.
 Construction now uses chromosome processes; the measured additional RSS is documented, and full-genome memory remains unmeasured.
 Broader chromosome scaling, representative memory use, and HPC Arrow I/O remain empirical questions rather than unsettled BLAS-policy choices.
 Historical design/plan documents remain historical; current-runtime documentation now describes managed serial children and the uniform numerical target.
@@ -210,6 +215,6 @@ Direct scoring additionally cancels pending futures and stages reference metadat
 Both writing LD modes retain per-chromosome logs, while the prepared no-output API remains file-free.
 
 Tests cover CPU budgets before work caps, serial children, caller-setting isolation, inherited settings, runtime verification/continuation diagnostics, scientific equivalence, operator and batch ownership, chromosome logs, failure cleanup, and overwrite behavior.
-The [index transport probe](../audits/parallel-execution/index-transport.md) records twenty exact scientific comparisons and measured additional process RSS.
+The index transport probe described above records twenty exact scientific comparisons and the measured additional process RSS.
 The earlier local and Longleaf pilots still do not establish LD chromosome scaling, genome-wide memory needs, or representative HPC I/O performance.
 Serial-phase and repeated-work optimizations remain later benchmarking work, without a new performance promise.

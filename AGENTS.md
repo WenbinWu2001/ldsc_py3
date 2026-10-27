@@ -4,7 +4,7 @@
 
 # LDSC Package Guidance
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-26
 
 This repository, `ldsc_py3_restructured`, develops the distributable scientific Python package `ldsc` (distribution version `2.0b0`), with source under `src/ldsc/`.
 
@@ -46,7 +46,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
 
 - Import supported user-facing objects from `ldsc`; `src/ldsc/__init__.py` owns exports such as `AnnotationBuilder`, `LDScoreCalculator`, `RegressionRunner`, `SumstatsMunger`, `ReferencePanelBuilder`, `LDScoreSource`, configurations, writers, and convenience functions.
   `src/ldsc/_kernel/` and other underscore-prefixed modules are private implementations, even when selected objects are re-exported publicly.
-- `ldsc=ldsc.cli:run_cli` and `python -m ldsc` expose one CLI: `annotate`, `ldscore`, `build-r2-panel`, `build-gene-ldscore-index`, `convert-ldsc2-ldscores`, `munge-sumstats`, `h2`, `partitioned-h2`, `quantile-h2`, `rg`, `query-r2`, `convert-h2-scale`, and `plot`.
+- `ldsc=ldsc.cli:run_cli` and `python -m ldsc` expose one CLI: `infer-genome-build`, `annotate`, `ldscore`, `build-r2-panel`, `build-gene-ldscore-index`, `convert-ldsc2-ldscores`, `munge-sumstats`, `h2`, `partitioned-h2`, `quantile-h2`, `rg`, `query-r2`, `convert-h2-scale`, and `plot`.
   Keep CLI code limited to parsing/dispatch; numerical and plotting logic belongs to its workflow or kernel.
 - Dependency direction is CLI → workflows → shared helpers/private kernels; workflows call output writers, and kernels must not import workflow orchestration or writers.
   Runtime reference adapters currently live in `_kernel/ref_panel.py`; `RefPanel.prepare_chromosome()` owns panel preparation and reader lifetime.
@@ -99,7 +99,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
   Query manifests record ordered files/columns/row groups; output tables span chromosomes, with chromosome row groups rather than public chromosome LD-score shards.
   Writing workflows return `LDScoreSource`; selected reads are explicit and caller-owned.
 - Query annotations require explicit baseline annotations; no baseline and no query produces an all-ones `base` for ordinary unpartitioned generation.
-  Index construction requires a supplied one-based gene catalog, explicit hg19 and base `rsid|chr_pos`, and complete autosomes; indexed scoring inherits the complete immutable index and rejects live overrides or silent fallback.
+  Index construction requires a supplied one-based gene catalog, an explicit hg19 or hg38 build assertion, an explicit SNP identifier (any of the four identity modes), and complete autosomes; indexed scoring inherits the complete immutable index and rejects live overrides or silent fallback.
 - Reuse `outputs.py` directory writers, their `artifact_family()` declarations, and `path_resolution.py` preflight helpers before owned writes, including logs.
   Core materializing CLI commands require `--output-dir`; explicit `--overwrite` replaces only owned outputs and reconciles stale owned siblings, preserving unrelated files.
   Derived CLI destinations are `<result-dir>/plots/` and `<h2-result-dir>/postprocessing/liability-scale/`, without CLI overrides.
@@ -161,17 +161,18 @@ These rules apply only when a review is requested; they do not require an extra 
 | Destination | Responsibility and recording boundary |
 | --- | --- |
 | `docs/current/code-structure.md`, `docs/current/architecture.md`, `docs/current/data-flow.md`, `docs/current/layer-structure.md` | Contributor navigation, execution/dependency architecture, artifact flows, and ownership; current contracts govern unless a confirmed change supersedes them. |
-| `docs/current/*-decisions.md`, `docs/specs/`, `docs/plans/` | Preserve existing decisions, agreed specifications, and plans; retain dated topic names and do not migrate or duplicate records. |
+| `docs/current/*-decisions.md` | Preserve existing confirmed decisions; retain dated topic names and do not duplicate records. |
+| `docs/specs/`, `docs/plans/` | Temporary folders for in-flight design specifications and implementation plans only. Once the work is implemented, move lasting rationale into `docs/decisions/` (or the relevant `docs/current/*-decisions.md`) and the contract into `docs/current/`, then delete the spec and plan. |
 | `docs/decisions/` | New authorized standalone `grill-with-docs` decision records with confirmed rationale; use existing topical records where appropriate, keep terminology in its established home, and use ADR format only under `domain-modeling` criteria. |
 | `docs/decisions/2026-10-11-parallel-execution.md` | Confirmed parallel-execution decisions; implemented runtime contract in `docs/current/parallel-execution.md`. |
 | `status.md` | Authorized current work, constraints, blockers, next steps; refresh in place and link decisions/evidence. |
 | `history.md` | Authorized meaningful events, appended chronologically with dates; consult on demand, not automatically at startup. |
 | `lessons.md` | After a repeated mistake (two or more) or an investigated non-obvious bug, append summary/root cause/correction; create on the first qualifying entry, skipping trivial slips. |
 | `tutorials/`, `docs/wiki/`, `docs/troubleshooting.md` | User workflows, runnable Markdown/notebook examples, and command-specific remediation. |
-| `docs/audits/`, `docs/archive/` | Validation evidence and historical context respectively; not competing current contracts. |
+| Validation evidence (no dedicated folder) | Summarize durable measurements inline in the host `docs/current/` or `docs/decisions/` document with date, revision, and limits; keep raw logs, fixtures, and probe scripts out of `docs/`. The audits, specs, plans, and archive removed on 2026-10-26 remain in git history at `479fc4d`. |
 
 - Use `project-state` only for useful, authorized status/history updates: these destinations do not authorize completion logs, writes during read-only work/side conversations, or empty-file creation.
-  `docs/decisions/` contains authorized decision records; `status.md` and `history.md` remain conventions, currently absent.
+  `docs/decisions/` contains authorized decision records; `status.md` exists, while `history.md` remains a convention, currently absent.
   Their use does not bypass lessons or decision-recording rules.
 - Anchor substantive workflow/scientific explanations to code paths and lines or functions/classes, and document/paper claims to sections, tables, figures, or appendices.
   Legacy comparisons must cite both implementations, using the legacy repository below.
@@ -188,7 +189,7 @@ These rules apply only when a review is requested; they do not require an extra 
 - `docs/current/parallel-execution.md`: managed task workers, joblib CPU budgets, one BLAS thread per worker, and chromosome diagnostics.
 - `docs/current/path-specification.md`, `workflow-logging.md`, and `cli-help-guidelines.md`: resolution, output/diagnostic lifecycle, and task-oriented CLI help (all under `docs/current/`).
 - `tutorials/ld-score-calculation.md`, `tutorials/partitioned-ldsc.md`, `tutorials/cell-specific-ldsc.md`, and `tutorials/convert-legacy-ldscores.md`: main worked workflows, complemented by notebooks and `docs/wiki/guided-tutorial.md`.
-- `docs/audits/legacy-equivalence/`: legacy comparison evidence; `docs/release.md`: maintainer release runbook, not authorization to release.
+- `docs/current/legacy-cli-flag-map.md`: LDSC2 interface mapping, including options without a current equivalent; no document yet records numerical equivalence with LDSC2. `docs/release.md`: maintainer release runbook, not authorization to release.
   `LICENSE`, `NOTICE`, and `CITATION.cff` preserve licensing, attribution, and citation metadata; retain notices during refactors and packaged resource attribution.
 - `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik`: legacy numerical/format reference.
 - `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/docs/ldsc_papers`: LDSC papers and supplements.

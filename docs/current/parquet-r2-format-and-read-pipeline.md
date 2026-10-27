@@ -1,6 +1,6 @@
 # Parquet R2 Table: Format Specification and Read Pipeline
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-26
 
 This document defines the canonical **index** format for parquet-backed pairwise
 R² reference panels and describes how the read pipeline validates, binds, and
@@ -102,6 +102,15 @@ For values within the clipping range, ideal rounding contributes at most half a 
 Clipping outside that range has additional error.
 An LD-score sum combines many such errors with annotation weights, so historical per-SNP differences are workload measurements, not universal bounds or an assertion of losslessness.
 This differs from [binary annotation packing](annotation-memory-design.md#annotation-format-policy), which preserves exact 0/1 values.
+
+**Adoption evidence (2026-06-01 workload measurement).**
+Before int16 storage was adopted, a genome-wide evaluation of one reference panel (all 22 autosomes, 473.5 million pairs, $N=3202$ samples) compared symmetric int16 values with the source float32 values.
+No value saturated the clipping range.
+The per-pair absolute error had maximum 1.5e-5 and mean 8e-6, about 20 times below the unbiased-estimator noise floor $1/N \approx 3.1\times10^{-4}$.
+The resulting LD scores changed by 2.1e-4 on average and by at most 2.1e-3 (chromosome 3).
+Storage fell from 2,710.9 MiB (float32) to 1,014.2 MiB (int16 with `BYTE_STREAM_SPLIT`), a 62.6% reduction.
+Lossless `BYTE_STREAM_SPLIT` on float32 alone saved 31.5%, and int8 was rejected because its maximum error of about 2e-3 is visible in the small-R² range that holds about 59% of pairs.
+These numbers describe that panel; they are not error bounds for other inputs.
 
 All encodings are recorded in the parquet footer and PyArrow auto-decodes them.
 The int16→float32 **dequantization is a reader-side step** (divide by

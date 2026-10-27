@@ -1,14 +1,12 @@
 # Liftover Harmonization Decisions
 
-Last updated on: 2026-09-11
+Last updated on: 2026-10-26
 
 Date: 2026-05-10
 Branch: `codex/liftover-sumstats-munger`
 
 > **STATUS — 2026-05-11: implemented harmonization contract.** This document
-> records the liftover contracts for the harmonized workflows. The
-> implementation plan is
-> [`docs/plans/2026-05-10-liftover-harmonization.md`](../plans/2026-05-10-liftover-harmonization.md).
+> records the liftover contracts for the harmonized workflows.
 
 This note records the agreed liftover contracts after harmonizing summary
 statistics munging and PLINK reference-panel building. It is intended as the
@@ -36,6 +34,13 @@ output, and metadata contracts.
   Normal log levels are count-only; examples are emitted only at `DEBUG`.
 - Missing chain-file and missing optional dependency errors include
   workflow-aware labels and flag hints.
+
+Rationale recorded when these contracts were agreed (May 2026):
+
+- Keeping one row from a duplicate coordinate group was rejected because any deterministic choice of representative is arbitrary in `chr_pos` mode.
+- The former `error` duplicate policy was removed because the `drop-all` sidecar plus log counts carry the same information in machine-readable form, and one policy removes a contract difference between the two workflows.
+- HM3 quick liftover stays sumstats-only because the curated HM3 map is a sparse coordinate dictionary that does not cover a dense PLINK reference-panel universe.
+- The all-dropped rule stays workflow-specific: munging has a single output, so losing every row is fatal, whereas the reference-panel builder writes per-chromosome outputs and can recover partially.
 
 ## Summary-Statistics Munger Contract
 

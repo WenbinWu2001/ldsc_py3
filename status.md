@@ -1,6 +1,6 @@
 # Handoff: annotation grids and LD-score annotation coverage
 
-Last updated on: 2026-10-16
+Last updated on: 2026-10-26
 
 Status: high-level design confirmed by the user; CLI details and any optional intersection policy remain unresolved.
 This handoff records the next design task, not an implemented feature or a completed specification.
@@ -158,7 +158,7 @@ Start with the current instructions, this file, and the relevant sections of:
 - [Standalone annotate decisions](docs/current/annotate-gene-list-decisions.md).
 - [LD-score SNP-universe contract](docs/current/ldscore-snp-universe-contract.md).
 - [Architecture](docs/current/architecture.md), especially annotation and reference/LD-score workflow ownership.
-- [Annotation memory design](docs/current/annotation-memory-design.md) and [memory implementation plan](docs/plans/2026-09-10-annotation-workflow-memory.md).
+- [Annotation memory design](docs/current/annotation-memory-design.md).
 - [Gene-list input](docs/current/gene-list-input-format.md), [diagnostics and repair](docs/current/gene-list-diagnostics-and-repair.md), [path specification](docs/current/path-specification.md), and [workflow logging](docs/current/workflow-logging.md).
 - [Lessons](lessons.md), particularly reference preparation, physical BIM/BED row mapping, output ownership, and resource lifetime.
 

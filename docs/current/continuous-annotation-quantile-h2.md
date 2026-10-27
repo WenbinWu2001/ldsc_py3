@@ -1,6 +1,6 @@
 # Continuous-Annotation Quantile Heritability: Technical Contract
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 Quantile calculation runs in one managed child with **1 BLAS thread**, including input overlap products and post-fit projection.
 See [parallel execution](parallel-execution.md) for native-limit verification and Python process startup.
@@ -97,3 +97,8 @@ When that contrast has zero or missing jackknife SE, `enrichment_p` is `NaN`. `c
 ## Bounded exact reconstruction
 
 The implementation validates the global common SNP universe using bounded annotation/reference/target reads and output-owned identity locators. A first pass accumulates full-common sums, cross-products, stable centered variance statistics, and eligible float64 targets. It computes the existing exact global quantile boundaries once, releases the target vector, and reuses those boundaries in a second chromosome pass. Quantile sums/counts require no whole-genome fitted-annotation matrix or dense SNP-by-quantile indicators. Ties, raw missing tokens, aggregate tolerances, and full-common standardization remain unchanged. Complete alignment diagnostics stream to a persistent file referenced by `QuantileH2Result.alignment_issues_path`. See [the memory design](annotation-memory-design.md#exact-global-quantiles).
+
+## References
+
+- Scientific method: Gazal S, et al. Linkage disequilibrium–dependent architecture of human complex traits shows action of negative selection. *Nature Genetics* 49, 1421–1427 (2017), and its supplementary note.
+- Legacy operational behavior: `ContinuousAnnotations/quantile_M.pl` and `ContinuousAnnotations/quantile_h2g.r` in the LDSC2 repository.

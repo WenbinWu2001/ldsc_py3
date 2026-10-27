@@ -10,8 +10,8 @@ sufficient statistics—and the full downstream indexed-assembly derivation—se
 
 `--workers` controls a chromosome process pool and defaults to one managed child.
 Every worker uses 1 BLAS thread, whether serial or parallel.
-Annotation preparation remains serial, preserving the conclusion of the [preparation evaluation](../../audits/annotation-memory/preparation-parallelism.md#decision).
-See [the execution policy](../../current/parallel-execution.md) and [index transport probe](../../audits/parallel-execution/index-transport.md).
+Annotation preparation remains serial, preserving the conclusion of the [preparation evaluation](../../current/annotation-memory-design.md#bounded-source-preparation).
+See [the execution policy](../../current/parallel-execution.md) and [index transport probe](../../decisions/2026-10-11-parallel-execution.md#final-decisions-and-remaining-boundaries).
 
 Build one complete reusable index that contains the fixed baseline LD scores,
 an embedded caller-supplied gene catalog, exact disjoint-gene atoms, and the sparse

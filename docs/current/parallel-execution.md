@@ -1,6 +1,6 @@
 # Parallel execution
 
-Last updated on: 2026-10-15
+Last updated on: 2026-10-26
 
 Use `workers` in Python or `--workers` in the CLI to choose task concurrency.
 The default is one worker on both laptops and HPC systems.
@@ -82,7 +82,7 @@ Raw query scratch therefore scales with batch width rather than the total number
 The direct no-output API retains its materialized result path.
 More workers require more private model/chromosome memory.
 The package does not select workers from an automatic memory estimate.
-The [focused index transport probe](../audits/parallel-execution/index-transport.md) supports the process migration but does not establish full-genome memory needs or HPC scaling.
+The [focused index transport probe](../decisions/2026-10-11-parallel-execution.md#final-decisions-and-remaining-boundaries) supports the process migration but does not establish full-genome memory needs or HPC scaling.
 
 Python scripts must put workflow calls under `if __name__ == "__main__":` for both serial and parallel execution because workers use `spawn`.
 The CLI handles process startup; notebook examples also show a CLI subprocess pattern for environments that cannot launch importable Python workers.
@@ -122,4 +122,4 @@ See [`_ldscore_diagnostics.py`](../../src/ldsc/_ldscore_diagnostics.py), [`LDSco
 
 Representative chromosome scaling, full-genome memory, HPC Arrow I/O, and repeated serial work remain benchmarking topics.
 The uniform BLAS policy is a confirmed resource policy, not a claim of universally optimal performance.
-See the [implementation validation](../audits/parallel-execution/validation.md) for tested behavior, test totals, and empirical limits.
+Tested behavior is in [`test_worker_policy.py`](../../tests/test_worker_policy.py), [`test_execution_policy.py`](../../tests/test_execution_policy.py), and [`test_ldscore_parallelism.py`](../../tests/test_ldscore_parallelism.py).

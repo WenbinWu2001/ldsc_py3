@@ -1,6 +1,6 @@
 # Annotation and Workflow Memory Decisions
 
-Last updated on: 2026-10-20
+Last updated on: 2026-10-26
 
 Current status: the user confirmed the complete annotation-storage design and authorized implementation on September 15. Packed binary storage, exact automatic classification, two input content passes without numeric staging, and explicit private column selection are implemented. Public float32 reads, logical input order, and LD-score output behavior are preserved. The full suite passed 1,812 tests and 132 subtests, with one skip; an independent chromosome-22 baseline comparison verified every decoded value. See the [implemented format policy and measured file sizes](annotation-memory-design.md#annotation-format-policy). These decisions supersede the September 14 choice to retain dense annotation storage, while preserving the approved execution batching.
 
@@ -21,7 +21,7 @@ The prepared no-output Python API remains materialized; no CLI option or output-
 Munging remains excluded.
 The supplied replay evidence is preserved; it does not establish production memory savings or justify a smaller Slurm allocation.
 A real two-batch HPC comparison requires separate approval and the specified restricted-input exception.
-See [the implemented memory design](annotation-memory-design.md#direct-ld-score-computation) and [local integration validation](../audits/2026-10-15_direct-streaming.md).
+See [the implemented memory design](annotation-memory-design.md#direct-ld-score-computation) and [`test_direct_batch_staging.py`](../../tests/test_direct_batch_staging.py).
 
 ## Execution and regression update (2026-10-15)
 
@@ -80,7 +80,7 @@ The ordering and storage seams were checked locally on `restructure` at `19381df
 
 ## Earlier batch implementation status (2026-09-14)
 
-Status: on September 14, the user selected sequential query execution batches with separate query Parquet files and repeated genotype traversal. This replaces the proposed single-traversal streaming redesign and its planned second annotation-storage session. The subsequent integration interview confirmed the output layout, removal of old-directory compatibility requirements, saved-result handles, private publication, bounded indexed assembly, strictly write-free small Python calculations, and unrestricted explicit query-read widths below. The user then requested chromosome-parallel indexed generation using `--workers`, matching direct mode; the indexed ownership contract is now one operator per active worker. The user confirmed the final design and chromosome-count cap, then authorized implementation. The implementation and its verification follow the contracts below. The September 10 work is already implemented with gaps in the [completion review](../audits/annotation-memory/completion-review.md). Its [implemented design](annotation-memory-design.md), [specification](../specs/2026-09-10-annotation-workflow-memory-design.md), and [plan](../plans/2026-09-10-annotation-workflow-memory.md) describe existing behavior and historical scope, not a requirement to revive the abandoned optimization effort.
+Status: on September 14, the user selected sequential query execution batches with separate query Parquet files and repeated genotype traversal. This replaces the proposed single-traversal streaming redesign and its planned second annotation-storage session. The subsequent integration interview confirmed the output layout, removal of old-directory compatibility requirements, saved-result handles, private publication, bounded indexed assembly, strictly write-free small Python calculations, and unrestricted explicit query-read widths below. The user then requested chromosome-parallel indexed generation using `--workers`, matching direct mode; the indexed ownership contract is now one operator per active worker. The user confirmed the final design and chromosome-count cap, then authorized implementation. The implementation and its verification follow the contracts below. The September 10 work is already implemented, with the remaining gaps listed in [diagnostics and verification](annotation-memory-design.md#diagnostics-and-verification). Its [implemented design](annotation-memory-design.md) describes existing behavior, not a requirement to revive the abandoned optimization effort.
 
 ## Confirmed sequential query batches (2026-09-14)
 

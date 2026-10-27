@@ -5,7 +5,7 @@ Run manually from the repo root (requires an editable install of the package):
         --curated-map src/ldsc/data/hm3_curated_map.tsv.gz \
         --output src/ldsc/data/hm3_chr_pos_reference.tsv.gz
 
-Writes a gzipped TSV (CHR, hg19_POS, hg38_POS) of autosomal, common,
+Writes a gzipped TSV (CHR, hg19_POS, hg38_POS) of autosomal,
 non-strand-ambiguous SNPs with unique, build-discordant coordinates, evenly
 sampled by hg38 position within each chromosome. Consumed by genome-build
 inference; the generated artifact ships with the package but this builder does
@@ -32,15 +32,15 @@ def build_hm3_chr_pos_reference(
     curated_map_path: str | PathLike[str],
     output_path: str | PathLike[str],
     *,
-    snps_per_chromosome: int = 500,
-    min_maf: float = 0.2,
+    snps_per_chromosome: int = 1000,
 ) -> pd.DataFrame:
     """
     Build and write the compact HM3 coordinate reference used for build inference.
 
-    The generated table contains autosomal, common, non-strand-ambiguous SNPs
-    that have unique hg19 and hg38 coordinates and differ between builds. Rows
-    are evenly sampled by hg38 position within each chromosome.
+    The generated table contains autosomal, non-strand-ambiguous SNPs that have
+    unique hg19 and hg38 coordinates and differ between builds. Up to
+    ``snps_per_chromosome`` rows are evenly sampled by hg38 position within
+    each chromosome.
     """
     if snps_per_chromosome <= 0:
         raise LDSCUsageError(
@@ -49,7 +49,7 @@ def build_hm3_chr_pos_reference(
             "Pass a positive SNP count per chromosome."
         )
     curated = _load_hm3_curated_map_from_path(curated_map_path, preserve_extra_columns=True)
-    filtered = _filter_reference_candidates(curated, min_maf=min_maf)
+    filtered = _filter_reference_candidates(curated)
     sampled = _sample_evenly_by_chromosome(filtered, snps_per_chromosome=snps_per_chromosome)
     reference = sampled.loc[:, REFERENCE_COLUMNS].reset_index(drop=True)
     output = Path(output_path)
@@ -58,12 +58,10 @@ def build_hm3_chr_pos_reference(
     return reference
 
 
-def _filter_reference_candidates(frame: pd.DataFrame, *, min_maf: float) -> pd.DataFrame:
+def _filter_reference_candidates(frame: pd.DataFrame) -> pd.DataFrame:
     """Return HM3 rows eligible for compact genome-build inference."""
     work = frame.copy()
     work = work.loc[work["CHR"].isin([str(chrom) for chrom in range(1, 23)])].copy()
-    work["MAF"] = pd.to_numeric(work["MAF"], errors="coerce")
-    work = work.loc[work["MAF"] >= min_maf].copy()
     allele_set, allele_reasons = allele_set_series(work, context="HM3 chromosome-position reference build")
     work = work.loc[allele_reasons.isna() & allele_set.notna()].copy()
     work = work.loc[work["hg19_POS"] != work["hg38_POS"]].copy()
@@ -104,14 +102,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Input curated HM3 map TSV/TSV.GZ. Defaults to the packaged map.",
     )
     parser.add_argument("--output", required=True, help="Output hm3_chr_pos_reference.tsv.gz path.")
-    parser.add_argument("--snps-per-chromosome", type=int, default=500)
-    parser.add_argument("--min-maf", type=float, default=0.2)
+    parser.add_argument("--snps-per-chromosome", type=int, default=1000)
     args = parser.parse_args(argv)
     reference = build_hm3_chr_pos_reference(
         args.curated_map,
         args.output,
         snps_per_chromosome=args.snps_per_chromosome,
-        min_maf=args.min_maf,
     )
     print(f"Wrote {len(reference)} SNPs to {args.output}")
     return 0

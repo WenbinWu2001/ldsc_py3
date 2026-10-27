@@ -102,20 +102,57 @@ def test_snp_count_window_counts_panel_rows_when_the_run_keeps_fewer_snps(tmp_pa
     np.testing.assert_allclose(scores.to_numpy(), expected.loc[scores.index].to_numpy(), rtol=0, atol=1e-4)
 
 
-def test_snp_count_window_rejects_kept_snps_out_of_panel_row_order():
-    """Two SNPs at one position listed in the opposite order to the panel sidecar."""
-    from argparse import Namespace
+def _tied_snp_panel(build_dir):
+    """A 4-SNP rsID panel whose rows 1 and 2 (rs3, then rs2) share position 200."""
+    from ldsc._kernel import ref_panel_builder as kb
 
-    from ldsc._kernel.ldscore import build_window_coordinates
-    from ldsc.errors import LDSCInputError
+    panel = pd.DataFrame({"CHR": ["1"] * 4, "POS": [100, 200, 200, 300], "SNP": ["rs1", "rs3", "rs2", "rs4"],
+                          "A1": ["A", "A", "A", "A"], "A2": ["C", "C", "G", "C"], "MAF": [0.3, 0.25, 0.4, 0.35]})
+    build_dir.mkdir(parents=True)
+    sidecar = kb.build_runtime_metadata_table(metadata=panel, positions=panel["POS"].to_numpy(), cm_values=None)
+    pairs = [(0, 1, 0.5), (0, 2, 0.1), (1, 2, 0.4), (1, 3, 0.2), (2, 3, 0.6)]
+    kb.write_r2_parquet(
+        pair_chunks=[(np.array([p[0] for p in pairs]), np.array([p[1] for p in pairs]),
+                      np.array([p[2] for p in pairs], dtype=np.float32), np.ones(len(pairs), dtype=np.int8))],
+        path=build_dir / "chr1_r2.parquet", genome_build="hg19", n_samples=200, snp_identifier="rsid",
+        n_snps=len(panel), sidecar_identity_sha256=kb.sidecar_identity_sha256(sidecar),
+        ld_window_mode="snps", ld_window_value=1.0,
+    )
+    kb.write_runtime_metadata_sidecar(sidecar, build_dir / "chr1_meta.tsv.gz", genome_build="hg19",
+                                      snp_identifier="rsid")
+    return sidecar
 
-    metadata = pd.DataFrame({"CHR": ["22"] * 3, "SNP": ["rs1", "rs3", "rs2"], "POS": [10, 20, 20]})
-    args = Namespace(ld_wind_snps=1, ld_wind_kb=None, ld_wind_cm=None)
-    with pytest.raises(LDSCInputError, match="first out of order: rs2"):
-        build_window_coordinates(metadata, args, snp_positions=np.array([0, 2, 1]))
-    coords, max_dist = build_window_coordinates(metadata, args, snp_positions=np.array([0, 1, 4]))
-    np.testing.assert_array_equal(coords, [0, 1, 4])
-    assert max_dist == 1
+
+def test_snp_count_window_computes_same_position_snps_in_panel_order(tmp_path):
+    """An annotation may list same-position SNPs in another order than the panel sidecar.
+
+    ``--ld-wind-snps`` counts panel rows, so the SNPs are computed in panel-row
+    order. The written LD scores, and their row order (CHR, POS, then SNP), equal
+    those of the same run with the annotation listed in sidecar order.
+    """
+    from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfig, RefPanelConfig
+    from ldsc._kernel.ref_panel import ParquetR2RefPanel
+    from ldsc.outputs import LDScoreOutputConfig
+
+    sidecar = _tied_snp_panel(tmp_path / "panel")
+    config = GlobalConfig(snp_identifier="rsid")
+    panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=str(tmp_path / "panel")))
+    query = pd.DataFrame({"q": [0.1, 0.2, 0.3, 0.4]})
+
+    def written_scores(order, name):
+        metadata = sidecar[["CHR", "POS", "SNP", "A1", "A2"]].iloc[order].reset_index(drop=True)
+        with AnnotationBundle.from_frames(metadata, pd.DataFrame({"base": np.ones(4)}),
+                                          query.iloc[order].reset_index(drop=True), config_snapshot=config) as bundle:
+            LDScoreCalculator().run(bundle, panel, LDScoreConfig(ld_wind_snps=1), config,
+                                    LDScoreOutputConfig(tmp_path / name))
+        return [pd.read_parquet(tmp_path / name / f"ldscore.{kind}.parquet") for kind in ("baseline", "query")]
+
+    in_panel_order = written_scores([0, 1, 2, 3], "panel-order")
+    swapped = written_scores([0, 2, 1, 3], "swapped")
+
+    for expected, observed in zip(in_panel_order, swapped):
+        pd.testing.assert_frame_equal(observed, expected)
+    assert swapped[0]["SNP"].tolist() == ["rs1", "rs2", "rs3", "rs4"]
 
 
 WARNING_TEXT = "counts positions in the parquet R2 panel"

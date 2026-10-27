@@ -10,6 +10,7 @@ or reopening a panel. Metadata inspection returns caller-owned chromosome tables
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from types import SimpleNamespace
 import gzip
 import logging
@@ -505,7 +506,17 @@ class ParquetR2RefPanel(RefPanel):
         parquet_paths = self.resolve_r2_paths(chrom)
         kernel_ldscore.validate_ldscore_window_within_r2_panel_window(config, parquet_paths=parquet_paths, chrom=chrom)
         kernel_ldscore.reject_truncated_r2_panel(parquet_paths, chrom)
+        mapped_annotations = aligned.annotations
         reader = self.build_reader(chrom, metadata=metadata)
+        if np.any(np.diff(reader.panel_rows) < 0):
+            # Same-position SNPs listed in another order than the sidecar: compute in
+            # panel-row order, which --ld-wind-snps needs. Annotation rows move with
+            # their SNPs, and outputs are re-sorted by CHR, POS, and SNP afterwards.
+            order = np.argsort(reader.panel_rows, kind="stable")
+            reader.close()
+            metadata = metadata.iloc[order].reset_index(drop=True)
+            mapped_annotations = replace(mapped_annotations, row_indices=mapped_annotations.row_indices[order])
+            reader = self.build_reader(chrom, metadata=metadata)
         try:
             # --ld-wind-snps counts panel rows, so a window no wider than the
             # panel's stays inside its stored pairs when this run keeps fewer SNPs.
@@ -516,7 +527,7 @@ class ParquetR2RefPanel(RefPanel):
             raise
         return kernel_ldscore.PreparedChromosome(
             backend="parquet_r2", reader=reader, metadata=metadata,
-            annotations=aligned.annotations, block_left=block_left,
+            annotations=mapped_annotations, block_left=block_left,
             baseline_columns=list(annotations.baseline_columns), query_columns=list(annotations.query_columns),
             cm_source="parquet_sidecar",
         )

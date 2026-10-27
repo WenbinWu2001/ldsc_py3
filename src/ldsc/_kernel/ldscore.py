@@ -721,7 +721,8 @@ def build_window_coordinates(
 
     ``--ld-wind-snps`` counts retained rows unless ``snp_positions`` gives each
     retained SNP's row in a larger SNP universe (the parquet panel sidecar),
-    in which case it counts rows of that universe.
+    in which case it counts rows of that universe. ``snp_positions`` must be
+    increasing; parquet preparation orders retained SNPs by panel row.
     """
     selectors = np.array([args.ld_wind_snps is not None, args.ld_wind_kb is not None, args.ld_wind_cm is not None], dtype=bool)
     if selectors.sum() != 1:
@@ -734,18 +735,7 @@ def build_window_coordinates(
     if args.ld_wind_snps is not None:
         if snp_positions is None:
             return np.arange(len(metadata), dtype=float), float(args.ld_wind_snps)
-        positions = np.asarray(snp_positions, dtype=float)
-        disordered = np.flatnonzero(np.diff(positions) <= 0)
-        if disordered.size:
-            snp = metadata["SNP"].iloc[disordered[0] + 1]
-            raise LDSCInputError(
-                f"ldscore cannot apply `--ld-wind-snps` on chromosome {metadata['CHR'].iloc[0]}: the retained "
-                f"SNPs are not in the R2 panel's row order (first out of order: {snp}). Most likely several "
-                "SNPs share a position and the annotation lists them in a different order from the panel "
-                "sidecar `chrN_meta.tsv.gz`. Order those annotation rows as in the sidecar, or rebuild the "
-                "panel and rerun with a kb or cM window."
-            )
-        return positions, float(args.ld_wind_snps)
+        return np.asarray(snp_positions, dtype=float), float(args.ld_wind_snps)
     if args.ld_wind_kb is not None:
         return metadata["POS"].to_numpy(dtype=float), float(args.ld_wind_kb) * 1000.0
     if metadata["CM"].isna().any():

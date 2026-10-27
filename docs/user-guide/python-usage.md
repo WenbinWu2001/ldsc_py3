@@ -706,3 +706,64 @@ print(panel.chromosomes, panel.snp_identifier, panel.n_samples)
 `unbiased_r2_to_pearson_r(r2_adj, n, sign=None)` converts unbiased R² values to Pearson r for reference sample size `n`; without `sign` it returns $|r|$.
 `query_r2()` and `R2Panel.query_pairs()` apply it with the panel's `ldsc:n_samples` and the aligned `sign_r`.
 See the [query reference](../reference/query-r2.md#python-api).
+
+## SNP heritability
+
+This section is the Python counterpart of [Estimate SNP heritability](workflows/heritability.md).
+
+Load munged summary statistics, compute or load unpartitioned LD scores, then fit:
+
+```python
+from ldsc import (
+    GlobalConfig,
+    RegressionConfig,
+    RegressionRunner,
+    load_ldscore_from_dir,
+    load_sumstats,
+    run_ldscore,
+    set_global_config,
+)
+
+if __name__ == "__main__":
+    GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="auto")
+    set_global_config(GLOBAL_CONFIG)
+
+    sumstats = load_sumstats("results/trait_sumstats/trait.parquet", trait_name="trait")
+
+    ldscore_result = run_ldscore(
+        output_dir="results/unpartitioned_ldscores",
+        r2_dir="/path/to/resources/r2_panel/hg38",
+        ld_wind_cm=1.0,
+    )
+    # An LD-score directory written earlier can be loaded instead:
+    # ldscore_result = load_ldscore_from_dir("results/unpartitioned_ldscores")
+
+    runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
+    dataset = runner.build_dataset(sumstats, ldscore_result)
+    h2 = runner.estimate_h2(dataset)
+
+    print("h2 =", float(h2.tot))
+    print("h2_se =", float(h2.tot_se))
+    print("intercept =", float(h2.intercept))
+```
+
+To munge in the same script, `SumstatsMunger().run(MungeConfig(...))` returns the same `SumstatsTable` that `load_sumstats()` reads back; see [Munge summary statistics](#munge-summary-statistics).
+`run_ldscore()` writes the LD-score directory and returns an `LDScoreSource` that `RegressionRunner` uses directly; without annotations it computes the all-ones `base` annotation.
+LD-score directories from older versions that lack the `query_batches` manifest in `metadata.json` must be regenerated.
+
+`RegressionConfig` holds the regression options: `n_blocks`, `use_common_counts` (the CLI's `--count-kind`), `intercept_h2`, `two_step_cutoff`, `chisq_max`, `samp_prev`, `pop_prev` and `allow_identity_downgrade`.
+`RegressionConfig(use_intercept=False)` is equivalent to fixing the intercept at 1.
+See [regression options](../reference/regression-options.md).
+
+**Provenance checks.**
+Munged Parquet files store the `GlobalConfig` used to make them in their footer, together with the trait label; `load_sumstats()` restores both as `SumstatsTable.config_snapshot` and `trait_name`.
+`build_dataset()` checks that the summary statistics and the LD scores agree on settings such as `snp_identifier` and `genome_build`, and raises an error instead of merging incompatible inputs.
+Inspect `sumstats.config_snapshot` and `dataset.config_snapshot` to see the settings used.
+An LDSC2 `.sumstats.gz` file has no stored settings and is matched to the LD scores by rsID; a Parquet file without the footer is rejected.
+
+**Weights.**
+The LD-score table includes a `regression_ld_scores` column (LDSC2's `w_ld`); the final regression weights are computed from it during fitting.
+
+**Saved results.**
+`estimate_h2()` returns an in-memory estimate and writes nothing.
+`plot_result()` and `convert_h2_scale()` read a saved `h2` result directory, which `ldsc h2` writes; for example, `convert_h2_scale("results/trait_h2", samp_prev=0.5, pop_prev=0.01)` writes the liability-scale table under `results/trait_h2/postprocessing/liability-scale/`.

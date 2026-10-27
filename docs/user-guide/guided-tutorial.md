@@ -197,7 +197,7 @@ h2/mdd2025/
         h2.log
 ```
 
-For a binary trait, `ldsc convert-h2-scale` converts a saved h2 result using supplied sample and population prevalences and writes below `<h2-result-dir>/postprocessing/liability-scale/`. It does not refit regression. See [heritability scale conversion](../wiki/main-functionalities/h2.md#convert-a-saved-estimate-to-liability-scale).
+For a binary trait, `ldsc convert-h2-scale` converts a saved h2 result using supplied sample and population prevalences and writes below `<h2-result-dir>/postprocessing/liability-scale/`. It does not refit regression. See [heritability scale conversion](workflows/heritability.md#liability-scale-for-binary-traits).
 
 The bin table records the exact fitted-data summary used by the binned LD Score regression diagnostic. Matplotlib is included in the default package installation; run `ldsc plot --result-dir "${H2_OUTPUT_DIR}"` to create the figure explicitly.
 
@@ -488,6 +488,6 @@ See the [sumstats compatibility contract](../reference/formats/legacy-sumstats.m
 
 ## Further workflow references
 
-- [LD-score calculation](workflows/ld-scores.md), [heritability](../wiki/main-functionalities/h2.md), and [partitioned heritability](workflows/partitioned-heritability.md).
+- [LD-score calculation](workflows/ld-scores.md), [heritability](workflows/heritability.md), and [partitioned heritability](workflows/partitioned-heritability.md).
 - [BED preparation](workflows/annotations.md), [reusable annotations](workflows/annotations.md), and [resource navigation](reference-data.md).
 - [Global configuration](concepts/snp-identity-and-genome-build.md) and [interface changes](workflows/migrating-from-ldsc2.md).

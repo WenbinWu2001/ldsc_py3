@@ -2,7 +2,7 @@
 
 Last updated on: 2026-10-27
 
-This is the authoritative contributor entry for the `ldsc` package. Start here to locate a change. [Architecture](architecture.md) explains execution boundaries, [data flow](data-flow.md) explains artifact streams, and [layer structure](../current/layer-structure.md) supplies the detailed ownership matrix. These domain references supplement this entry rather than defining competing navigation maps.
+This is the authoritative contributor entry for the `ldsc` package. Start here to locate a change. [Architecture](architecture.md) explains execution boundaries, [data flow](data-flow.md) explains artifact streams, and the [ownership matrix](architecture.md#ownership-by-layer-and-workflow) shows which layer owns each object. These domain references supplement this entry rather than defining competing navigation maps.
 
 For resource-sensitive changes, start with the [memory and CPU efficiency design guide](design/memory-and-cpu.md).
 It catalogs implemented storage, streaming, reuse, and numerical-buffer designs, with owners, precision/lifetime invariants, tradeoffs, tests, and remaining large allocations.

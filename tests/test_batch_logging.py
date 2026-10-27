@@ -163,6 +163,8 @@ def test_rg_reports_trait_and_pair_totals_without_repeating_input_provenance(tmp
 
     _, source = cli_inputs(tmp_path)
     table = load_sumstats(tmp_path / "trait.parquet")
+    # rg aligns signed statistics by allele, so each trait needs A1/A2.
+    table = replace(table, data=table.data.assign(A1="A", A2="G"), has_alleles=True)
     traits = [replace(table, trait_name=f"trait-{i}") for i in range(3)]
     with caplog.at_level(logging.INFO, logger="LDSC"):
         result = RegressionRunner(regression_config=RegressionConfig(n_blocks=6, use_intercept=False)).estimate_rg_pairs(traits, source)

@@ -1484,25 +1484,25 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(dataset.effective_snp_identifier, "rsid_allele_aware")
         self.assertFalse(dataset.identity_downgrade_applied)
 
-    def test_build_rg_dataset_skips_allele_harmonization_when_alleles_are_absent(self):
+    def allele_free_table(self, trait_name):
+        table = self.make_sumstats_table()
+        return replace(table, has_alleles=False, trait_name=trait_name, source_path=f"{trait_name}.parquet",
+                       data=table.data.drop(columns=["A1", "A2"]))
+
+    def test_build_rg_dataset_rejects_trait_without_alleles(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        sumstats_1 = replace(
-            self.make_sumstats_table(),
-            has_alleles=False,
-            data=self.make_sumstats_table().data.drop(columns=["A1", "A2"]),
-        )
-        sumstats_2 = replace(
-            self.make_sumstats_table(),
-            has_alleles=False,
-            trait_name="trait2",
-            data=self.make_sumstats_table().data.drop(columns=["A1", "A2"]).assign(Z=[1.0, 2.0, 3.0]),
-        )
 
-        dataset = runner.build_rg_dataset(sumstats_1, sumstats_2, self.make_ldscore_result())
+        with self.assertRaisesRegex(LDSCInputError, r"A1/A2(.|\n)*trait2 \('trait2.parquet'\)"):
+            runner.build_rg_dataset(self.make_sumstats_table(), self.allele_free_table("trait2"),
+                                    self.make_ldscore_result())
 
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2", "rs3"])
-        self.assertFalse({"A1", "A2", "A1x", "A2x"} & set(dataset.merged.columns))
-        np.testing.assert_allclose(dataset.merged["Z2"], [1.0, 2.0, 3.0])
+    def test_estimate_rg_pairs_lists_every_trait_without_alleles_before_fitting(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        traits = [self.allele_free_table("A"), self.make_sumstats_table(), self.allele_free_table("C")]
+
+        with mock.patch.object(runner, "build_dataset", side_effect=AssertionError("fitting started")):
+            with self.assertRaisesRegex(LDSCInputError, r"A \('A.parquet'\), C \('C.parquet'\)(.|\n)*munge-sumstats"):
+                runner.estimate_rg_pairs(traits, self.make_ldscore_result())
 
     def test_build_dataset_warns_when_dropping_zero_variance_ld_columns(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())

@@ -598,13 +598,14 @@ class RegressionRunner:
         """Build the complete genetic-correlation preprocessing dataset.
 
         This helper merges trait 1, trait 2, and baseline LD scores on the
-        resolved SNP identifier, drops missing rows, harmonizes alleles when
-        possible, and only then removes zero-variance LD-score columns on the
-        final RG SNP set. Allele harmonization exists, but it is skipped if
-        allele columns are absent.
+        resolved SNP identifier, drops missing rows, aligns trait 2's alleles
+        and signed statistic to trait 1, and only then removes zero-variance
+        LD-score columns on the final RG SNP set. Both traits must carry
+        ``A1``/``A2``; otherwise ``LDSCInputError`` is raised.
         """
         print_global_config_banner(type(self).__name__, self.global_config)
         config = config or self.regression_config
+        _require_rg_alleles([sumstats_table_1, sumstats_table_2])
         legacy_drop_frames: list[pd.DataFrame] = []
         if _is_legacy_sumstats(sumstats_table_1):
             sumstats_table_1, drops = _project_legacy_sumstats_to_panel(sumstats_table_1, ldscore_result)
@@ -733,26 +734,25 @@ class RegressionRunner:
                 f"for same-family allele-aware/base mixes. Other causes & fixes: {_REGRESSION_NO_OVERLAP_DOC}"
             )
 
-        if {"A1", "A2", "A1x", "A2x"}.issubset(merged.columns):
-            alleles = merged["A1"] + merged["A2"] + merged["A1x"] + merged["A2x"]
-            keep = reg._filter_alleles(alleles)
-            kept_alleles = alleles.loc[keep].reset_index(drop=True)
-            merged = merged.loc[keep].reset_index(drop=True)
-            if merged.empty:
-                raise LDSCInputError(
-                    "rg regression retained no allele-compatible SNPs after harmonizing the two sumstats tables. "
-                    "Most likely the traits use different effect-allele conventions or one input was not allele "
-                    "harmonized during munging. Regenerate both munged sumstats with A1/A2 columns and matching "
-                    "SNP identifier mode."
-                )
-            merged["Z2"] = reg._align_alleles(merged["Z2"].copy(), kept_alleles)
-            if "FRQ2" in merged.columns:
-                flip_index = kept_alleles.map(reg.FLIP_ALLELES).astype(bool)
-                valid_frq = pd.to_numeric(merged["FRQ2"], errors="coerce").between(0.0, 1.0, inclusive="both")
-                transform = flip_index & valid_frq
-                merged.loc[transform, "FRQ2"] = 1.0 - pd.to_numeric(
-                    merged.loc[transform, "FRQ2"], errors="coerce"
-                )
+        alleles = merged["A1"] + merged["A2"] + merged["A1x"] + merged["A2x"]
+        keep = reg._filter_alleles(alleles)
+        kept_alleles = alleles.loc[keep].reset_index(drop=True)
+        merged = merged.loc[keep].reset_index(drop=True)
+        if merged.empty:
+            raise LDSCInputError(
+                "rg regression retained no allele-compatible SNPs after harmonizing the two sumstats tables. "
+                "Most likely the traits use different effect-allele conventions or one input was not allele "
+                "harmonized during munging. Regenerate both munged sumstats with A1/A2 columns and matching "
+                "SNP identifier mode."
+            )
+        merged["Z2"] = reg._align_alleles(merged["Z2"].copy(), kept_alleles)
+        if "FRQ2" in merged.columns:
+            flip_index = kept_alleles.map(reg.FLIP_ALLELES).astype(bool)
+            valid_frq = pd.to_numeric(merged["FRQ2"], errors="coerce").between(0.0, 1.0, inclusive="both")
+            transform = flip_index & valid_frq
+            merged.loc[transform, "FRQ2"] = 1.0 - pd.to_numeric(
+                merged.loc[transform, "FRQ2"], errors="coerce"
+            )
 
         retained_ld_columns = list(ref_ld_columns)
         dropped_ld_columns: list[str] = []
@@ -1342,6 +1342,9 @@ class RegressionRunner:
                 "Most likely the anchor trait was resolved against a different input list. "
                 "Pass an anchor trait name or path that belongs to the current `--sumstats-sources` list."
             )
+        # Reject allele-free traits before any fit; a pair-level error would be
+        # recorded as a failed pair instead of stopping the run.
+        _require_rg_alleles(tables)
 
         _regression_genome_build(tables, ldscore_result,
                                  _ldscore_identity_mode(ldscore_result, self.global_config), context="rg")
@@ -2415,6 +2418,20 @@ def _intercept_policy(value: float | None, use_intercept: bool, default_when_dis
     if value is None:
         return "free"
     return f"fixed:{float(value):g}"
+
+
+def _require_rg_alleles(tables: Sequence[SumstatsTable]) -> None:
+    """Reject traits without ``A1``/``A2``; rg needs them to align signed statistics."""
+    missing = [table for table in tables if not {"A1", "A2"}.issubset(table.data.columns)]
+    if missing:
+        listed = ", ".join(f"{_trait_label(table)} ('{table.source_path or 'in-memory table'}')" for table in missing)
+        raise LDSCInputError(
+            "rg needs A1/A2 allele columns in every munged summary statistics input to align the signed "
+            f"statistics of the two traits, but these inputs have none: {listed}. Most likely they were munged "
+            "in a base mode (`rsid` or `chr_pos`) from raw summary statistics without allele columns. Re-run "
+            "`ldsc munge-sumstats` for them with allele columns, adding `--a1`/`--a2` hints if the column names "
+            "are not recognized."
+        )
 
 
 def _trait_label(table: SumstatsTable) -> str:

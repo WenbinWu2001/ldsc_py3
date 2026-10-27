@@ -1973,73 +1973,24 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
         across batch files. No query LD tables remain resident after return.
         For a small calculation without writes, use prepared inputs with
         ``LDScoreCalculator.run(..., output_config=None)`` instead.
+
+    Raises
+    ------
+    LDSCUsageError
+        Before anything is written, when a keyword is not an ``ldscore``
+        option name, ``output_dir`` is missing, a value is outside the
+        command's choices, a flag is not a bool, or ``snp_identifier``,
+        ``genome_build`` or ``log_level`` is passed.
     """
-    forbidden = sorted({"snp_identifier", "genome_build", "log_level"} & set(kwargs))
-    if forbidden:
-        joined = ", ".join(forbidden)
-        raise LDSCUsageError(
-            f"Python run_ldscore() cannot accept shared runtime option(s): {joined}. "
-            "Most likely this call still passes pre-restructure keyword arguments for "
-            "SNP identity, genome build, or logging. Call set_global_config(...) first, "
-            "then pass only LD-score run-specific options to run_ldscore()."
-        )
-    removed = sorted(
-        {
-            "out",
-            "baseline_annot",
-            "query_annot",
-            "query_annot_bed",
-            "bfile",
-            "r2_table",
-            "frqfile",
-            "keep",
-            "baseline_annot_paths",
-            "query_annot_paths",
-            "query_annot_bed_paths",
-            "plink_path",
-            "r2_paths",
-            "metadata_paths",
-            "r2_ref_panel_dir",
-            "ref_panel_dir",
-            "r2_sources",
-            "metadata_sources",
-            "ref_panel_snps_path",
-            "regression_snps_path",
-            "keep_indivs_path",
-            "chunk_size",
-            "maf",
-            "control_gene_list_source",
-            "threads",
-        }
-        & set(kwargs)
-    )
-    if removed:
-        joined = ", ".join(removed)
-        raise LDSCUsageError(
-            f"Python run_ldscore() cannot accept removed IO argument(s): {joined}. "
-            "Most likely this call still uses legacy keyword names from the old LDSC API. "
-            "Use CLI-style names such as `baseline_annot_sources`, `query_annot_sources`, "
-            "`plink_prefix`, `r2_dir`, `workers`, and `output_dir`."
-        )
-    if not kwargs.get("output_dir"):
-        raise LDSCUsageError(
-            "run_ldscore() requires output_dir. Pass an explicit directory for the canonical LD-score artifacts."
-        )
-    parser = build_parser()
-    defaults = {
-        action.dest: action.default
-        for action in parser._actions
-        if action.dest != "help" and action.default is not argparse.SUPPRESS
-    }
-    global_config = get_global_config()
-    if kwargs.get("gene_ldscore_index_dir") is None:
+    from ._workflow_kwargs import GLOBAL_CONFIG_RUNTIME_OPTIONS, namespace_from_kwargs
+
+    args = namespace_from_kwargs("run_ldscore", build_parser(), kwargs, rejected=GLOBAL_CONFIG_RUNTIME_OPTIONS)
+    if args.gene_ldscore_index_dir is None:
         # Indexed mode inherits identity and build from the index; the parser
         # defaults stand for "not supplied" in its live-override check.
-        defaults["snp_identifier"] = global_config.snp_identifier
-        defaults["genome_build"] = global_config.genome_build
-    defaults["log_level"] = global_config.log_level
-    defaults.update(kwargs)
-    args = argparse.Namespace(**defaults)
+        global_config = get_global_config()
+        args.snp_identifier = global_config.snp_identifier
+        args.genome_build = global_config.genome_build
     args._explicit_cli_options = frozenset(
         "--" + key.replace("_", "-") for key in kwargs
     )

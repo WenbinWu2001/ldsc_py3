@@ -232,11 +232,11 @@ class LDScoreWorkflowTest(unittest.TestCase):
     def test_run_ldscore_rejects_removed_parquet_input_kwargs(self):
         for name in ("r2_ref_panel_dir", "ref_panel_dir", "r2_sources", "metadata_sources", "chunk_size"):
             with self.subTest(name=name):
-                with self.assertRaisesRegex(LDSCUsageError, "removed IO argument"):
+                with self.assertRaisesRegex(LDSCUsageError, "unknown keyword argument"):
                     ldscore_workflow.run_ldscore(output_dir="out", **{name: "value"})
 
     def test_run_ldscore_requires_output_dir_without_creating_a_placeholder(self):
-        with self.assertRaisesRegex(LDSCUsageError, "requires output_dir"):
+        with self.assertRaisesRegex(LDSCUsageError, r"missing required keyword argument\(s\) output_dir"):
             ldscore_workflow.run_ldscore(plink_prefix="panel", ld_wind_snps=10)
 
     def test_calculator_rejects_ref_metadata_export_without_output_config(self):

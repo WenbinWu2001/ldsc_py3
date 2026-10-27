@@ -878,7 +878,7 @@ def run_quantile_h2(**kwargs) -> QuantileH2Result:
     """
     from ._workflow_kwargs import run_from_kwargs
 
-    return run_from_kwargs("run_quantile_h2", add_quantile_h2_arguments, run_quantile_h2_from_args, kwargs)
+    return run_from_kwargs("run_quantile_h2", build_parser(), run_quantile_h2_from_args, kwargs)
 
 
 def main(argv: Sequence[str] | None = None) -> QuantileH2Result:

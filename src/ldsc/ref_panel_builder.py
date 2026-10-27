@@ -1692,67 +1692,26 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
     The wrapper accepts the same modern I/O and build names as
     ``ldsc build-r2-panel``. The shared identifier mode comes from the
     registered ``GlobalConfig``; call ``set_global_config(...)`` before
-    invoking this wrapper. ``GlobalConfig.genome_build`` is ignored here.
-    Both ``plink_prefix`` and ``output_dir`` are required because this public
-    workflow materializes a reference-panel artifact family.
-    """
-    forbidden = sorted({"genome_build", "log_level", "snp_identifier"} & set(kwargs))
-    if forbidden:
-        joined = ", ".join(forbidden)
-        raise LDSCUsageError(
-            f"Python run_build_ref_panel() cannot accept shared runtime option(s): {joined}. "
-            "Most likely this call still passes pre-restructure keyword arguments for "
-            "SNP identity, genome build, or logging. Call set_global_config(...) first, "
-            "then pass only build-r2-panel run-specific options."
-        )
-    removed = sorted(
-        {
-            "bfile",
-            "out",
-            "panel_label",
-            "plink_path",
-            "genetic_map_hg19_path",
-            "genetic_map_hg38_path",
-            "liftover_chain_hg19_to_hg38_path",
-            "liftover_chain_hg38_to_hg19_path",
-            "ref_panel_snps_path",
-            "keep_indivs_path",
-            "genetic_map_hg19",
-            "genetic_map_hg38",
-            "liftover_chain_hg19_to_hg38",
-            "liftover_chain_hg38_to_hg19",
-            "keep_indivs",
-            "maf",
-        }
-        & set(kwargs)
-    )
-    if removed:
-        joined = ", ".join(removed)
-        raise LDSCUsageError(
-            f"Python run_build_ref_panel() cannot accept removed IO argument(s): {joined}. "
-            "Most likely this call still uses legacy keyword names from the old LDSC API. "
-            "Use CLI-style names such as `plink_prefix`, `genetic_map_hg19_sources`, "
-            "`genetic_map_hg38_sources`, `keep_indivs_file`, and `output_dir`."
-        )
+    invoking this wrapper. ``GlobalConfig.genome_build`` is ignored here; pass
+    ``source_genome_build`` for the PLINK input build. Both ``plink_prefix``
+    and ``output_dir`` are required because this public workflow materializes
+    a reference-panel artifact family.
 
-    if not kwargs.get("output_dir"):
-        raise LDSCUsageError(
-            "run_build_ref_panel() requires output_dir. Pass an explicit directory for the reference-panel artifacts."
-        )
-    if not kwargs.get("plink_prefix"):
-        raise LDSCUsageError(
-            "run_build_ref_panel() requires plink_prefix. Pass the PLINK prefix used to build the panel."
-        )
-    parser = build_parser()
-    defaults = {
-        action.dest: action.default
-        for action in parser._actions
-        if action.dest != "help" and action.default is not argparse.SUPPRESS
+    Raises
+    ------
+    LDSCUsageError
+        Before anything is written, when a keyword is not a ``build-r2-panel``
+        option name, a required one is missing, a value is outside the
+        command's choices, a flag is not a bool, or ``snp_identifier``,
+        ``genome_build`` or ``log_level`` is passed.
+    """
+    from ._workflow_kwargs import GLOBAL_CONFIG_RUNTIME_OPTIONS, namespace_from_kwargs
+
+    rejected = {
+        **GLOBAL_CONFIG_RUNTIME_OPTIONS,
+        "genome_build": "pass source_genome_build for the PLINK input build; GlobalConfig.genome_build is not used",
     }
-    global_config = get_global_config()
-    defaults["log_level"] = global_config.log_level
-    defaults.update(kwargs)
-    args = argparse.Namespace(**defaults)
+    args = namespace_from_kwargs("run_build_ref_panel", build_parser(), kwargs, rejected=rejected)
     return run_build_ref_panel_from_args(args)
 
 

@@ -3307,9 +3307,9 @@ def run_h2(**kwargs) -> pd.DataFrame:
     Existing outputs stop the run unless ``overwrite=True``; a failed
     authorized overwrite leaves ``RUN_FAILED.txt`` naming this call.
     """
-    from ._workflow_kwargs import run_from_kwargs
+    from ._workflow_kwargs import command_parser, run_from_kwargs
 
-    return run_from_kwargs("run_h2", add_h2_arguments, run_h2_from_args, kwargs)
+    return run_from_kwargs("run_h2", command_parser(add_h2_arguments), run_h2_from_args, kwargs)
 
 
 def run_partitioned_h2(**kwargs) -> PartitionedH2BatchResult:
@@ -3354,9 +3354,11 @@ def run_partitioned_h2(**kwargs) -> PartitionedH2BatchResult:
     Existing outputs stop the run unless ``overwrite=True``; a failed
     authorized overwrite leaves ``RUN_FAILED.txt`` naming this call.
     """
-    from ._workflow_kwargs import run_from_kwargs
+    from ._workflow_kwargs import command_parser, run_from_kwargs
 
-    return run_from_kwargs("run_partitioned_h2", add_partitioned_h2_arguments, run_partitioned_h2_from_args, kwargs)
+    return run_from_kwargs(
+        "run_partitioned_h2", command_parser(add_partitioned_h2_arguments), run_partitioned_h2_from_args, kwargs
+    )
 
 
 def run_rg(**kwargs) -> RgResultFamily:
@@ -3404,7 +3406,7 @@ def run_rg(**kwargs) -> RgResultFamily:
     ``overwrite=True``; a failed authorized overwrite leaves
     ``RUN_FAILED.txt`` naming this call.
     """
-    from ._workflow_kwargs import run_from_kwargs
+    from ._workflow_kwargs import command_parser, run_from_kwargs
 
     for name in ("samp_prev", "pop_prev"):
         value = kwargs.get(name)
@@ -3415,7 +3417,7 @@ def run_rg(**kwargs) -> RgResultFamily:
             )
         if value is not None and not isinstance(value, str):
             kwargs[name] = ",".join(str(item) for item in value)
-    return run_from_kwargs("run_rg", add_rg_arguments, run_rg_from_args, kwargs)
+    return run_from_kwargs("run_rg", command_parser(add_rg_arguments), run_rg_from_args, kwargs)
 
 
 def _add_common_regression_arguments(parser, include_h2_intercept: bool):

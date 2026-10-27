@@ -40,7 +40,9 @@ def _invoke(module, name, args, kwargs, log_level):
             result = function(*args, **kwargs)
             error = None
         except Exception as exc:
-            logger.error("Calculation failed:\n%s", traceback.format_exc())
+            # A note keeps the child traceback for the parent's workflow-log
+            # footer without adding an ERROR record, which the CLI would echo.
+            exc.add_note("Calculation child traceback:\n" + traceback.format_exc().rstrip())
             exc.__traceback__ = exc.__context__ = exc.__cause__ = None
             result, error = None, exc
     return result, handler.records, [(str(w.message), w.category, w.filename, w.lineno) for w in caught], error

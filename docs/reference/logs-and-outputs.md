@@ -24,6 +24,7 @@ Public workflow entry points share one logging policy:
   owned siblings that are not produced by the current run. If preflight fails,
   no new log file is created.
 - If an exception escapes an opened workflow logging context, the log is kept with a `Failed` footer, the full Python traceback, and elapsed time.
+  When the exception was raised in a calculation worker, the footer traceback ends with a `Calculation child traceback:` note that holds the worker's frames; the terminal still shows only the one-line error.
   Abrupt process termination can interrupt logging before a footer or traceback is written.
 - `--log-level` controls module-record verbosity. With an output directory, those
   records go to the workflow log file (see routing below); lifecycle audit lines

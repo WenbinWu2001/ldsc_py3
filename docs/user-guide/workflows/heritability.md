@@ -70,9 +70,9 @@ results/trait_h2/
 | `total_h2_obs`, `total_h2_obs_se` | SNP heritability on the observed scale and its block-jackknife standard error: the headline result |
 | `total_h2_liab`, `total_h2_liab_se` | SNP heritability on the liability scale; `NaN` unless `--samp-prev` and `--pop-prev` are given |
 | `samp_prev`, `pop_prev` | Sample and population prevalence used for the liability scale, or `NaN` |
-| `intercept`, `intercept_se` | Regression intercept; 1 means no confounding, and larger values indicate confounding such as population stratification; the standard error is missing when the intercept is fixed |
+| `intercept`, `intercept_se` | Regression intercept; 1 means no confounding, and larger values indicate confounding such as population stratification; the standard error is `NaN` when the intercept is fixed |
 | `mean_chisq`, `lambda_gc` | Mean $\chi^2$ and genomic-control $\lambda$ of the fitted SNPs |
-| `ratio`, `ratio_se` | $(\text{intercept} - 1)/(\text{mean } \chi^2 - 1)$, the share of the inflation in mean $\chi^2$ that the intercept attributes to confounding; missing when the intercept is fixed or mean $\chi^2 \le 1$ |
+| `ratio`, `ratio_se` | $(\text{intercept} - 1)/(\text{mean } \chi^2 - 1)$, the share of the inflation in mean $\chi^2$ that the intercept attributes to confounding; `NaN` when the intercept is fixed or mean $\chi^2 \le 1$ |
 
 SNP heritability refers to the SNPs counted in the denominator: common-SNP counts by default (see [options](#options-you-may-change)).
 

@@ -1987,7 +1987,9 @@ def summarize_total_h2(
     Reports total heritability on both the observed (``total_h2_obs``) and
     liability (``total_h2_liab``) scales, plus the prevalences applied. Liability
     columns are NaN unless both ``samp_prev`` and ``pop_prev`` are finite
-    probabilities in (0, 1). ``n_snps_used`` is the post-chi-square-filter SNP
+    probabilities in (0, 1). ``intercept_se`` is NaN for a fixed intercept, and
+    ``ratio``/``ratio_se`` are NaN when the mean chi-square is at most 1.
+    ``n_snps_used`` is the post-chi-square-filter SNP
     count from the internal fit outcome; when omitted it falls back
     to the supplied dataset's row count. Workflows supply the fitted dataset.
     """
@@ -2006,11 +2008,11 @@ def summarize_total_h2(
                 "samp_prev": _prev_cell(samp_prev),
                 "pop_prev": _prev_cell(pop_prev),
                 "intercept": _scalar_or_value(hsq.intercept),
-                "intercept_se": getattr(hsq, "intercept_se", None),
+                "intercept_se": _numeric_scalar(getattr(hsq, "intercept_se", None), "intercept_se"),
                 "mean_chisq": _scalar_or_value(hsq.mean_chisq),
                 "lambda_gc": _scalar_or_value(hsq.lambda_gc),
-                "ratio": getattr(hsq, "ratio", None),
-                "ratio_se": getattr(hsq, "ratio_se", None),
+                "ratio": _numeric_scalar(getattr(hsq, "ratio", None), "ratio"),
+                "ratio_se": _numeric_scalar(getattr(hsq, "ratio_se", None), "ratio_se"),
             }
         ]
     )

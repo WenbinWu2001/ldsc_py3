@@ -273,6 +273,31 @@ def cli_inputs(tmp_path):
             "--output-dir", str(tmp_path / "out"), "--n-blocks", "6", "--query-batch-size", "2"], source
 
 
+def _run_h2_cli(tmp_path, *, z_scale, options):
+    table, _ = batch_inputs(tmp_path / "ld")
+    path = tmp_path / "trait.parquet"
+    fixtures.RegressionWorkflowTest().write_footer_sumstats_parquet(
+        path, frame=table.data.assign(Z=table.data.Z * z_scale), trait_name="MDD")
+    summary = cli.main(["h2", "--ldscore-dir", str(tmp_path / "ld"), "--sumstats-file", str(path),
+                        "--output-dir", str(tmp_path / "out"), "--n-blocks", "6", *options])
+    written = pd.read_csv(tmp_path / "out" / "h2.tsv", sep="\t", keep_default_na=False)
+    return summary, written
+
+
+@pytest.mark.parametrize(("case", "z_scale", "options", "fields"), [
+    ("mean chi-square <= 1", 0.01, (), ["ratio", "ratio_se"]),
+    ("fixed intercept", 1.0, ("--intercept-h2", "1"), ["intercept_se"]),
+])
+def test_h2_reports_unavailable_kernel_statistics_as_nan(tmp_path, case, z_scale, options, fields):
+    summary, written = _run_h2_cli(tmp_path, z_scale=z_scale, options=options)
+
+    if case == "mean chi-square <= 1":
+        assert summary.loc[0, "mean_chisq"] <= 1
+    for field in fields:
+        assert isinstance(summary.loc[0, field], float) and np.isnan(summary.loc[0, field])
+        assert written.loc[0, field] == "NaN"
+
+
 @pytest.mark.parametrize("batch_size", [2, 1000])
 def test_parallel_queries_match_inline_models_and_artifact_order(tmp_path, batch_size):
     table, source = batch_inputs(tmp_path / "ld")

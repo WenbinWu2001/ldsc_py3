@@ -89,6 +89,33 @@ Successful inference for one input must not stop evidence collection for the rem
 An exhaustive build check of every coordinate row is not performed.
 Mixtures confined to unsampled rows can escape detection.
 
+### Inference method and reference maps
+
+`infer_chr_pos_build()` in `src/ldsc/genome_build_inference.py` compares input `(CHR, POS)` pairs with four hypotheses: hg19 one-based, hg19 zero-based, hg38 one-based, and hg38 zero-based.
+It deduplicates valid pairs, counts a pair as informative only when it matches exactly one hypothesis, and accepts the best hypothesis only when the thresholds above are met.
+When the best hypothesis falls short, the error lists the matched counts and fractions for all four hypotheses; [troubleshooting](../user-guide/troubleshooting.md#common-genome-build-could-not-be-inferred) explains how to read them.
+Zero-based input is converted to one-based positions before downstream matching; all normalized coordinates used downstream are one-based.
+
+Inference uses the compact packaged reference `src/ldsc/data/hm3_chr_pos_reference.tsv.gz`: 22,000 HapMap3 SNPs, up to 1,000 per autosome, with columns `CHR`, `hg19_POS` and `hg38_POS` (one-based).
+Its SNPs are non-strand-ambiguous, unique in both `(CHR, hg19_POS)` and `(CHR, hg38_POS)`, have different hg19 and hg38 positions, and are evenly spaced by hg38 position; no allele-frequency filter is applied.
+It is built from the HM3 map with `python tools/hm3/build_hm3_chr_pos_reference.py --curated-map src/ldsc/data/hm3_curated_map.tsv.gz --output src/ldsc/data/hm3_chr_pos_reference.tsv.gz` and loaded once per process by `load_packaged_reference_table()`.
+The HM3 map itself (`src/ldsc/data/hm3_curated_map.tsv.gz`, loaded by `ldsc.load_hm3_curated_map()` with columns `CHR`, `hg19_POS`, `hg38_POS`, `SNP`, `A1` and `A2`) is the regression-SNP, restriction and quick-liftover map, not the inference reference; allele-aware keep-list matching uses its `A1` and `A2`.
+
+Evidence collected per input type before a workflow build is resolved (`GenomeBuildCheck` in `src/ldsc/_genome_build_policy.py`):
+
+| Input type | Evidence |
+| --- | --- |
+| Raw summary statistics (text or gzip) and PLINK BIM files | Coordinate columns are streamed, and at most 5,000 usable rows per file and chromosome are kept for inference. |
+| Annotation chromosome suites | All selected shards are checked, using applicable metadata before coordinate samples. |
+| Parquet artifacts | Concrete build declarations in schema metadata are preferred; otherwise recognized SNP coordinate columns are used. |
+| Build-specific coordinate columns | Named hg19 and hg38 positions are declared alternatives; the workflow selects the build it needs. |
+| Ordinary BED files and rsID-only keep lists | No SNP coordinate inference: BED files inherit the workflow build, and rsID filtering needs no coordinate check. |
+
+A panel directory name is not evidence of its build; use a build-specific R² panel directory when a workflow needs one build.
+R² panels declare their build in the required `ldsc:sorted_by_build` metadata ([R² panel format](formats/r2-panels.md)), read from the Parquet footer without row data; a panel whose build differs from the run's genome build is an error.
+Munging resolves the source build before any requested conversion and records only the final output build in the Parquet identity footer of the munged summary statistics; source-build evidence is never reported as the output build.
+When inference succeeds, the workflow log records the selected build, the coordinate basis and the support for all four hypotheses.
+
 ### SNP keep-list rules
 
 Build validation depends on the SNP identifiers actually used for filtering, not merely on which columns happen to be present in the keep-list.

@@ -1,6 +1,6 @@
 # LD Score Calculation
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-built SNP-level annotations, or from raw BED/gene-list queries plus an explicit baseline.
 
@@ -109,10 +109,8 @@ Important output behavior:
 
 Performance behavior for canonical parquet R2 input:
 
-- `snp_batch_size` / `--snp-batch-size` controls the number of SNPs processed per LD-score sliding batch; the default is `128`
-- the canonical parquet reader automatically sizes a decoded row-group cache once per chromosome from the actual LD window and `snp_batch_size`
-- cache entries are decoded row groups with numeric endpoint indices and R2 values, not pandas DataFrames or SNP strings
-- the cache only avoids rereading overlapping parquet row groups; every query still computes its required row-group set and filters to the current SNP window, so cache state does not affect correctness
+- the reader streams each stored pair once, in bounded batches, keeps the pairs inside the requested LD window, and caches no row groups; see [LD-score computation from R² Parquets](../docs/current/ldscore-parquet-accumulation.md#5-the-streaming-algorithm)
+- `snp_batch_size` / `--snp-batch-size` applies only to PLINK input and is ignored with `--r2-dir`; with PLINK input it changes speed and memory, not LD scores (default `128`)
 
 ## Case 1: Ordinary Unpartitioned LD Scores
 
@@ -137,7 +135,6 @@ result = run_ldscore(
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
     common_maf_min=0.05,
     ld_wind_cm=1.0,
-    # snp_batch_size=128,  # optional; also controls parquet cache sizing
 )
 
 print(result.baseline_columns)
@@ -154,7 +151,6 @@ ldsc ldscore \
   --genome-build hg38 \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
-# Add --snp-batch-size 128 only when intentionally tuning the sliding batch size.
 ```
 
 ## Case 2: Existing SNP-Level Annotation Files

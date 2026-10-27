@@ -83,7 +83,7 @@ from ._annotation_sources import prepare_annotation_sources
 from .chromosome_inference import normalize_chromosome, normalize_chromosome_series
 from ._coordinates import positive_int_position_series
 from .column_inference import normalize_genome_build
-from .config import DEFAULT_SNP_BATCH_SIZE, GeneLDScoreIndexBuildConfig, GlobalConfig
+from .config import DEFAULT_SNP_BATCH_SIZE, GeneLDScoreIndexBuildConfig, GlobalConfig, get_global_config
 from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 from .gene_list_resolver import (
     GeneCatalog,
@@ -309,7 +309,7 @@ def build_gene_ldscore_index(
     genetic_map_hg19_sources: str | None = None,
     genetic_map_hg38_sources: str | None = None,
     overwrite: bool = False,
-    log_level: str = "INFO",
+    log_level: str | None = None,
 ) -> Path:
     """Build and transactionally publish one complete gene LD-score index.
 
@@ -335,7 +335,8 @@ def build_gene_ldscore_index(
         ``.<output-name>.build-state/build-gene-ldscore-index.log`` so it is
         never part of the replaceable index transaction. After success, the
         closed log moves into ``<output_dir>/diagnostics``. Default is
-        ``"INFO"``.
+        ``None``: use the registered ``GlobalConfig.log_level`` (``"INFO"``
+        unless changed).
 
     Returns
     -------
@@ -407,7 +408,7 @@ def build_gene_ldscore_index(
             atom_batch_size=config.atom_batch_size,
             workers=config.workers,
             overwrite=overwrite,
-            log_level=log_level,
+            log_level=get_global_config().log_level if log_level is None else log_level,
         )
     )
 

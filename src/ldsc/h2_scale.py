@@ -34,6 +34,7 @@ import pandas as pd
 
 from ._kernel.regression import liability_conversion_factor
 from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
+from .config import get_global_config
 from .errors import LDSCDependencyError, LDSCInputError, LDSCUsageError
 from .path_resolution import (
     ensure_output_directory,
@@ -101,7 +102,7 @@ def convert_h2_scale(
     num_points: int = 201,
     output_dir: str | os.PathLike[str] | None = None,
     overwrite: bool = False,
-    log_level: str = "INFO",
+    log_level: str | None = None,
 ) -> H2ScaleConversionArtifact:
     """Convert a saved observed-scale SNP-heritability estimate.
 
@@ -125,7 +126,8 @@ def convert_h2_scale(
     overwrite : bool, optional
         Replace this conversion's fixed artifact family. Default is ``False``.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
-        Workflow log threshold. Default is ``"INFO"``.
+        Workflow log threshold. Default is ``None``: use the registered
+        ``GlobalConfig.log_level`` (``"INFO"`` unless changed).
 
     Returns
     -------
@@ -231,6 +233,7 @@ def convert_h2_scale(
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
+    log_level = get_global_config().log_level if log_level is None else log_level
     with workflow_logging("convert-h2-scale", paths["log"], log_level=log_level):
         log_inputs(
             h2_result_dir=source_dir,

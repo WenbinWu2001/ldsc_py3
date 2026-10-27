@@ -33,6 +33,7 @@ from typing import Any
 import pandas as pd
 
 from .._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
+from ..config import get_global_config
 from ..errors import LDSCDependencyError, LDSCInputError
 from ..path_resolution import ensure_output_directory, normalize_path_token, preflight_output_artifact_family
 
@@ -85,7 +86,7 @@ def plot_result(
     *,
     output_dir: str | os.PathLike[str] | None = None,
     overwrite: bool = False,
-    log_level: str = "INFO",
+    log_level: str | None = None,
 ) -> PlotArtifact:
     """Create the approved plot for a canonical LDSC result.
 
@@ -101,7 +102,8 @@ def plot_result(
         Replace the selected plot family's fixed PNG, metadata, and log.
         Default is ``False``.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
-        Workflow log threshold. Default is ``"INFO"``.
+        Workflow log threshold. Default is ``None``: use the registered
+        ``GlobalConfig.log_level`` (``"INFO"`` unless changed).
 
     Returns
     -------
@@ -206,6 +208,7 @@ def plot_result(
     try:
         ensure_output_directory(destination, label="plot output directory")
         ensure_output_directory(destination / "diagnostics", label="plot diagnostics directory")
+        log_level = get_global_config().log_level if log_level is None else log_level
         with workflow_logging("plot", paths["log"], log_level=log_level):
             log_inputs(result_dir=source_dir, source_table=source_path, plot_kind=contract.kind)
             if metadata["artifact_type"] == "rg_result":

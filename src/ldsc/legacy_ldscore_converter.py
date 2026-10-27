@@ -24,7 +24,7 @@ from ._cli_help import CLIHelpFormatter
 from ._logging import LOG_LEVEL_HELP
 from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
-from .config import GlobalConfig
+from .config import GlobalConfig, get_global_config
 from .errors import LDSCInputError, LDSCUsageError
 from .ldscore_calculator import LDScoreResult
 from .overlap_matrix import LDScoreOverlap
@@ -104,15 +104,6 @@ class LegacyLDScoreConverter:
     identity modes and fixes legacy common-count semantics at ``0.05``.
     """
 
-    @serial_calculation
-    @materializing_overwrite_guard(
-        lambda self, **kwargs: (
-            (kwargs["output_dir"], kwargs.get("overwrite", False), "RUN_FAILED.txt")
-            if kwargs.get("output_dir")
-            else None
-        ),
-        command="LegacyLDScoreConverter.convert(...)",
-    )
     def convert(
         self,
         *,
@@ -123,7 +114,7 @@ class LegacyLDScoreConverter:
         snp_identifier: str = "rsid",
         genome_build: str | None = "auto",
         overwrite: bool = False,
-        log_level: str = "INFO",
+        log_level: str | None = None,
     ) -> LegacyLDScoreConversionResult:
         """Convert one complete autosomal legacy suite.
 
@@ -148,7 +139,8 @@ class LegacyLDScoreConverter:
             Replace converter-owned outputs when true. Source files are never
             changed. Default is false.
         log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
-            Workflow log threshold. Default is ``"INFO"``.
+            Workflow log threshold. Default is ``None``: use the registered
+            ``GlobalConfig.log_level`` (``"INFO"`` unless changed).
 
         Returns
         -------
@@ -163,6 +155,41 @@ class LegacyLDScoreConverter:
         LDSCUsageError
             If an allele-aware output mode is requested.
         """
+        # The conversion child starts with the package-default GlobalConfig,
+        # so the session's log level is resolved here, in the caller.
+        return self._convert(
+            legacy_reference_dir=legacy_reference_dir,
+            legacy_weight_dir=legacy_weight_dir,
+            output_dir=output_dir,
+            legacy_frequency_dir=legacy_frequency_dir,
+            snp_identifier=snp_identifier,
+            genome_build=genome_build,
+            overwrite=overwrite,
+            log_level=get_global_config().log_level if log_level is None else log_level,
+        )
+
+    @serial_calculation
+    @materializing_overwrite_guard(
+        lambda self, **kwargs: (
+            (kwargs["output_dir"], kwargs.get("overwrite", False), "RUN_FAILED.txt")
+            if kwargs.get("output_dir")
+            else None
+        ),
+        command="LegacyLDScoreConverter.convert(...)",
+    )
+    def _convert(
+        self,
+        *,
+        legacy_reference_dir: str | Path,
+        legacy_weight_dir: str | Path,
+        output_dir: str | Path,
+        legacy_frequency_dir: str | Path | None,
+        snp_identifier: str,
+        genome_build: str | None,
+        overwrite: bool,
+        log_level: str,
+    ) -> LegacyLDScoreConversionResult:
+        """Run :meth:`convert` with a resolved log level in the managed child."""
         mode = normalize_snp_identifier_mode(snp_identifier)
         if mode not in {"rsid", "chr_pos"}:
             raise LDSCUsageError(
@@ -685,7 +712,7 @@ def convert_ldsc2_ldscores(
     snp_identifier: str = "rsid",
     genome_build: str | None = "auto",
     overwrite: bool = False,
-    log_level: str = "INFO",
+    log_level: str | None = None,
 ) -> LegacyLDScoreConversionResult:
     """Convert one selected LDSC2 LD-score suite to a canonical LDSC3 directory.
 
@@ -704,7 +731,8 @@ def convert_ldsc2_ldscores(
     overwrite : bool, optional
         Replace converter-owned destination files. Default is false.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
-        Converter log threshold. Default is ``"INFO"``.
+        Converter log threshold. Default is ``None``: use the registered
+        ``GlobalConfig.log_level`` (``"INFO"`` unless changed).
 
     Returns
     -------

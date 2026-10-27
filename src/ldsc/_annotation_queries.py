@@ -71,6 +71,34 @@ def prepare_bed_queries(paths, workspace, *, chunk_rows=4096):
     return sources
 
 
+_BED_FAILURE_ISSUES = {
+    'malformed_input': ('invalid_required_input',
+                        'Correct the listed line so each BED row has a chromosome and integer start/end with '
+                        '0 <= start < end; leaving the file out instead removes that query from the outputs.'),
+    'unreadable_source': ('unreadable_required_input',
+                          'Check that the file is complete and readable from this node, for example that a '
+                          'gzip file was fully copied; leaving it out instead removes that query from the outputs.'),
+}
+
+
+def require_readable_bed_sources(bed_sources, issues_path=None):
+    """Stop annotate when any requested BED file could not be read or parsed.
+
+    Every failed source is reported in one error before projection. A BED file
+    without intervals is not a failure here; it stays a skipped
+    ``empty_input`` query.
+    """
+    from ._annotation_preflight import input_issue
+    from ._input_preflight import InputGate
+
+    issues = []
+    for source in bed_sources:
+        if source.failure_reason:
+            reason, repair = _BED_FAILURE_ISSUES[source.failure_reason]
+            issues.append(dict(input_issue('query BED', source.source, '', reason, source.details), repair=repair))
+    InputGate('BED query content validation', issues_path, issues).finish()
+
+
 def query_source_statuses(bed_sources=(), gene_batch=None):
     """Resolve ordered source statuses before materializing SNP annotations."""
     if gene_batch is not None:

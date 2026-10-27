@@ -9,6 +9,7 @@ It does not load reference artifacts or implement numerical LD-score kernels.
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass, replace
 from collections import Counter
 from typing import Any, Sequence
@@ -29,6 +30,12 @@ _QUERY_REASON_EXPLANATIONS = {
     "partial_snp_support": "some selected genes have no retained reference-SNP support",
     "zero_annotation_snps": "the query covers no SNP rows in the evaluated annotation/reference set",
     "zero_variance_ld_scores": "the LD scores are constant on the SNP rows used for regression",
+    "empty_input": "the BED file contains no intervals",
+}
+# Successful-run notice wording: checks performed and where skipped queries are omitted.
+_NOTICE_WORDING = {
+    "ldscore": ("Gene-list SNP-support and LD-score checks", "LD-score outputs"),
+    "annotate": ("Gene-list SNP-support checks", "annotation outputs"),
 }
 
 
@@ -425,8 +432,107 @@ def _all_query_annotations_skipped_message(statuses: Sequence[QueryAnnotationSta
     if len(statuses) > MAX_CONSOLE_GENE_ISSUES:
         reasons += f"; {len(statuses) - MAX_CONSOLE_GENE_ISSUES} more in the status table"
     return (
-        f"ldscore could not continue because all {len(statuses)} requested query annotations were skipped "
-        f"({reasons}). Check diagnostics/query_annotation_status.tsv for each query's gene resolution, "
-        "retained SNP support, and LD-score variation. Correct unintended input problems before rerunning. "
+        f"The run could not continue because all {len(statuses)} requested query annotations were skipped "
+        f"({reasons}). Check diagnostics/query_annotation_status.tsv for each query's skip reason. "
+        "Correct unintended input problems before rerunning. "
         "Use a fresh output directory, or --overwrite if replacing this run's owned outputs is intended."
     )
+
+
+def _emit_resolved_only_notice(batch: Any | None) -> None:
+    """Emit the one bounded successful-run warning that must reach the console."""
+    if batch is None or batch.resolution_policy != "resolved-only":
+        return
+    affected = batch.summary[batch.summary["rejected_rows"].fillna(0).gt(0)]
+    if affected.empty:
+        return
+    total = int(batch.summary["nonblank_input_rows"].fillna(0).sum())
+    rejected = int(batch.summary["rejected_rows"].fillna(0).sum())
+    sources = ", ".join(
+        f"{row.source} ({int(row.rejected_rows)}/{int(row.nonblank_input_rows)} omitted)"
+        for row in affected.head(MAX_CONSOLE_GENE_ISSUES).itertuples(index=False)
+    )
+    extra = max(0, len(affected) - MAX_CONSOLE_GENE_ISSUES)
+    message = (
+        f"WARNING: --allow-unresolved-genes completed with {rejected} of {total} "
+        f"submitted row(s) omitted: {sources}"
+        + (f", plus {extra} more affected source(s)" if extra else "")
+        + ". See diagnostics/gene_list_resolution_summary.tsv and diagnostics/gene_list_audit.tsv.gz."
+    )
+    LOGGER.warning(message.removeprefix("WARNING: "))
+    print(message, file=sys.stderr)
+
+
+def _emit_gene_gate_b_notice(
+    statuses: Sequence[QueryAnnotationStatus],
+    batch: Any | None,
+    *,
+    command: str,
+) -> None:
+    """Emit one bounded successful-run notice for gene support/query viability."""
+    if batch is None:
+        return
+    unsupported_rows = sum(int(frame.disposition.eq("unsupported").sum()) for frame in batch.audit_frames())
+    gate_b_reasons = {
+        "partial_snp_support",
+        "zero_annotation_snps",
+        "zero_variance_ld_scores",
+    }
+    affected = [
+        status
+        for status in statuses
+        if status.reason in gate_b_reasons
+        or "zero reference-SNP support" in (status.details or "")
+    ]
+    if unsupported_rows == 0 and not affected:
+        return
+    checks, outputs = _NOTICE_WORDING[command]
+    displayed = affected[:MAX_CONSOLE_GENE_ISSUES]
+    outcomes = ", ".join(f"{status.query}={status.reason}" for status in displayed)
+    extra = max(0, len(affected) - MAX_CONSOLE_GENE_ISSUES)
+    summaries = []
+    if unsupported_rows:
+        summaries.append(f"{unsupported_rows} gene-list row(s) have no retained reference-SNP support")
+    for reason, explanation in (
+        ("partial_snp_support", "retained despite some genes having no retained reference-SNP support"),
+        ("zero_annotation_snps", "skipped because they overlap no retained reference SNPs"),
+        ("zero_variance_ld_scores", "skipped because LD scores are constant on regression SNP rows"),
+    ):
+        count = sum(status.reason == reason for status in affected)
+        if count:
+            summaries.append(f"{count} query annotation(s) {explanation} ({reason})")
+    message = (
+        f"WARNING: {checks}"
+        + (": " + "; ".join(summaries) if summaries else "")
+        + "."
+        + (f" Skipped queries are omitted from {outputs}." if any(status.status == "skipped" for status in affected) else "")
+        + (f" Affected queries: {outcomes}" if outcomes else "")
+        + (f", plus {extra} more affected query(s)" if extra else "")
+        + ("." if outcomes else "")
+        + " See diagnostics/query_annotation_status.tsv, diagnostics/gene_list_resolution_summary.tsv, "
+        "and diagnostics/gene_list_audit.tsv.gz."
+    )
+    LOGGER.warning(message.removeprefix("WARNING: "))
+    print(message, file=sys.stderr)
+
+
+def _emit_bed_query_notice(statuses: Sequence[QueryAnnotationStatus], *, command: str) -> None:
+    """Emit one bounded successful-run notice for skipped BED queries."""
+    bed = [status for status in statuses if status.input_type == "bed"]
+    skipped = [status for status in bed if status.status == "skipped"]
+    if not skipped:
+        return
+    outcomes = ", ".join(f"{status.query}={status.reason}" for status in skipped[:MAX_CONSOLE_GENE_ISSUES])
+    extra = max(0, len(skipped) - MAX_CONSOLE_GENE_ISSUES)
+    reasons = "; ".join(
+        f"{reason}: {_QUERY_REASON_EXPLANATIONS.get(reason, 'the recorded query check did not pass')}"
+        for reason in dict.fromkeys(status.reason for status in skipped)
+    )
+    message = (
+        f"WARNING: {len(skipped)} of {len(bed)} BED query annotation(s) were skipped and are omitted from "
+        f"{_NOTICE_WORDING[command][1]}: {outcomes}"
+        + (f", plus {extra} more" if extra else "")
+        + f". Reasons: {reasons}. See diagnostics/query_annotation_status.tsv."
+    )
+    LOGGER.warning(message.removeprefix("WARNING: "))
+    print(message, file=sys.stderr)

@@ -295,29 +295,31 @@ class AnnotationBuilderTest(unittest.TestCase):
                     )
                 )
 
-    def test_bed_query_local_parse_failure_does_not_abort_valid_sibling(self):
+    def test_bed_query_parse_failures_stop_preparation_and_are_all_reported(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             baseline = tmpdir / "baseline.annot"
             valid = tmpdir / "valid.bed"
             malformed = tmpdir / "malformed.bed"
+            unordered = tmpdir / "unordered.bed"
             baseline.write_text("CHR\tPOS\tSNP\tCM\tbase\n1\t10\trs1\t0\t1\n", encoding="utf-8")
             valid.write_text("chr1\t9\t11\n", encoding="utf-8")
             malformed.write_text("chr1\tbad\t11\n", encoding="utf-8")
+            unordered.write_text("chr1\t11\t9\n", encoding="utf-8")
 
-            bundle = build_annotation_fixture(AnnotationBuilder(GlobalConfig(snp_identifier="rsid")),
-                AnnotationBuildConfig(
-                    baseline_annot_sources=(baseline,),
-                    query_annot_bed_sources=(valid, malformed),
+            with self.assertRaises(LDSCInputError) as caught:
+                build_annotation_fixture(AnnotationBuilder(GlobalConfig(snp_identifier="rsid")),
+                    AnnotationBuildConfig(
+                        baseline_annot_sources=(baseline,),
+                        query_annot_bed_sources=(valid, malformed, unordered),
+                    )
                 )
-            )
 
-        self.assertEqual(bundle.query_columns, ["valid"])
-        self.assertEqual(fixture_values(bundle, 'query')["valid"].tolist(), [1.0])
-        self.assertEqual(
-            [(row.query, row.status, row.reason) for row in bundle.query_statuses],
-            [("valid", "ok", ""), ("malformed", "skipped", "malformed_input")],
-        )
+        message = str(caught.exception)
+        self.assertIn("malformed.bed", message)
+        self.assertIn("unordered.bed", message)
+        self.assertNotIn("valid.bed", message)
+        self.assertEqual(sorted(caught.exception.input_issues.source), ["malformed.bed", "unordered.bed"])
 
     def test_gene_list_projection_is_identical_to_equivalent_bed_with_padding(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -24,7 +24,7 @@ import pytest
 
 from ldsc.config import ConfigMismatchError, GlobalConfig
 from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
-from ldsc.query_annotations import QueryAnnotationStatus
+from ldsc.query_annotations import QueryAnnotationStatus, _emit_gene_gate_b_notice
 
 try:
     from ldsc import (
@@ -1879,9 +1879,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
             stream = StringIO()
             with mock.patch("sys.stderr", stream):
-                ldscore_workflow._emit_gene_gate_b_notice(
+                _emit_gene_gate_b_notice(
                     gated.query_statuses,
                     gated.gene_list_batch,
+                    command="ldscore",
                 )
             notice = stream.getvalue()
             self.assertIn("2 gene-list row(s) have no retained reference-SNP support", notice)

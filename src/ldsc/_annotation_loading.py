@@ -1,7 +1,7 @@
 """Build a complete source-backed annotation dataset in a borrowed workspace."""
 
 from ._annotation_bundle import AnnotationBundle
-from ._annotation_queries import build_query_shards, prepare_bed_queries
+from ._annotation_queries import build_query_shards, prepare_bed_queries, require_readable_bed_sources
 from ._annotation_sources import prepare_annotation_sources
 from ._gene_query_storage import resolve_gene_lists_staged
 from .errors import LDSCInputError
@@ -46,6 +46,7 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
     else:
         batch = None
     beds = prepare_bed_queries(declared.files['BED'], workspace) if spec.query_annot_bed_sources else []
+    require_readable_bed_sources(beds)
     prepared = prepare_annotation_sources(workspace, baseline, query, mode=config.snp_identifier,
                                           header_widths=declared.widths)
     bundle = AnnotationBundle(prepared.shards, list(prepared.baseline_columns), list(prepared.query_columns), workspace,

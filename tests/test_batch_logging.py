@@ -85,8 +85,7 @@ def test_constant_gene_query_notice_explains_skips_without_claiming_zero_snp_sup
 ):
     from types import SimpleNamespace
     from ldsc._logging import workflow_logging
-    from ldsc.ldscore_calculator import _emit_gene_gate_b_notice
-    from ldsc.query_annotations import QueryAnnotationStatus
+    from ldsc.query_annotations import QueryAnnotationStatus, _emit_gene_gate_b_notice
 
     batch = SimpleNamespace(audit_frames=lambda: iter([
         pd.DataFrame({"disposition": ["selected"]})
@@ -98,7 +97,7 @@ def test_constant_gene_query_notice_explains_skips_without_claiming_zero_snp_sup
     )
     logfile = tmp_path / "ldscore.log"
     with workflow_logging("ldscore", logfile):
-        _emit_gene_gate_b_notice(statuses, batch)
+        _emit_gene_gate_b_notice(statuses, batch, command="ldscore")
 
     console = capsys.readouterr()
     notice = console.err

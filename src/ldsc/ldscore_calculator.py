@@ -91,11 +91,11 @@ from .query_annotations import (
     QueryAnnotationStatus, finalize_query_statuses, finalize_query_measurements, gene_query_statuses, gene_viability_errors,
     _log_gene_list_rejections, _log_gene_list_snp_support,
     _log_query_annotation_statuses, _all_query_annotations_skipped_message,
+    _emit_bed_query_notice, _emit_gene_gate_b_notice, _emit_resolved_only_notice,
 )
 
 
 LOGGER = logging.getLogger("LDSC.ldscore_calculator")
-MAX_CONSOLE_GENE_ISSUES = 10
 
 
 _LDSCORE_SUFFIX_COLUMNS = ("CHR", "SNP", "POS", "BP", "CM", "MAF")
@@ -1535,9 +1535,10 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 _log_gene_list_snp_support(result.gene_list_batch)
             _log_query_annotation_statuses(result.query_statuses)
             log_outputs(**result.output_paths)
-            if bool(getattr(args,"_emit_gene_console_notices",False)):
-                _emit_gene_gate_b_notice(result.query_statuses,result.gene_list_batch)
+            if bool(getattr(args,"_emit_query_console_notices",False)):
+                _emit_gene_gate_b_notice(result.query_statuses,result.gene_list_batch,command="ldscore")
                 _emit_resolved_only_notice(result.gene_list_batch)
+                _emit_bed_query_notice(result.query_statuses,command="ldscore")
             return dataclass_replace(result,gene_list_batch=persistent_gene_diagnostics(result.gene_list_batch,result.output_paths))
 
 
@@ -1655,10 +1656,11 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
             output_dir=str(output_dir),
             overwrite=bool(getattr(args, "overwrite", False)),
         )
-        if bool(getattr(args, "_emit_gene_console_notices", False)):
+        if bool(getattr(args, "_emit_query_console_notices", False)):
             _emit_gene_gate_b_notice(
                 getattr(result, "query_statuses", ()),
                 getattr(result, "gene_list_batch", None),
+                command="ldscore",
             )
             _emit_resolved_only_notice(getattr(result, "gene_list_batch", None))
         output_paths = getattr(result, "output_paths", None)
@@ -1794,80 +1796,6 @@ def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config, glob
     changes = dict(query_columns=retained_queries, query_statuses=statuses, gene_list_batch=updated_batch,
                    input_issues=pd.DataFrame(input_issues) if input_issues else None)
     return dataclass_replace(annotation_bundle,**changes), "; ".join(errors) if errors else None
-
-
-def _emit_resolved_only_notice(batch: Any | None) -> None:
-    """Emit the one bounded successful-run warning that must reach the console."""
-    if batch is None or batch.resolution_policy != "resolved-only":
-        return
-    affected = batch.summary[batch.summary["rejected_rows"].fillna(0).gt(0)]
-    if affected.empty:
-        return
-    total = int(batch.summary["nonblank_input_rows"].fillna(0).sum())
-    rejected = int(batch.summary["rejected_rows"].fillna(0).sum())
-    sources = ", ".join(
-        f"{row.source} ({int(row.rejected_rows)}/{int(row.nonblank_input_rows)} omitted)"
-        for row in affected.head(MAX_CONSOLE_GENE_ISSUES).itertuples(index=False)
-    )
-    extra = max(0, len(affected) - MAX_CONSOLE_GENE_ISSUES)
-    message = (
-        f"WARNING: --allow-unresolved-genes completed with {rejected} of {total} "
-        f"submitted row(s) omitted: {sources}"
-        + (f", plus {extra} more affected source(s)" if extra else "")
-        + ". See diagnostics/gene_list_resolution_summary.tsv and diagnostics/gene_list_audit.tsv.gz."
-    )
-    LOGGER.warning(message.removeprefix("WARNING: "))
-    print(message, file=sys.stderr)
-
-
-def _emit_gene_gate_b_notice(
-    statuses: Sequence[QueryAnnotationStatus],
-    batch: Any | None,
-) -> None:
-    """Emit one bounded successful-run notice for gene support/query viability."""
-    if batch is None:
-        return
-    unsupported_rows = sum(int(frame.disposition.eq("unsupported").sum()) for frame in batch.audit_frames())
-    gate_b_reasons = {
-        "partial_snp_support",
-        "zero_annotation_snps",
-        "zero_variance_ld_scores",
-    }
-    affected = [
-        status
-        for status in statuses
-        if status.reason in gate_b_reasons
-        or "zero reference-SNP support" in (status.details or "")
-    ]
-    if unsupported_rows == 0 and not affected:
-        return
-    displayed = affected[:MAX_CONSOLE_GENE_ISSUES]
-    outcomes = ", ".join(f"{status.query}={status.reason}" for status in displayed)
-    extra = max(0, len(affected) - MAX_CONSOLE_GENE_ISSUES)
-    summaries = []
-    if unsupported_rows:
-        summaries.append(f"{unsupported_rows} gene-list row(s) have no retained reference-SNP support")
-    for reason, explanation in (
-        ("partial_snp_support", "retained despite some genes having no retained reference-SNP support"),
-        ("zero_annotation_snps", "skipped because they overlap no retained reference SNPs"),
-        ("zero_variance_ld_scores", "skipped because LD scores are constant on regression SNP rows"),
-    ):
-        count = sum(status.reason == reason for status in affected)
-        if count:
-            summaries.append(f"{count} query annotation(s) {explanation} ({reason})")
-    message = (
-        "WARNING: Gene-list SNP-support and LD-score checks"
-        + (": " + "; ".join(summaries) if summaries else "")
-        + "."
-        + (" Skipped queries are omitted from LD-score outputs." if any(status.status == "skipped" for status in affected) else "")
-        + (f" Affected queries: {outcomes}" if outcomes else "")
-        + (f", plus {extra} more affected query(s)" if extra else "")
-        + ("." if outcomes else "")
-        + " See diagnostics/query_annotation_status.tsv, diagnostics/gene_list_resolution_summary.tsv, "
-        "and diagnostics/gene_list_audit.tsv.gz."
-    )
-    LOGGER.warning(message.removeprefix("WARNING: "))
-    print(message, file=sys.stderr)
 
 
 def _validate_run_args(args: argparse.Namespace) -> None:
@@ -2107,7 +2035,7 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
     args._explicit_cli_options = frozenset(
         "--" + key.replace("_", "-") for key in kwargs
     )
-    args._emit_gene_console_notices = False
+    args._emit_query_console_notices = False
     return run_ldscore_from_args(args)
 
 
@@ -2119,7 +2047,7 @@ def main(argv: Sequence[str] | None = None) -> LDScoreSource:
     args._explicit_cli_options = frozenset(
         token.split("=", 1)[0] for token in argv_list if token.startswith("--")
     )
-    args._emit_gene_console_notices = True
+    args._emit_query_console_notices = True
     return run_ldscore_from_args(args)
 
 

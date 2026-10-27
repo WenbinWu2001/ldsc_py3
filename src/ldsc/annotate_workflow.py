@@ -12,7 +12,7 @@ from pathlib import Path
 
 from ._annotation_bundle import AnnotationBundle
 from ._annotation_bim import resolve_bim_grid_inputs, prepare_bim_grid
-from ._annotation_queries import prepare_bed_queries, build_query_shards
+from ._annotation_queries import prepare_bed_queries, build_query_shards, require_readable_bed_sources
 from ._annotation_sources import prepare_annotation_sources
 from ._annotation_storage import AnnotationWorkspace
 from ._gene_query_storage import resolve_gene_lists_staged
@@ -26,7 +26,10 @@ from .gene_list_resolver import GeneCatalog, GeneCatalogValidationError
 from ._genome_build_policy import GenomeBuildCheck
 from .outputs import AnnotationDirectoryWriter
 from .path_resolution import ensure_output_directory, resolve_file_group, split_cli_path_tokens
-from .query_annotations import gene_query_statuses, gene_viability_errors
+from .query_annotations import (
+    gene_query_statuses, gene_viability_errors, _all_query_annotations_skipped_message,
+    _emit_bed_query_notice, _emit_gene_gate_b_notice, _emit_resolved_only_notice,
+)
 
 LOGGER = logging.getLogger('LDSC.annotation')
 
@@ -70,7 +73,7 @@ def _gate_a_error(batch, naming_error=None):
 def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=None,
                  query_annot_bed_sources=None, query_annot_gene_list_sources=None,
                  gene_coordinate_file=None, padding_bp=None, gene_list_resolution_policy=None, gene_exclude_regions=None,
-                 genome_build=None, global_config=None, overwrite=False):
+                 genome_build=None, global_config=None, overwrite=False, _console_notices=False):
     """Write BED or focal gene-list annotations and return a live shard handle.
 
     Parameters
@@ -197,6 +200,10 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                 _log_gene_list_rejections(batch)
                 if batch.has_fatal_gate_a_issues:
                     raise _gate_a_error(batch, naming_error)
+            else:
+                # BED parsing is cheap; it must pass before the grid is read.
+                bed_sources = prepare_bed_queries(declared_inputs.files['BED'], workspace)
+                require_readable_bed_sources(bed_sources, output/'diagnostics/input_issues.tsv')
             projection_build = _projection_build(requested, config.snp_identifier, baseline, catalog,
                                                  bim_tokens=bim, bed_tokens=bed)
             prepared = None
@@ -233,8 +240,10 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                 if errors:
                     raise LDSCInputError('; '.join(errors))
             else:
-                sources = prepare_bed_queries(declared_inputs.files['BED'], workspace)
-                build_query_shards(bundle, bed_sources=sources, padding_bp=spec.padding_bp)
+                build_query_shards(bundle, bed_sources=bed_sources, padding_bp=spec.padding_bp)
+                if not bundle.query_columns:
+                    writer.write_diagnostics(output, statuses=bundle.query_statuses, drops=prepared.drops, scope=scope)
+                    raise LDSCInputError(_all_query_annotations_skipped_message(bundle.query_statuses))
             provenance = {'query_source_kind': 'gene_list' if genes else 'bed', 'query_sources': genes or bed,
                           'grid_kind': 'bim' if bim else 'annotation', 'ref_snp_annot_sources': baseline, 'ref_snp_bim_sources': bim,
                           'query_annot_bed_sources': bed, 'query_annot_gene_list_sources': genes,
@@ -248,6 +257,10 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
             if bundle.gene_list_batch is not None:
                 _log_gene_list_snp_support(bundle.gene_list_batch)
             _log_query_annotation_statuses(bundle.query_statuses)
+            if _console_notices:
+                _emit_resolved_only_notice(bundle.gene_list_batch)
+                _emit_gene_gate_b_notice(bundle.query_statuses, bundle.gene_list_batch, command='annotate')
+                _emit_bed_query_notice(bundle.query_statuses, command='annotate')
             log_outputs(**bundle.output_paths)
             counts = prepared.snp_rows
             LOGGER.info("%s SNP rows: input=%s, output=%s, dropped=%s.",

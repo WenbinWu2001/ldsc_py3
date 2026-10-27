@@ -292,6 +292,7 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
         gene_coordinate_file=getattr(args, "gene_coordinate_file", None), padding_bp=getattr(args, "padding_bp", None),
         gene_list_resolution_policy=getattr(args, "gene_list_resolution_policy", None), gene_exclude_regions=getattr(args, "gene_exclude_regions", None),
         genome_build=requested, global_config=config, overwrite=getattr(args, "overwrite", False),
+        _console_notices=True,
     )
 
 

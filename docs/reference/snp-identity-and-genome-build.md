@@ -253,6 +253,9 @@ Using the same literal for two opposite semantics is confusing and error-prone.
 The `SNP` column of an LD-score directory is a carried label, not necessarily a dbSNP rsID.
 For a synthetic `base` annotation it is the reference panel's `.bim` `SNP` value, carried through the R² panel sidecar, so a panel built from IDs such as `22:10684250:C:G` shows those strings; with explicit baseline annotations, the annotation files' `SNP` labels are kept and the reference panel only filters and aligns rows.
 
+Annotation files may omit both `A1` and `A2`, even in allele-aware modes; annotation rows then match by base SNP identity, and LD-score calculation takes the alleles from the reference panel.
+An annotation file with only one of the two allele columns is rejected.
+
 Mode names are exact. Column aliases apply only to input headers, not to
 `snp_identifier` values.
 

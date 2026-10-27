@@ -3,7 +3,7 @@
 Last updated on: 2026-10-27
 
 This section is the exact reference for LDSC3: commands, the Python API, file formats, result columns and methods.
-Task guides are in the [user guide](../user-guide/guided-tutorial.md), and the package internals are in the [developer guide](../dev/code-structure.md).
+Task guides are in the [user guide](../user-guide/index.md), and the package internals are in the [developer guide](../dev/index.md).
 
 ## Workflow map
 

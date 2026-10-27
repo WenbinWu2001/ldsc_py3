@@ -30,6 +30,9 @@ This page summarizes what changed, which LDSC2 files you can reuse, and how to c
 | Complete baseline-only partitioned suite | Convert once with `convert-ldsc2-ldscores`; use the result with [`partitioned-h2`](partitioned-heritability.md) for the joint baseline model. |
 | Cell-type or other query LD scores, thin annotations, `--ref-ld-chr-cts` manifests | Not convertible. Compute query LD scores with LDSC3 from baseline annotations; see [partitioned and cell-type analyses](#partitioned-and-cell-type-analyses). |
 
+Compatibility runs one way: LDSC3 reads these LDSC2 files, but its own outputs are not promised to work in LDSC2.
+The `BP` header in the `.annot.gz` files that LDSC3 writes is a narrow convenience, and LDSC3 accepts either `BP` or `POS` when reading annotation files.
+
 ## Convert an LDSC2 LD-score suite
 
 `ldsc convert-ldsc2-ldscores` imports a complete LDSC2 reference and regression-weight suite into an LD-score directory, reusing the supplied LD scores without recomputing them.

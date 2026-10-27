@@ -163,6 +163,7 @@ These rules apply only when a review is requested; they do not require an extra 
 | Destination | Responsibility and recording boundary |
 | --- | --- |
 | `docs/dev/code-structure.md`, `docs/dev/architecture.md`, `docs/dev/data-flow.md` | Contributor navigation, execution/dependency architecture, artifact flows, and ownership; current contracts govern unless a confirmed change supersedes them. |
+| `docs/index.md` and each section's `index.md` | Landing page and section entry points (user guide, reference, developer guide, validation); add new pages to the matching index. |
 | `docs/reference/` | Exact command, format, result, and method contracts; current contracts govern unless a confirmed change supersedes them. |
 | `docs/dev/design/`, `docs/dev/guidelines/` | Implemented design guides (memory and CPU, configuration, plotting) and contributor writing rules (CLI help, user docs). |
 | `docs/dev/DOCS_VOCABULARY.md` | The one glossary: names, approved terms with identifiers and symbols, rules for writers, and proposed terms; the established terminology home for `domain-modeling` and decision records. |

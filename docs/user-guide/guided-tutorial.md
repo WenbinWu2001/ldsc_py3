@@ -34,7 +34,7 @@ As a motivating example, we study the `mdd2025` trait, using 1000 Genomes Phase 
 
 All of these resources can be found under `ldsc3_test_bundle/resources/`, except for the raw GWAS sumstats files.
 
-These commands target the current `restructure` development branch. Follow the [README development installation](../../README.md#development-version), then run `conda activate ldsc3-dev`. The default installation includes Matplotlib and exposes `ldsc plot`; there is no separate plotting extra. Run the Bash examples below in one Bash session.
+These commands target the current `restructure` development branch. Follow the [development installation](installation.md#development-version), then run `conda activate ldsc3-dev`. The default installation includes Matplotlib and exposes `ldsc plot`; there is no separate plotting extra. Run the Bash examples below in one Bash session.
 
 We first set up the input and output directories:
 

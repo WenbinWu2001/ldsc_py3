@@ -148,7 +148,7 @@ These rules apply only when a review is requested; they do not require an extra 
 
 ## Documentation, recording permissions, and evidence
 
-- Maintain affected docstrings, README workflow/input/output descriptions, current contracts, tutorials/wiki guidance, and validation artifacts within authorized change scope; update manuscripts/reports only when requested.
+- Maintain affected docstrings, README workflow/input/output descriptions, current contracts, user-guide pages, and validation artifacts within authorized change scope; update manuscripts/reports only when requested.
   Core-function documentation should define inputs, outputs, defaults, and caveats; use `scientific-python-docs` for requested or change-affected scientific documentation, not unrelated missing-docstring cleanup.
 - Before changing responsibilities, public entry points, dependencies, main data flows, or scientific constraints, read relevant sections of [docs/dev/architecture.md](docs/dev/architecture.md).
   Read the whole architecture for broad relational refactors; internal refactors leaving these facts unchanged require neither a full reread nor an architecture update.
@@ -158,7 +158,7 @@ These rules apply only when a review is requested; they do not require an extra 
   Markdown/Quarto/notebook math uses `$...$` inline and `$$...$$` display; LaTeX uses `$...$` inline and `\[...\]` display; chat uses `\(...\)` inline and `$$...$$` display.
 - Read [docs/dev/DOCS_VOCABULARY.md](docs/dev/DOCS_VOCABULARY.md) before every writing task, including small edits; newly written documentation, docstrings, CLI help text, and messages use its approved terms.
   Only the user approves, edits, or removes entries; record new candidate terms under its proposed terms, and flag existing violations with location and preferred term instead of rewriting them without authorization.
-- Keep working rules here and records in their established destinations; update this documentation map with real paths when adding/moving design documents or tutorials.
+- Keep working rules here and records in their established destinations; update this documentation map with real paths when adding/moving design documents or user-guide pages.
 
 | Destination | Responsibility and recording boundary |
 | --- | --- |
@@ -171,7 +171,7 @@ These rules apply only when a review is requested; they do not require an extra 
 | `status.md` | Authorized current work, constraints, blockers, next steps; refresh in place and link decisions/evidence. |
 | `history.md` | Authorized meaningful events, appended chronologically with dates; consult on demand, not automatically at startup. |
 | `lessons.md` | After a repeated mistake (two or more) or an investigated non-obvious bug, append summary/root cause/correction; create on the first qualifying entry, skipping trivial slips. |
-| `docs/user-guide/` (including `troubleshooting.md`), `tutorials/`, `docs/wiki/` | User workflows, runnable Markdown/notebook examples, and command-specific remediation; `tutorials/` and `docs/wiki/` are being merged into `docs/user-guide/`. |
+| `docs/user-guide/` (including `troubleshooting.md`) | User workflows: guided tutorial, concepts, CLI-first workflow pages, `python-usage.md` (all Python API usage), and command-specific remediation. |
 | `docs/dev/validation/` | Validation evidence: summarize durable measurements here (for example `performance.md`) or inline in the host reference or developer page, with date, revision, and limits; keep raw logs, fixtures, and probe scripts out of `docs/`. The audits, specs, plans, and archive removed on 2026-10-26 remain in git history at `479fc4d`. |
 
 - Use `project-state` only for useful, authorized status/history updates: these destinations do not authorize completion logs, writes during read-only work/side conversations, or empty-file creation.
@@ -191,7 +191,7 @@ These rules apply only when a review is requested; they do not require an extra 
 - `docs/dev/design/memory-and-cpu.md`, `docs/reference/gene-ldscore-index.md`, `docs/reference/methods/gene-ldscore-index-math.md`, `docs/reference/results/partitioned-h2.md`, and `docs/reference/results/quantile-h2.md`: memory ownership, exact indexes, result interpretation, and post-fit quantiles.
 - `docs/reference/parallel-execution.md`: managed task workers, joblib CPU budgets, one BLAS thread per worker, and chromosome diagnostics.
 - `docs/reference/input-paths.md`, `docs/reference/logs-and-outputs.md`, and `docs/dev/guidelines/cli-help.md`: resolution, output/diagnostic lifecycle, and task-oriented CLI help.
-- `tutorials/ld-score-calculation.md`, `tutorials/partitioned-ldsc.md`, `tutorials/cell-specific-ldsc.md`, and `tutorials/convert-legacy-ldscores.md`: main worked workflows, complemented by notebooks and `docs/user-guide/guided-tutorial.md`.
+- `docs/user-guide/guided-tutorial.md` and the workflow pages in `docs/user-guide/workflows/` (for example `ld-scores.md`, `partitioned-heritability.md`, `cell-type-enrichment.md`, and `migrating-from-ldsc2.md`): main worked workflows; Python API usage is collected in `docs/user-guide/python-usage.md`.
 - `docs/reference/ldsc2-flag-map.md`: LDSC2 interface mapping, including options without a current equivalent; no document yet records numerical equivalence with LDSC2. `docs/dev/release.md`: maintainer release runbook, not authorization to release.
   `LICENSE`, `NOTICE`, and `CITATION.cff` preserve licensing, attribution, and citation metadata; retain notices during refactors and packaged resource attribution.
 - `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik`: legacy numerical/format reference.

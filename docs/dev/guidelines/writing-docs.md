@@ -1,6 +1,6 @@
 # Wiki writing guide
 
-Last updated on: 2026-09-13
+Last updated on: 2026-10-27
 
 **Start with a quick start section at the top.** Then the details.
 
@@ -21,7 +21,7 @@ Last updated on: 2026-09-13
 5. Caveats (what to do and what not to do)
 
 6. Advanced setups on command usage
-   1. List all arguments in a table, like that in `io-argument-inventory.md`. Make sure you include concise description on the role of each argument and when each accepted value is needed, or what format is supported.
+   1. List all arguments in a table, like the option tables in the [command-line reference](../../reference/cli.md). Make sure you include concise description on the role of each argument and when each accepted value is needed, or what format is supported.
    2. If you want to ... [requirements], you can [change value of which argument], and the results will be [in what output format].
 
 7. More details on output results

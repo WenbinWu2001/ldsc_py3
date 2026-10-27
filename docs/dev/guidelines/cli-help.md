@@ -4,7 +4,7 @@ Last updated on: 2026-10-27
 
 These are the agreed rules for writing flag descriptions and organizing `--help` across all public `ldsc` commands. A user should be able to identify the inputs they need, understand what an option changes, and choose a valid combination without knowing the package implementation.
 
-The [IO argument inventory](../../current/io-argument-inventory.md) describes the current options, and the [legacy flag map](../../reference/ldsc2-flag-map.md) records approved spelling and behavior decisions. These rules have been applied across the public command parsers.
+The [IO argument inventory](../../reference/cli.md) describes the current options, and the [legacy flag map](../../reference/ldsc2-flag-map.md) records approved spelling and behavior decisions. These rules have been applied across the public command parsers.
 
 ## Required description content
 
@@ -99,6 +99,25 @@ For a workflow that writes a log, the logging description can read:
 Do not promise that increasing `--log-level` prints progress to the terminal. Ordinary progress/debug messages go to the workflow log; console error reporting and explicit scientific notices have their own routing. See [workflow logging, “Console vs File Routing”](../../reference/logs-and-outputs.md#console-vs-file-routing).
 
 The examples are grounded in [`sumstats_munger.build_parser`](../../../src/ldsc/sumstats_munger.py), [`ldscore_calculator.build_parser` and `_write_one_ref_metadata_sidecar`](../../../src/ldsc/ldscore_calculator.py), [`build_window_coordinates` and `get_block_lefts`](../../../src/ldsc/_kernel/ldscore.py), and [`_WorkflowLoggingContext`](../../../src/ldsc/_logging.py). Preserve these behavioral distinctions when adapting the examples to other commands.
+
+## Naming rules
+
+Public CLI options and Python configuration fields follow these suffix rules:
+
+| Suffix | Meaning | Examples |
+| --- | --- | --- |
+| `*_file` | One file-like input; an exact-one glob is allowed where the resolver supports it. | `raw_sumstats_file`, `sumstats_file`, `sumstats_snps_file`, `keep_indivs_file` |
+| `*_sources` | One logical input that may resolve to several files, through globs, comma lists or `@` chromosome suites where the option supports them. | `baseline_annot_sources`, `query_annot_bed_sources`, `query_annot_gene_list_sources` |
+| `*_dir` | A directory, as input or as output location. | `ldscore_dir`, `result_dir`, `h2_result_dir`, `output_dir` |
+
+Established names outside these rules: `--plink-prefix`, `--pairs`, `--prevalence-manifest` and `--target-annotation`.
+
+Naming decisions to keep:
+
+- Keep `--plink-prefix` rather than forcing it into the `*_file` or `*_sources` rule, because a PLINK input is the stem of a `.bed`, `.bim` and `.fam` trio.
+- Use `--r2-dir` / `r2_dir` for a package-built R² panel; it mirrors `--plink-prefix` as the single reference-panel input for its backend.
+- Do not add `--output-name` or `--panel-name`: output file names are fixed, and users name a run by naming its output directory.
+- Keep `--output-dir` required for commands that write results; `plot` and `convert-h2-scale` keep their fixed derived destinations without a CLI override.
 
 ## Review before accepting help changes
 

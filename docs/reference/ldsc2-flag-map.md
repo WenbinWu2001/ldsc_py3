@@ -2,7 +2,7 @@
 
 Last updated on: 2026-10-27
 
-This document maps changed LDSC2 flags to the supported `ldsc` commands and records the flag-cleanup decisions. “Removed” means the parser rejects the old option; there are no compatibility aliases. A retired option whose behavior is now automatic has that behavior described explicitly below. The [IO argument inventory](../current/io-argument-inventory.md) lists the complete current surface, and [munge-sumstats](munge-sumstats.md) describes its input and artifact contracts.
+This document maps changed LDSC2 flags to the supported `ldsc` commands and records the flag-cleanup decisions. “Removed” means the parser rejects the old option; there are no compatibility aliases. A retired option whose behavior is now automatic has that behavior described explicitly below. The [IO argument inventory](cli.md) lists the complete current surface, and [munge-sumstats](munge-sumstats.md) describes its input and artifact contracts.
 
 ## Changes in the flag cleanup
 
@@ -116,7 +116,7 @@ These mappings describe current workflows and are not additional changes made by
 | `munge_sumstats.py --no-alleles` | `--snp-identifier rsid` or `--snp-identifier chr_pos` | Choose allele-blind identity explicitly; default current identity is `chr_pos_allele_aware`. |
 | `munge_sumstats.py --merge-alleles FILE` | No exact alias; packaged HM3 restriction is the default, `--sumstats-snps-file` replaces it, and `--no-snp-restriction` disables it | Current identity matching and downstream allele alignment have separate roles. A keep-list does not imply allele rewriting or liftover. |
 
-Sources: LDSC2 [`ldsc.py`, parser](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/ldsc.py:424>) and [`munge_sumstats.py`, parser](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/munge_sumstats.py:454>); current [`cli.build_parser`](../../src/ldsc/cli.py), [`ldscore_calculator.build_parser`](../../src/ldsc/ldscore_calculator.py), [`regression_runner` argument builders](../../src/ldsc/regression_runner.py), and the [IO inventory, command sections](../current/io-argument-inventory.md). Unlisted unsupported legacy options should not be assumed to have an automatic replacement.
+Sources: LDSC2 [`ldsc.py`, parser](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/ldsc.py:424>) and [`munge_sumstats.py`, parser](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/munge_sumstats.py:454>); current [`cli.build_parser`](../../src/ldsc/cli.py), [`ldscore_calculator.build_parser`](../../src/ldsc/ldscore_calculator.py), [`regression_runner` argument builders](../../src/ldsc/regression_runner.py), and the [IO inventory, command sections](cli.md). Unlisted unsupported legacy options should not be assumed to have an automatic replacement.
 
 ## LDSC2 options with no current equivalent
 

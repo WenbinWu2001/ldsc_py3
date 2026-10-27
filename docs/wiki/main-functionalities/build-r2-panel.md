@@ -59,7 +59,7 @@ The aggregate difference depends on pair count and annotation weights, so it has
   Benchmark a chromosome before a large run.
 - The current names are `build-r2-panel` and `SIGN_R`; no old-name aliases are supported.
 
-For every flag, a runnable fixture example, and Python usage, see the [build tutorial](../../../tutorials/build-parquet-reference-panel-from-plink.md) and [argument inventory](../../current/io-argument-inventory.md). The [storage specification](../../reference/formats/r2-panels.md) defines types, quantization, and binding.
+For every flag, a runnable fixture example, and Python usage, see the [build tutorial](../../../tutorials/build-parquet-reference-panel-from-plink.md) and [argument inventory](../../reference/cli.md). The [storage specification](../../reference/formats/r2-panels.md) defines types, quantization, and binding.
 
 Source: [`ReferencePanelBuilder.run` and command arguments](../../../src/ldsc/ref_panel_builder.py), and [`write_r2_parquet`](../../../src/ldsc/_kernel/ref_panel_builder.py).
 

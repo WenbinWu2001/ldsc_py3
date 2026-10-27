@@ -58,4 +58,4 @@ An `rg` invocation may mix current self-describing Parquet sumstats and legacy t
 
 - [`configuration.md`](../../dev/design/configuration.md) defines configuration provenance and compatibility checks.
 - [`column-schema.md`](column-schema.md) defines canonical LDSC3 columns and accepted input aliases.
-- [`io-argument-inventory.md`](../../current/io-argument-inventory.md) defines public command inputs and outputs.
+- [Command-line reference](../cli.md) defines public command inputs and outputs.

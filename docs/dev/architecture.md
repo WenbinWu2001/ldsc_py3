@@ -8,7 +8,7 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 
 - [parallel-execution.md](../reference/parallel-execution.md): worker budgets, one BLAS thread per worker, process ownership, and chromosome logs
 - [data-flow.md](data-flow.md): user-visible file streams and flowcharts
-- [class-and-features.md](../current/class-and-features.md): public API surface and major types
+- [python-api.md](../reference/python-api.md) and [cli.md](../reference/cli.md): public Python API and command-line options
 - [code-structure.md](code-structure.md): module map and change guide
 - [logs-and-outputs.md](../reference/logs-and-outputs.md): per-run log naming, preflight, and API boundaries
 - [plotting.md](design/plotting.md): plotting, post-fit h2 conversion, dispatch, and derived-output ownership

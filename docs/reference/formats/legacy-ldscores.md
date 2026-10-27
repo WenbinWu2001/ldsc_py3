@@ -261,7 +261,7 @@ unpartitioned conversion writes no overlap artifact.
 - [`legacy-sumstats.md`](legacy-sumstats.md)
   defines the separate automatic compatibility boundary for legacy munged
   sumstats.
-- [`io-argument-inventory.md`](../../current/io-argument-inventory.md) defines public command
+- [Command-line reference](../cli.md) defines public command
   inputs and outputs.
 - [`data-flow.md`](../../dev/data-flow.md) defines the canonical LD-score result-directory
   contract consumed by regression.

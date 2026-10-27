@@ -11,7 +11,7 @@ advanced users who need to constrain the intercept, exclude outliers, tune the
 jackknife, or change the per-SNP normalization.
 
 For the plain argument list (paths, output flags) see
-[`io-argument-inventory.md`](../current/io-argument-inventory.md). This document focuses on
+[command-line reference](cli.md). This document focuses on
 the *statistical* configuration and what each knob does to the estimator.
 
 Source of truth in code: `RegressionConfig` in `src/ldsc/config.py`,
@@ -115,7 +115,7 @@ instead of the two-step estimator.
 | `--chisq-max` / `chisq_max` | Excludes SNPs with `χ²` above the cap (for `rg`, on the product `Z₁²·Z₂²`) | Set explicitly to be more aggressive about large-effect loci (e.g. when the MHC or a single locus dominates). See per-command defaults below. |
 | `--samp-prev` / `samp_prev`, `--pop-prev` / `pop_prev` | Observed→liability-scale conversion inputs for binary (case-control) traits. `samp_prev` = case fraction in the GWAS sample (`P`); `pop_prev` = disease prevalence in the population (`K`). Output tables report both `*_obs` and `*_liab` columns plus the applied prevalences; the `rg` ratio is scale-invariant and unchanged. | Required only for binary traits; supply both or neither. Each is a probability in the open interval `(0, 1)`, or `nan` for a quantitative trait. For `h2` / `partitioned-h2` these are scalars; for `rg` they are comma-separated per-trait lists, or an `rg` `--prevalence-manifest` TSV (see below). Default (no prevalence) reports observed scale with `*_liab` columns `NaN`. See `docs/user-guide/workflows/liability-scale.md` for worked examples. |
 | `--prevalence-manifest` (`rg` only) | TSV of per-trait prevalences looked up by exact munged trait name, as an alternative to the positional `--samp-prev`/`--pop-prev` lists (mutually exclusive). | Use for multi-trait/glob runs where positional alignment is error-prone. Columns `trait_name`, `samp_prev`, `pop_prev` (whitespace/tab-delimited; `#` comment lines ignored). May contain extra traits (a standing repository); every resolved trait must have a row. Duplicate resolved munged names abort the run (use the positional list, or re-munge with distinct names). |
-| `--allow-identity-downgrade` / `allow_identity_downgrade` | SNP-identity compatibility override (not a statistical knob) | Mechanical/compatibility only; see `io-argument-inventory.md`. |
+| `--allow-identity-downgrade` / `allow_identity_downgrade` | SNP-identity compatibility override (not a statistical knob) | Mechanical/compatibility only; see [regression provenance and downgrade](snp-identity-and-genome-build.md#regression-provenance-hierarchy-and-downgrade). |
 
 Liability-scale conversion rescales only heritability-type quantities: total and category h2, `rg` genetic covariance, and their standard errors.
 The intercept and the coefficients (`tau` with its SE, z, and p) stay on the observed scale, matching legacy LDSC, whose `h2_obs_to_liab` and `gencov_obs_to_liab` (`ldscore/regressions.py:107` and `:75`) scale only those quantities.

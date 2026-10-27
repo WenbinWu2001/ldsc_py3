@@ -105,12 +105,6 @@ class __GenotypeArrayInMemory__(object):
             output_rows=output_rows, n_baseline=n_baseline,
             query_batch_size=query_batch_size, weight_mask=weight_mask)
 
-    def ldScoreBlockJackknife(self, block_left, c, annot=None, jN=10):
-        """Compute block-jackknife LD-score summaries using squared correlations."""
-        func = lambda x: np.square(x)
-        snp_getter = self.nextSNPs
-        return self.__corSumBlockJackknife__(block_left, c, func, snp_getter, annot, jN)
-
     def __l2_unbiased__(self, x, n):
         """Convert correlation values to the unbiased LD-score contribution."""
         denom = n - 2 if n > 2 else n

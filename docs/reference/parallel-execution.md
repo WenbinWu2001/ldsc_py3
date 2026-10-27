@@ -1,6 +1,6 @@
 # Parallel execution
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 Use `workers` in Python or `--workers` in the CLI to choose task concurrency.
 The default is one worker on both laptops and HPC systems.
@@ -17,6 +17,7 @@ The retired `threads` / `--threads` spelling is not accepted.
 | Batch regression | One complete query-plus-baseline model across all chromosomes | Query count and `query_batch_size` |
 
 The CPU budget is the **detected available CPU count**, returned directly by [`joblib.cpu_count()`](https://joblib.readthedocs.io/en/stable/generated/joblib.cpu_count.html).
+It counts logical CPUs, not physical cores.
 Supported affinity and quota restrictions can affect this count.
 It does not measure idle CPUs or read how many CPUs a user requested from Slurm or another scheduler.
 An allocation not exposed through supported process restrictions cannot be inferred; choose `--workers` consistently with that allocation.
@@ -82,7 +83,7 @@ Raw query scratch therefore scales with batch width rather than the total number
 The direct no-output API retains its materialized result path.
 More workers require more private model/chromosome memory.
 The package does not select workers from an automatic memory estimate.
-The [focused index transport probe](../decisions/2026-10-11-parallel-execution.md#final-decisions-and-remaining-boundaries) supports the process migration but does not establish full-genome memory needs or HPC scaling.
+The [focused index transport probe](../dev/validation/performance.md#gene-index-transport-probe) supports the process migration but does not establish full-genome memory needs or HPC scaling.
 
 Python scripts must put workflow calls under `if __name__ == "__main__":` for both serial and parallel execution because workers use `spawn`.
 The CLI handles process startup; notebook examples also show a CLI subprocess pattern for environments that cannot launch importable Python workers.
@@ -111,6 +112,7 @@ Stop submitting tasks, attempt to cancel pending tasks, let running workers fini
 Cancellation is best effort: `Future.cancel()` cannot stop work already marked running, which can include dispatched work, following [Python's executor contract](https://docs.python.org/3.13/library/concurrent.futures.html#concurrent.futures.Future.cancel).
 Logs and existing error diagnostics remain available.
 There is no partial-success, checkpoint, resume, or automatic retry workflow for chromosomes.
+This failure handling does not change intentional skip and eligibility rules, such as skipped query annotations.
 All required chromosomes must succeed before cross-chromosome aggregation, and all batches must succeed before final scientific publication.
 
 Optional direct `--export-ref-metadata` files are staged with temporary results and published only after successful computation.

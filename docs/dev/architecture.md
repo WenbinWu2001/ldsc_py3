@@ -286,7 +286,7 @@ Regression model preparation borrows aligned read-only columns through `Regressi
 There is no custom CPU detector, Slurm parsing, CPU binding, or automatic memory budget.
 The default of one uses a managed child; direct and indexed LD reuse their pools across query batches, and regression reuses mapped-input workers across model batches.
 Gene-index construction now passes staged chromosome descriptors to spawned processes and collects compact persisted-component metadata.
-The [focused local transport probe](../decisions/2026-10-11-parallel-execution.md#final-decisions-and-remaining-boundaries) records the migration evidence and additional RSS cost.
+The [focused local transport probe](validation/performance.md#gene-index-transport-probe) records the migration evidence and additional RSS cost.
 
 `_worker_runtime` configures and verifies 1 BLAS thread per worker for serial and parallel calculations, plus separate OpenMP and Arrow CPU/I/O limits of one.
 Unsupported numerical controls produce a clear unverified/unmet record and allow computation to continue.

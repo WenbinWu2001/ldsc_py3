@@ -234,5 +234,5 @@ ldsc_py3_restructured/
 
 `query-r2` requires `--output-dir`; `QueryR2DirectoryWriter` writes its result directory. Region presets affect regression rows and weights, not the LD-reference contributor universe. `build-r2-panel` has no region-pruning fields; use its explicit reference-SNP restriction when pruning is intended. Reference preparation supplies population-specific CM/MAF; annotation CM is an `NA` placeholder. Parquet LD scores use pair streaming, and PLINK filtering happens during adapter preparation.
 
-Confirmed design rationale lives in the `*-decisions.md` records in this directory and in [`docs/decisions/`](../decisions/).
-Earlier dated specifications, implementation plans, audits, and the archived design map were removed on 2026-10-26; they remain in git history, for example `git show 479fc4d:docs/specs/<file>`.
+Design rationale that protects a non-obvious constraint is stated in the page that documents the constraint; measurements are in [validation](validation/performance.md).
+Earlier dated specifications, implementation plans, audits, and the archived design map were removed on 2026-10-26, and the decision records on 2026-10-27; they remain in git history, for example `git show 479fc4d:docs/specs/<file>` or `git show 77a54e2:docs/decisions/2026-10-11-parallel-execution.md`.

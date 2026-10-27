@@ -166,18 +166,16 @@ These rules apply only when a review is requested; they do not require an extra 
 | `docs/reference/` | Exact command, format, result, and method contracts; current contracts govern unless a confirmed change supersedes them. |
 | `docs/dev/design/`, `docs/dev/guidelines/` | Implemented design guides (memory and CPU, configuration, plotting) and contributor writing rules (CLI help, user docs). |
 | `docs/dev/DOCS_VOCABULARY.md` | The one glossary: names, approved terms with identifiers and symbols, rules for writers, and proposed terms; the established terminology home for `domain-modeling` and decision records. |
-| `docs/current/*-decisions.md` | Preserve existing confirmed decisions; retain dated topic names and do not duplicate records. |
-| `docs/specs/`, `docs/plans/` | Temporary folders for in-flight design specifications and implementation plans only. Once the work is implemented, move lasting rationale into `docs/decisions/` (or the relevant `docs/current/*-decisions.md`) and the contract into `docs/current/`, then delete the spec and plan. |
-| `docs/decisions/` | New authorized standalone `grill-with-docs` decision records with confirmed rationale; use existing topical records where appropriate, keep terminology in its established home, and use ADR format only under `domain-modeling` criteria. |
-| `docs/decisions/2026-10-11-parallel-execution.md` | Confirmed parallel-execution decisions; implemented runtime contract in `docs/reference/parallel-execution.md`. |
+| `docs/specs/`, `docs/plans/` | Temporary folders for in-flight design specifications and implementation plans only. Once the work is implemented, put the contract, and any rationale that protects a non-obvious constraint, into the live page under `docs/reference/`, `docs/dev/`, or `docs/user-guide/`, then delete the spec and plan. |
+| `docs/decisions/` | Only when the user explicitly asks to record a decision: a standalone `grill-with-docs` decision record with confirmed rationale (currently none). Otherwise record each consequence, with any rationale that protects a non-obvious constraint, in the live page; keep terminology in `docs/dev/DOCS_VOCABULARY.md`, and use ADR format only under `domain-modeling` criteria. |
 | `status.md` | Authorized current work, constraints, blockers, next steps; refresh in place and link decisions/evidence. |
 | `history.md` | Authorized meaningful events, appended chronologically with dates; consult on demand, not automatically at startup. |
 | `lessons.md` | After a repeated mistake (two or more) or an investigated non-obvious bug, append summary/root cause/correction; create on the first qualifying entry, skipping trivial slips. |
 | `docs/user-guide/` (including `troubleshooting.md`), `tutorials/`, `docs/wiki/` | User workflows, runnable Markdown/notebook examples, and command-specific remediation; `tutorials/` and `docs/wiki/` are being merged into `docs/user-guide/`. |
-| Validation evidence (no dedicated folder) | Summarize durable measurements inline in the host `docs/reference/`, `docs/dev/`, or `docs/decisions/` document with date, revision, and limits; keep raw logs, fixtures, and probe scripts out of `docs/`. The audits, specs, plans, and archive removed on 2026-10-26 remain in git history at `479fc4d`. |
+| `docs/dev/validation/` | Validation evidence: summarize durable measurements here (for example `performance.md`) or inline in the host reference or developer page, with date, revision, and limits; keep raw logs, fixtures, and probe scripts out of `docs/`. The audits, specs, plans, and archive removed on 2026-10-26 remain in git history at `479fc4d`. |
 
 - Use `project-state` only for useful, authorized status/history updates: these destinations do not authorize completion logs, writes during read-only work/side conversations, or empty-file creation.
-  `docs/decisions/` contains authorized decision records; `status.md` exists, while `history.md` remains a convention, currently absent.
+  `docs/decisions/` holds decision records only when the user asks for one (currently none); `status.md` exists, while `history.md` remains a convention, currently absent.
   Their use does not bypass lessons or decision-recording rules.
 - Anchor substantive workflow/scientific explanations to code paths and lines or functions/classes, and document/paper claims to sections, tables, figures, or appendices.
   Legacy comparisons must cite both implementations, using the legacy repository below.

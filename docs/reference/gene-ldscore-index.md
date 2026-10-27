@@ -24,7 +24,7 @@ online matrix products, annotation counts, and overlap sufficient statistics—s
 
 `--workers` controls a reusable chromosome process pool during index building.
 The default of one still uses a managed child; every worker uses 1 BLAS thread.
-A [focused transport probe](../decisions/2026-10-11-parallel-execution.md#final-decisions-and-remaining-boundaries) measured the additional process memory and verified compact task transport before migration.
+A [focused transport probe](../dev/validation/performance.md#gene-index-transport-probe) measured the additional process memory and verified compact task transport before migration.
 
 ```bash
 ldsc build-gene-ldscore-index \

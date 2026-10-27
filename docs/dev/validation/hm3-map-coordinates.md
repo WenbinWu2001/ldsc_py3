@@ -5,7 +5,6 @@ Last validated: 2026-08-05
 
 ## Material Passport
 
-- Origin skill: `academic-research-suite` / `experiment-agent`
 - Origin mode: `validate`
 - Verification status: `ANALYZED`
 - Version label: `hm3_coordinate_validation_v1`

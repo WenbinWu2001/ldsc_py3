@@ -2,7 +2,8 @@
 
 Last updated on: 2026-10-27
 
-This document maps changed LDSC2 flags to the supported `ldsc` commands and records the flag-cleanup decisions. “Removed” means the parser rejects the old option; there are no compatibility aliases. A retired option whose behavior is now automatic has that behavior described explicitly below. The [IO argument inventory](cli.md) lists the complete current surface, and [munge-sumstats](munge-sumstats.md) describes its input and artifact contracts.
+This document maps changed LDSC2 flags to the supported `ldsc` commands and records the flag-cleanup decisions.
+LDSC2 source links point to `bulik/ldsc` at commit `aa33296`. “Removed” means the parser rejects the old option; there are no compatibility aliases. A retired option whose behavior is now automatic has that behavior described explicitly below. The [IO argument inventory](cli.md) lists the complete current surface, and [munge-sumstats](munge-sumstats.md) describes its input and artifact contracts.
 
 ## Changes in the flag cleanup
 
@@ -30,7 +31,7 @@ Python counterparts also retain `LDScoreConfig.workers`, `run_ldscore(..., worke
 
 Frequency preservation applies to the in-memory result and both output formats. Parquet retains numeric precision. Gzip TSV preserves the parsed frequency without the three-decimal rounding used for other floating columns; missing fields are written as `NA` so whitespace readers do not shift column positions. An explicitly ignored frequency column is not selected and therefore is absent from output. Multiple competing frequency columns still follow existing column-selection/ambiguity rules; this change does not choose among them silently.
 
-Sources: current [`sumstats_munger.build_parser`, `_apply_raw_sumstats_inference`, `_write_sumstats_tsv_gz`](../../src/ldsc/sumstats_munger.py), [`_sumstats_input.prepare_munge_input`](../../src/ldsc/_sumstats_input.py), [`_kernel.sumstats_munger.parse_dat` / `filter_frq`](../../src/ldsc/_kernel/sumstats_munger.py), [`ldscore_calculator.build_parser` / `_resolve_worker_count`](../../src/ldsc/ldscore_calculator.py), and [`gene_ldscore_index.build_parser`](../../src/ldsc/gene_ldscore_index.py). LDSC2 declarations and behavior: [`munge_sumstats.py`, parser and `parse_dat`](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/munge_sumstats.py:459>); [`ldsc.py`, parser](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/ldsc.py:424>).
+Sources: current [`sumstats_munger.build_parser`, `_apply_raw_sumstats_inference`, `_write_sumstats_tsv_gz`](../../src/ldsc/sumstats_munger.py), [`_sumstats_input.prepare_munge_input`](../../src/ldsc/_sumstats_input.py), [`_kernel.sumstats_munger.parse_dat` / `filter_frq`](../../src/ldsc/_kernel/sumstats_munger.py), [`ldscore_calculator.build_parser` / `_resolve_worker_count`](../../src/ldsc/ldscore_calculator.py), and [`gene_ldscore_index.build_parser`](../../src/ldsc/gene_ldscore_index.py). LDSC2 declarations and behavior: [`munge_sumstats.py`, parser and `parse_dat`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/munge_sumstats.py#L452); [`ldsc.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L423).
 
 ## Regression intercept consolidation
 
@@ -48,7 +49,7 @@ Single-annotation `rg --intercept-gencov 0` with a free h2 intercept continues t
 
 The public Python `RegressionConfig.use_intercept=False` option remains available and unchanged. The CLI now expresses its standard fixed-intercept behavior through `--intercept-h2` and `--intercept-gencov` only.
 
-Sources: LDSC2 [`ldsc.py`, intercept flags](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/ldsc.py:529>) and [`ldscore/sumstats.py`, `estimate_h2` / `estimate_rg`](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/ldscore/sumstats.py:321>); current [`regression_runner._add_common_regression_arguments`, `_runner_from_args`, `_fit_h2_dataset`, and `_fit_rg_dataset`](../../src/ldsc/regression_runner.py), [`RegressionConfig`](../../src/ldsc/config.py), and [regression configuration, “Requesting fixed intercepts”](regression-options.md#15-requesting-fixed-intercepts).
+Sources: LDSC2 [`ldsc.py`, intercept flags](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L528) and [`ldscore/sumstats.py`, `estimate_h2` / `estimate_rg`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldscore/sumstats.py#L321); current [`regression_runner._add_common_regression_arguments`, `_runner_from_args`, `_fit_h2_dataset`, and `_fit_rg_dataset`](../../src/ldsc/regression_runner.py), [`RegressionConfig`](../../src/ldsc/config.py), and [regression configuration, “Requesting fixed intercepts”](regression-options.md#15-requesting-fixed-intercepts).
 
 ## Legacy behavior explicitly retained
 
@@ -64,7 +65,7 @@ Sources: LDSC2 [`ldsc.py`, intercept flags](</Users/wenbinwu/Documents_local/Res
 
 The existing per-variant case/control normalization is also unchanged: define total T and case fraction p per row, then `N_i = T_i * p_i / mean(p among rows with maximum T)`. It must not be replaced with simply summing the paired per-variant columns or with an effective-N formula as part of flag cleanup. See [“Sample-Size Column Selection”](munge-sumstats.md#sample-size-column-selection).
 
-Legacy numerical source: [`munge_sumstats.py:327`, `process_n`](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/munge_sumstats.py:327>); current numerical source: [`_kernel.sumstats_munger.process_n`](../../src/ldsc/_kernel/sumstats_munger.py). The legacy help text itself incorrectly describes the divisor as 2; the implementation is the authority for the retained 1.5 rule. No new default or override policy is introduced here.
+Legacy numerical source: [`munge_sumstats.py:321`, `process_n`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/munge_sumstats.py#L321); current numerical source: [`_kernel.sumstats_munger.process_n`](../../src/ldsc/_kernel/sumstats_munger.py). The legacy help text itself incorrectly describes the divisor as 2; the implementation is the authority for the retained 1.5 rule. No new default or override policy is introduced here.
 
 ## Legacy behavior intentionally changed
 
@@ -89,7 +90,7 @@ Measurement (2026-10-27; former LDSC2-ported kernel at `c67b40e` versus the exac
 Limits: one chromosome, panel, trait, and window were measured.
 Smaller `--ld-wind-snps` windows and sparse panels change more; on the 32-SNP test fixture, `--ld-wind-snps 3` at batch 128 formerly covered the whole chromosome.
 
-Sources: LDSC2 [`ldscore/ldscore.py:167-168`, `__corSumVarBlocks__`](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/ldscore/ldscore.py:167>); current [`_kernel/plink_bed.py`, `__corSumVarBlocks__` and `_zero_pairs_outside_window`](../../src/ldsc/_kernel/plink_bed.py), tested in [`test_ldscore_projection.py`](../../tests/test_ldscore_projection.py) and [`test_plink_exact_windows.py`](../../tests/test_plink_exact_windows.py).
+Sources: LDSC2 [`ldscore/ldscore.py:167-168`, `__corSumVarBlocks__`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldscore/ldscore.py#L167-L168); current [`_kernel/plink_bed.py`, `__corSumVarBlocks__` and `_zero_pairs_outside_window`](../../src/ldsc/_kernel/plink_bed.py), tested in [`test_ldscore_projection.py`](../../tests/test_ldscore_projection.py) and [`test_plink_exact_windows.py`](../../tests/test_plink_exact_windows.py).
 
 ## Established command and input renames
 
@@ -116,7 +117,7 @@ These mappings describe current workflows and are not additional changes made by
 | `munge_sumstats.py --no-alleles` | `--snp-identifier rsid` or `--snp-identifier chr_pos` | Choose allele-blind identity explicitly; default current identity is `chr_pos_allele_aware`. |
 | `munge_sumstats.py --merge-alleles FILE` | No exact alias; packaged HM3 restriction is the default, `--sumstats-snps-file` replaces it, and `--no-snp-restriction` disables it | Current identity matching and downstream allele alignment have separate roles. A keep-list does not imply allele rewriting or liftover. |
 
-Sources: LDSC2 [`ldsc.py`, parser](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/ldsc.py:424>) and [`munge_sumstats.py`, parser](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/munge_sumstats.py:454>); current [`cli.build_parser`](../../src/ldsc/cli.py), [`ldscore_calculator.build_parser`](../../src/ldsc/ldscore_calculator.py), [`regression_runner` argument builders](../../src/ldsc/regression_runner.py), and the [IO inventory, command sections](cli.md). Unlisted unsupported legacy options should not be assumed to have an automatic replacement.
+Sources: LDSC2 [`ldsc.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L423) and [`munge_sumstats.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/munge_sumstats.py#L449); current [`cli.build_parser`](../../src/ldsc/cli.py), [`ldscore_calculator.build_parser`](../../src/ldsc/ldscore_calculator.py), [`regression_runner` argument builders](../../src/ldsc/regression_runner.py), and the [IO inventory, command sections](cli.md). Unlisted unsupported legacy options should not be assumed to have an automatic replacement.
 
 ## LDSC2 options with no current equivalent
 

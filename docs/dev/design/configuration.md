@@ -2,19 +2,13 @@
 
 Last updated on: 2026-10-27
 
-`--workers` / `workers` defaults to one managed child process, including on HPC.
-Every worker uses **1 BLAS thread**, in serial and parallel execution.
-`joblib.cpu_count()` supplies the detected available CPU count; it does not measure idle CPUs or read the requested scheduler allocation.
-Positive requests above that count fail before capping by available tasks; negative `-k` uses `max(1, detected_count + 1 - k)`.
-LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
-Zero, Boolean, and non-integer Python requests are invalid.
-See [the execution policy](../../reference/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
+`--workers` sets the number of managed workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](../../reference/parallel-execution.md).
 
 `partitioned-h2` uses the same `_parse_workers`, `_validate_workers`, and `_resolve_worker_count` helpers.
 Its work limit is query count capped by loading-batch width.
 This concurrency option belongs to the batch workflow, not `RegressionConfig`.
 
-Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](../../reference/munge-sumstats.md#output-artifacts) for naming and overwrite rules.
+Examples below use the munged file names written without a trait label (`sumstats.parquet`, `sumstats.gz`); naming rules are in [artifact metadata](../../reference/formats/artifact-metadata.md).
 
 ## Implementation Status
 

@@ -722,7 +722,9 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
 
 ### build-r2-panel: no reference-panel artifacts were produced
 
-**Symptom:** `build-r2-panel produced no chromosome artifacts...` / `...retained no parquet metadata rows...`
+**Symptom:** `Reference-panel SNP selection failed: N input issue(s)...` listing chromosomes where `all K SNPs were removed at <stage>` (SNP restriction, identity cleanup, or liftover and duplicate-position filtering), with `diagnostics/input_issues.tsv` / `build-r2-panel stopped at chromosome C: PLINK genotype filtering removed all ...` / `build-r2-panel produced no chromosome artifacts...` / `...retained no parquet metadata rows...`
+
+SNP selection is checked for every chromosome before any genotypes are read, and every autosome that loses all its SNPs is reported in one error; an autosome emptied by genotype filtering stops the run when it is reached. The causes below apply per chromosome.
 
 **Likely causes & how to check** (most probable first):
 
@@ -732,7 +734,7 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
 | 2 | The restriction or PLINK panel is on the wrong genome build | Check `--source-genome-build` and any build-specific restriction position columns |
 | 3 | Identity cleanup dropped all rows because identifiers are missing or duplicated | Inspect `diagnostics/dropped_snps/chr*_dropped.tsv.gz` for `reason` values |
 | 4 | Liftover or duplicate-position filtering removed every retained SNP | Inspect the dropped-SNP sidecar for `unmapped_liftover`, `source_duplicate`, or `target_collision` |
-| 5 | MAF or individual filtering removed all SNPs before artifact writing | Check the logged counts, `--maf-min`, and the keep-individual file against the `.fam` file |
+| 5 | MAF or individual filtering removed all SNPs of a chromosome when its genotypes were read | Check the logged counts, `--maf-min`, and the keep-individual file against the `.fam` file |
 
 **Remedies:**
 

@@ -386,15 +386,7 @@ Common counts use the inclusive configured MAF threshold, independent of output-
 
 ## Chromosome parallelism
 
-`--workers` / `workers` defaults to one managed child process, including on HPC.
-Every worker uses **1 BLAS thread**, in serial and parallel execution.
-Managed children also limit OpenMP and Arrow CPU/I/O thread pools under the [execution policy](../../reference/parallel-execution.md).
-The runtime checks actual native limits inside workers; changing only the parent's settings would not establish spawned-child behavior.
-`joblib.cpu_count()` supplies the detected available CPU count; it does not measure idle CPUs or read the requested scheduler allocation.
-Positive requests above that count fail before capping by available tasks; negative `-k` uses `max(1, detected_count + 1 - k)`.
-LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
-Zero, Boolean, and non-integer Python requests are invalid.
-See [the execution policy](../../reference/parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
+`--workers` sets the number of managed workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](../../reference/parallel-execution.md).
 
 The sequential lifecycle is `load chromosome → prepare → compute/write diagnostics → close → next chromosome`.
 Reference and annotation working arrays from the completed chromosome become available for reuse before the next preparation.

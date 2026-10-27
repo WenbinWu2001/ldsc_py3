@@ -2,7 +2,7 @@
 
 Last updated on: 2026-10-27
 
-Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](../reference/munge-sumstats.md#output-artifacts) for naming and overwrite rules.
+Examples below use the munged file names written without a trait label (`sumstats.parquet`, `sumstats.gz`); naming rules are in [artifact metadata](../reference/formats/artifact-metadata.md).
 
 This document summarizes the user-visible file streams for each public workflow. The diagrams use Mermaid `flowchart LR` because it maps cleanly onto the package's left-to-right data movement and layered module boundaries.
 

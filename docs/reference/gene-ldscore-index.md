@@ -2,13 +2,7 @@
 
 Last updated on: 2026-10-27
 
-`--workers` / `workers` defaults to one managed child process, including on HPC.
-Every worker uses **1 BLAS thread**, in serial and parallel execution.
-`joblib.cpu_count()` supplies the detected available CPU count; it does not measure idle CPUs or read the requested scheduler allocation.
-Positive requests above that count fail before capping by available tasks; negative `-k` uses `max(1, detected_count + 1 - k)`.
-LD scoring and index construction cap by chromosomes; regression caps by complete query-plus-baseline models and query batch size.
-Zero, Boolean, and non-integer Python requests are invalid.
-See [the execution policy](parallel-execution.md) for native-limit verification, memory costs, process startup, and failure handling.
+`--workers` sets the number of managed workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](parallel-execution.md).
 
 An exact gene LD-score index moves the repeated PLINK calculation for one
 baseline, reference panel, regression-row policy, and gene projection offline.

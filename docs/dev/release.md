@@ -1,6 +1,6 @@
 # Release: squash-merge `restructure` into `main`
 
-Last updated on: 2026-09-10
+Last updated on: 2026-10-27
 
 `main` keeps a squash-only history. `restructure` is the authoritative branch:
 every release is a single `Squash merge restructure` commit whose tree is
@@ -21,7 +21,7 @@ Run in the `main` worktree (`../ldsc_py3_Jerry`). Commit all work on
 `restructure` first, and make sure the `main` worktree is clean.
 
 ```bash
-cd /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry
+cd ../ldsc_py3_Jerry                                     # the main worktree
 git fetch origin
 git tag -f backup/main-pre-release main                  # safety net
 

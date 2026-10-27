@@ -421,6 +421,8 @@ two-sided p-values from each genetic-correlation fit. They do not include
 package-computed corrected p-value columns; downstream users choose any
 multiple-testing correction appropriate for their analysis.
 
+Root `diagnostics/metadata.json` records `trait_names` (the labels after any `label@<suffix>` relabeling, in input order; plotting reads them), `sumstats_files` (each trait's source path, aligned with `trait_names`), `ldscore_dir`, `pair_kind`, `n_pairs` and `n_traits`.
+
 Root and per-pair `diagnostics/metadata.json` files are provenance only. Per-pair
 metadata records the prevalences applied to each trait (`samp_prev_1`, `pop_prev_1`,
 `samp_prev_2`, `pop_prev_2`, each `null` when unset) and a `scale`

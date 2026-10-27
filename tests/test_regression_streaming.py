@@ -298,6 +298,23 @@ def test_h2_reports_unavailable_kernel_statistics_as_nan(tmp_path, case, z_scale
         assert written.loc[0, field] == "NaN"
 
 
+def test_rg_root_metadata_records_each_trait_source_and_the_ldscore_directory(tmp_path):
+    table, _ = batch_inputs(tmp_path / "ld")
+    frame = table.data.assign(A1="A", A2="G")
+    paths = [tmp_path / "pgc" / "SCZ.parquet", tmp_path / "ukb" / "SCZ.parquet"]
+    for path in paths:
+        path.parent.mkdir()
+        fixtures.RegressionWorkflowTest().write_footer_sumstats_parquet(path, frame=frame, trait_name="SCZ")
+
+    cli.main(["rg", "--ldscore-dir", str(tmp_path / "ld"), "--sumstats-sources", *map(str, paths),
+              "--output-dir", str(tmp_path / "out"), "--n-blocks", "6"])
+
+    metadata = json.loads((tmp_path / "out" / "diagnostics" / "metadata.json").read_text())
+    assert metadata["trait_names"] == ["SCZ@pgc", "SCZ@ukb"]
+    assert [Path(item).resolve() for item in metadata["sumstats_files"]] == [path.resolve() for path in paths]
+    assert Path(metadata["ldscore_dir"]).resolve() == (tmp_path / "ld").resolve()
+
+
 @pytest.mark.parametrize("batch_size", [2, 1000])
 def test_parallel_queries_match_inline_models_and_artifact_order(tmp_path, batch_size):
     table, source = batch_inputs(tmp_path / "ld")

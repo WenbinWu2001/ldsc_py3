@@ -327,12 +327,19 @@ class RgResultFamily:
     per_pair_metadata : list of dict
         Ordered metadata records aligned to ``rg_full`` rows. Writers use these
         records for optional ``diagnostics/pairs/`` detail output.
+    sumstats_files : list of str or None, optional
+        Each trait's source path, aligned with ``h2_per_trait`` rows; ``None``
+        for an in-memory table. Recorded in the root ``metadata.json``.
+    ldscore_dir : str or None, optional
+        Source LD-score directory when the LD scores were read from disk.
     """
 
     rg: pd.DataFrame
     rg_full: pd.DataFrame
     h2_per_trait: pd.DataFrame
     per_pair_metadata: list[dict[str, object]]
+    sumstats_files: list[str | None] | None = None
+    ldscore_dir: str | None = None
 
 
 class RegressionRunner:
@@ -1403,7 +1410,12 @@ class RegressionRunner:
 
         rg_full = pd.DataFrame(rg_full_rows, columns=RG_FULL_COLUMNS)
         rg = pd.DataFrame(rg_rows, columns=RG_CONCISE_COLUMNS)
-        return RgResultFamily(rg=rg, rg_full=rg_full, h2_per_trait=h2_per_trait, per_pair_metadata=per_pair_metadata)
+        source_metadata = ldscore_result.output_paths.get("metadata")
+        return RgResultFamily(
+            rg=rg, rg_full=rg_full, h2_per_trait=h2_per_trait, per_pair_metadata=per_pair_metadata,
+            sumstats_files=[table.source_path for table in tables],
+            ldscore_dir=str(Path(source_metadata).resolve().parent) if source_metadata else None,
+        )
 
 
 def _regression_genome_build(

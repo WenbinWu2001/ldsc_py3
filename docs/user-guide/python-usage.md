@@ -29,7 +29,8 @@ print(get_global_config())
 Workflow functions such as `run_ldscore` read the registered configuration and reject `snp_identifier`, `genome_build` and `log_level` as keyword arguments; `run_annotate`, `RegressionRunner` and `SumstatsMunger.run` also accept an explicit `global_config=`.
 Saved LD-score directories and munged summary statistics keep the SNP identity and build recorded when they were written, and regression uses those records rather than the session setting.
 The regression functions `run_h2`, `run_partitioned_h2`, `run_rg` and `run_quantile_h2` therefore take only the log level from the registered configuration.
-They also reject, before writing anything, a keyword name the command does not have, a value outside the command's choices, and a non-boolean value for an on/off option.
+These four functions, `run_ldscore` and `run_build_ref_panel` also reject, before writing anything, a keyword name the command does not have, a missing required option, a value outside the command's choices, and a non-boolean value for an on/off option.
+`plot_result`, `convert_h2_scale`, `convert_ldsc2_ldscores` and `build_gene_ldscore_index` take an explicit `log_level=` for one call; when it is omitted they use the registered log level.
 See [SNP identity and genome build](concepts/snp-identity-and-genome-build.md).
 
 **Run workflows under `if __name__ == "__main__":`.**
@@ -311,7 +312,7 @@ For a gene-list query, also pass the original gene settings; `gene_list_resoluti
 ## Migrating from LDSC2
 
 `convert_ldsc2_ldscores` is the Python form of `ldsc convert-ldsc2-ldscores` described in [migrating from LDSC2](workflows/migrating-from-ldsc2.md).
-Its keyword arguments match the flags without the leading `--`, with the same defaults (`snp_identifier="rsid"`, `genome_build="auto"`, `overwrite=False`, `log_level="INFO"`); like the command, it has no common-MAF threshold.
+Its keyword arguments match the flags without the leading `--`, with the same defaults (`snp_identifier="rsid"`, `genome_build="auto"`, `overwrite=False`), except that an omitted `log_level` uses the registered `GlobalConfig.log_level`; like the command, it has no common-MAF threshold.
 Conversion runs in a managed worker, so call it under `if __name__ == "__main__":` (see [parallel execution](../reference/parallel-execution.md)).
 
 ```python
@@ -408,6 +409,7 @@ print(preview.runnable, preview.suggested_args)
 `run_ldscore()` is the Python form of `ldsc ldscore`.
 It takes the command-line option names without the leading `--` and with underscores, for example `baseline_annot_sources`, `query_annot_bed_sources`, `plink_prefix`, `r2_dir`, `ld_wind_cm`, `workers` and `output_dir`.
 The SNP identifier mode, genome build and log level are not keyword arguments: set them once with `set_global_config(GlobalConfig(...))`, and `run_ldscore()` rejects `snp_identifier`, `genome_build` or `log_level` passed directly.
+It also rejects, before writing anything, a name that is not an `ldscore` option (for example a misspelled `ld_wind_cn`), a value outside the command's choices and a non-boolean value for an on/off option such as `overwrite`.
 Per-run SNP controls such as `ref_panel_snps_file` and `regr_snps_file` stay ordinary keyword arguments.
 Put workflow calls in a script under `if __name__ == "__main__":`, as explained in [parallel execution](../reference/parallel-execution.md).
 
@@ -701,7 +703,8 @@ This section is the Python counterpart of [Build and query R² panels](workflows
 
 The Python builder keeps the names `ReferencePanelBuilder`, `ReferencePanelBuildConfig` and `run_build_ref_panel`; the command is `build-r2-panel`.
 `run_build_ref_panel()` takes the command's options as keyword arguments.
-It reads the SNP identifier mode and log level from the registered `GlobalConfig`, so call `set_global_config()` first; passing `snp_identifier`, `genome_build` or `log_level` to it is an error, and `GlobalConfig.genome_build` is ignored.
+It reads the SNP identifier mode and log level from the registered `GlobalConfig`, so call `set_global_config()` first; passing `snp_identifier`, `genome_build` or `log_level` to it is an error, and `GlobalConfig.genome_build` is ignored: `source_genome_build` gives the build of the PLINK input.
+Like `run_ldscore()`, it rejects names that are not `build-r2-panel` options and values outside the command's choices before writing anything.
 
 ```python
 from ldsc import GlobalConfig, run_build_ref_panel, set_global_config

@@ -93,7 +93,7 @@ ldsc_py3_restructured/
 | `ldsc._annotation_memory` | small prepared annotations and diagnostics without filesystem writes |
 | `ldsc._ldscore_batch_output` | consume/release materialized or staged query batches, retain explicit shared publication state, and publish complete LD directories |
 | `ldsc._ldscore_fragments` | describe producer-owned chromosome fragments and validate/write one query frame at a time against the shared baseline |
-| `ldsc._workflow_kwargs` | validate Python keyword arguments for `run_h2`, `run_partitioned_h2`, `run_rg`, and `run_quantile_h2` against the command parser, then run the parsed workflow under a failure marker naming the Python function |
+| `ldsc._workflow_kwargs` | validate Python keyword arguments for `run_ldscore`, `run_build_ref_panel`, `run_h2`, `run_partitioned_h2`, `run_rg`, and `run_quantile_h2` against the command parser before any write; run the regression and post-fit workflows under a failure marker naming the Python function |
 | `ldsc._parallelism` | shared `workers` validation, joblib detected CPU budgets, task caps, and execution summaries |
 | `ldsc._worker_runtime`, `ldsc._serial_calculation` | fixed 1-BLAS-thread child policy, runtime verification, independent Arrow limits, and controlled standalone numerical calls |
 | `ldsc._ldscore_diagnostics` | chromosome logs, batch context, and accurate task/pool failure reporting |
@@ -137,7 +137,7 @@ ldsc_py3_restructured/
 | change help wrapping or shared log-level wording | `src/ldsc/_cli_help.py:CLIHelpFormatter`, `src/ldsc/_logging.py:LOG_LEVEL_HELP`; verify `tests/test_cli_help.py` |
 | change path-token behavior | `src/ldsc/path_resolution.py` |
 | change output collision policy | `src/ldsc/path_resolution.py`, then the workflow writer that owns the artifact |
-| change a Python form of a regression command (`run_h2`, `run_partitioned_h2`, `run_rg`, `run_quantile_h2`) | the function in `src/ldsc/regression_runner.py` or `src/ldsc/quantile_h2.py`, keyword checks in `src/ldsc/_workflow_kwargs.py`; verify `tests/test_python_regression_workflows.py` |
+| change a keyword-argument Python workflow (`run_ldscore`, `run_build_ref_panel`, `run_h2`, `run_partitioned_h2`, `run_rg`, `run_quantile_h2`) | the function in its workflow module, keyword checks in `src/ldsc/_workflow_kwargs.py`; verify `tests/test_workflow_keyword_checks.py` and `tests/test_python_regression_workflows.py` |
 | change workflow log files, lifecycle lines, or log-level handling | `src/ldsc/_logging.py`, then the workflow orchestration function that owns the output directory |
 | change header aliases or identifier/build normalization | `src/ldsc/column_inference.py` |
 | change read-only artifact build inspection | `src/ldsc/_genome_build_inspection.py`, with CLI dispatch in `src/ldsc/cli.py` and coverage in `tests/test_genome_build_inspection.py` |

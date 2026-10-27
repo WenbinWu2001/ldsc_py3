@@ -16,7 +16,7 @@ For a complete gene-set workflow—from an explicit complete index through
 LD-score calculation and regression—follow [Calculate LD scores for gene lists
 with an index](../../user-guide/workflows/gene-list-ld-scores.md). For the general end-to-end workflow and output
 interpretation, see [the guided tutorial](../../user-guide/guided-tutorial.md) and the
-[partitioned LDSC technical reference](../../current/partitioned-ldsc-workflow.md).
+[partitioned-h2 result reference](../../reference/results/partitioned-h2.md).
 
 
 LD scoring accepts prebuilt annotation columns, BED intervals, or gene lists as mutually exclusive query routes. BED files can be prepared by users or obtained from an external resource in the required format, and support optional padding. Gene lists require a coordinate catalog for direct projection. See [annotation preparation](../../user-guide/workflows/annotations.md).

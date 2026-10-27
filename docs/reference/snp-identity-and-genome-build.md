@@ -223,6 +223,9 @@ Using the same literal for two opposite semantics is confusing and error-prone.
 
 ### Identity semantics
 
+The `SNP` column of an LD-score directory is a carried label, not necessarily a dbSNP rsID.
+For a synthetic `base` annotation it is the reference panel's `.bim` `SNP` value, carried through the R² panel sidecar, so a panel built from IDs such as `22:10684250:C:G` shows those strings; with explicit baseline annotations, the annotation files' `SNP` labels are kept and the reference panel only filters and aligns rows.
+
 Mode names are exact. Column aliases apply only to input headers, not to
 `snp_identifier` values.
 

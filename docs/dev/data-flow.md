@@ -354,8 +354,8 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| baseline LD-score table | `CHR POS SNP regression_ld_scores base`<br/>`1 10 rs1 1.7 1.2` | `ldscore.baseline.parquet` inside `output_dir`; `regression_ld_scores` is historical `w_ld`, not the final h2/rg regression weight; one row group per chromosome |
-| query LD-score table | `CHR POS SNP enhancer_A`<br/>`1 10 rs1 0.4` | single `ldscore.query.parquet` or numbered `ldscore.query.batchNNNNN.parquet` files in the ordered `query_batches` manifest; one row group per chromosome; omitted for baseline-only runs |
+| baseline LD-score table | `CHR SNP POS A1 A2 regression_ld_scores base`<br/>`1 rs1 10 A G 1.7 1.2` | `ldscore.baseline.parquet` inside `output_dir`; `regression_ld_scores` is historical `w_ld`, not the final h2/rg regression weight; one row group per chromosome |
+| query LD-score table | `CHR SNP POS A1 A2 enhancer_A`<br/>`1 rs1 10 A G 0.4` | single `ldscore.query.parquet` or numbered `ldscore.query.batchNNNNN.parquet` files in the ordered `query_batches` manifest; one row group per chromosome; omitted for baseline-only runs |
 | annotation overlap matrix | `row_annotation col_annotation overlap_all_snps overlap_common_snps`<br/>`base enhancer_A 9000 7500` | `ldscore.overlap.parquet` inside `output_dir`; long-form `AᵀA` baseline-rows block + query self-overlaps; consumed by `partitioned-h2` |
 | metadata | JSON metadata with files, columns, counts, chromosomes, config, row counts, and row-group metadata | `metadata.json` inside `output_dir`; consumed by downstream regression |
 | workflow log | plain-text lifecycle and package records | `diagnostics/ldscore.log` inside `output_dir`; not included in `LDScoreResult.output_paths` |

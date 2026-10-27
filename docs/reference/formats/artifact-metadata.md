@@ -229,11 +229,15 @@ ldscore/
   ldscore.baseline.parquet
   ldscore.query.parquet
   ldscore.overlap.parquet
+  ref_metadata/chr<chrom>_meta.tsv.gz      # with --export-ref-metadata
   diagnostics/
     ldscore.log
+    chromosome-logs/chr<chrom>.log
+    dropped_snps/chr<chrom>_dropped.tsv.gz
     query_annotation_status.tsv
     gene_list_audit.tsv.gz
     gene_list_resolution_summary.tsv
+    gene_catalog_issues.tsv                 # when catalog issues exist
     chromosome_scope.json
     input_issues.tsv
     ld_window_snp_counts.tsv
@@ -248,22 +252,28 @@ The row-complete audit and per-source summary are present for gene-list runs.
 that `partitioned-h2` requires. It is written only for runs with two or more
 annotation columns; a single-annotation (e.g. base-only) run omits it.
 Its storage grows as $O(B(B+Q))$ for $B$ baseline and $Q$ query columns.
+Only the baseline-row block $A_B^\top A$ and each query's self-overlap are stored, which is enough to rebuild the overlap matrix of every baseline-plus-one-query model; `overlap_config.stored_block` is `baseline_rows_plus_query_diagonal` with queries and `baseline_by_baseline` without.
+`partitioned-h2` requires the file, the `h2` collinearity check reads it when present, and `rg` ignores it.
+Query files repeat the SNP identity columns (`CHR`, `SNP`, `POS`, and `A1` and `A2` when available).
+Opening an LD-score directory validates every declared schema and allele column, and `LDScoreSource.read_queries` checks that the selected query files share the same SNP rows (`src/ldsc/ldscore_source.py`).
 The name-keyed long format survives zero-variance column drops and reordering, because regression assembles each model's overlap matrix by annotation name.
 Embedding the matrix in `metadata.json` was rejected because it would reach tens of MB for cell-type panels; `.npz` or position-aligned records were rejected as fragile.
 
 `metadata.json` is downstream-required. Query workflows also persist `diagnostics/chromosome_scope.json`, including validated baseline/reference chromosome sets, the content-resolved PLINK chromosome-to-prefix mapping when applicable, the effective analysis scope, validation status, and ordinary-glob selection caveat. Structural input failures populate `diagnostics/input_issues.tsv` with `input_role`, `source`, `chrom`, `reason`, `details`, and `repair`; unavailable later assessments remain unknown. These diagnostics can exist without scientific outputs after a failed preflight.
 
 | Field | Explanation | Downstream usage |
-| --- | --- | --- || `artifact_type` | Must be `ldscore`. | Required and validated. |
+| --- | --- | --- |
+| `artifact_type` | Must be `ldscore`. | Required and validated. |
 | `files` | Relative data-file map with required `baseline` and optional `query` and `overlap`. | Required to locate parquet data; `overlap` is required by `partitioned-h2`. |
 | `snp_identifier` | SNP identity mode used for LD-score rows. | Required for regression compatibility checks. |
 | `genome_build` | Genome build associated with LD-score identity metadata. | Required for regression compatibility checks when known. |
 | `chromosomes` | Chromosome labels represented in the output. | Reporting/navigation. |
 | `baseline_columns` | Ordered baseline annotation LD-score columns. | Required to assemble regression covariates. |
 | `query_columns` | Ordered query annotation LD-score columns. | Required for partitioned h2 query selection. |
-| `counts` | Per-annotation count records. | Required for regression count vectors. |
-| `count_config` | Common-SNP count settings, including the actual threshold operator (`>=` for native LDSC3 computation; strict `>` for LDSC2 conversion). | Required to interpret count universes and checked against overlap metadata. |
+| `counts` | Per-annotation count records, keyed by name: `group`, `column`, `all_reference_snp_count` and, when common-SNP counts are available, `common_reference_snp_count`. Regression uses the all-SNP count when the common count is absent. | Required for regression count vectors. |
+| `count_config` | Common-SNP count settings `common_reference_snp_maf_min` (default 0.05) and `common_reference_snp_maf_operator`, the actual threshold operator (`>=` for native LDSC3 computation; strict `>` for LDSC2 conversion). | Required to interpret count universes and checked against overlap metadata. |
 | `overlap_config` | Overlap-matrix provenance: `total_all_reference_snps`, `total_common_reference_snps`, `common_maf_min`, `common_maf_operator`, `stored_block`. `null` for single-annotation runs that write no overlap matrix. | Provides `M_tot` and the universe definition for overlap-aware partitioned-h2. |
+| `snp_universe_policy` | `ld_reference_universe` (how the reference SNPs were selected and how many were kept) and `regression_rows_and_weights` (regression-SNP selection, region exclusions, and counts before and after exclusion). | Scientific provenance; ignored by regression. |
 | `annotation_types` | Per-column `binary` or `quantitative` classification. | Interpretation and logging only; never changes fitting. |
 | `n_baseline_rows` | Number of rows in the baseline parquet table. | Reporting. |
 | `n_query_rows` | Genome-wide SNP row count shared by every query batch file, or zero without queries. | Reporting. |

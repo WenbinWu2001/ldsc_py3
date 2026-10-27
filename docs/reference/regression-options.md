@@ -146,6 +146,8 @@ The public Python `RegressionConfig.use_intercept=False` option remains supporte
 
 ## 2. `h2` — single-trait heritability
 
+`h2` and `rg` use only the baseline LD scores of an LD-score directory, even when it contains query files.
+
 Fits one regression per trait over the baseline LD scores. The number of
 annotations equals the number of retained baseline LD-score columns
 (`n_annot`), which drives the default policy below.

@@ -151,7 +151,7 @@ ldsc_py3_restructured/
 | change saved LD-score loading or selected-query reads | `src/ldsc/ldscore_source.py`; keep model-specific validation in `src/ldsc/regression_runner.py` |
 | change LD-score math | `src/ldsc/_kernel/ldscore.py` |
 | change raw sumstats ingestion, format inference, `CHR`/`POS` handling, sumstats SNP keep-list filtering, liftover drop audit sidecars, footer provenance, or curated loading | `src/ldsc/sumstats_munger.py`, then `src/ldsc/_kernel/sumstats_munger.py` |
-| change regression dataset assembly or CLI summaries | `src/ldsc/regression_runner.py`, then `src/ldsc/outputs.py`, `docs/reference/results/partitioned-h2.md` for partitioned-h2 output layout, `docs/current/partitioned-ldsc-workflow.md` for rg output contracts, and `docs/reference/regression-options.md` for the tunable estimator parameters and defaults |
+| change regression dataset assembly or CLI summaries | `src/ldsc/regression_runner.py`, then `src/ldsc/outputs.py`, `docs/reference/results/partitioned-h2.md` for partitioned-h2 output layout, `docs/reference/formats/artifact-metadata.md` for rg output contracts, and `docs/reference/regression-options.md` for the tunable estimator parameters and defaults |
 | change annotation-name validation or continuous-annotation classification | `src/ldsc/annotation_semantics.py`, then `src/ldsc/ldscore_calculator.py` and `src/ldsc/outputs.py` |
 | change target quantiles, standardized coefficients, or post-fit alignment | `src/ldsc/quantile_h2.py`, then `src/ldsc/outputs.py` and `docs/reference/results/quantile-h2.md` |
 | change LDSC estimators | `src/ldsc/_kernel/regression.py` |

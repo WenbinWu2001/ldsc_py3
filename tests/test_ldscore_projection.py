@@ -87,6 +87,63 @@ def test_plink_projection_reuses_genotype_traversal(batch_size):
     assert scores.dtype == np.float64
 
 
+def _window_coordinates(name, m):
+    """Coordinates and maximum distance defining one exact LD window."""
+    if name == 'gap':
+        # A 100-unit gap leaves the first SNP after it with no left partners.
+        return np.r_[np.arange(10), 110 + np.arange(m - 10)].astype(float), 3.0
+    if name == 'whole':
+        return np.arange(m, dtype=float), float(m)
+    return np.arange(m, dtype=float), float(name.removeprefix('snps'))
+
+
+@pytest.mark.parametrize('chunk', [1, 2, 3, 4, 7, 50])
+@pytest.mark.parametrize('window', ['snps1', 'snps5', 'gap', 'whole'])
+def test_plink_ld_scores_use_the_exact_window_for_every_chunk_size(window, chunk):
+    """LD scores sum adjusted r2 over the exact window, whatever the batch size.
+
+    The oracle is a dense adjusted-r2 matrix zeroed outside the window rule
+    ``min(i, j) >= block_left[max(i, j)]`` (the parquet reader's rule). m=23 is
+    prime, so batches 2-7 end with a partial chunk; batch 50 exceeds m and
+    exercises the single initial block. ``gap`` reaches the empty-left-block path.
+    """
+    from ldsc._kernel.ldscore import get_block_lefts
+    from ldsc._kernel.ldscore_projection import ArrayAnnotations
+    from ldsc._kernel.plink_bed import __GenotypeArrayInMemory__
+
+    rng = np.random.default_rng(20261027)
+    n, m = 40, 23
+    genotypes = rng.integers(0, 3, size=(n, m)).astype(float)
+    genotypes = (genotypes - genotypes.mean(axis=0)) / genotypes.std(axis=0)
+    annotations = np.column_stack([np.ones(m), rng.normal(size=(m, 2))]).astype(np.float32)
+    weights = rng.integers(0, 2, size=m).astype(np.float32)
+    output_rows = np.array([20, 3, 0, 11, 22])
+    coords, max_dist = _window_coordinates(window, m)
+    block_left = get_block_lefts(coords, max_dist)
+
+    reader = object.__new__(__GenotypeArrayInMemory__)
+    reader.m, reader.n = m, n
+    cursor = [0]
+    def next_snps(count):
+        start = cursor[0]
+        cursor[0] += count
+        return genotypes[:, start:start + count]
+    reader.nextSNPs = next_snps
+    scores = reader.ldScoreVarBlocks(block_left, chunk,
+        annot=ArrayAnnotations(annotations, ('base', 'q1', 'q2')),
+        output_rows=output_rows, n_baseline=1, query_batch_size=2, weight_mask=weights)
+
+    r = genotypes.T @ genotypes / n
+    r2 = r**2 - (1 - r**2) / (n - 2)
+    i, j = np.meshgrid(np.arange(m), np.arange(m), indexing='ij')
+    inside = np.minimum(i, j) >= block_left.astype(int)[np.maximum(i, j)]
+    expected = np.where(inside, r2, 0.0) @ np.column_stack([annotations, weights]).astype(np.float64)
+    assert cursor[0] == m
+    assert scores.shape == (len(output_rows), 4)
+    # Only summation order differs from the oracle, so float64 roundoff bounds the error.
+    np.testing.assert_allclose(scores, expected[output_rows], rtol=1e-12, atol=1e-12)
+
+
 @pytest.mark.parametrize('batch_size', [1, 2, 1000])
 def test_r2_projection_reuses_pair_traversal(batch_size):
     from ldsc._kernel.ldscore import ld_score_streaming_from_r2_reader

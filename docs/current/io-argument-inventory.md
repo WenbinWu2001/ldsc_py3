@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -223,7 +223,7 @@ Gene mode substitutes `--query-annot-gene-list-sources` for the BED route, requi
 | `--genetic-map-hg38-sources` | input | no | hg38 genetic map for PLINK cM windows | Genetic map (hg38) used to derive `CM` at `.bim` positions when the PLINK `.bim` `CM` column is uninformative; defaults to omitted/`None`. Accepts comma-separated exact paths; `*` and `@` are not expanded. The map build is selected from `--genome-build` or inferred (chr_pos modes); rsID modes require an explicit `--genome-build`. |
 | `--export-ref-metadata` | output | no | opt-in reference-metadata sidecar | When set (PLINK backend), writes `ref_metadata/chrN_meta.tsv.gz` (`CHR POS SNP A1 A2 CM MAF`, matching the parquet panel sidecar) next to the LD-score output. Default `False`. Parquet panels already ship this sidecar. |
 | `--common-maf-min` | input metadata | no | common-SNP count threshold | Sets the MAF threshold for common-SNP count vectors and the common-universe overlap matrix; defaults to `0.05` and uses inclusive `MAF >= common_maf_min` (deviates from legacy LDSC's strict `0.05 < FRQ < 0.95`). |
-| `--snp-batch-size` | performance | no | LD-score SNP batch size | Genotype batch size for the PLINK reference-panel backend; defaults to `128`. The parquet-R2 backend streams stored pairs and ignores this value. |
+| `--snp-batch-size` | performance | no | LD-score SNP batch size | Genotype batch size for the PLINK reference-panel backend; defaults to `128`. It changes speed and memory only: pairs outside the requested LD window are dropped for every batch size, unlike LDSC2's `--chunk-size`. The parquet-R2 backend streams stored pairs and ignores this value. |
 | `--workers` | performance | no | cross-chromosome parallelism | Default 1, one managed child; every worker uses 1 BLAS thread. Use joblib.cpu_count() as the detected CPU budget; reject positive requests above it before capping by tasks (and regression query batch size). Negative -k uses max(1, budget + 1 - k); zero is invalid. See [execution policy](parallel-execution.md). |
 | `--yes-really` | safety override | no | whole-chromosome LD windows | Allows whole-chromosome LD windows; defaults to `False`, so such windows are rejected unless this flag is supplied. |
 
@@ -337,7 +337,7 @@ It is not a legacy compatibility command and performs no inference or liftover.
 | `--regr-snps-file` | input | no | regression SNP override | Headered identity-only table; `rsid` requires `SNP`, while `chr_pos` requires `CHR` and `POS`. Defaults to omitted/`None`, so the bundled HM3 set in the selected build is used. Repeated effective keys collapse; allele-aware restrictions may omit both allele columns for base-key filtering. |
 | `--regr-snps-exclude-regions` | input transform | no | regression-region subtraction | `none`, `mhc`, `centromeres`, or `mhc-and-centromeres`; defaults to `mhc-and-centromeres`. The obsolete `--exclude-regions` alias is rejected. |
 | `--genetic-map-hg19-sources`, `--genetic-map-hg38-sources` | input | no | genetic map | Optional map matching the explicit build for cM windows; accepts comma-separated exact paths without `*` or `@` expansion. Omit for kb/SNP-count windows. |
-| `--snp-batch-size`, `--atom-batch-size` | performance | no | computation batches | Bounds SNP and disjoint-atom matrix work; `--snp-batch-size` defaults to `128`, and `--atom-batch-size` defaults to `64`. |
+| `--snp-batch-size`, `--atom-batch-size` | performance | no | computation batches | Bounds SNP and disjoint-atom matrix work; `--snp-batch-size` defaults to `128`, and `--atom-batch-size` defaults to `64`. Neither changes the index values. |
 | `--workers` | performance | no | chromosome workers | Default 1, one managed child; every worker uses 1 BLAS thread. Use joblib.cpu_count() as the detected CPU budget; reject positive requests above it before capping by tasks (and regression query batch size). Negative -k uses max(1, budget + 1 - k); zero is invalid. See [execution policy](parallel-execution.md). |
 | `--overwrite` | output mode | no | publication policy | Replaces only a complete valid owned index through staged publication; defaults to `False`. |
 | `--log-level` | logging | no | workflow log verbosity | Controls the persistent index build-state log; defaults to `INFO`. |

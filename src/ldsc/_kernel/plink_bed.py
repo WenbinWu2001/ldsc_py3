@@ -1,6 +1,7 @@
 # Genotype readers derive from upstream LDSC ldscore/ldscore.py; GPLv3 (LICENSE).
 # Upstream authors and Python 3 port credit are in NOTICE. Modified 2026-06:
-# extracted readers and added selective streaming; 2026-09: reader lifetime.
+# extracted readers and added selective streaming; 2026-09: reader lifetime;
+# 2026-10: exact LD windows independent of the chunk size.
 # See NOTICE for attribution and dated modifications.
 
 """PLINK genotype reader and in-memory LD-score block sums.
@@ -8,6 +9,8 @@
 Selective reads apply sample and SNP filters before genotype normalization.
 In-memory readers close the BED file after loading retained genotypes;
 streaming readers keep it open until their owner calls ``close()``.
+LD-score sums use exactly the pairs inside ``block_left``; unlike LDSC2, the
+chunk size ``c`` does not widen the window.
 """
 from __future__ import annotations
 
@@ -114,8 +117,16 @@ class __GenotypeArrayInMemory__(object):
     def __corSumVarBlocks__(self, block_left, c, func, snp_getter, annot=None, *,
                             output_rows=None, n_baseline=None, query_batch_size=100,
                             weight_mask=None):
-        """Accumulate transformed correlation sums over LDSC-style LD blocks."""
+        """Accumulate transformed correlation sums over the exact LD window.
+
+        The LDSC2 traversal below rounds each block up to a multiple of ``c``
+        and shares the chunk start's block across the chunk, so it computes a
+        superset of the window pairs, each exactly once. Pairs outside the
+        window are zeroed before accumulation, which makes the result
+        independent of ``c``.
+        """
         m, n = self.m, self.n
+        window_left = np.asarray(block_left, dtype=np.int64)
         block_sizes = np.array(np.arange(m) - block_left)
         block_sizes = np.ceil(block_sizes / c) * c
         if annot is None:
@@ -152,6 +163,7 @@ class __GenotypeArrayInMemory__(object):
             B = A[:, l_B:l_B + c]
             np.dot(A.T, B / n, out=rfuncAB)
             rfuncAB = func(rfuncAB)
+            _zero_pairs_outside_window(rfuncAB, l_A, l_B, window_left)
             accumulator.add_dense(np.arange(l_A, l_A+b), np.arange(l_B, l_B+c), rfuncAB)
         b0 = b
         md = int(c * np.floor(m / c))
@@ -177,12 +189,33 @@ class __GenotypeArrayInMemory__(object):
             B = snp_getter(c)
             np.dot(A.T, B / n, out=rfuncAB)
             rfuncAB = func(rfuncAB)
+            _zero_pairs_outside_window(rfuncAB, l_A, l_B, window_left)
             accumulator.add_dense(np.arange(l_A, l_A+b), np.arange(l_B, l_B+c), rfuncAB)
             accumulator.add_dense(np.arange(l_B, l_B+c), np.arange(l_A, l_A+b), rfuncAB.T)
             np.dot(B.T, B / n, out=rfuncBB)
             rfuncBB = func(rfuncBB)
+            _zero_pairs_outside_window(rfuncBB, l_B, l_B, window_left)
             accumulator.add_dense(np.arange(l_B, l_B+c), np.arange(l_B, l_B+c), rfuncBB)
         return accumulator.values
+
+
+def _zero_pairs_outside_window(values, row_start, col_start, block_left):
+    """Zero, in place, the entries of one dense block outside the exact LD window.
+
+    ``values[p, q]`` is the pair ``(row_start + p, col_start + q)``, which lies
+    in the window iff ``min(i, j) >= block_left[max(i, j)]``. Because
+    ``block_left`` is non-decreasing, each column keeps one contiguous row
+    range, so only per-column bounds are computed (no block-sized mask).
+    """
+    n_rows, n_cols = values.shape
+    if n_rows == 0 or n_cols == 0:
+        return
+    cols = np.arange(col_start, col_start + n_cols)
+    first = block_left[cols] - row_start
+    stop = np.searchsorted(block_left, cols, side="right") - row_start
+    for q in np.flatnonzero((first > 0) | (stop < n_rows)):
+        values[:max(first[q], 0), q] = 0.0
+        values[max(stop[q], 0):, q] = 0.0
 
 
 if ba is not None:

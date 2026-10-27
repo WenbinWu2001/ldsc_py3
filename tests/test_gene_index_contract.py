@@ -159,7 +159,13 @@ def test_complete_autosomal_index_build_and_reload(tmp_path, build, mode, unit, 
             dropped = pd.read_csv(path / 'diagnostics' / 'dropped_snps' / f'chr{chrom}_dropped.tsv.gz', sep='\t')
             assert len(dropped) == 1 and dropped.iloc[0].SNP == f'invalid_{chrom}'
     root = json.loads((path / 'metadata.json').read_text())
-    assert root['format_version'] == 2
+    assert root['format_version'] == 3
+    # Version 2 indexes were built with LDSC2 chunk-rounded PLINK windows.
+    root['format_version'] = 2
+    (path / 'metadata.json').write_text(json.dumps(root))
+    with pytest.raises(LDSCInputError, match='Rebuild the complete index') as rejected:
+        index.load_gene_ldscore_index(path)
+    assert 'exact PLINK LD windows' in str(rejected.value)
     root.pop('format_version')
     (path / 'metadata.json').write_text(json.dumps(root))
     with pytest.raises(LDSCInputError, match='Rebuild the complete index'):

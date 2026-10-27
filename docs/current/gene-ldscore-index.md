@@ -1,6 +1,6 @@
 # Exact gene LD-score indexes
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 `--workers` / `workers` defaults to one managed child process, including on HPC.
 Every worker uses **1 BLAS thread**, in serial and parallel execution.
@@ -229,7 +229,8 @@ window and MAF rules, padding, and gene-region policy. Batching, threads,
 logging, output path, and overwrite are resource or publication controls and do
 not change the identity.
 
-Root and chromosome metadata record `format_version: 2` and repeat the immutable identity mode and hg19/hg38 build.
+Root and chromosome metadata record `format_version: 3` and repeat the immutable identity mode and hg19/hg38 build.
+Version 3 marks exact PLINK LD windows; version 2 operators used LDSC2's batch-rounded windows, so the loader rejects them and asks for a rebuild.
 Each chromosome records `published_row_metadata_sha256` over ordered `CHR SNP POS A1 A2` metadata for regression rows only.
 Both allele columns are required.
 This one digest covers the effective SNP key in all four identity modes; the redundant `effective_identity_sha256` field is no longer written or required.

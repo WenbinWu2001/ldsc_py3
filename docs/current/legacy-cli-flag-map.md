@@ -1,6 +1,6 @@
 # LDSC2 to Current CLI Flag Map
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 This document maps changed LDSC2 flags to the supported `ldsc` commands and records the flag-cleanup decisions. “Removed” means the parser rejects the old option; there are no compatibility aliases. A retired option whose behavior is now automatic has that behavior described explicitly below. The [IO argument inventory](io-argument-inventory.md) lists the complete current surface, and [munge-sumstats](munge-sumstats.md) describes its input and artifact contracts.
 
@@ -66,6 +66,29 @@ The existing per-variant case/control normalization is also unchanged: define to
 
 Legacy numerical source: [`munge_sumstats.py:327`, `process_n`](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/munge_sumstats.py:327>); current numerical source: [`_kernel.sumstats_munger.process_n`](../../src/ldsc/_kernel/sumstats_munger.py). The legacy help text itself incorrectly describes the divisor as 2; the implementation is the authority for the retained 1.5 rule. No new default or override policy is introduced here.
 
+## Legacy behavior intentionally changed
+
+### Exact PLINK LD windows
+
+LDSC2 computed PLINK LD scores in chunks of `--chunk-size` SNPs (default 50) and widened each SNP's window to a multiple of the chunk, so the chunk size changed the LD scores.
+LDSC2's own code comment notes that these windows differ from the definition in the paper.
+The current PLINK backend keeps the chunked computation but drops every pair outside the requested window, so `--snp-batch-size` in `ldsc ldscore` and `ldsc build-gene-ldscore-index` changes only speed and memory.
+Its LD scores equal LDSC2 run with `--chunk-size 1` and match the parquet-R2 backend, which always used exact windows.
+Gene LD-score indexes built with the earlier rounded windows (`format_version` 2) are rejected and must be rebuilt.
+Published LDSC2 LD scores remain usable unchanged through `ldsc convert-ldsc2-ldscores`.
+
+Measurement (2026-10-27; former LDSC2-ported kernel at `c67b40e` versus the exact kernel introduced with this section), on 1000G.EUR.QC chromosome 22 (489 individuals, 141,123 SNPs), `--ld-wind-cm 1`, 17,489 HapMap3 output SNPs:
+
+- The former kernel at batch 50 reproduced the published Phase 3 baseline `baseL2` within its three printed decimals.
+- Relative to the exact window, batch 50 raised the mean base LD score by 0.05% (largest per-SNP difference 6.7; 2.2% of SNPs differed by more than 0.5), and the former default batch 128 raised it by 0.13% (largest difference 7.6; 8.5% of SNPs).
+- Chromosome-22 SNP heritability for the PGC3 schizophrenia summary statistics (wave 3, European) was 0.008406 at batch 50, 0.008413 at batch 128, and 0.008411 with exact windows (standard error 0.00114).
+- The exact kernel took 18 s at batch 128 and gave the same written values as the former kernel at batch 1, which took 264 s.
+
+Limits: one chromosome, panel, trait, and window were measured.
+Smaller `--ld-wind-snps` windows and sparse panels change more; on the 32-SNP test fixture, `--ld-wind-snps 3` at batch 128 formerly covered the whole chromosome.
+
+Sources: LDSC2 [`ldscore/ldscore.py:167-168`, `__corSumVarBlocks__`](</Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik/ldscore/ldscore.py:167>); current [`_kernel/plink_bed.py`, `__corSumVarBlocks__` and `_zero_pairs_outside_window`](../../src/ldsc/_kernel/plink_bed.py), tested in [`test_ldscore_projection.py`](../../tests/test_ldscore_projection.py) and [`test_plink_exact_windows.py`](../../tests/test_plink_exact_windows.py).
+
 ## Established command and input renames
 
 These mappings describe current workflows and are not additional changes made by this cleanup. Where workflow semantics differ, a replacement is described as a workflow rather than a one-to-one alias.
@@ -80,7 +103,7 @@ These mappings describe current workflows and are not additional changes made by
 | `ldsc.py --keep FILE` | `ldsc ldscore --keep-indivs-file FILE` | Restrict PLINK individuals; invalid with precomputed R2. |
 | `ldsc.py --annot SOURCES` | `--baseline-annot-sources`, optionally `--query-annot-sources` | Explicitly separate baseline annotations from focal queries; current annotation inputs include identity metadata. |
 | `ldsc.py --maf VALUE` | `ldsc ldscore --maf-min VALUE` | Reference-panel MAF filtering; `--common-maf-min` separately controls common-SNP count vectors. |
-| `ldsc.py --chunk-size N` | `ldsc ldscore --snp-batch-size N` | PLINK genotype computation batch size, current default 128. This is not munging's `--chunksize`. |
+| `ldsc.py --chunk-size N` | `ldsc ldscore --snp-batch-size N` | PLINK genotype computation batch size, current default 128. Unlike `--chunk-size`, it does not widen LD windows; see [Exact PLINK LD windows](#exact-plink-ld-windows). This is not munging's `--chunksize`. |
 | `ldsc.py --print-snps FILE` | `--regr-snps-file FILE` with a deliberate workflow adaptation | The current set determines both persisted LD-score rows and regression-weight contributors. It is not merely the old write-only filter; default HM3 selection and region exclusions also apply. |
 | `ldsc.py --h2 FILE` | `ldsc h2 --sumstats-file FILE` or `ldsc partitioned-h2 --sumstats-file FILE` | Select the intended workflow; both consume a canonical LD-score directory. |
 | `ldsc.py --h2-cts FILE`, `--ref-ld-chr-cts` | `ldsc partitioned-h2 --sumstats-file FILE --ldscore-dir DIRECTORY` | Build query LD scores first and use the canonical artifact; old cell-type manifests are not accepted as regression inputs. |

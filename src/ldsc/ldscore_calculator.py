@@ -1334,7 +1334,8 @@ def build_parser() -> argparse.ArgumentParser:
         '--snp-batch-size', default=128, type=int, metavar='N',
         help=(
             'Number of reference SNPs processed per PLINK genotype batch. Default: 128; larger batches use '
-            'more memory. Ignored with --r2-dir; rejected with --gene-ldscore-index-dir.'
+            'more memory. LD scores do not depend on it. Ignored with --r2-dir; rejected with '
+            '--gene-ldscore-index-dir.'
         ),
     )
     runtime.add_argument(

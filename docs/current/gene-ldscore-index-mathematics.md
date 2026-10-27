@@ -1,6 +1,6 @@
 # Exact gene LD-score index: mathematical algorithm
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 This document gives the input-to-output mathematical specification for the
 exact gene-list index used by `ldsc ldscore`. It describes the online indexed
@@ -94,6 +94,7 @@ $$
 
 The builder evaluates the same PLINK block kernel used by direct `ldscore`, so
 $R$ is conceptual and is not materialized as a dense chromosome-wide matrix.
+The kernel computes correlations in SNP batches but zeroes every pair outside the window, so $R$ does not depend on `--snp-batch-size`.
 
 ## 3. Concise offline index construction
 

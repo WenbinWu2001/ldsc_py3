@@ -1307,7 +1307,8 @@ def test_chromosome_failure_cleans_staged_shards_without_publication(tmp_path, m
     assert "Finished chromosome 1" in failed_log.read_text(encoding="utf-8")
 
 
-def test_plink_operator_matches_independent_dense_adjusted_r2_reference():
+@pytest.mark.parametrize("snp_batch_size", [1, 3])
+def test_plink_operator_matches_independent_dense_adjusted_r2_reference(snp_batch_size):
     prefix = Path(__file__).resolve().parent / "fixtures" / "plink" / "plink"
     bim = pd.read_csv(
         prefix.with_suffix(".bim"), sep=r"\s+", header=None,
@@ -1322,7 +1323,7 @@ def test_plink_operator_matches_independent_dense_adjusted_r2_reference():
     args = Namespace(
         bfile=str(prefix), keep=None, maf_min=None, maf=None,
         ld_wind_snps=1, ld_wind_kb=None, ld_wind_cm=None,
-        yes_really=True, snp_batch_size=1, common_maf_min=0.05,
+        yes_really=True, snp_batch_size=snp_batch_size, common_maf_min=0.05,
         snp_identifier="rsid", genetic_map=None,
     )
     persisted_keys = {"rs_5", "rs_6"}
@@ -1349,6 +1350,8 @@ def test_plink_operator_matches_independent_dense_adjusted_r2_reference():
     assert indexed.operator.toarray()[0, 2] < 0
     assert indexed.operator.toarray()[0, 0] == pytest.approx(1.0)  # non-regression rs_4 still contributes
     assert indexed.operator.toarray()[0, 3] == 0.0  # outside the one-SNP window
+    # A batch wider than the window must not widen it, as LDSC2 chunk rounding did.
+    np.testing.assert_allclose(indexed.baseline_rows["base"], dense_r[persisted].sum(axis=1), rtol=0, atol=1e-12)
 
 
 def test_semantic_id_uses_canonical_scientific_identity_only():

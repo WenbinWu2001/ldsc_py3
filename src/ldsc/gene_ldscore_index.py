@@ -99,7 +99,9 @@ LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
 
 _IDENTITY_COLUMNS = ["CHR", "POS", "SNP"]
-_INDEX_FORMAT_VERSION = 2
+# Version 3: PLINK LD windows are exact; version 2 operators used LDSC2's
+# chunk-rounded windows, which depended on --snp-batch-size.
+_INDEX_FORMAT_VERSION = 3
 
 
 class _GeneIndexArgumentParser(argparse.ArgumentParser):
@@ -271,7 +273,7 @@ def build_parser() -> argparse.ArgumentParser:
         '--snp-batch-size', type=int, default=128, metavar='N',
         help=(
             'Number of reference SNPs processed per PLINK genotype batch. Default: 128; larger batches use '
-            'more memory.'
+            'more memory. LD scores do not depend on it.'
         ),
     )
     runtime.add_argument(
@@ -1937,8 +1939,13 @@ def _load_gene_ldscore_index(
     index_path = Path(index_dir)
     root = _read_json(index_path / "metadata.json", "root")
     if root.get("format_version") != _INDEX_FORMAT_VERSION:
-        raise LDSCInputError("Unsupported gene LD-score index format version. Rebuild the complete index with "
-                             "the current package; earlier indexes cannot be reused or migrated.")
+        raise LDSCInputError(
+            f"Unsupported gene LD-score index format version {root.get('format_version')!r} "
+            f"(this package reads version {_INDEX_FORMAT_VERSION}). Rebuild the complete index with the "
+            "current package; earlier indexes cannot be reused or migrated. Version 3 uses exact PLINK LD "
+            "windows: earlier indexes widened each window to a multiple of --snp-batch-size, so their "
+            "LD scores differ slightly from current direct ldscore runs."
+        )
     if root.get("artifact_type") != "gene_ldscore_index":
         raise LDSCInputError(
             "Gene LD-score index root has the wrong artifact_type."

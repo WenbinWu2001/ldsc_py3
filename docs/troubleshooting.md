@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-10-26
+Last updated on: 2026-10-27
 
 This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](current/workflow-logging.md#diagnostics-and-troubleshooting).
 It also retains guidance for failed-run artifacts, documented query omissions, and cleanup warnings that users need to interpret.
@@ -547,6 +547,7 @@ or rebuild the index, or remove `--gene-ldscore-index-dir` and supply the
 full direct-mode inputs explicitly. Older gene-index metadata contracts are not
 loaded by the current strict reader and must be rebuilt; ordinary canonical
 LD-score directories already produced from them are unaffected.
+An `Unsupported gene LD-score index format version 2` error means the index predates exact PLINK LD windows; rebuild it with the current `ldsc build-gene-ldscore-index`.
 
 The retired `effective_identity_sha256` field alone does not require rebuilding: otherwise-valid existing indexes still load. New indexes omit this redundant field and require an updated reader; upgrade the reader if an older installation reports a missing effective-identity digest. The retained `published_row_metadata_sha256`, semantic `index_id`, and input fingerprints remain required under their existing contracts.
 

@@ -20,8 +20,6 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 - [layer-structure.md](layer-structure.md): layer-by-function object matrix
 - [annotation-memory-design.md](annotation-memory-design.md): consolidated memory and CPU efficiency designs, including bit-packing, genotype/R² streaming, sparse projection, index reuse, workers, regression copies/artifacts, exact quantiles, and evidence limits
 
-![Package overview](../assets/ldsc-package-overview.png)
-
 ## Bird's-Eye View
 
 - **Build query annotations**: project BED or resolved gene intervals onto a SNP grid; standalone `annotate` accepts mutually exclusive BIM or baseline-annotation sources. Entry points: `ldsc annotate`, `ldsc ldscore`, `ldsc.AnnotationBuilder`

@@ -255,3 +255,32 @@ for row in summary.itertuples(index=False):
 
 `keep_default_na=False` keeps empty `error_message` cells of successful queries as empty strings.
 `diagnostics/metadata.json` records the requested and effective worker counts of the run.
+
+## Migrating from LDSC2
+
+`convert_ldsc2_ldscores` is the Python form of `ldsc convert-ldsc2-ldscores` described in [migrating from LDSC2](workflows/migrating-from-ldsc2.md).
+Its keyword arguments match the flags without the leading `--`, with the same defaults (`snp_identifier="rsid"`, `genome_build="auto"`, `overwrite=False`, `log_level="INFO"`); like the command, it has no common-MAF threshold.
+Conversion runs in a managed worker, so call it under `if __name__ == "__main__":` (see [parallel execution](../reference/parallel-execution.md)).
+
+```python
+from ldsc import convert_ldsc2_ldscores, load_ldscore_from_dir
+
+def main():
+    result = convert_ldsc2_ldscores(
+        legacy_reference_dir="/path/to/legacy/baseline",
+        legacy_weight_dir="/path/to/legacy/weights",
+        legacy_frequency_dir="/path/to/legacy/frequencies",  # Omit for an unpartitioned suite.
+        output_dir="/path/to/converted/baseline",
+    )
+    print(result.profile, result.n_rows, result.baseline_columns)
+    print(result.output_paths)
+
+    source = load_ldscore_from_dir("/path/to/converted/baseline")
+
+if __name__ == "__main__":
+    main()
+```
+
+The returned `LegacyLDScoreConversionResult` reports the detected suite type (`profile`), the number of retained rows, the baseline columns and the output paths, including the issue table and log.
+`load_ldscore_from_dir` opens the converted directory as an `LDScoreSource` for `RegressionRunner`; see [Partitioned heritability](#partitioned-heritability).
+LDSC2 `.sumstats(.gz)` files need no conversion: `load_sumstats` recognizes them, and `RegressionRunner` matches them to the LD-score directory automatically.

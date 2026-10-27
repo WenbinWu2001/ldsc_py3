@@ -9,7 +9,7 @@ This document defines the interoperability boundary for explicitly converting
 selected reusable LDSC2 LD-score suites into the canonical LDSC3 LD-score
 result-directory contract.
 
-For all flags, standard filename tables, working and non-working suites, and copy-and-rename examples, see the [user guide](../../../tutorials/convert-legacy-ldscores.md). The [utility wiki](../../wiki/utility-functionalities/convert-ldsc2-ldscores.md) provides a concise naming and command reference.
+For all flags, standard filename tables, working and non-working suites, and copy-and-rename examples, see the [user guide](../../user-guide/workflows/migrating-from-ldsc2.md). The [utility wiki](../../user-guide/workflows/migrating-from-ldsc2.md) provides a concise naming and command reference.
 
 ## Command
 

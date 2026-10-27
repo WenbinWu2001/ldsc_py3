@@ -815,7 +815,7 @@ or missing — it cannot define a genetic-distance window, and `--yes-really` do
 
 ## convert-ldsc2-ldscores
 
-The [conversion user guide](../../tutorials/convert-legacy-ldscores.md) gives full layouts, table requirements, flags, and copy-and-rename commands. After logging starts, conversion exceptions and their remedies are recorded in `diagnostics/convert-ldsc2-ldscores.log` even at `--log-level ERROR`, with available issues in `diagnostics/conversion_issues.tsv.gz`. Invalid directory arguments or output collisions may fail before a log opens.
+The [conversion user guide](workflows/migrating-from-ldsc2.md) gives full layouts, table requirements, flags, and copy-and-rename commands. After logging starts, conversion exceptions and their remedies are recorded in `diagnostics/convert-ldsc2-ldscores.log` even at `--log-level ERROR`, with available issues in `diagnostics/conversion_issues.tsv.gz`. Invalid directory arguments or output collisions may fail before a log opens.
 
 ### standard filenames and directory organization
 

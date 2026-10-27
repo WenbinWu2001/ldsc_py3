@@ -397,7 +397,7 @@ See the complete policies for
 [legacy sumstats](docs/reference/formats/legacy-sumstats.md) and
 [legacy LD-score conversion](docs/reference/formats/legacy-ldscores.md).
 
-For commands, standard filenames, complete suite examples, and practical naming repairs, follow the [legacy LD-score conversion user guide](tutorials/convert-legacy-ldscores.md). The [conversion utility wiki](docs/wiki/utility-functionalities/convert-ldsc2-ldscores.md) provides the concise standard naming and flag reference.
+For commands, standard filenames, complete suite examples, and practical naming repairs, follow the [legacy LD-score conversion user guide](docs/user-guide/workflows/migrating-from-ldsc2.md). The [conversion utility wiki](docs/user-guide/workflows/migrating-from-ldsc2.md) provides the concise standard naming and flag reference.
 
 ## Python API
 

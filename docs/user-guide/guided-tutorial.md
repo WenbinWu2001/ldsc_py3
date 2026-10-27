@@ -6,7 +6,7 @@ This tutorial walks through how to use the `ldsc` package for a series of LD sco
 
 ## Overview
 
-If you already have a reusable legacy LD-score suite, use the [convert-ldsc2-ldscores utility](../wiki/utility-functionalities/convert-ldsc2-ldscores.md) for the standard filenames and conversion flags. It provides an alternative to computing unpartitioned LD scores for `h2`/`rg`, or imports a baseline-only model for `partitioned-h2`; query/cell-type scores still use the current LD-score workflow.
+If you already have a reusable legacy LD-score suite, use the [convert-ldsc2-ldscores utility](workflows/migrating-from-ldsc2.md) for the standard filenames and conversion flags. It provides an alternative to computing unpartitioned LD scores for `h2`/`rg`, or imports a baseline-only model for `partitioned-h2`; query/cell-type scores still use the current LD-score workflow.
 
 The analysis pipeline involves:
 
@@ -484,10 +484,10 @@ annot_processed/
 
 Regression accepts legacy `.sumstats` and `.sumstats.gz` files containing `SNP`, `A1`, `A2`, `Z`, and `N` directly through `--sumstats-file` or `--sumstats-sources`; remunging is optional. Legacy LD-score suites must first pass through `ldsc convert-ldsc2-ldscores`. That converter accepts complete chromosome 1–22 unpartitioned or baseline-only suites with the required counts and supporting inputs. Regression then reads the converted canonical directory.
 
-See the [sumstats compatibility contract](../reference/formats/legacy-sumstats.md) and [conversion guide](../wiki/utility-functionalities/convert-ldsc2-ldscores.md). Dedicated [sumstats tests](../../tests/test_legacy_sumstats_compatibility.py) and [conversion tests](../../tests/test_legacy_ldscore_converter.py) cover these routes; this coverage does not imply equivalence for every possible dataset.
+See the [sumstats compatibility contract](../reference/formats/legacy-sumstats.md) and [conversion guide](workflows/migrating-from-ldsc2.md). Dedicated [sumstats tests](../../tests/test_legacy_sumstats_compatibility.py) and [conversion tests](../../tests/test_legacy_ldscore_converter.py) cover these routes; this coverage does not imply equivalence for every possible dataset.
 
 ## Further workflow references
 
 - [LD-score calculation](../wiki/main-functionalities/ldscore.md), [heritability](../wiki/main-functionalities/h2.md), and [partitioned heritability](workflows/partitioned-heritability.md).
 - [BED preparation](../wiki/utility-functionalities/how-to-customize-your-bed-files.md), [reusable annotations](workflows/annotations.md), and [resource navigation](reference-data.md).
-- [Global configuration](concepts/snp-identity-and-genome-build.md) and [interface changes](../wiki/main-functionalities/changes-from-LDSC2.md).
+- [Global configuration](concepts/snp-identity-and-genome-build.md) and [interface changes](workflows/migrating-from-ldsc2.md).

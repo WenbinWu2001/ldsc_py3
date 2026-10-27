@@ -160,7 +160,7 @@ def test_real_worker_failures_identify_query_and_reap_children(tmp_path, monkeyp
     if continue_errors:
         args.append("--continue-on-query-error")
     if mode == "exception" and continue_errors:
-        result = cli.main(args)
+        result = cli.main(args).summary
         assert set(result.category) == {"first", "third"}
     else:
         error_type = {"exception": RuntimeError, "crash": LDSCInternalError,

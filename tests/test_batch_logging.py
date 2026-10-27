@@ -15,7 +15,7 @@ from tests.test_gene_query_integration import inputs, direct_args, build_index
 @pytest.mark.parametrize("level", ["INFO", "DEBUG"])
 def test_partitioned_log_has_numbered_batches_and_aggregate_outcomes(tmp_path, workers, level):
     args, _ = cli_inputs(tmp_path)
-    result = cli.main([*args, "--workers", str(workers), "--query-batch-size", "2", "--log-level", level])
+    result = cli.main([*args, "--workers", str(workers), "--query-batch-size", "2", "--log-level", level]).summary
     log = (tmp_path / "out/diagnostics/partitioned-h2.log").read_text()
     for ordinal in (1, 2):
         assert f"Phase start: batch; query fitting {ordinal}/2" in log

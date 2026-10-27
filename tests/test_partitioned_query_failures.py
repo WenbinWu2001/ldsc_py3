@@ -25,10 +25,10 @@ def concentrate_queries(tmp_path, names=("second",)):
 def test_continue_publishes_valid_queries_and_logs_singular_block(tmp_path, workers):
     args, _ = cli_inputs(tmp_path)
     args.extend(["--workers", str(workers)])
-    before = cli.main([*args, "--summary-sort-by", "category"])
+    before = cli.main([*args, "--summary-sort-by", "category"]).summary
     concentrate_queries(tmp_path)
 
-    result = cli.main([*args, "--continue-on-query-error", "--summary-sort-by", "category", "--overwrite"])
+    result = cli.main([*args, "--continue-on-query-error", "--summary-sort-by", "category", "--overwrite"]).summary
 
     output = tmp_path / "out"
     assert result.category.tolist() == ["first", "third"]
@@ -94,7 +94,7 @@ def test_continue_also_catches_unexpected_numerical_exceptions(tmp_path, monkeyp
     from tests.test_partitioned_query_workers import _fault_worker
     monkeypatch.setenv("LDSC_TEST_WORKER_FAULT", "exception")
     monkeypatch.setattr(parallel, "_query_worker", _fault_worker)
-    result = cli.main([*args, "--continue-on-query-error"])
+    result = cli.main([*args, "--continue-on-query-error"]).summary
     assert set(result.category) == {"first", "third"}
     status = pd.read_csv(tmp_path / "out/diagnostics/query_status.tsv", sep="\t")
     assert status.loc[1, "status"] == "failed"

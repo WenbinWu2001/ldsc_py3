@@ -329,7 +329,7 @@ class FittedPartitionedModel:
 
 @dataclass(frozen=True)
 class QuantileH2Result:
-    """Compact result family returned by :func:`run_quantile_h2_from_args`.
+    """Compact result family returned by :func:`run_quantile_h2`.
 
     Attributes
     ----------
@@ -834,6 +834,53 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
     return QuantileH2Result(quantile_result, standardized, str(issues_path), metadata, output_paths)
 
 
+def run_quantile_h2(**kwargs) -> QuantileH2Result:
+    """Project a saved partitioned-h2 model onto quantiles and save the result directory.
+
+    This is the Python form of ``ldsc quantile-h2`` and writes the same files.
+    Keyword arguments are the command's option names without the leading
+    ``--``: ``partitioned_h2_result_dir``, ``target_annot_sources``,
+    ``target_annotation``, ``baseline_annot_sources``,
+    ``ref_metadata_sources`` and ``output_dir`` are required; the query
+    sources, gene-list settings, ``target_missing_value``, ``num_quantiles``
+    and ``overwrite`` are optional and default to the command's defaults.
+    ``gene_list_resolution_policy`` takes ``"strict"`` (default) or
+    ``"resolved-only"``, which the command selects with
+    ``--allow-unresolved-genes``. Resupply the annotation sources and gene
+    settings used for the fitted model. Run the call under
+    ``if __name__ == "__main__":`` because the projection runs in a spawned
+    worker.
+
+    The registered ``GlobalConfig`` supplies only the level of
+    ``diagnostics/quantile-h2.log``; the SNP identifier mode and genome build
+    come from the fitted model's LD-score directory.
+
+    Returns
+    -------
+    QuantileH2Result
+        Quantile summaries, standardized coefficients, alignment diagnostics,
+        provenance metadata and written output paths.
+
+    Raises
+    ------
+    LDSCUsageError
+        Before anything is written, when a keyword is unknown, a required one
+        is missing, a value is outside the command's choices, a flag is not a
+        bool, or ``log_level``, ``snp_identifier`` or ``genome_build`` is passed.
+    LDSCInputError
+        For the input and alignment failures of ``run_quantile_h2_from_args``.
+
+    Notes
+    -----
+    The model is not refitted. Existing outputs stop the run unless
+    ``overwrite=True``; a failed authorized overwrite leaves
+    ``RUN_FAILED.txt`` naming this call.
+    """
+    from ._workflow_kwargs import run_from_kwargs
+
+    return run_from_kwargs("run_quantile_h2", add_quantile_h2_arguments, run_quantile_h2_from_args, kwargs)
+
+
 def main(argv: Sequence[str] | None = None) -> QuantileH2Result:
     """Parse standalone arguments and execute ``quantile-h2``."""
     return run_quantile_h2_from_args(build_parser().parse_args(argv))
@@ -849,5 +896,6 @@ __all__ = [
     "add_quantile_h2_arguments",
     "build_parser",
     "load_fitted_partitioned_model",
+    "run_quantile_h2",
     "run_quantile_h2_from_args",
 ]

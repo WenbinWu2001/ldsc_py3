@@ -8,6 +8,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
+import ldsc
 from ldsc.errors import LDSCInputError
 from ldsc._quantile_storage import target_chunks
 from ldsc.quantile_h2 import (
@@ -302,6 +303,19 @@ class QuantileH2WorkflowTest(unittest.TestCase):
         log = (output / "diagnostics" / "quantile-h2.log").read_text(encoding="utf-8")
         self.assertNotIn("fingerprint", log.lower())
         np.testing.assert_allclose(result.quantile_h2["h2_obs"], [0.45, 0.35])
+
+    def test_run_quantile_h2_takes_the_command_option_names(self):
+        # Single path tokens may be plain strings, as in the documented example.
+        options = {
+            name: value[0] if isinstance(value, list) else value
+            for name, value in vars(self.args).items() if name != "log_level"
+        }
+
+        result = ldsc.run_quantile_h2(**options)
+
+        np.testing.assert_allclose(result.quantile_h2["h2_obs"], [0.45, 0.35])
+        self.assertTrue((Path(self.args.output_dir) / "quantile_h2.tsv").is_file())
+        self.assertTrue((Path(self.args.output_dir) / "diagnostics" / "quantile-h2.log").is_file())
 
     def test_aggregate_preserving_value_reassignment_is_accepted(self):
         path = self.root / "annotations.tsv"

@@ -42,7 +42,9 @@ the concise headline table, a diagnostic full table, per-trait h2 summaries,
 and optional per-pair metadata for filesystem detail outputs.
 
 Regression commands require an ``output_dir`` and create per-run logs under
-``diagnostics/``. Individual estimator methods remain in-memory APIs; batch
+``diagnostics/``. Their Python forms ``run_h2``, ``run_partitioned_h2`` and
+``run_rg`` take the command option names as keyword arguments and write the
+same result directories. Individual estimator methods remain in-memory APIs; batch
 partitioned fitting requires an output directory and returns persistent detail
 paths. Final HM3 LD tables remain aggregate files.
 """
@@ -53,6 +55,7 @@ from contextlib import contextmanager
 import json
 import logging
 import math
+import numbers
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -3043,9 +3046,11 @@ def run_partitioned_h2_from_args(args):
     ``partitioned_h2.tsv``, ``diagnostics/query_annotations/``, and
     ``diagnostics/partitioned-h2.log`` before loading inputs. Query-annotation
     runs always write per-query results; baseline-only runs keep the complete
-    fitted-model artifacts at the result root. The saved root TSV appends
+    fitted-model artifacts at the result root. It returns the
+    ``PartitionedH2BatchResult``, whose ``output_paths`` also name the legacy
+    summary-statistics audit when one is written. The saved root TSV appends
     ``query_result_dir`` relative to ``args.output_dir`` (``NaN`` for baseline-only
-    runs); the returned DataFrame and per-query tables retain scientific columns
+    runs); the returned summary and per-query tables retain scientific columns
     only. A successful overwrite removes
     the default plot root derived from the superseded result.
     ``args.continue_on_query_error`` explicitly permits query regression
@@ -3120,7 +3125,7 @@ def run_partitioned_h2_from_args(args):
             f"Finished partitioned-h2 regression for {len(ldscore_result.query_columns)} query annotations "
             f"and {len(summary)} summary rows."
         )
-    return summary
+    return replace(result, output_paths=written)
 
 
 @materializing_overwrite_guard(
@@ -3265,6 +3270,152 @@ def run_rg_from_args(args):
             f"and {len(result.h2_per_trait)} traits."
         )
     return result
+
+
+def run_h2(**kwargs) -> pd.DataFrame:
+    """Estimate SNP heritability and save the ``h2`` result directory.
+
+    This is the Python form of ``ldsc h2`` and writes the same files. Keyword
+    arguments are the command's option names without the leading ``--``:
+    ``sumstats_file``, ``ldscore_dir`` and ``output_dir`` are required;
+    ``trait_name``, ``count_kind``, ``intercept_h2``, ``two_step_cutoff``,
+    ``chisq_max``, ``n_blocks``, ``allow_identity_downgrade``, ``samp_prev``,
+    ``pop_prev`` and ``overwrite`` are optional and default to the command's
+    defaults. Run the call under ``if __name__ == "__main__":`` because the
+    fit runs in a spawned worker.
+
+    The SNP identifier mode and genome build come from the munged summary
+    statistics and the LD-score directory; the registered ``GlobalConfig``
+    supplies only the level of ``diagnostics/h2.log``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One-row summary with the columns of the saved ``h2.tsv``.
+
+    Raises
+    ------
+    LDSCUsageError
+        Before anything is written, when a keyword is unknown, a required one
+        is missing, a value is outside the command's choices, a flag is not a
+        bool, or ``log_level``, ``snp_identifier`` or ``genome_build`` is passed.
+
+    Notes
+    -----
+    The result directory holds ``h2.tsv``, the regression-bin diagnostic and
+    the metadata that ``plot_result()`` and ``convert_h2_scale()`` read.
+    Existing outputs stop the run unless ``overwrite=True``; a failed
+    authorized overwrite leaves ``RUN_FAILED.txt`` naming this call.
+    """
+    from ._workflow_kwargs import run_from_kwargs
+
+    return run_from_kwargs("run_h2", add_h2_arguments, run_h2_from_args, kwargs)
+
+
+def run_partitioned_h2(**kwargs) -> PartitionedH2BatchResult:
+    """Estimate partitioned heritability and save the ``partitioned-h2`` result directory.
+
+    This is the Python form of ``ldsc partitioned-h2`` and writes the same
+    files. Keyword arguments are the command's option names without the
+    leading ``--``: ``sumstats_file``, ``ldscore_dir`` and ``output_dir`` are
+    required; ``trait_name``, ``count_kind``, ``intercept_h2``,
+    ``two_step_cutoff``, ``chisq_max``, ``n_blocks``,
+    ``allow_identity_downgrade``, ``samp_prev``, ``pop_prev``,
+    ``summary_sort_by``, ``workers``, ``query_batch_size``,
+    ``continue_on_query_error`` and ``overwrite`` are optional and default to
+    the command's defaults. Run the call under ``if __name__ == "__main__":``
+    because fits run in spawned workers.
+
+    An LD-score directory with query annotations gives one baseline-plus-query
+    model per query annotation; one without them gives a single joint model of
+    the baseline annotations. The SNP identifier mode and genome build come
+    from the munged summary statistics and the LD-score directory; the
+    registered ``GlobalConfig`` supplies only the level of
+    ``diagnostics/partitioned-h2.log``.
+
+    Returns
+    -------
+    PartitionedH2BatchResult
+        ``summary`` with the scientific columns of the saved
+        ``partitioned_h2.tsv``, ``query_status`` with one row per attempted
+        query (empty for a baseline-only run), ``per_query_artifacts`` and
+        ``output_paths``.
+
+    Raises
+    ------
+    LDSCUsageError
+        Before anything is written, when a keyword is unknown, a required one
+        is missing, a value is outside the command's choices, a flag is not a
+        bool, or ``log_level``, ``snp_identifier`` or ``genome_build`` is passed.
+
+    Notes
+    -----
+    Query errors stop publication unless ``continue_on_query_error=True``.
+    Existing outputs stop the run unless ``overwrite=True``; a failed
+    authorized overwrite leaves ``RUN_FAILED.txt`` naming this call.
+    """
+    from ._workflow_kwargs import run_from_kwargs
+
+    return run_from_kwargs("run_partitioned_h2", add_partitioned_h2_arguments, run_partitioned_h2_from_args, kwargs)
+
+
+def run_rg(**kwargs) -> RgResultFamily:
+    """Estimate genetic correlation and save the ``rg`` result directory.
+
+    This is the Python form of ``ldsc rg`` and writes the same files. Keyword
+    arguments are the command's option names without the leading ``--``:
+    ``sumstats_sources`` (two or more munged summary-statistics paths or
+    ``*`` patterns), ``ldscore_dir`` and ``output_dir`` are required;
+    ``anchor_trait``, ``count_kind``, ``intercept_h2``, ``intercept_gencov``,
+    ``two_step_cutoff``, ``chisq_max``, ``n_blocks``,
+    ``allow_identity_downgrade``, ``samp_prev``, ``pop_prev``,
+    ``prevalence_manifest``, ``write_per_pair_detail`` and ``overwrite`` are
+    optional and default to the command's defaults. Run the call under
+    ``if __name__ == "__main__":`` because fits run in a spawned worker.
+
+    ``samp_prev`` and ``pop_prev`` take one value per trait in resolved
+    ``sumstats_sources`` order, as a list such as ``[0.5, float("nan")]``
+    (``nan`` for a quantitative trait) or as the command's comma-separated
+    string; ``prevalence_manifest`` matches prevalences by trait name instead.
+    Every trait needs ``A1`` and ``A2``. Traits that share a label are
+    relabeled ``label@<path suffix>``. The SNP identifier mode and genome
+    build come from the inputs; the registered ``GlobalConfig`` supplies only
+    the level of ``diagnostics/rg.log``.
+
+    Returns
+    -------
+    RgResultFamily
+        ``rg``, ``rg_full`` and ``h2_per_trait`` with the contents of the
+        saved ``rg.tsv``, ``rg_full.tsv`` and ``h2_per_trait.tsv``, and one
+        ``per_pair_metadata`` record per pair.
+
+    Raises
+    ------
+    LDSCUsageError
+        Before anything is written, when a keyword is unknown, a required one
+        is missing, a value is outside the command's choices, a flag is not a
+        bool, ``samp_prev`` or ``pop_prev`` is a single number, or
+        ``log_level``, ``snp_identifier`` or ``genome_build`` is passed.
+
+    Notes
+    -----
+    A pair whose fit fails keeps its row with ``status="failed"``; the other
+    pairs are still fitted. Existing outputs stop the run unless
+    ``overwrite=True``; a failed authorized overwrite leaves
+    ``RUN_FAILED.txt`` naming this call.
+    """
+    from ._workflow_kwargs import run_from_kwargs
+
+    for name in ("samp_prev", "pop_prev"):
+        value = kwargs.get(name)
+        if isinstance(value, numbers.Real):
+            raise LDSCUsageError(
+                f"run_rg() cannot run: {name}={value!r} must give one value per trait, "
+                f"for example {name}=[0.5, float('nan')]."
+            )
+        if value is not None and not isinstance(value, str):
+            kwargs[name] = ",".join(str(item) for item in value)
+    return run_from_kwargs("run_rg", add_rg_arguments, run_rg_from_args, kwargs)
 
 
 def _add_common_regression_arguments(parser, include_h2_intercept: bool):

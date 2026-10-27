@@ -349,7 +349,7 @@ def test_real_partitioned_command_preserves_sorted_artifacts_metadata_and_overwr
     output.mkdir()
     marker = output / "RUN_FAILED.txt"
     marker.write_text("earlier failed overwrite")
-    result = cli.main([*args, "--summary-sort-by", sort_by])
+    result = cli.main([*args, "--summary-sort-by", sort_by]).summary
     assert not marker.exists()
     written = pd.read_csv(output / "partitioned_h2.tsv", sep="\t")
     pd.testing.assert_frame_equal(written.drop(columns="query_result_dir"), result, check_dtype=False)
@@ -399,7 +399,7 @@ def test_functional_command_keeps_complete_model_at_root(tmp_path):
                           ["base", "first"], [], frozenset(), source.ld_regression_snps, [], config_snapshot=source.config_snapshot,
                           overlap=overlap)
     LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmp_path / "ld", overwrite=True))
-    summary = cli.main(args)
+    summary = cli.main(args).summary
     assert summary.category.tolist() == ["base", "first"]
     metadata = json.loads((tmp_path / "out/diagnostics/metadata.json").read_text())
     assert metadata["analysis_type"] == "functional_category"

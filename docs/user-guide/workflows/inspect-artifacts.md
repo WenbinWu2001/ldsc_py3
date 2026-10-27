@@ -56,7 +56,7 @@ row 123.
 
 ### R² panel columns
 
-A [build-r2-panel](../../wiki/main-functionalities/build-r2-panel.md) Parquet stores `IDX_1`, `IDX_2`, quantized int16 `R2`, and boolean `SIGN_R`. Read a row group and decode the stored scale before interpreting R²:
+A [build-r2-panel](r2-panels.md) Parquet stores `IDX_1`, `IDX_2`, quantized int16 `R2`, and boolean `SIGN_R`. Read a row group and decode the stored scale before interpreting R²:
 
 ```python
 import pandas as pd
@@ -67,7 +67,7 @@ pairs["r2_decoded"] = pairs["R2"].astype("float32") / scale
 meta = pd.read_csv("chr22_meta.tsv.gz", sep="\t", comment="#")
 ```
 
-Use the exact sidecar next to the selected Parquet: each index points to a zero-based row in that table. `SIGN_R=True` means Pearson r is nonnegative in panel allele orientation. For results harmonized to query alleles, use [query-r2](../../wiki/utility-functionalities/query-r2.md), whose output field is nullable `sign_r` (+1/-1). Source: [current R² storage contract](../../reference/formats/r2-panels.md).
+Use the exact sidecar next to the selected Parquet: each index points to a zero-based row in that table. `SIGN_R=True` means Pearson r is nonnegative in panel allele orientation. For results harmonized to query alleles, use [query-r2](r2-panels.md), whose output field is nullable `sign_r` (+1/-1). Source: [current R² storage contract](../../reference/formats/r2-panels.md).
 
 ## NPZ
 

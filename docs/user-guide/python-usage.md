@@ -617,3 +617,92 @@ with run_annotate(
 The returned bundle refers to the exported annotation files (only query files for a BIM grid), not to your original inputs.
 Construction scratch is released before the call returns; reading a chromosome from the bundle can prepare private data again under the output directory.
 Use `with run_annotate(...) as bundle:` or call `bundle.close()` when you are done; closing keeps every exported file and your original inputs.
+
+<a id="r2-panels"></a>
+
+## R² panels
+
+This section is the Python counterpart of [Build and query R² panels](workflows/r2-panels.md).
+
+### Build a panel
+
+The Python builder keeps the names `ReferencePanelBuilder`, `ReferencePanelBuildConfig` and `run_build_ref_panel`; the command is `build-r2-panel`.
+`run_build_ref_panel()` takes the command's options as keyword arguments.
+It reads the SNP identifier mode and log level from the registered `GlobalConfig`, so call `set_global_config()` first; passing `snp_identifier`, `genome_build` or `log_level` to it is an error, and `GlobalConfig.genome_build` is ignored.
+
+```python
+from ldsc import GlobalConfig, run_build_ref_panel, set_global_config
+
+if __name__ == "__main__":
+    set_global_config(GlobalConfig(snp_identifier="chr_pos_allele_aware", log_level="INFO"))
+    result = run_build_ref_panel(
+        plink_prefix="tests/fixtures/minimal_external_resources/plink/hm3_chr22_subset",
+        source_genome_build="hg38",
+        ld_wind_snps=10,
+        output_dir="tutorial_outputs/r2_panel_python",
+    )
+    print(result.chromosomes)
+    print(result.output_paths["r2_hg38"], result.output_paths["meta_hg38"])
+```
+
+`result.output_paths` maps `r2_<build>` and `meta_<build>` to the per-chromosome files, plus `metadata`; it does not list the log.
+`run_build_ref_panel()` writes the workflow log under `diagnostics/`.
+`ReferencePanelBuilder(global_config=...).run(ReferencePanelBuildConfig(...))` builds the same files without a workflow log.
+
+### Inspect a panel
+
+Read one row group instead of loading a large pair table in full.
+A direct Pandas or PyArrow read returns the stored 16-bit integers; divide `R2` by the footer's `ldsc:r2_scale`.
+
+```python
+import pandas as pd
+import pyarrow.parquet as pq
+
+root = "tutorial_outputs/r2_panel_chr22/hg38"
+meta = pd.read_csv(f"{root}/chr22_meta.tsv.gz", sep="\t", comment="#")
+parquet = pq.ParquetFile(f"{root}/chr22_r2.parquet")
+pairs = parquet.read_row_group(0).to_pandas()
+scale = float(parquet.schema_arrow.metadata[b"ldsc:r2_scale"])
+pairs["r2_decoded"] = pairs["R2"].astype("float32") / scale
+print(meta.head())
+print(pairs.head())
+```
+
+Never sort or edit the sidecar apart from its pair table: its row order defines `IDX_1` and `IDX_2`.
+
+### Query pairs
+
+`query_r2()` opens a panel, queries a DataFrame of pairs and returns the input rows with `r2`, `sign_r`, `r` and `status`.
+The pair columns are the same as for `ldsc query-r2`.
+This example queries the first two SNPs of the sidecar read above, in the sidecar's allele orientation, and saves the pairs for the command-line query:
+
+```python
+from ldsc import query_r2
+
+query = pd.DataFrame({
+    f"{column}_{endpoint}": [meta.iloc[row][column]]
+    for endpoint, row in ((1, 0), (2, 1))
+    for column in ("CHR", "POS", "A1", "A2")
+})
+result = query_r2(query, panel_dir=root, genome_build="hg38")
+print(result[["r2", "sign_r", "r", "status"]])
+query.to_csv("tutorial_outputs/r2_panel_chr22/pairs.tsv", sep="\t", index=False)
+```
+
+In Python, `sign_r` is a nullable `Int8` column; the saved TSV writes missing values as `NaN`.
+A missing `panel_dir` is an error.
+
+For repeated queries, open the panel once.
+`R2Panel.open()` checks every chromosome's Parquet footer immediately and loads each chromosome's sidecar and lookup state on first use, then reuses them:
+
+```python
+from ldsc import R2Panel
+
+panel = R2Panel.open(root, genome_build="hg38")
+first = panel.query_pairs(query)
+print(panel.chromosomes, panel.snp_identifier, panel.n_samples)
+```
+
+`unbiased_r2_to_pearson_r(r2_adj, n, sign=None)` converts unbiased R² values to Pearson r for reference sample size `n`; without `sign` it returns $|r|$.
+`query_r2()` and `R2Panel.query_pairs()` apply it with the panel's `ldsc:n_samples` and the aligned `sign_r`.
+See the [query reference](../reference/query-r2.md#python-api).

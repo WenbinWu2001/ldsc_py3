@@ -170,7 +170,7 @@ SNP identity and file-format validation remain separate: an explicit build does 
 
 ## Liftover
 
-`munge-sumstats` and `build-r2-panel` share one liftover implementation, `src/ldsc/_kernel/liftover.py`; workflow-specific options and drop accounting are in the [munge-sumstats reference](munge-sumstats.md#liftover-rules) and the [R² panel tutorial](../../tutorials/build-parquet-reference-panel-from-plink.md).
+`munge-sumstats` and `build-r2-panel` share one liftover implementation, `src/ldsc/_kernel/liftover.py`; workflow-specific options and drop accounting are in the [munge-sumstats reference](munge-sumstats.md#liftover-rules) and the [R² panel tutorial](../user-guide/workflows/r2-panels.md).
 Liftover is available only in coordinate-family modes.
 
 - Chain mapping takes and returns one-based positions; the 0-based coordinates of `pyliftover` are converted on both sides.

@@ -8,7 +8,7 @@ panel for a list of SNP pairs, and convert it to a signed Pearson correlation
 LD-score workflow streams every stored pair once, while this tool looks up
 specific pairs by SNP identity.
 
-See the [panel format](formats/r2-panels.md) and the [query wiki guide](../wiki/utility-functionalities/query-r2.md) for a worked command example.
+See the [panel format](formats/r2-panels.md) and the [query wiki guide](../user-guide/workflows/r2-panels.md) for a worked command example.
 
 ## Python API
 

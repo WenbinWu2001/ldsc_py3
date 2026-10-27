@@ -199,3 +199,59 @@ See [reference and regression SNPs](../reference/ldscore-snp-universes.md).
 Workers are started with `spawn`, so Python scripts must run workflow calls under `if __name__ == "__main__":` at every worker count (see [parallel execution](../reference/parallel-execution.md)).
 `estimate_partitioned_h2_batch(..., workers=4, query_batch_size=100)` fits four models at once from an importable script.
 From a notebook that cannot start importable workers, run the CLI in a subprocess; see [Cell-type enrichment](#cell-type-enrichment).
+
+## Cell-type enrichment
+
+[Cell-type enrichment](workflows/cell-type-enrichment.md) uses the same Python calls as [partitioned heritability](#partitioned-heritability): pass the cell-type BED files, prebuilt annotation files or gene lists to `run_ldscore`, then call `RegressionRunner.estimate_partitioned_h2_batch`, which fits each cell-type query in its own baseline-plus-query model.
+
+### Run parallel fits from a notebook
+
+Workers are started with `spawn`, so `estimate_partitioned_h2_batch(..., workers=4)` must run from an importable script under `if __name__ == "__main__":` (see [parallel execution](../reference/parallel-execution.md)).
+A notebook that cannot start such workers can run the CLI in a subprocess instead:
+
+```python
+import subprocess
+import sys
+
+output_dir = "results/cell_type_h2"
+command = [
+    sys.executable, "-m", "ldsc", "partitioned-h2",
+    "--sumstats-file", "results/trait/trait.parquet",
+    "--ldscore-dir", "results/cell_type_ldscores",
+    "--workers", "4",
+    "--query-batch-size", "100",
+    "--output-dir", output_dir,
+]
+completed = subprocess.run(command, capture_output=True, text=True)
+if completed.returncode != 0:
+    print(completed.stdout)
+    print(completed.stderr)
+    raise RuntimeError(f"ldsc partitioned-h2 failed with exit code {completed.returncode}")
+```
+
+`sys.executable -m ldsc` runs the `ldsc` installed in the notebook's own environment.
+
+### Read the saved results
+
+The result directory written by either route can be read with pandas:
+
+```python
+import json
+from pathlib import Path
+
+import pandas as pd
+
+result_dir = Path("results/cell_type_h2")
+summary = pd.read_csv(result_dir / "partitioned_h2.tsv", sep="\t")
+status = pd.read_csv(result_dir / "diagnostics" / "query_status.tsv", sep="\t", keep_default_na=False)
+metadata = json.loads((result_dir / "diagnostics" / "metadata.json").read_text())
+print(metadata["query_workers_requested"], metadata["query_workers_effective"])
+
+# query_result_dir is relative to the result directory and stays with its row after re-sorting.
+for row in summary.itertuples(index=False):
+    full_model = pd.read_csv(result_dir / row.query_result_dir / "partitioned_h2_full.tsv", sep="\t")
+    print(row.category, row.coefficient, row.coefficient_p, len(full_model))
+```
+
+`keep_default_na=False` keeps empty `error_message` cells of successful queries as empty strings.
+`diagnostics/metadata.json` records the requested and effective worker counts of the run.

@@ -293,7 +293,7 @@ the baseline model and an all-genes annotation
 large collection of gene sets, an exact gene LD-score index computes the fixed
 PLINK/reference work once and reuses it without changing the downstream model.
 The dedicated [LDSC-SEG tutorial for protein-coding gene
-lists](../wiki/LDSC-SEG-PC-genes.md) does not add a control-gene annotation and
+lists](workflows/cell-type-enrichment.md) does not add a control-gene annotation and
 fits each query with the baseline annotations only.
 
 ### Step 1: compute partitioned LD scores with `ldsc ldscore` using query annotations

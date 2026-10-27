@@ -1,36 +1,47 @@
 Bundled reference data: attribution and reuse review
-Last updated on: 2026-09-10
+Last updated on: 2026-10-27
 
 Scope: the eight data files shipped in ldsc/data. Software licensing and
 dataset reuse terms are assessed separately. This record grants no new
-rights in third-party datasets. No data values were changed in this review.
+rights in third-party datasets.
 
 1. hm3_curated_map.tsv.gz
 
-This project's curated HapMap3 map contains dual-build positions, alleles,
-genetic-map positions, and frequency information. Git records its addition
-at a190b50 (2026-05-10) and an allele-aware update at 5861b2a (2026-05-15).
-The repository does not establish the original source release and reuse
-terms for every column. Attribution and redistribution verification remain
-incomplete; the maintainer needs the original curation inputs and records.
+Rebuilt on 2026-10-27 by tools/hm3/build_hm3_curated_map.py, whose
+docstring records every source URL, release, checksum, and column
+derivation. The table has six columns from two sources:
+
+  SNP, A1, A2: the LDSC HapMap3 list w_hm3.snplist distributed by the Alkes
+  group. The original URL
+  https://data.broadinstitute.org/alkesgroup/LDSCORE/w_hm3.snplist.bz2 no
+  longer resolves; the build used the gzipped mirror
+  https://doi.org/10.5281/zenodo.7773502 (md5
+  153ecc2bcfa740afafe656e6a384d769). The mirror's CC BY 4.0 label is its
+  uploader's and does not establish the original file's terms; the Alkes
+  group file states no data license. Its reuse terms remain unverified.
+  Credit Bulik-Sullivan et al. (2015), DOI 10.1038/ng.3211, and the
+  International HapMap 3 Consortium (2010), DOI 10.1038/nature09298.
+
+  CHR, hg19_POS, hg38_POS: native placements from NCBI dbSNP build 157
+  (released 2025-01-15; GCF_000001405.25 GRCh37.p13 and GCF_000001405.40
+  GRCh38.p14 RefSNP VCFs, refsnp-merged JSON, and NCBI assembly reports).
+  NCBI's policy (https://www.ncbi.nlm.nih.gov/home/about/policies/) states
+  that "NCBI itself places no restrictions on the use or distribution of
+  the data contained therein", while noting that original submitters may
+  claim intellectual-property rights in submitted data.
+
+The earlier nine-column table also carried TOP-LD minor-allele frequencies
+and Alkes-group genetic-map positions of unrecorded release; neither is
+bundled any longer, so their attribution questions no longer apply here.
 Do not label the complete table GPL, CC0, or public domain based solely on
 its inclusion in this software package or on the name HapMap3.
-
-docs/dev/validation/hm3-map-coordinates.md records checks against
-UCSC dbSNP 151 common tracks, Ensembl, and NCBI. Those checks establish
-coordinate evidence, not the complete table's source lineage or license.
-If original inputs are from IGSR/1000 Genomes, verify their dataset-specific
-reuse policy and requested attribution against the exact release:
-https://www.internationalgenome.org/faq/do-i-need-permission-to-use-igsr-data-in-my-own-scientific-research/
-This source is a policy reference, not confirmation that every bundled
-column originated in that collection.
 
 2. hm3_chr_pos_reference.tsv.gz
 
 Derived here from hm3_curated_map.tsv.gz by
 tools/hm3/build_hm3_chr_pos_reference.py. The selection procedure is recorded
-in readme.txt. This subset inherits the unresolved source-attribution and
-reuse questions above; subsetting does not establish new upstream terms.
+in readme.txt. This subset inherits the attribution and the unverified
+w_hm3.snplist terms above; subsetting does not establish new upstream terms.
 
 3. regions/centromeres_core.hg19.bed and centromeres_core.hg38.bed
 

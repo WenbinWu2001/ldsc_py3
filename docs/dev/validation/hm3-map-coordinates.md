@@ -1,5 +1,6 @@
 # Bundled HapMap3 Coordinate Validation
 
+Last updated on: 2026-10-27
 Last validated: 2026-08-05
 
 ## Material Passport
@@ -9,6 +10,20 @@ Last validated: 2026-08-05
 - Verification status: `ANALYZED`
 - Version label: `hm3_coordinate_validation_v1`
 - Repository commit at validation: `3e3622376d551b9dee8e2ec7827e13a1302df3f3`
+
+## Status: superseded artifact (2026-10-27)
+
+The artifact validated below was replaced on 2026-10-27 by a map rebuilt with `tools/hm3/build_hm3_curated_map.py` from native dbSNP build 157 placements, with no liftover.
+The rebuilt map has six columns (`CHR`, `hg19_POS`, `hg38_POS`, `SNP`, `A1`, `A2`), 1,217,179 rows, and SHA-256 `21ac68560e5697761257893d465482d50729d93485a220320fdd7ec57059d9fc`.
+It has not been through the full protocol below; that protocol remains the release revalidation method.
+
+A comparison with this validated artifact on 2026-10-27 found:
+
+- 1,215,289 shared SNPs with identical `CHR`, `A1`, and `A2`; 4 differ in position.
+- `rs28542093` hg38 now reads chr9:42,080,196, the authoritative coordinate listed under "Confirmed error".
+- `rs12122277` (chr1:150,221,934 → 150,221,935), `rs1267659` (chr15:83,213,963 → 82,829,621), and `rs4316092` (chr7:100,606,918 → 100,555,693) changed in hg19; Ensembl GRCh37 agrees with the new values.
+- The four SNPs listed below as externally unverifiable (`rs12361431`, `rs9331726`, `rs16980132`, `rs28665796`) have no accepted dbSNP b157 placement and are no longer in the map, with 97 other SNPs (101 total).
+- 1,890 SNPs dropped by the previous pipeline for missing coordinates are now present; 132 `w_hm3.snplist` SNPs lack a b157 placement in one build and are excluded.
 
 ## Purpose
 

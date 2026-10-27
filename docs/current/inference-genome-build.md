@@ -34,8 +34,8 @@ canonical 1-based coordinates before downstream matching.
 ## Reference Maps
 
 Genome-build inference uses the compact packaged reference
-`src/ldsc/data/hm3_chr_pos_reference.tsv.gz` (~104 KB compressed). It contains
-11,000 autosomal HapMap3 SNP positions with columns:
+`src/ldsc/data/hm3_chr_pos_reference.tsv.gz` (~200 KB compressed). It contains
+22,000 autosomal HapMap3 SNP positions with columns:
 
 | Column | Meaning |
 |---|---|

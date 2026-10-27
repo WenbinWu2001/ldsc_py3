@@ -194,3 +194,33 @@ def test_query_r2_rejects_allele_aware_override_on_base_panel(tmp_path):
     _write_panel(root, snp_identifier="chr_pos")
     with pytest.raises(LDSCInputError, match="chr_pos"):
         R2Panel.open(root, snp_identifier="chr_pos_allele_aware", genome_build="hg19")
+
+
+def test_python_api_run_reports_every_chromosome_defect_before_computing(tmp_path):
+    """``LDScoreCalculator.run`` checks every footer and sidecar before any chromosome starts.
+
+    Without the check, chromosome workers stop at the first defect they reach,
+    after computing earlier chromosomes, and report only that one.
+    """
+    import gzip
+
+    from ldsc import AnnotationBundle, LDScoreCalculator
+    from ldsc.outputs import LDScoreOutputConfig
+    from tests.test_ldscore_query_batches import prepared_case
+
+    metadata, baseline, queries, config, panel, numerical = prepared_case(tmp_path)
+    _rewrite(tmp_path / "panel" / "chr1_r2.parquet", set_meta={b"ldsc:n_samples": b"2"})
+    sidecar = tmp_path / "panel" / "chr2_meta.tsv.gz"
+    lines = gzip.open(sidecar, "rt").read().splitlines()
+    lines = [line.rsplit("\t", 1)[0] + "\t0.7" if "\trs6\t" in line else line for line in lines]
+    with gzip.open(sidecar, "wt") as handle:
+        handle.write("\n".join(lines) + "\n")
+
+    output = tmp_path / "out"
+    with AnnotationBundle.from_frames(metadata, baseline, queries, config_snapshot=config) as bundle:
+        with pytest.raises(LDSCInputError) as failure:
+            LDScoreCalculator().run(bundle, panel, numerical, config, LDScoreOutputConfig(output))
+    message = str(failure.value)
+    assert "chr1_r2.parquet" in message and "ldsc:n_samples" in message
+    assert "chr2_meta.tsv.gz" in message and "out-of-range MAF" in message
+    assert not (output / "diagnostics" / "chromosome-logs").exists()

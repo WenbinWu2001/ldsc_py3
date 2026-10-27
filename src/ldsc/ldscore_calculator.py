@@ -363,7 +363,6 @@ class LDScoreCalculator:
         """Initialize the calculator with the directory writer used for LD-score outputs."""
         self.output_writer = output_writer or LDScoreDirectoryWriter()
 
-    @report_phase(LOGGER, "computation", "LD-score calculation")
     def run(
         self, annotation_bundle, ref_panel, ldscore_config: LDScoreConfig,
         global_config: GlobalConfig, output_config: LDScoreOutputConfig | None = None,
@@ -413,6 +412,10 @@ class LDScoreCalculator:
             Output is omitted for multiple batches, annotations still need
             disk preparation, or reference-metadata export is requested
             without an output directory.
+        LDSCInputError
+            A parquet R2 panel has an invalid chromosome footer or sidecar.
+            Every chromosome is checked before any is computed, and one error
+            lists all issues.
 
         Notes
         -----
@@ -427,6 +430,14 @@ class LDScoreCalculator:
         serial execution. Writing runs retain chromosome logs under
         ``diagnostics/chromosome-logs``; no-output calls create no files.
         """
+        return self._run(annotation_bundle, ref_panel, ldscore_config, global_config, output_config,
+                         regression_snps, regression_regions, config_snapshot, check_parquet_reference=True)
+
+    @report_phase(LOGGER, "computation", "LD-score calculation")
+    def _run(self, annotation_bundle, ref_panel, ldscore_config, global_config, output_config=None,
+             regression_snps=None, regression_regions=None, config_snapshot=None, *,
+             check_parquet_reference=False):
+        """Implement :meth:`run`; the CLI calls this after its own reference preflight."""
         if ldscore_config.export_ref_metadata and output_config is None:
             raise LDSCUsageError(
                 "LDScoreCalculator.run() requires output_config when export_ref_metadata=True. "
@@ -457,6 +468,8 @@ class LDScoreCalculator:
             ref_panel.global_config = dataclass_replace(ref_panel.global_config, genome_build=global_config.genome_build)
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
         _validate_workers(ldscore_config.workers)
+        if check_parquet_reference:
+            _check_parquet_reference(ref_panel, chromosomes, ldscore_config, global_config)
         with ExitStack() as stack:
             output_dir = None if output_config is None else output_config.output_dir
             log_paths = stack.enter_context(ldscore_logs(
@@ -1515,7 +1528,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 log_outputs(**calculator.output_writer.write_query_diagnostics(annotation_bundle,output_config))
                 _log_query_annotation_statuses(statuses)
                 raise LDSCInputError(_all_query_annotations_skipped_message(statuses))
-            result = calculator.run(annotation_bundle,ref_panel,ldscore_config,global_config,
+            result = calculator._run(annotation_bundle,ref_panel,ldscore_config,global_config,
                 output_config=output_config,regression_snps=regression_snps,regression_regions=regression_regions)
             if result.gene_list_batch is not None:
                 _log_gene_list_rejections(result.gene_list_batch)
@@ -2437,6 +2450,31 @@ def _ld_window_snp_counts(ref_panel, ldscore_config: LDScoreConfig, chromosome_r
         for result in chromosome_results
     ]
     return pd.DataFrame(rows, columns=["CHR", "panel_snps", "kept_snps", "ld_wind_snps", "counting_basis"])
+
+
+def _check_parquet_reference(ref_panel, chromosomes, ldscore_config: LDScoreConfig, global_config: GlobalConfig) -> None:
+    """Check every chromosome's R2 footer and sidecar before any is computed.
+
+    The CLI runs the same checks in its input preflight. Python API callers would
+    otherwise learn of a defect only from the first chromosome worker to reach it.
+    """
+    if getattr(getattr(ref_panel, "spec", None), "backend", None) != "parquet_r2":
+        return
+    from ._input_preflight import InputGate, inspect_r2_headers
+    from ._ldscore_preflight import read_r2_sidecar_for_chromosome
+
+    def check_sidecar(chrom):
+        path = ref_panel.resolve_metadata_paths(chrom)[0]
+        metadata = read_r2_sidecar_for_chromosome(path, chrom, global_config)
+        ref_panel.build_reader(chrom, metadata=metadata).close()
+
+    r2_dir = ref_panel.spec.r2_dir
+    gate = InputGate("R2 reference panel validation")
+    gate.check("reference", r2_dir, lambda: inspect_r2_headers(
+        r2_dir, global_config.genome_build, ldscore_args=ldscore_config))
+    for chrom in chromosomes:
+        gate.check("reference", r2_dir, lambda chrom=chrom: check_sidecar(chrom), chrom=chrom)
+    gate.finish()
 
 
 def _warn_ld_window_snp_subset(counts: pd.DataFrame | None, where: str) -> None:

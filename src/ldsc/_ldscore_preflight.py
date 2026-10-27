@@ -50,6 +50,19 @@ class DirectInputPreflight:
         return self.scope["chromosomes"]
 
 
+def read_r2_sidecar_for_chromosome(path, chrom, global_config, *, require_autosomes=False):
+    """Read one R2 panel sidecar, with its MAF checks, and confirm it holds only ``chrom``."""
+    metadata = _read_metadata_table(path, None, global_config)
+    if set(metadata.CHR.astype(str)) != {chrom} or (require_autosomes and chrom not in AUTOSOMES):
+        raise LDSCInputError(
+            f"R2 reference-panel SNP sidecar '{path}' does not contain the expected chromosome {chrom}"
+            f"{' within autosomes 1 through 22' if require_autosomes else ''}. "
+            "Restore the sidecar and R2 file from the same chromosome and panel build; "
+            "renaming the sidecar does not repair its SNP identities."
+        )
+    return metadata
+
+
 def inspect_reference_inputs(args, global_config, *, require_autosomes=True, plink_members=None):
     """Validate references before annotation staging; retain scope and PLINK mapping.
 
@@ -83,15 +96,8 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
         panel = RefPanelLoader(global_config).load(RefPanelConfig(backend="parquet_r2", r2_dir=r2_dir)) if members else None
         for chrom in members:
             try:
-                path = root / f"chr{chrom}_meta.tsv.gz"
-                metadata = _read_metadata_table(path, None, global_config)
-                if set(metadata.CHR.astype(str)) != {chrom} or (require_autosomes and chrom not in AUTOSOMES):
-                    raise LDSCInputError(
-                        f"R2 reference-panel SNP sidecar '{path}' does not contain the expected chromosome {chrom}"
-                        f"{' within autosomes 1 through 22' if require_autosomes else ''}. "
-                        "Restore the sidecar and R2 file from the same chromosome and panel build; "
-                        "renaming the sidecar does not repair its SNP identities."
-                    )
+                metadata = read_r2_sidecar_for_chromosome(
+                    root / f"chr{chrom}_meta.tsv.gz", chrom, global_config, require_autosomes=require_autosomes)
                 reader = panel.build_reader(chrom, metadata=metadata)
                 try:
                     if require_autosomes:

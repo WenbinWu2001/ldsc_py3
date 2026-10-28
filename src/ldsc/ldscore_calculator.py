@@ -1978,7 +1978,10 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
     """
     from ._workflow_kwargs import GLOBAL_CONFIG_RUNTIME_OPTIONS, namespace_from_kwargs
 
-    args = namespace_from_kwargs("run_ldscore", build_parser(), kwargs, rejected=GLOBAL_CONFIG_RUNTIME_OPTIONS)
+    args = namespace_from_kwargs(
+        "run_ldscore", build_parser(), kwargs, rejected=GLOBAL_CONFIG_RUNTIME_OPTIONS,
+        log_level=get_global_config().log_level,
+    )
     if args.gene_ldscore_index_dir is None:
         # Indexed mode inherits identity and build from the index; the parser
         # defaults stand for "not supplied" in its live-override check.

@@ -15,7 +15,6 @@ import argparse
 from typing import Any, Callable, Mapping
 
 from ._logging import overwrite_failure_marker
-from .config import get_global_config
 from .errors import LDSCUsageError
 
 _LOG_LEVEL_REASON = "set the log level with set_global_config(GlobalConfig(log_level=...))"
@@ -46,6 +45,7 @@ def namespace_from_kwargs(
     kwargs: dict[str, Any],
     *,
     rejected: Mapping[str, str],
+    log_level: str,
 ) -> argparse.Namespace:
     """Return the command namespace for validated Python keyword arguments.
 
@@ -60,12 +60,15 @@ def namespace_from_kwargs(
     rejected : mapping of str to str
         Option names that are not keyword arguments of this function, each
         with the reason shown in the error, such as where the value comes from.
+    log_level : str
+        The log level of the registered ``GlobalConfig``, supplied by the
+        calling workflow.
 
     Returns
     -------
     argparse.Namespace
-        Parser defaults updated with ``kwargs``; ``log_level`` comes from the
-        registered ``GlobalConfig``.
+        Parser defaults updated with ``kwargs``, with ``log_level`` set to the
+        ``log_level`` argument.
 
     Raises
     ------
@@ -99,7 +102,7 @@ def namespace_from_kwargs(
     if problems:
         raise LDSCUsageError(f"{function}() cannot run: " + "; ".join(problems) + ".")
     defaults = {action.dest: action.default for action in parser._actions if action.dest != "help"}
-    defaults["log_level"] = get_global_config().log_level
+    defaults["log_level"] = log_level
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
 
@@ -109,6 +112,8 @@ def run_from_kwargs(
     parser: argparse.ArgumentParser,
     run_from_args: Callable[[argparse.Namespace], Any],
     kwargs: dict[str, Any],
+    *,
+    log_level: str,
 ) -> Any:
     """Validate ``kwargs``, then run the command workflow under its failure marker.
 
@@ -117,6 +122,6 @@ def run_from_kwargs(
     authorized overwrite records ``run_h2(...)`` rather than the namespace
     entry point it calls.
     """
-    args = namespace_from_kwargs(function, parser, kwargs, rejected=SAVED_INPUT_RUNTIME_OPTIONS)
+    args = namespace_from_kwargs(function, parser, kwargs, rejected=SAVED_INPUT_RUNTIME_OPTIONS, log_level=log_level)
     with overwrite_failure_marker(args.output_dir, overwrite=args.overwrite, command=f"Python API: {function}(...)"):
         return run_from_args(args)

@@ -1711,7 +1711,9 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
         **GLOBAL_CONFIG_RUNTIME_OPTIONS,
         "genome_build": "pass source_genome_build for the PLINK input build; GlobalConfig.genome_build is not used",
     }
-    args = namespace_from_kwargs("run_build_ref_panel", build_parser(), kwargs, rejected=rejected)
+    args = namespace_from_kwargs(
+        "run_build_ref_panel", build_parser(), kwargs, rejected=rejected, log_level=get_global_config().log_level,
+    )
     return run_build_ref_panel_from_args(args)
 
 

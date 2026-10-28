@@ -1,6 +1,6 @@
 # Gene-list diagnostics and repair
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This guide is the detailed reference for diagnosing direct and indexed
 gene-list `ldscore` runs. The design assumes that users do not inspect a file

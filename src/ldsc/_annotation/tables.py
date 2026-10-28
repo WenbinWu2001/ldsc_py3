@@ -2,7 +2,7 @@
 
 These helpers are shared by annotation preparation and LD-score readers.
 Interval parsing lives in ``_core.regions`` and live BED/gene projection in
-``_annotation_projection``. Workflow orchestration and output policy remain
+``_annotation.interval_projection``. Workflow orchestration and output policy remain
 with their public workflow and writer owners.
 """
 

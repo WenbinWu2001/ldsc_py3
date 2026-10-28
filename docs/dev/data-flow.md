@@ -1,6 +1,6 @@
 # Data Flow
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 Examples below use the munged file names written without a trait label (`sumstats.parquet`, `sumstats.gz`); naming rules are in [artifact metadata](../reference/formats/artifact-metadata.md).
 
@@ -12,10 +12,10 @@ This document summarizes the user-visible file streams for each public workflow.
 | --- | --- | --- | --- |
 | CLI | yes | `ldsc.cli` | parse subcommands and dispatch |
 | Preprocessing | yes | `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`, `ldsc._core.chromosomes`, `ldsc._genome.build_inference` | normalize tokens, headers, identifiers, chromosome order, and genome-build assumptions |
-| Workflow | yes | feature modules under `src/ldsc/` | build aligned in-memory tables |
-| Kernel | no | `ldsc._kernel.*` | low-level readers and numerical work |
+| Workflow | yes | workflow modules in the domain packages (`ldsc._annotation`, `ldsc._refpanel`, `ldsc._sumstats`, `ldsc._ldscore`, `ldsc._regression`) | build aligned in-memory tables |
+| Computation | no | computation modules in those packages, such as `ldsc._ldscore.compute`, `ldsc._refpanel.r2_format` and `ldsc._regression.estimators` | low-level readers and numerical work |
 | Artifact access | yes | `ldsc._ldscore.source` | open LD-score directories, validate schemas/identities, and read selected query columns |
-| Postprocessing | yes | `ldsc._regression.outputs`, `ldsc._plotting.dispatch`, `ldsc._regression.h2_scale`, pandas writers in `ldsc._regression.runner`, `ldsc._runtime.workflow_logging` | preflight fixed output paths, emit core/derived results, and write workflow audit logs/failure markers |
+| Postprocessing | yes | each domain's `outputs` writer on `ldsc._runtime.artifacts`, `ldsc._plotting.dispatch`, `ldsc._regression.h2_scale`, pandas writers in `ldsc._regression.runner`, `ldsc._runtime.workflow_logging` | preflight fixed output paths, emit core/derived results, and write workflow audit logs/failure markers |
 
 ## Package Overview
 
@@ -38,13 +38,13 @@ flowchart LR
     W5[Run regression]
   end
 
-  subgraph K[Compute Kernel (private)<br/>src/ldsc/_kernel/*.py]
+  subgraph K[Computation (private)<br/>compute modules in the domain packages]
     K1[Parse files]
     K2[Compute LD]
     K3[Run estimators]
   end
 
-  subgraph OUT[Postprocessing (public)<br/>ldsc._regression.outputs / regression_runner]
+  subgraph OUT[Postprocessing (public)<br/>domain outputs writers / _regression.runner]
     O1[Write LDSC3 artifacts]
     O2[Write summary tables]
     O3[Write workflow logs]
@@ -133,9 +133,9 @@ Output preflight covers both `query.*.annot.gz` and `baseline.*.annot.gz` plus o
 ### Modules used
 
 - Public parser/dispatch: `ldsc._annotation.builder`; orchestration: `ldsc._annotation.annotate`.
-- Grid preparation: `_annotation_sources`, `_annotation_bim`, `_annotation_identity`, and `_annotation_storage`.
-- Projection: `_annotation_queries`, `_annotation_projection`, and `_gene_query_storage`.
-- Publication and reload: `outputs.AnnotationDirectoryWriter` and `_annotation_outputs`.
+- Grid preparation: `_annotation.sources`, `_annotation.bim_grid`, `_annotation.identity_cleanup`, and `_annotation.storage`.
+- Projection: `_annotation.interval_queries`, `_annotation.interval_projection`, and `_annotation.gene_query_storage`.
+- Publication and reload: `_annotation.outputs.AnnotationDirectoryWriter` and `_annotation.saved_results`.
 
 ## 2. `build-r2-panel`: PLINK To R² Panel
 
@@ -179,7 +179,7 @@ flowchart LR
   I2[Genetic maps]
   I3[Liftover / keep / restrict]
 
-  subgraph P2[Preprocessing (public)<br/>config + path_resolution]
+  subgraph P2[Preprocessing (public)<br/>config + _runtime.paths]
     B1[Resolve PLINK prefixes]
     B0[Infer source build from .bim when source is auto]
     B2[Resolve map and filter files]
@@ -260,7 +260,7 @@ flowchart LR
     Q3[Harmonize sign and optional r]
   end
 
-  subgraph KQ[Kernel (private)<br/>ldsc._kernel.r2_query]
+  subgraph KQ[R² format (private)<br/>ldsc._refpanel.r2_format]
     Q4[Lookup index pairs in parquet]
   end
 
@@ -278,7 +278,7 @@ flowchart LR
 ### Modules used
 
 - Workflow: `ldsc._refpanel.query`
-- Kernel: `ldsc._kernel.r2_query`, `ldsc._ldscore.compute`
+- R² format: `ldsc._refpanel.r2_format`
 
 ## 4. `ldscore`: Reference Panel And Optional Annotations To An LD-Score Directory
 
@@ -295,7 +295,7 @@ Every Parquet payload spans the computed chromosomes, with one row group per chr
 Root metadata records baseline row groups and the required ordered `query_batches` manifest, including file membership and chromosome offsets.
 Readers can select query columns across files or load one chromosome without scanning whole tables.
 One batch uses `ldscore.query.parquet`; multiple batches use numbered files.
-See `LDScoreDirectoryWriter.write_batches` in [`_regression/outputs.py`](../../src/ldsc/_regression/outputs.py).
+See `LDScoreDirectoryWriter.write_batches` in [`_ldscore/outputs.py`](../../src/ldsc/_ldscore/outputs.py).
 
 For ordinary unpartitioned LD scores, callers may omit both baseline and query
 inputs. The workflow then creates a synthetic baseline annotation named exactly
@@ -329,7 +329,7 @@ flowchart LR
   I2[PLINK reference panel or R² panel]
   I3[Metadata / restriction files]
 
-  subgraph P3[Preprocessing (public)<br/>config + path_resolution + column_inference]
+  subgraph P3[Preprocessing (public)<br/>config + _runtime.paths + _core.columns]
     C1[Resolve shards and tokens]
     C2[Normalize identifier mode]
   end
@@ -345,7 +345,7 @@ flowchart LR
     C7[Compute regression-SNP LD score]
   end
 
-  subgraph O3[Postprocessing (public)<br/>ldsc._regression.outputs]
+  subgraph O3[Postprocessing (public)<br/>ldsc._ldscore.outputs]
     C8[Write LDSC3 artifacts]
   end
 
@@ -372,7 +372,7 @@ flowchart LR
 - Preprocessing: `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`
 - Workflow: `ldsc._ldscore.calculator`
 - Kernel: `ldsc._ldscore.compute`
-- Postprocessing: `ldsc._regression.outputs`
+- Postprocessing: `ldsc._ldscore.outputs`
 
 ## 4A. `convert-ldsc2-ldscores`: Selected legacy LDSC Suites To Canonical LDSC3
 
@@ -478,7 +478,7 @@ flowchart LR
   I1[Raw GWAS table]
   I2[Column hints / SNP keep-list]
 
-  subgraph P4[Preprocessing (public)<br/>config + path_resolution + column_inference]
+  subgraph P4[Preprocessing (public)<br/>config + _runtime.paths + _core.columns]
     D1[Resolve one raw file]
     D2[Skip leading ## lines<br/>Detect format + normalize aliases]
   end
@@ -569,7 +569,7 @@ flowchart LR
   I1[Current Parquet or legacy summary-statistics text]
   I2[LD-score directories]
 
-  subgraph P5[Preprocessing (public)<br/>path_resolution + column_inference]
+  subgraph P5[Preprocessing (public)<br/>_runtime.paths + _core.columns]
     E1[Resolve scalar files or genetic-correlation file groups]
     E2[Reload canonical headers]
   end

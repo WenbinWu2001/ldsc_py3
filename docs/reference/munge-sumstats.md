@@ -1,6 +1,6 @@
 # `munge-sumstats`
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This document explains the public shape of `ldsc munge-sumstats`: what it does,
 what it writes, how genome builds are handled, and how to use `--infer-only`
@@ -38,7 +38,7 @@ Use `--snp-identifier chr_pos` for coordinate identity without allele-aware matc
 
 The public workflow and tests use `_sumstats.munge_input.prepare_munge_input()` to resolve column aliases and hints, DANER sample-size settings, the raw coordinate build/basis, and the optional keep-list.
 The kernel accepts a `ResolvedMungeInput` and returns a `MungeResult` containing the munged table, counts, coordinate provenance, and separate identity/liftover drop records.
-CLI parsing and artifact ownership stay in `sumstats_munger.py`; the kernel neither parses CLI flags nor mutates configuration to return results.
+CLI parsing and artifact ownership stay in `_sumstats/munger.py`; the kernel neither parses CLI flags nor mutates configuration to return results.
 
 Source-build inference reads only `CHR`/`POS` in bounded chunks and stops when sufficient evidence is available. It precedes all QC, and shares its coordinate evidence reader with `--infer-only`. The main parsing pass counts raw records as it reads them; it does not reopen the full raw file to count lines after munging.
 

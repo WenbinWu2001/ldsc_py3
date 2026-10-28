@@ -1,6 +1,6 @@
 # Continuous-Annotation Quantile Heritability: Technical Contract
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 Quantile calculation runs in one worker with **1 BLAS thread**, including input overlap products and post-fit projection.
 See [parallel execution](../parallel-execution.md) for native-limit verification and Python process startup.

@@ -1,6 +1,6 @@
 # Gene-list query input
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 `ldsc ldscore` accepts one or more focal gene lists through `--query-annot-gene-list-sources`.
 Direct mode requires an explicit gene coordinate catalog; indexed mode uses only the catalog embedded in the gene LD-score index.

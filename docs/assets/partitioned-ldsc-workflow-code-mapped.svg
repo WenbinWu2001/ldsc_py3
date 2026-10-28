@@ -331,7 +331,7 @@ z
     <text style="font-weight: 700; font-size: 15px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #2b7563" x="60.48" y="473.637656" transform="rotate(-0 60.48 473.637656)">2. Compute direct LD scores</text>
    </g>
    <g id="text_10">
-    <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(60.48 504.980859)">LDScoreCalculator.compute_chromosome() -&gt; _kernel.ldscore.compute_chromosome()</text>
+    <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(60.48 504.980859)">LDScoreCalculator.compute_chromosome() -&gt; _ldscore.compute.compute_chromosome()</text>
     <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(60.48 524.115781)">Accumulate LD scores, annotation counts and overlaps in float64.</text>
     <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(60.48 543.090781)">Workers stage float32 query fragments; the parent combines chromosome results.</text>
    </g>
@@ -349,7 +349,7 @@ z
    </g>
    <g id="text_14">
     <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(60.48 850.580859)">load_ldscore_from_dir() -&gt; LDScoreSource</text>
-    <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(60.48 869.555859)">Owner: ldscore_source.py</text>
+    <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(60.48 869.555859)">Owner: _ldscore/source.py</text>
     <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(60.48 888.690781)">Shared baseline, identities, counts, overlap</text>
     <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(60.48 907.505859)">read_queries(names): uncached selections</text>
    </g>
@@ -366,7 +366,7 @@ z
     <text style="font-weight: 700; font-size: 15px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #2b7563" x="60.48" y="983.397656" transform="rotate(-0 60.48 983.397656)">5. Fit and write partitioned heritability</text>
    </g>
    <g id="text_18">
-    <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(60.48 1014.740859)">RegressionRunner -&gt; _kernel.regression.Hsq</text>
+    <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(60.48 1014.740859)">RegressionRunner -&gt; _regression.estimators.Hsq</text>
     <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(60.48 1033.875781)">Fit the complete baseline model, or one baseline-plus-query model per query.</text>
     <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(60.48 1052.690859)">PartitionedH2DirectoryWriter -&gt; partitioned_h2.tsv + diagnostics/</text>
    </g>

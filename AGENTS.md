@@ -4,7 +4,7 @@
 
 # LDSC Package Guidance
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This repository, `ldsc_py3_restructured`, develops the distributable scientific Python package `ldsc` (distribution version `2.0b0`), with source under `src/ldsc/`.
 
@@ -45,13 +45,13 @@ python -m unittest discover -s tests -p 'test*.py' -v
 ## Package boundaries and current interfaces
 
 - Import supported user-facing objects from `ldsc`; `src/ldsc/__init__.py` owns exports such as `AnnotationBuilder`, `LDScoreCalculator`, `RegressionRunner`, `SumstatsMunger`, `ReferencePanelBuilder`, `LDScoreSource`, configurations, writers, and convenience functions.
-  `src/ldsc/_kernel/` and other underscore-prefixed modules are private implementations, even when selected objects are re-exported publicly.
+  The underscore-prefixed domain packages (`src/ldsc/_core/`, `src/ldsc/_ldscore/` and the others) and other underscore-prefixed modules are private implementations, even when selected objects are re-exported publicly.
 - `ldsc=ldsc.cli:run_cli` and `python -m ldsc` expose one CLI: `infer-genome-build`, `annotate`, `ldscore`, `build-r2-panel`, `build-gene-ldscore-index`, `convert-ldsc2-ldscores`, `munge-sumstats`, `h2`, `partitioned-h2`, `quantile-h2`, `rg`, `query-r2`, `convert-h2-scale`, and `plot`.
   Keep CLI code limited to parsing/dispatch; numerical and plotting logic belongs to its workflow or kernel.
 - Dependency direction is CLI → workflows → shared helpers/private kernels; workflows call output writers, and kernels must not import workflow orchestration or writers.
-  Runtime reference adapters currently live in `_kernel/ref_panel.py`; `RefPanel.prepare_chromosome()` owns panel preparation and reader lifetime.
+  Runtime reference adapters currently live in `_refpanel/adapters.py`; `RefPanel.prepare_chromosome()` owns panel preparation and reader lifetime.
   Numerical projection consumes prepared, resolved inputs; do not add user-token discovery to numerical kernels or create circular imports.
-- Reuse `path_resolution.py` for path tokens/output preflight, `column_inference.py` for aliases/identifier normalization, and `genome_build_inference.py` for hg19/hg38 and coordinate-basis inference.
+- Reuse `_runtime/paths.py` for path tokens/output preflight, `_core/columns.py` for aliases/identifier normalization, and `_genome/build_inference.py` for hg19/hg38 and coordinate-basis inference.
   Exact paths, globs, and `@` suites are supported; PLINK additionally supports plain suite stems through its shared resolver.
   The installed package must be self-sufficient, without sibling-repository imports or root wrappers.
 - Regression consumes aggregated LD-score artifacts without recomputing LD scores; plotting and scale conversion consume saved results without refitting.
@@ -100,7 +100,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
   Writing workflows return `LDScoreSource`; selected reads are explicit and caller-owned.
 - Query annotations require explicit baseline annotations; no baseline and no query produces an all-ones `base` for ordinary unpartitioned generation.
   Index construction requires a supplied one-based gene catalog, an explicit hg19 or hg38 build assertion, an explicit SNP identifier (any of the four identity modes), and complete autosomes; indexed scoring inherits the complete immutable index and rejects live overrides or silent fallback.
-- Reuse `outputs.py` directory writers, their `artifact_family()` declarations, and `path_resolution.py` preflight helpers before owned writes, including logs.
+- Reuse the domain `outputs.py` directory writers, their `artifact_family()` declarations, and `_runtime/paths.py` preflight helpers before owned writes, including logs.
   Core materializing CLI commands require `--output-dir`; explicit `--overwrite` replaces only owned outputs and reconciles stale owned siblings, preserving unrelated files.
   Derived CLI destinations are `<result-dir>/plots/` and `<h2-result-dir>/postprocessing/liability-scale/`, without CLI overrides.
 - Put headline results at the result root and diagnostics/logs under `diagnostics/`; LD-score root metadata is its separate artifact manifest.
@@ -121,7 +121,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
 ## Existing warning, error, and diagnostic policy
 
 - Preserve the repository's current policy; warning-visibility defaults from initialization skills/templates do not override it.
-  `src/ldsc/_logging.py`, `docs/reference/logs-and-outputs.md`, and `docs/dev/design/logging.md` define file-authoritative workflow logs, CLI stderr errors only during logged workflows, and no package-installed Python API console handler.
+  `src/ldsc/_runtime/workflow_logging.py`, `docs/reference/logs-and-outputs.md`, and `docs/dev/design/logging.md` define file-authoritative workflow logs, CLI stderr errors only during logged workflows, and no package-installed Python API console handler.
   CLI calls without a workflow log retain the existing verbosity fallback; do not introduce blanket warning-display or suppression changes.
 - Assume users do not inspect file logs after a successful run, especially under batch schedulers such as SLURM.
   If an unrequested input-resolution, filtering, ambiguity, or compatibility condition can silently change the scientific analysis, fail before substantial computation with a nonzero, actionable error and machine-readable diagnostics.

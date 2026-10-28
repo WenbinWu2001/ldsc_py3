@@ -1,6 +1,6 @@
 # Legacy LD-Score Suite Conversion
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 Conversion runs serially in one worker with **1 BLAS thread**, including reconstructed annotation overlap products.
 See [parallel execution](../parallel-execution.md) for native-limit verification and Python process startup.
@@ -215,7 +215,7 @@ Legacy LDSC discovery, parsing, validation, and conversion belong to a small pub
 workflow-layer `LegacyLDScoreConverter`, with a convenience
 `convert_ldsc2_ldscores()` function and structured conversion result.
 It reuses the pure overlap calculation and the LD-score directory writer.
-No legacy LD-score reader is added to regression and no legacy file parsing or emission is added to `_kernel`; after conversion, the ordinary canonical `load_ldscore_from_dir()` path consumes the result.
+No legacy LD-score reader is added to regression and no legacy file parsing or emission is added to the computation modules; after conversion, the ordinary canonical `load_ldscore_from_dir()` path consumes the result.
 
 The former private LD-score, regression-weight, count, and `.annotation_groups.tsv` emitters have been removed.
 The munging kernel likewise owns no `.sumstats.gz` emitter; optional legacy summary-statistics export is written by the public munging workflow.

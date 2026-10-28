@@ -1,6 +1,6 @@
 # Using LDSC3 from Python
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This page collects the Python API for each workflow in the user guide.
 Each section below assumes the setup described here and links back to the workflow page that explains the analysis.
@@ -9,7 +9,7 @@ Each section below assumes the setup described here and links back to the workfl
 
 **Import from `ldsc`.**
 Import every name from the top-level package, for example `from ldsc import GlobalConfig, run_ldscore`.
-Modules and names that start with an underscore, such as `ldsc._kernel`, are private and can change without notice.
+Modules, packages and names that start with an underscore, such as `ldsc._ldscore`, are private and can change without notice.
 
 **The CLI and the Python API run the same workflows.**
 Each `ldsc` command parses its flags and calls the same workflow code as its Python counterpart, so both produce the same scientific outputs.

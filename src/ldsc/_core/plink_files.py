@@ -5,7 +5,7 @@
 # See NOTICE for attribution and dated modifications.
 
 """
-formats.py
+plink_files.py
 
 Core functionality:
     Parse PLINK metadata and identifier-list formats used by low-level kernels.

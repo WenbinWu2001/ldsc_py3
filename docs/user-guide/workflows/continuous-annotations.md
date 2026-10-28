@@ -1,6 +1,6 @@
 # Continuous annotations in partitioned heritability
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This page starts after the partitioned-heritability steps in the [guided tutorial](../guided-tutorial.md).
 The regression itself does not use quantile bins: fit the continuous annotation directly, then use `ldsc quantile-h2` to summarize how the complete fitted joint model distributes heritability from low to high target values.

@@ -1,6 +1,6 @@
 # Regression Configuration Reference (Advanced)
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This document describes the tunable configuration of the regression module (`ldsc h2`, `ldsc rg`, `ldsc partitioned-h2`).
 **You do not need any of this for a standard run.**
@@ -169,7 +169,7 @@ Single-annotation diagnostic bins use this same population, including SNPs outsi
 `partitioned-h2` model metadata and `rg` pair metadata likewise consume their actual fit outcomes; reporting never reapplies a filter.
 Public `estimate_h2` and `estimate_rg` continue to return kernel estimators.
 
-*Mechanism:* `RegressionRunner.estimate_h2` in `regression_runner.py`.
+*Mechanism:* `RegressionRunner.estimate_h2` in `_regression/runner.py`.
 
 ---
 
@@ -192,7 +192,7 @@ Per-pair metadata reports the post-filter `n_snps_used` / `n_blocks_used` and an
 **echoes** `config.chisq_max` (or `null`); there is no hidden default to reveal.
 
 *Mechanism:* `RegressionRunner._fit_rg_dataset` and `estimate_rg_pairs` in
-`regression_runner.py`.
+`_regression/runner.py`.
 
 ---
 
@@ -238,7 +238,7 @@ The log reports detected CPU budget, requested/resolved concurrency, backend set
 Per-query times summed across workers can exceed elapsed wall time.
 `query_worker_native_threads` records the fixed target of 1, not proof of backend verification; runtime logs carry verification details.
 
-Mechanisms: [`RegressionRunner`](../../src/ldsc/_regression/runner.py), [`_QueryWorkers`](../../src/ldsc/_regression/partitioned_parallel.py), and [`_worker_runtime`](../../src/ldsc/_runtime/worker_runtime.py).
+Mechanisms: [`RegressionRunner`](../../src/ldsc/_regression/runner.py), [`_QueryWorkers`](../../src/ldsc/_regression/partitioned_parallel.py), and [`_runtime.worker_runtime`](../../src/ldsc/_runtime/worker_runtime.py).
 The earlier [query-worker benchmark](../dev/validation/performance.md#partitioned-heritability-regression) remains historical evidence; it does not define the current serial policy.
 
 ### Defaults (both regimes)
@@ -267,7 +267,7 @@ default cap when `--chisq-max` was not passed.
 > (`n_annot >= 2`) and so never degenerates.
 
 *Mechanism:* `RegressionRunner.estimate_partitioned_h2_batch` in
-`regression_runner.py`.
+`_regression/runner.py`.
 
 ---
 
@@ -284,8 +284,8 @@ estimator state.
 | Constrained heritability intercept | `1` | `Hsq.__null_intercept__` | Standard fixed heritability intercept, requested with `--intercept-h2 1`. |
 | Constrained genetic-covariance intercept | `0` | `RG`/`Gencov.__null_intercept__` | Standard fixed covariance intercept, requested with `--intercept-gencov 0`. |
 | `old_weights` | `True` iff `n_annot > 1` | `estimate_h2` | Forces legacy regression weights for partitioned models (newer weights unimplemented for `n_annot > 1`). |
-| Two-step mask | `χ² ≤ cutoff` (`h2`); `Z₁² ≤ cutoff and Z₂² ≤ cutoff` (`rg`) | `_kernel/regression.py` | Step-1 SNP selection (inclusive; legacy used `<`). |
-| `λ_GC` divisor | `0.4549` | `_kernel/regression.py` | `median(χ²)/0.4549`, the genomic-control inflation summary. |
+| Two-step mask | `χ² ≤ cutoff` (`h2`); `Z₁² ≤ cutoff and Z₂² ≤ cutoff` (`rg`) | `_regression/estimators.py` | Step-1 SNP selection (inclusive; legacy used `<`). |
+| `λ_GC` divisor | `0.4549` | `_regression/estimators.py` | `median(χ²)/0.4549`, the genomic-control inflation summary. |
 | Regression weights (`w_ld`) | from `regression_ld_scores` column | LD-score directory | Heteroscedasticity/LD weights; computed internally, not tunable. |
 
 ---

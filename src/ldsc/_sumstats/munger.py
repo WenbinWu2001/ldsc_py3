@@ -10,7 +10,7 @@ Overview
 This module converts the historical munging script behavior into explicit
 Python dataclasses and a small service object. The public workflow boundary
 accepts path-like inputs and resolves the schema, sample-size choices, source
-build and keep-list through ``_sumstats_input.prepare_munge_input``. It passes
+build and keep-list through ``_sumstats.munge_input.prepare_munge_input``. It passes
 a ``ResolvedMungeInput`` to the kernel and consumes an explicit ``MungeResult``.
 Packaged HM3 restriction is the default; a custom list replaces it, and
 ``no_snp_restriction`` disables keep-list filtering. For different coordinate

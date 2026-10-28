@@ -1,6 +1,6 @@
 # Exact gene LD-score index: mathematical algorithm
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This document gives the input-to-output mathematical specification for the gene LD-score index used by `ldsc ldscore`.
 It describes the online indexed algorithm in full and the offline `build-gene-ldscore-index` construction more concisely.

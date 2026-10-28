@@ -1,6 +1,6 @@
 # Reference and regression SNPs
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This table distinguishes the SNP sets used by canonical LD score regression (LDSC) and by stratified LD score regression (S-LDSC; Finucane et al. 2015).
 It is especially important for MHC and pericentromeric exclusions.
@@ -42,7 +42,7 @@ A caller requesting all output rows remains supported.
 Counts sum binary 0/1 and normalized float32 continuous annotation values in float64, preserving existing validation tolerances across query widths and array layouts.
 Packed storage and selected decoding follow the [annotation format policy](../dev/design/memory-and-cpu.md#annotation-format-policy).
 
-The [sequential query-batch design](../dev/design/memory-and-cpu.md#direct-ld-score-computation) supersedes the earlier requirement for one traversal across all queries. Public output contains one shared genome-wide baseline file and one or more genome-wide query files, with chromosome row groups and the required ordered `query_batches` manifest. Generation batch width and chromosome workers affect execution memory, not SNP membership or scientific definitions. Sources: `LDScoreCalculator.run` in [_ldscore/calculator.py](../../src/ldsc/_ldscore/calculator.py), `ProjectionAccumulator` in [_kernel/ldscore_projection.py](../../src/ldsc/_kernel/ldscore_projection.py), and `annotation_statistics` in [_annotation/overlap.py](../../src/ldsc/_annotation/overlap.py). See the [batch verification](../dev/design/memory-and-cpu.md#diagnostics-and-verification).
+The [sequential query-batch design](../dev/design/memory-and-cpu.md#direct-ld-score-computation) supersedes the earlier requirement for one traversal across all queries. Public output contains one shared genome-wide baseline file and one or more genome-wide query files, with chromosome row groups and the required ordered `query_batches` manifest. Generation batch width and chromosome workers affect execution memory, not SNP membership or scientific definitions. Sources: `LDScoreCalculator.run` in [_ldscore/calculator.py](../../src/ldsc/_ldscore/calculator.py), `ProjectionAccumulator` in [_ldscore/compute.py](../../src/ldsc/_ldscore/compute.py), and `annotation_statistics` in [_annotation/overlap.py](../../src/ldsc/_annotation/overlap.py). See the [batch verification](../dev/design/memory-and-cpu.md#diagnostics-and-verification).
 
 The gene LD-score index builder applies the same rule to its fixed common payload:
 supplied baseline columns and the regression mask share one PLINK traversal.

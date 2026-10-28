@@ -1,6 +1,6 @@
 # Munge summary statistics
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 `ldsc munge-sumstats` converts raw summary statistics into munged summary statistics for LDSC3.
 See the [`munge-sumstats` reference](../../reference/munge-sumstats.md) for the full workflow and output contract.

@@ -1,6 +1,6 @@
 # Parallel execution
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 Use `workers` in Python or `--workers` in the CLI to choose task concurrency.
 The default is one worker on both laptops and HPC systems.

@@ -1,6 +1,6 @@
 # CLI flag descriptions and ordering
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 These are the agreed rules for writing flag descriptions and organizing `--help` across all public `ldsc` commands. A user should be able to identify the inputs they need, understand what an option changes, and choose a valid combination without knowing the package implementation.
 

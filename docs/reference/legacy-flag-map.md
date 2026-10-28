@@ -1,6 +1,6 @@
 # Legacy LDSC to Current CLI Flag Map
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This document maps changed legacy LDSC flags to the supported `ldsc` commands and records the flag-cleanup decisions.
 Legacy LDSC source links point to `bulik/ldsc` at commit `aa33296`.
@@ -102,7 +102,7 @@ Measurement (2026-10-27; former kernel ported from legacy LDSC at `c67b40e` vers
 Limits: one chromosome, panel, trait, and window were measured.
 Smaller `--ld-wind-snps` windows and sparse panels change more; on the 32-SNP test fixture, `--ld-wind-snps 3` at batch 128 formerly covered the whole chromosome.
 
-Sources: legacy LDSC [`ldscore/ldscore.py:167-168`, `__corSumVarBlocks__`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldscore/ldscore.py#L167-L168); current [`_kernel/plink_bed.py`, `__corSumVarBlocks__` and `_zero_pairs_outside_window`](../../src/ldsc/_refpanel/plink.py), tested in [`test_ldscore_projection.py`](../../tests/test_ldscore_projection.py) and [`test_plink_exact_windows.py`](../../tests/test_plink_exact_windows.py).
+Sources: legacy LDSC [`ldscore/ldscore.py:167-168`, `__corSumVarBlocks__`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldscore/ldscore.py#L167-L168); current [`_ldscore/compute.py`, `_cor_sum_var_blocks` and `_zero_pairs_outside_window`](../../src/ldsc/_ldscore/compute.py), tested in [`test_ldscore_projection.py`](../../tests/test_ldscore_projection.py) and [`test_plink_exact_windows.py`](../../tests/test_plink_exact_windows.py).
 
 ## Established command and input renames
 
@@ -129,7 +129,7 @@ These mappings describe current workflows and are not additional changes made by
 | `munge_sumstats.py --no-alleles` | `--snp-identifier rsid` or `--snp-identifier chr_pos` | Choose a base mode explicitly; the default SNP identifier mode is `chr_pos_allele_aware`. |
 | `munge_sumstats.py --merge-alleles FILE` | No exact alias; packaged HM3 restriction is the default, `--sumstats-snps-file` replaces it, and `--no-snp-restriction` disables it | Current identity matching and downstream allele alignment have separate roles. A keep-list does not imply allele rewriting or liftover. |
 
-Sources: legacy LDSC [`ldsc.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L423) and [`munge_sumstats.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/munge_sumstats.py#L449); current [`cli.build_parser`](../../src/ldsc/cli.py), [`_ldscore.calculator.build_parser`](../../src/ldsc/_ldscore/calculator.py), [`regression_runner` argument builders](../../src/ldsc/_regression/runner.py), and the [IO inventory, command sections](cli.md). Unlisted unsupported legacy options should not be assumed to have an automatic replacement.
+Sources: legacy LDSC [`ldsc.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L423) and [`munge_sumstats.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/munge_sumstats.py#L449); current [`cli.build_parser`](../../src/ldsc/cli.py), [`_ldscore.calculator.build_parser`](../../src/ldsc/_ldscore/calculator.py), [`_regression.runner` argument builders](../../src/ldsc/_regression/runner.py), and the [IO inventory, command sections](cli.md). Unlisted unsupported legacy options should not be assumed to have an automatic replacement.
 
 ## Legacy LDSC options with no current equivalent
 

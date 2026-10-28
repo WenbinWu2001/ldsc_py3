@@ -1,6 +1,6 @@
 # Logs and Outputs
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This page describes what a logged workflow writes besides its scientific results: logs, console messages, output preflight and failure markers.
 The rules for writing log and error messages, and the logging API boundary, are in [logging design](../dev/design/logging.md).
@@ -94,7 +94,7 @@ This keeps an output directory from mixing artifacts from different
 configurations, while preserving unrelated user files. Direct Python writer
 APIs apply the same rule to their data artifacts. Standalone `run_annotate()` owns the canonical annotation log; `AnnotationBuilder.run()` prepares private data without installing a workflow log.
 
-The six directory writers in `ldsc._regression.outputs` each expose `artifact_family()`, returning an `ArtifactFamily` with selected output paths and the complete owned scope.
+The directory writers in the domain `outputs` modules (`ldsc._annotation.outputs`, `ldsc._refpanel.outputs`, `ldsc._ldscore.outputs` and `ldsc._regression.outputs`) each expose `artifact_family()`, returning an `ArtifactFamily` with selected output paths and the complete owned scope.
 `h2`, `partitioned-h2`, `rg`, `quantile-h2`, `query-r2`, and LD-score workflow preflights consult their writer's declaration and add workflow-owned logs or audits.
 The legacy LDSC converter and indexed LD-score CLI also consult the LD-score writer.
 Declarations only describe paths; the existing `_runtime.paths.preflight_output_artifact_family()` still performs collision checks.
@@ -350,4 +350,4 @@ A handled chromosome failure retains logs, reports the chromosome and batch in t
 A broken pool reports affected in-flight tasks and their paths without claiming a confirmed crash source.
 Reruns follow `--overwrite`, resetting owned logs rather than appending an unrelated run.
 `LDScoreCalculator.run(..., output_config=None)` retains its no-file-output contract.
-See [parallel execution](parallel-execution.md) and [`_ldscore_diagnostics`](../../src/ldsc/_ldscore/diagnostics.py).
+See [parallel execution](parallel-execution.md) and [`_ldscore.diagnostics`](../../src/ldsc/_ldscore/diagnostics.py).

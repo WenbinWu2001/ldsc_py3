@@ -1,17 +1,21 @@
 # Handoff: annotation grids and LD-score annotation coverage
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 Status: high-level design confirmed by the user; CLI details and any optional intersection policy remain unresolved.
 This handoff records the next design task, not an implemented feature or a completed specification.
 The current request authorizes this handoff and a continuation prompt, not implementation.
 
-## Also in flight: domain subpackage reorganization of `src/ldsc`
+## Completed: domain subpackage reorganization of `src/ldsc`
 
-- The design is recorded in the [specification](docs/specs/2026-10-27-domain-subpackages.md) and its commit sequence in the [implementation plan](docs/plans/2026-10-27-domain-subpackages.md).
-- The maintainer confirmed the complete design, including the dead-code policy D1, on 2026-10-27; implementation is not yet authorized.
-- The reorganization moves almost every module, including the implementation seams listed in this handoff, so the two efforts must not run concurrently on `restructure`.
-- When the reorganization lands, its final commit updates this handoff's module paths.
+- The reorganization landed on `restructure` on 2026-10-28, from `9236b80` (dead-code cleanup) to the documentation commit `docs: describe the domain layout`.
+  [Code structure](docs/dev/code-structure.md) and [architecture](docs/dev/architecture.md) describe the layout, and `tests/test_layering.py` enforces its import tiers.
+- The module paths in this handoff follow the new layout.
+- Follow-ups noted during the work, none started:
+  merge the two LD-window coordinate functions in `src/ldsc/_refpanel/windows.py`, which differ in `--ld-wind-snps` behavior and messages;
+  decide whether `_runtime.result_files.atomic_write_json` and `_runtime.artifacts._atomic_write_json` should be one writer;
+  remove the gene-index build-state migration `_migrate_legacy_gene_index_build_state`;
+  consider per-domain test folders.
 
 ## Workspace and checkpoint
 
@@ -130,8 +134,8 @@ These are observed gaps, not additional approved feature scope; recheck them bef
 
 | Finding | Reproduction and location |
 | --- | --- |
-| Missing successful partial-run console notices | A CLI run omitted one of two gene rows under `--allow-unresolved-genes` and exited zero without the promised LDSC terminal notice; another successful run skipped a zero-support query without a notice. Inspect [annotate_workflow.py](src/ldsc/annotate_workflow.py), `run_annotate()` final logging, against the standalone decision record's output policy. |
-| Incomplete batched validation | `base.txt` containing a valid gene and an unknown identifier reported the identifier failure but missed its collision with baseline column `base`, because the early Gate A exit precedes naming checks. A missing sibling file also stops the input gate before readable sibling lists receive resolution audits. Inspect `run_annotate()` and [the shared input gate](src/ldsc/_input_preflight.py). |
+| Missing successful partial-run console notices | A CLI run omitted one of two gene rows under `--allow-unresolved-genes` and exited zero without the promised LDSC terminal notice; another successful run skipped a zero-support query without a notice. Inspect [_annotation/annotate.py](src/ldsc/_annotation/annotate.py), `run_annotate()` final logging, against the standalone decision record's output policy. |
+| Incomplete batched validation | `base.txt` containing a valid gene and an unknown identifier reported the identifier failure but missed its collision with baseline column `base`, because the early Gate A exit precedes naming checks. A missing sibling file also stops the input gate before readable sibling lists receive resolution audits. Inspect `run_annotate()` and [the shared input gate](src/ldsc/_runtime/preflight.py). |
 | Incomplete strict error guidance | Twelve rejected rows were fully audited, with ten terminal examples, but `_gate_a_error()` omitted per-source rejected/submitted counts, an explicit omitted-example count, an audit filter, and overwrite guidance. |
 | Stale workflow documentation | [data-flow.md](docs/dev/data-flow.md) still presents standalone annotate as BED-only. Main standalone decisions, wiki, and tutorials already describe the gene route. |
 
@@ -171,13 +175,13 @@ Start with the current instructions, this file, and the relevant sections of:
 
 Implementation seams:
 
-- [annotation_builder.py](src/ldsc/annotation_builder.py): public parser and CLI dispatch.
-- [annotate_workflow.py](src/ldsc/annotate_workflow.py): standalone orchestration, builds, validation gates, and publication.
-- [_annotation_sources.py](src/ldsc/_annotation_sources.py), [_annotation_parsing.py](src/ldsc/_annotation_parsing.py), and [_annotation_bundle.py](src/ldsc/_annotation_bundle.py): grid loading/cleanup, normalized values, and dataset access.
-- [_annotation_queries.py](src/ldsc/_annotation_queries.py) and [_annotation_projection.py](src/ldsc/_annotation_projection.py): shared BED/gene interval projection.
-- [gene_list_resolver.py](src/ldsc/gene_list_resolver.py), [_gene_query_storage.py](src/ldsc/_gene_query_storage.py), and [query_annotations.py](src/ldsc/query_annotations.py): shared gene identity, coverage, support, and query viability.
-- [_direct_annotation.py](src/ldsc/_direct_annotation.py), [_ldscore_preflight.py](src/ldsc/_ldscore_preflight.py), [ldscore_calculator.py](src/ldsc/ldscore_calculator.py), and [_kernel/ref_panel.py](src/ldsc/_kernel/ref_panel.py): annotation/reference alignment, scope, retained reference preparation, and computation entry.
-- [outputs.py](src/ldsc/outputs.py), [path_resolution.py](src/ldsc/path_resolution.py), and [_input_preflight.py](src/ldsc/_input_preflight.py): artifact ownership, path tokens, and staged input diagnostics.
+- [_annotation/builder.py](src/ldsc/_annotation/builder.py): public parser and CLI dispatch.
+- [_annotation/annotate.py](src/ldsc/_annotation/annotate.py): standalone orchestration, builds, validation gates, and publication.
+- [_annotation/sources.py](src/ldsc/_annotation/sources.py), [_annotation/parsing.py](src/ldsc/_annotation/parsing.py), and [_annotation/bundle.py](src/ldsc/_annotation/bundle.py): grid loading/cleanup, normalized values, and dataset access.
+- [_annotation/interval_queries.py](src/ldsc/_annotation/interval_queries.py) and [_annotation/interval_projection.py](src/ldsc/_annotation/interval_projection.py): shared BED/gene interval projection.
+- [_annotation/gene_lists.py](src/ldsc/_annotation/gene_lists.py), [_annotation/gene_query_storage.py](src/ldsc/_annotation/gene_query_storage.py), and [_annotation/query_outcomes.py](src/ldsc/_annotation/query_outcomes.py): shared gene identity, coverage, support, and query viability.
+- [_ldscore/direct_annotation.py](src/ldsc/_ldscore/direct_annotation.py), [_ldscore/preflight.py](src/ldsc/_ldscore/preflight.py), [_ldscore/calculator.py](src/ldsc/_ldscore/calculator.py), and [_refpanel/adapters.py](src/ldsc/_refpanel/adapters.py): annotation/reference alignment, scope, retained reference preparation, and computation entry.
+- [_annotation/outputs.py](src/ldsc/_annotation/outputs.py), [_runtime/paths.py](src/ldsc/_runtime/paths.py), and [_runtime/preflight.py](src/ldsc/_runtime/preflight.py): artifact ownership, path tokens, and staged input diagnostics.
 
 Relevant existing tests include `tests/test_annotate_streaming.py`, `tests/test_annotation.py`, `tests/test_annotation_preparation.py`, `tests/test_gene_list_resolver.py`, `tests/test_ref_panel.py`, `tests/test_ldscore_workflow.py`, `tests/test_ldscore_chromosome_scope.py`, `tests/test_ldscore_projection.py`, `tests/test_staged_input_preflight.py`, and `tests/test_cli_help.py`.
 

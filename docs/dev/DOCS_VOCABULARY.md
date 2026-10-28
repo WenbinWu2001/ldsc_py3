@@ -1,6 +1,6 @@
 # Documentation Vocabulary
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This is the glossary of the LDSC3 documentation.
 Each term below has one meaning and one wording across the user guide, the reference, the developer guide, the README, docstrings, command help and messages.
@@ -154,8 +154,10 @@ These identifiers differ from the prose term or from each other; they are record
 
 ## Proposed terms
 
-None at present.
 Add a row when a concept appears under several names: the concept, the proposed term, and each variant with its file and line.
 
 | Concept | Proposed term | Variants and locations |
 | --- | --- | --- |
+| A private package under `src/ldsc/` that holds one area of the package, such as `_annotation` or `_ldscore` | domain package | "domain subpackage" (the removed reorganization specification); "domain packages" (`docs/dev/code-structure.md:36`, `docs/dev/data-flow.md:15`, `docs/dev/architecture.md:52`) |
+| A level in the one-directional import order of the domain packages, enforced by `tests/test_layering.py` | tier | "tiers" (`docs/dev/code-structure.md:21`, `docs/dev/architecture.md:63`); "layer" already names the CLI, workflow and output layers in `docs/dev/architecture.md` and should not be used for this concept |
+| The modules at the package root that belong to no domain package: `__init__`, `__main__`, `cli`, `config` and `errors` | root shell | "public shell" (`docs/dev/code-structure.md:19`, `docs/dev/architecture.md:113`); "shell" (`docs/dev/code-structure.md:57`); "root shell" (`tests/test_layering.py:8`) |

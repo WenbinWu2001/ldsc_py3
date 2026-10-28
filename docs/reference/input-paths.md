@@ -1,6 +1,6 @@
 # Input Path Specification
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 Examples below use the munged file names written without a trait label (`sumstats.parquet`, `sumstats.gz`); naming rules are in [artifact metadata](formats/artifact-metadata.md).
 
@@ -431,7 +431,7 @@ Output:
 - `--output-dir` is a literal directory destination.
 - LD-score calculation writes `metadata.json`, `ldscore.baseline.parquet`, optional query Parquet files, optional `ldscore.overlap.parquet`, and `diagnostics/ldscore.log` inside that directory. One query batch uses `ldscore.query.parquet`; multiple batches use `ldscore.query.batch00001.parquet` and subsequent ordinals.
 - Each Parquet file is genome-wide, with one row group per chromosome. Root metadata records `row_group_layout`, `baseline_row_groups`, and the required ordered `query_batches` manifest with each file's columns and row groups. `query_row_groups` is populated only for one query file; baseline-only output has an empty `query_batches` list. Current readers require the manifest; regenerate older directories.
-- Existing canonical LD-score files or `diagnostics/ldscore.log` are refused before writing unless `--overwrite` or `LDScoreOutputConfig(overwrite=True)` is supplied. Successful overwrites remove stale owned single/numbered query files not produced by the new run. Query batches are staged under the output directory and published after successful computation, with metadata last. See `LDScoreDirectoryWriter.artifact_family` and `write_batches` in [_regression/outputs.py](../../src/ldsc/_regression/outputs.py).
+- Existing canonical LD-score files or `diagnostics/ldscore.log` are refused before writing unless `--overwrite` or `LDScoreOutputConfig(overwrite=True)` is supplied. Successful overwrites remove stale owned single/numbered query files not produced by the new run. Query batches are staged under the output directory and published after successful computation, with metadata last. See `LDScoreDirectoryWriter.artifact_family` and `write_batches` in [_ldscore/outputs.py](../../src/ldsc/_ldscore/outputs.py).
 - `ldscore.baseline.parquet` contains `CHR`, `POS`, `SNP`,
   `regression_ld_scores`, and baseline LD-score columns. `regression_ld_scores`
   is the historical `w_ld` LD score over the regression SNPs, not the

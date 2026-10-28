@@ -1,6 +1,6 @@
 # LD-score Computation from R² Panels — Mathematical Specification
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This document defines, in math, **how LD scores are computed from an R² panel** by the streaming accumulator.
 It is the conceptual companion to [the artifact format and read pipeline](../formats/r2-panels.md).
@@ -223,7 +223,7 @@ $$
 C_{\mathrm{out}} = A[O,:] + \sum_c W_c A.
 $$
 
-[`ProjectionAccumulator.add_pairs()`](../../../src/ldsc/_kernel/ldscore_projection.py) builds the needed directed edges only for output targets, compacts the involved target/reference-SNP indices, and uses a rectangular float64 CSR for $W_c$.
+[`ProjectionAccumulator.add_pairs()`](../../../src/ldsc/_ldscore/compute.py) builds the needed directed edges only for output targets, compacts the involved target/reference-SNP indices, and uses a rectangular float64 CSR for $W_c$.
 If $O=[0,2]$ in the example, the selected scores are $[1.6,2.3]^\top$.
 SNPs 1 and 3 still contribute; dropping them before multiplication would give the wrong answer.
 The diagonal is seeded once on output rows by `add_diagonal()`.

@@ -1,6 +1,6 @@
 # Plotting and Heritability-Scale Post-processing
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This document is the developer-facing contract for the plotting layer and the post-fit observed-to-liability-scale conversion workflow. For scientist-facing commands and interpretation, see [the plotting results manual](../../user-guide/workflows/plotting.md).
 
@@ -19,7 +19,7 @@ Core workflows never generate plots automatically. Matplotlib is a required pack
 flowchart LR
     CLI[ldsc.cli] --> PLOT[ldsc._plotting.dispatch]
     CLI --> CONVERT[ldsc._regression.h2_scale]
-    CORE[regression_runner] --> WRITERS[ldsc._regression.outputs]
+    CORE[ldsc._regression.runner] --> WRITERS[ldsc._regression.outputs]
     CORE --> KERNEL[ldsc._regression.estimators]
     WRITERS --> RESULT[(canonical result directory)]
     RESULT --> PLOT

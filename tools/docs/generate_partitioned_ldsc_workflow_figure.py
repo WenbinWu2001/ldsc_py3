@@ -98,7 +98,7 @@ def render():
     ], ORANGE)
     box(ax, 50, 280, 430, 145, "4. Open saved LD scores", [
         "load_ldscore_from_dir() -> LDScoreSource",
-        "Owner: ldscore_source.py",
+        "Owner: _ldscore/source.py",
         "Shared baseline, identities, counts, overlap",
         "read_queries(names): uncached selections",
     ], BLUE)

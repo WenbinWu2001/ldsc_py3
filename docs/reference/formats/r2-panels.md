@@ -1,6 +1,6 @@
 # R² Panel: Format Specification and Read Pipeline
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This document defines the canonical **index** format for R² panels and describes how the read pipeline validates, binds, and streams them into the LD-score accumulation.
 
@@ -182,7 +182,7 @@ The sidecar (`chrN_meta.tsv.gz`) is the per-SNP table for the whole panel and
 **defines the index space**: parquet `IDX_k` is a 0-based row number into it. It
 is a gzip TSV with `# ldsc:*` identity-provenance comments followed by columns
 `CHR, POS, SNP, A1, A2, CM, MAF` (one row per SNP, in build/position order).
-`CM` and `MAF` are written with 9 significant digits (`SIDECAR_FLOAT_FORMAT` in `_kernel/ref_panel_builder.py`).
+`CM` and `MAF` are written with 9 significant digits (`SIDECAR_FLOAT_FORMAT` in `_refpanel/r2_format.py`).
 `build-r2-panel` computes its cM window from `CM` rounded to that precision, so the stored pairs match the window `ldscore` rebuilds from the sidecar.
 
 The sidecar is **required**. Because the parquet stores only indices, it is
@@ -283,7 +283,7 @@ for each stored pair (i, j, r2) with i < j and i ≥ block_left[j]:
 
 `block_left[j]` applies the read-time LD window, which may be narrower than the build window.
 The driver splits decoded batches to buffer at most `_CSR_CHUNK_PAIRS` pairs, currently 16 million, before projection.
-[`ProjectionAccumulator.add_pairs()`](../../../src/ldsc/_kernel/ldscore_projection.py) filters the window and output targets, expands the required pair orientations, and constructs a rectangular CSR over the chunk's involved output rows and reference SNPs.
+[`ProjectionAccumulator.add_pairs()`](../../../src/ldsc/_ldscore/compute.py) filters the window and output targets, expands the required pair orientations, and constructs a rectangular CSR over the chunk's involved output rows and reference SNPs.
 It multiplies in float64 using selected annotation tiles, reusing each reference-SNP tile across output blocks.
 Shared baseline columns and weights are projected together, followed by focal column tiles for the active execution batch.
 The next execution batch repeats traversal.
@@ -407,11 +407,11 @@ canonical index format offline. Existing 10-column panels must be regenerated.
 
 | Module | Role |
 |---|---|
-| `_kernel/ref_panel_builder.py` | `write_r2_parquet`: 4-column index schema, sort assertion on `IDX_1`, binding metadata; `sidecar_identity_sha256` (re-exported from `snp_identity`). Pairs flow as columnar `PairColumns` `(i, j, r2, sign)` batches from `yield_pairwise_r2_rows` straight into the writer — no per-pair dict — and int16 quantization/encodings are applied at table build; the writer emits the current `SIGN_R` schema. |
-| `_kernel/snp_identity.py` | `sidecar_identity_sha256` binding hash |
-| `_kernel/plink_bed.py` | `PlinkBEDFile` genotype source for the build: selective reads retain the selected packed payload; unrestricted panel builds opt into disk streaming. Both decode bounded standardized blocks |
-| `ref_panel_builder.py` | build loop: sidecar built first, hash + `n_snps` passed to the writer |
-| `_kernel/ldscore.py` | `SortedR2BlockReader` index path: full-sidecar load, binding validation, `build_index_remap`, gather decode, `iter_all_pairs` streaming; `ld_score_streaming_from_r2_reader` pair accumulation; raw/former-format and block/query/cache paths removed |
-| `_kernel/ldscore_projection.py` | `ProjectionAccumulator`: selected-output float64 scores, rectangular sparse pair operators, bounded annotation operands, and shared weight projection |
-| `_kernel/ref_panel.py` | mandatory sidecar loading; shared `prepare_chromosome` alignment/window policy and `build_reader` contract and identity checks |
+| `_refpanel/r2_format.py` | `write_r2_parquet`: 4-column index schema, sort assertion on `IDX_1`, binding metadata; `sidecar_identity_sha256` (re-exported from `snp_identity`). Pairs flow as columnar `PairColumns` `(i, j, r2, sign)` batches from `yield_pairwise_r2_rows` straight into the writer — no per-pair dict — and int16 quantization/encodings are applied at table build; the writer emits the current `SIGN_R` schema. |
+| `_core/snp_identity.py` | `sidecar_identity_sha256` binding hash |
+| `_refpanel/plink.py` | `PlinkBEDFile` genotype source for the build: selective reads retain the selected packed payload; unrestricted panel builds opt into disk streaming. Both decode bounded standardized blocks |
+| `_refpanel/builder.py` | build loop: sidecar built first, hash + `n_snps` passed to the writer |
+| `_refpanel/r2_format.py` | `SortedR2BlockReader` index path: full-sidecar load, binding validation, `build_index_remap`, gather decode, `iter_all_pairs` streaming; `ld_score_streaming_from_r2_reader` pair accumulation; raw/former-format and block/query/cache paths removed |
+| `_ldscore/compute.py` | `ProjectionAccumulator`: selected-output float64 scores, rectangular sparse pair operators, bounded annotation operands, and shared weight projection |
+| `_refpanel/adapters.py` | mandatory sidecar loading; shared `prepare_chromosome` alignment/window policy and `build_reader` contract and identity checks |
 | `tests/` | index writer/reader/binding/remap tests; cross-mode parity gate; build→read parity |

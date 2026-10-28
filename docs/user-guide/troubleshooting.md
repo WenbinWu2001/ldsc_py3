@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This reference expands run-aborting `ldsc` errors with at least three distinct plausible causes, following the [current logging and error-message guide](../dev/design/logging.md#diagnostics-and-troubleshooting).
 It also retains guidance for failed-run artifacts, documented query omissions, and cleanup warnings that users need to interpret.
@@ -275,7 +275,7 @@ Inference uses bounded samples from every relevant file/chromosome and retains t
 3. If the header or delimiter is malformed, prepare a corrected input copy and select the appropriate `--input-format`.
    Explicit hints cannot repair a file whose fields were not parsed into separate columns.
 
-**Developer reference:** `_kernel/sumstats_munger` column resolution · `SumstatsTable.validate()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_sumstats.munge_kernel` column resolution · `SumstatsTable.validate()` · **Exception:** `LDSCInputError`
 
 ### `munge-sumstats`: multiple or conflicting sample-size column strategies
 
@@ -300,7 +300,7 @@ Inference uses bounded samples from every relevant file/chromosome and retains t
    `--N-col NEFF` when those exact effective-N values are intended; no
    `--ignore` flag is required.
 
-**Developer reference:** `_kernel/sumstats_munger` sample-size column resolution · **Exception:** `LDSCInputError` or `LDSCUsageError`
+**Developer reference:** `_sumstats.munge_kernel` sample-size column resolution · **Exception:** `LDSCInputError` or `LDSCUsageError`
 
 ### `munge-sumstats`: no SNPs remain after filtering
 
@@ -332,7 +332,7 @@ Concrete source/output build options do not apply to rsID-family munging.
    Use `diagnostics/dropped_snps/dropped.tsv.gz` for liftover or final identity-cleanup removals only when that file was written.
    See [whole-run row accounting](../reference/munge-sumstats.md#preparation-and-run-accounting).
 
-**Developer reference:** `_kernel/sumstats_munger` (post-filter and keep-list paths) · **Exception:** `LDSCInputError`
+**Developer reference:** `_sumstats.munge_kernel` (post-filter and keep-list paths) · **Exception:** `LDSCInputError`
 
 ### `munge-sumstats`: munged summary statistics are malformed or outdated
 
@@ -642,7 +642,7 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
 3. Correct a restriction prepared from mismatched inputs.
    Broaden or remove an intentional restriction only if the resulting reference SNP population is appropriate for the analysis.
 
-**Developer reference:** `_ldscore.calculator._align_annotation_bundle_to_ref_panel()`, `_ldscore.compute.compute_chrom_from_parquet()`, and `_ldscore.compute.compute_chrom_from_plink()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_refpanel.adapters._align_annotations()` during `RefPanel.prepare_chromosome()`, and the batch check in `_ldscore.calculator.LDScoreCalculator._run_batch()` · **Exception:** `LDSCInputError`
 
 <a id="ldscore-r2-panel-is-incompatible"></a>
 
@@ -966,7 +966,7 @@ such a directory cannot be partitioned.
    guard uses it only when present), so they run on unpartitioned or older
    directories.
 
-**Developer reference:** `_regression.runner.estimate_partitioned_h2_batch()` / `summarize_partitioned_h2()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_regression.runner.RegressionRunner.estimate_partitioned_h2_batch()` / `summarize_partitioned_h2()` · **Exception:** `LDSCInputError`
 
 ## `quantile-h2`
 
@@ -1045,7 +1045,7 @@ diagnostics. Matplotlib is a required package dependency. If an existing
 environment reports that it is unavailable, repair that environment with
 `python -m pip install "matplotlib>=3.9,<4"` and rerun the command.
 
-**Developer reference:** `plotting.plot_result()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_plotting.dispatch.plot_result()` · **Exception:** `LDSCInputError`
 
 ### `plot`: `rg` heritability source is invalid
 
@@ -1060,4 +1060,4 @@ environment reports that it is unavailable, repair that environment with
 
 Missing declarations/files or absent trait rows are allowed and display `failed`. Missing, nonfinite, or nonnumeric heritability or SE values and negative SEs also display `failed`; these do not abort plotting. Restore valid saved inputs and rerun `ldsc plot --result-dir RESULT_DIR --overwrite` to refresh existing figures. See [heritability annotation behavior](../dev/design/plotting.md#heritability-annotations-in-rg-plots).
 
-**Developer reference:** `plotting.plot_result()` and `plotting._builders._trait_h2_labels()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_plotting.dispatch.plot_result()` and `_plotting.builders._trait_h2_labels()` · **Exception:** `LDSCInputError`

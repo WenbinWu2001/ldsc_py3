@@ -1,9 +1,9 @@
 # Column Schema: Canonical Names, Data Types, and Ordering
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 This document is the single source of truth for column conventions across all
-Python-written artifacts in this package. It governs `column_inference.py`, all
+Python-written artifacts in this package. It governs `_core/columns.py`, all
 kernel output routines, and any doc or test that asserts column layout.
 
 ---
@@ -159,7 +159,7 @@ subject to float32 narrowing.
 Munged `sumstats.parquet` keeps `N` as numeric data; legacy `.sumstats.gz` writes the selected munged columns as text with the configured float format.
 
 The casting is applied by a narrow helper (`_cast_parquet_floats`) called at the
-write site in `outputs.py`.
+write site in `_ldscore/outputs.py`.
 It selects all `float64` columns and recasts them; no column names need to be listed explicitly.
 LD-score output parquet files are written with one row group per chromosome and record that layout in root `metadata.json`; summary-statistics Parquet is sorted by `CHR`, `POS`, and original row order, and records its row groups in `diagnostics/sumstats.log`.
 
@@ -323,7 +323,7 @@ LDSC3 normalizes `BP` back to canonical internal `POS` when reading annotations.
 Annotation `A1` and `A2` must either both be present or both be omitted. Omitting them is supported in every SNP identifier mode: annotations then match by base SNP identity, and allele-aware LD-score calculation obtains alleles from the reference panel. Supplying only one allele column is a structural error; removing both does not require switching the workflow to a base identifier mode.
 
 ### `CHR` format
-`normalize_chromosome` (in `chromosome_inference.py`) strips the `chr` prefix on read.
+`normalize_chromosome` (in `_core/chromosomes.py`) strips the `chr` prefix on read.
 All Python-written artifacts store bare labels: `"1"`, `"22"`, `"X"`, `"MT"`.
 External files (e.g., the HM3 map with `chr` prefix) are normalized on read; their on-disk format is not changed.
 
@@ -381,8 +381,8 @@ The following locations must be kept consistent with this document.
 | `src/ldsc/_core/columns.py` — `INTERNAL_SUMSTATS_ARTIFACT_SPECS` | Tuple order: `CHR, POS, SNP, ...` |
 | `src/ldsc/_core/columns.py` — `INTERNAL_LDSCORE_ARTIFACT_SPECS` | Strict reload specs still include optional metadata fields used by internal/legacy readers: `CHR, POS, SNP, CM, MAF` |
 | `src/ldsc/_ldscore/calculator.py` — `_split_ldscore_table` | Public output order: baseline `CHR, SNP, POS, regression_ld_scores, ...`; query `CHR, SNP, POS, ...` |
-| `src/ldsc/_regression/outputs.py` — `_write_chromosome_aligned_parquet` | One row group per `CHR` in `ldscore.baseline.parquet` and each query batch file |
-| `src/ldsc/_regression/outputs.py` — `required_baseline` / `required_query` validation lists | Baseline requires `CHR`, `POS`, `SNP`, `regression_ld_scores`, and baseline columns; query requires `CHR`, `POS`, `SNP`, and query columns |
+| `src/ldsc/_ldscore/outputs.py` — `_write_chromosome_aligned_parquet` | One row group per `CHR` in `ldscore.baseline.parquet` and each query batch file |
+| `src/ldsc/_ldscore/source.py` — `validate_ldscore_baseline_table` / `validate_ldscore_query_table` | Baseline requires `CHR`, `POS`, `SNP`, `regression_ld_scores`, and baseline columns; query requires `CHR`, `POS`, `SNP`, and query columns |
 
 `regression_ld_scores` is the historical `w_ld`: an LD score computed over the regression SNPs.
 It is stored with the baseline LD-score table because both `h2` and `rg` use it as one component when the regression kernel computes final model-dependent weights.

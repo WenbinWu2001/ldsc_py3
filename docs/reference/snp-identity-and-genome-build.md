@@ -1,6 +1,6 @@
 # SNP Identifier / Genome Build: Default Design
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 ## Standalone build inspection
 
@@ -52,7 +52,7 @@ See [inspection troubleshooting](../user-guide/troubleshooting.md#infer-genome-b
 ## Genome-build policy
 
 This contract governs inference, checking, and resolution before coordinate-dependent computation.
-The shared collector is `GenomeBuildCheck` in [_genome/build_policy.py](../../src/ldsc/_genome/build_policy.py); statistical evidence remains in `genome_build_inference.py`.
+The shared collector is `GenomeBuildCheck` in [_genome/build_policy.py](../../src/ldsc/_genome/build_policy.py); statistical evidence remains in `_genome/build_inference.py`.
 No new flags or per-input build declarations are required by this policy.
 
 ### One build for inputs used together
@@ -322,7 +322,7 @@ because they serve different user models.
 
 | Workflow | Identifier default | Genome-build default | Notes |
 |---|---|---|---|
-| `annotate` | `chr_pos_allele_aware` | `None`; the gene-list route treats omission as `auto` in every mode | The BED route in coordinate-family modes requires `--genome-build`; rsID-family BED runs need no build (`annotate_workflow.py`, `annotation_builder.py`). |
+| `annotate` | `chr_pos_allele_aware` | `None`; the gene-list route treats omission as `auto` in every mode | The BED route in coordinate-family modes requires `--genome-build`; rsID-family BED runs need no build (`_annotation/annotate.py`, `_annotation/builder.py`). |
 | `munge-sumstats` | `chr_pos_allele_aware` | source: `auto`; output: required for coordinate-family modes | Pass `--output-genome-build hg19` or `--output-genome-build hg38`; the raw source build is inferred unless `--source-genome-build hg19/hg38` is supplied. rsID-family modes reject source/output/liftover build flags and store `genome_build=None`. Requires usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. The removed `--no-alleles` flag is not accepted. |
 | `ldscore` | `chr_pos_allele_aware` | `None`; gene-list route treats omission as `auto` | Coordinate-family modes require a concrete/inferred build. Gene-list projection also requires a build in rsID-family modes, but shared rsID artifact metadata remains `genome_build=None`. |
 | `build-r2-panel` | registry or `--snp-identifier` | **ignored** | Uses `--source-genome-build` (separate field); `GlobalConfig.genome_build` is never consulted. |
@@ -413,11 +413,11 @@ must supply `genome_build="auto"` or a concrete build.
 | `config.py` | field defaults | `genome_build = "auto"` |
 | `config.py` | `__post_init__` | Raise for coordinate-family `genome_build=None` with fix-it message |
 | `config.py` | `_GLOBAL_CONFIG` and `reset_global_config()` | `GlobalConfig()` — no explicit args needed |
-| `ref_panel_builder.py` | `config_from_args` | Add `genome_build="auto"` (satisfies invariant; value is ignored by the workflow) |
-| `sumstats_munger.py` | `_effective_sumstats_config` | Guard: `genome_build = coordinate_metadata.get("genome_build") or config.genome_build` so the effective in-memory snapshot uses inferred or lifted coordinates when available; new sidecars serialize only minimal identity provenance used to reconstruct that snapshot on reload |
-| `ldscore_source.py` | LD-score metadata loading | Current root metadata must carry minimal identity provenance; old package-written artifacts should be regenerated |
-| `regression_runner.py` | `build_dataset` empty-merge error | Append `f"Active config: {self.global_config!r}."` |
+| `_refpanel/builder.py` | `config_from_args` | Add `genome_build="auto"` (satisfies invariant; value is ignored by the workflow) |
+| `_sumstats/munger.py` | `_effective_sumstats_config` | Guard: `genome_build = coordinate_metadata.get("genome_build") or config.genome_build` so the effective in-memory snapshot uses inferred or lifted coordinates when available; new sidecars serialize only minimal identity provenance used to reconstruct that snapshot on reload |
+| `_ldscore/source.py` | LD-score metadata loading | Current root metadata must carry minimal identity provenance; old package-written artifacts should be regenerated |
+| `_regression/runner.py` | `build_dataset` empty-merge error | Append `f"Active config: {self.global_config!r}."` |
 
-Call sites in `ldscore_calculator.py` already resolve `genome_build` to a
+Call sites in `_ldscore/calculator.py` already resolve `genome_build` to a
 concrete value or `"auto"` before constructing `GlobalConfig`. They are not
 affected.

@@ -1,6 +1,6 @@
 # Artifact Metadata Field Inventory
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 Munged data filenames use the filesystem-safe trait label when supplied: `<trait>.parquet` and optional `<trait>.sumstats.gz`. The `sumstats.parquet` and `sumstats.gz` names below describe runs without a trait label. See [munging output artifacts](../munge-sumstats.md#output-artifacts) for naming and overwrite rules.
 
@@ -175,7 +175,7 @@ pair_query/
 
 The TSV preserves input columns and writes `r2`, nullable `sign_r` (+1/-1), signed Pearson `r`, and `status`. `sign_r` and `r` use query allele orientation; they are not panel-orientation labels. There is no `sign` alias. Missing values are serialized as `NaN`.
 
-Diagnostic metadata records `artifact_type=query_r2_result`, the relative `files` map, `panel_dir`, `snp_identifier`, the requested `genome_build`, `n_samples`, `n_pairs`, and `status_counts`. The empty successful status is counted as `resolved`; other counts use `not_in_panel`, `cross_chromosome`, or `absent`. This JSON is provenance only. Sources: `_query_r2_metadata` in `src/ldsc/_refpanel/query.py` and `QueryR2DirectoryWriter` in `src/ldsc/_regression/outputs.py`.
+Diagnostic metadata records `artifact_type=query_r2_result`, the relative `files` map, `panel_dir`, `snp_identifier`, the requested `genome_build`, `n_samples`, `n_pairs`, and `status_counts`. The empty successful status is counted as `resolved`; other counts use `not_in_panel`, `cross_chromosome`, or `absent`. This JSON is provenance only. Sources: `_query_r2_metadata` in `src/ldsc/_refpanel/query.py` and `QueryR2DirectoryWriter` in `src/ldsc/_refpanel/outputs.py`.
 
 ### `annotate`
 
@@ -196,7 +196,7 @@ annotate/
 ```
 
 `diagnostics/metadata.json` is provenance only; no downstream workflow reads it.
-Fields come from `AnnotationDirectoryWriter.write()` in `src/ldsc/_regression/outputs.py` and the provenance built by `run_annotate()` in `src/ldsc/_annotation/annotate.py`.
+Fields come from `AnnotationDirectoryWriter.write()` in `src/ldsc/_annotation/outputs.py` and the provenance built by `run_annotate()` in `src/ldsc/_annotation/annotate.py`.
 
 | Field | Explanation |
 | --- | --- |

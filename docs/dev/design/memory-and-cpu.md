@@ -1,6 +1,6 @@
 # Memory and CPU efficiency design
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 <a id="annotation-and-workflow-memory-design"></a>
 
@@ -72,7 +72,7 @@ The cache retains full filters, has no automatic eviction, and can be reset with
 Inputs are expected to remain unchanged during a workflow.
 
 [`R2Panel`](../../../src/ldsc/_refpanel/query.py) lazily retains per-chromosome sidecar/index/Parquet reader state for repeated pair queries.
-[`lookup_pairs_in_parquet()`](../../../src/ldsc/_kernel/r2_query.py) canonicalizes query endpoint indices into numeric keys, deduplicates lookup work, and restores requested order and repeated queries in the result.
+[`lookup_pairs_in_parquet()`](../../../src/ldsc/_refpanel/r2_format.py) canonicalizes query endpoint indices into numeric keys, deduplicates lookup work, and restores requested order and repeated queries in the result.
 Small requests prune row groups using `IDX_1` footer ranges; absent statistics conservatively keep the group.
 Larger requests scan the file sequentially, matching numeric keys without constructing an all-pairs DataFrame.
 Returned arrays still scale with requested pairs, and a reused panel handle can retain metadata for every chromosome it touches.
@@ -233,7 +233,7 @@ Parsed input frames and returned float32 tiles remain larger transient allocatio
 
 $S$ is the actual annotation shard row count after annotation identity cleanup and requested chromosome selection.
 Supplied and generated query shards use the cleaned annotation grid, which can include SNPs absent from the retained reference panel.
-During LD calculation, [`MappedAnnotations`](../../../src/ldsc/_kernel/ldscore_projection.py) maps the retained reference SNPs onto those annotation rows; it does not create another complete dense annotation matrix.
+During LD calculation, [`MappedAnnotations`](../../../src/ldsc/_refpanel/prepared.py) maps the retained reference SNPs onto those annotation rows; it does not create another complete dense annotation matrix.
 LD output rows are a further regression/output subset.
 Consequently, the reported 1,134,471 LD-score output rows cannot be used to size the intermediate annotation artifacts.
 
@@ -309,7 +309,7 @@ The default zero threshold preserves zero and negative unbiased pairs.
 PLINK physical SNP indices remain distinct from annotation order.
 The reference adapters in [`_refpanel/adapters.py`](../../../src/ldsc/_refpanel/adapters.py) do not retain a metadata cache containing all chromosomes.
 
-[`_kernel/ldscore_projection.py`](../../../src/ldsc/_kernel/ldscore_projection.py) separates reference SNPs from output rows.
+[`ProjectionAccumulator`](../../../src/ldsc/_ldscore/compute.py) separates reference SNPs from output rows.
 Every retained reference SNP can contribute to LD scores, counts, and overlap calculations, even when that SNP is absent from the regression/output set.
 The main accumulator is float64 and has `n_output_rows × (n_output_annotation_columns + 1)` entries; the extra column is the separately governed regression-weight projection.
 Completed direct scores use the existing float32 output conversion.
@@ -364,7 +364,7 @@ Mode-dependent sidecar identity validation and remapping happen once per chromos
 Builder pair uniqueness plus an injective retained-SNP remap remove the need for a repeated per-pair identity join or deduplication set.
 
 `ld_score_streaming_from_r2_reader()` splits decoded arrays into buffers of at most `_CSR_CHUNK_PAIRS` pairs, currently 16 million, independent of Parquet row-group size and PLINK SNP batch size.
-[`ProjectionAccumulator.add_pairs()`](../../../src/ldsc/_kernel/ldscore_projection.py) filters the read-time LD window, retains each directed contribution whose target is an output row, and builds a rectangular float64 CSR over the involved targets and contributors.
+[`ProjectionAccumulator.add_pairs()`](../../../src/ldsc/_ldscore/compute.py) filters the read-time LD window, retains each directed contribution whose target is an output row, and builds a rectangular float64 CSR over the involved targets and contributors.
 It keeps contributions from non-output reference SNPs.
 This is the selected-output implementation of the conceptual product $(RA)[O,:]$; production does not materialize a full-reference upper-triangular operator and full dense annotation matrix.
 
@@ -407,7 +407,7 @@ See [the replay measurements](../validation/performance.md#direct-ld-score-assem
 **Public LD tables aggregate chromosomes within each query batch.** One batch uses `ldscore.query.parquet`; multiple batches use ordered `ldscore.query.batch00001.parquet` files.
 Root `metadata.json.query_batches` records each file, ordered query columns, and chromosome row groups.
 Baseline, counts, and overlap are shared once.
-`_ldscore_batch_output.py` stages all query files inside the output directory, publishes after successful computation, and writes metadata last.
+`_ldscore/batch_publication.py` stages all query files inside the output directory, publishes after successful computation, and writes metadata last.
 Its `_LDScorePublication` record retains only the shared baseline, counts, overlap, provenance, and diagnostic descriptors needed for publication.
 Materialized query tables, producer SNP sets, chromosome results, and staged query paths remain with the active batch and can be released before the next batch is requested.
 `_ldscore.source.validate_ldscore_baseline_table()` checks the shared baseline before deferred reads; `validate_ldscore_query_table()` checks either a complete materialized query table or one fragment against the corresponding baseline rows.
@@ -424,7 +424,7 @@ Process startup, IPC, and one native thread per worker have costs; extra workers
 
 [`LoadedGeneLDScoreIndex`](../../../src/ldsc/_ldscore/gene_index/build.py) retains gene-coordinate-catalog and settings metadata, chromosome component paths, and compact support summaries.
 Integrity validation loads and releases one chromosome at a time.
-Assembly uses `_indexed_ldscore_batches.py` with one active query batch and a persistent chromosome-worker pool.
+Assembly uses `_ldscore/gene_index/batches.py` with one active query batch and a persistent chromosome-worker pool.
 Each task reloads its chromosome operator, writes lossless float64 Parquet for that batch, and returns only compact counts, overlap blocks, and exact variation summaries.
 The coordinator reduces those summaries in index order and applies the shared query-status policy before narrowing values.
 [`_ldscore.fragments.write_query_fragments`](../../../src/ldsc/_ldscore/fragments.py) validates, converts, and writes one chromosome at a time, deleting each consumed fragment.

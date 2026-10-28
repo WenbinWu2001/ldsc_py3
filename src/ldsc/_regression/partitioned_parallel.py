@@ -4,7 +4,7 @@ The parent owns every file and publishes results. Workers borrow mapped numeric
 columns, keep row labels/model metadata once per process, and stage one fit at a
 time. Dedicated pipes carry only query descriptors and compact outcomes. Public
 process sentinels detect worker death; all children exit before scratch removal.
-Statistical preparation and fitting remain in ``regression_runner``.
+Statistical preparation and fitting remain in ``_regression.runner``.
 """
 
 from contextlib import ExitStack, contextmanager

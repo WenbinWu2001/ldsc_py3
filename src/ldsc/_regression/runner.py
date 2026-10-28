@@ -1,4 +1,4 @@
-"""regression_runner.py
+"""runner.py
 
 Core functionality:
     Consume saved LD-score sources, assemble regression-ready datasets, and
@@ -11,7 +11,7 @@ It consumes the LD-score directory introduced by the IO
 refactor: ``metadata.json`` plus split baseline/query parquet tables. Public
 callers pass one ``--ldscore-dir`` input instead of individual LD-score,
 weight, count, and annotation-manifest files. Directory opening and artifact
-validation belong to ``ldscore_source.load_ldscore_from_dir``; this module
+validation belong to ``_ldscore.source.load_ldscore_from_dir``; this module
 owns selected-value validation, trait alignment, and model construction.
 
 Legacy ``.sumstats`` and ``.sumstats.gz`` inputs are accepted at this

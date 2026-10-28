@@ -1,6 +1,6 @@
 # Global configuration and paths
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 Choose SNP identity and genome build consistently before materializing inputs. The general default is `chr_pos_allele_aware`; the guided tutorial explicitly selects base `chr_pos`. Coordinate-based munging requires an explicit output build. Direct annotation projection also needs coordinates in the intended build. Indexed LD scoring inherits its stored configuration and rejects live overrides. See [configuration design](../../dev/design/configuration.md) and [identity/build defaults](../../reference/snp-identity-and-genome-build.md).
 

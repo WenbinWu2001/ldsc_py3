@@ -246,8 +246,6 @@ def test_rg_duplicate_trait_names_are_summarized(tmp_path, caplog):
     cli_inputs(tmp_path)
     table = load_sumstats(tmp_path / "trait.parquet")
     tables = [replace(table, trait_name="same", source_path=str(tmp_path / str(i) / "trait.parquet")) for i in range(40)]
-    # Count only the renaming records: an earlier test may leave the LDSC logger at INFO.
-    caplog.clear()
     with caplog.at_level(logging.INFO, logger="LDSC"):
         renamed = _disambiguate_trait_names(tables)
     assert len({table.trait_name for table in renamed}) == 40

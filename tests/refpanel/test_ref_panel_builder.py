@@ -3375,3 +3375,58 @@ def test_r2_is_orientation_invariant():
     np.testing.assert_allclose(corr_plain ** 2, corr_flipped ** 2, rtol=0, atol=1e-6)
     outer = np.outer(sign, sign)
     np.testing.assert_allclose(np.sign(corr_flipped), np.sign(corr_plain) * outer, atol=1e-6)
+
+
+@pytest.fixture
+def ldsc_logger_at_warning():
+    """Preset the LDSC logger to WARNING and restore the original level afterwards."""
+    logger = logging.getLogger("LDSC")
+    original = logger.level
+    logger.setLevel(logging.WARNING)
+    yield logger
+    logger.setLevel(original)
+
+
+def test_successful_build_keeps_caller_logger_level(tmp_path, ldsc_logger_at_warning):
+    from tests.package.test_global_config_registry import _make_build_config
+    from tests.runtime.test_path_resolution import _write_plink_trio
+    from tests.worker_fixtures import calculation_body
+
+    set_global_config(GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
+    try:
+        config = _make_build_config(tmp_path)
+        Path(config.genetic_map_hg19_sources).write_text("CHR POS CM\n1 100 0.1\n")
+        Path(config.genetic_map_hg38_sources).write_text("CHR POS CM\n1 100 0.1\n")
+        _write_plink_trio(tmp_path / "panel.1", ["1"])
+        builder = ref_panel_builder.ReferencePanelBuilder()
+        with calculation_body(), mock.patch.object(
+            builder, "_prepare_build_state", return_value=mock.sentinel.state
+        ), mock.patch.object(
+            builder, "_check_chromosome_selections", side_effect=lambda chrom_sources, *_args: chrom_sources
+        ), mock.patch.object(
+            builder, "_build_chromosome",
+            return_value={"r2_hg19": "r2-19", "r2_hg38": "r2-38", "meta_hg19": "m19", "meta_hg38": "m38"},
+        ):
+            builder.run(config)
+    finally:
+        reset_global_config()
+    assert ldsc_logger_at_warning.level == logging.WARNING
+
+
+def test_failed_build_keeps_caller_logger_level(tmp_path, monkeypatch, ldsc_logger_at_warning):
+    from tests.genome.test_genome_build_policy import coordinates
+
+    monkeypatch.setattr("ldsc._runtime.worker_runtime._INITIALIZED", True)
+    prefix = tmp_path / "panel"
+    frame = coordinates(1, "hg19").assign(SNP=lambda f: "rs" + f.POS.astype(str), CM=0, A1="A", A2="C")
+    frame[["CHR", "SNP", "CM", "POS", "A1", "A2"]].to_csv(str(prefix) + ".bim", sep="\t", header=False, index=False)
+    (tmp_path / "panel.fam").write_text("f1 i1 0 0 1 -9\nf2 i2 0 0 2 -9\n")
+    (tmp_path / "panel.bed").write_bytes(b"\x6c\x1b\x01" + bytes(len(frame)))
+    keep = tmp_path / "keep.tsv"
+    coordinates(1, "hg19", 2).to_csv(keep, sep="\t", index=False)
+    args = ref_panel_builder.build_parser().parse_args([
+        "--plink-prefix", str(prefix), "--output-dir", str(tmp_path / "out"), "--source-genome-build", "auto",
+        "--snp-identifier", "chr_pos", "--ref-panel-snps-file", str(keep), "--ld-wind-kb", "1", "--log-level", "DEBUG"])
+    with pytest.raises(LDSCInputError, match="Genome-build consistency"):
+        ref_panel_builder.run_build_ref_panel_from_args(args)
+    assert ldsc_logger_at_warning.level == logging.WARNING

@@ -217,8 +217,6 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             _write_plink_trio(Path(tmpdir) / "panel.1", ["1"])
 
             with mock.patch.object(
-                builder, "_configure_logging"
-            ), mock.patch.object(
                 builder, "_prepare_build_state", return_value=mock.sentinel.state
             ), mock.patch.object(
                 builder, "_check_chromosome_selections", side_effect=lambda chrom_sources, *_args: chrom_sources

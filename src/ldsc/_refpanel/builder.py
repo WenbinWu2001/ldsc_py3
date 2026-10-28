@@ -67,7 +67,6 @@ from .._core.coordinates import normalize_chr_pos_frame
 from .._runtime.progress import report_phase
 from .._runtime.paths import ensure_output_directory, preflight_output_artifact_family, remove_output_artifacts, resolve_file_group, inspect_plink_inputs, resolve_scalar_path
 from .._runtime.workflow_logging import (
-    configure_package_logging,
     log_inputs,
     log_outputs,
     materializing_overwrite_guard,
@@ -430,7 +429,6 @@ class ReferencePanelBuilder:
     ) -> ReferencePanelBuildResult:
         """Shared implementation for direct API and parsed workflow entry points."""
         print_global_config_banner(type(self).__name__, self.global_config)
-        self._configure_logging()
         output_dir = ensure_output_directory(config.output_dir, label="output directory")
         from .._runtime.preflight import inspect_declared_inputs
         from .preflight import GENETIC_MAP_HEADER_CHECKS
@@ -539,10 +537,6 @@ class ReferencePanelBuilder:
             log_outputs(**{key: ", ".join(paths) for key, paths in output_paths.items()})
             remove_output_artifacts(stale_paths)
             return result
-
-    def _configure_logging(self) -> None:
-        """Configure package logging for the current build run."""
-        configure_package_logging(self.global_config.log_level)
 
     def _resolve_source_genome_build(
         self,

@@ -709,6 +709,38 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.trait_name, "SCZ")
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
+    def test_load_sumstats_leaves_trait_name_unset_without_stored_or_explicit_name(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            parquet_file = tmpdir / "sumstats.parquet"
+            self._write_footer_parquet(
+                parquet_file, pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}), trait_name=None
+            )
+            legacy_file = tmpdir / "MDD.sumstats.gz"
+            pd.DataFrame({"SNP": ["rs1"], "A1": ["A"], "A2": ["G"], "Z": [1.5], "N": [1000.0]}).to_csv(
+                legacy_file, sep="\t", index=False, compression="gzip"
+            )
+
+            self.assertIsNone(ldsc.load_sumstats(parquet_file).trait_name)
+            self.assertIsNone(ldsc.load_sumstats(legacy_file).trait_name)
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
+    def test_write_output_round_trips_loaded_table_without_trait_name(self):
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            (tmpdir / "first").mkdir()
+            self._write_footer_parquet(tmpdir / "first" / "sumstats.parquet", self._fake_munged_frame(), trait_name=None)
+            loaded = ldsc.load_sumstats(tmpdir / "first" / "sumstats.parquet")
+
+            written = ldsc.SumstatsMunger().write_output(loaded, tmpdir / "second", output_format="parquet")
+
+            self.assertEqual(Path(written).name, "sumstats.parquet")
+            footer = pq.read_schema(tmpdir / "second" / "sumstats.parquet").metadata
+            self.assertEqual(footer[b"ldsc:trait_name"], b"")
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_reads_chr_pos_footer_parquet_with_exact_one_glob(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

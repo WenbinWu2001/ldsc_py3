@@ -2542,6 +2542,47 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertEqual(summary.loc[0, "trait_name"], "MDD")
 
+    def test_run_h2_from_args_labels_unnamed_trait_by_filename(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            self.write_footer_sumstats_parquet(tmpdir / "trait.parquet", trait_name=None, snp_identifier="rsid")
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_file": str(tmpdir / "trait.parquet"),
+                    "trait_name": None,
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": str(tmpdir / "h2_out"),
+                    "overwrite": False,
+                    "log_level": "INFO",
+                    "num_blocks": 200,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                },
+            )()
+
+            with _stub_h2_kernel(
+                mock.Mock(
+                    tot=np.array([0.1]),
+                    tot_se=np.array([0.01]),
+                    intercept=np.array([1.0]),
+                    intercept_se=0.01,
+                    mean_chisq=np.array([1.1]),
+                    lambda_gc=np.array([1.0]),
+                    ratio=0.0,
+                    ratio_se=0.0,
+                    coef=np.array([0.001]),
+                ),
+            ):
+                summary = regression_runner.run_h2_from_args(args)
+
+        self.assertEqual(summary.loc[0, "trait_name"], "trait.parquet")
+
     def test_common_regression_arguments_expose_only_ldscore_dir(self):
         parser = argparse.ArgumentParser()
         regression_runner.add_h2_arguments(parser)

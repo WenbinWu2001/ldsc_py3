@@ -846,6 +846,7 @@ print(float(h2.tot), float(h2.tot_se), float(h2.intercept))
 
 **Provenance checks.**
 Munged Parquet files store the `GlobalConfig` used to make them in their footer, together with the trait label; `load_sumstats()` restores both as `SumstatsTable.config_snapshot` and `trait_name`.
+When neither the footer nor the `trait_name` argument gives a label, `trait_name` is `None`; regression outputs then label the trait by its filename, and `SumstatsMunger.write_output()` writes the table back as `sumstats.parquet` without a label.
 `build_dataset()` checks that the summary statistics and the LD scores agree on settings such as `snp_identifier` and `genome_build`, and raises an error instead of merging incompatible inputs.
 Inspect `sumstats.config_snapshot` and `dataset.config_snapshot` to see the settings used.
 A legacy `.sumstats.gz` file has no stored settings and is matched to the LD scores by rsID; a Parquet file without the footer is rejected.

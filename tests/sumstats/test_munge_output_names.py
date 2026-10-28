@@ -38,7 +38,7 @@ def test_cli_and_python_writer_use_safe_trait_filenames(
             parquet_name, gzip_name,
         }
         loaded = load_sumstats(destination / parquet_name)
-        assert loaded.trait_name == (trait_name or parquet_name)
+        assert loaded.trait_name == trait_name
         assert loaded.data.SNP.tolist() == ["rs1"]
         assert load_sumstats(destination / gzip_name).data.SNP.tolist() == ["rs1"]
 

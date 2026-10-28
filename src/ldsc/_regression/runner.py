@@ -508,7 +508,7 @@ class RegressionRunner:
             count_key_used_for_regression="",
             retained_ld_columns=ref_ld_columns,
             dropped_zero_variance_ld_columns=[],
-            trait_names=[name for name in [sumstats_table.trait_name] if name],
+            trait_names=[_trait_label(sumstats_table)],
             chromosomes_aggregated=[result.chrom for result in ldscore_result.chromosome_results],
             config_snapshot=ldscore_result.config_snapshot,
             effective_snp_identifier=identifier_mode,
@@ -805,7 +805,7 @@ class RegressionRunner:
             count_key_used_for_regression=count_key,
             retained_ld_columns=retained_ld_columns,
             dropped_zero_variance_ld_columns=dropped_ld_columns,
-            trait_names=[name for name in [sumstats_table_1.trait_name, sumstats_table_2.trait_name] if name],
+            trait_names=[_trait_label(sumstats_table_1), _trait_label(sumstats_table_2)],
             chromosomes_aggregated=[result.chrom for result in ldscore_result.chromosome_results],
             config_snapshot=ldscore_result.config_snapshot,
             effective_snp_identifier=identifier_mode,
@@ -1125,7 +1125,7 @@ class RegressionRunner:
                                coefficient_delete_values=not queries, query_status=bool(queries)).preflight(overwrite=overwrite)
         metadata = dict(metadata or {})
         defaults = {
-            "trait_name": sumstats_table.trait_name,
+            "trait_name": _trait_label(sumstats_table),
             "count_kind": "common" if config.use_common_counts else "all",
             "analysis_type": "cell_type_specific" if queries else "functional_category",
             "headline_metric": "coefficient" if queries else "enrichment",
@@ -2341,7 +2341,7 @@ def _h2_metadata(
     config_snapshot = dataset.config_snapshot
     return {
         "artifact_type": "h2_result",
-        "trait_name": sumstats_table.trait_name,
+        "trait_name": _trait_label(sumstats_table),
         "sumstats_file": getattr(args, "sumstats_file", None),
         "ldscore_dir": getattr(args, "ldscore_dir", None),
         "effective_snp_identifier": dataset.effective_snp_identifier,
@@ -2982,7 +2982,7 @@ def run_h2_from_args(args):
         hsq, dataset = outcome.estimator, outcome.dataset
         n_snps_used = outcome.n_snps
         summary = summarize_total_h2(
-            hsq, dataset, trait_name=sumstats_table.trait_name, n_snps_used=n_snps_used,
+            hsq, dataset, trait_name=_trait_label(sumstats_table), n_snps_used=n_snps_used,
             samp_prev=config.samp_prev, pop_prev=config.pop_prev,
         )
         output_dir_arg = getattr(args, "output_dir", None)
@@ -3088,7 +3088,7 @@ def run_partitioned_h2_from_args(args):
                 overwrite=getattr(args, "overwrite", False),
                 summary_sort_by=getattr(args, "summary_sort_by", "auto"),
                 metadata={
-                    "trait_name": sumstats_table.trait_name,
+                    "trait_name": _trait_label(sumstats_table),
                     "count_kind": getattr(args, "count_kind", "common"),
                     "ldscore_dir": getattr(args, "ldscore_dir", None),
                     "analysis_type": "cell_type_specific" if has_queries else "functional_category",

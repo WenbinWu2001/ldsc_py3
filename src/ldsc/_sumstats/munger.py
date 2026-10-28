@@ -159,7 +159,9 @@ class SumstatsTable:
     source_path : str or None
         Original data source path, if known.
     trait_name : str or None
-        Optional trait label for regression summaries.
+        Assigned trait label for regression summaries, or ``None`` when no
+        label was supplied or stored. Regression outputs then label the trait
+        by the ``source_path`` filename.
     provenance : dict, optional
         Lightweight run metadata retained for debugging and output summaries.
         Tables from :meth:`SumstatsMunger.run` record ``qc_thresholds``, the
@@ -313,9 +315,12 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
         clear ``ValueError``.
     trait_name : str or None, optional
         Optional trait label propagated into downstream regression summaries.
-        When supplied, this value must agree with existing metadata labels. When
+        When supplied, this value replaces any Parquet footer ``trait_name``
+        for the returned table; the artifact on disk is not modified. When
         omitted, the loader uses the parquet footer ``trait_name`` when
-        present, then falls back to the resolved filename. Default is ``None``.
+        present; otherwise the returned ``trait_name`` is ``None`` and
+        regression outputs label the trait by its filename. Surrounding
+        whitespace is trimmed; a blank label is rejected. Default is ``None``.
 
     Returns
     -------
@@ -2184,8 +2189,13 @@ def _resolve_sumstats_trait_name(
     explicit_trait_name: str | None,
     metadata: dict[str, Any] | None,
     resolved_path: str,
-) -> str:
-    """Resolve the public trait label using CLI/API, parquet footer, then filename."""
+) -> str | None:
+    """Resolve an assigned trait label from the CLI/API argument, then the parquet footer.
+
+    Returns ``None`` when neither supplies a label. Regression outputs apply the
+    filename fallback themselves, so ``SumstatsMunger.write_output`` never writes
+    a derived label back into a footer.
+    """
     try:
         explicit = normalize_trait_name(explicit_trait_name)
     except LDSCConfigError as exc:
@@ -2207,9 +2217,8 @@ def _resolve_sumstats_trait_name(
                     "Most likely the artifact was hand-edited or written by an outdated workflow.",
                 )
             ) from exc
-        if metadata_trait is not None:
-            return metadata_trait
-    return Path(resolved_path).name
+        return metadata_trait
+    return None
 
 
 def _global_config_from_sumstats_metadata(

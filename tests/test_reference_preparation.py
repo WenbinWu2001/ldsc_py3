@@ -93,7 +93,7 @@ def test_allele_mismatch_is_rejected_before_reader_creation(tmp_path):
     metadata = write_panel(tmp_path, mode="chr_pos_allele_aware").assign(A2="G")
     config = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19")
     panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
-    with pytest.raises(LDSCInputError, match="retained no annotation SNPs"):
+    with pytest.raises(LDSCInputError, match="retained no reference SNPs"):
         LDScoreCalculator().compute_chromosome(
             "1", public_bundle(metadata), panel, LDScoreConfig(ld_wind_snps=1), config,
         )
@@ -129,18 +129,14 @@ def test_public_calculation_uses_panel_maf_filter_for_aligned_annotations(tmp_pa
     assert result.count_records[0]["common_reference_snp_count"] == 3.0
 
 
-def test_public_run_skips_empty_intersection_and_computes_other_chromosome(tmp_path):
+def test_public_run_fails_when_the_grid_misses_a_whole_chromosome(tmp_path):
     absent = write_panel(tmp_path, chrom="1").assign(SNP=["absent1", "absent3"])
     present = write_panel(tmp_path, chrom="22")
     config = GlobalConfig(snp_identifier="rsid")
     panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
     bundle = public_bundle(pd.concat([absent, present], ignore_index=True))
-    with pytest.warns(UserWarning, match="Skipping chromosome 1"):
-        result = LDScoreCalculator().run(
-            bundle, panel, LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True), config,
-        )
-    assert result.baseline_table["CHR"].tolist() == ["22", "22"]
-    np.testing.assert_allclose(result.baseline_table["base"], [1 + STORED_R2, 1 + STORED_R2], rtol=1e-7)
+    with pytest.raises(LDSCInputError, match=r"annotation SNP grid for chromosome 1 \(2 annotation SNP-grid rows"):
+        LDScoreCalculator().run(bundle, panel, LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True), config)
 
 
 def test_parquet_panel_with_a_pair_floor_is_rejected_at_preparation(tmp_path):

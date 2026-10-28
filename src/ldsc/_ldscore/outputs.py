@@ -130,6 +130,10 @@ class LDScoreDirectoryWriter:
     materialized single result and returns artifact paths.
     """
 
+    # Diagnostics owned by the writer but not listed in metadata ``files``.
+    METADATA_EXCLUDED_FILES = ("query_status", "gene_list_audit", "gene_list_resolution_summary",
+                               "gene_catalog_issues", "chromosome_scope", "input_issues", "reference_snp_funnel")
+
     @staticmethod
     def artifact_family(output_dir, result=None, *, diagnostics_only=False, gene_list_batch=None,
                         include_logs=False) -> ArtifactFamily:
@@ -157,6 +161,8 @@ class LDScoreDirectoryWriter:
             "gene_catalog_issues": ("diagnostics/gene_catalog_issues.tsv", getattr(batch, "catalog", None) is not None and not batch.catalog.issues.empty),
             "ld_window_snp_counts": ("diagnostics/ld_window_snp_counts.tsv",
                                      scientific and getattr(result, "ld_window_snp_counts", None) is not None),
+            "reference_snp_funnel": ("diagnostics/reference_snp_funnel.tsv",
+                                     scientific and getattr(result, "reference_snp_funnel", None) is not None),
         }
         if scientific:
             if len(query_batches) > 1:
@@ -310,9 +316,10 @@ class LDScoreDirectoryWriter:
             artifact.write_to(paths[f"dropped_snps_chr{chrom}"])
         self._write_query_diagnostic_files(result, paths)
         self._write_ld_window_snp_counts(result, paths)
+        self._write_reference_snp_funnel(result, paths)
         metadata = self.build_metadata(
             result,
-            files=family.metadata_files(exclude=("query_status", "gene_list_audit", "gene_list_resolution_summary", "gene_catalog_issues", "chromosome_scope", "input_issues")),
+            files=family.metadata_files(exclude=self.METADATA_EXCLUDED_FILES),
             baseline_rg=baseline_rg,
             query_rg=query_rg,
         )
@@ -326,6 +333,14 @@ class LDScoreDirectoryWriter:
         if "ld_window_snp_counts" in paths:
             paths["ld_window_snp_counts"].parent.mkdir(parents=True, exist_ok=True)
             result.ld_window_snp_counts.to_csv(paths["ld_window_snp_counts"], sep="\t", index=False)
+
+    @staticmethod
+    def _write_reference_snp_funnel(result: Any, paths: dict[str, Path]) -> None:
+        """Write every chromosome's reference-SNP funnel, including skipped chromosomes."""
+        if "reference_snp_funnel" in paths:
+            from .._refpanel.funnel import write_reference_snp_funnel
+
+            write_reference_snp_funnel(result.reference_snp_funnel, paths["reference_snp_funnel"])
 
     @staticmethod
     def _write_query_diagnostic_files(result: Any, paths: dict[str, Path]) -> None:

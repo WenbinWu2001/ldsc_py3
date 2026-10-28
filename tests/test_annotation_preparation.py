@@ -250,3 +250,20 @@ def test_second_source_pass_failure_closes_handles_and_cleans_owned_scratch(tmp_
             prepare_annotation_sources(workspace, [path], [], mode="rsid", chunk_rows=1)
     assert handles and all(stream.closed for stream in handles)
     assert not list(output.iterdir())
+
+
+@pytest.mark.parametrize("query_rows", [3, 2])
+def test_baseline_query_grid_mismatch_explains_the_shared_snp_grid(tmp_path, query_rows):
+    # A BIM-grid query over A, B, C paired with a baseline over A, B (row count),
+    # or over a different second SNP (row identity), shares no SNP grid.
+    baseline, query = tmp_path / "baseline.22.annot", tmp_path / "query.22.annot"
+    baseline.write_text("CHR\tSNP\tPOS\tbase\n22\trs1\t10\t1\n22\trs2\t20\t1\n")
+    rows = ["22\trs1\t10\t1", "22\trs9\t90\t0", "22\trs3\t30\t1"][:query_rows]
+    query.write_text("CHR\tSNP\tPOS\tq\n" + "\n".join(rows) + "\n")
+    with AnnotationWorkspace(tmp_path / "work") as workspace:
+        with pytest.raises(LDSCInputError) as caught:
+            prepare_annotation_sources(workspace, [str(baseline)], [str(query)], mode="rsid")
+    message = str(caught.value)
+    assert "must list the same SNP rows in the same order" in message
+    assert "--ref-snp-bim-sources" in message and "--ref-snp-annot-sources" in message
+    assert "troubleshooting.md#ldscore-annotation-snp-rows-do-not-match-across-files" in message

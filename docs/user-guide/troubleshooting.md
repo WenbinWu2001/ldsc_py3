@@ -393,7 +393,7 @@ BIM input is a six-column headerless `.bim`/`.bim.gz` file with positive integer
 For an `@` BIM suite, provide all 22 autosomal members with matching chromosome contents; use exact paths or globs for a deliberately smaller scope.
 BIM format and member failures are recorded in `diagnostics/input_issues.tsv`.
 
-If `ldscore` reports row mismatch after annotation generation, pair the exported `baseline.<chrom>.annot.gz` files with the exported `query.<chrom>.annot.gz` files through `--baseline-annot-sources` and `--query-annot-sources`.
+If `ldscore` reports row mismatch after annotation generation, pair the exported `baseline.<chrom>.annot.gz` files with the exported `query.<chrom>.annot.gz` files through `--baseline-annot-sources` and `--query-annot-sources`; see [`ldscore`: annotation SNP rows do not match across files](#ldscore-annotation-snp-rows-do-not-match-across-files).
 Original baselines may have additional rows removed by annotation identity cleanup.
 Inspect the input/output/dropped counts in `diagnostics/annotate.log` and `diagnostics/metadata.json` (`snp_rows`).
 BIM mode exports query values only; using them as downstream queries still requires actual aligned baseline annotations.
@@ -551,7 +551,8 @@ or rebuild the index, or remove `--gene-ldscore-index-dir` and supply the
 full direct-mode inputs explicitly. Older gene-index metadata contracts are not
 loaded by the current strict reader and must be rebuilt; ordinary canonical
 LD-score directories already produced from them are unaffected.
-An `Unsupported gene LD-score index format version 2` error means the index predates exact PLINK LD windows; rebuild it with the current `ldsc build-gene-ldscore-index`.
+An `Unsupported gene LD-score index format version 2` or `3` error means the index predates the current format: version 3 introduced exact PLINK LD windows and version 4 stores each chromosome's reference-SNP funnel.
+Rebuild it with the current `ldsc build-gene-ldscore-index`.
 
 **Developer reference:** integrity checks include metadata IDs, mode/build agreement, the ordered published-row metadata digest, chromosome coverage, duplicate effective identities, Parquet rows, NPZ members, CSR structure/dtypes, and dimensions.
 
@@ -617,9 +618,35 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
 
 **Developer reference:** `_annotation.tables._validate_annotation_values()` through the annotation and LD-score loaders · **Exception:** `LDSCInputError`
 
-### `ldscore`: no annotation SNPs remain after reference-panel intersection
+### `ldscore`: annotation SNP rows do not match across files
 
-**Symptom:** `ldscore retained no annotation SNPs on chromosome <chrom> after ... intersection`
+**Symptom:** `Annotation SNP rows do not match across files: ... row count mismatch` or `... SNP row mismatch at row ...`
+
+Baseline and prebuilt query annotation files read together share one SNP grid: they must list the same SNP rows in the same order.
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The query was built by `annotate --ref-snp-bim-sources`, but the baseline comes from another grid, such as a legacy baseline-LD file | Read `grid_kind` in the query's `annotate` output `diagnostics/metadata.json`; compare row counts of the baseline and query files for one chromosome |
+| 2 | The original baseline files were paired with `annotate` queries built on them, but SNP identity cleanup removed rows from the exported grid | Compare `snp_rows` in the `annotate` `diagnostics/metadata.json` with the original baseline row counts |
+| 3 | The files are sharded differently, sorted differently, or were written with different SNP identifier modes | Compare the first rows and `CHR` values of the two files named in the error |
+
+**Remedies:**
+
+1. Build the query on the baseline's grid with `ldsc annotate --ref-snp-annot-sources` and pass the exported `baseline.<chrom>.annot.gz` and `query.<chrom>.annot.gz` files together.
+2. For a query built on a BIM grid, supply baseline annotations built on that same BIM grid.
+3. Regenerate the pair from one `annotate` run with the same `--snp-identifier`.
+
+**Developer reference:** `_aligned_metadata()` in `src/ldsc/_annotation/sources.py` · **Exception:** `LDSCInputError`
+
+### `ldscore`: no reference SNPs remain on the annotation SNP grid
+
+**Symptom:** `ldscore found no reference SNPs on the annotation SNP grid for chromosome <chrom> (<n> annotation SNP-grid rows, <m> reference-panel SNPs)`, or `ldscore retained no reference SNPs on chromosome <chrom>: none of its <n> annotation SNP-grid rows matches ...`
+
+The annotation files define the candidate SNPs; reference-panel SNPs without an annotation row are excluded ([reference SNPs on the annotation SNP grid](../reference/ldscore-snp-universes.md#reference-snps-on-the-annotation-snp-grid)).
+A chromosome whose remaining panel SNPs are all off the grid stops the run, because a whole chromosome without one shared SNP usually signals an input mismatch.
+Inspect `diagnostics/reference_snp_funnel.tsv` when it was written, to see which step removed the SNPs.
 
 **Likely causes & how to check** (most probable first):
 
@@ -628,8 +655,7 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
 | 1 | Annotation SNP identifiers use a different identity space than the reference panel | Compare a few annotation SNP identifiers against reference-panel metadata; confirm both use the same `--snp-identifier` |
 | 2 | Annotation coordinates and reference-panel coordinates are on different genome builds | Check `--genome-build` and the build recorded in R² panel or reference-panel metadata |
 | 3 | Allele-aware mode was requested but annotation/reference alleles do not match | Inspect A1/A2 columns in annotation and reference metadata for a few expected overlapping SNPs |
-| 4 | A reference-panel SNP restriction removed all overlapping annotation SNPs | Compare the restriction's IDs/build with the annotation and reference inputs; inspect available restriction/drop counts |
-| 5 | Chromosome labels or chromosome-sharded path tokens resolved to mismatched chromosomes | Print CHR values from the annotation and reference metadata for the failing chromosome |
+| 4 | Chromosome labels or chromosome-sharded path tokens resolved to mismatched chromosomes | Print CHR values from the annotation and reference metadata for the failing chromosome |
 
 **Remedies:**
 
@@ -637,10 +663,11 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
    `--snp-identifier` and `--genome-build`.
 2. Use an allele-aware SNP identifier only when both annotation and reference
    metadata carry matching A1/A2 columns.
-3. Correct a restriction prepared from mismatched inputs.
-   Broaden or remove an intentional restriction only if the resulting reference SNP population is appropriate for the analysis.
+3. To exclude a chromosome on purpose, leave it out of the annotation files.
 
-**Developer reference:** `_refpanel.adapters._align_annotations()` during `RefPanel.prepare_chromosome()`, and the batch check in `_ldscore.calculator.LDScoreCalculator._run_batch()` · **Exception:** `LDSCInputError`
+A chromosome emptied by `--ref-panel-snps-file` or genotype QC is skipped with a WARNING instead; check its funnel rows if that skip was not intended.
+
+**Developer reference:** `_refpanel.adapters._align_annotations()` during `RefPanel.prepare_chromosome()`, the gene-support pass `_apply_direct_gene_gate_b()`, and the batch check in `_ldscore.calculator.LDScoreCalculator._run_batch()` · **Exception:** `LDSCInputError`
 
 <a id="ldscore-r2-panel-is-incompatible"></a>
 

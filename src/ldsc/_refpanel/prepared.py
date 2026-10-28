@@ -44,6 +44,8 @@ class PreparedChromosome:
     ``annotations`` maps selected reads to source rows in ``metadata`` order.
     ``block_left`` describes all of those reference SNPs. Use as a context
     manager; closing releases the reader and chromosome working state.
+    ``reference_snp_funnel`` counts the SNPs each preparation step removed
+    (``ldsc._refpanel.funnel``); it survives ``close``.
     """
 
     backend: str
@@ -59,6 +61,7 @@ class PreparedChromosome:
     selected_individual_count: int = 0
     cm_source: str = "bim_cm"
     identity_drops: pd.DataFrame = field(default_factory=empty_identity_drop_frame)
+    reference_snp_funnel: pd.DataFrame | None = None
 
     def close(self):
         """Release chromosome state once, including when reader closure fails."""

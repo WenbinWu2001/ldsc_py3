@@ -33,6 +33,7 @@ from .artifact import (
 from .atoms import ChromosomeAtomModel, assemble_atom_selector
 from ..._runtime.parallelism import validate_workers
 from ..._runtime.paths import normalize_path_token
+from ..._refpanel.funnel import concat_funnels
 from ..._runtime.progress import advance, report_phase
 from ...errors import LDSCInputError
 
@@ -59,6 +60,9 @@ class LoadedGeneLDScoreIndex:
         Validated component locations. No chromosome payload is cached.
     gene_support : pandas.Series
         Compact retained-reference support counts collected during validation.
+    reference_snp_funnel : pandas.DataFrame
+        Reference-SNP funnel of every chromosome, recorded when the index was
+        built; indexed scoring reports it rather than recomputing it.
     """
 
     index_id: str
@@ -70,6 +74,7 @@ class LoadedGeneLDScoreIndex:
     chromosome_paths: dict[str, Path]
     baseline_columns: tuple[str, ...]
     gene_support: pd.Series
+    reference_snp_funnel: pd.DataFrame
 
     def load_chromosome(self, chrom: str) -> IndexChromosomeData:
         """Load one owned chromosome payload; callers release it after use.
@@ -104,7 +109,7 @@ def _load_gene_ldscore_index(
     Parameters
     ----------
     index_dir : path-like
-        Directory containing one complete format-version-3 index covering
+        Directory containing one complete format-version-4 index covering
         autosomes 1 through 22. Earlier formats require a complete rebuild;
         no profile discovery or compatibility migration is performed.
 
@@ -127,9 +132,9 @@ def _load_gene_ldscore_index(
         raise LDSCInputError(
             f"Unsupported gene LD-score index format version {root.get('format_version')!r} "
             f"(this package reads version {_INDEX_FORMAT_VERSION}). Rebuild the complete index with the "
-            "current package; earlier indexes cannot be reused or migrated. Version 3 uses exact PLINK LD "
-            "windows: earlier indexes widened each window to a multiple of --snp-batch-size, so their "
-            "LD scores differ slightly from current direct ldscore runs."
+            "current package; earlier indexes cannot be reused or migrated. Version 4 stores each "
+            "chromosome's reference-SNP funnel, which indexed scoring reports; version 3 made PLINK LD "
+            "windows exact, and earlier indexes' LD scores differ slightly from current direct ldscore runs."
         )
     if root.get("artifact_type") != "gene_ldscore_index":
         raise LDSCInputError(
@@ -269,6 +274,7 @@ def _load_gene_ldscore_index(
     chromosome_paths = {}
     baseline_columns = None
     support = pd.Series(pd.NA, index=catalog["gene_index"].astype(int), dtype="Int64")
+    funnels = []
     issues = []
     for chrom in chromosomes:
         advance(0, object=f'chromosome {chrom}', force=True)
@@ -304,6 +310,7 @@ def _load_gene_ldscore_index(
             baseline_columns = columns
             counts = record.atom_model.gene_to_atom.astype(np.int64) @ record.atom_statistics.atom_count_all
             support.loc[chromosome_catalog["gene_index"].astype(int)] = np.asarray(counts).reshape(-1)
+            funnels.append(record.reference_snp_funnel)
             chromosome_paths[chrom] = index_path / "chromosomes" / f"chr{chrom}"
             advance(object=f'chromosome {chrom}')
         except (OSError, ValueError, EOFError, LDSCInputError) as exc:
@@ -328,6 +335,7 @@ def _load_gene_ldscore_index(
         chromosome_paths=chromosome_paths,
         baseline_columns=baseline_columns,
         gene_support=support,
+        reference_snp_funnel=concat_funnels(funnels),
     )
 
 
@@ -553,7 +561,7 @@ def _run_indexed_ldscore_in_workspace(
         )
     from .batches import indexed_results
 
-    from ..diagnostics import ldscore_logs
+    from ..diagnostics import ldscore_logs, log_reference_snp_funnel_warning
     with ldscore_logs(output_dir, index.chromosomes, overwrite=overwrite,
                       log_level=logging.getLevelName(LOGGER.getEffectiveLevel())) as log_paths:
         results = indexed_results(index, batch, usable, control_resolution, query_batch_size,
@@ -561,6 +569,7 @@ def _run_indexed_ldscore_in_workspace(
         result = LDScoreDirectoryWriter().write_batches(
             results, LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
             query_status_order=[status.query for status in statuses])
+        log_reference_snp_funnel_warning(index.reference_snp_funnel, result.output_paths["reference_snp_funnel"])
         log_gene_list_rejections(result.gene_list_batch)
         log_gene_list_snp_support(result.gene_list_batch)
         log_query_annotation_statuses(result.query_statuses)

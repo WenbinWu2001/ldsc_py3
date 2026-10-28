@@ -547,7 +547,11 @@ def test_parallel_run_is_deterministic(run_minimal_ldscore):
 
 
 def _run_with_one_empty_chrom(build_dir: Path, out_dir: Path, workers: int) -> Path:
-    """Run with a bundle whose chr2 SNPs do not match the panel (forces a skip)."""
+    """Run with a panel restriction that leaves chr2 no SNPs (forces a skip).
+
+    A restriction empties chr2 before the annotation-SNP-grid step, so the
+    chromosome is skipped; a grid that misses a whole chromosome fails instead.
+    """
     import warnings as _warnings
 
     from ldsc._refpanel.adapters import RefPanelLoader
@@ -575,7 +579,10 @@ def _run_with_one_empty_chrom(build_dir: Path, out_dir: Path, workers: int) -> P
         source_summary={},
         config_snapshot=gcfg,
     )
-    spec = RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir))
+    restriction = out_dir.parent / f"{out_dir.name}_chr1_only.tsv"
+    restriction.parent.mkdir(parents=True, exist_ok=True)
+    restriction.write_text("SNP\nrs1\nrs2\nrs3\nrs4\n")
+    spec = RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir), ref_panel_snps_file=str(restriction))
     ref_panel = RefPanelLoader(gcfg).load(spec)
     ldcfg = LDScoreConfig(ld_wind_kb=1.0, snp_batch_size=2, whole_chromosome_ok=True, workers=workers)
     with _warnings.catch_warnings():

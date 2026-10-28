@@ -132,7 +132,7 @@ independent optional files:
   `sumstats.gz`, `diagnostics/dropped_snps/dropped.tsv.gz`, and
   `diagnostics/sumstats.log`
   for CLI/workflow runs
-- `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query Parquet files, optional `ldscore.overlap.parquet`, `diagnostics/ld_window_snp_counts.tsv` for R² panel `--ld-wind-snps` runs, and `diagnostics/ldscore.log` for CLI/workflow runs
+- `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query Parquet files, optional `ldscore.overlap.parquet`, `diagnostics/ld_window_snp_counts.tsv` for R² panel `--ld-wind-snps` runs, `diagnostics/reference_snp_funnel.tsv`, and `diagnostics/ldscore.log` for CLI/workflow runs
 - `convert-ldsc2-ldscores`: canonical `metadata.json`,
   `ldscore.baseline.parquet`, optional `ldscore.overlap.parquet`,
   `diagnostics/conversion_issues.tsv.gz`, and

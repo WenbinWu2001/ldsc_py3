@@ -1412,9 +1412,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
             query = root/'query.annot'
             pd.read_csv(inputs.baseline_annot_sources,sep='\t').drop(columns='base').assign(query=[0,1,0]).to_csv(query,sep='\t',index=False)
             result = ldscore_workflow.run_ldscore_from_args(build_parser().parse_args([*argv,'--query-annot-sources',str(query)]))
-            # A parquet --ld-wind-snps run also records its panel/kept SNP counts.
+            # A parquet --ld-wind-snps run also records its panel/kept SNP counts; every run records its funnel.
             self.assertEqual(set(result.output_paths),{'baseline','query','metadata','overlap','chromosome_scope',
-                                                      'dropped_snps_chr22','ld_window_snp_counts'})
+                                                      'dropped_snps_chr22','ld_window_snp_counts','reference_snp_funnel'})
             for path in result.output_paths.values():
                 self.assertTrue(Path(path).is_file())
             pd.testing.assert_frame_equal(pd.read_parquet(result.output_paths['query']),result.read_queries(result.query_columns))
@@ -2253,7 +2253,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         with self.assertRaisesRegex(LDSCUsageError, "keep-indivs-file.*R2 panel"):
             ldscore_workflow.run_ldscore_from_args(args)
 
-    def test_run_ldscore_from_args_warns_and_skips_empty_intersection_chromosome(self):
+    def test_run_ldscore_from_args_fails_when_the_grid_misses_a_whole_chromosome(self):
         from tests.test_ldscore_chromosome_scope import write_r2_inputs
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -2269,9 +2269,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
             metadata = pd.read_csv(inputs.baseline_annot_sources,sep='\t')
             missing = metadata.iloc[[0]].assign(CHR='1',SNP='absent')
             pd.concat([missing,metadata],ignore_index=True).to_csv(inputs.baseline_annot_sources,sep='\t',index=False)
-            with self.assertWarnsRegex(UserWarning,'Skipping chromosome 1'):
-                result = ldscore_workflow.run_ldscore_from_args(build_parser().parse_args(argv))
-            self.assertEqual(result.baseline_table.CHR.tolist(),['22']*3)
+            with self.assertRaisesRegex(LDSCInputError,
+                    r'no reference SNPs on the annotation SNP grid for chromosome 1 \(1 annotation SNP-grid rows, 2 reference-panel SNPs\)'):
+                ldscore_workflow.run_ldscore_from_args(build_parser().parse_args(argv))
 
 
 

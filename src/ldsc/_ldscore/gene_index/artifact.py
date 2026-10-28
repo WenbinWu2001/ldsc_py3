@@ -23,15 +23,17 @@ import pandas as pd
 from scipy import sparse
 
 from ..._core.snp_identity import clean_identity_artifact_table
+from ..._refpanel.funnel import FUNNEL_COLUMNS, funnel_from_records, funnel_records
 from .atoms import AtomStatistics, ChromosomeAtomModel, validate_ldscore_operator
 from ...errors import LDSCInputError, LDSCInternalError
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
 
-# Version 3: PLINK LD windows are exact; version 2 operators used legacy LDSC's
-# chunk-rounded windows, which depended on --snp-batch-size.
-_INDEX_FORMAT_VERSION = 3
+# Version 4: each chromosome stores its reference-SNP funnel, which indexed
+# scoring reports. Version 3 made PLINK LD windows exact; version 2 operators used
+# legacy LDSC's chunk-rounded windows, which depended on --snp-batch-size.
+_INDEX_FORMAT_VERSION = 4
 
 
 def _semantic_sha256(payload: dict) -> str:
@@ -140,7 +142,11 @@ def _catalog_identity_records(frame: pd.DataFrame) -> list[dict[str, object]]:
 
 @dataclass(frozen=True)
 class IndexChromosomeData:
-    """Validated in-memory scientific payload for one index chromosome."""
+    """Validated in-memory scientific payload for one index chromosome.
+
+    ``reference_snp_funnel`` counts the SNPs each reference-preparation step
+    removed; writing a payload requires it.
+    """
 
     baseline_rows: pd.DataFrame
     baseline_count_all: np.ndarray
@@ -158,6 +164,7 @@ class IndexChromosomeData:
     maf_removed: int = 0
     selected_individual_count: int = 0
     cm_source: str = "bim_cm"
+    reference_snp_funnel: pd.DataFrame | None = None
 
 
 @dataclass(frozen=True)
@@ -271,9 +278,15 @@ def _write_index_chromosome_payload(
     record: IndexChromosomeData,
 ) -> None:
     """Write one chromosome's large scientific payloads without shared metadata."""
+    if record.reference_snp_funnel is None:
+        raise LDSCInternalError(
+            f"Gene LD-score index chromosome {chrom} has no reference-SNP funnel to store. "
+            "Report the command, package version, and traceback."
+        )
     _cast_index_baseline_rows(record.baseline_rows).to_parquet(
         chrom_path / "baseline_rows.parquet", index=False
     )
+    record.reference_snp_funnel.to_parquet(chrom_path / "reference_snp_funnel.parquet", index=False)
     np.savez(
         chrom_path / "baseline_statistics.npz",
         baseline_count_all=np.asarray(record.baseline_count_all, dtype=np.float64),
@@ -441,7 +454,7 @@ def inspect_index_paths(directory, *, metadata=None):
     gate = InputGate('Index component declarations')
     paths = [('gene_catalog.parquet', '')]
     files = ('metadata.json', 'baseline_rows.parquet', 'baseline_statistics.npz', 'atoms.parquet',
-             'gene_to_atom.npz', 'ldscore_operator.npz', 'atom_statistics.npz')
+             'gene_to_atom.npz', 'ldscore_operator.npz', 'atom_statistics.npz', 'reference_snp_funnel.parquet')
     paths.extend((f'chromosomes/chr{chrom}/{name}', str(chrom)) for chrom in chromosomes for name in files)
     for name, chrom in paths:
         path = root/name
@@ -694,6 +707,13 @@ def _load_index_chromosome(
                 "hand-edit index components. Rebuild the complete index if the original valid files are "
                 "unavailable."
             )
+    funnel = pd.read_parquet(component_path / "reference_snp_funnel.parquet")
+    if list(funnel.columns) != FUNNEL_COLUMNS or set(funnel["chrom"].astype(str)) != {str(chrom)}:
+        raise LDSCInputError(
+            "Gene LD-score index reference_snp_funnel.parquet schema or chromosome is invalid."
+            " Restore this chromosome component together with its matching root index; do not mix or "
+            "hand-edit index components. Rebuild the complete index if the original valid files are unavailable."
+        )
     return IndexChromosomeData(
         baseline_rows=baseline_rows,
         baseline_count_all=stats["baseline_count_all"],
@@ -711,4 +731,5 @@ def _load_index_chromosome(
             atom_stats["baseline_atom_overlap_common"],
         ),
         reference_metadata=pd.DataFrame(),
+        reference_snp_funnel=funnel_from_records(funnel_records(funnel)),
     )

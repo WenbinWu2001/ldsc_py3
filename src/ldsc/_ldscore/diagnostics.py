@@ -70,3 +70,32 @@ def report_chromosome_failure(error, pending, paths, batch, logger=LOGGER):
     else:
         logger.error("LD-score task failed; %s; %s; %s: %s. %s", batch, tasks, type(error).__name__, error,
                      " ".join(getattr(error, "__notes__", [])))
+
+
+def reference_snp_funnel_path(output_dir) -> str:
+    """Return the published reference-SNP funnel path of an LD-score output directory."""
+    return str(Path(output_dir) / "diagnostics" / "reference_snp_funnel.tsv")
+
+
+def log_reference_snp_funnel_warning(funnel, diagnostics, *, command="ldscore") -> None:
+    """Log one run-level WARNING when the annotation-SNP-grid step excluded panel SNPs."""
+    from .._refpanel.funnel import reference_snp_funnel_warning
+
+    message = reference_snp_funnel_warning(funnel, command=command, diagnostics=str(diagnostics))
+    if message is not None:
+        LOGGER.warning(message)
+
+
+def emit_reference_snp_funnel_notice(funnel, diagnostics, *, command="ldscore") -> None:
+    """Print the funnel WARNING to stderr after a successful command-line run.
+
+    The workflow log already holds the same line; the notice exists because
+    batch-scheduler users rarely read logs after a successful run.
+    """
+    import sys
+
+    from .._refpanel.funnel import reference_snp_funnel_warning
+
+    message = reference_snp_funnel_warning(funnel, command=command, diagnostics=str(diagnostics))
+    if message is not None:
+        print(f"WARNING: {message}", file=sys.stderr)

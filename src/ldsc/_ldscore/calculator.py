@@ -35,13 +35,19 @@ import os
 from pathlib import Path
 import sys
 from typing import Any, Sequence
-import warnings
 
 import numpy as np
 import pandas as pd
 
 from .._runtime.serial_calculation import serial_calculation
-from .diagnostics import ldscore_logs, chromosome_log, report_chromosome_failure
+from .diagnostics import (
+    chromosome_log,
+    emit_reference_snp_funnel_notice,
+    ldscore_logs,
+    log_reference_snp_funnel_warning,
+    reference_snp_funnel_path,
+    report_chromosome_failure,
+)
 from .direct_batches import DirectChromosomeFragment, stage_direct_chromosome
 from .fragments import StagedLDScoreBatch
 from .query_variation import combine_variation
@@ -80,6 +86,13 @@ from .._runtime.paths import (
 )
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from . import compute as kernel_ldscore
+from .._refpanel.funnel import (
+    REFERENCE_PANEL,
+    annotation_snp_grid_emptied,
+    concat_funnels,
+    funnel_summary,
+    read_reference_snp_funnel,
+)
 from .._refpanel.prepared import ChromosomeAnnotations
 from .._refpanel.r2_format import read_r2_parquet_contract
 from .._core import regions as kernel_regions
@@ -109,7 +122,7 @@ _QUERY_REQUIRES_BASELINE_MESSAGE = (
     "partitioned heritability."
 )
 _LDSCORE_INTERSECTION_DOC = (
-    "docs/user-guide/troubleshooting.md#ldscore-no-annotation-snps-remain-after-reference-panel-intersection"
+    "docs/user-guide/troubleshooting.md#ldscore-no-reference-snps-remain-on-the-annotation-snp-grid"
 )
 _LDSCORE_PARQUET_DOC = "docs/user-guide/troubleshooting.md#ldscore-r2-panel-is-incompatible"
 
@@ -140,6 +153,9 @@ class ChromLDScoreResult:
     annotation_types : dict of str to str, optional
         Per-column ``binary`` or ``quantitative`` classification used only for
         interpretation messages and persisted provenance.
+    reference_snp_funnel : pandas.DataFrame or None, optional
+        SNPs removed by each reference-preparation step on this chromosome;
+        see ``ldsc._refpanel.funnel``.
     """
     chrom: str
     baseline_table: pd.DataFrame
@@ -159,6 +175,7 @@ class ChromLDScoreResult:
     regression_region_removed_snp_count: int = 0
     identity_drops: TsvDiagnostics | None = field(default=None, repr=False)
     annotation_types: dict[str, str] = field(default_factory=dict)
+    reference_snp_funnel: pd.DataFrame | None = field(default=None, repr=False)
 
     def validate(self) -> None:
         """Check the normalized public contract for chromosome-level results."""
@@ -261,6 +278,14 @@ class LDScoreResult:
         with ``CHR``, ``panel_snps`` (sidecar rows), ``kept_snps`` (SNPs this
         run kept), ``ld_wind_snps``, and ``counting_basis="panel_rows"``.
         ``None`` for kb/cM windows and PLINK panels.
+    reference_snp_funnel : pandas.DataFrame or None, optional
+        Reference-SNP funnel of every chromosome, including skipped ones: the
+        SNPs each reference-preparation step removed, in the backend's order.
+        Columns are ``funnel`` (``reference_panel`` or ``annotation_snp_grid``),
+        ``chrom``, ``backend``, ``step_index``, ``step``, ``removed`` and
+        ``remaining``; ``removed`` is missing for a step that did not run.
+        Writing runs save it as ``diagnostics/reference_snp_funnel.tsv``.
+        ``None`` when the reference panel records no funnel.
     """
     baseline_table: pd.DataFrame
     query_table: pd.DataFrame | None
@@ -283,6 +308,7 @@ class LDScoreResult:
     annotation_types: dict[str, str] = field(default_factory=dict)
     chromosome_scope: dict[str, Any] = field(default_factory=dict)
     ld_window_snp_counts: pd.DataFrame | None = field(default=None, repr=False)
+    reference_snp_funnel: pd.DataFrame | None = field(default=None, repr=False)
 
     def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""
@@ -415,10 +441,16 @@ class LDScoreCalculator:
         LDSCInputError
             An R2 panel has an invalid chromosome footer or sidecar.
             Every chromosome is checked before any is computed, and one error
-            lists all issues.
+            lists all issues. Also raised, naming every such chromosome, when
+            no reference-panel SNP left on a chromosome has an annotation row.
 
         Notes
         -----
+        The annotation rows define the candidate SNPs: reference-panel SNPs
+        without an annotation row are excluded, counted in the result's
+        ``reference_snp_funnel``, and reported once as a WARNING in the log.
+        A chromosome emptied by an explicit restriction or by genotype QC is
+        skipped with a WARNING.
         Each direct batch repeats reference traversal. Writing workers stage
         their post-kernel float32 query scores in private chromosome fragments;
         the parent combines scientific summaries and streams those fragments
@@ -492,6 +524,7 @@ class LDScoreCalculator:
             if output_config is None:
                 result = self._run_batch(annotation_bundle=annotation_bundle, **kwargs)
                 _warn_ld_window_snp_subset(result.ld_window_snp_counts, "LDScoreResult.ld_window_snp_counts")
+                log_reference_snp_funnel_warning(result.reference_snp_funnel, "LDScoreResult.reference_snp_funnel")
                 _log_annotation_classification(result)
                 return result
 
@@ -513,6 +546,8 @@ class LDScoreCalculator:
                                     _warn_ld_window_snp_subset(
                                         result.ld_window_snp_counts,
                                         str(Path(output_config.output_dir) / "diagnostics" / "ld_window_snp_counts.tsv"))
+                                    log_reference_snp_funnel_warning(
+                                        result.reference_snp_funnel, reference_snp_funnel_path(output_config.output_dir))
                                 yield result
                                 del result
                         del active
@@ -583,13 +618,20 @@ class LDScoreCalculator:
             export_dir=export_dir, pool=pool, log_paths=log_paths, batch_label=batch_label,
             fragment_dir=fragment_dir,
         )
-        chromosome_results = []
+        chromosome_results, funnels, grid_emptied = [], [], []
         for chrom in chromosomes:
             outcome = outcomes[chrom]
+            funnel = outcome.reference_snp_funnel if outcome.skipped else outcome.result.reference_snp_funnel
+            funnels.append(funnel)
             if outcome.skipped:
-                warnings.warn(f"Skipping chromosome {chrom}: {outcome.skip_message}", UserWarning, stacklevel=2)
+                if funnel is not None and annotation_snp_grid_emptied(funnel):
+                    grid_emptied.append(funnel)
+                else:
+                    LOGGER.warning("Skipping chromosome %s: %s", chrom, outcome.skip_message)
                 continue
             chromosome_results.append(outcome.result)
+        if grid_emptied:
+            raise LDSCInputError(_grid_emptied_message(grid_emptied))
         if not chromosome_results:
             raise LDSCInputError(
                 "ldscore could not compute any chromosome results after intersecting annotations "
@@ -616,6 +658,7 @@ class LDScoreCalculator:
                 chromosome_results=chromosome_results,
             ),
             ld_window_snp_counts=_ld_window_snp_counts(ref_panel, ldscore_config, chromosome_results),
+            reference_snp_funnel=concat_funnels(funnels),
         )
         statuses = tuple(getattr(annotation_bundle, "query_statuses", ()))
         if isinstance(result, StagedLDScoreBatch) and statuses:
@@ -718,6 +761,9 @@ class LDScoreCalculator:
         legacy_bundle = _chromosome_annotations(annotation_bundle,chrom)
         LOGGER.info(f"Computing chromosome {chrom} LD scores with backend '{backend or 'unknown'}' and {len(legacy_bundle.metadata)} annotation rows.")
         with ref_panel.prepare_chromosome(chrom, legacy_bundle, ldscore_config) as prepared:
+            funnel = prepared.reference_snp_funnel
+            if funnel is not None:
+                LOGGER.info("Chromosome %s reference-SNP funnel: %s.", chrom, funnel_summary(funnel))
             legacy_result = kernel_ldscore.compute_chromosome(
                 chrom, prepared, snp_identifier=global_config.snp_identifier,
                 snp_batch_size=ldscore_config.snp_batch_size,
@@ -737,7 +783,7 @@ class LDScoreCalculator:
             identity_drops=drops,
         )
         LOGGER.info(f"Finished chromosome {chrom} with {len(result.baseline_table)} retained SNP rows.")
-        return result
+        return dataclass_replace(result, reference_snp_funnel=funnel)
 
     def _wrap_legacy_chrom_result(
         self,
@@ -1395,7 +1441,10 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     annotation over the retained reference-panel metadata. Before calculation
     it preflights the complete baseline/query/overlap artifact family, root
     metadata, applicable diagnostics, and ``diagnostics/ldscore.log`` under
-    ``output_dir``. Each execution batch is privately written and released;
+    ``output_dir``. Every run writes ``diagnostics/reference_snp_funnel.tsv``;
+    reference-panel SNPs without an annotation row are excluded and reported
+    as one log WARNING, which a successful command-line run also prints to
+    stderr. Each execution batch is privately written and released;
     successful publication records ordered files and chromosome row groups in
     ``metadata.json.query_batches``. A single batch uses
     ``ldscore.query.parquet``; multiple batches use numbered query files.
@@ -1508,6 +1557,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
             if scope.get("chromosomes"):
                 LOGGER.info("Chromosomes resolved and entering the analysis: %s.", ", ".join(scope['chromosomes']))
             log_inputs(output_dir=str(output_dir),reference_mode=ref_panel.spec.backend,
+                reference_panel_source=ref_panel.spec.plink_prefix or ref_panel.spec.r2_dir,
                 snp_identifier=global_config.snp_identifier,genome_build=global_config.genome_build,
                 ref_panel_snps_file=normalized_args.ref_panel_snps_file or "none",
                 regr_snps_file=ldscore_config.regr_snps_file or "packaged_hm3_default",
@@ -1538,6 +1588,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 emit_gene_gate_b_notice(result.query_statuses,result.gene_list_batch,command="ldscore")
                 emit_resolved_only_notice(result.gene_list_batch)
                 emit_bed_query_notice(result.query_statuses,command="ldscore")
+                _emit_funnel_notice(result.output_paths)
             return dataclass_replace(result,gene_list_batch=persistent_gene_diagnostics(result.gene_list_batch,result.output_paths))
 
 
@@ -1662,6 +1713,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
                 command="ldscore",
             )
             emit_resolved_only_notice(getattr(result, "gene_list_batch", None))
+            _emit_funnel_notice(getattr(result, "output_paths", None) or {})
         output_paths = getattr(result, "output_paths", None)
         if output_paths:
             log_outputs(**output_paths)
@@ -1770,6 +1822,7 @@ def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config, glob
     support = pd.Series(pd.NA, index=interval_frame["catalog_index"], dtype="Int64")
     errors = []
     input_issues = []
+    grid_emptied = []
     for chrom in _chromosomes_from_bundle(annotation_bundle):
         genes = interval_frame[interval_frame["chrom"].astype(str).eq(str(chrom))]
         chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
@@ -1777,7 +1830,10 @@ def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config, glob
         try:
             with ref_panel.prepare_chromosome(chrom, legacy_bundle, ldscore_config) as prepared:
                 positions0 = np.sort(prepared.metadata["POS"].to_numpy(dtype=np.int64) - 1)
-        except EmptyReferenceSNPs:
+        except EmptyReferenceSNPs as exc:
+            funnel = getattr(exc, "reference_snp_funnel", None)
+            if funnel is not None and annotation_snp_grid_emptied(funnel):
+                grid_emptied.append(funnel)
             positions0 = np.array([], dtype=np.int64)
         except (OSError, EOFError, ValueError, LDSCUserError) as exc:
             errors.append(f"Chromosome {chrom} reference preparation failed: {exc}")
@@ -1788,6 +1844,8 @@ def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config, glob
             positions0, genes["start0"].to_numpy(dtype=np.int64), side="left"
         )
         support.loc[genes["catalog_index"].astype(int).to_numpy()] = counts
+    if grid_emptied:
+        errors.append(_grid_emptied_message(grid_emptied))
     updated_batch = batch.with_snp_support(support)
     statuses = gene_query_statuses(updated_batch)
     retained_queries = [status.query for status in statuses if status.status in {"ok", "warning"}]
@@ -2288,16 +2346,15 @@ def _snp_universe_policy(
 
     This is persisted in ``metadata.json`` so an LD-score directory cannot make
     a regression-SNP exclusion look like a change to its LD-reference
-    estimand. Counts are after retained-reference/annotation alignment, before
-    and after the regression-region subtraction respectively.
+    estimand. ``retained_snp_count`` counts the reference SNPs on the
+    annotation SNP grid; the reference-SNP funnel records what each step,
+    including the grid, removed. Regression counts are before and after the
+    regression-region subtraction respectively.
     """
     ref_panel_snps_file = getattr(getattr(ref_panel, "spec", None), "ref_panel_snps_file", None)
     custom_regression_file = ldscore_config.regr_snps_file
     return {
         "ld_reference_universe": {
-            "selection": "full_retained_reference_panel"
-            if ref_panel_snps_file is None
-            else "explicit_ref_panel_snps_file",
             "ref_panel_snps_file": None if ref_panel_snps_file is None else str(ref_panel_snps_file),
             "retained_snp_count": int(sum(result.reference_snp_count for result in chromosome_results)),
         },
@@ -2379,6 +2436,32 @@ def _warn_ld_window_snp_subset(counts: pd.DataFrame | None, where: str) -> None:
         f"SNPs than the panel on {len(subset)} chromosome(s) (e.g. chr{first['CHR']}: {first['kept_snps']} of "
         f"{first['panel_snps']}), so those SNPs have fewer than {window} reference SNPs per side. "
         f"Per-chromosome counts: {where}."
+    )
+
+
+def _emit_funnel_notice(output_paths: dict) -> None:
+    """Print the published funnel's WARNING to stderr after a successful command-line run."""
+    path = output_paths.get("reference_snp_funnel")
+    if path is not None:
+        emit_reference_snp_funnel_notice(read_reference_snp_funnel(path), path)
+
+
+def _grid_emptied_message(funnels: Sequence[pd.DataFrame]) -> str:
+    """Describe every chromosome whose annotation SNP grid matched no remaining panel SNP."""
+    details = []
+    for funnel in funnels:
+        grid = funnel.loc[funnel["step"].eq("annotation_snp_grid")].set_index("funnel")
+        chrom = funnel["chrom"].iloc[0]
+        panel_snps = int(grid.loc[REFERENCE_PANEL, "removed"])
+        grid_rows = int(grid.loc["annotation_snp_grid", "removed"])
+        details.append(f"chromosome {chrom} ({grid_rows} annotation SNP-grid rows, {panel_snps} reference-panel SNPs)")
+    return (
+        "ldscore found no reference SNPs on the annotation SNP grid for " + "; ".join(details) + ": "
+        "after the panel's filters, none of the panel SNPs on these chromosomes has an annotation row. "
+        "Most likely the annotation SNP identifiers, genome build, or allele-aware identifier mode do not "
+        "match the reference panel. Use annotation and reference-panel artifacts built with the same SNP "
+        "identifier mode and genome build, or leave a chromosome out of the annotation files to exclude it on purpose. "
+        f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
     )
 
 
@@ -2494,6 +2577,7 @@ class _ChromOutcome:
     result: "ChromLDScoreResult | DirectChromosomeFragment | None"
     skipped: bool
     skip_message: str | None = None
+    reference_snp_funnel: pd.DataFrame | None = None
 
 
 def _compute_one_chromosome(
@@ -2513,8 +2597,10 @@ def _compute_one_chromosome(
     Rebuilds the reference-panel adapter locally from ``ref_panel_spec`` so no
     live reader/file handle crosses the process boundary. ``regression_snps``
     defaults to the pool-initializer-provided global; direct task callers may
-    pass it explicitly. Only ``EmptyReferenceSNPs`` returns a skipped outcome;
-    other failures propagate across the pool boundary.
+    pass it explicitly. Only ``EmptyReferenceSNPs`` returns a skipped outcome,
+    carrying the error's reference-SNP funnel so the parent can tell a
+    chromosome emptied by the annotation SNP grid from one emptied by an
+    explicit restriction; other failures propagate across the pool boundary.
     With ``fragment_dir``, the outcome carries a private query path and compact
     summaries; otherwise it retains the materialized chromosome result.
     """
@@ -2546,7 +2632,8 @@ def _compute_one_chromosome(
                 export_dir=export_dir,
             )
         except EmptyReferenceSNPs as exc:
-            return _ChromOutcome(chrom=chrom, result=None, skipped=True, skip_message=str(exc))
+            return _ChromOutcome(chrom=chrom, result=None, skipped=True, skip_message=str(exc),
+                                 reference_snp_funnel=getattr(exc, "reference_snp_funnel", None))
         if fragment_dir is not None:
             result = stage_direct_chromosome(result, fragment_dir)
         return _ChromOutcome(chrom=chrom, result=result, skipped=False)

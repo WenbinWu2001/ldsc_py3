@@ -515,6 +515,8 @@ if __name__ == "__main__":
 - More than one query batch requires an output directory, `LDScoreOutputConfig(output_dir=...)`.
 
 The result is an in-memory `LDScoreResult` rather than an `LDScoreSource`.
+Its `reference_snp_funnel` table counts, per chromosome, the SNPs each reference-preparation step removed, including the reference-panel SNPs excluded because they have no row in your annotation frames; when any were excluded, the package log also receives a WARNING.
+A chromosome whose frames match none of its remaining reference-panel SNPs raises `LDSCInputError` ([reference SNPs on the annotation SNP grid](../reference/ldscore-snp-universes.md#reference-snps-on-the-annotation-snp-grid)).
 
 ### Check a CHR/POS table's genome build
 

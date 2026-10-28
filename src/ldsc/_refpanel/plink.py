@@ -70,12 +70,15 @@ class __GenotypeArrayInMemory__(object):
             self.geno, self.m, self.n, self.mafMin, keep_snps
         )
         if self.m <= 0:
-            raise EmptyReferenceSNPs(
+            error = EmptyReferenceSNPs(
                 "PLINK BED loading retained no SNPs after SNP/MAF filtering. Most likely "
                 "the SNP restriction, chromosome selection, or MAF threshold removed every "
                 "variant. Check the selected SNP list, MAF threshold, and reference panel for a usable intersection. "
                 "Change intended filters only if the resulting SNP population is appropriate for the analysis."
             )
+            # The reader is never returned, so its removal counts travel with the error.
+            error.genotype_qc_removed, error.maf_removed = self.genotype_qc_removed, self.maf_removed
+            raise error
         self.df = self.df[self.kept_snps, :]
         self.maf = np.minimum(self.freq, np.ones(self.m) - self.freq)
         self.sqrtpq = np.sqrt(self.freq * (np.ones(self.m) - self.freq))

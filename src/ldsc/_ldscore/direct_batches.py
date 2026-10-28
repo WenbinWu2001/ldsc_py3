@@ -33,6 +33,7 @@ class DirectChromosomeFragment:
     identity_drops: Any
     annotation_types: dict
     variation: ScoreVariation
+    reference_snp_funnel: pd.DataFrame | None = None
 
 
 def stage_direct_chromosome(result, directory):
@@ -52,5 +53,5 @@ def stage_direct_chromosome(result, directory):
         regression_selected_snp_count=result.regression_selected_snp_count,
         regression_region_removed_snp_count=result.regression_region_removed_snp_count,
         identity_drops=result.identity_drops, annotation_types=result.annotation_types,
-        variation=variation,
+        variation=variation, reference_snp_funnel=result.reference_snp_funnel,
     )

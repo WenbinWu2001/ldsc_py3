@@ -1,6 +1,6 @@
 # Calculate LD scores from gene lists
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 Use gene-list mode to turn pathway, expression, proteomic, GO or other gene lists into query annotations for partitioned heritability, estimated with stratified LD score regression (S-LDSC; Finucane et al. 2015).
 LDSC3 resolves each gene list against one gene coordinate catalog, marks the SNPs inside the listed genes' intervals, and writes an ordinary, self-contained LD-score directory that `partitioned-h2` reads.
@@ -149,7 +149,7 @@ One output directory holds one complete, immutable index with a single `index_id
 The destination stays absent or empty until the whole index is published, and a failed build never leaves a partial index.
 Replacing an existing valid index requires `--overwrite`, and the old index stays usable until its replacement has been validated.
 A build never resumes from an earlier failed or interrupted attempt.
-Indexes in earlier formats (before format version 3) must be rebuilt.
+Indexes in earlier formats (before format version 4) must be rebuilt.
 The directory layout, `index_id` and replacement rules are in [artifact and identity contract](../../reference/gene-ldscore-index.md#artifact-and-identity-contract) and [output preflight, logging and replacement](../../reference/gene-ldscore-index.md#output-preflight-logging-and-replacement); build errors are covered in [troubleshooting](../troubleshooting.md#build-gene-ldscore-index).
 
 ### Step 2: assemble gene-list LD scores

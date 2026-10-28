@@ -72,6 +72,8 @@ One appears when `--allow-unresolved-genes` (`resolved-only`) omitted gene-list 
 These notices bypass the ordinary logger threshold so that a successful batch job cannot hide a science-relevant omission in a log that users may never open.
 They name the diagnostic paths and cap the listed outcomes at 10.
 In `annotate`, the SNP-support notice is headed `Gene-list SNP-support checks` and says skipped queries are omitted from annotation outputs.
+In `ldscore` and `build-gene-ldscore-index`, a further notice appears when reference-panel SNPs not on the annotation SNP grid were excluded: `WARNING: <command> excluded <n> reference-panel SNPs on <k> chromosomes that are not on the annotation SNP grid; ...`.
+It has no threshold, repeats the WARNING already written to the workflow log, and names `diagnostics/reference_snp_funnel.tsv`, or `diagnostics/build-gene-ldscore-index.json` for an index build ([reference SNPs on the annotation SNP grid](ldscore-snp-universes.md#reference-snps-on-the-annotation-snp-grid)).
 Python entry points print no console notices; callers inspect the returned statuses and paths.
 
 In `ldscore`, the successful gene-list notice distinguishes unsupported gene-list rows from queries skipped after LD-score computation.

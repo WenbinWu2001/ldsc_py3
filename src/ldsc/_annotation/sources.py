@@ -126,16 +126,28 @@ def _metadata_chunks(source, chunk_rows):
         yield pd.concat(parts, ignore_index=True)
 
 
+_SHARED_GRID_GUIDANCE = (
+    "Annotation files read together must list the same SNP rows in the same order, because they share one "
+    "SNP grid. A query built by `ldsc annotate --ref-snp-bim-sources` needs baseline annotations on that "
+    "same BIM grid; otherwise build the query on the baseline's grid with `ldsc annotate --ref-snp-annot-sources` "
+    "and pass the exported baseline files with it. Other causes & fixes: "
+    "docs/user-guide/troubleshooting.md#ldscore-annotation-snp-rows-do-not-match-across-files"
+)
+
+
 def _aligned_metadata(sources, mode, chunk_rows):
     for chunks in zip_longest(*(_metadata_chunks(source, chunk_rows) for source in sources)):
         if any(chunk is None for chunk in chunks):
-            raise LDSCInputError("Annotation SNP rows do not match across files: row count mismatch. Regenerate aligned sources.")
+            raise LDSCInputError(f"Annotation SNP rows do not match across files: row count mismatch. {_SHARED_GRID_GUIDANCE}")
         reference = chunks[0]
         for source, current in zip(sources[1:], chunks[1:]):
             alignment_mode = mode
             if not all({"A1", "A2"}.issubset(frame.columns) for frame in (reference, current)):
                 alignment_mode = identity_base_mode(mode)
-            assert_same_snp_rows(reference, current, context=f"Annotation SNP rows do not match across files: {source.path}", snp_identifier=alignment_mode)
+            try:
+                assert_same_snp_rows(reference, current, context=f"Annotation SNP rows do not match across files: {source.path}", snp_identifier=alignment_mode)
+            except LDSCInputError as exc:
+                raise LDSCInputError(f"{exc} {_SHARED_GRID_GUIDANCE}") from exc
             if {"A1", "A2"}.issubset(current.columns) and "A1" not in reference:
                 reference[["A1", "A2"]] = current[["A1", "A2"]]
         yield reference

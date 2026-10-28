@@ -175,6 +175,18 @@ def test_builder_rejects_conflicting_catalog_build(tmp_path, monkeypatch):
     assert not output.exists()
 
 
+def _fixture_funnel(chrom, rows=2):
+    """A PLINK reference-SNP funnel whose panel and grid both hold the fixture's ``rows`` SNPs."""
+    from ldsc._refpanel.funnel import ReferenceSNPFunnel
+
+    funnel = ReferenceSNPFunnel(chrom, "plink")
+    for name, start in (("reference_panel", "panel_rows"), ("annotation_snp_grid", "grid_rows")):
+        funnel.record(name, start, rows)
+        for step in ("annotation_snp_grid", "genotype_qc"):
+            funnel.record(name, step, 0)
+    return funnel.frame()
+
+
 def _artifact_payload():
     atom_model = build_disjoint_atoms("22", np.array([[0, 10], [5, 15]], dtype=np.int64))
     chromosome = IndexChromosomeData(
@@ -195,6 +207,7 @@ def _artifact_payload():
             np.array([[1.0, 1.0, 0.0]]), np.array([[1.0, 0.0, 0.0]]),
         ),
         reference_metadata=pd.DataFrame(),
+        reference_snp_funnel=_fixture_funnel("22"),
     )
     catalog = pd.DataFrame(
         {
@@ -1131,6 +1144,7 @@ def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
             atom_model=build_disjoint_atoms(
                 chrom, np.array([[0, 10], [5, 15]], dtype=np.int64)
             ),
+            reference_snp_funnel=_fixture_funnel(chrom),
         )
         if chrom == "2":
             weakref.finalize(record, second_record_released.set)
@@ -1291,6 +1305,7 @@ def test_chromosome_failure_cleans_staged_shards_without_publication(tmp_path, m
             atom_model=build_disjoint_atoms(
                 chrom, np.array([[0, 10], [5, 15]], dtype=np.int64)
             ),
+            reference_snp_funnel=_fixture_funnel(chrom),
         )
 
     monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", fake_build)

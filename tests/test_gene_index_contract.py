@@ -160,14 +160,78 @@ def test_complete_autosomal_index_build_and_reload(tmp_path, build, mode, unit, 
             dropped = pd.read_csv(path / 'diagnostics' / 'dropped_snps' / f'chr{chrom}_dropped.tsv.gz', sep='\t')
             assert len(dropped) == 1 and dropped.iloc[0].SNP == f'invalid_{chrom}'
     root = json.loads((path / 'metadata.json').read_text())
-    assert root['format_version'] == 3
-    # Version 2 indexes were built with legacy LDSC chunk-rounded PLINK windows.
-    root['format_version'] = 2
+    assert root['format_version'] == 4
+    # Version 3 indexes store no reference-SNP funnel.
+    root['format_version'] = 3
     (path / 'metadata.json').write_text(json.dumps(root))
     with pytest.raises(LDSCInputError, match='Rebuild the complete index') as rejected:
         load_gene_ldscore_index(path)
-    assert 'exact PLINK LD windows' in str(rejected.value)
+    assert 'reference-SNP funnel' in str(rejected.value)
     root.pop('format_version')
     (path / 'metadata.json').write_text(json.dumps(root))
     with pytest.raises(LDSCInputError, match='Rebuild the complete index'):
         load_gene_ldscore_index(path)
+
+
+def test_index_records_the_reference_snp_funnel_and_indexed_scoring_reports_it(tmp_path, capsys):
+    from ldsc._ldscore.calculator import main as ldscore_main
+    from ldsc._refpanel.funnel import read_reference_snp_funnel
+
+    # Every chromosome's panel has 8 SNPs; the baseline grid leaves out the first one.
+    fixture = Path(__file__).parent / 'fixtures' / 'plink' / 'plink'
+    chromosomes = list(map(str, range(1, 23)))
+    variants = []
+    for chrom in chromosomes:
+        prefix = tmp_path / f'panel.{chrom}'
+        for suffix in ('.bed', '.fam'):
+            shutil.copyfile(fixture.with_suffix(suffix), prefix.with_suffix(prefix.suffix + suffix))
+        bim = pd.read_csv(fixture.with_suffix('.bim'), sep=r'\s+', header=None,
+                          names=['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2'])
+        bim = bim.assign(CHR=chrom, SNP=[f'rs{chrom}_{i}' for i in range(len(bim))], CM=bim.POS * .1)
+        bim.to_csv(str(prefix) + '.bim', sep='\t', header=False, index=False)
+        bim.iloc[1:][['CHR', 'SNP', 'POS']].assign(base=1).to_csv(
+            tmp_path / f'baseline.{chrom}.annot', sep='\t', index=False)
+        variants.append(bim[['CHR', 'SNP', 'POS']])
+    catalog = tmp_path / 'genes.tsv'
+    pd.DataFrame({'gene_id': [f'G{c}' for c in chromosomes], 'gene_name': [f'Gene{c}' for c in chromosomes],
+                  'chrom': chromosomes, 'start': 1, 'end': 5, 'genome_build': 'hg19'}).to_csv(catalog, sep='\t', index=False)
+    regression = tmp_path / 'regression.tsv'
+    pd.concat(variants).to_csv(regression, sep='\t', index=False)
+    config = GeneLDScoreIndexBuildConfig(
+        baseline_annot_sources=(str(tmp_path / 'baseline.@.annot'),), plink_prefix=str(tmp_path / 'panel.@'),
+        output_dir=str(tmp_path / 'index'), gene_coordinate_file=str(catalog), genome_build='hg19',
+        snp_identifier='rsid', regr_snps_file=str(regression), regr_snps_exclude_regions='none',
+        gene_exclude_regions='none', ld_wind_snps=2)
+    path = index.build_gene_ldscore_index(config)
+
+    diagnostics = json.loads((path / 'diagnostics' / 'build-gene-ldscore-index.json').read_text())
+    evidence = diagnostics['chromosomes']['1']
+    assert 'pre_qc_rows' not in evidence and 'annotation_intersection_removed' not in evidence
+    stored = pd.read_parquet(path / 'chromosomes' / 'chr1' / 'reference_snp_funnel.parquet')
+    reference = stored.loc[stored['funnel'].eq('reference_panel')].set_index('step')
+    assert int(reference.loc['panel_rows', 'remaining']) == 8
+    assert int(reference.loc['annotation_snp_grid', 'removed']) == 1
+    assert int(reference['remaining'].iloc[-1]) == evidence['retained_reference_rows']
+    grid = stored.loc[stored['funnel'].eq('annotation_snp_grid')].set_index('step')
+    assert int(grid.loc['grid_rows', 'remaining']) == 7
+    assert [row['step'] for row in evidence['reference_snp_funnel']][:2] == ['panel_rows', 'identity_cleanup']
+    build_log = (path / 'diagnostics' / 'build-gene-ldscore-index.log').read_text()
+    assert 'build-gene-ldscore-index excluded 22 reference-panel SNPs on 22 chromosomes' in build_log
+
+    (tmp_path / 'focal.txt').write_text('G1\n')
+    capsys.readouterr()
+    ldscore_main(['--gene-ldscore-index-dir', str(path), '--query-annot-gene-list-sources', str(tmp_path / 'focal.txt'),
+                  '--output-dir', str(tmp_path / 'scores')])
+    funnel = read_reference_snp_funnel(tmp_path / 'scores' / 'diagnostics' / 'reference_snp_funnel.tsv')
+    pd.testing.assert_frame_equal(funnel.loc[funnel['chrom'].eq('1')].reset_index(drop=True),
+                                  read_reference_snp_funnel_from(stored))
+    warning = 'ldscore excluded 22 reference-panel SNPs on 22 chromosomes'
+    assert warning in (tmp_path / 'scores' / 'diagnostics' / 'ldscore.log').read_text()
+    assert f'WARNING: {warning}' in capsys.readouterr().err
+
+
+def read_reference_snp_funnel_from(frame):
+    """Give a stored funnel the dtypes of a funnel read back from TSV."""
+    from ldsc._refpanel.funnel import funnel_from_records, funnel_records
+
+    return funnel_from_records(funnel_records(frame))

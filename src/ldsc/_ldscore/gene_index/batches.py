@@ -194,7 +194,8 @@ def indexed_results(index, batch, declarations, control, width, root, workers, s
                         config_snapshot=config, overlap=overlap.select_queries(retained), query_statuses=finalized,
                         gene_list_batch=batch, chromosome_scope=scope,
                         index_provenance={"index_id": index.index_id, "index_snp_identifier": index.snp_identifier,
-                                          "index_genome_build": index.genome_build})
+                                          "index_genome_build": index.genome_build},
+                        reference_snp_funnel=index.reference_snp_funnel)
                     yield result
                     del result
                     progress.completed = len(active)

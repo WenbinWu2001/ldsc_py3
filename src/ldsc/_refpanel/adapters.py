@@ -32,11 +32,12 @@ from .._core.columns import (
     resolve_required_column,
 )
 from ..config import GlobalConfig, LDScoreConfig, RefPanelConfig, validate_config_compatibility
-from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCUsageError
+from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .._genome.build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from .._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
 from .._core import plink_files as legacy_parse
 from .._core.identifiers import identifier_keys, validate_retained_identifier_uniqueness
+from .funnel import ANNOTATION_SNP_GRID, REFERENCE_PANEL, ReferenceSNPFunnel
 from .plink import PlinkBEDFile
 from .prepared import ChromosomeAnnotations, PreparedChromosome
 from .r2_format import (
@@ -164,11 +165,21 @@ class RefPanel(ABC):
             SNP/sample/MAF restrictions, authoritative reference CM/MAF, and
             the validated R2 Parquet file contract are resolved together. Use the result as a
             context manager to close the reader on success or failure.
+            ``reference_snp_funnel`` counts what each step removed.
+
+        Raises
+        ------
+        ldsc.errors.EmptyReferenceSNPs
+            No reference SNP is left on the chromosome. The error's
+            ``reference_snp_funnel`` shows which step removed the last SNPs.
 
         Notes
         -----
-        Preparation reads inputs but writes no artifacts. Metadata inspection
-        through ``load_metadata`` reads independently and retains no cache.
+        The annotation rows are the annotation SNP grid: panel SNPs that pass
+        the panel's filters but have no annotation row are excluded, and the
+        funnel records how many. Preparation reads inputs but writes no
+        artifacts. Metadata inspection through ``load_metadata`` reads
+        independently and retains no cache.
         """
         raise NotImplementedError
 
@@ -263,7 +274,11 @@ class PlinkRefPanel(RefPanel):
         return self._chromosome_prefixes
 
     def _load_source(self, chrom: str):
-        """Resolve physical BED rows and apply panel identity/SNP restrictions once."""
+        """Resolve physical BED rows and apply panel identity/SNP restrictions once.
+
+        Returns the prefix, BIM, FAM, restricted metadata, identity drops and
+        the chromosome's reference-SNP funnel so far.
+        """
         prefix = self._bim_prefixes(chrom)[0]
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
@@ -277,6 +292,8 @@ class PlinkRefPanel(RefPanel):
         metadata = metadata.loc[metadata["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
         if metadata.empty:
             raise LDSCInputError(f"Reference-panel loading found no PLINK metadata rows for chromosome {chrom}.")
+        funnel = ReferenceSNPFunnel(normalize_chromosome(chrom), "plink")
+        funnel.record(REFERENCE_PANEL, "panel_rows", len(metadata))
         drops = empty_identity_drop_frame()
         if self.global_config.snp_identifier in {"rsid", "chr_pos"}:
             cleanup = clean_identity_artifact_table(
@@ -284,33 +301,44 @@ class PlinkRefPanel(RefPanel):
                 context=f"PLINK reference-panel metadata chromosome {chrom}",
                 stage="plink_reference_identity_cleanup", logger=LOGGER,
             )
+            funnel.record(REFERENCE_PANEL, "identity_cleanup", len(metadata) - len(cleanup.cleaned))
             metadata, drops = cleanup.cleaned, cleanup.dropped
             if metadata.empty:
                 raise LDSCInputError(
                     f"Reference-panel loading retained no PLINK rows on chromosome {chrom} after duplicate SNP identity cleanup."
                 )
-        metadata = self._apply_snp_restriction(metadata)
+        if self.spec.ref_panel_snps_file is not None:
+            before = len(metadata)
+            metadata = self._apply_snp_restriction(metadata)
+            funnel.record(REFERENCE_PANEL, "ref_panel_snps_file", before - len(metadata))
         metadata = self._validate_metadata(metadata, chrom)
-        return prefix, bim, fam, metadata, drops
+        return prefix, bim, fam, metadata, drops, funnel
 
     def _load_genotypes(self, chrom, source, annotations=None, *, keep_indivs=None, maf_min=None):
         """Open one BED and align its retained rows to annotations without another read."""
-        prefix, bim, fam, reference, drops = source
+        prefix, bim, fam, reference, drops, funnel = source
         if annotations is None:
             annotations = ChromosomeAnnotations(
                 reference.drop(columns="_raw_index"), pd.DataFrame(index=reference.index), [], [],
             )
-        aligned = _align_annotations(annotations, reference, chrom, self.global_config, "PLINK")
+        aligned = _align_annotations(annotations, reference, chrom, self.global_config, funnel)
         mode = self.global_config.snp_identifier
         raw_keys = identifier_keys(reference, mode)
         keys = identifier_keys(aligned.metadata, mode)
         physical_rows = pd.Series(reference["_raw_index"].to_numpy(), index=raw_keys).loc[keys].tolist()
         if keep_indivs is None:
             keep_indivs = resolve_keep_individuals(self.spec.keep_indivs_file, fam)
-        geno = PlinkBEDFile(
-            prefix + ".bed", len(fam.IDList), bim, keep_snps=physical_rows,
-            keep_indivs=keep_indivs, mafMin=self.spec.maf_min if maf_min is None else maf_min,
-        )
+        maf_min = self.spec.maf_min if maf_min is None else maf_min
+        try:
+            geno = PlinkBEDFile(
+                prefix + ".bed", len(fam.IDList), bim, keep_snps=physical_rows,
+                keep_indivs=keep_indivs, mafMin=maf_min,
+            )
+        except EmptyReferenceSNPs as exc:
+            _record_genotype_qc(funnel, exc.genotype_qc_removed, exc.maf_removed, maf_min)
+            exc.reference_snp_funnel = funnel.frame()
+            raise
+        _record_genotype_qc(funnel, geno.genotype_qc_removed, geno.maf_removed, maf_min)
         try:
             metadata = pd.DataFrame(geno.df, columns=geno.colnames).rename(columns={"BP": "POS"})
             metadata["CHR"] = metadata["CHR"].map(normalize_chromosome)
@@ -352,16 +380,17 @@ class PlinkRefPanel(RefPanel):
         """
         source = self._load_source(chrom)
         if keep_snps is not None:
-            prefix, bim, fam, metadata, drops = source
+            prefix, bim, fam, metadata, drops, funnel = source
             keys = _snp_id_series_for_matching(metadata, self.global_config.snp_identifier,
                                               context=f"PLINK chromosome {chrom}")
-            source = prefix, bim, fam, metadata.loc[keys.isin(keep_snps)].reset_index(drop=True), drops
+            source = prefix, bim, fam, metadata.loc[keys.isin(keep_snps)].reset_index(drop=True), drops, funnel
         return self._load_genotypes(chrom, source, keep_indivs=keep_indivs, maf_min=maf_min)[0]
 
     def prepare_chromosome(self, chrom, annotations, config, *, genetic_map=None):
         """Prepare one genotype-filtered chromosome with aligned annotations and LD windows."""
         source = self._load_source(chrom)
         geno, metadata, values, drops, input_rows = self._load_genotypes(chrom, source, annotations)
+        funnel = source[-1].frame()
         try:
             if config.ld_wind_cm is not None:
                 if genetic_map is None:
@@ -382,6 +411,7 @@ class PlinkRefPanel(RefPanel):
                 genotype_qc_removed=geno.genotype_qc_removed, maf_removed=geno.maf_removed,
                 selected_individual_count=int(geno.n),
                 cm_source="explicit_genetic_map" if genetic_map is not None else "bim_cm", identity_drops=drops,
+                reference_snp_funnel=funnel,
             )
         except BaseException:
             geno.close()
@@ -442,6 +472,10 @@ class ParquetR2RefPanel(RefPanel):
 
     def load_metadata(self, chrom: str) -> pd.DataFrame:
         """Load, restrict, and validate metadata owned by this chromosome consumer."""
+        return self._load_reference(chrom)[0]
+
+    def _load_reference(self, chrom: str) -> tuple[pd.DataFrame, ReferenceSNPFunnel]:
+        """Return restricted sidecar metadata and the chromosome's reference-SNP funnel so far."""
         chrom = normalize_chromosome(chrom)
         if self.spec.keep_indivs_file is not None:
             raise LDSCUsageError(
@@ -475,10 +509,18 @@ class ParquetR2RefPanel(RefPanel):
                 "the panel. "
                 f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
             )
-        metadata = self._apply_snp_restriction(metadata)
-        metadata = self._apply_maf_filter(metadata, chrom)
+        funnel = ReferenceSNPFunnel(chrom, "parquet_r2")
+        funnel.record(REFERENCE_PANEL, "panel_rows", len(metadata))
+        if self.spec.ref_panel_snps_file is not None:
+            before = len(metadata)
+            metadata = self._apply_snp_restriction(metadata)
+            funnel.record(REFERENCE_PANEL, "ref_panel_snps_file", before - len(metadata))
+        if self.spec.maf_min is not None:
+            before = len(metadata)
+            metadata = self._apply_maf_filter(metadata, chrom)
+            funnel.record(REFERENCE_PANEL, "maf_floor", before - len(metadata))
         metadata = self._validate_metadata(metadata, chrom)
-        return metadata
+        return metadata, funnel
 
     def build_reader(self, chrom: str, metadata: pd.DataFrame | None = None):
         """
@@ -507,8 +549,8 @@ class ParquetR2RefPanel(RefPanel):
 
     def prepare_chromosome(self, chrom, annotations, config, *, genetic_map=None):
         """Prepare a sidecar-aligned streaming reader over a contract-validated R2 Parquet file."""
-        reference = self.load_metadata(chrom)
-        aligned = _align_annotations(annotations, reference, chrom, self.global_config, "parquet")
+        reference, funnel = self._load_reference(chrom)
+        aligned = _align_annotations(annotations, reference, chrom, self.global_config, funnel)
         keys = identifier_keys(aligned.metadata, self.global_config.snp_identifier)
         reference_keys = identifier_keys(reference, self.global_config.snp_identifier)
         lookup = reference.set_index(reference_keys)
@@ -544,7 +586,7 @@ class ParquetR2RefPanel(RefPanel):
             backend="parquet_r2", reader=reader, metadata=metadata,
             annotations=mapped_annotations, block_left=block_left,
             baseline_columns=list(annotations.baseline_columns), query_columns=list(annotations.query_columns),
-            cm_source="parquet_sidecar",
+            cm_source="parquet_sidecar", reference_snp_funnel=funnel.frame(),
         )
 
     def resolve_r2_paths(self, chrom: str, *, required: bool = True) -> list[str]:
@@ -906,31 +948,60 @@ def _resolve_genetic_map(panel, chrom, metadata):
     return load_genetic_map_group(split_cli_path_tokens(sources))
 
 
-def _align_annotations(bundle, reference, chrom, global_config, backend):
-    """Align annotation rows once to retained reference identities and recover alleles."""
+def _record_genotype_qc(funnel, genotype_qc_removed, maf_removed, maf_min):
+    """Record PLINK genotype QC on both funnels; the MAF floor ran only when one was set."""
+    for name in (REFERENCE_PANEL, ANNOTATION_SNP_GRID):
+        funnel.record(name, "genotype_qc", genotype_qc_removed)
+        if maf_min is not None:
+            funnel.record(name, "maf_floor", maf_removed)
+
+
+def _align_annotations(bundle, reference, chrom, global_config, funnel):
+    """Align annotation rows once to retained reference identities and recover alleles.
+
+    The annotation rows are the annotation SNP grid. Panel SNPs without an
+    annotation row and annotation rows without a panel SNP are both dropped and
+    counted in ``funnel`` at the ``annotation_snp_grid`` step.
+    """
     if is_allele_aware_mode(global_config.snp_identifier):
-        reference = clean_identity_artifact_table(
+        cleaned = clean_identity_artifact_table(
             reference, global_config.snp_identifier,
             context=f"reference panel chromosome {chrom}",
             stage="annotation_reference_identity_cleanup", logger=LOGGER,
         ).cleaned
+        funnel.record(REFERENCE_PANEL, "allele_aware_identity_cleanup", len(reference) - len(cleaned))
+        reference = cleaned
     mode = _annotation_reference_match_mode(bundle.metadata, global_config.snp_identifier)
     reference_keys = build_snp_id_series(reference, mode)
     annotation_keys = build_snp_id_series(bundle.metadata, mode)
     keep = annotation_keys.isin(set(reference_keys))
+    on_grid = int(reference_keys.isin(set(annotation_keys)).sum())
+    funnel.record(REFERENCE_PANEL, ANNOTATION_SNP_GRID, len(reference) - on_grid)
+    funnel.record(ANNOTATION_SNP_GRID, "grid_rows", len(bundle.metadata))
+    funnel.record(ANNOTATION_SNP_GRID, ANNOTATION_SNP_GRID, int((~keep).sum()))
     if not keep.any():
-        raise EmptyReferenceSNPs(
-            f"ldscore retained no annotation SNPs on chromosome {chrom} after intersecting with the {backend} reference panel. "
-            "Most likely the annotation SNP identifiers, genome build, or allele-aware identifier mode do not match the reference panel. "
-            "Use annotation and reference-panel artifacts built with the same SNP identifier mode and genome build. "
+        error = EmptyReferenceSNPs(
+            f"ldscore retained no reference SNPs on chromosome {chrom}: none of its {len(bundle.metadata)} "
+            f"annotation SNP-grid rows matches the {len(reference)} {funnel.backend} reference-panel SNPs left "
+            "after the panel's filters. Most likely the annotation SNP identifiers, genome build, or "
+            "allele-aware identifier mode do not match the reference panel. Use annotation and reference-panel "
+            "artifacts built with the same SNP identifier mode and genome build. "
             f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
         )
+        error.reference_snp_funnel = funnel.frame()
+        raise error
     metadata = _annotation_metadata_with_reference_alleles(
         annotation_metadata=bundle.metadata.loc[keep].reset_index(drop=True),
         annotation_keys=annotation_keys.loc[keep].reset_index(drop=True),
         reference_metadata=reference, reference_keys=reference_keys,
         snp_identifier=global_config.snp_identifier,
     )
+    if on_grid != len(metadata):
+        raise LDSCInternalError(
+            f"Reference preparation matched {on_grid} panel SNPs but {len(metadata)} annotation rows on "
+            f"chromosome {chrom}; SNP identities must be unique on both sides of the match. "
+            "Report the command, package version, and traceback."
+        )
     return ChromosomeAnnotations(metadata,
         MappedAnnotations(bundle.annotations, np.flatnonzero(keep.to_numpy()),
                           tuple(bundle.baseline_columns + bundle.query_columns)),
@@ -995,7 +1066,7 @@ def _annotation_metadata_with_reference_alleles(
 
 
 _LDSCORE_INTERSECTION_DOC = (
-    "docs/user-guide/troubleshooting.md#ldscore-no-annotation-snps-remain-after-reference-panel-intersection"
+    "docs/user-guide/troubleshooting.md#ldscore-no-reference-snps-remain-on-the-annotation-snp-grid"
 )
 
 

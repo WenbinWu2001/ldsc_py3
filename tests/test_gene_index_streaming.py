@@ -11,7 +11,7 @@ from ldsc._ldscore.gene_index import scoring as index_scoring, build as index_mo
 from ldsc._ldscore.gene_index import artifact as _gene_index_artifact
 from ldsc._ldscore.gene_index.artifact import _catalog_identity_records
 from tests.test_gene_ldscore_index import (
-    _artifact_payload, load_gene_ldscore_index, publish_gene_ldscore_index,
+    _artifact_payload, _fixture_funnel, load_gene_ldscore_index, publish_gene_ldscore_index,
     run_indexed_ldscore,
 )
 
@@ -27,7 +27,8 @@ def two_chromosome_index(tmp_path):
     identity = {**identity, "chromosomes": ["21", "22"],
                 "catalog": _catalog_identity_records(catalog)}
     first = replace(record, baseline_rows=record.baseline_rows.assign(
-        CHR="21", SNP=["rs3", "rs4"]), atom_model=replace(record.atom_model, chromosome="21"))
+        CHR="21", SNP=["rs3", "rs4"]), atom_model=replace(record.atom_model, chromosome="21"),
+        reference_snp_funnel=_fixture_funnel("21"))
     return publish_gene_ldscore_index(
         tmp_path / "index", index_identity=identity, gene_catalog=catalog,
         chromosomes={"21": first, "22": record}, overwrite=False,

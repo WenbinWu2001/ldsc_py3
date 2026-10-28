@@ -111,6 +111,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._refpanel.r2_format` | the R² panel format: schema constants, Parquet and sidecar writers, contract readers and checks, sidecar binding, `SortedR2BlockReader` and the pair lookup used by `query-r2` |
 | `ldsc._refpanel.windows` | LD-window geometry shared by `ldscore` and `build-r2-panel`: `window_coordinates`, `get_block_lefts`, and window checks |
 | `ldsc._refpanel.prepared` | the `PreparedChromosome` contract, the chromosome annotation input `ChromosomeAnnotations`, and the `ArrayAnnotations`/`MappedAnnotations` accessors |
+| `ldsc._refpanel.funnel` | the reference-SNP funnel: `ReferenceSNPFunnel` records what each reference-preparation step removed, with readers, writers and the run-level warning text |
 | `ldsc._refpanel.adapters` | runtime PLINK/R²-panel adapters; `RefPanel.prepare_chromosome` owns reference filtering, annotation alignment, window/bias policy, and reader lifetime |
 | `ldsc._refpanel.builder`, `ldsc._refpanel.build_kernel` | R²-panel build workflow (source-build inference, optional liftover, explicit SNP/sample restrictions, optional `min_r2` threshold) and its kernel (genetic maps, pairwise R² emission, restriction masks) |
 | `ldsc._refpanel.query` | public `query-r2` CLI/API, `R2Panel`, one-shot `query_r2()`, endpoint key resolution, sign harmonization, and optional unbiased-R²-to-Pearson-r conversion |

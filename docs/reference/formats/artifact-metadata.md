@@ -236,12 +236,15 @@ ldscore/
     chromosome_scope.json
     input_issues.tsv
     ld_window_snp_counts.tsv
+    reference_snp_funnel.tsv
 ```
 
 `ldscore.query.parquet` is present for a single query batch. Multiple batches instead use `ldscore.query.batch00001.parquet` and subsequent ordinals, with `files.query_batch00001` keys. Baseline-only output has no query file. All current directories require the ordered `query_batches` manifest, including an empty list for baseline-only output.
 `query_annotation_status.tsv` is present for BED/gene-list query runs;
 The row-complete audit and per-source summary are present for gene-list runs.
 `ld_window_snp_counts.tsv` is present only for R² panel runs with `--ld-wind-snps`; it records each chromosome's `panel_snps`, `kept_snps`, `ld_wind_snps`, and `counting_basis` (`panel_rows`).
+`reference_snp_funnel.tsv` is present for every native and indexed run; it records each chromosome's reference-SNP funnel with `funnel`, `chrom`, `backend`, `step_index`, `step`, `removed` (`NA` for a step that did not run) and `remaining`, as described in [reference SNPs on the annotation SNP grid](../ldscore-snp-universes.md#reference-snp-funnel).
+It is owned by the LD-score writer but not listed in the `files` entry of `metadata.json`.
 `ldscore.overlap.parquet` holds the annotation overlap matrix (long form:
 `row_annotation`, `col_annotation`, `overlap_all_snps`, `overlap_common_snps`)
 that `partitioned-h2` requires. It is written only for runs with two or more
@@ -268,7 +271,7 @@ Embedding the matrix in `metadata.json` was rejected because it would reach tens
 | `counts` | Per-annotation count records, keyed by name: `group`, `column`, `all_reference_snp_count` and, when common-SNP counts are available, `common_reference_snp_count`. Regression uses the all-SNP count when the common-SNP count is absent. | Required for regression count vectors. |
 | `count_config` | Common-SNP count settings `common_reference_snp_maf_min` (default 0.05) and `common_reference_snp_maf_operator`, the actual threshold operator (`>=` for native LDSC3 computation; strict `>` for legacy LDSC conversion). | Required to interpret the common-SNP counts and checked against overlap metadata. |
 | `overlap_config` | Overlap-matrix provenance: `total_all_reference_snps`, `total_common_reference_snps`, `common_maf_min`, `common_maf_operator`, `stored_block`. `null` for single-annotation runs that write no overlap matrix. | Provides `M_tot` and the all-SNP and common-SNP definitions for overlap-aware `partitioned-h2`. |
-| `snp_universe_policy` | `ld_reference_universe` (how the reference SNPs were selected and how many were kept) and `regression_rows_and_weights` (regression-SNP selection, region exclusions, and counts before and after exclusion). | Scientific provenance; ignored by regression. |
+| `snp_universe_policy` | `ld_reference_universe` (`ref_panel_snps_file`, the explicit reference-panel restriction or `null`, and `retained_snp_count`, the reference SNPs on the annotation SNP grid; `diagnostics/reference_snp_funnel.tsv` records how they were selected) and `regression_rows_and_weights` (regression-SNP selection, region exclusions, and counts before and after exclusion). | Scientific provenance; ignored by regression. |
 | `annotation_types` | Per-column `binary` or `quantitative` classification. | Interpretation and logging only; never changes fitting. |
 | `n_baseline_rows` | Number of rows in the baseline parquet table. | Reporting. |
 | `n_query_rows` | Genome-wide SNP row count shared by every query batch file, or zero without queries. | Reporting. |

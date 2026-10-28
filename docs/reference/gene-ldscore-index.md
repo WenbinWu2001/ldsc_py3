@@ -81,6 +81,7 @@ Then pass it as `--regr-snps-file custom_regression_snps.tsv`. For an
 `rsid` build, use the same headered layout with one `SNP` column instead.
 
 The reference SNPs are the inner intersection of baseline and PLINK SNPs under the configured SNP identifier mode, matching ordinary PLINK `ldscore` behavior.
+PLINK SNPs off the baseline's annotation SNP grid are excluded and counted in each chromosome's reference-SNP funnel, which the build stores in the index, records in `diagnostics/build-gene-ldscore-index.json` and reports with a WARNING ([reference SNPs on the annotation SNP grid](ldscore-snp-universes.md#reference-snps-on-the-annotation-snp-grid)).
 Every row in a duplicate effective-identity group is dropped, warned, and recorded under `diagnostics/dropped_snps/`; no representative is selected.
 Baseline-only and PLINK-only SNPs are dropped and counted.
 PLINK supplies chromosome, position, alleles, cM, genotypes, output identity, and gene projection coordinates for consistent matches.
@@ -189,6 +190,7 @@ One output directory contains one complete immutable index:
             gene_to_atom.npz
             ldscore_operator.npz
             atom_statistics.npz
+            reference_snp_funnel.parquet
 
 .<index-name>.build-state/        # hidden operational state
     build-gene-ldscore-index.lock
@@ -208,8 +210,9 @@ Batching, workers, logging, output path, and overwrite are resource or publicati
 The input fingerprints behind `index_id` (normalized baseline content, whole PLINK BED file bytes, parsed BIM metadata, selected individual IDs, sorted regression keys, and the genetic map) only define the identity; indexed scoring never re-reads those inputs to check them again.
 Identical inputs and settings must produce identical fingerprints and the same `index_id`; changing what a fingerprint covers changes the identity of every index.
 
-Root and chromosome metadata record `format_version: 3` and repeat the immutable SNP identifier mode and hg19/hg38 build.
-Version 3 marks exact PLINK LD windows; version 2 operators used legacy LDSC's batch-rounded windows, so the loader rejects them and asks for a rebuild.
+Root and chromosome metadata record `format_version: 4` and repeat the immutable SNP identifier mode and hg19/hg38 build.
+Version 4 adds each chromosome's reference-SNP funnel, `reference_snp_funnel.parquet`, which indexed `ldscore` reports; version 3 introduced exact PLINK LD windows, and version 2 operators used legacy LDSC's batch-rounded windows.
+The loader rejects every earlier version and asks for a rebuild.
 Each chromosome records `published_row_metadata_sha256` over ordered `CHR SNP POS A1 A2` metadata for regression SNPs only.
 Both allele columns are required.
 This one digest covers the effective SNP identity in all four SNP identifier modes; the redundant `effective_identity_sha256` field is no longer written or required.

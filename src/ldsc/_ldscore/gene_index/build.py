@@ -16,7 +16,7 @@ import argparse
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 from contextlib import closing, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import fcntl
 import gzip
@@ -44,8 +44,10 @@ from ..._runtime.workflow_logging import LOG_LEVEL_HELP
 from ..._runtime.parallelism import WORKERS_HELP, parse_workers, resolve_worker_count, run_chromosome_tasks
 from ..._runtime.progress import report_phase
 from .. import compute as kernel_ldscore
+from ..diagnostics import emit_reference_snp_funnel_notice, log_reference_snp_funnel_warning
 from ..._annotation.overlap import compute_overlap
 from ..._refpanel.adapters import resolve_keep_individuals
+from ..._refpanel.funnel import concat_funnels, funnel_from_records, funnel_records, with_grid_rows
 from ..._refpanel.prepared import ChromosomeAnnotations
 from .atoms import (
     build_disjoint_atoms,
@@ -297,7 +299,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None):
     """Run the offline gene LD-score index workflow."""
     args = build_parser().parse_args(argv)
-    return run_build_gene_ldscore_index_from_args(args)
+    published = run_build_gene_ldscore_index_from_args(args)
+    summary = Path(published) / "diagnostics" / "build-gene-ldscore-index.json"
+    emit_reference_snp_funnel_notice(_evidence_funnel(json.loads(summary.read_text(encoding="utf-8"))["chromosomes"]),
+                                     summary, command="build-gene-ldscore-index")
+    return published
+
+
+def _evidence_funnel(evidence_by_chrom: dict) -> pd.DataFrame | None:
+    """Combine the reference-SNP funnels recorded in per-chromosome build evidence."""
+    return concat_funnels(funnel_from_records(values["reference_snp_funnel"]) for values in evidence_by_chrom.values())
 
 
 def build_gene_ldscore_index(
@@ -654,16 +665,17 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
     rows_before_genotype_qc = int(record.reference_rows_before_genotype_qc or record.total_reference_snps_all)
     genotype_qc_removed = int(record.genotype_qc_removed)
     maf_removed = int(record.maf_removed)
+    # Reference preparation saw only the baseline/PLINK intersection; the grid is every baseline row.
+    record = replace(record, reference_snp_funnel=with_grid_rows(record.reference_snp_funnel, len(metadata)))
     evidence = {
-        "pre_qc_rows": int(len(bim_rows)),
         **intersection.diagnostics,
         "baseline_content_sha256": _retained_baseline_content_sha256(
             intersection.metadata,
             intersection.annotations,
             config.snp_identifier,
         ),
+        "reference_snp_funnel": funnel_records(record.reference_snp_funnel),
         "reference_rows_before_genotype_qc": rows_before_genotype_qc,
-        "annotation_intersection_removed": int(len(bim_rows) - rows_before_genotype_qc),
         "retained_reference_rows": int(record.total_reference_snps_all),
         "retained_common_reference_rows": int(record.total_reference_snps_common),
         "genotype_qc_removed": genotype_qc_removed,
@@ -948,6 +960,9 @@ def _run_gene_ldscore_index_build(
         )
         raise
     _log_gene_index_summary(diagnostic_payload)
+    log_reference_snp_funnel_warning(
+        _evidence_funnel(evidence_by_chrom), published_path / "diagnostics" / "build-gene-ldscore-index.json",
+        command="build-gene-ldscore-index")
     log_outputs(
         index_id=index_id,
         index=str(published_path),
@@ -1260,8 +1275,11 @@ def _log_gene_index_summary(payload: dict) -> None:
     )
     for chrom in payload["chromosomes"]:
         values = payload["chromosomes"][chrom]
+        funnel = funnel_from_records(values["reference_snp_funnel"])
+        reference = funnel.loc[funnel["funnel"].eq("reference_panel")].set_index("step")
         LOGGER.info(
-            f"Chromosome {chrom} metrics: pre-QC={values['pre_qc_rows']}, "
+            f"Chromosome {chrom} metrics: panel-rows={reference.loc['panel_rows', 'remaining']}, "
+            f"off-grid-panel-SNPs={reference.loc['annotation_snp_grid', 'removed']}, "
             f"baseline/PLINK-match={values['matched_rows']}, "
             f"baseline-only={values['baseline_only_rows']}, PLINK-only={values['plink_only_rows']}, "
             f"coordinate-discordant={values['coordinate_discordant_rows']}, "
@@ -1768,6 +1786,7 @@ def build_plink_index_chromosome(
             maf_removed=prepared.maf_removed,
             selected_individual_count=prepared.selected_individual_count,
             cm_source=prepared.cm_source,
+            reference_snp_funnel=prepared.reference_snp_funnel,
         )
 
 

@@ -16,7 +16,7 @@ def declared_result_file(
 ) -> Path:
     """Resolve a declared input inside the canonical result root.
 
-    ``allow_missing`` permits an absent target, for example an optional rg
+    ``allow_missing`` permits an absent target, for example an optional ``rg``
     heritability table. It does not relax metadata or containment checks:
     absolute paths, escaping symlinks, and existing non-files are rejected.
     """

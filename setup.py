@@ -32,7 +32,7 @@ ALL_REQUIRES = PLINK_REQUIRES + LIFTOVER_REQUIRES
 setup(
     name="ldsc",
     version="2.0b",
-    description="LD Score Regression (LDSC)",
+    description="LD score regression (LDSC)",
     long_description=Path(__file__).with_name("README.md").read_text(encoding="utf-8"),
     long_description_content_type="text/markdown",
     url="https://github.com/WenbinWu2001/ldsc_py3",

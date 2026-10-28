@@ -4,11 +4,11 @@ See ATTRIBUTION.txt for independently reviewed data provenance and reuse
 terms, including unresolved source records. The software GPLv3 declaration
 does not establish the licensing of third-party datasets.
 
-`hm3_curated_map.tsv.gz` is the packaged curated HapMap3 SNP map used by
-`ldsc.load_hm3_curated_map()` and HM3 convenience flags. It is a gzip-compressed
+`hm3_curated_map.tsv.gz` is the packaged HM3 map, a curated HapMap3 SNP table
+used by `ldsc.load_hm3_curated_map()` and HM3 convenience flags. It is a gzip-compressed
 TSV with six columns: `CHR`, `hg19_POS`, `hg38_POS`, `SNP`, `A1`, `A2`.
 Positions are one-based native dbSNP build 157 placements in GRCh37 and
-GRCh38; `SNP`, `A1`, and `A2` come from the LDSC `w_hm3.snplist`. Rows are
+GRCh38; `SNP`, `A1`, and `A2` come from the legacy LDSC `w_hm3.snplist`. Rows are
 autosomal, non-strand-ambiguous, and unique in `SNP`, `(CHR, hg19_POS)`, and
 `(CHR, hg38_POS)`. Rebuild it with the maintainer tool
 `tools/hm3/build_hm3_curated_map.py`, whose docstring lists the pinned sources.

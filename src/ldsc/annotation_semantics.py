@@ -34,7 +34,7 @@ def require_unique_annotation_names(
     duplicates = sorted({name for name in names if names.count(name) > 1})
     if duplicates:
         raise LDSCInputError(
-            "Annotation names must be globally unique within an LD-score artifact. "
+            "Annotation names must be globally unique within an LD-score directory. "
             f"Duplicate annotation name(s): {', '.join(duplicates)}. Rename the conflicting "
             "baseline or query columns before computing LD scores."
         )

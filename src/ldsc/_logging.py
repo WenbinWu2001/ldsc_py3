@@ -1,10 +1,10 @@
-"""Shared per-run logging helpers for public LDSC workflows.
+"""Shared per-run logging helpers for public LDSC3 workflows.
 
 Overview
 --------
 This module centralizes the small amount of logging orchestration that belongs
 at workflow boundaries: optional per-run file handlers, stable lifecycle audit
-lines, multi-line command recording, and a shared LDSC package logger
+lines, multi-line command recording, and a shared ``LDSC`` package logger
 threshold. It intentionally avoids decorating computational class methods so
 direct APIs stay focused on data execution unless a public wrapper supplies a
 workflow log path.
@@ -241,7 +241,7 @@ def _atomic_write_failure_marker(
     """Atomically publish one plain-text overwrite failure marker."""
     detailed_log = log_path if log_path is not None else "No workflow log was opened for this failed attempt."
     content = (
-        "LDSC run failed during an authorized overwrite.\n"
+        "LDSC3 run failed during an authorized overwrite.\n"
         f"Failed at: {datetime.now(timezone.utc).isoformat()}\n"
         f"Command: {command}\n"
         f"Error: {type(error).__name__}: {error}\n"

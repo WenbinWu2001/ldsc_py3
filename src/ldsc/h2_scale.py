@@ -1,4 +1,4 @@
-"""Post-fit observed-to-liability-scale conversion for LDSC h2 results.
+"""Post-fit observed-to-liability-scale conversion for LDSC3 h2 results.
 
 Core functionality:
     Convert the observed-scale estimate and block-jackknife standard error in a
@@ -8,7 +8,7 @@ Core functionality:
 Overview
 --------
 The workflow always reads ``total_h2_obs`` and ``total_h2_obs_se`` from the
-declared h2 summary. It delegates the numerical conversion to the LDSC kernel,
+declared h2 summary. It delegates the numerical conversion to the LDSC3 kernel,
 so post-processing uses the same formula as the regression shortcuts. Exact
 conversion does not import Matplotlib; range conversion imports it only when a
 sensitivity figure is requested.
@@ -104,7 +104,7 @@ def convert_h2_scale(
     overwrite: bool = False,
     log_level: str | None = None,
 ) -> H2ScaleConversionArtifact:
-    """Convert a saved observed-scale SNP-heritability estimate.
+    """Convert a saved observed-scale SNP heritability estimate.
 
     Parameters
     ----------
@@ -324,7 +324,7 @@ def add_convert_h2_scale_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def run_convert_h2_scale_from_args(args: argparse.Namespace) -> H2ScaleConversionArtifact:
-    """Run post-fit h2 conversion from parsed CLI arguments."""
+    """Run post-fit SNP heritability conversion from parsed CLI arguments."""
     prevalence_range = tuple(args.pop_prev_range) if args.pop_prev_range is not None else None
     return convert_h2_scale(
         args.h2_result_dir,
@@ -484,7 +484,7 @@ def _plot_prevalence_sensitivity(table: pd.DataFrame, path: Path, pyplot) -> Non
         color="#4C78A8",
         alpha=0.2,
         linewidth=0,
-        label="±1 jackknife SE",
+        label=r"$\pm$1 jackknife SE",
     )
     axis.plot(x, estimate, color="#2F5D8A", linewidth=2, label="Estimate")
     axis.set_xlabel(r"Population prevalence ($K$)")

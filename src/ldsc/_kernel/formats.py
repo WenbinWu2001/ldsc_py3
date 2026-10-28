@@ -14,7 +14,7 @@ Overview
 --------
 This module retains only PLINK ``.bim``/``.fam`` and small identifier-list
 primitives still required by reference-panel and LD-score computation. Legacy
-sumstats and LD-score suite parsing belongs to public workflow modules.
+summary-statistics and LD-score suite parsing belongs to public workflow modules.
 
 Design Notes
 ------------
@@ -30,7 +30,7 @@ from ..errors import LDSCInputError
 
 
 def read_csv(fh, **kwargs):
-    """Read a whitespace-delimited LDSC text file with legacy missing-value rules."""
+    """Read a whitespace-delimited text file with legacy LDSC missing-value rules."""
     return pd.read_csv(fh, sep=r'\s+', na_values='.', **kwargs)
 
 
@@ -48,7 +48,7 @@ def get_compression(fh):
 
 def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None):
     """
-    Build a small file-reader class for one LDSC identifier-list format.
+    Build a small file-reader class for one legacy LDSC identifier-list format.
 
     The returned class mirrors the historical ``parse.py`` behavior used by the
     LD kernel: it reads one file into ``self.df`` and, when requested, exposes

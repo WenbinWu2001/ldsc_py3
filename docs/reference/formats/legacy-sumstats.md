@@ -1,4 +1,4 @@
-# Legacy Munged Sumstats Compatibility
+# Legacy Munged Summary-Statistics Compatibility
 
 Last updated on: 2026-10-27
 
@@ -8,25 +8,34 @@ This document defines the public compatibility boundary for munged summary stati
 
 The compatibility input is a legacy whitespace-delimited `.sumstats` or `.sumstats.gz` artifact with no LDSC3 identity metadata. The no-label munging output `sumstats.gz` uses this same compatibility pathway. Footerless Parquet is not part of the legacy compatibility contract.
 
-Legacy munged sumstats are treated as rsID-based source inputs. Their `SNP` values are compatibility lookup keys, not assertions of the canonical LDSC3 regression identity. The canonical LDSC3 LD-score panel remains authoritative for its recorded SNP identifier mode and for panel-owned identity metadata.
+Legacy munged summary statistics are treated as rsID-based source inputs.
+Their `SNP` values are compatibility lookup keys, not assertions of the canonical LDSC3 regression identity.
+The canonical LDSC3 LD-score panel remains authoritative for its recorded SNP identifier mode and for panel-owned identity metadata.
 
-This compatibility boundary applies when legacy munged sumstats are consumed by `h2`, `partitioned-h2`, or `rg`. It does not make legacy LD-score fragments part of the public regression input contract; regression continues to consume a canonical LDSC3 LD-score result directory.
+This compatibility boundary applies when legacy munged summary statistics are consumed by `h2`, `partitioned-h2`, or `rg`.
+It does not make legacy LD-score fragments part of the public regression input contract; regression continues to consume an LDSC3 LD-score directory.
 
-Legacy coordinate columns, when present, do not participate in identity matching. LDSC3 does not infer, declare, compare, or liftover a genome build for a legacy sumstats input. After compatibility matching, the LD-score panel supplies the canonical `CHR` and `POS` values and the regression runs under the panel's recorded SNP identifier mode. Whether alleles are also projected from the panel depends on whether that panel uses an allele-aware identifier mode.
+Legacy coordinate columns, when present, do not participate in identity matching.
+LDSC3 does not infer, declare, compare, or liftover a genome build for a legacy summary-statistics input.
+After compatibility matching, the LD-score panel supplies the canonical `CHR` and `POS` values and the regression runs under the panel's recorded SNP identifier mode.
+Whether alleles are also projected from the panel depends on whether that panel uses an allele-aware identifier mode.
 
 ## Compatibility Matching
 
-For each legacy sumstats input, LDSC3 performs this boundary conversion before normal regression dataset assembly:
+For each legacy summary-statistics input, LDSC3 performs this boundary conversion before normal regression dataset assembly:
 
-1. Require the legacy artifact to contain `SNP`, `A1`, `A2`, `Z`, and `N`. Allele-less legacy artifacts are unsupported for all three regression commands, including `rg`. Require the canonical LD-score panel to contain `SNP`; require panel `A1` and `A2` only for an allele-aware panel.
+1. Require the legacy artifact to contain `SNP`, `A1`, `A2`, `Z`, and `N`. Allele-less legacy artifacts are unsupported for all three regression commands, including `rg`. Require the LD-score directory to contain `SNP` for its regression SNPs; require its `A1` and `A2` only when the LD-score directory uses an allele-aware mode.
 2. Normalize allele letter case and apply the LDSC3 drop-all duplicate policy to the source. When an rsID occurs more than once in one legacy input, drop every row in that source duplicate cluster before panel matching.
 3. For an allele-aware panel, find all panel rows with the source rsID, filter those candidates by allele compatibility, and accept the source row only when exactly one compatible panel row remains. A panel rsID need not be unique before allele filtering because panel alleles may safely disambiguate candidates.
 4. For an allele-unaware panel, accept a source row only when its rsID identifies exactly one panel row. Multiple panel rows with that rsID cannot be disambiguated and are dropped.
 5. With an allele-aware panel, accept direct, strand-complement, swapped, and swapped-strand-complement allele relationships. Drop strand-ambiguous A/T and C/G pairs, missing or invalid alleles, and relationships incompatible with every panel candidate. Orient the legacy association statistic to the accepted panel row's `A1`: keep `Z` for direct or strand-complement matches and negate `Z` for swapped or swapped-strand-complement matches.
 6. With an allele-unaware panel, retain the source `A1`, `A2`, `Z`, and `FRQ` orientation. No panel allele exists to justify changing them. This is sufficient for `h2`, which consumes `Z` through `Z` squared. For `rg`, project each trait independently to panel SNP rows, then harmonize the two traits to one another; negate `Z` and transform a valid `FRQ` to `1 - FRQ` for the swapped trait as required.
-7. In both cases, replace the matched row's `CHR`, `POS`, and `SNP` with the panel values and run regression using the panel's recorded identity mode. With an allele-aware panel, also replace `A1` and `A2` with the panel alleles.
+7. In both cases, replace the matched row's `CHR`, `POS`, and `SNP` with the panel values and run regression using the panel's recorded SNP identifier mode.
+   With an allele-aware panel, also replace `A1` and `A2` with the panel alleles.
 
-If the legacy row carries `FRQ`, it remains a sumstats-owned value and is never imputed from panel frequency metadata. For a row whose allele orientation is swapped against an allele-aware panel, or for a trait swapped during pairwise `rg` harmonization under an allele-unaware panel, transform the legacy value to `1 - FRQ` so it remains the frequency of the oriented `A1`; otherwise retain it unchanged. Panel frequency metadata is likewise never imputed from sumstats.
+If the legacy row carries `FRQ`, it remains a value owned by the summary statistics and is never imputed from panel frequency metadata.
+For a row whose allele orientation is swapped against an allele-aware panel, or for a trait swapped during pairwise `rg` harmonization under an allele-unaware panel, transform the legacy value to `1 - FRQ` so it remains the frequency of the oriented `A1`; otherwise retain it unchanged.
+Panel frequency metadata is likewise never imputed from summary statistics.
 
 `FRQ` is not consumed by regression. A missing, nonnumeric, or out-of-range legacy `FRQ` therefore does not drop an otherwise compatible SNP: the compatibility layer preserves it as missing and logs an aggregate warning. The `1 - FRQ` transformation applies only to valid numeric values in `[0, 1]`.
 
@@ -50,9 +59,14 @@ Because every regression CLI requires an output directory, a run with at least o
 
 ## Workflow and API Behavior
 
-Compatibility projection is automatic in both the public CLI regression workflows and the public Python regression workflow. `load_sumstats()` identifies `.sumstats` and `.sumstats.gz` as legacy inputs; users do not call a separate converter. `RegressionRunner` projects a marked legacy table onto the supplied canonical LD-score panel before ordinary dataset assembly.
+Compatibility projection is automatic in both the public CLI regression workflows and the public Python regression workflow.
+`load_sumstats()` identifies `.sumstats` and `.sumstats.gz` as legacy inputs; users do not call a separate converter.
+`RegressionRunner` projects a marked legacy table onto the regression SNPs in the supplied LD-score directory before ordinary dataset assembly.
 
-An `rg` invocation may mix current self-describing Parquet sumstats and legacy text sumstats. Each legacy input is independently projected onto the panel identity. Current Parquet inputs retain their recorded provenance and are never reinterpreted by the compatibility layer. After projection, all inputs pass through the same ordinary compatibility checks against the canonical panel.
+An `rg` invocation may mix current self-describing Parquet summary statistics and legacy text summary statistics.
+Each legacy input is independently projected onto the panel identity.
+Current Parquet inputs retain their recorded provenance and are never reinterpreted by the compatibility layer.
+After projection, all inputs pass through the same ordinary compatibility checks against the LD-score directory.
 
 ## Related Contracts
 

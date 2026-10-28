@@ -11,7 +11,7 @@ Rebuilt on 2026-10-27 by tools/hm3/build_hm3_curated_map.py, whose
 docstring records every source URL, release, checksum, and column
 derivation. The table has six columns from two sources:
 
-  SNP, A1, A2: the LDSC HapMap3 list w_hm3.snplist distributed by the Alkes
+  SNP, A1, A2: the legacy LDSC HapMap3 list w_hm3.snplist distributed by the Alkes
   group. The original URL
   https://data.broadinstitute.org/alkesgroup/LDSCORE/w_hm3.snplist.bz2 no
   longer resolves; the build used the gzipped mirror

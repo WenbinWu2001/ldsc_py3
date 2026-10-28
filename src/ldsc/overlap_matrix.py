@@ -19,7 +19,7 @@ from ._kernel.overlap import OverlapContribution
 
 @dataclass(frozen=True)
 class LDScoreOverlap:
-    """Labeled overlap blocks for both SNP universes.
+    """Labeled overlap blocks for all and common reference SNPs.
 
     ``baseline_block_*`` is indexed by baseline annotation name with columns over
     all annotations (``baseline + query``). ``query_diagonal_*`` is indexed by
@@ -151,7 +151,7 @@ def overlap_from_long_frame(
 
 
 def overlap_aware_category_table(hsq, overlap_matrix, m_annot, m_tot, category_names) -> pd.DataFrame:
-    """Legacy overlap-aware category table plus LDSC3 augmentation columns.
+    """Legacy overlap-aware annotation table plus LDSC3 augmentation columns.
 
     The overlap-aware columns are produced verbatim by the ported
     ``Hsq._overlap_output``. This function then renames the z-score column,
@@ -187,16 +187,16 @@ def overlap_aware_category_table(hsq, overlap_matrix, m_annot, m_tot, category_n
 def assemble_model_overlap(
     overlap: LDScoreOverlap, retained_columns: list[str], use_common: bool
 ) -> np.ndarray:
-    """Build the ``K×K`` model overlap matrix for ``retained_columns`` by name.
+    """Build the ``KxK`` model overlap matrix for ``retained_columns`` by name.
 
     Baseline-baseline and baseline-query entries come from the baseline-rows
     block (using symmetry for query-baseline); the query-query diagonal comes
-    from the stored self-overlap. ``use_common`` selects the common reference-SNP universe.
+    from the stored self-overlap. ``use_common`` selects the common reference SNPs.
     """
     block = overlap.baseline_block_common if use_common else overlap.baseline_block_all
     qdiag = overlap.query_diagonal_common if use_common else overlap.query_diagonal_all
     if block is None:
-        raise ValueError("common reference-SNP universe overlap requested but not stored")
+        raise ValueError("common reference-SNP overlap requested but not stored")
     baseline_index = set(block.index)
     k = len(retained_columns)
     out = np.zeros((k, k), dtype=np.float64)
@@ -224,7 +224,7 @@ def model_collinearity_error(X, columns, overlap_matrix, threshold: float = 1e5)
     X = np.asarray(X, dtype=np.float64)
     if X.shape[1] < 2:
         return None
-    # cond(X) = sqrt(cond(XᵀX)); the Gram matrix is small (k×k), so this avoids an
+    # cond(X) = sqrt(cond(X.T @ X)); the Gram matrix is small (kxk), so this avoids an
     # SVD of the tall design matrix per fitted model.
     condition_number = float(np.sqrt(np.linalg.cond(X.T @ X)))
     if condition_number <= threshold:
@@ -235,7 +235,7 @@ def model_collinearity_error(X, columns, overlap_matrix, threshold: float = 1e5)
     np.fill_diagonal(corr, 0.0)
     i, j = np.unravel_index(int(np.argmax(np.abs(corr))), corr.shape)
     return (
-        f"LD-score regression aborted: the design matrix is collinear (condition number "
+        f"LD score regression aborted: the design matrix is collinear (condition number "
         f"{int(condition_number)} > {int(threshold)}). Annotations '{columns[i]}' and "
         f"'{columns[j]}' overlap almost entirely (r={corr[i, j]:.3f}); their coefficients "
         f"cannot be separated. Drop one of them or coarsen the annotation, then re-run."

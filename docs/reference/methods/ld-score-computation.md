@@ -1,10 +1,9 @@
-# LD-score Computation from R² Parquets — Mathematical Specification
+# LD-score Computation from R² Panels — Mathematical Specification
 
 Last updated on: 2026-10-27
 
-This document defines, in math, **how LD scores are computed from a parquet R²
-reference panel** by the streaming accumulator. It is the conceptual companion to
-[the artifact format and read pipeline](../formats/r2-panels.md).
+This document defines, in math, **how LD scores are computed from an R² panel** by the streaming accumulator.
+It is the conceptual companion to [the artifact format and read pipeline](../formats/r2-panels.md).
 §8 records why the earlier sliding-block method was replaced; the current selected-output realization is described below.
 
 Every symbol is defined in §1 before it is used. Read §1 first.
@@ -13,8 +12,8 @@ Every symbol is defined in §1 before it is used. Read §1 first.
 
 ## 1. Notation
 
-Indices are **0-based** and refer to the *retained* SNP universe (the analysis
-SNPs after intersection/restriction), in **genomic (position-sorted) order**.
+Indices are **0-based** and refer to the *retained* reference SNPs (the reference SNPs
+after intersection and restriction), in **genomic (position-sorted) order**.
 
 | Symbol | Type | Meaning |
 |---|---|---|
@@ -38,7 +37,7 @@ SNPs after intersection/restriction), in **genomic (position-sorted) order**.
 | $q$ | on-disk int16 | the quantized R² of a pair as stored on disk |
 | $s$ | scalar | dequantization scale, $s=32767$ (`ldsc:r2_scale`) |
 | $K$ | scalar | maximum decoded pairs buffered before projection (§5) |
-| $O$ | ordered retained-row indices | output SNP rows, a subset of the contributor universe |
+| $O$ | ordered retained-row indices | output SNP rows, a subset of the reference SNPs |
 | $C_{\mathrm{out}}$ | matrix $\mathbb{R}^{\lvert O\rvert\times n_a}$ | production float64 accumulator, equal to $(RA)[O,:]$ |
 
 Convention: $\mathrel{+}=$ means "add into" (accumulate); $\leftarrow$ means
@@ -92,7 +91,7 @@ product $RA$ is formed by streaming those pairs (§5).
 
 ---
 
-## 4. What the parquet provides
+## 4. What the R² panel provides
 
 The panel stores each **unordered** within-(build-)window pair **once**, in the
 upper triangle. After the read-side per-pair transform (decode), a stored pair is a
@@ -105,7 +104,7 @@ $$
 
 Two filters define the consumed set $P$:
 
-1. **Retention.** Drop pairs whose either endpoint is not in the analysis universe
+1. **Retention.** Drop pairs whose either endpoint is not a retained reference SNP
    ($\mathrm{remap}=-1$).
 2. **LD window.** The *ldscore* window (`--ld-wind-*`) may be **tighter** than the
    panel's build window, so a stored pair counts only if both endpoints are mutual
@@ -149,9 +148,8 @@ $$
 C = RA,\qquad \ell_{k,a}=C_{k,a}.
 $$
 
-Columns $1..(n_a-1)$ are the reference/partitioned LD scores; the appended column is
-the regression-universe weight $w_\ell$. Both come out of the **same pass**, because
-the regression weight is just one more column of $A$.
+Columns $1..(n_a-1)$ are the reference/partitioned LD scores; the appended column is the regression-SNP weight $w_\ell$.
+Both come out of the **same pass**, because the regression weight is just one more column of $A$.
 
 ### Sparse realization (chunked CSR)
 
@@ -218,14 +216,14 @@ $$
 #### Current selected-output implementation
 
 The workflow needs $C_{\mathrm{out}}=(RA)[O,:]$, not every row of $C$.
-Each output still sums over all retained reference contributors.
+Each output still sums over all reference SNPs.
 For chunk $c$, let $W_c=(U_c+U_c^\top)[O,:]$; then
 
 $$
 C_{\mathrm{out}} = A[O,:] + \sum_c W_c A.
 $$
 
-[`ProjectionAccumulator.add_pairs()`](../../../src/ldsc/_kernel/ldscore_projection.py) builds the needed directed edges only for output targets, compacts the involved target/contributor indices, and uses a rectangular float64 CSR for $W_c$.
+[`ProjectionAccumulator.add_pairs()`](../../../src/ldsc/_kernel/ldscore_projection.py) builds the needed directed edges only for output targets, compacts the involved target/reference-SNP indices, and uses a rectangular float64 CSR for $W_c$.
 If $O=[0,2]$ in the example, the selected scores are $[1.6,2.3]^\top$.
 SNPs 1 and 3 still contribute; dropping them before multiplication would give the wrong answer.
 The diagonal is seeded once on output rows by `add_diagonal()`.
@@ -235,8 +233,8 @@ $K$ is independent of Parquet row-group size and PLINK `snp_batch_size`; it is n
 The pair buffer, concatenated arrays, two-direction expansion, CSR and sorting workspace can coexist, so $K$ is not a byte/RSS cap.
 The reader uses record batches of at most 65,536 rows even for oversized row groups.
 
-`ProjectionAccumulator._accumulate()` tiles annotation columns and contributor/output rows.
-It reads a float64 contributor tile once and reuses it across output blocks.
+`ProjectionAccumulator._accumulate()` tiles annotation columns and reference-SNP/output rows.
+It reads a float64 reference-SNP tile once and reuses it across output blocks.
 The default 16 MiB read budget targets one operand tile, with at least one row, rather than the complete working set.
 Sparse slices, gathered accumulator entries, products, metadata, and conversion buffers have separate lifetimes.
 The main score array spans output rows and the workflow's active annotation batch, including shared baseline and weight columns.
@@ -300,7 +298,7 @@ There is no dense chromosome-wide $R$ or decoded-row-group cache.
 This bounds particular components independently of total stored pair count, but it is not a formula for total process or job RSS.
 The read-time window can change the retained sparse operator even though every stored pair is scanned.
 Worker concurrency, genotype/index state, filesystem cache, and staged final outputs must be accounted for separately.
-See [memory and CPU efficiency design](../../dev/design/memory-and-cpu.md#precision-universes-and-resource-accounting).
+See [memory and CPU efficiency design](../../dev/design/memory-and-cpu.md#precision-snp-sets-and-resource-accounting).
 
 ---
 

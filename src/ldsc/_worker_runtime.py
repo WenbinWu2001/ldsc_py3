@@ -34,7 +34,7 @@ def _accelerate_state(*, configure=False):
 
 
 def initialize_worker(log_level="INFO"):
-    """Apply fixed limits only in a managed child, after loading both BLAS users.
+    """Apply fixed limits only in a worker, after loading both BLAS users.
 
     Higher inherited environment limits never override this policy. Unsupported
     numerical controls are diagnostic, not computation failures. Callers report

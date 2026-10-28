@@ -2,8 +2,8 @@
 
 This workflow resolves source and catalog gates before projection, measures
 annotation-grid support, writes canonical chromosome shards incrementally,
-and returns a resource-owning dataset handle. Reference-panel and regression
-universes are deliberately absent from standalone annotation generation.
+and returns a resource-owning dataset handle. Reference-SNP and regression-SNP
+selection are deliberately absent from standalone annotation generation.
 """
 
 import logging
@@ -42,14 +42,14 @@ def _projection_build(requested, mode, baseline_tokens, catalog, *, bim_tokens=(
     if catalog is not None and requested is None:
         requested = 'auto'
     if requested is None:
-        raise LDSCInputError('annotate requires --genome-build for chr_pos-family identifiers. Supply auto, hg19, or hg38.')
+        raise LDSCInputError('annotate requires --genome-build for coordinate-family SNP identifier modes. Supply auto, hg19, or hg38.')
     check = GenomeBuildCheck(requested, context='annotate', logger=LOGGER)
     check.paths('--ref-snp-annot-sources', baseline_tokens)
     check.paths('--query-annot-sources', query_tokens)
     if bim_tokens:
         check.paths('--ref-snp-bim-sources', bim_tokens, bim=True)
     if catalog is not None:
-        check.declared('--gene-coordinate-file', getattr(catalog, 'source', 'gene-coordinate catalog'), catalog.genome_build)
+        check.declared('--gene-coordinate-file', getattr(catalog, 'source', 'gene coordinate catalog'), catalog.genome_build)
     check.unchecked('--query-annot-bed-sources', bed_tokens, 'ordinary BED; inherits workflow build')
     return check.resolve()
 
@@ -74,7 +74,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                  query_annot_bed_sources=None, query_annot_gene_list_sources=None,
                  gene_coordinate_file=None, padding_bp=None, gene_list_resolution_policy=None, gene_exclude_regions=None,
                  genome_build=None, global_config=None, overwrite=False, _console_notices=False):
-    """Write BED or focal gene-list annotations and return a live shard handle.
+    """Write BED or query gene-list annotations and return a live shard handle.
 
     Parameters
     ----------
@@ -82,14 +82,14 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
         Exactly one grid source. Annotation files supply SNP metadata and real
         baseline values; BIM files supply only SNP metadata and need no BED/FAM
         companions. Exact paths, globs, comma-separated tokens, and @
-        chromosome suites are accepted. BIM @ suites require chromosomes 1–22.
+        chromosome suites are accepted. BIM @ suites require chromosomes 1-22.
         Existing identity cleanup determines the retained grid and row order.
     output_dir : path-like
         Required destination for canonical outputs and owned private staging.
     query_annot_bed_sources, query_annot_gene_list_sources : str or sequence of path-like, optional
-        Exactly one focal query route. Gene lists use exact catalog identifiers.
+        Exactly one query route. Gene lists use exact catalog identifiers.
     gene_coordinate_file : path-like, optional
-        Required one-build coordinate catalog for gene mode; no packaged default.
+        Required one-build gene coordinate catalog for gene mode; no packaged default.
     padding_bp : int, optional
         Nonnegative interval padding. Gene mode requires an explicit value;
         omitted BED padding is zero. Gene starts are clipped at zero.
@@ -143,7 +143,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
     if genes and padding_bp is None:
         raise LDSCInputError('Gene-list annotate requires explicit nonnegative --padding-bp; use 0 for gene bodies.')
     if not genes and (gene_coordinate_file is not None or gene_list_resolution_policy is not None or gene_exclude_regions is not None):
-        raise LDSCInputError('Gene catalog, resolution, and exclusion options require --query-annot-gene-list-sources.')
+        raise LDSCInputError('Gene coordinate catalog, resolution, and exclusion options require --query-annot-gene-list-sources.')
     config = global_config or get_global_config()
     requested = genome_build if genome_build is not None else config.genome_build
     print_global_config_banner('run_annotate', config)
@@ -187,7 +187,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                     naming_errors.append('Gene-list query names collide with reserved annotation metadata/control names: ' + ', '.join(reserved_queries) + '.')
                 naming_error = None
                 if naming_errors:
-                    naming_error = LDSCInputError(' '.join(naming_errors) + ' Rename conflicting focal source files to change their query names.')
+                    naming_error = LDSCInputError(' '.join(naming_errors) + ' Rename conflicting query source files to change their query names.')
                     summary = batch.summary.copy()
                     # Duplicate-query reasons are already recorded by the resolver.
                     invalid_names = summary['query'].isin(baseline_columns | reserved)

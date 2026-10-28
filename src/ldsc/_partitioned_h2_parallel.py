@@ -1,4 +1,4 @@
-"""Bounded whole-query processes and immutable, output-owned regression maps.
+"""Bounded whole-query workers and immutable, output-owned regression maps.
 
 The parent owns every file and publishes results. Workers borrow mapped numeric
 columns, keep row labels/model metadata once per process, and stage one fit at a

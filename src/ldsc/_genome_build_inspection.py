@@ -1,6 +1,6 @@
 """Read-only artifact inspection for ``ldsc infer-genome-build``.
 
-Reports coordinate provenance independently of the SNP matching mode. This
+Reports coordinate provenance independently of the SNP identifier mode. This
 helper does not resolve workflow configuration or verify declared coordinates.
 """
 
@@ -25,7 +25,7 @@ from .genome_build_inference import infer_chr_pos_build
 from .path_resolution import normalize_path_token
 
 
-_RSID_NOTICE = "This artifact’s workflow uses rsIDs for SNP matching."
+_RSID_NOTICE = "This artifact's workflow uses rsIDs for SNP matching."
 _NO_EVIDENCE = "no build metadata or usable SNP coordinates"
 _TROUBLESHOOTING = "docs/user-guide/troubleshooting.md#infer-genome-build-input-cannot-be-inspected"
 _JSON_TYPES = {
@@ -114,7 +114,7 @@ def inspect_genome_build(path: str) -> str:
     str
         Declared or inferred hg19/hg38, labeled coordinate alternatives, or
         ``unknown`` for insufficient evidence, followed by an rsID notice only
-        when matching mode is recorded. No coordinate conversion is performed.
+        when the SNP identifier mode is recorded. No liftover is performed.
 
     Raises
     ------
@@ -153,7 +153,7 @@ def _inspect_table(path: Path, *, inherited=None) -> _Inspection:
         with opener(path, "rt", encoding="utf-8") as stream:
             probe = stream.read(4096)
         if any(ord(char) < 32 and char not in "\t\r\n" for char in probe):
-            raise LDSCInputError(f"Unsupported binary input: {path}. Supply a BIM, text table, Parquet, or LDSC metadata file.")
+            raise LDSCInputError(f"Unsupported binary input: {path}. Supply a BIM, text table, Parquet, or LDSC3 metadata file.")
         options, metadata = _text_options(path)
         if suffix in {"bim", "bed"}:
             columns = []
@@ -216,7 +216,7 @@ def _read_metadata(path: Path) -> dict:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if (not isinstance(payload, dict) or not isinstance(payload.get("artifact_type"), str)
             or payload["artifact_type"] not in _JSON_TYPES):
-        raise LDSCInputError(f"Unrecognized LDSC metadata: {path}. Supply metadata from a supported LDSC artifact.")
+        raise LDSCInputError(f"Unrecognized LDSC3 metadata: {path}. Supply metadata from a supported LDSC3 artifact.")
     if "files" in payload and not isinstance(payload["files"], dict):
         raise LDSCInputError(f"Malformed files manifest in {path}: expected an object.")
     if payload["artifact_type"] == "gene_ldscore_index" and not isinstance(payload.get("chromosomes", []), list):
@@ -365,7 +365,7 @@ def _inspect_directory(root: Path) -> _Inspection:
             result.merge(_inspect_table(_member(root, member.name)))
     if result.groups:
         return result
-    raise LDSCInputError(f"Unrecognized LDSC artifact directory: {root}. Supply an exact supported file or a recognized artifact directory.")
+    raise LDSCInputError(f"Unrecognized LDSC3 artifact directory: {root}. Supply an exact supported file or a recognized artifact directory.")
 
 
 def _infer_frames(result: _Inspection, path: Path, frames) -> None:

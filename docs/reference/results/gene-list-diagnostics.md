@@ -8,11 +8,11 @@ log after a successful SLURM job. Therefore, strict mode stops before LD-score
 calculation when identifier resolution would silently change the submitted
 gene set. The value-free `--allow-unresolved-genes` flag selects the exploratory `resolved-only` policy, which continues only with an explicit audit, summary, metadata record, and bounded console warning.
 
-Start with `diagnostics/gene_list_resolution_summary.tsv`. It identifies the
-affected focal or control files and shows their resolved/total counts. Then
-filter `diagnostics/gene_list_audit.tsv.gz` to the source and reason you need to
-repair. Edit the user-owned gene lists first. Change the coordinate catalog only
-when catalog line evidence shows that its upstream transformation is defective.
+Start with `diagnostics/gene_list_resolution_summary.tsv`.
+It identifies the affected focal or control files and shows their resolved/total counts.
+Then filter `diagnostics/gene_list_audit.tsv.gz` to the source and reason you need to repair.
+Edit the user-owned gene lists first.
+Change the gene coordinate catalog only when catalog line evidence shows that its upstream transformation is defective.
 
 ## Diagnostic files by validation stage
 
@@ -25,7 +25,7 @@ when catalog line evidence shows that its upstream transformation is defective.
 | `diagnostics/input_issues.tsv` | Input-integrity or preparation failures | Consolidated required-artifact issues and repair guidance. |
 | `diagnostics/ldscore.log` | Every ordinary `ldscore` workflow | Aggregate counts and diagnostic pointers, numbered batches and chromosome progress, plus specific failure details. Full successful query/source logging requires DEBUG. |
 | `diagnostics/gene_catalog_issues.tsv` | Direct gene-list LD scores with catalog defects, on successful publication or diagnostic-only gene gates | Complete latent catalog defects; the log summarizes their count. Uses the existing standalone annotate catalog-issue schema. |
-| `.<index-name>.build-state/gene_coordinate_catalog_issues.tsv.gz` | A gene-index build whose catalog is noncanonical | Every detected source-catalog defect. It is outside the unpublished index. |
+| `.<index-name>.build-state/gene_coordinate_catalog_issues.tsv.gz` | A gene LD-score index build whose catalog is noncanonical | Every detected source-catalog defect. It is outside the unpublished index. |
 
 A structural catalog failure may prevent reliable gene-list matching, so it
 does not create a synthetic gene-list audit. A Gate A identifier failure writes
@@ -38,7 +38,12 @@ output.
 
 ## Chromosome scope and pathway coverage
 
-Direct PLINK and parquet-R² query runs require exactly matching validated baseline/reference chromosome sets. Exact inputs and ordinary globs select their actual files; file contents establish chromosome membership. A filename such as `*.22.annot.gz` does not prove chr22-only contents. Additional chromosomes in matched files participate in scope. An `@` declaration requires every autosome 1–22, including all required members of each reference artifact. Mixing `@` with a chr22-only group fails alignment.
+Direct PLINK and R² panel query runs require exactly matching validated baseline/reference chromosome sets.
+Exact inputs and ordinary globs select their actual files; file contents establish chromosome membership.
+A filename such as `*.22.annot.gz` does not prove chr22-only contents.
+Additional chromosomes in matched files participate in scope.
+An `@` declaration requires every autosome 1–22, including all required members of each reference artifact.
+Mixing `@` with a chr22-only group fails alignment.
 
 For PLINK globs, the validated chromosome-to-trio mapping also drives the numerical reader, so filenames cannot redirect computation after preflight. Multiple selected trios containing the same chromosome are ambiguous and fail preflight; select one complete trio per chromosome.
 
@@ -85,8 +90,8 @@ not be identical because gzip headers can contain timestamps.
 
 ## Gene-list audit columns
 
-Coordinates in this file remain one-based inclusive, matching the coordinate
-catalog. Blank values mean that the field is not knowable or not applicable.
+Coordinates in this file remain one-based inclusive, matching the gene coordinate catalog.
+Blank values mean that the field is not knowable or not applicable.
 
 | Column | Meaning |
 | --- | --- |
@@ -187,7 +192,7 @@ In `annotate`, support counts describe the annotation grid, and `n_annotation_sn
 | `skipped` | `empty_gene_list` | The readable source contains no nonblank rows. |
 | `skipped` | `zero_resolved_genes` | A nonempty source has no selected genes after allowed resolution omissions or explicit exclusions. |
 | `skipped` | `zero_annotation_snps` | The resolved annotation has no retained panel SNPs in this run. |
-| `skipped` | `zero_variance_ld_scores` | The computed query LD scores are constant on regression rows. |
+| `skipped` | `zero_variance_ld_scores` | The computed query LD scores are constant on the regression SNPs. |
 
 When both partial gene resolution and partial SNP support occur,
 `partial_gene_resolution` remains the primary reason and `details` plus the
@@ -219,7 +224,10 @@ batch systems.
 
 ### Resolution policy versus computation mode
 
-`strict` and `resolved-only` are resolution policies; direct and indexed are computation modes. Both modes default to `strict`; supplying the value-free flag `--allow-unresolved-genes` selects `resolved-only`. Direct mode resolves genes against the supplied coordinate catalog. Indexed mode first validates the index, then resolves genes against its embedded catalog.
+`strict` and `resolved-only` are resolution policies; direct and indexed are computation modes.
+Both modes default to `strict`; supplying the value-free flag `--allow-unresolved-genes` selects `resolved-only`.
+Direct mode resolves genes against the supplied gene coordinate catalog.
+Indexed mode first validates the index, then resolves genes against its embedded catalog.
 
 In the table below, **fail** means stop the entire run. **Omit rows** means deliberately exclude the affected input rows and record them in diagnostics; continuation still requires a usable focal query and, when requested, a usable control. A **rejected row** is an input identifier that cannot provide one unique, valid catalog interval. A successfully resolved gene with no retained-SNP support is evaluated separately after resolution.
 
@@ -251,11 +259,14 @@ These checks apply after Gate A succeeds, under both resolution policies and bot
 | Required input artifacts are missing, unreadable, malformed, or chromosome sets disagree | Fail the input gate; unevaluated support remains unknown. |
 | Some selected genes have no retained reference-SNP support, but the focal query still has support | Retain the query with a warning and audit the unsupported genes. If partial resolution also occurred, `partial_gene_resolution` remains the primary reason. |
 | A focal query has no retained reference-SNP support | Skip the query with `zero_annotation_snps`. |
-| A focal query's LD scores are constant on regression SNP rows | Skip the query with `zero_variance_ld_scores`. |
-| A requested control has no selected genes, no retained-SNP support, or constant LD scores on regression SNP rows | Fail the entire run; silently dropping the control would change the conditioning model. |
+| A focal query's LD scores are constant on the regression SNPs | Skip the query with `zero_variance_ld_scores`. |
+| A requested control has no selected genes, no retained-SNP support, or constant LD scores on the regression SNPs | Fail the entire run; silently dropping the control would change the conditioning model. |
 | No usable focal query remains | Fail after writing available diagnostics; do not publish a baseline-only scientific result for the requested gene-query run. |
 
-Direct mode measures support by intersecting projected gene intervals with the prepared baseline/reference intersection after genotype, sample, SNP, and MAF restrictions. Indexed mode obtains support from the stored gene-to-atom membership and atom SNP counts. Support is measured on the reference-SNP universe, whereas LD-score variation is checked on regression SNP rows. Agreement between modes requires matching catalogs, projection settings, and retained SNP universes; a matching gene-list filename alone does not establish equivalence.
+Direct mode measures support by intersecting projected gene intervals with the prepared baseline/reference intersection after genotype, sample, SNP, and MAF restrictions.
+Indexed mode obtains support from the stored gene-to-atom membership and atom SNP counts.
+Support is measured on the reference SNPs, whereas LD-score variation is checked on the regression SNPs.
+Agreement between modes requires matching catalogs, projection settings, and retained reference SNPs; a matching gene-list filename alone does not establish equivalence.
 
 Implementation references: [`query_annotations.py`](../../../src/ldsc/query_annotations.py), `assess_gene_coverage()`, `gene_query_statuses()`, `gene_viability_errors()`, and `finalize_query_statuses()` own shared policy and aligned pruning. [`_ldscore_preflight.py`](../../../src/ldsc/_ldscore_preflight.py), `inspect_direct_inputs()` validates scope; [`ldscore_calculator.py`](../../../src/ldsc/ldscore_calculator.py), `_apply_direct_gene_gate_b()` measures direct support; [`gene_ldscore_index.py`](../../../src/ldsc/gene_ldscore_index.py), `_indexed_gene_support()` measures indexed support.
 
@@ -267,7 +278,7 @@ Implementation references: [`query_annotations.py`](../../../src/ldsc/query_anno
 3. Replace ambiguous names with authoritative `gene_id` values. Prefer IDs for
    every curated list because names can be shared.
 4. Correct case, spelling, or exact version suffixes for unmatched tokens. If
-   the intended gene is outside the catalog universe, remove it or choose a
+   the intended gene is not among the genes in the catalog, remove it or choose a
    catalog derived from an annotation that includes that gene.
 5. Remove later duplicate rows and malformed extra fields. Duplicates are
    scientifically benign, but a clean list is easier to review and diff.
@@ -279,9 +290,9 @@ Implementation references: [`query_annotations.py`](../../../src/ldsc/query_anno
 
 For exploratory pathway screening, preserve the original lists and add `--allow-unresolved-genes`; archive the summary and audit with the results. Before a final analysis, curate the source lists and omit the flag to return to strict resolution.
 
-## Coordinate-catalog repair and index-builder issues
+## Gene coordinate catalog repair and index-builder issues
 
-The coordinate TSV/TSV.GZ is the sole live catalog universe. It must contain
+The gene coordinate catalog TSV/TSV.GZ is the only source of genes in the catalog. It must contain
 `gene_id`, `gene_name`, `chrom`, `start`, `end`, and `genome_build`. Coordinates
 are one-based inclusive: internal projection uses `[start - 1, end)`, subtracting
 one from the start only. The catalog represents one declared `hg19`/GRCh37 or
@@ -320,10 +331,8 @@ ID, and remove ambiguity in IDs, names, and cross-namespace tokens. A successful
 rebuild archives the prior issues file with the historical build log and leaves
 no empty current issues file inside the published index.
 
-No inexpensive validator can detect catalog rows that secretly mix coordinate
-builds while all declarations and intervals remain plausible. Producing a
-single-build catalog from one authoritative source remains the user's
-responsibility; LDSC performs no implicit liftover.
+No inexpensive validator can detect catalog rows that secretly mix coordinate builds while all declarations and intervals remain plausible.
+Producing a single-build catalog from one authoritative source remains the user's responsibility; LDSC3 performs no implicit liftover.
 
 ## File patterns and chromosome coverage
 

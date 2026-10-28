@@ -1,9 +1,9 @@
-"""Point-lookup compute for index-format reference-panel R² parquet files.
+"""Point-lookup compute for R2 panel Parquet files.
 
 Given a per-chromosome ``pyarrow.parquet.ParquetFile`` and canonical ``(i, j)``
-sidecar-row index arrays (``i < j``), return the stored adjusted R² and the
+sidecar-row index arrays (``i < j``), return the stored unbiased R2 and the
 panel-orientation sign for each pair. Pairs are matched by an int64 key
-``i * n_snps + j`` against decoded row groups; absent pairs yield ``NaN`` R² and
+``i * n_snps + j`` against decoded row groups; absent pairs yield ``NaN`` R2 and
 sign ``0``. Two strategies share the match primitive: random-access (row-group
 pruning on ``IDX_1`` footer statistics) and streaming (scan every row group).
 
@@ -65,7 +65,7 @@ def lookup_pairs_in_parquet(
 
     ``r2`` is float32 with ``NaN`` where the pair is not stored; ``sign`` is int8
     with ``+1``/``-1`` for stored pairs (panel orientation) and ``0`` where the
-    pair is not stored. The int16 R² column is divided by ``r2_scale``
+    pair is not stored. The int16 R2 column is divided by ``r2_scale``
     (dequantization).
     """
     i = np.asarray(i, dtype=np.int64)

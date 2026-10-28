@@ -404,5 +404,5 @@ def test_legacy_sumstats_without_alleles_are_rejected_for_regression() -> None:
     )
     sumstats = _legacy(pd.DataFrame({"SNP": ["rs1"], "Z": [1.0], "N": [1000.0]}))
 
-    with pytest.raises(LDSCInputError, match="legacy sumstats.*A1.*A2"):
+    with pytest.raises(LDSCInputError, match="legacy summary-statistics file.*A1.*A2"):
         RegressionRunner(regression_config=RegressionConfig()).build_dataset(sumstats, panel)

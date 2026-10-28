@@ -1,37 +1,35 @@
-# Partitioned LDSC Result Columns
+# Partitioned-Heritability Result Columns
 
 Last updated on: 2026-10-27
 
 TODO: add an example output file str.
 
-This page describes the tabular outputs from `ldsc partitioned-h2`. The summaries
-are **overlap-aware**: they reproduce the legacy `--overlap-annot` math, in which
-each category's heritability is propagated through the annotation overlap matrix
-`O = AᵀA` rather than assuming disjoint categories. The required overlap matrix
-is read from `ldscore.overlap.parquet` in the LD-score directory; a directory
-produced by an older `ldsc ldscore` is rejected with a regenerate message
-(`h2` and `rg` do not need it).
+This page describes the tabular outputs from `ldsc partitioned-h2`.
+The summaries are **overlap-aware**: they reproduce the legacy `--overlap-annot` math, in which each annotation's heritability is propagated through the annotation overlap matrix $O = A^\top A$ rather than assuming disjoint annotations.
+The required overlap matrix is read from `ldscore.overlap.parquet` in the LD-score directory; a directory produced by an older `ldsc ldscore` is rejected with a regenerate message (`h2` and `rg` do not need it).
 
 ## Two regimes
 
 `partitioned-h2` auto-detects one of two regimes from the LD-score directory,
 with no user flag:
 
-- **Functional-category regime** — the directory has **no** query columns. A
-  single joint fit of all baseline annotations yields one row per baseline
-  category. The headline is `enrichment` (with two-sided `enrichment_p`). This
-  reproduces the joint functional-enrichment analysis (Finucane et al. 2015 /
-  legacy `--overlap-annot`).
-- **Cell-type-specific regime** — the directory **has** query columns. For each
-  query annotation a `baseline + one query` model is fit, yielding one row per
-  query. The headline is `coefficient` (with one-sided `coefficient_p`). This is
-  the cell-type-specific analysis (Finucane et al. 2018): the query's conditional
-  contribution beyond the baseline.
+- **Functional-category regime** — the directory has **no** query columns.
+  A single joint fit of all baseline annotations yields one row per baseline annotation.
+  The headline is `enrichment` (with two-sided `enrichment_p`).
+  This reproduces the joint functional-enrichment analysis (Finucane et al. 2015 / legacy `--overlap-annot`).
+- **Cell-type-specific regime** — the directory **has** query columns.
+  For each query annotation a `baseline + one query` model is fit, yielding one row per query.
+  The headline is `coefficient` (with one-sided `coefficient_p`).
+  This is the cell-type enrichment analysis of LDSC-SEG (Finucane et al. 2018): the query's conditional contribution beyond the baseline.
 
 Both regimes write the **same** `partitioned_h2.tsv` column schema; they differ
-only in which rows appear (baseline categories vs. queries) and the default sort.
+only in which rows appear (baseline annotations vs. queries) and the default sort.
 
-Annotation-specific LD scores, not the overlap matrix, identify the fitted coefficients and their jackknife uncertainty. The current command still consumes the overlap matrix to retain the legacy numerical `prop_snps`, `prop_h2`, and `enrichment` summaries. When any fitted annotation is quantitative, the log names it and warns that those weighted summaries do not have the ordinary binary-category interpretation; the numerical values are not replaced with `NaN`. Classification does not alter fitting or any result value. Use [continuous-annotation quantile heritability](quantile-h2.md) for a post-fit magnitude summary.
+Annotation-specific LD scores, not the overlap matrix, identify the fitted coefficients and their jackknife uncertainty.
+The current command still consumes the overlap matrix to retain the legacy numerical `prop_snps`, `prop_h2`, and `enrichment` summaries.
+When any fitted annotation is continuous, the log names it and warns that those weighted summaries do not have the ordinary binary-annotation interpretation; the numerical values are not replaced with `NaN`.
+Classification does not alter fitting or any result value.
+Use [continuous-annotation quantile heritability](quantile-h2.md) for a post-fit magnitude summary.
 
 ## `partitioned_h2.tsv`
 
@@ -42,31 +40,34 @@ regression outputs (so `total_h2_obs`/`samp_prev`/`*_se` match across commands).
 
 | Column | Meaning |
 | --- | --- |
-| `category` | Baseline category (functional regime) or query annotation (cell-type regime). |
-| `prop_snps` | `M_c / M_tot`: the category's share of the reference SNP universe. |
-| `prop_h2` | **Marginal**, overlap-aware proportion of total heritability tagged by the SNPs in this category: `Σⱼ (O[c,j]/Mⱼ)·propⱼ`. Folds in every category those SNPs also belong to. See the overlap caveat in Notes For Interpretation: this is **not** `category_h2_obs / total_h2_obs`. |
+| `category` | Baseline annotation (functional regime) or query annotation (cell-type regime). |
+| `prop_snps` | $M_C / M_{\mathrm{tot}}$: the annotation's share of the reference SNPs. |
+| `prop_h2` | **Marginal**, overlap-aware proportion of total heritability tagged by the SNPs in this annotation: $\sum_j (O_{Cj}/M_j)\,\mathrm{prop}_j$. Folds in every annotation those SNPs also belong to. See the overlap caveat in Notes For Interpretation: this is **not** `category_h2_obs / total_h2_obs`. |
 | `prop_h2_se` | Jackknife standard error for `prop_h2`. |
 | `enrichment` | `prop_h2 / prop_snps`. The headline of the functional regime. |
 | `enrichment_se` | Standard error of `enrichment`. |
-| `enrichment_p` | **Two-sided** t-test (df = `n_blocks`) of whether the category's mean per-SNP heritability differs from the rest of the model (the legacy overlap contrast). `NaN` for a category that contains every SNP (e.g. `base`). |
-| `coefficient` | Conditional per-SNP contribution `tau_c` (controls for the other model annotations). The headline of the cell-type regime. |
+| `enrichment_p` | **Two-sided** t-test (df = `n_blocks`) of whether the annotation's mean per-SNP heritability differs from the rest of the model (the legacy overlap contrast). `NaN` for an annotation that contains every SNP (e.g. `base`). |
+| `coefficient` | Conditional per-SNP contribution $\tau_C$ (controls for the other model annotations). The headline of the cell-type regime. |
 | `coefficient_se` | Jackknife standard error for `coefficient`. |
 | `coefficient_z` | `coefficient / coefficient_se`. |
 | `coefficient_p` | **One-sided** normal p-value testing `coefficient > 0` (does this annotation add heritability beyond the baseline?). |
-| `overlap_annot` | Whether the fitted model's annotations overlap (any off-diagonal of `O` > 0). With a `base` (all-ones) category this is effectively always true. |
+| `overlap_annot` | Whether the fitted model's annotations overlap (any off-diagonal of $O$ > 0). With a `base` (all-ones) annotation this is effectively always true. |
 | `total_h2_obs` | **Observed-scale total** heritability of the fitted model. Constant across one model's rows: in the functional regime every row shares the single joint fit; in the cell-type regime each query row carries its own `baseline + query` model's total. This is the reference denominator for reading the `category_h2_*` columns. Matches the `h2` command's `total_h2_obs`. |
 | `total_h2_obs_se` | Jackknife standard error for `total_h2_obs`. |
-| `total_h2_liab` | **Liability-scale** total heritability: `total_h2_obs` times the observed-to-liability factor `c(samp_prev, pop_prev)`. `NaN` unless both `--samp-prev` and `--pop-prev` are supplied. |
+| `total_h2_liab` | **Liability-scale** total heritability: `total_h2_obs` times the observed-to-liability factor $c(P, K)$ for sample prevalence $P$ (`samp_prev`) and population prevalence $K$ (`pop_prev`). `NaN` unless both `--samp-prev` and `--pop-prev` are supplied. |
 | `total_h2_liab_se` | Jackknife standard error for `total_h2_liab`. |
-| `category_h2_obs` | **Observed-scale conditional** category heritability `M_c · tau_c` (this category's own coefficient times its SNPs). Can be negative under overlap. |
+| `category_h2_obs` | **Observed-scale conditional** annotation heritability $M_C \tau_C$ (this annotation's own coefficient times its SNPs). Can be negative under overlap. |
 | `category_h2_obs_se` | Jackknife standard error for `category_h2_obs`. |
-| `category_h2_liab` | **Liability-scale** conditional category heritability: `category_h2_obs` times the observed-to-liability factor `c(samp_prev, pop_prev)`. `NaN` unless both `--samp-prev` and `--pop-prev` are supplied. |
+| `category_h2_liab` | **Liability-scale** conditional annotation heritability: `category_h2_obs` times the observed-to-liability factor $c(P, K)$ for sample prevalence $P$ (`samp_prev`) and population prevalence $K$ (`pop_prev`). `NaN` unless both `--samp-prev` and `--pop-prev` are supplied. |
 | `category_h2_liab_se` | Jackknife standard error for `category_h2_liab` (the observed SE scaled by the same `c`). |
 | `samp_prev` | Sample (case) prevalence applied for liability conversion, or `NaN` for an observed-scale run. |
 | `pop_prev` | Population prevalence applied for liability conversion, or `NaN`. |
 | `query_result_dir` | Per-query result directory relative to the output root, e.g. `diagnostics/query_annotations/0003_mygeneset`. `NaN` when no per-query tree is written, including baseline-only runs. |
 
-The root summary appends `query_result_dir` to the scientific columns without changing `category`. Paths use the exact sanitized folders in `diagnostics/query_annotations/manifest.tsv`; resolve them relative to the directory containing the root `partitioned_h2.tsv`, even after re-sorting its rows. Folder numbers follow the saved summary order and are not stable gene-set identifiers across runs. This navigation column is added at publication; in-memory Python summaries retain the scientific columns.
+The root summary appends `query_result_dir` to the scientific columns without changing `category`.
+Paths use the exact sanitized folders in `diagnostics/query_annotations/manifest.tsv`; resolve them relative to the directory containing the root `partitioned_h2.tsv`, even after re-sorting its rows.
+Folder numbers follow the saved summary order and are not stable query identifiers across runs.
+This navigation column is added at publication; in-memory Python summaries retain the scientific columns.
 
 Each one-row `diagnostics/query_annotations/<folder>/partitioned_h2.tsv` file uses the scientific columns above, without `query_result_dir`.
 
@@ -74,15 +75,12 @@ Current baseline-only outputs also store `diagnostics/coefficient_delete_values.
 
 ### Choosing the right column
 
-- **Functional enrichment** ("are this category's SNPs enriched for
-  heritability?"): read `enrichment` and `enrichment_p`. `enrichment > 1` means
-  the category's SNPs carry a larger heritability share than their SNP share; a
-  small `enrichment_p` means the enrichment is significantly different from 1.
+- **Functional enrichment** ("are this annotation's SNPs enriched for heritability?"): read `enrichment` and `enrichment_p`.
+  `enrichment > 1` means the annotation's SNPs carry a larger heritability share than their SNP share; a small `enrichment_p` means the enrichment is significantly different from 1.
 - **Cell-type-specific contribution** ("does this annotation add heritability
-  beyond the baseline?"): read `coefficient` together with the one-sided
-  `coefficient_p`. A positive `coefficient` with a small `coefficient_p` is the
-  de-confounded signal. The `enrichment` of a query is confounded by its overlap
-  with generally-enriched baseline categories, so prefer `coefficient_p` here.
+  beyond the baseline?"): read `coefficient` together with the one-sided `coefficient_p`.
+  A positive `coefficient` with a small `coefficient_p` is the de-confounded signal.
+  The `enrichment` of a query is confounded by its overlap with generally-enriched baseline annotations, so prefer `coefficient_p` here.
 
 ### Sorting and signaling
 
@@ -123,43 +121,30 @@ Every completed query scan writes `diagnostics/query_status.tsv`, in requested q
 
 Successful result metadata records `query_error_policy` (`raise` or `continue`), `n_queries_requested`, `n_queries_successful`, and `n_queries_failed`, and links `files.query_status`. `RegressionRunner.estimate_partitioned_h2_batch(..., continue_on_query_error=True)` returns the same ledger as `PartitionedH2BatchResult.query_status`. A successful baseline-only overwrite removes stale query statuses and query model folders.
 
-The CLI installs `diagnostics/partitioned-h2.log`. Direct calls to the Python batch method use the configured LDSC logger without installing a file handler; they still write the status TSV. A shared loading/output failure or interrupt can stop execution before the scan's final status table is written. Gene-list resolution is an earlier LD-score-generation policy and is not changed by the continuation flag.
+The CLI installs `diagnostics/partitioned-h2.log`. Direct calls to the Python batch method use the configured `LDSC` logger without installing a file handler; they still write the status TSV. A shared loading/output failure or interrupt can stop execution before the scan's final status table is written. Gene-list resolution is an earlier LD-score-generation policy and is not changed by the continuation flag.
 
-The log records each failed query, stage, exception, and traceback, plus a final success/failure count. Singular jackknife diagnostics name every failed block (one-based display and zero-based index), its zero-based half-open retained-row interval, the normal-matrix numerical rank, parameter names, zero columns, and LD-score support counts before and after deletion. Genomic spans use canonical LD-score panel coordinates where available, including rsID-only traits. Filtering precedes block assignment. Nonzero columns can also become dependent after deletion; zero support is not the only possible cause. Normal-matrix ranks are diagnostic measurements after a failed solve, not a new condition-number threshold for accepting otherwise successful solves. No coefficients are imputed, no pseudoinverse is used, and the existing contiguous block rule is unchanged. See `LstsqJackknifeFast.block_values_to_delete_values()` and `_add_jackknife_model_context()`.
+The log records each failed query, stage, exception, and traceback, plus a final success/failure count. Singular jackknife diagnostics name every failed block (one-based display and zero-based index), its zero-based half-open retained-row interval, the normal-matrix numerical rank, parameter names, zero columns, and LD-score support counts before and after deletion. Genomic spans use the coordinates of the regression SNPs in the LD-score directory where available, including rsID-only traits. Filtering precedes block assignment. Nonzero columns can also become dependent after deletion; zero support is not the only possible cause. Normal-matrix ranks are diagnostic measurements after a failed solve, not a new condition-number threshold for accepting otherwise successful solves. No coefficients are imputed, no pseudoinverse is used, and the existing contiguous block rule is unchanged. See `LstsqJackknifeFast.block_values_to_delete_values()` and `_add_jackknife_model_context()`.
 
 ## `partitioned_h2_full.tsv`
 
-In the cell-type regime, each query folder contains
-`partitioned_h2_full.tsv` by default. The retired
-`--write-per-query-results` flag is rejected. This table uses the scientific
-columns of `partitioned_h2.tsv` (without `query_result_dir`), with one row for every retained category
-in that query's fitted `baseline + query` model (all baseline categories plus the
-query). Its baseline rows are the joint functional enrichments conditional on the
-added query.
+In the cell-type regime, each query folder contains `partitioned_h2_full.tsv` by default.
+The retired `--write-per-query-results` flag is rejected.
+This table uses the scientific columns of `partitioned_h2.tsv` (without `query_result_dir`), with one row for every retained annotation in that query's fitted `baseline + query` model (all baseline annotations plus the query).
+Its baseline rows are the joint functional enrichments conditional on the added query.
 
 ## Notes For Interpretation
 
 `prop_h2`, `category_h2_obs` (and its liability counterpart `category_h2_liab`),
 and `enrichment` are regression estimates and can be negative or greater than one
 when estimates are noisy or annotations are correlated; `category_h2_obs` is
-especially prone to this under overlap because it is the conditional `M_c · tau_c`.
-Only the `*_obs`/`*_liab` columns differ between scales; `prop_snps`, `prop_h2`,
-`enrichment`, and the coefficients are scale-invariant. P-values and standard errors may be missing when a
-valid comparison cannot be formed — for example `enrichment_p` is `NaN` for a
-category that contains every SNP, and `coefficient_p` is `NaN` when the
-coefficient standard error is zero.
+especially prone to this under overlap because it is the conditional $M_C \tau_C$.
+Only the `*_obs`/`*_liab` columns differ between scales; `prop_snps`, `prop_h2`, `enrichment`, and the coefficients are scale-invariant.
+P-values and standard errors may be missing when a valid comparison cannot be formed — for example `enrichment_p` is `NaN` for an annotation that contains every SNP, and `coefficient_p` is `NaN` when the coefficient standard error is zero.
 
-**Caveat -- overlap:** When annotations overlap (almost always the case: a `base`
-all-ones category plus broad functional annotations make the off-diagonal of `O`
-nonzero, so `overlap_annot` is effectively always `True`), `prop_h2` is **not**
-`category_h2_obs / total_h2_obs`. `category_h2_obs = M_c · tau_c` is the category's
-*own conditional* contribution -- its coefficient alone -- whereas `prop_h2` is the
-*overlap-aware (marginal) attributable* share: the heritability tagged by every SNP
-in the category, **including the heritability those SNPs carry through the other
-annotations they also belong to** (`Σⱼ (O[c,j]/Mⱼ)·propⱼ`), divided by the total.
-The two coincide only for a category disjoint from all others (the off-diagonal of
-`O` for that category is zero). Use `total_h2_obs`/`total_h2_liab` as the reference
-total when reading the absolute `category_h2_*` values.
+**Caveat -- overlap:** When annotations overlap (almost always the case: a `base` all-ones annotation plus broad functional annotations make the off-diagonal of $O$ nonzero, so `overlap_annot` is effectively always `True`), `prop_h2` is **not** `category_h2_obs / total_h2_obs`.
+`category_h2_obs` $= M_C \tau_C$ is the annotation's *own conditional* contribution -- its coefficient alone -- whereas `prop_h2` is the *overlap-aware (marginal) attributable* share: the heritability tagged by every SNP in the annotation, **including the heritability those SNPs carry through the other annotations they also belong to** ($\sum_j (O_{Cj}/M_j)\,\mathrm{prop}_j$), divided by the total.
+The two coincide only for an annotation disjoint from all others (the off-diagonal of $O$ for that annotation is zero).
+Use `total_h2_obs`/`total_h2_liab` as the reference total when reading the absolute `category_h2_*` values.
 
 The `diagnostics/query_annotations/manifest.tsv` file is an index for the
 per-query result tree. It records each original query annotation name, the
@@ -172,7 +157,6 @@ After stable summary sorting, the writer publishes the canonical per-query tree.
 The returned `PartitionedH2BatchResult` contains `summary`, `output_paths`, and persistent `per_query_artifacts` paths.
 The old annotation-bundle argument, retained-detail dictionaries, and `include_full_partitioned_h2` option are removed.
 Low-level writer callers pass `PartitionedH2FitArtifacts` through `per_query_artifacts`; `PartitionedH2OutputConfig.write_per_query_results` remains its publication control.
-Individual estimator methods retain their text `summary()` interface.
 
 Run-level provenance, including the annotation-type dictionary, is stored once in `diagnostics/metadata.json`.
 Each query's `metadata.json` stores model-specific fields and `global_metadata: "../../metadata.json"`, resolved relative to that query directory.

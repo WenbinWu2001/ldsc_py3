@@ -1,8 +1,8 @@
-"""Batched LD projection with full contributors and output-row-only scores.
+"""Batched LD projection with all reference SNPs and output-row-only scores.
 
 The numerical traversal supplies each correlation block or sparse pair chunk
-once. This module reuses it for shared columns/weights and every focal batch.
-Contributors may be absent from the output SNP set. Accumulation is float64;
+once. This module reuses it for shared columns/weights and every query batch.
+Reference SNPs may be absent from the output SNP set. Accumulation is float64;
 the calling workflow controls its established artifact precision conversion.
 """
 
@@ -51,18 +51,18 @@ class MappedAnnotations:
 
 
 class ProjectionAccumulator:
-    """Accumulate selected output rows while preserving all contributors.
+    """Accumulate selected output rows while preserving all reference SNPs.
 
     ``annotations`` is a borrowed chromosome accessor with shape
     ``(n_reference_rows, n_annotation_columns)`` and ordered ``columns``.
     ``output_rows`` selects accumulator rows only; it never filters the
-    annotation contributors. ``values`` owns a float64 array with shape
+    reference SNPs whose annotations contribute. ``values`` owns a float64 array with shape
     ``(len(output_rows), n_annotation_columns + (weight_mask is not None))``.
 
     Shared baseline columns and the optional weight are projected together;
-    ``query_batch_size`` limits focal columns per operand read, not the total
+    ``query_batch_size`` limits query columns per operand read, not the total
     width of ``values``. The workflow supplies only its active query batch.
-    Each float64 contributor tile is reused across output blocks.
+    Each float64 reference-SNP tile is reused across output blocks.
     ``read_budget_bytes`` targets one operand tile (at least one row), not
     total RAM: sparse operators, slices, gathers, and products also allocate.
     The caller retains ownership of the accessor and controls public output
@@ -101,7 +101,7 @@ class ProjectionAccumulator:
         return result
 
     def add_diagonal(self):
-        """Seed R²=1 contributions on output rows, including selected weights."""
+        """Seed R2=1 contributions on output rows, including selected weights."""
         for columns in self.batches():
             tile = max(1, self.read_budget_bytes // (8*len(columns)))
             for start in range(0, len(self.output_rows), tile):
@@ -125,7 +125,7 @@ class ProjectionAccumulator:
                     self.values[np.ix_(output_indices[first:last], columns)] += block @ values
 
     def add_dense(self, targets, contributors, correlations):
-        """Project one already-computed dense block without narrowing contributors."""
+        """Project one already-computed dense block without narrowing ``contributors``."""
         targets, contributors = np.asarray(targets, dtype=np.int64), np.asarray(contributors, dtype=np.int64)
         indices = self.output_index[targets]
         keep = indices >= 0

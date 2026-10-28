@@ -33,7 +33,7 @@ def test_ldscore_rejects_a_truncated_panel_before_any_chromosome_is_computed(tmp
 
     issues = pd.read_csv(output / "diagnostics" / "input_issues.tsv", sep="\t")
     assert issues["chrom"].astype(str).tolist() == ["22"]
-    assert "omits SNP pairs with adjusted R2 below 0.05" in issues["details"].iloc[0]
+    assert "omits SNP pairs with unbiased R2 below 0.05" in issues["details"].iloc[0]
     assert "ldsc query-r2" in issues["details"].iloc[0]
     assert not (output / "diagnostics" / "chromosome-logs").exists()
     assert not (output / "ldscore.baseline.parquet").exists()

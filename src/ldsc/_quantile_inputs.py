@@ -1,9 +1,9 @@
-"""Reconstruct quantile universes and accumulate fitted-annotation statistics.
+"""Reconstruct the quantile SNP sets and accumulate fitted-annotation statistics.
 
 Only the eligible float64 target vector is genome-wide. Exact boundaries are
 selected once, that vector is released, and all annotation statistics use
 bounded reads from chromosome artifacts. Chan's merged centered moments avoid
-the cancellation of E[x²] - E[x]² for high-offset annotations.
+the cancellation of E[x^2] - E[x]^2 for high-offset annotations.
 """
 
 from dataclasses import dataclass
@@ -145,10 +145,10 @@ def _alignment(args, bundle, metadata, store, diagnostics, reference_paths, targ
     missing = store.issues(diagnostics, "reference",
                           f"MAF>=? AND {intersection} AND NOT EXISTS (SELECT 1 FROM target t WHERE t.effective_snp_id=r.effective_snp_id)",
                           params=(threshold,), role="target_annotation", source=target_source, issue="missing_target_annotation",
-                          action="fatal", details="common reference-SNP universe member is absent from target source")
+                          action="fatal", details="common reference SNP is absent from target source")
     if missing:
         raise LDSCInputError(
-            "quantile-h2 target annotation does not cover the common reference-SNP universe; "
+            "quantile-h2 target annotation does not cover the common reference SNPs; "
             f"missing SNP rows={missing}. "
             "Supply target values for the full common-SNP population used for this fit and check SNP "
             "identifiers and allele orientation; do not fill absent SNP values with zero. "
@@ -165,7 +165,7 @@ def _validate_universe(metadata, universe, actual):
     expected = (metadata.get("overlap_config") or {}).get(f"total_{universe}_reference_snps")
     if expected is not None and int(round(float(expected))) != actual:
         label = "all-reference SNP" if universe == "all" else "common reference-SNP"
-        raise LDSCInputError(f"quantile-h2 reconstructed a different {label} universe size than the fitted LD-score artifact: {actual} vs {expected}. Check --ref-metadata-sources and annotation sources.")
+        raise LDSCInputError(f"quantile-h2 reconstructed a different {label} count than the fitted LD-score directory: {actual} vs {expected}. Check --ref-metadata-sources and annotation sources.")
 
 
 def _validate_aggregates(model, metadata, sums, products):
@@ -173,7 +173,7 @@ def _validate_aggregates(model, metadata, sums, products):
     for name, actual in zip(model.annotation_names, sums):
         expected = records.get(name, {}).get("common_reference_snp_count")
         if expected is not None and not np.isclose(actual, float(expected), rtol=1e-6, atol=1e-8):
-            raise LDSCInputError(f"quantile-h2 fitted annotation '{name}' has common reference-SNP universe sum {actual}, expected {expected}. Resupply the exact annotation sources used for LD-score construction.")
+            raise LDSCInputError(f"quantile-h2 fitted annotation '{name}' has common reference-SNP sum {actual}, expected {expected}. Resupply the exact annotation sources used for LD-score construction.")
     overlap_path = (metadata.get("files") or {}).get("overlap")
     if overlap_path:
         from .overlap_matrix import assemble_model_overlap, overlap_from_long_frame

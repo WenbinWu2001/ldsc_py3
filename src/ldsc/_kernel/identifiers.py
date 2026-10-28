@@ -21,7 +21,7 @@ normalize_snp_identifier_mode :
 build_snp_id_series :
     Construct the canonical SNP identifier series for a metadata table.
 read_global_snp_restriction :
-    Read a restriction list using the active identifier mode.
+    Read a restriction list using the active SNP identifier mode.
 read_global_chr_pos_restriction_key_set :
     Stream a coordinate restriction file into packed uint64 CHR/POS keys for
     memory-sensitive chunk filtering.
@@ -169,7 +169,7 @@ def build_packed_chr_pos_series(
 
 
 def validate_unique_snp_ids(df: pd.DataFrame, mode: str, context: str = "table") -> None:
-    """Raise ``ValueError`` if a table does not have unique canonical SNP IDs."""
+    """Raise ``ValueError`` if a table does not have unique canonical SNP identities."""
     mode = normalize_snp_identifier_mode(mode)
     snp_ids = build_snp_id_series(df, mode)
     duplicated = snp_ids[snp_ids.duplicated()].unique().tolist()
@@ -182,7 +182,7 @@ def validate_unique_snp_ids(df: pd.DataFrame, mode: str, context: str = "table")
         if mode == "chr_pos":
             message += (
                 ". Base chr_pos mode requires one variant per chromosome/position; "
-                "use base rsID mode or prune duplicate-coordinate variants before building or running the reference panel."
+                "use the rsid mode or prune duplicate-coordinate variants before building or running the reference panel."
             )
         raise LDSCInputError(
             f"Cannot use {context}: non-unique SNP identifiers were found in {mode} mode: {preview}. "
@@ -215,8 +215,8 @@ def read_global_snp_restriction(
     """
     Read a SNP-set definition file into the active canonical identifier set.
 
-    The returned values are ready for direct set intersection with annotation,
-    reference-panel, or regression SNP universes, depending on which config
+    The returned values are ready for direct set intersection with annotation
+    rows, reference SNPs, or regression SNPs, depending on which config
     field supplied the path. Restriction files are identity-only inputs:
     repeated identifiers collapse to one key, and non-identity columns are not
     carried into downstream metadata.
@@ -506,7 +506,7 @@ def _canonicalize_snp_restriction_table(
 
 
 def _read_rsid_restriction(path: Path) -> set[str]:
-    """Read an rsid-style restriction file into a set of SNP IDs."""
+    """Read an rsid-style restriction file into a set of rsIDs."""
     header, rows, _delimiter = _parse_restriction_rows(path)
     if not header:
         return set()

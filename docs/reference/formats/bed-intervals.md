@@ -37,8 +37,8 @@ All intervals are interpreted as 0-based half-open intervals: `[start, end)`.
 For a 1-based SNP position `p`, the corresponding BED coordinate is `p - 1`;
 the SNP overlaps an interval when `start <= p - 1 < end`.
 
-Extra columns are allowed. LDSC uses only interval membership and ignores extra
-BED columns during annotation projection.
+Extra columns are allowed.
+LDSC3 uses only interval membership and ignores extra BED columns during annotation projection.
 
 ## Skipped Lines
 

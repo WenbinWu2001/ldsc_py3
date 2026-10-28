@@ -15,7 +15,7 @@ and artifact writing live in ``ldsc.sumstats_munger``.
 ``munge_sumstats`` streams plain/gzip/bzip2 input, normalizes coordinates and
 applies chunk QC and SNP restriction before concatenation. Whole-table sample
 size filtering and sign conversion precede optional liftover and global
-identity cleanup. ``MungeResult`` returns the curated table, exclusive drop
+identity cleanup. ``MungeResult`` returns the munged table, exclusive drop
 counts, coordinate provenance and row-level liftover/identity audit records.
 No input configuration is mutated and no artifacts are written here.
 """
@@ -120,10 +120,10 @@ class ResolvedMungeInput:
 
 @dataclass(frozen=True)
 class MungeResult:
-    """Curated rows and explicit accounting/provenance from one kernel run.
+    """Munged rows and explicit accounting/provenance from one kernel run.
 
     Drop counts are exclusive, ordered stage counts; their sum equals parsed
-    input rows minus curated output rows. Detailed coordinate reasons may
+    input rows minus munged output rows. Detailed coordinate reasons may
     overlap and are recorded separately in coordinate_metadata. Drop frames
     describe liftover and global identity cleanup, not every QC exclusion.
     """
@@ -204,7 +204,7 @@ def filter_info(info, qc: MungeQC, *, warning_counts=None):
         raise LDSCInternalError(
             "munge-sumstats stopped unexpectedly while checking imputation-quality (INFO) values: "
             "the parser supplied an unsupported data object instead of a column or table. "
-            "Report the command, LDSC version, and saved traceback; --log-level DEBUG adds troubleshooting detail."
+            "Report the command, LDSC3 version, and saved traceback; --log-level DEBUG adds troubleshooting detail."
         )
 
     bad_info = jj.sum()
@@ -276,7 +276,7 @@ def parse_dat(dat_gen, request: ResolvedMungeInput) -> _ParsedChunks:
     qc = request.qc
     tot_snps = 0
     dat_list = []
-    LOGGER.info(f"Reading sumstats from {request.source_path} into memory {request.chunk_size} SNPs at a time.")
+    LOGGER.info(f"Reading summary statistics from {request.source_path} into memory {request.chunk_size} SNPs at a time.")
     drops = dict.fromkeys(('NA', 'coordinates', 'INFO', 'FRQ', 'P', 'sumstats_snps', 'N', 'NSTUDY', 'liftover', 'identity'), 0)
     mode = request.snp_identifier
     with _invalid_value_summary() as warning_counts:
@@ -371,8 +371,8 @@ def prepare_sumstats_restriction(snps_path: str | None, mode: str, genome_build:
     Load the active summary-statistics keep-list before raw chunk parsing.
 
     The returned object stores either rsID strings or packed uint64 CHR/POS
-    keys, depending on the resolved identity mode. Empty files with no usable
-    identifiers fail here, before the raw sumstats iterator is consumed.
+    keys, depending on the resolved SNP identifier mode. Empty files with no usable
+    identifiers fail here, before the raw summary-statistics iterator is consumed.
     """
     if not snps_path:
         return None
@@ -504,7 +504,7 @@ def _filter_allele_aware_chunk_to_identity_restriction(dat, restriction, source_
 
 
 def _restriction_base_key_universe(identity_keys: RestrictionIdentityKeys) -> set[str]:
-    """Return allele-blind keep-list keys from prepared restriction identity keys."""
+    """Return base keep-list keys, without alleles, from prepared restriction identity keys."""
     if identity_keys.match_kind == "base":
         return {str(key) for key in identity_keys.keys}
     return {str(key).rsplit(":", 2)[0] for key in identity_keys.keys}
@@ -642,7 +642,7 @@ def process_n(dat, qc: MungeQC):
         else:
             raise LDSCInternalError(
                 "munge-sumstats could not derive a sample size (N) after input validation; this is an unexpected internal state. "
-                "Report the command, LDSC version, and saved traceback. "
+                "Report the command, LDSC3 version, and saved traceback. "
                 "--log-level DEBUG adds troubleshooting detail."
             )
 

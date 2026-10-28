@@ -2,12 +2,12 @@
 
 Last updated on: 2026-10-27
 
-Conversion runs serially in one managed child with **1 BLAS thread**, including reconstructed annotation overlap products.
+Conversion runs serially in one worker with **1 BLAS thread**, including reconstructed annotation overlap products.
 See [parallel execution](../parallel-execution.md) for native-limit verification and Python process startup.
 
 This document defines the interoperability boundary for explicitly converting
-selected reusable legacy LD-score suites into the canonical LDSC3 LD-score
-result-directory contract.
+selected reusable legacy LD-score suites into the LDSC3 LD-score directory
+contract.
 
 For all flags, standard filename tables, working and non-working suites, and copy-and-rename examples, see the [user guide](../../user-guide/workflows/migrating-from-legacy-ldsc.md). The [utility wiki](../../user-guide/workflows/migrating-from-legacy-ldsc.md) provides a concise naming and command reference.
 
@@ -43,11 +43,10 @@ Legacy LD-score files are not accepted directly by `h2`, `partitioned-h2`, or
 new output directory to LDSC3 regression commands. Conversion never changes,
 renames, or deletes the source files.
 
-Conversion accepts a reference LD-score suite and a one-column regression-weight
-LD-score suite. The two inputs need not contain identical SNP rows. The
-converted regression rows are their inner join by rsID. Users may supply the
-same suite for both roles, as is customary for `eur_w_ld_chr` in
-non-partitioned regression.
+Conversion accepts a reference LD-score suite and a one-column regression-weight LD-score suite.
+The two inputs need not contain identical SNP rows.
+The converted regression SNPs are their inner join by rsID.
+Users may supply the same suite for both roles, as is customary for `eur_w_ld_chr` in non-partitioned regression.
 
 Two reference-suite profiles are supported:
 
@@ -89,22 +88,17 @@ Conversion never accepts query annotations. It does not turn the legacy input
 directory into a general LDSC3 annotation source or permit later query
 extension of the imported suite.
 
-Consequently, “baseline partitioned conversion” does not mean conversion of a
-complete historical cell-type S-LDSC analysis. It imports only the reusable
-baseline reference model. Users who need a query/cell-type model must compute
-that query through the current LDSC3 annotation and LD-score contracts rather
-than combining it with the converted directory.
+Consequently, “baseline partitioned conversion” does not mean conversion of a complete historical cell-type enrichment analysis run with stratified LD score regression (S-LDSC; Finucane et al. 2015).
+It imports only the reusable baseline reference model.
+Users who need a query/cell-type model must compute that query through the current LDSC3 annotation and LD-score contracts rather than combining it with the converted directory.
 
 ## Counts
 
-Every converted suite requires `.l2.M_5_50` files. For an unpartitioned suite,
-these files are the authoritative common-reference-SNP counts because the suite
-does not contain the LD-reference SNP annotation matrix from which they could
-be reconstructed. `.l2.M` files are optional. When they are absent from an
-unpartitioned suite, the converted metadata represents the all-reference-SNP
-count as missing, conversion emits a warning, and downstream regression rejects
-an explicit request for all-SNP counts. LDSC3 never substitutes the common-SNP
-count for the missing all-SNP count.
+Every converted suite requires `.l2.M_5_50` files.
+For an unpartitioned suite, these files are the authoritative common-SNP counts because the suite does not contain the reference-SNP annotation matrix from which they could be reconstructed.
+`.l2.M` files are optional.
+When they are absent from an unpartitioned suite, the converted metadata represents the all-SNP count as missing, conversion emits a warning, and downstream regression rejects an explicit request for all-SNP counts.
+LDSC3 never substitutes the common-SNP count for the missing all-SNP count.
 
 A baseline partitioned suite contains the full SNP-level annotation matrix, and
 its required frequency suite supplies the common-SNP mask. Baseline conversion
@@ -118,17 +112,16 @@ integer/binary annotations or within the documented floating-point tolerance
 for continuous annotations, the converted metadata preserves the exact legacy
 value. When `.l2.M` is absent, conversion uses the reconstructed all-SNP count.
 A disagreement beyond tolerance is a conversion error: LDSC3 does not combine
-legacy marginal counts with an overlap matrix calculated from a conflicting
-annotation/frequency universe, and there is no mismatch override. This
+legacy marginal counts with an overlap matrix calculated over a conflicting
+set of annotation and frequency SNPs, and there is no mismatch override. This
 reconstruction and validation are unavailable for unpartitioned suites, whose
 available legacy count files remain authoritative.
 
-Reconstruction uses legacy LDSC common-variant semantics: `MAF > 0.05` for a minor
+Reconstruction uses legacy LDSC common-SNP semantics: `MAF > 0.05` for a minor
 allele frequency column, or `0.05 < FRQ < 0.95` for an allele-frequency column.
-The imported metadata records this legacy operator rather than describing the
-counts as LDSC3-native `MAF >= 0.05` counts. The compatibility threshold is
-fixed at `0.05` for both conversion profiles. The converter exposes no
-`--common-maf-min` option and its Python API has no configurable threshold.
+The imported metadata records this legacy operator rather than describing the counts as LDSC3-native `MAF >= 0.05` counts.
+The compatibility threshold is fixed at `0.05` for both conversion profiles.
+The converter exposes no `--common-maf-min` option and its Python API has no configurable threshold.
 
 ## Identity and Coordinates
 
@@ -144,19 +137,13 @@ canonical output `CHR` and `POS`. Coordinates in the other families are not
 join keys and disagreement does not discard an otherwise unique rsID match.
 Instead, coordinate disagreement produces a warning and a diagnostic record.
 
-The converter may infer a genome build separately from each legacy source
-family for validation and provenance. It does not alter the legacy directory
-or perform a liftover. In `chr_pos` output mode, reference LD-score coordinates
-must form unique canonical identities and the reference build must resolve;
-there is no strict cross-family `CHR`/`POS` equality requirement.
+The converter may infer a genome build separately from each legacy source family for validation and provenance.
+It does not alter the legacy directory or perform a liftover.
+In `chr_pos` output mode, reference LD-score coordinates must form unique canonical identities and the genome build of the reference suite must resolve; there is no strict cross-family `CHR`/`POS` equality requirement.
 
-For `rsid` output, canonical `genome_build` remains null. Automatic reference
-build inference is best-effort provenance and an unresolved result warns but
-does not fail; an explicit build validates or declares source provenance rather
-than changing rsID identity. For `chr_pos` output, the reference build must be
-resolved automatically or explicitly, detected zero-based coordinates are
-normalized to canonical one-based `POS`, and the resolved build becomes
-canonical identity metadata.
+For `rsid` output, canonical `genome_build` remains null.
+Automatic genome-build inference for the reference suite is best-effort provenance and an unresolved result warns but does not fail; an explicit build validates or declares source provenance rather than changing rsID identity.
+For `chr_pos` output, the genome build of the reference suite must be resolved automatically or explicitly, detected zero-based coordinates are normalized to canonical one-based `POS`, and the resolved build becomes canonical identity metadata.
 
 ## Column Names
 
@@ -215,27 +202,24 @@ sample of causal rsIDs. The complete row-level set is written to
 `diagnostics/conversion_issues.tsv.gz`. Count-vector conflicts, whose scalar
 source files do not identify causal SNP membership, instead report source and
 reconstructed values per chromosome and annotation; frequency-boundary SNPs
-are additionally reported when they could explain a common-count discrepancy.
+are additionally reported when they could explain a common-SNP count discrepancy.
 
-The command creates the requested output directory's `diagnostics/` area while
-it validates the sources. It writes `convert-ldsc2-ldscores.log` and
-`conversion_issues.tsv.gz`, including a header-only issue table after a clean
-conversion. Root `metadata.json` and parquet artifacts are written only after
-all validation succeeds. A diagnostics-only failed directory is not a
-consumable LD-score result and a corrected rerun into it requires
-`--overwrite`.
+The command creates the requested output directory's `diagnostics/` area while it validates the sources.
+It writes `convert-ldsc2-ldscores.log` and `conversion_issues.tsv.gz`, including a header-only issue table after a clean conversion.
+Root `metadata.json` and parquet artifacts are written only after all validation succeeds.
+A diagnostics-only failed directory is not a consumable LD-score directory and a corrected rerun into it requires `--overwrite`.
 
 ## Module Boundary
 
 Legacy LDSC discovery, parsing, validation, and conversion belong to a small public
 workflow-layer `LegacyLDScoreConverter`, with a convenience
-`convert_ldsc2_ldscores()` function and structured conversion result. It reuses
-the pure overlap calculation and canonical LD-score directory writer. No
-legacy LD-score reader is added to regression and no legacy file parsing or
-emission is added to `_kernel`; after conversion, the ordinary canonical
-`load_ldscore_from_dir()` path consumes the result.
+`convert_ldsc2_ldscores()` function and structured conversion result.
+It reuses the pure overlap calculation and the LD-score directory writer.
+No legacy LD-score reader is added to regression and no legacy file parsing or emission is added to `_kernel`; after conversion, the ordinary canonical `load_ldscore_from_dir()` path consumes the result.
 
-The former private LD-score, regression-weight, count, and `.annotation_groups.tsv` emitters have been removed. The munging kernel likewise owns no `.sumstats.gz` emitter; optional legacy sumstats export is written by the public munging workflow. Standalone annotation workflows continue to read `.annot(.gz)` and write `.annot.gz`, including allele-free annotations; this separate contract does not depend on LD-score conversion.
+The former private LD-score, regression-weight, count, and `.annotation_groups.tsv` emitters have been removed.
+The munging kernel likewise owns no `.sumstats.gz` emitter; optional legacy summary-statistics export is written by the public munging workflow.
+Standalone annotation workflows continue to read `.annot(.gz)` and write `.annot.gz`, including allele-free annotations; this separate contract does not depend on LD-score conversion.
 
 ## Provenance
 
@@ -243,25 +227,22 @@ The converted directory must identify itself as an imported legacy suite and rec
 
 Routine source-file checksums are not computed or written. The converter records explicit source/discovery metadata and validates scientific inputs and counts; it does not verify source-byte integrity against expected hashes. The package's retained hashes are listed in the [gene LD-score index reference](../gene-ldscore-index.md#artifact-and-identity-contract).
 
-For unpartitioned conversion, the `base` count record stores
-`all_reference_snp_count: null` when any chromosome lacks `.l2.M`, plus the
-aggregated required common count. Provenance names the chromosomes missing
-`.l2.M`. Common-count regression remains available; all-count regression raises
-a targeted error before dataset assembly. JSON `NaN` is never emitted.
+For unpartitioned conversion, the `base` count record stores `all_reference_snp_count: null` when any chromosome lacks `.l2.M`, plus the aggregated required common-SNP count.
+Provenance names the chromosomes missing `.l2.M`.
+Regression with common-SNP counts remains available; regression with all-SNP counts raises a targeted error before dataset assembly.
+JSON `NaN` is never emitted.
 
-For baseline conversion, all- and common-universe overlap matrices are computed
-as `A.T @ A`, with the common matrix restricted by the fixed legacy frequency
-mask. Both axes are relabeled with exact LD-score names and stored as the full
-baseline-by-baseline block. Marginal counts remain annotation column sums, not
-overlap diagonals. Baseline conversion writes no query columns or query parquet;
-unpartitioned conversion writes no overlap artifact.
+For baseline conversion, the all-SNP and common-SNP overlap matrices are computed as `A.T @ A`, with the common-SNP matrix restricted by the fixed legacy frequency mask.
+Both axes are relabeled with exact LD-score names and stored as the full baseline-by-baseline block.
+Marginal counts remain annotation column sums, not overlap diagonals.
+Baseline conversion writes no query columns or query parquet; unpartitioned conversion writes no overlap artifact.
 
 ## Related Contracts
 
 - [`legacy-sumstats.md`](legacy-sumstats.md)
   defines the separate automatic compatibility boundary for legacy munged
-  sumstats.
+  summary statistics.
 - [Command-line reference](../cli.md) defines public command
   inputs and outputs.
-- [`data-flow.md`](../../dev/data-flow.md) defines the canonical LD-score result-directory
+- [`data-flow.md`](../../dev/data-flow.md) defines the LD-score directory
   contract consumed by regression.

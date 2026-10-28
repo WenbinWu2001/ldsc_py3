@@ -743,7 +743,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 ldsc.LDSCInputError,
-                "Cannot load curated sumstats at .*snp_identifier='rsid_allele_aware' requires A1/A2 columns.*"
+                "Cannot load munged summary statistics at .*snp_identifier='rsid_allele_aware' requires A1/A2 columns.*"
                 "Re-run munge-sumstats from the raw GWAS file.*"
                 "docs/user-guide/troubleshooting.md#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
             ):

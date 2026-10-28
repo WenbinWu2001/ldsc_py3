@@ -3,7 +3,7 @@
 # Modified 2026 for prepared reference panels, streaming R2, and projection.
 # See NOTICE for attribution and dated modifications.
 
-"""LD-score projection primitives and streaming index-format R2 reader.
+"""LD-score projection primitives and streaming R2 panel reader.
 
 ``RefPanel.prepare_chromosome`` owns source resolution, reference filtering,
 annotation alignment, LD-window validation, and reader lifetime. This module's
@@ -15,7 +15,7 @@ workflow adapters. BED-to-SNP projection belongs to ``ldsc.annotation_builder``.
 Scientific contracts
 --------------------
 Prepared metadata, selected annotation rows, and window bounds describe the
-same retained SNP universe in genomic order. Binary annotations can remain
+same retained reference SNPs in genomic order. Binary annotations can remain
 packed until selected reads; continuous values retain float32 normalization.
 Projection accumulates in float64. Reference-panel CM and MAF are
 authoritative. PLINK sample selection precedes genotype QC and inclusive MAF
@@ -23,12 +23,12 @@ filtering; chromosome LD scores retain the existing float32 result conversion.
 Parquet projection accumulates in float64. Common-SNP counts and overlap use
 ``MAF >= common_maf_min`` (0.05 by default), independently of panel filtering.
 
-Canonical parquet R2 inputs contain sidecar-row indices ``IDX_1``/``IDX_2``,
+R2 panel Parquet files contain sidecar-row indices ``IDX_1``/``IDX_2``,
 ``R2``, and ``SIGN_R``. The required sidecar is bound by its identity digest and
 row count. Each chromosome builds one identity remap; pairs stream through
 ``iter_all_pairs`` without a dense chromosome matrix or row-group cache. Every
 file must match the ``build-r2-panel`` metadata contract checked by
-``read_r2_parquet_contract``: int16 R2 quantized with scale 32767 and already
+``read_r2_parquet_contract``: int16 ``R2`` quantized with scale 32767 and already
 bias-corrected, so decoding divides by the scale and applies no further
 correction. Each unordered off-diagonal pair contributes in both directions,
 and the diagonal is added internally as one.
@@ -165,7 +165,7 @@ class PreparedChromosome:
     """Aligned reference state whose reader belongs to one chromosome calculation.
 
     ``annotations`` maps selected reads to source rows in ``metadata`` order.
-    ``block_left`` describes that full contributor universe. Use as a context
+    ``block_left`` describes all of those reference SNPs. Use as a context
     manager; closing releases the reader and chromosome working state.
     """
 
@@ -298,10 +298,10 @@ def build_index_remap(
     retained_metadata: pd.DataFrame,
     identifier_mode: str,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Map panel (build) indices to retained matrix indices for the index format.
+    """Map panel (build) indices to retained matrix indices for an R2 panel.
 
     ``full_sidecar`` is the complete panel in build order (the parquet IDX
-    space). ``retained_metadata`` is the analysis-restricted matrix universe in
+    space). ``retained_metadata`` lists the retained reference SNPs in
     matrix order. Returns ``(remap, retained_build_idx)`` where
     ``remap[build_idx]`` is the retained matrix index or ``-1``, and
     ``retained_build_idx[matrix_idx]`` is the originating build index (ascending,
@@ -318,7 +318,7 @@ def build_index_remap(
     retained_index = pd.Index(retained_keys)
     if retained_index.has_duplicates:
         raise LDSCInputError(
-            "ldscore could not align retained reference metadata to the parquet R2 sidecar. "
+            "ldscore could not align retained reference metadata to the R2 panel sidecar. "
             f"The retained metadata has duplicate SNP identity keys under mode '{mode}'. "
             "Most likely the SNP identifier mode is too coarse for this reference panel. "
             "Use an allele-aware `--snp-identifier` mode or rebuild the reference panel "
@@ -367,14 +367,14 @@ def read_text_table(path: str) -> pd.DataFrame:
 
 
 def _panel_sidecar_path_for_r2(r2_path: str) -> Path:
-    """Return the ``chrN_meta.tsv.gz`` sidecar path paired with an R2 parquet."""
+    """Return the ``chrN_meta.tsv.gz`` sidecar path paired with an R2 Parquet file."""
     p = Path(r2_path)
     if not p.name.endswith("_r2.parquet"):
         raise LDSCInputError(
-            f"ldscore could not locate the sidecar for R2 parquet '{r2_path}'. Most likely "
+            f"ldscore could not locate the sidecar for R2 Parquet file '{r2_path}'. Most likely "
             "the parquet file does not use the canonical `chrN_r2.parquet` filename written "
-            "by `ldsc build-r2-panel`. Regenerate the reference panel or pass the canonical "
-            "R2 directory. "
+            "by `ldsc build-r2-panel`. Regenerate the reference panel or pass the "
+            "R2 panel directory. "
             f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
         )
     return p.with_name(p.name[: -len("_r2.parquet")] + "_meta.tsv.gz")
@@ -385,10 +385,10 @@ def _load_full_panel_sidecar(r2_path: str) -> pd.DataFrame:
     sidecar_path = _panel_sidecar_path_for_r2(r2_path)
     if not sidecar_path.exists():
         raise LDSCInputError(
-            f"ldscore could not load index-format R2 parquet '{r2_path}' because the "
+            f"ldscore could not load R2 Parquet file '{r2_path}' because the "
             f"required sidecar '{sidecar_path}' is missing. Most likely the parquet file "
             "was copied without its matching `chrN_meta.tsv.gz` sidecar. Keep the R2 "
-            "parquet and sidecar together or regenerate with `ldsc build-r2-panel`. "
+            "Parquet file and sidecar together or regenerate with `ldsc build-r2-panel`. "
             f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
         )
     df = pd.read_csv(sidecar_path, sep="\t", comment="#")
@@ -410,7 +410,7 @@ def _validate_index_binding(full_sidecar: pd.DataFrame, *, n_snps: int, identity
     """Hard-fail if the sidecar does not match the parquet's recorded binding."""
     if len(full_sidecar) != int(n_snps):
         raise LDSCInputError(
-            f"ldscore could not use parquet R2 input at {context}: the sidecar has "
+            f"ldscore could not use R2 panel input at {context}: the sidecar has "
             f"{len(full_sidecar)} rows but the parquet records n_snps={n_snps}. Most "
             "likely the parquet and sidecar are not a matched pair. Restore the matching "
             "sidecar or regenerate the reference panel. "
@@ -419,7 +419,7 @@ def _validate_index_binding(full_sidecar: pd.DataFrame, *, n_snps: int, identity
     actual = sidecar_identity_sha256(full_sidecar, context=context)
     if actual != identity_hash:
         raise LDSCInputError(
-            f"ldscore could not use parquet R2 input at {context}: the sidecar identity "
+            f"ldscore could not use R2 panel input at {context}: the sidecar identity "
             f"hash {actual} does not match parquet ldsc:sidecar_identity_sha256 "
             f"{identity_hash}. Most likely the sidecar is wrong, reordered, or edited. "
             "Restore the matching sidecar or regenerate the reference panel. "
@@ -467,10 +467,10 @@ def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_m
     duplicated = metadata["SNP"].duplicated(keep=False)
     if duplicated.any():
         raise LDSCInputError(
-            f"Chromosome {chrom} has duplicate retained SNP IDs. "
-            "This is ambiguous in base rsID mode. Most likely the retained reference "
-            "panel contains duplicate rsIDs. Use an allele-aware rsID mode or remove "
-            "duplicate retained SNP IDs."
+            f"Chromosome {chrom} has duplicate retained SNP identities. "
+            "This is ambiguous in `rsid` mode. Most likely the retained reference "
+            "panel contains duplicate rsIDs. Use `rsid_allele_aware` or remove "
+            "duplicate retained SNP identities."
         )
 
 
@@ -581,7 +581,7 @@ def combine_annotation_groups(
        baseline/query grouping.
 
     "Identical SNP rows" means that every contributing file for ``chrom`` must
-    produce the same ordered SNP universe after chromosome filtering and
+    produce the same ordered SNP rows after chromosome filtering and
     sorting. In practice, the ``CHR``, ``POS``, and ``SNP`` columns must match
     row-for-row, and the identifier key derived from ``identifier_mode`` must
     also match row-for-row. If two files contribute columns for the same
@@ -682,7 +682,7 @@ def read_identifier_list(path: str, mode: str) -> RestrictionIdentityKeys:
 
 
 def load_regression_keys(args: argparse.Namespace) -> RestrictionIdentityKeys | None:
-    """Load the optional regression SNP universe from CLI arguments."""
+    """Load the optional regression SNPs from CLI arguments."""
     if not getattr(args, "regr_snps_file", None):
         return None
     return read_identifier_list(args.regr_snps_file, args.snp_identifier)
@@ -720,8 +720,8 @@ def build_window_coordinates(
     """Build the coordinate array and maximum distance for the active LD window mode.
 
     ``--ld-wind-snps`` counts retained rows unless ``snp_positions`` gives each
-    retained SNP's row in a larger SNP universe (the parquet panel sidecar),
-    in which case it counts rows of that universe. ``snp_positions`` must be
+    retained SNP's row in a larger SNP set (the R2 panel sidecar),
+    in which case it counts rows of that set. ``snp_positions`` must be
     increasing; parquet preparation orders retained SNPs by panel row.
     """
     selectors = np.array([args.ld_wind_snps is not None, args.ld_wind_kb is not None, args.ld_wind_cm is not None], dtype=bool)
@@ -790,7 +790,7 @@ def _requested_ld_window_spec(args: argparse.Namespace) -> _LDWindowSpec:
     if args.ld_wind_cm is not None:
         return _LDWindowSpec("cm", float(args.ld_wind_cm))
     raise LDSCUsageError(
-        "ldscore could not validate the parquet R2 panel LD window because no "
+        "ldscore could not validate the R2 panel LD window because no "
         "user LD-window option was set. Most likely argument validation was "
         "bypassed. Specify exactly one of `--ld-wind-snps`, `--ld-wind-kb`, or "
         "`--ld-wind-cm`."
@@ -799,7 +799,7 @@ def _requested_ld_window_spec(args: argparse.Namespace) -> _LDWindowSpec:
 
 @dataclass(frozen=True)
 class R2ParquetContract:
-    """Decode, binding, and identity metadata of one validated R2 parquet."""
+    """Decode, binding, and identity metadata of one validated R2 Parquet file."""
 
     path: str
     snp_identifier: str
@@ -815,7 +815,7 @@ class R2ParquetContract:
 
 
 def read_r2_parquet_contract(path) -> R2ParquetContract:
-    """Validate one R2 parquet footer against the current ``build-r2-panel`` format.
+    """Validate one R2 Parquet file footer against the current ``build-r2-panel`` format.
 
     Readers accept exactly what the writer produces: ``IDX_1``/``IDX_2``/
     ``R2``/``SIGN_R`` columns with an int16 ``R2``, the writer's
@@ -829,7 +829,7 @@ def read_r2_parquet_contract(path) -> R2ParquetContract:
 
 
 def read_r2_parquet_contracts(paths: Sequence) -> list[R2ParquetContract]:
-    """Validate several R2 parquet footers, reporting every defect in one error.
+    """Validate several R2 Parquet file footers, reporting every defect in one error.
 
     Returns one :class:`R2ParquetContract` per path, in order. Every defect of
     every file is collected before a single ``LDSCInputError`` is raised.
@@ -843,14 +843,14 @@ def read_r2_parquet_contracts(paths: Sequence) -> list[R2ParquetContract]:
     if defects:
         if len(defects) == 1:
             path, problems = defects[0]
-            summary = f"R2 parquet '{path}' does not match"
+            summary = f"R2 Parquet file '{path}' does not match"
             details = "; ".join(problems)
         else:
-            summary = f"{len(defects)} R2 parquet files do not match"
+            summary = f"{len(defects)} R2 Parquet files do not match"
             details = " | ".join(f"'{path}': {'; '.join(problems)}" for path, problems in defects)
         raise LDSCInputError(
             f"{summary} the format written by the current `ldsc build-r2-panel`: {details}. "
-            "Most likely the panel was built by an older LDSC version or its metadata was "
+            "Most likely the panel was built by an older LDSC3 version or its metadata was "
             "altered. Regenerate the panel with `ldsc build-r2-panel`. "
             f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
         )
@@ -858,14 +858,14 @@ def read_r2_parquet_contracts(paths: Sequence) -> list[R2ParquetContract]:
 
 
 def _check_r2_parquet_contract(path) -> tuple[R2ParquetContract | None, list[str]]:
-    """Return the parsed contract of one R2 parquet, or ``None`` and its defects."""
+    """Return the parsed contract of one R2 Parquet file, or ``None`` and its defects."""
     try:
         import pyarrow as pa
         import pyarrow.parquet as pq
     except ImportError as exc:
         raise LDSCDependencyError(
-            "Reading parquet R2 reference panels requires pyarrow. Most likely parquet "
-            "reference-panel input was requested in an environment missing pyarrow. "
+            "Reading R2 panels requires pyarrow. Most likely R2 "
+            "panel input was requested in an environment missing pyarrow. "
             "Install pyarrow or use PLINK reference-panel input instead."
         ) from exc
     from .ref_panel_builder import R2_ENCODING, R2_QUANT_SCALE
@@ -915,7 +915,7 @@ def _check_r2_parquet_contract(path) -> tuple[R2ParquetContract | None, list[str
                              "hg19 or hg38")
     text("artifact_type", "ref_panel_r2")
     snp_identifier = parsed("snp_identifier", normalize_snp_identifier_mode, lambda mode: True,
-                            "an LDSC SNP identifier mode")
+                            "an LDSC3 SNP identifier mode")
     genome_build = text("genome_build")
     window_mode = parsed("ld_window_mode", str, lambda mode: mode in {"snps", "kb", "cm"}, "snps, kb, or cm")
     window_value = parsed("ld_window_value", float, lambda value: bool(np.isfinite(value)) and value > 0,
@@ -933,7 +933,7 @@ def _check_r2_parquet_contract(path) -> tuple[R2ParquetContract | None, list[str
 
 
 def _r2_panel_ld_window_spec(parquet_paths: Sequence[str]) -> _LDWindowSpec | None:
-    """Return the common recorded LD-window spec for a parquet R2 input set."""
+    """Return the common recorded LD-window spec for an R2 panel input set."""
     panel_spec: _LDWindowSpec | None = None
     for path in parquet_paths:
         current = read_r2_parquet_contract(path).ld_window
@@ -942,7 +942,7 @@ def _r2_panel_ld_window_spec(parquet_paths: Sequence[str]) -> _LDWindowSpec | No
             continue
         if current != panel_spec:
             raise LDSCInputError(
-                "ldscore could not validate the parquet R2 panel LD window because "
+                "ldscore could not validate the R2 panel LD window because "
                 "the resolved parquet files record conflicting build windows: "
                 f"`{_format_ld_window_spec(panel_spec)}` and "
                 f"`{_format_ld_window_spec(current)}`. Most likely files from "
@@ -960,12 +960,12 @@ def _raise_ldscore_window_exceeds_panel_window(
 ) -> None:
     """Raise the user-facing parquet-window mismatch error."""
     raise LDSCUsageError(
-        f"ldscore cannot compute chromosome {chrom} from the R2 parquet reference "
+        f"ldscore cannot compute chromosome {chrom} from the R2 "
         f"panel: the user-requested LD window `{_format_ld_window_spec(requested)}` "
-        f"is wider than the input R2 parquet panel window "
-        f"`{_format_ld_window_spec(panel)}`. Most likely the parquet reference "
+        f"is wider than the input R2 panel window "
+        f"`{_format_ld_window_spec(panel)}`. Most likely the R2 "
         "panel was built with a smaller LD window, so it does not contain all "
-        "SNP pairs required by this ldscore run. Rebuild the R2 parquet panel "
+        "SNP pairs required by this ldscore run. Rebuild the R2 panel "
         f"with `{_format_ld_window_spec(requested)}` or a wider build window, or "
         f"rerun ldscore with an LD window no wider than the recorded panel window "
         f"`{_format_ld_window_spec(panel)}`."
@@ -978,7 +978,7 @@ def validate_ldscore_window_within_r2_panel_window(
     parquet_paths: Sequence[str],
     chrom: str,
 ) -> None:
-    """Reject ldscore windows the R2 parquet panel is not known to cover.
+    """Reject ldscore windows the R2 panel is not known to cover.
 
     The rule uses only the recorded parquet LD-window mode and value, so it is
     decided before any computation: a window in another unit is rejected, and
@@ -994,7 +994,7 @@ def validate_ldscore_window_within_r2_panel_window(
     if requested_spec.mode != panel_spec.mode:
         requested, panel = _format_ld_window_spec(requested_spec), _format_ld_window_spec(panel_spec)
         raise LDSCUsageError(
-            f"ldscore cannot use the R2 parquet reference panel for chromosome {chrom} with "
+            f"ldscore cannot use the R2 panel for chromosome {chrom} with "
             f"`{requested}`: the panel was built with `{panel}`, and windows in different units "
             "cannot be checked for coverage from their settings, so the run could silently miss "
             f"SNP pairs the panel never stored. Rerun with the panel's window `{panel}` (or a "
@@ -1011,7 +1011,7 @@ def validate_ldscore_window_within_r2_panel_window(
 
 
 def reject_truncated_r2_panel(parquet_paths: Sequence[str], chrom: str) -> None:
-    """Reject an R2 parquet panel that omitted pairs below a positive ``ldsc:min_r2``.
+    """Reject an R2 panel that omitted pairs below a positive ``ldsc:min_r2``.
 
     LD scores sum every SNP pair in the window, so pairs the panel did not
     store would count as zero. Such panels stay valid for ``query-r2``, which
@@ -1021,8 +1021,8 @@ def reject_truncated_r2_panel(parquet_paths: Sequence[str], chrom: str) -> None:
         min_r2 = read_r2_parquet_contract(path).min_r2
         if min_r2 > 0:
             raise LDSCInputError(
-                f"ldscore cannot use R2 parquet '{path}' (chromosome {chrom}): the panel omits SNP pairs with "
-                f"adjusted R2 below {min_r2:g} (ldsc:min_r2, set by `build-r2-panel --min-r2`). LD scores sum "
+                f"ldscore cannot use R2 Parquet file '{path}' (chromosome {chrom}): the panel omits SNP pairs with "
+                f"unbiased R2 below {min_r2:g} (ldsc:min_r2, set by `build-r2-panel --min-r2`). LD scores sum "
                 "every SNP pair in the window, so the omitted pairs would count as zero and change the scores. "
                 "Rebuild the panel without `--min-r2` (the default keeps every pair). Panels built with a "
                 "positive `--min-r2` remain usable for `ldsc query-r2`."
@@ -1042,9 +1042,9 @@ class _DecodedR2RowGroup:
 
 class SortedR2BlockReader:
     """
-    Stream retained R2 pairs from a chromosome-scoped index parquet table.
+    Stream retained R2 pairs from one chromosome's R2 Parquet file.
 
-    Index-format parquet files use logical fields ``IDX_1``, ``IDX_2``, ``R2``
+    R2 Parquet files use logical fields ``IDX_1``, ``IDX_2``, ``R2``
     (int16 on-disk, dequantized to float32 by dividing by ``ldsc:r2_scale``),
     and ``SIGN_R``. The file must satisfy :func:`read_r2_parquet_contract`; its
     values are already unbiased and are not corrected again. Each row group is
@@ -1059,11 +1059,11 @@ class SortedR2BlockReader:
         identifier_mode: str,
         genome_build: str | None = None,
     ) -> None:
-        """Open one chromosome's sorted parquet R2 tables and build index maps."""
+        """Open one chromosome's sorted R2 Parquet file and build index maps."""
         if not paths:
             raise LDSCInputError(
-                f"ldscore could not find sorted parquet R2 input for chromosome {chrom}. "
-                "Most likely the R2 directory is missing this chromosome or the path token "
+                f"ldscore could not find a sorted R2 Parquet file for chromosome {chrom}. "
+                "Most likely the R2 panel directory is missing this chromosome or the path token "
                 "does not resolve to `chrN_r2.parquet`. Pass the correct `--r2-dir` or "
                 "regenerate the reference panel. "
                 f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
@@ -1091,8 +1091,8 @@ class SortedR2BlockReader:
             import pyarrow.parquet as pq
         except ImportError as exc:
             raise LDSCDependencyError(
-                "ldscore could not read index parquet R2 input because pyarrow is not installed. "
-                "Most likely parquet reference-panel mode was requested in an environment missing pyarrow. "
+                "ldscore could not read R2 panel input because pyarrow is not installed. "
+                "Most likely R2 panel input was requested in an environment missing pyarrow. "
                 "Install pyarrow or use PLINK reference-panel input instead."
             ) from exc
 
@@ -1106,9 +1106,9 @@ class SortedR2BlockReader:
 
         if len(paths) != 1:
             raise LDSCInputError(
-                f"ldscore resolved {len(paths)} parquet R2 files for chromosome {self.chrom}, "
-                "but index parquet mode requires exactly one file per chromosome. Most likely "
-                "the R2 path/glob is too broad or the directory contains duplicate chromosome "
+                f"ldscore resolved {len(paths)} R2 Parquet files for chromosome {self.chrom}, "
+                "but an R2 panel requires exactly one file per chromosome. Most likely "
+                "the R2 panel path/glob is too broad or the directory contains duplicate chromosome "
                 "artifacts. Narrow `--r2-dir` or remove duplicate parquet files."
             )
         self._pf = pq.ParquetFile(paths[0])
@@ -1139,7 +1139,7 @@ class SortedR2BlockReader:
         parquet_build = self.contract.sorted_by_build
         if self.genome_build not in {None, parquet_build}:
             raise LDSCInputError(
-                f"ldscore could not use R2 parquet '{path}': it is sorted for "
+                f"ldscore could not use R2 Parquet file '{path}': it is sorted for "
                 f"{parquet_build}, but the analysis uses {self.genome_build}. Most likely "
                 "the reference panel and annotation inputs use different genome builds. "
                 "Use the matching reference file or regenerate with "
@@ -1164,10 +1164,10 @@ class SortedR2BlockReader:
             avg = meta.num_rows / meta.num_row_groups
             if avg > 500_000:
                 LOGGER.warning(
-                    f"R2 reference panel '{path}' stores {meta.num_rows} SNP-pair rows in "
+                    f"R2 panel '{path}' stores {meta.num_rows} SNP-pair rows in "
                     f"{meta.num_row_groups} large file blocks (average {avg:.0f} rows per block). "
                     "Reading continues, but queries may be slower and require more memory. "
-                    "For repeated use, rebuild the panel with the current ldsc build-r2-panel, "
+                    "For repeated use, rebuild the panel with the current `ldsc build-r2-panel`, "
                     "which writes smaller file blocks by default."
                 )
 
@@ -1190,7 +1190,7 @@ class SortedR2BlockReader:
     def iter_all_pairs(self, *, batch_rows=65_536):
         """Yield each pair once in bounded batches, including oversized row groups.
 
-        Panel indices are remapped to the retained reference universe before
+        Panel indices are remapped to the retained reference SNPs before
         yielding. SIGN_R is unused. No decoded row group is cached.
         """
         if self._pf is None:
@@ -1244,10 +1244,10 @@ def ld_score_streaming_from_r2_reader(
     chunk_pairs: int = _CSR_CHUNK_PAIRS,
     *, output_rows=None, n_baseline=None, query_batch_size=100, weight_mask=None,
 ) -> np.ndarray:
-    """Project selected annotation batches through each stored R² chunk once.
+    """Project selected annotation batches through each stored R2 chunk once.
 
     Only output SNPs own score buffers, but both pair directions retain every
-    eligible reference contributor. Diagonals and the separate regression
+    eligible reference SNP. Diagonals and the separate regression
     weight mask use the same float64 accumulator; direct results are float32.
     """
     block_left = np.asarray(block_left, dtype=np.int64)
@@ -1291,10 +1291,10 @@ def compute_counts(
     common_maf_min: float = 0.05,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Compute LDSC-style annotation count vectors ``M`` and common counts.
+    Compute LDSC-style annotation count vectors ``M`` and common-SNP counts.
 
-    ``M`` is the column-wise sum over the retained reference SNP universe.
-    The common-count vector is the same sum restricted to rows with
+    ``M`` is the column-wise sum over the retained reference SNPs.
+    The common-SNP count vector is the same sum restricted to rows with
     ``MAF >= common_maf_min`` (inclusive; deviates from legacy LDSC's strict
     ``0.05 < FRQ < 0.95`` on canonical folded MAF). ``metadata`` must carry
     MAF for every row; both reference-panel adapters guarantee it.
@@ -1321,8 +1321,8 @@ def regression_mask_from_keys(
 ) -> np.ndarray:
     """Build the selected-regression-set mask after named region subtraction.
 
-    This is deliberately separate from the LD-reference universe: callers use
-    the returned mask only for written regression rows and ``w_ld`` contributors.
+    This is deliberately separate from the reference SNPs: callers use the
+    returned mask only for written regression SNPs and the SNPs that contribute to ``w_ld``.
     """
     if regression_keys is None:
         keep = np.ones(len(metadata), dtype=bool)
@@ -1331,7 +1331,7 @@ def regression_mask_from_keys(
             metadata,
             regression_keys,
             identifier_mode,
-            context="LD-score regression SNP restriction matching",
+            context="regression-SNP restriction matching for LD scores",
         ).to_numpy(dtype=bool)
     else:
         keys = identifier_keys(metadata, identifier_mode)

@@ -26,7 +26,7 @@ from .query_annotations import _gene_list_gate_a_message
 def prepare_direct_annotations(args, config, spec, workspace, output_config, *, declared_inputs, reference_inputs, batch=None):
     """Validate, construct, and return one complete shard-backed dataset."""
     if batch is not None and batch.catalog.genome_build != getattr(args,'gene_catalog_build',None):
-        raise LDSCInputError(f"Gene-coordinate catalog build does not match the resolved analysis build: catalog={batch.catalog.genome_build}, analysis={getattr(args,'gene_catalog_build',None)}. Use a matching catalog; no implicit liftover is performed.")
+        raise LDSCInputError(f"Gene coordinate catalog build does not match the resolved analysis build: catalog={batch.catalog.genome_build}, analysis={getattr(args,'gene_catalog_build',None)}. Use a matching catalog; no implicit liftover is performed.")
     baseline, queries = declared_inputs.baseline, declared_inputs.query
     declarations, issues = declared_inputs.declarations, []
     bed_sources = prepare_bed_queries(declared_inputs.files['query_annot_bed_sources'],workspace) if spec.query_annot_bed_sources else []

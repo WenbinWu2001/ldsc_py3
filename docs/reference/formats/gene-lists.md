@@ -2,10 +2,9 @@
 
 Last updated on: 2026-10-27
 
-`ldsc ldscore` accepts one or more focal gene lists through
-`--query-annot-gene-list-sources`. Direct mode requires an explicit coordinate
-catalog; indexed mode uses only the catalog embedded in the index. There is no
-installed-package catalog fallback or catalog overlay.
+`ldsc ldscore` accepts one or more focal gene lists through `--query-annot-gene-list-sources`.
+Direct mode requires an explicit gene coordinate catalog; indexed mode uses only the catalog embedded in the gene LD-score index.
+There is no installed-package catalog fallback or catalog overlay.
 
 ## The four query-input modes
 
@@ -47,18 +46,17 @@ reproducible; a pattern that matches no file is a batched Gate A source error.
 `--control-gene-list-file` accepts exactly one literal file and never a glob.
 Both interfaces expand `~` and environment variables before resolution.
 
-Matching is exact and case-sensitive. A token may be an authoritative
-`gene_id` or an exact `gene_name`; IDs are strongly preferred because names can
-be shared. LDSC does not strip Ensembl versions, infer synonyms, change case,
-or choose among ambiguous matches. Repeated rows and different aliases that
-resolve to the same canonical ID select the gene only once per source.
+Matching is exact and case-sensitive.
+A token may be an authoritative `gene_id` or an exact `gene_name`; IDs are strongly preferred because names can be shared.
+LDSC3 does not strip Ensembl versions, infer synonyms, change case, or choose among ambiguous matches.
+Repeated rows and different aliases that resolve to the same canonical ID select the gene only once per source.
 
 The query name is the source basename after removing optional final `.gz` and
 then at most one final `.txt`, `.tsv`, or `.list`, case-insensitively. Query
 names must be unique and must not collide with baseline columns or the reserved
 control name `gene_control`.
 
-## Coordinate catalog
+## Gene coordinate catalog
 
 `--gene-coordinate-file` is a headered TSV or TSV.GZ with required columns in
 any order:
@@ -126,7 +124,7 @@ statuses and diagnostic paths without writing directly to its caller's console.
 
 ## Direct query chromosome scope
 
-For both direct PLINK and parquet-R² runs:
+For both direct PLINK and R² panel runs:
 
 - `@` requires all autosomes 1–22. Missing, unreadable, or invalid required chromosome inputs fail the run.
 - Ordinary globs select their actual matches; validated file contents establish the chromosome set. A filename such as `*.22.annot.gz` does not prove chr22-only contents. Additional chromosomes in matched files participate in scope.
@@ -166,8 +164,8 @@ ldsc ldscore \
   --ld-wind-cm 1.0
 ```
 
-The coordinate catalog controls both focal and control resolution. It replaces,
-rather than augments, any other gene universe.
+The gene coordinate catalog controls both query and control resolution.
+Only the genes in the catalog can be resolved; no other gene source is added.
 
 ## Indexed example
 
@@ -195,4 +193,4 @@ available diagnostics and log, not root scientific artifacts.
 See [Gene-list diagnostics and repair](../results/gene-list-diagnostics.md) for
 all columns, reasons, count identities, filters, and a list-first curation
 workflow. The related index artifact/build contract is documented in
-[Exact gene LD-score indexes](../gene-ldscore-index.md).
+[Gene LD-score indexes](../gene-ldscore-index.md).

@@ -54,7 +54,7 @@ class JackknifeIdentifiabilityError(np.linalg.LinAlgError):
         )
 
     def __reduce__(self):
-        """Preserve structured diagnostics and notes across query processes."""
+        """Preserve structured diagnostics and notes across workers."""
         return type(self), (self.failures, self.n_blocks, self.separators), self.__dict__
 
 
@@ -158,7 +158,7 @@ class Jackknife(object):
             if max(separators) != self.N:
                 raise LDSCInternalError(
                     f"Regression jackknife separators end at {max(separators)}, expected {self.N} data points. "
-                    "Most likely custom jackknife separators do not match the regression rows. "
+                    "Most likely custom jackknife separators do not match the regression SNPs. "
                     "Re-run with `--log-level DEBUG` and report the traceback."
                 )
             if min(separators) != 0:

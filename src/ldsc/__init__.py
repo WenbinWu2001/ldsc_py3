@@ -1,16 +1,16 @@
-"""ldsc package public surface.
+"""``ldsc`` package public surface.
 
 Core functionality:
-    Re-export the refactored LDSC workflow classes, reference-panel builders
+    Re-export the LDSC3 workflow classes, reference-panel builders
     and loaders, configuration dataclasses, and convenience helpers from a
     single import location.
 
 Overview
 --------
-This module is the top-level public API for the refactored package. Import from
+This module is the top-level public API for LDSC3. Import from
 ``ldsc`` when you want the supported package surface rather than the internal
 ``ldsc._kernel`` implementation modules. The exports here mirror the main user
-workflows: annotation building, parquet reference-panel building, exact gene
+workflows: annotation building, R2 panel building, exact gene
 LD-score index construction, LD-score calculation, summary-statistics munging,
 regression, output writing, genome-build inference for ``chr_pos`` inputs, and
 lazy access to result plotting and liability-scale post-processing.

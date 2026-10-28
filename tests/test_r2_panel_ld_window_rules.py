@@ -54,7 +54,7 @@ def test_wider_window_in_the_same_unit_is_rejected_before_any_chromosome_is_comp
     assert _ldscore(output, "--r2-dir", str(panels["snps3"]), "--ld-wind-snps", "4") != 0
 
     issues = pd.read_csv(output / "diagnostics" / "input_issues.tsv", sep="\t")
-    assert "is wider than the input R2 parquet panel window" in issues["details"].iloc[0]
+    assert "is wider than the input R2 panel window" in issues["details"].iloc[0]
     assert not (output / "diagnostics" / "chromosome-logs").exists()
 
 
@@ -155,7 +155,7 @@ def test_snp_count_window_computes_same_position_snps_in_panel_order(tmp_path):
     assert swapped[0]["SNP"].tolist() == ["rs1", "rs2", "rs3", "rs4"]
 
 
-WARNING_TEXT = "counts positions in the parquet R2 panel"
+WARNING_TEXT = "counts positions in the R2 panel"
 
 
 def test_snp_count_window_records_panel_and_kept_counts_and_warns_once(tmp_path, panels):

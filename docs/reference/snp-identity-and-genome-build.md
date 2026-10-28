@@ -8,9 +8,9 @@ Last updated on: 2026-10-27
 ldsc infer-genome-build PATH
 ```
 
-Supply one exact file or recognized LDSC artifact directory; `--help` is the only option.
-The helper supports standalone BIM files without BED/FAM companions, headered text tables (including gzip), Parquet, and recognized LDSC metadata JSON.
-It recognizes annotation, munged-sumstats, LD-score, R²-panel (root or build child), gene-index, and saved-result layouts.
+Supply one exact file or recognized LDSC3 artifact directory; `--help` is the only option.
+The helper supports standalone BIM files without BED/FAM companions, headered text tables (including gzip), Parquet, and recognized LDSC3 metadata JSON.
+It recognizes annotation, munged summary-statistics, LD-score directory, R² panel (root or build child), gene LD-score index, and saved-result layouts.
 It reads their own metadata and relevant members without following upstream input paths or recursively searching unrelated files.
 It does not accept batches, globs, chromosome-suite expansion, build overrides, or column overrides.
 No new Python API is exported.
@@ -28,7 +28,7 @@ This artifact’s workflow uses rsIDs for SNP matching.
 ```
 
 The second sentence appears only when applicable metadata records `rsid` or `rsid_allele_aware`.
-An rsID column alone does not establish the workflow's matching mode.
+An rsID column alone does not establish the workflow's SNP identifier mode.
 The sentence may also accompany an unknown result.
 
 Insufficient or inconclusive evidence produces `Genome build: unknown (...)` with a short reason.
@@ -63,7 +63,7 @@ An existing metadata label is a declaration regardless of whether an earlier wor
 Unlabeled inputs are admissible under an explicit build assertion; fresh statistical inference cannot override that assertion.
 For example, `--genome-build hg19` declares hg19 for the applicable workflow, while `--source-genome-build hg19` declares the source build for panel building or munging.
 An explicit assertion establishes how unlabeled coordinates are interpreted; it never overwrites an input label, converts positions, or replaces an existing liftover operation.
-Source and target builds in a workflow that performs liftover remain separate coordinate stages, so an intentional source-to-target conversion is not itself a build conflict.
+Source and target builds in a workflow that performs liftover remain separate coordinate stages, so an intentional source-to-target liftover is not itself a build conflict.
 Errors must suggest only options supported by the affected command; workflows without a build override direct the user to matching upstream artifacts.
 
 Without a concrete assertion, inspect build evidence across all relevant inputs and their selected shards before deciding whether the workflow can proceed.
@@ -79,7 +79,7 @@ Valid artifact build metadata or a build-specific position column establishes th
 Compare the declared builds across inputs using the same consistency rule as inferred builds; a declaration on one input does not override conflicting evidence from another input.
 A concrete user-supplied build bypasses fresh coordinate inference while retaining declaration checks.
 A disagreement stops the run before substantial computation or scientific output publication.
-Repair the inputs by supplying matching coordinates, correcting erroneous metadata only after verification, or performing an explicit coordinate conversion.
+Repair the inputs by supplying matching coordinates, correcting erroneous metadata only after verification, or performing an explicit liftover.
 
 For inputs that require coordinate inference, sample at most 5,000 rows from every relevant file/chromosome.
 Coordinate columns are streamed to discover chromosomes; inference uses only those bounded samples.
@@ -113,7 +113,7 @@ Evidence collected per input type before a workflow build is resolved (`GenomeBu
 
 A panel directory name is not evidence of its build; use a build-specific R² panel directory when a workflow needs one build.
 R² panels declare their build in the required `ldsc:sorted_by_build` metadata ([R² panel format](formats/r2-panels.md)), read from the Parquet footer without row data; a panel whose build differs from the run's genome build is an error.
-Munging resolves the source build before any requested conversion and records only the final output build in the Parquet identity footer of the munged summary statistics; source-build evidence is never reported as the output build.
+Munging resolves the source build before any requested liftover and records only the final output build in the Parquet identity footer of the munged summary statistics; source-build evidence is never reported as the output build.
 When inference succeeds, the workflow log records the selected build, the coordinate basis and the support for all four hypotheses.
 
 ### SNP keep-list rules
@@ -179,25 +179,25 @@ See the [grouped report example](../user-guide/troubleshooting.md#common-genome-
 
 | Command | Evidence and interpretation |
 | --- | --- |
-| `annotate` | Selected annotation/BIM grids and the supplied gene-catalog declaration; ordinary BED inherits the resolved projection build. |
-| Direct `ldscore` | Baseline and prebuilt query annotations, PLINK BIM shards or R2 Parquet and sidecar declarations, the gene catalog when used, and coordinate keep lists. |
+| `annotate` | Selected annotation/BIM grids and the supplied gene coordinate catalog declaration; ordinary BED inherits the resolved projection build. |
+| Direct `ldscore` | Baseline and prebuilt query annotations, PLINK BIM shards or R² panel Parquet and sidecar declarations, the gene coordinate catalog when used, and coordinate keep lists. |
 | `build-r2-panel` | All source BIM shards and the source-coordinate keep list, before filtering; genetic maps are selected by the resolved source/emitted build. cM map validation waits until source inference. |
 | `munge-sumstats` | Raw source coordinates and the source-coordinate keep list, before QC; explicit `--output-genome-build` remains a separate target. `--infer-only` checks the same source-build declarations and reports conflicts without creating output files. |
 | `convert-ldsc2-ldscores` | Reference declarations or per-chromosome inference establish coordinate identity; weight/annotation declarations must agree. Other unlabeled legacy coordinates remain descriptive because rsID joins transfer reference coordinates to the output. rsID output requires no build inference. |
-| `h2`, `partitioned-h2`, `rg` | Coordinate-family saved artifacts must agree; all RG traits participate before fitting. No CLI build override. Footerless Parquet remains invalid; legacy text uses panel-owned coordinate projection. |
+| `h2`, `partitioned-h2`, `rg` | Coordinate-family saved artifacts must agree; all `rg` traits participate before fitting. No CLI build override. Footerless Parquet remains invalid; legacy text uses panel-owned coordinate projection. |
 | `quantile-h2` | Saved LD-score build and resupplied coordinate artifacts must agree; BED inherits that build. No CLI build override. |
 | `build-gene-ldscore-index` | Required explicit hg19 or hg38 must agree with the catalog and applicable input declarations; no auto or liftover. Indexed scoring later inherits the immutable index and rejects live configuration overrides. |
 | `query-r2` | Existing concrete build selects/interprets a panel; otherwise coordinate-panel shard metadata must agree. Pair endpoints are lookup requests interpreted in the selected panel's build, with no separate pair-build inference. |
 | `convert-h2-scale`, `plot` | Saved-result consumers; no coordinate-build inference. |
 
 Build metadata describes emitted coordinates.
-After munging liftover it is the output build; each R2 output records its own emitted build.
+After munging liftover it is the output build; each R² panel output records its own emitted build.
 Neither should be read as an assertion about the original pre-liftover coordinates.
-SNP identity and file-format validation remain separate: an explicit build does not permit invalid alleles, missing required columns, broken sidecar bindings, or incompatible identity modes.
+SNP identity and file-format validation remain separate: an explicit build does not permit invalid alleles, missing required columns, broken sidecar bindings, or incompatible SNP identifier modes.
 
 ## Liftover
 
-`munge-sumstats` and `build-r2-panel` share one liftover implementation, `src/ldsc/_kernel/liftover.py`; workflow-specific options and drop accounting are in the [munge-sumstats reference](munge-sumstats.md#liftover-rules) and the [R² panel tutorial](../user-guide/workflows/r2-panels.md).
+`munge-sumstats` and `build-r2-panel` share one liftover implementation, `src/ldsc/_kernel/liftover.py`; workflow-specific options and drop accounting are in the [`munge-sumstats` reference](munge-sumstats.md#liftover-rules) and the [R² panel tutorial](../user-guide/workflows/r2-panels.md).
 Liftover is available only in coordinate-family modes.
 
 - Chain mapping takes and returns one-based positions; the 0-based coordinates of `pyliftover` are converted on both sides.
@@ -224,8 +224,8 @@ LD-score run is the narrow exception at the workflow level: it separately
 selects hg19 or hg38 for interval projection without changing rsID identity
 metadata.
 
-`build-gene-ldscore-index` is a second narrow workflow-level exception. New
-construction requires an explicit choice among all four identity modes and an explicit hg19 or hg38 assertion in its own `GeneLDScoreIndexBuildConfig`.
+`build-gene-ldscore-index` is a second narrow workflow-level exception.
+New construction requires an explicit choice among all four SNP identifier modes and an explicit hg19 or hg38 assertion in its own `GeneLDScoreIndexBuildConfig`.
 Exactly one cM, kb, or SNP-count window is required, without a default.
 In rsID-family modes, ordinary `GlobalConfig` still carries `genome_build=None`; the index independently binds its projection build because gene intervals, region masks, maps, and PLINK positions use that coordinate system.
 
@@ -259,7 +259,7 @@ An annotation file with only one of the two allele columns is rejected.
 Mode names are exact. Column aliases apply only to input headers, not to
 `snp_identifier` values.
 
-Base modes are fully allele-blind:
+Base modes ignore alleles entirely:
 
 - `rsid` uses only `SNP`.
 - `chr_pos` uses only `CHR:POS`.
@@ -267,17 +267,13 @@ Base modes are fully allele-blind:
 Allele columns may be preserved in base modes, but they never affect identity,
 duplicate filtering, retention, or drop reasons.
 
-Allele-aware modes require usable `A1/A2` on package-written identity
-artifacts: munged sumstats, reference-panel metadata, R² panel sidecars, and
-LD-score artifacts. They drop missing, invalid/non-SNP, identical,
-strand-ambiguous allele pairs, multi-allelic base-key clusters, and duplicate
-effective-key clusters. Artifact duplicates are handled by computing the
-effective merge key for the active mode and dropping all rows in duplicate-key
-clusters.
+Allele-aware modes require usable `A1/A2` on package-written identity artifacts: munged summary statistics, reference-panel metadata, R² panel sidecars, and LD-score directories.
+They drop missing, invalid/non-SNP, identical, strand-ambiguous allele pairs, multi-allelic base-key clusters, and duplicate effective-key clusters.
+Artifact duplicates are handled by computing the effective merge key for the active mode and dropping all rows in duplicate-key clusters.
 
 Multi-allelic base-key clusters are dropped because allele-aware modes exist for safer merging, not for retaining multi-allelic sites.
-Computing LD scores over retained same-position clusters would need its own design for same-position pair semantics, LD-window traversal, and R2 endpoint indexing.
-That design must also revisit the parquet `--ld-wind-snps` ordering of same-position SNPs, which relies on this drop; see [`--ld-wind-snps` counts panel rows](formats/r2-panels.md#37-ld-windows-and-sidecar-values-in-ldscore).
+Computing LD scores over retained same-position clusters would need its own design for same-position pair semantics, LD-window traversal, and R² endpoint indexing.
+That design must also revisit the R² panel `--ld-wind-snps` ordering of same-position SNPs, which relies on this drop; see [`--ld-wind-snps` counts panel rows](formats/r2-panels.md#37-ld-windows-and-sidecar-values-in-ldscore).
 
 ### Validity table
 
@@ -288,7 +284,7 @@ That design must also revisit the parquet `--ld-wind-snps` ordering of same-posi
 | `rsid` / `rsid_allele_aware` | `"hg19"` / `"hg38"` | warn + coerce to `None` | build is irrelevant in rsID-family modes |
 | `chr_pos` / `chr_pos_allele_aware` | `None` | **raise** | fix-it message: "Pass genome_build='auto' to infer from data." |
 | `chr_pos` / `chr_pos_allele_aware` | `"auto"` | yes | `GlobalConfig()` default companion |
-| `chr_pos` / `chr_pos_allele_aware` | `"hg19"` / `"hg38"` | yes | concrete coordinate mode |
+| `chr_pos` / `chr_pos_allele_aware` | `"hg19"` / `"hg38"` | yes | concrete coordinate-family state |
 
 `__post_init__` enforces this table. The coordinate-family `None` raise
 converts a latent error into an early, actionable failure.
@@ -327,11 +323,11 @@ because they serve different user models.
 | Workflow | Identifier default | Genome-build default | Notes |
 |---|---|---|---|
 | `annotate` | `chr_pos_allele_aware` | `None`; the gene-list route treats omission as `auto` in every mode | The BED route in coordinate-family modes requires `--genome-build`; rsID-family BED runs need no build (`annotate_workflow.py`, `annotation_builder.py`). |
-| `munge-sumstats` | `chr_pos_allele_aware` | source: `auto`; output: required for coordinate-family modes | Pass `--output-genome-build hg19` or `--output-genome-build hg38`; the raw source build is inferred unless `--source-genome-build hg19/hg38` is supplied. rsid-family modes reject source/output/liftover build flags and store `genome_build=None`. Requires usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. The removed `--no-alleles` flag is not accepted. |
-| `ldscore` | `chr_pos_allele_aware` | `None`; gene-list route treats omission as `auto` | Coordinate modes require a concrete/inferred build. Gene-list projection also requires a build in rsID modes, but shared rsID artifact metadata remains `genome_build=None`. |
+| `munge-sumstats` | `chr_pos_allele_aware` | source: `auto`; output: required for coordinate-family modes | Pass `--output-genome-build hg19` or `--output-genome-build hg38`; the raw source build is inferred unless `--source-genome-build hg19/hg38` is supplied. rsID-family modes reject source/output/liftover build flags and store `genome_build=None`. Requires usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. The removed `--no-alleles` flag is not accepted. |
+| `ldscore` | `chr_pos_allele_aware` | `None`; gene-list route treats omission as `auto` | Coordinate-family modes require a concrete/inferred build. Gene-list projection also requires a build in rsID-family modes, but shared rsID artifact metadata remains `genome_build=None`. |
 | `build-r2-panel` | registry or `--snp-identifier` | **ignored** | Uses `--source-genome-build` (separate field); `GlobalConfig.genome_build` is never consulted. |
-| `h2`, `partitioned-h2`, `rg` | registry at construction | registry at construction | Current Parquet uses footer provenance. Legacy `.sumstats[.gz]` is treated as rsID lookup input and projected onto the LD-score panel's identity; footerless Parquet is rejected. |
-| `convert-ldsc2-ldscores` | `rsid` | `auto` evidence | Output identity is restricted to allele-unaware `rsid` or `chr_pos`. rsID output remains buildless; chr_pos output requires inferred or explicit reference build. |
+| `h2`, `partitioned-h2`, `rg` | registry at construction | registry at construction | Current Parquet uses footer provenance. Legacy `.sumstats[.gz]` is treated as rsID lookup input and projected onto the LD-score directory's identity; footerless Parquet is rejected. |
+| `convert-ldsc2-ldscores` | `rsid` | `auto` evidence | Output identity is restricted to allele-unaware `rsid` or `chr_pos`. rsID output remains buildless; `chr_pos` output requires an inferred or explicit build for the reference LD-score files. |
 | Python `run_ldscore()` wrapper | registry | registry (`"auto"`) | Inherits `chr_pos_allele_aware + auto` from the registry; `auto` is resolved to `hg19`/`hg38` during inference. |
 
 ### `build-r2-panel` isolation
@@ -352,10 +348,10 @@ Regression workflows (`h2`, `partitioned-h2`, `rg`) can see three independent
 `GlobalConfig` sources for any given run:
 
 1. The LD-score root metadata snapshot — `LDScoreResult.config_snapshot`
-2. The reconstructed sumstats artifact snapshot — `SumstatsTable.config_snapshot`
+2. The reconstructed summary-statistics artifact snapshot — `SumstatsTable.config_snapshot`
 3. The runner's live `self.global_config` — from the process registry at construction time
 
-Coordinate-family regression checks the LD-score artifact and all participating traits before fitting.
+Coordinate-family regression checks the LD-score directory and all participating traits before fitting.
 Known artifact snapshots establish builds; suitable in-memory objects without a concrete build use bounded coordinate inference.
 Conflicting or unresolved builds produce one grouped error.
 The runner's live configuration does not override saved artifact provenance.
@@ -363,7 +359,7 @@ The runner's live configuration does not override saved artifact provenance.
 Effective identifier resolution selects the mode in priority order:
 
 ```
-LD-score snapshot → sumstats snapshot → runner config → "chr_pos_allele_aware" fallback
+LD-score snapshot → summary-statistics snapshot → runner config → "chr_pos_allele_aware" fallback
 ```
 
 The runner's live config is only the fallback for manually constructed in-memory
@@ -379,13 +375,13 @@ are logged, not persisted in detail metadata.
 
 ### Failure modes by provenance state
 
-| LD metadata | Sumstats snapshot | Outcome |
+| LD metadata | Summary-statistics snapshot | Outcome |
 |---|---|---|
 | `rsid` | `rsid` | Pair check passes; merge uses `SNP` column. Runner's `chr_pos_allele_aware+auto` default is ignored. |
 | `rsid_allele_aware` | `rsid` | Raises unless `--allow-identity-downgrade`; with downgrade, merge uses `SNP` and base-mode duplicate cleanup. |
 | `rsid` | `chr_pos` | Error: rsID-family and coordinate-family modes cannot mix. |
 | `chr_pos_allele_aware` | `chr_pos_allele_aware` | Pair check passes; merge uses `CHR:POS:<allele_set>`. |
-| `chr_pos_allele_aware` | missing current provenance | Package-written sumstats are rejected; regenerate them with the current LDSC package. |
+| `chr_pos_allele_aware` | missing current provenance | Package-written summary statistics are rejected; regenerate them with the current LDSC3 package. |
 | missing current provenance | missing current provenance | Package-written artifacts are rejected; manually constructed in-memory objects without provenance fall back to runner config and still undergo column/allele validation. |
 
 The key implication: on-disk provenance is transparent to the

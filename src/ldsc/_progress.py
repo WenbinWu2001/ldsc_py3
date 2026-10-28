@@ -1,6 +1,6 @@
 """Low-volume, elapsed-time progress records for workflow phases.
 
-Progress stays on the existing LDSC logger routes. Call once per bounded chunk
+Progress stays on the existing ``LDSC`` logger routes. Call once per bounded chunk
 or object; periodic records are time-throttled and never inspect input data.
 """
 

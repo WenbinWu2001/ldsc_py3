@@ -14,8 +14,8 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `AnnotationBuilder` | Prepare chromosome-backed annotations under explicit resource ownership. |
 | `LDScoreCalculator` | Orchestrate chromosome-wise LD-score calculation. |
 | `LegacyLDScoreConverter` | Convert a reusable legacy LDSC reference/weight suite into LDSC3 format. |
-| `ReferencePanelBuilder` | Build standard parquet reference-panel artifacts from PLINK input. |
-| `RegressionRunner` | Assemble regression datasets and fit in children with 1 BLAS thread each. |
+| `ReferencePanelBuilder` | Build R2 panels from PLINK input. |
+| `RegressionRunner` | Assemble regression datasets and fit in workers with 1 BLAS thread each. |
 | `SumstatsMunger` | Run legacy-compatible munging through a typed workflow interface. |
 
 ## Functions
@@ -26,27 +26,27 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `build_gene_ldscore_index` | Build and transactionally publish one complete gene LD-score index. |
 | `compute_quantile_h2` | Project one fitted joint model onto target-defined quantiles. |
 | `compute_standardized_coefficients` | Compute paper-compatible fixed-scale standardized coefficients. |
-| `convert_h2_scale` | Convert a saved observed-scale SNP-heritability estimate. |
+| `convert_h2_scale` | Convert a saved observed-scale SNP heritability estimate. |
 | `convert_ldsc2_ldscores` | Convert one selected legacy LD-score suite to a canonical LDSC3 directory. |
 | `infer_chr_pos_build` | Infer the genome build and coordinate basis of a ``CHR``/``POS`` table. |
 | `infer_raw_sumstats` | Infer raw summary-statistics format and minimal parser hints. |
 | `load_fitted_partitioned_model` | Load one baseline-only or per-query LDSC3 partitioned-h2 fitted model. |
 | `load_gene_ldscore_index` | Load one complete public autosomes 1--22 gene LD-score index. |
 | `load_hm3_curated_map` | Load the packaged curated dual-build HM3 map. |
-| `load_ldscore_from_dir` | Open a canonical LD-score directory with query values read on demand. |
-| `load_sumstats` | Load one curated LDSC sumstats artifact into a ``SumstatsTable``. |
-| `plot_result` | Create the approved plot for a canonical LDSC result. |
+| `load_ldscore_from_dir` | Open an LD-score directory with query values read on demand. |
+| `load_sumstats` | Load one munged summary-statistics artifact into a ``SumstatsTable``. |
+| `plot_result` | Create the approved plot for a canonical LDSC3 result. |
 | `query_r2` | Open a panel, query ``pairs`` once, and return the annotated DataFrame. |
 | `resolve_chr_pos_table` | Infer and normalize the genome build for a ``CHR``/``POS`` table. |
 | `resolve_genome_build` | Resolve a genome-build hint to a concrete build or ``None``. |
-| `run_annotate` | Write BED or focal gene-list annotations and return a live shard handle. |
+| `run_annotate` | Write BED or query gene-list annotations and return a live shard handle. |
 | `run_build_ref_panel` | Run the reference-panel builder with CLI-equivalent keyword arguments. |
 | `run_h2` | Estimate SNP heritability and save the ``h2`` result directory. |
 | `run_ldscore` | Run LD-score calculation from Python using public CLI-style names. |
 | `run_partitioned_h2` | Estimate partitioned heritability and save the ``partitioned-h2`` result directory. |
 | `run_quantile_h2` | Project a saved partitioned-h2 model onto quantiles and save the result directory. |
 | `run_rg` | Estimate genetic correlation and save the ``rg`` result directory. |
-| `unbiased_r2_to_pearson_r` | Convert adjusted (unbiased) R² to a signed Pearson correlation r. |
+| `unbiased_r2_to_pearson_r` | Convert unbiased R2 to a signed Pearson correlation r. |
 
 ## Configuration
 
@@ -54,7 +54,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | --- | --- |
 | `AnnotationBuildConfig` | Source and projection configuration for chromosome-backed annotations. |
 | `GeneLDScoreIndexBuildConfig` | Scientific and resource settings for exact gene-index construction. |
-| `GlobalConfig` | Shared configuration used across the refactored workflows. |
+| `GlobalConfig` | Shared configuration used across LDSC3 workflows. |
 | `H2OutputConfig` | Directory-oriented output config for unpartitioned h2 summaries. |
 | `LDScoreConfig` | Configuration for chromosome-wise LD-score calculation. |
 | `LDScoreOutputConfig` | Directory-oriented output config for canonical LD-score results. |
@@ -73,7 +73,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `get_global_config` | Return the process-wide default configuration used by Python workflows. |
 | `reset_global_config` | Restore the process-wide default configuration and return it. |
 | `set_global_config` | Replace the process-wide default configuration used by Python workflows. |
-| `validate_config_compatibility` | Raise when ``a`` and ``b`` disagree on critical LDSC workflow settings. |
+| `validate_config_compatibility` | Raise when ``a`` and ``b`` disagree on critical LDSC3 workflow settings. |
 
 ## Results and data objects
 
@@ -88,14 +88,14 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `LegacyLDScoreConversionResult` | Summary of one successful legacy LDSC LD-score conversion. |
 | `MungeRunSummary` | Compact summary of one munging run. |
 | `PartitionedH2BatchResult` | Compact batch summary and valid persistent artifacts for every fitted model. |
-| `PlotArtifact` | One saved LDSC figure and its live Matplotlib objects. |
+| `PlotArtifact` | One saved LDSC3 figure and its live Matplotlib objects. |
 | `PreparedRegressionInputs` | Shared trait alignment before model-dependent column/count filtering. |
 | `QuantileAssignment` | Legacy-compatible quantile membership and realized boundaries. |
 | `QuantileH2Result` | Compact result family returned by `run_quantile_h2()`. |
 | `RawSumstatsInference` | Header-level inference report for one raw summary-statistics file. |
 | `RefPanelLoader` | Instantiate the backend requested by a `RefPanelConfig`. |
 | `ReferencePanelBuildResult` | Summary of files produced by one reference-panel build run. |
-| `RegressionDataset` | Merged regression-ready dataset built from sumstats and LD-score tables. |
+| `RegressionDataset` | Merged regression-ready dataset built from summary statistics and LD-score tables. |
 | `RgResultFamily` | Result family returned by multi-trait genetic-correlation workflows. |
 | `SumstatsTable` | In-memory LDSC-ready summary-statistics table. |
 
@@ -103,9 +103,9 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 
 | Name | Summary |
 | --- | --- |
-| `ParquetR2RefPanel` | Canonical index-format parquet R2 reference-panel adapter. |
+| `ParquetR2RefPanel` | Reference-panel adapter for R2 panels. |
 | `PlinkRefPanel` | PLINK-backed reference-panel adapter. |
-| `R2Panel` | Handle over a build-r2-panel index-format R² panel for pair queries. |
+| `R2Panel` | Handle over an R2 panel written by ``build-r2-panel``, for pair queries. |
 | `RefPanel` | Abstract chromosome-scoped reference-panel interface. |
 
 ## Output writers
@@ -113,7 +113,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | Name | Summary |
 | --- | --- |
 | `H2DirectoryWriter` | Write the unpartitioned h2 summary, exact fitted-bin diagnostic, and metadata. |
-| `LDScoreDirectoryWriter` | Write canonical LD-score result directories. |
+| `LDScoreDirectoryWriter` | Write LD-score directories. |
 | `PartitionedH2DirectoryWriter` | Write aggregate and optional per-query partitioned-h2 outputs. |
 | `QuantileH2DirectoryWriter` | Write post-fit quantile summaries, coefficients, and SNP diagnostics. |
 | `RgDirectoryWriter` | Write concise, full, per-trait, and optional per-pair rg outputs. |

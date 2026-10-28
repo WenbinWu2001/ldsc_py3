@@ -1,8 +1,8 @@
-"""Workflow wrapper for LDSC summary-statistics munging.
+"""Workflow wrapper for LDSC3 summary-statistics munging.
 
 Core functionality:
     Expose a typed, package-level interface to the legacy-compatible munging
-    implementation and provide a public loader for curated Parquet or legacy
+    implementation and provide a public loader for munged Parquet or legacy
     ``.sumstats.gz`` artifacts.
 
 Overview
@@ -24,7 +24,7 @@ from final output-build compatibility: ``source_genome_build="auto"`` infers
 the raw ``CHR``/``POS`` build, while ``output_genome_build`` is the required
 build recorded in the parquet footer after any liftover. rsID-family runs reject
 build and liftover fields and record ``genome_build=None``. Run summaries
-expose curated data artifacts only; ``diagnostics/sumstats.log`` is an audit
+expose munged data artifacts only; ``diagnostics/sumstats.log`` is an audit
 file and is not included in ``output_paths``. The Parquet footer
 carries only the thin downstream-identity payload; source-build and liftover
 provenance is written as readable workflow-log text. Successful CLI runs print
@@ -170,7 +170,7 @@ class SumstatsTable:
         Shared configuration captured when the table was produced in-process or
         recovered from the ``sumstats.parquet`` footer. It is ``None`` for a
         legacy ``.sumstats`` or ``.sumstats.gz`` input, whose rsIDs are
-        projected onto the canonical LD-score panel downstream. Footerless
+        projected onto the regression SNPs in the LD-score directory downstream. Footerless
         Parquet is rejected. Coordinate-family munged artifacts store the final output
         genome build here; rsID-family artifacts store ``genome_build=None``
         because their merge identity is independent of coordinate build.
@@ -199,7 +199,7 @@ class SumstatsTable:
                 f"munge-sumstats expected A1/A2 allele columns in "
                 f"'{self.source_path or self.trait_name or 'sumstats'}' because this table is allele-aware. "
                 "Most likely the artifact was produced without allele columns. Re-run munge-sumstats "
-                "with A1/A2 column hints or use an allele-blind --snp-identifier mode."
+                "with A1/A2 column hints or use a base --snp-identifier mode (rsid or chr_pos)."
             )
 
     def snp_identifiers(self) -> pd.Series:
@@ -208,7 +208,7 @@ class SumstatsTable:
         return effective_merge_key_series(
             self.data,
             mode,
-            context=f"sumstats identifiers for {self.source_path or self.trait_name or 'sumstats'}",
+            context=f"summary-statistics identifiers for {self.source_path or self.trait_name or 'sumstats'}",
         ).astype("string")
 
     def subset_to(self, snps: set[str] | list[str]) -> "SumstatsTable":
@@ -231,7 +231,7 @@ class SumstatsTable:
                 "_ldsc_sumstats_key": effective_merge_key_series(
                     metadata,
                     mode,
-                    context="sumstats metadata alignment left table",
+                    context="summary-statistics metadata alignment left table",
                 )
             }
         ).dropna(subset=["_ldsc_sumstats_key"])
@@ -239,7 +239,7 @@ class SumstatsTable:
         right["_ldsc_sumstats_key"] = effective_merge_key_series(
             right,
             mode,
-            context=f"sumstats metadata alignment for {self.source_path or self.trait_name or 'sumstats'}",
+            context=f"summary-statistics metadata alignment for {self.source_path or self.trait_name or 'sumstats'}",
         )
         right = right.dropna(subset=["_ldsc_sumstats_key"])
         merged = pd.merge(left, right, how="inner", on="_ldsc_sumstats_key", sort=False).drop(
@@ -268,7 +268,7 @@ class SumstatsTable:
 class MungeRunSummary:
     """Compact summary of one munging run.
 
-    ``output_paths`` records curated sumstats data artifacts and the dropped-SNP
+    ``output_paths`` records munged summary-statistics data artifacts and the dropped-SNP
     audit sidecar. It intentionally excludes ``diagnostics/sumstats.log`` so Python result
     contracts stay aligned with other workflow modules.
 
@@ -300,12 +300,12 @@ def _sumstats_table_identifier_mode(config_snapshot: GlobalConfig | None) -> str
 
 
 def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> SumstatsTable:
-    """Load one curated LDSC sumstats artifact into a ``SumstatsTable``.
+    """Load one munged summary-statistics artifact into a ``SumstatsTable``.
 
     Parameters
     ----------
     path : str or os.PathLike[str]
-        Path token for the curated summary-statistics artifact. This may be a
+        Path token for the munged summary-statistics artifact. This may be a
         literal path or an exact-one glob pattern. Resolution happens at the
         workflow layer before suffix inference. ``.parquet`` files are read
         with :func:`pandas.read_parquet`; ``.sumstats.gz``, ``sumstats.gz``, and ``.sumstats``
@@ -320,7 +320,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     Returns
     -------
     SumstatsTable
-        Validated in-memory table with canonical LDSC columns such as ``SNP``,
+        Validated in-memory table with canonical LDSC3 columns such as ``SNP``,
         ``CHR``, ``POS``, ``N``, and ``Z`` when present in the artifact. When the
         Parquet footer carries identity metadata, the returned table
         also recovers its munge-time ``GlobalConfig`` snapshot. Legacy text
@@ -329,8 +329,8 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     Raises
     ------
     ValueError
-        If ``path`` does not resolve to exactly one file or if the curated
-        artifact is missing required LDSC columns.
+        If ``path`` does not resolve to exactly one file or if the munged
+        artifact is missing required LDSC3 columns.
 
     Notes
     -----
@@ -339,21 +339,21 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     no-label filename ``sumstats.gz``) uses a
     gzip-compressed whitespace reader, and ``.sumstats`` uses a plain
     whitespace reader. Other suffixes are refused so callers do not
-    accidentally parse CSV or raw GWAS input as curated sumstats.
+    accidentally parse CSV or raw GWAS input as munged summary statistics.
 
     Identity metadata is read from the parquet footer (discrete ``ldsc:*``
     keys). No ``metadata.json`` sidecar is consulted. Legacy ``.sumstats`` and
     ``.sumstats.gz`` inputs load with ``config_snapshot=None`` and explicit
     legacy LDSC provenance. A Parquet artifact without the required footer is rejected.
     """
-    resolved = resolve_scalar_path(path, label="munged sumstats")
+    resolved = resolve_scalar_path(path, label="munged summary statistics")
     df = _read_curated_sumstats_artifact(resolved)
     try:
         resolved_columns = _resolve_curated_sumstats_columns(list(df.columns), context=resolved)
     except ValueError as exc:
         raise LDSCInputError(
-            f"Cannot load curated sumstats at '{resolved}': could not map the required SNP, N, and Z "
-            "columns from its header. Most likely this is not a current curated sumstats artifact. "
+            f"Cannot load munged summary statistics at '{resolved}': could not map the required SNP, N, and Z "
+            "columns from its header. Most likely this is not a current munged summary-statistics file. "
             "Re-run munge-sumstats from the raw GWAS file. Other causes & fixes: "
             f"{_REQUIRED_COLUMN_TROUBLESHOOTING}"
         ) from exc
@@ -372,8 +372,8 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
                 )
             )
         LOGGER.info(
-            f"Recognized legacy munged sumstats '{resolved}'. SNP values will be used as rsID "
-            "lookup keys and projected onto the canonical LD-score panel during regression."
+            f"Recognized legacy munged summary statistics '{resolved}'. SNP values will be used as rsID "
+            "lookup keys and projected onto the regression SNPs in the LD-score directory during regression."
         )
         table = SumstatsTable(
             data=df.reset_index(drop=True),
@@ -392,13 +392,13 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
             _curated_sumstats_artifact_message(
                 resolved,
                 f"snp_identifier='{mode}' requires A1/A2 columns, but the artifact does not contain both.",
-                "Most likely the artifact was produced by an older or allele-blind munging run.",
+                "Most likely the artifact was produced by an older munging run or one in a base mode.",
             )
         )
     cleanup = clean_identity_artifact_table(
         df,
         mode,
-        context="loaded munged sumstats artifact",
+        context="loaded munged summary-statistics artifact",
         stage="load_sumstats_validation",
         logger=None,
     )
@@ -417,7 +417,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     effective_keys = effective_merge_key_series(
         cleanup.cleaned,
         mode,
-        context="loaded munged sumstats artifact",
+        context="loaded munged summary-statistics artifact",
     )
     if bool(effective_keys.isna().any()):
         raise LDSCInputError(
@@ -475,7 +475,7 @@ class SumstatsMunger:
             old DANER, and new DANER are handled before the kernel runs;
             explicit column hints still take priority.
         munge_config : MungeConfig or None, optional
-            Munging thresholds, output directory, and curated output format. The
+            Munging thresholds, output directory, and munged output format. The
             workflow writes ``<trait>.parquet`` (self-describing via its footer)
             and/or ``<trait>.sumstats.gz``, using the filesystem-safe trait label
             from ``raw_sumstats_config``. Without a label, filenames are
@@ -517,7 +517,7 @@ class SumstatsMunger:
             same identity settings into the Parquet footer so downstream
             regression can detect incompatible LD-score results after reload.
             The selected SNP restriction and ordinary QC are reflected in both the
-            returned table and the written curated artifact(s).
+            returned table and the written munged artifact(s).
             Output paths for the corresponding disk artifacts are available
             through :meth:`build_run_summary`; the workflow log is written to
             ``diagnostics/sumstats.log`` but is not included in that result
@@ -612,7 +612,7 @@ class SumstatsMunger:
             method_label = {
                 "hm3_curated": "automatic HM3 quick liftover (package-bundled reference HM3 metadata)",
                 "chain_file": "explicit chain file (HM3 quick liftover disabled)",
-                None: "none; no coordinate conversion required",
+                None: "none; no liftover required",
             }[resolved_liftover.method]
             LOGGER.info("Selected liftover method: %s; source=%s; output=%s",
                         method_label, request.genome_build, resolved_liftover.target_build)
@@ -703,7 +703,7 @@ class SumstatsMunger:
         output_format: str = "parquet",
         overwrite: bool = False,
     ) -> str:
-        """Write an in-memory sumstats table using its trait label for filenames.
+        """Write an in-memory summary-statistics table using its trait label for filenames.
 
         Parameters
         ----------
@@ -713,7 +713,7 @@ class SumstatsMunger:
             present; missing ``CHR`` or ``POS`` columns are materialized as
             missing values.
         output_dir : str or os.PathLike[str]
-            Destination directory for curated sumstats artifacts.
+            Destination directory for munged summary-statistics artifacts.
         output_format : {"parquet", "tsv.gz", "both"}, optional
             Disk format to write. ``"parquet"`` is the default and returns
             ``<trait>.parquet``. ``"tsv.gz"`` writes ``<trait>.sumstats.gz``.
@@ -728,7 +728,7 @@ class SumstatsMunger:
         Returns
         -------
         str
-            Primary sumstats artifact path. The primary path is Parquet for
+            Primary summary-statistics artifact path. The primary path is Parquet for
             ``"parquet"`` and ``"both"``, and gzip TSV for ``"tsv.gz"``.
 
         Notes
@@ -867,7 +867,7 @@ def _render_munge_summary(summary: MungeRunSummary, metadata: dict[str, Any], co
         ])
     else:
         if identity_mode_family(metadata["snp_identifier"]) == "rsid":
-            reason = "rsID identity; coordinate conversion not applicable"
+            reason = "rsID identity; liftover not applicable"
         else:
             reason = "source and output builds match"
             if config.liftover_chain_file is not None:
@@ -986,11 +986,11 @@ def _sumstats_snps_file_from_config(config: MungeConfig) -> str | None:
 
 
 def _resolve_sumstats_snps_path(config: MungeConfig) -> str | None:
-    """Resolve the effective sumstats SNP restriction path."""
+    """Resolve the effective summary-statistics SNP restriction path."""
     path = _sumstats_snps_file_from_config(config)
     if path is None:
         return None
-    label = "packaged HM3 SNP map" if _uses_packaged_hm3(config) else "sumstats SNPs file"
+    label = "packaged HM3 SNP map" if _uses_packaged_hm3(config) else "summary-statistics SNPs file"
     return resolve_scalar_path(path, label=label)
 
 
@@ -1115,7 +1115,7 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument(
         '--output-dir', required=True, metavar='DIR',
         help=(
-            'Required destination for cleaned summary statistics and diagnostics. Still required with '
+            'Required destination for munged summary statistics and diagnostics. Still required with '
             '--infer-only, which creates no files or directories.'
         ),
     )
@@ -1158,7 +1158,7 @@ def build_parser() -> argparse.ArgumentParser:
         '--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
         help=(
             'Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use '
-            'A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Coordinate-based modes also '
+            'A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Coordinate-family modes also '
             'require --output-genome-build.'
         ),
     )
@@ -1174,7 +1174,7 @@ def build_parser() -> argparse.ArgumentParser:
     identity.add_argument(
         '--liftover-chain-file', default=None, metavar='FILE',
         help=(
-            'Chain file in the source-to-output direction for converting coordinates to --output-genome-build. '
+            'Chain file in the source-to-output direction for liftover to --output-genome-build. '
             'Requires chr_pos or chr_pos_allele_aware --snp-identifier and an explicit --output-genome-build. '
             'If omitted, the default packaged HM3 restriction automatically uses quick liftover with '
             'package-bundled reference HM3 metadata when builds differ; supply this flag to disable quick '
@@ -1213,7 +1213,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             'Replace the default packaged HapMap3 restriction with this headered identity table, matched '
             'in the source genome build. Mutually exclusive with --no-snp-restriction. '
-            'Requires --liftover-chain-file when source and output builds differ, even for a custom HM3 list. '
+            'Requires --liftover-chain-file when source and output builds differ, even for a custom SNP keep-list. '
             "Same exact-one '*' pattern rules as --raw-sumstats-file; '@' is not expanded."
         ),
     )
@@ -1267,14 +1267,14 @@ def build_parser() -> argparse.ArgumentParser:
         '--chr', default=None, type=str, metavar='COLUMN',
         help=(
             'Input chromosome column; matched case-insensitively. If omitted, detect from headers. Required '
-            'in the input for coordinate-based identity; pair with a position column.'
+            'in the input for coordinate-family modes; pair with a position column.'
         ),
     )
     columns.add_argument(
         '--pos', default=None, type=str, metavar='COLUMN',
         help=(
             'Input base-pair position column; matched case-insensitively. If omitted, detect from headers. '
-            'Required in the input for coordinate-based identity; pair with a chromosome column.'
+            'Required in the input for coordinate-family modes; pair with a chromosome column.'
         ),
     )
     columns.add_argument(
@@ -1427,13 +1427,13 @@ def infer_raw_sumstats(
     with leading ``##`` metadata are treated as plain input. It intentionally
     does not treat ``NEFF`` as total sample size ``N``. Missing
     ``A1/A2`` is reported only when the resolved ``global_config`` uses an
-    allele-aware SNP identifier mode; base modes are allele-blind and can munge
+    allele-aware SNP identifier mode; base modes ignore alleles and can munge
     raw summary statistics without allele columns.
     """
     raw_config = raw_config or MungeConfig(raw_sumstats_file=raw_sumstats_file)
     munge_config = munge_config or MungeConfig()
     global_config = global_config or get_global_config()
-    path = resolve_scalar_path(raw_sumstats_file, label="raw sumstats")
+    path = resolve_scalar_path(raw_sumstats_file, label="raw summary statistics")
     file_cnames = read_header(path)
     clean_headers = [clean_header(column) for column in file_cnames]
     clean_set = set(clean_headers)
@@ -1780,7 +1780,7 @@ def _render_inference_report(
     output_dir: str | Path,
 ) -> str:
     lines = [
-        f"Raw sumstats file: {raw_sumstats_file}",
+        f"Raw summary-statistics file: {raw_sumstats_file}",
         f"Detected format: {inference.detected_format}",
     ]
     if inference.column_hints:
@@ -1828,7 +1828,7 @@ def _format_shell_command(command: list[str], *, base_indent: str = "  ", option
 
 
 def _normalize_output_format(output_format: str) -> str:
-    """Return a validated curated sumstats output-format token."""
+    """Return a validated munged summary-statistics output-format token."""
     if output_format not in _SUMSTATS_OUTPUT_FORMATS:
         raise LDSCUsageError(
             f"munge-sumstats does not support output_format={output_format!r}. "
@@ -1853,7 +1853,7 @@ def _sumstats_output_files(
 
 
 def _prepare_curated_sumstats_frame(data: pd.DataFrame) -> pd.DataFrame:
-    """Return a copy with fixed sumstats output columns and coordinate placeholders."""
+    """Return a copy with fixed summary-statistics output columns and coordinate placeholders."""
     frame = data.copy()
     if "CHR" not in frame.columns:
         frame["CHR"] = pd.NA
@@ -1889,12 +1889,12 @@ def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
     if complete.any():
         complete_pos = positive_int_position_series(
             frame.loc[complete, "POS"],
-            context="sumstats parquet output",
+            context="summary-statistics Parquet output",
             label="POS",
         )
         frame.loc[complete, "CHR"] = normalize_chromosome_series(
             frame.loc[complete, "CHR"],
-            context="sumstats parquet output",
+            context="summary-statistics Parquet output",
         ).astype(object)
         frame.loc[complete, "POS"] = complete_pos.astype("int64")
 
@@ -1926,7 +1926,7 @@ def _write_sumstats_tsv_gz(data: pd.DataFrame, path: str) -> None:
 def _sumstats_footer_metadata(
     config_snapshot: GlobalConfig, trait_name: str | None, qc_thresholds: dict[str, float | None] | None = None,
 ) -> dict[bytes, bytes]:
-    """Return discrete ``ldsc:*`` Parquet footer keys for a curated sumstats artifact.
+    """Return discrete ``ldsc:*`` Parquet footer keys for a munged summary-statistics artifact.
 
     Mirrors the reference-panel footer convention in ``_kernel/ref_panel.py``. A
     ``None`` ``genome_build`` (rsID-family) or ``trait_name`` is encoded as an
@@ -2032,7 +2032,7 @@ def _write_sumstats_outputs(
 
 
 def _empty_sumstats_dropped_snps_frame() -> pd.DataFrame:
-    """Return the canonical empty sumstats dropped-SNP sidecar frame."""
+    """Return the canonical empty summary-statistics dropped-SNP sidecar frame."""
     return pd.DataFrame(
         {
             "CHR": pd.Series(dtype="string"),
@@ -2079,7 +2079,7 @@ def _write_sumstats_dropped_snps_sidecar(drop_frame: pd.DataFrame, path: Path) -
 
 
 def _log_sumstats_dropped_snps_summary(drop_frame: pd.DataFrame, path: Path) -> None:
-    """Log a count-only summary of the sumstats dropped-SNP sidecar."""
+    """Log a count-only summary of the summary-statistics dropped-SNP sidecar."""
     if drop_frame.empty:
         LOGGER.info(f"No SNPs dropped during liftover or identity cleanup stages; audit sidecar at '{path}'.")
         return
@@ -2092,7 +2092,7 @@ def _log_sumstats_dropped_snps_summary(drop_frame: pd.DataFrame, path: Path) -> 
 
 
 def _read_curated_sumstats_artifact(path: str) -> pd.DataFrame:
-    """Read one curated sumstats artifact according to the public suffix policy."""
+    """Read one munged summary-statistics artifact according to the public suffix policy."""
     token = str(path)
     if token.endswith(".parquet"):
         return pd.read_parquet(path)
@@ -2101,15 +2101,15 @@ def _read_curated_sumstats_artifact(path: str) -> pd.DataFrame:
     if token.endswith(".sumstats"):
         return pd.read_csv(path, sep=r"\s+", compression="infer")
     raise LDSCInputError(
-        f"Cannot load curated sumstats at '{path}': unsupported file suffix. "
-        "Most likely this is a raw GWAS file or CSV, not a curated sumstats artifact. "
+        f"Cannot load munged summary statistics at '{path}': unsupported file suffix. "
+        "Most likely this is a raw GWAS file or CSV, not a munged summary-statistics file. "
         "Use a path ending in '.parquet', '.sumstats.gz', or '.sumstats', the default 'sumstats.gz', "
         "or run munge-sumstats first."
     )
 
 
 def _resolve_curated_sumstats_columns(columns: list[str], *, context: str) -> dict[str, str]:
-    """Resolve canonical internal sumstats artifact columns from ``columns``."""
+    """Resolve canonical internal summary-statistics artifact columns from ``columns``."""
     resolved = {
         canonical: resolve_required_column(columns, INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP[canonical], context=context)
         for canonical in ("SNP", "N", "Z")
@@ -2124,7 +2124,7 @@ def _resolve_curated_sumstats_columns(columns: list[str], *, context: str) -> di
 def _read_sumstats_parquet_footer(path: str) -> dict[str, Any] | None:
     """Return embedded Parquet identity metadata, or ``None`` when absent.
 
-    Text sumstats and footerless Parquet both return ``None`` here; the public
+    Text summary statistics and footerless Parquet both return ``None`` here; the public
     loader distinguishes them and rejects the footerless Parquet case. Empty
     ``genome_build`` and ``trait_name`` values decode to ``None``.
     """
@@ -2146,9 +2146,9 @@ def _read_sumstats_parquet_footer(path: str) -> dict[str, Any] | None:
 
 
 def _curated_sumstats_artifact_message(path: str | PathLike[str], detail: str, likely: str) -> str:
-    """Return the standard malformed curated-artifact diagnostic."""
+    """Return the standard malformed munged-artifact diagnostic."""
     return (
-        f"Cannot load curated sumstats at '{path}': {detail} "
+        f"Cannot load munged summary statistics at '{path}': {detail} "
         f"{likely} Re-run munge-sumstats from the raw GWAS file. Other causes & fixes: "
         f"{_CURATED_ARTIFACT_TROUBLESHOOTING}"
     )
@@ -2164,7 +2164,7 @@ def _resolve_sumstats_trait_name(
         explicit = _normalize_trait_name(explicit_trait_name)
     except LDSCConfigError as exc:
         raise LDSCConfigError(
-            f"Cannot load curated sumstats at '{resolved_path}': trait_name argument is blank. "
+            f"Cannot load munged summary statistics at '{resolved_path}': trait_name argument is blank. "
             "Most likely whitespace was passed as the trait label. "
             "Use a non-empty trait name or omit trait_name to derive it from the artifact."
         ) from exc
@@ -2191,7 +2191,7 @@ def _global_config_from_sumstats_metadata(
     *,
     artifact_path: str | PathLike[str],
 ) -> GlobalConfig | None:
-    """Recreate a GlobalConfig snapshot from a sumstats parquet footer payload."""
+    """Recreate a GlobalConfig snapshot from a summary-statistics Parquet footer payload."""
     if not isinstance(metadata, dict):
         raise LDSCInputError(
             _curated_sumstats_artifact_message(

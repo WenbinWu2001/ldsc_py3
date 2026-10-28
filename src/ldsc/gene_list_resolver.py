@@ -1,4 +1,4 @@
-"""Validate gene-coordinate catalogs and resolve gene-list annotations in bulk.
+"""Validate gene coordinate catalogs and resolve gene-list annotations in bulk.
 
 The catalog supplied by the user, or embedded in a gene LD-score index, is the
 only gene-resolution authority. Catalog coordinates remain one-based in public
@@ -138,7 +138,7 @@ class GeneCatalog:
                 repair="Make the catalog readable and rerun.",
             )
             raise GeneCatalogValidationError(
-                f"Could not read gene-coordinate catalog '{source}': {exc}", issues
+                f"Could not read gene coordinate catalog '{source}': {exc}", issues
             ) from exc
         try:
             raw = gzip.decompress(payload) if source.lower().endswith(".gz") else payload
@@ -151,7 +151,7 @@ class GeneCatalog:
                 repair="Regenerate the .tsv.gz catalog as a valid gzip-compressed TSV.",
             )
             raise GeneCatalogValidationError(
-                f"Gene-coordinate catalog '{source}' is not a readable gzip TSV: {exc}", issues
+                f"Gene coordinate catalog '{source}' is not a readable gzip TSV: {exc}", issues
             ) from exc
         try:
             text = raw.decode("utf-8")
@@ -164,7 +164,7 @@ class GeneCatalog:
                 repair="Encode the catalog as UTF-8 and rerun.",
             )
             raise GeneCatalogValidationError(
-                f"Gene-coordinate catalog '{source}' is not valid UTF-8: {exc}", issues
+                f"Gene coordinate catalog '{source}' is not valid UTF-8: {exc}", issues
             ) from exc
 
         frame, parse_issues = _parse_catalog_text(text, source)
@@ -172,10 +172,10 @@ class GeneCatalog:
             reasons = ", ".join(sorted(set(parse_issues["reason"].astype(str))))
             if parse_issues["reason"].eq("missing_required_column").any():
                 missing = ", ".join(parse_issues.loc[parse_issues["reason"].eq("missing_required_column"), "field"])
-                message = f"Gene-coordinate catalog '{source}' is missing required columns: {missing}."
+                message = f"Gene coordinate catalog '{source}' is missing required columns: {missing}."
             else:
                 message = (
-                    f"Gene-coordinate catalog '{source}' is structurally unusable ({reasons}); "
+                    f"Gene coordinate catalog '{source}' is structurally unusable ({reasons}); "
                     "repair the catalog before resolving gene lists."
                 )
             raise GeneCatalogValidationError(
@@ -199,7 +199,7 @@ class GeneCatalog:
         if structural.any() or (require_canonical and not issues.empty):
             scope = "canonical" if require_canonical else "structurally valid"
             raise GeneCatalogValidationError(
-                f"Gene-coordinate catalog '{source}' is not {scope}: found {len(issues)} defect(s).",
+                f"Gene coordinate catalog '{source}' is not {scope}: found {len(issues)} defect(s).",
                 issues,
             )
         genome_build = str(normalized["genome_build"].dropna().iloc[0])
@@ -231,7 +231,7 @@ class GeneCatalog:
                 columns=CATALOG_ISSUE_COLUMNS,
             )
             raise GeneCatalogValidationError(
-                f"Embedded gene catalog is missing required columns: {missing}.", issues
+                f"Embedded gene coordinate catalog is missing required columns: {missing}.", issues
             )
         if frame.empty:
             issues = _single_catalog_issue(
@@ -239,10 +239,10 @@ class GeneCatalog:
                 reason="catalog_unparseable",
                 field="file",
                 observed_value="empty embedded catalog",
-                repair="Rebuild the index from a nonempty canonical coordinate catalog.",
+                repair="Rebuild the index from a nonempty canonical gene coordinate catalog.",
             )
             raise GeneCatalogValidationError(
-                f"Embedded gene catalog '{source}' is empty.", issues
+                f"Embedded gene coordinate catalog '{source}' is empty.", issues
             )
         catalog_lines = pd.to_numeric(frame["catalog_line"], errors="coerce")
         invalid_lines = (
@@ -267,14 +267,14 @@ class GeneCatalog:
                             "embedded catalog_line values must be unique integer physical "
                             "data lines greater than or equal to 2"
                         ),
-                        repair="Rebuild the index from the original coordinate catalog.",
+                        repair="Rebuild the index from the original gene coordinate catalog.",
                     )
                 )
             issues = _sort_catalog_issues(
                 pd.DataFrame(issue_rows, columns=CATALOG_ISSUE_COLUMNS)
             )
             raise GeneCatalogValidationError(
-                f"Embedded gene catalog '{source}' has invalid catalog_line values.",
+                f"Embedded gene coordinate catalog '{source}' has invalid catalog_line values.",
                 issues,
             )
         prepared = frame.loc[:, CATALOG_REQUIRED_COLUMNS].copy()
@@ -283,7 +283,7 @@ class GeneCatalog:
         issues = _sort_catalog_issues(issues)
         if not issues.empty:
             raise GeneCatalogValidationError(
-                f"Embedded gene catalog '{source}' is not canonical: found {len(issues)} defect(s).",
+                f"Embedded gene coordinate catalog '{source}' is not canonical: found {len(issues)} defect(s).",
                 issues,
             )
         return cls(

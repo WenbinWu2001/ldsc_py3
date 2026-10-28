@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate deterministic example LDSC result directories and all approved plots."""
+"""Generate deterministic example LDSC3 result directories and all approved plots."""
 
 from __future__ import annotations
 

@@ -9,7 +9,7 @@ This document is the developer-facing contract for the plotting layer and the po
 The integration adds two public workflows without coupling figure generation to regression:
 
 - `ldsc plot --result-dir RESULT_DIR` selects one approved plot from canonical result metadata.
-- `ldsc convert-h2-scale --h2-result-dir H2_RESULT ...` converts a saved observed-scale h2 estimate at one population prevalence or over a prevalence range.
+- `ldsc convert-h2-scale --h2-result-dir H2_RESULT ...` converts a saved observed-scale SNP heritability estimate at one population prevalence or over a prevalence range.
 
 Core workflows never generate plots automatically. Matplotlib is a required package dependency, Seaborn is not used, and ordinary package imports and numerical commands do not import the plotting runtime.
 
@@ -34,9 +34,9 @@ flowchart LR
 | `ldsc.cli` | Parse and dispatch the two commands; define no plotting or conversion math. |
 | `ldsc.plotting` | Validate canonical metadata, select one plot contract, manage plot-family output, and expose `PlotArtifact`. |
 | `ldsc.plotting._builders` | Private Matplotlib-only builders and visual validation. Imports Matplotlib and selects the noninteractive `Agg` backend. |
-| `ldsc.h2_scale` | Load a canonical h2 result, call the kernel conversion factor, write the derived table/metadata/log, and build the range plot when requested. |
-| `ldsc.regression_runner` | Compute the exact h2 regression-bin diagnostic from the final fitted SNP population. |
-| `ldsc.outputs` | Validate and write the h2 bin table and define core ownership of nested derived roots. |
+| `ldsc.h2_scale` | Load a canonical `h2` result, call the kernel conversion factor, write the derived table/metadata/log, and build the range plot when requested. |
+| `ldsc.regression_runner` | Compute the exact `h2` regression-bin diagnostic from the final fitted SNP population. |
+| `ldsc.outputs` | Validate and write the `h2` bin table and define core ownership of nested derived roots. |
 | `ldsc._logging` | Add `RUN_FAILED` marker behavior around authorized overwrites without changing workflow action order. |
 
 The public Python surface lazily exports `plot_result`, `PlotArtifact`, `convert_h2_scale`, and `H2ScaleConversionArtifact` from `ldsc.__init__`. Accessing a lazy plotting export does not itself import Matplotlib; the dependency is loaded only when a figure must be built.
@@ -84,24 +84,42 @@ A core overwrite can remove only the package-owned default nested roots; it cann
 
 The cell-type input is the aggregate `partitioned-h2` root. A per-query `diagnostics/query_annotations/<query>/` directory is rejected because it represents one baseline-plus-query fit rather than the suite-level comparison.
 
-Each builder validates its required table columns and value domains. Missing or failed rg/query values remain explicit in the figure. The dispatcher rejects raw legacy outputs, loose tables, unsupported analysis regimes, absolute or escaping metadata paths, duplicate rg pairs, and incomplete artifacts.
+Each builder validates its required table columns and value domains.
+Missing or failed genetic-correlation and query values remain explicit in the figure.
+The dispatcher rejects raw legacy outputs, loose tables, unsupported analysis regimes, absolute or escaping metadata paths, duplicate trait pairs, and incomplete artifacts.
 
-### Heritability annotations in rg plots
+### Heritability annotations in `rg` plots
 
-For both rg modes, `plot_result` also follows `files.h2_per_trait` when declared. It reads `trait_name`, `total_h2_obs`, and `total_h2_obs_se`, matching by name to metadata trait order. These are the separately fitted single-trait results, not the heritabilities fitted on each pair's shared SNP set. Liability columns are ignored; plotting never refits or converts scales.
+For both `rg` plot modes, `plot_result` also follows `files.h2_per_trait` when declared.
+It reads `trait_name`, `total_h2_obs`, and `total_h2_obs_se`, matching by name to metadata trait order.
+These are the separately fitted single-trait results, not the heritabilities fitted on each pair's shared SNP set.
+Liability columns are ignored; plotting never refits or converts scales.
 
-- All-pairs heatmaps have light-gray diagonal cells with dark centered text: observed h2 on the first line and its block-jackknife SE in parentheses on the second. The caption distinguishes diagonal h2 from lower-triangle rg.
-- Anchor plots retain the correlation points, SE bars, and labels. A separate `Observed h² (SE)` text column sits between partner names and the correlation axis; the subtitle gives the anchor's observed h2 and SE.
+- All-pairs heatmaps have light-gray diagonal cells with dark centered text: observed SNP heritability on the first line and its block-jackknife SE in parentheses on the second.
+  The caption distinguishes diagonal SNP heritability from lower-triangle genetic correlation.
+- Anchor plots retain the correlation points, SE bars, and labels.
+  A separate `Observed h² (SE)` text column sits between partner names and the correlation axis; the subtitle gives the anchor's observed SNP heritability and SE.
 - All heritability values use two decimals. Finite estimates outside [0, 1] are preserved, and zero SE is valid. A missing, nonnumeric, or nonfinite estimate/SE, or a negative SE, makes the entire annotation `failed`.
-- Absent declarations/files yield `failed` for every h2 annotation. Missing trait rows yield `failed` for those traits. Extra trait rows are ignored for display; duplicate names anywhere in the table and empty trait identifiers are errors. Unreadable/malformed tables, missing required columns, and unsafe declarations fail before saving. Declared paths are checked for containment even when their targets are missing.
+- Absent declarations/files yield `failed` for every heritability annotation.
+  Missing trait rows yield `failed` for those traits.
+  Extra trait rows are ignored for display; duplicate names anywhere in the table and empty trait identifiers are errors.
+  Unreadable/malformed tables, missing required columns, and unsafe declarations fail before saving.
+  Declared paths are checked for containment even when their targets are missing.
 
-The primary plot `source_table` remains `rg.tsv` (or its declared path). An rg-only `heritability_annotations` metadata object records the additional source-relative `source_table` (null if undeclared), `source_available`, `scale=observed`, `estimate_column=total_h2_obs`, `se_column=total_h2_obs_se`, `uncertainty=block_jackknife_standard_error`, and `missing_label=failed`. A declared missing file retains its path with `source_available=false`; a readable header-only table is available but yields failed annotations. The plot log also records the h2 source, availability, and scale.
+The primary plot `source_table` remains `rg.tsv` (or its declared path).
+An `rg`-only `heritability_annotations` metadata object records the additional source-relative `source_table` (null if undeclared), `source_available`, `scale=observed`, `estimate_column=total_h2_obs`, `se_column=total_h2_obs_se`, `uncertainty=block_jackknife_standard_error`, and `missing_label=failed`.
+A declared missing file retains its path with `source_available=false`; a readable header-only table is available but yields failed annotations.
+The plot log also records the heritability source, availability, and scale.
 
-## Exact h2 regression-bin diagnostic
+## Exact `h2` regression-bin diagnostic
 
-Every new unpartitioned h2 run writes `diagnostics/ld_score_regression_bins.tsv`, independent of Matplotlib. The table is computed from the exact SNP population entering the final slope fit after the active chi-square filter. In two-step estimation, it therefore uses the second-step slope population rather than only the first-step intercept subset.
+Every new unpartitioned `h2` run writes `diagnostics/ld_score_regression_bins.tsv`, independent of Matplotlib.
+The table is computed from the exact SNP population entering the final slope fit after the active chi-square filter.
+In two-step estimation, it therefore uses the second-step slope population rather than only the first-step intercept subset.
 
-The helper stably sorts the one retained unpartitioned LD Score and divides rows into `min(50, n_snps)` nonempty, nearly equal-count rank bins. Stable sorting preserves fitted row order within tied LD Scores. The fixed columns are:
+The helper stably sorts the one retained unpartitioned LD score and divides rows into `min(50, n_snps)` nonempty, nearly equal-count rank bins.
+Stable sorting preserves fitted row order within tied LD scores.
+The fixed columns are:
 
 ```text
 bin
@@ -116,7 +134,10 @@ mean_fitted_chi_square
 mean_regression_weight
 ```
 
-Per-SNP fitted chi-square values use the final fitted intercept and slope together with each SNP's exact sample size and LD Score. Regression weights come from the estimator's existing `Hsq.weights` function evaluated on the final model inputs. Aggregation is diagnostic calculation, not a second fit. Old h2 results without the table hard-fail with rerun guidance.
+Per-SNP fitted chi-square values use the final fitted intercept and slope together with each SNP's exact sample size and LD score.
+Regression weights come from the estimator's existing `Hsq.weights` function evaluated on the final model inputs.
+Aggregation is diagnostic calculation, not a second fit.
+Old `h2` results without the table hard-fail with rerun guidance.
 
 ## Liability-scale conversion contract
 
@@ -153,7 +174,11 @@ Default conversion output:
 
 An existing directory is allowed; only owned fixed artifacts collide. Without overwrite, the workflow lists conflicting paths and writes nothing. With overwrite, `plot` replaces only its selected PNG, metadata, and log. A sensitivity conversion owns the table, plot, metadata, and log. An exact conversion writes the table, metadata, and log and removes a stale sensitivity plot after successful publication.
 
-The default `plots/` root is owned by h2, partitioned-h2, quantile-h2, and rg. The default `postprocessing/` root is owned by h2. A successful core overwrite publishes its normal current artifacts in the pre-existing order and then removes stale derived roots. An orphaned derived root is therefore also a no-overwrite collision. Unrelated files elsewhere in the result directory remain untouched.
+The default `plots/` root is owned by `h2`, `partitioned-h2`, `quantile-h2`, and `rg`.
+The default `postprocessing/` root is owned by `h2`.
+A successful core overwrite publishes its normal current artifacts in the pre-existing order and then removes stale derived roots.
+An orphaned derived root is therefore also a no-overwrite collision.
+Unrelated files elsewhere in the result directory remain untouched.
 
 ## Failed-overwrite visibility
 
@@ -168,7 +193,10 @@ The marker reports the command/API boundary, UTC timestamp, exception, detailed 
 
 ## Required dependency and headless behavior
 
-`setup.py` includes Matplotlib in `install_requires`; there is no plotting extra or opt-out installation mode. A normal LDSC installation therefore fails if pip cannot install a compatible Matplotlib. `_builders.py` selects `Agg` before importing `matplotlib.pyplot`, so commands work on SLURM and other display-free systems. Lazy imports remain an execution-isolation boundary: ordinary imports and numerical commands do not initialize Matplotlib, exact conversion does not import it, and a damaged environment missing the required dependency produces actionable repair guidance only when a figure-producing path is invoked.
+`setup.py` includes Matplotlib in `install_requires`; there is no plotting extra or opt-out installation mode.
+A normal LDSC3 installation therefore fails if pip cannot install a compatible Matplotlib.
+`_builders.py` selects `Agg` before importing `matplotlib.pyplot`, so commands work on SLURM and other display-free systems.
+Lazy imports remain an execution-isolation boundary: ordinary imports and numerical commands do not initialize Matplotlib, exact conversion does not import it, and a damaged environment missing the required dependency produces actionable repair guidance only when a figure-producing path is invoked.
 
 ## Deterministic visual examples
 

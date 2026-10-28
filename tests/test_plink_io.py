@@ -350,7 +350,7 @@ class IndexParquetRuntimeTest(unittest.TestCase):
         np.testing.assert_allclose(cor_sum[:, 0], [1.6, 2.0, 2.3, 1.5], atol=1e-6)
 
     def test_accumulate_handles_duplicate_left_index(self):
-        # SNP 0 pairs with SNP 1 and SNP 2 — both must accumulate into cor_sum[0].
+        # SNP 0 pairs with SNP 1 and SNP 2 -- both must accumulate into cor_sum[0].
         annot = np.array([[1.0], [2.0], [3.0], [0.0]], dtype=np.float32)
         cor_sum = np.zeros((4, 1), dtype=np.float64)
         block_left = np.zeros(4, dtype=np.int64)

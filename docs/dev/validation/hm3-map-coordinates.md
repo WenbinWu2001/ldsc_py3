@@ -78,7 +78,7 @@ variation endpoints:
 - [Variation endpoint documentation](https://rest.ensembl.org/documentation/info/variation_id)
 
 Requests were sent in batches of 200 rsIDs. Only mappings on chromosomes 1-22
-for the requested assembly were used.
+for the requested genome build were used.
 
 ### NCBI RefSNP API
 
@@ -150,7 +150,7 @@ further investigation, not as an error.
 ### 3. Ensembl exception comparison
 
 The union of build-specific UCSC exceptions contained 5,560 rsIDs. Ensembl
-records were compared by rsID, requested assembly, chromosome, and one-based
+records were compared by rsID, requested genome build, chromosome, and one-based
 position. Alternative loci and mappings outside chromosomes 1-22 were not
 accepted as primary coordinate evidence.
 
@@ -192,7 +192,7 @@ example, `rs10493050` resolved through the official merge to `rs2377924`.
 For each build, evidence was applied in this order:
 
 1. Exact UCSC same-rsID placement.
-2. Exact Ensembl requested-assembly placement for a UCSC exception.
+2. Exact Ensembl placement on the requested genome build for a UCSC exception.
 3. Exact NCBI primary placement, after official merge resolution, for a record
    unresolved or conflicting in Ensembl.
 4. `confirmed_error` only when current authoritative placement evidence

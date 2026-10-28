@@ -411,7 +411,7 @@ class ParquetRefPanelTest(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 LDSCInputError,
-                "no LDSC identity metadata",
+                "no LDSC3 identity metadata",
             ):
                 panel.load_metadata("1")
 

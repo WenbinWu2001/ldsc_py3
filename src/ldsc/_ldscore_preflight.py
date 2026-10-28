@@ -30,7 +30,7 @@ GLOB_CAVEAT = "Globs select their actual matches. A missing file may be undetect
 SCOPE_REPAIR = (
     "'@' requires all chromosomes 1-22. For an intentional subset, use quoted '*' patterns or exact paths "
     "to select matching baseline and PLINK chromosome sets, for example 'baseline.*.annot.gz' and 'panel.*'. "
-    "For a full-suite run, restore the missing files instead. Every selected focal/control gene must be "
+    "For a full-suite run, restore the missing files instead. Every selected query/control gene must be "
     "covered: supply the missing chromosomes or explicitly revise the gene lists. Changing '@' to '*' "
     "does not filter genes. With --r2-dir, select a directory whose chromosome set matches the baseline; "
     "directory paths do not expand patterns."
@@ -55,9 +55,9 @@ def read_r2_sidecar_for_chromosome(path, chrom, global_config, *, require_autoso
     metadata = _read_metadata_table(path, None, global_config)
     if set(metadata.CHR.astype(str)) != {chrom} or (require_autosomes and chrom not in AUTOSOMES):
         raise LDSCInputError(
-            f"R2 reference-panel SNP sidecar '{path}' does not contain the expected chromosome {chrom}"
+            f"R2 panel SNP sidecar '{path}' does not contain the expected chromosome {chrom}"
             f"{' within autosomes 1 through 22' if require_autosomes else ''}. "
-            "Restore the sidecar and R2 file from the same chromosome and panel build; "
+            "Restore the sidecar and R2 Parquet file from the same chromosome and panel build; "
             "renaming the sidecar does not repair its SNP identities."
         )
     return metadata
@@ -66,7 +66,7 @@ def read_r2_sidecar_for_chromosome(path, chrom, global_config, *, require_autoso
 def inspect_reference_inputs(args, global_config, *, require_autosomes=True, plink_members=None):
     """Validate references before annotation staging; retain scope and PLINK mapping.
 
-    R2 integrity requires a streamed pair scan and sidecar identity checks.
+    R2 panel integrity requires a streamed pair scan and sidecar identity checks.
     PLINK integrity reads BIM/FAM and BED header/size, without correlations.
     The returned evidence is reused by the later content-dependent scope gate.
     """
@@ -86,7 +86,7 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
             members = sorted({path.name.split("_")[0][3:] for pattern in ("chr*_r2.parquet", "chr*_meta.tsv.gz") for path in root.glob(pattern)}, key=lambda value: (len(value), value))
             if not members:
                 raise LDSCInputError(
-                    f"R2 reference-panel directory '{root}' contains no chromosome R2 files or SNP sidecars. "
+                    f"R2 panel directory '{root}' contains no chromosome R2 Parquet files or SNP sidecars. "
                     "Set --r2-dir to the matching build-r2-panel output directory and check --genome-build; "
                     "restore or rebuild the complete panel if its files are missing."
                 )
@@ -129,7 +129,7 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
 def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_sources=None, annotation_issues=(), reference_inputs=None):
     """Inspect all selected annotation and reference artifacts before filtering.
 
-    Validate BED/BIM/FAM integrity or the complete R2/sidecar binding, without
+    Validate BED/BIM/FAM integrity or the complete R2 panel sidecar binding, without
     computing correlations. Errors from independent files accumulate in one
     table. Input chromosomes are never inferred from annotation filenames.
     """
@@ -216,7 +216,7 @@ def inspect_direct_inputs(args, global_config, *, annotation_sources=None, bed_s
     requires_all = any("@" in token for token in declarations)
     if sets["baseline"] != sets["reference"] or (requires_all and sets["baseline"] != set(AUTOSOMES)):
         issue("alignment", "baseline/reference", "", "chromosome_set_mismatch",
-              f"Validated baseline chromosomes={sorted(sets['baseline'], key=int)}; reference chromosomes={sorted(sets['reference'], key=int)}; @ requires autosomes 1–22={requires_all}.")
+              f"Validated baseline chromosomes={sorted(sets['baseline'], key=int)}; reference chromosomes={sorted(sets['reference'], key=int)}; @ requires autosomes 1-22={requires_all}.")
     scope = sets["baseline"] & sets["reference"]
     for path, chroms in query_sets:
         missing = chroms - scope

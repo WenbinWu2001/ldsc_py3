@@ -2,13 +2,10 @@
 
 Last updated on: 2026-10-27
 
-This document describes the tunable configuration of the regression module
-(`ldsc h2`, `ldsc rg`, `ldsc partitioned-h2`). **You do not need any of this for
-a standard run.** The defaults reproduce legacy LDSC behavior, and the
-common workflow is simply to point each command at a munged `.sumstats` file and
-a canonical LD-score directory. The parameters below are opt-in controls for
-advanced users who need to constrain the intercept, exclude outliers, tune the
-jackknife, or change the per-SNP normalization.
+This document describes the tunable configuration of the regression module (`ldsc h2`, `ldsc rg`, `ldsc partitioned-h2`).
+**You do not need any of this for a standard run.**
+The defaults reproduce legacy LDSC behavior, and the common workflow is simply to point each command at munged summary statistics and an LD-score directory.
+The parameters below are opt-in controls for advanced users who need to constrain the intercept, exclude outliers, tune the jackknife, or change the per-SNP normalization.
 
 For the plain argument list (paths, output flags) see
 [command-line reference](cli.md). This document focuses on
@@ -41,18 +38,16 @@ E[χ²_j]  =  N · (h² / M) · ℓ_j  +  intercept
 
 | Symbol | Meaning | Source |
 |---|---|---|
-| `χ²_j` | association chi-square of SNP *j* (`= Z_j²`) | sumstats `Z` |
+| `χ²_j` | association chi-square of SNP *j* (`= Z_j²`) | summary-statistics `Z` |
 | `ℓ_j` | LD score of SNP *j* (`Σ_k r²_jk`) | LD-score directory |
-| `N` | per-SNP sample size | sumstats `N` |
+| `N` | per-SNP sample size | summary-statistics `N` |
 | `M` | number of SNPs used for normalization (the heritability denominator) | LD-score count metadata; see `--count-kind` |
-| `h²` | SNP-heritability — recovered from the **slope** | estimated |
+| `h²` | SNP heritability — recovered from the **slope** | estimated |
 | `intercept` | `1 + N·a`, where `a` captures confounding (population stratification, cryptic relatedness). Equals 1 under no confounding | estimated, or fixed |
 
-The regression is **weighted** to correct two forms of heteroscedasticity:
-(1) the variance of `χ²` grows with its mean, and (2) SNPs in LD are not
-independent. The weights use a separate LD score over the regression-SNP set
-(`regression_ld_scores`, the historical `w_ld`). These weights are computed
-internally and are **not** user-tunable.
+The regression is **weighted** to correct two forms of heteroscedasticity: (1) the variance of `χ²` grows with its mean, and (2) SNPs in LD are not independent.
+The weights use a separate LD score over the regression SNPs (`regression_ld_scores`, the historical `w_ld`).
+These weights are computed internally and are **not** user-tunable.
 
 **Two-step estimator.** When the polygenic signal is strong, the slope and
 intercept become correlated and the intercept is biased upward. The two-step
@@ -85,7 +80,7 @@ baseline LD scores are used for `rg`.
 
 ### 1.3 Partitioned heritability (`partitioned-h2`)
 
-For a set of (possibly overlapping) annotation categories *C*
+For a set of (possibly overlapping) annotations *C*
 (Finucane et al., *Nat Genet* 2015):
 
 ```
@@ -94,8 +89,8 @@ E[χ²_j]  =  N · Σ_C τ_C · ℓ(j, C)  +  intercept
 
 | Symbol | Meaning |
 |---|---|
-| `ℓ(j, C)` | LD score of SNP *j* to category *C* (`Σ_{k∈C} r²_jk`) |
-| `τ_C` | per-SNP heritability contribution of category *C* — the **coefficient** |
+| `ℓ(j, C)` | LD score of SNP *j* to annotation *C* (`Σ_{k∈C} r²_jk`) |
+| `τ_C` | per-SNP heritability contribution of annotation *C* — the **coefficient** |
 | `enrichment` | `(proportion of h² in C) / (proportion of SNPs in C)`, overlap-aware |
 
 Multi-annotation models always use the "old" (legacy) regression weights, and
@@ -108,8 +103,8 @@ instead of the two-step estimator.
 | Parameter (CLI / config) | Backbone role | How to choose (empirical) |
 |---|---|---|
 | `--n-blocks` / `n_blocks` | Number of block-jackknife blocks for standard errors | Default `200` is the published setting and is almost always correct. Only worth revisiting with unusually small SNP sets (blocks become tiny) — keep the default otherwise. |
-| `--count-kind` / `use_common_counts` | Selects `M`, the heritability denominator: `common` = common-variant count (`.M_5_50`, MAF ≥ 5%), `all` = full reference count (`.M`) | Use `common` (default) to match standard LDSC heritability reported in the literature. Use `all` only if your LD scores and target heritability are defined over the full SNP set. |
-| `--intercept-h2` / `intercept_h2` | Fixes the h2 intercept to a specific value | Use to pin the intercept to a value from a prior unconstrained run, or to a known stratification level. Leave unset to estimate. |
+| `--count-kind` / `use_common_counts` | Selects `M`, the heritability denominator: `common` = common-SNP count (`.M_5_50`, MAF ≥ 5%), `all` = all-SNP count (`.M`) | Use `common` (default) to match standard LDSC heritability reported in the literature. Use `all` only if your LD scores and target heritability are defined over the full SNP set. |
+| `--intercept-h2` / `intercept_h2` | Fixes the heritability intercept to a specific value | Use to pin the intercept to a value from a prior unconstrained run, or to a known stratification level. Leave unset to estimate. |
 | `--intercept-gencov` / `intercept_gencov` (`rg` only) | Fixes the genetic-covariance intercept (sample-overlap term) | Use a fixed value only when justified by the analysis; `0` requests the standard fixed covariance intercept. Single-annotation fits also require a fixed `--intercept-h2`, because automatic two-step estimation otherwise conflicts. Leave unset to estimate it. |
 | `--two-step-cutoff` / `two_step_cutoff` | Step-1 `χ²` ceiling for two-step intercept estimation | Default `30` is the published value. Lower it if moderate-`χ²` SNPs still carry polygenic signal that inflates the intercept. Applies to single-annotation `h2` and single-annotation `rg` only. |
 | `--chisq-max` / `chisq_max` | Excludes SNPs with `χ²` above the cap (for `rg`, on the product `Z₁²·Z₂²`) | Set explicitly to be more aggressive about large-effect loci (e.g. when the MHC or a single locus dominates). See per-command defaults below. |
@@ -117,7 +112,7 @@ instead of the two-step estimator.
 | `--prevalence-manifest` (`rg` only) | TSV of per-trait prevalences looked up by exact munged trait name, as an alternative to the positional `--samp-prev`/`--pop-prev` lists (mutually exclusive). | Use for multi-trait/glob runs where positional alignment is error-prone. Columns `trait_name`, `samp_prev`, `pop_prev` (whitespace/tab-delimited; `#` comment lines ignored). May contain extra traits (a standing repository); every resolved trait must have a row. Duplicate resolved munged names abort the run (use the positional list, or re-munge with distinct names). |
 | `--allow-identity-downgrade` / `allow_identity_downgrade` | SNP-identity compatibility override (not a statistical knob) | Mechanical/compatibility only; see [regression provenance and downgrade](snp-identity-and-genome-build.md#regression-provenance-hierarchy-and-downgrade). |
 
-Liability-scale conversion rescales only heritability-type quantities: total and category h2, `rg` genetic covariance, and their standard errors.
+Liability-scale conversion rescales only heritability-type quantities: total and per-annotation SNP heritability, genetic covariance from `rg`, and their standard errors.
 The intercept and the coefficients (`tau` with its SE, z, and p) stay on the observed scale, matching legacy LDSC, whose `h2_obs_to_liab` and `gencov_obs_to_liab` (`ldscore/regressions.py:107` and `:75`) scale only those quantities.
 The shared factor is `liability_conversion_factor` in [`_kernel/regression.py`](../../src/ldsc/_kernel/regression.py).
 
@@ -131,16 +126,24 @@ The removed legacy LDSC `--no-intercept` shortcut is replaced by explicit values
 | `partitioned-h2` | `--intercept-h2 1` |
 | `rg` | `--intercept-h2 1 --intercept-gencov 0` |
 
-These disable intercept estimation by fixing h2 intercepts to 1 and covariance intercepts to 0. In `rg`, one h2 value is shared by both traits in every pair, and one covariance value is shared by every pair. Omitting the flags estimates the intercepts with the existing defaults. Fixed values must reflect the intended analysis assumptions; they are not the default policy. See the [legacy LDSC flag map](legacy-flag-map.md#regression-intercept-consolidation).
+These disable intercept estimation by fixing heritability intercepts to 1 and covariance intercepts to 0.
+In `rg`, one heritability-intercept value is shared by both traits in every pair, and one covariance value is shared by every pair.
+Omitting the flags estimates the intercepts with the existing defaults.
+Fixed values must reflect the intended analysis assumptions; they are not the default policy.
+See the [legacy LDSC flag map](legacy-flag-map.md#regression-intercept-consolidation).
 
-A single-annotation `rg --intercept-gencov 0` run with a free h2 intercept deliberately remains invalid: automatic two-step estimation selects cutoff 30, which conflicts with the fixed covariance intercept. There is no new option to turn this automatic step off. Explicit `--two-step-cutoff` also remains incompatible with fixed intercepts and multi-annotation models.
+A single-annotation `rg --intercept-gencov 0` run with a free heritability intercept deliberately remains invalid: automatic two-step estimation selects cutoff 30, which conflicts with the fixed covariance intercept.
+There is no new option to turn this automatic step off.
+Explicit `--two-step-cutoff` also remains incompatible with fixed intercepts and multi-annotation models.
 
-The public Python `RegressionConfig.use_intercept=False` option remains supported. It selects h2=1 and covariance=0; the CLI now uses only `intercept_h2` and `intercept_gencov` for fixed values. Sources: `RegressionRunner._fit_h2_dataset`, `_fit_rg_dataset`, and `_runner_from_args` in [`regression_runner.py`](../../src/ldsc/regression_runner.py).
+The public Python `RegressionConfig.use_intercept=False` option remains supported.
+It selects a heritability intercept of 1 and a covariance intercept of 0; the CLI now uses only `intercept_h2` and `intercept_gencov` for fixed values.
+Sources: `RegressionRunner._fit_h2_dataset`, `_fit_rg_dataset`, and `_runner_from_args` in [`regression_runner.py`](../../src/ldsc/regression_runner.py).
 
 > **Boundary convention.** Every `χ²` threshold in this module is **inclusive**
 > (`χ² ≤ cutoff` / `χ² ≤ cap` / `Z₁²·Z₂² ≤ chisq_max²`), a deliberate deviation
 > from legacy LDSC's strict `<`. This follows the project rule that `-max`
-> arguments retain the boundary value. All other behavior matches legacy ldsc2.
+> arguments retain the boundary value. All other behavior matches legacy LDSC.
 
 ---
 
@@ -157,10 +160,14 @@ annotations equals the number of retained baseline LD-score columns
 | Intercept | Estimated freely. |
 | Two-step estimator | **On** when single-annotation (`n_annot == 1`), `--two-step-cutoff` unset, and the intercept is free → `twostep = 30`. Disabled if the intercept is fixed (`--intercept-h2`). |
 | `chisq_max` | **No cap** when single-annotation (the two-step estimator handles outliers). When multi-annotation (a baseline directory with several annotations), the partitioned default cap applies — see Section 4. An explicit `--chisq-max` always applies and is reported. |
-| Counts | `M_5_50` common counts (`--count-kind common`). |
+| Counts | Common-SNP counts (`--count-kind common`). |
 | Jackknife | `n_blocks = 200`. |
 
-Reported diagnostics (`diagnostics/metadata.json`) include the **post-filter** SNP count (`n_snps`), the `effective_chisq_max` actually applied (`null` when uncapped), and `n_blocks_used`. These values come from the internal fit outcome, which retains the ordered final SNP population and annotation columns. Single-annotation diagnostic bins use this same population, including SNPs outside the two-step estimator’s first-stage subset. Partitioned-h2 model metadata and rg pair metadata likewise consume their actual fit outcomes; reporting never reapplies a filter. Public `estimate_h2` and `estimate_rg` continue to return kernel estimators.
+Reported diagnostics (`diagnostics/metadata.json`) include the **post-filter** SNP count (`n_snps`), the `effective_chisq_max` actually applied (`null` when uncapped), and `n_blocks_used`.
+These values come from the internal fit outcome, which retains the ordered final SNP population and annotation columns.
+Single-annotation diagnostic bins use this same population, including SNPs outside the two-step estimator’s first-stage subset.
+`partitioned-h2` model metadata and `rg` pair metadata likewise consume their actual fit outcomes; reporting never reapplies a filter.
+Public `estimate_h2` and `estimate_rg` continue to return kernel estimators.
 
 *Mechanism:* `RegressionRunner.estimate_h2` in `regression_runner.py`.
 
@@ -174,11 +181,11 @@ scores.
 
 | Aspect | Default behavior |
 |---|---|
-| h2 intercepts | Estimated freely; `--intercept-h2` broadcasts a fixed value to every pair. |
-| gencov intercept | Estimated freely; `--intercept-gencov` fixes the sample-overlap term. |
-| Two-step estimator | **On** for the rg fit when single-annotation, `--two-step-cutoff` unset, and the h2 intercept is free → `twostep = 30` (matches legacy `estimate_rg`). |
-| `chisq_max` | **No default cap** (matches legacy ldsc2 `_rg`). The filter is opt-in: when `--chisq-max` is given, SNPs are dropped on the **product** `Z₁²·Z₂² ≤ chisq_max²`. |
-| Counts / Jackknife | `M_5_50` common counts; `n_blocks = 200`. |
+| Heritability intercepts | Estimated freely; `--intercept-h2` broadcasts a fixed value to every pair. |
+| Genetic-covariance intercept | Estimated freely; `--intercept-gencov` fixes the sample-overlap term. |
+| Two-step estimator | **On** for the genetic-correlation fit when single-annotation, `--two-step-cutoff` unset, and the heritability intercept is free → `twostep = 30` (matches legacy `estimate_rg`). |
+| `chisq_max` | **No default cap** (matches legacy LDSC `_rg`). The filter is opt-in: when `--chisq-max` is given, SNPs are dropped on the **product** `Z₁²·Z₂² ≤ chisq_max²`. |
+| Counts / Jackknife | Common-SNP counts; `n_blocks = 200`. |
 
 Per-pair metadata reports the post-filter `n_snps_used` / `n_blocks_used` and an
 `effective_chisq_max` field. Because `rg` has no default cap, that field simply
@@ -195,9 +202,9 @@ Always multi-annotation by construction (overlap-aware). The two-step estimator
 does not apply; outlier control is the `chisq_max` cap. Two usage regimes are
 auto-detected from the LD-score directory (no user flag):
 
-### 4.1 Functional-category regime (no query columns)
+### 4.1 Functional-annotation regime (no query columns)
 
-One joint fit of all baseline annotations; one output row per baseline category,
+One joint fit of all baseline annotations; one output row per baseline annotation,
 headline metric `enrichment`. Reproduces Finucane-2015 / legacy `--overlap-annot`.
 
 ### 4.2 Cell-type-specific regime (query columns present)
@@ -210,7 +217,7 @@ per query, headline metric `coefficient` (the conditional `τ`).
 Concurrency is a batch-workflow option, separate from `RegressionConfig`.
 Use `ldsc partitioned-h2 --workers 4 --query-batch-size 100` or `runner.estimate_partitioned_h2_batch(..., workers=4, query_batch_size=100)`.
 
-`--workers` sets the number of managed workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](parallel-execution.md).
+`--workers` sets the number of workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](parallel-execution.md).
 
 A task fits one complete query-plus-baseline model across all selected chromosomes, including model preparation, weighting, jackknife, summaries, and result staging.
 SNP ordering and block boundaries remain unchanged.
@@ -223,7 +230,7 @@ Each model still needs private filtered matrices and estimator workspace, so wor
 
 The existing strict and explicit continuation policies are unchanged.
 Worker death, transport errors, and output errors remain run failures.
-Existing regression interruption handling still reaps children before scratch cleanup; forced parent termination can leave files that are never reused as checkpoints.
+Existing regression interruption handling still reaps workers before scratch cleanup; forced parent termination can leave files that are never reused as checkpoints.
 
 Workers use `spawn`; Python scripts must guard workflow calls with `if __name__ == "__main__":`, including serial calls.
 Unsupported native controls no longer fail initialization solely for that reason: continue and record the limit as unverified or unmet.
@@ -241,7 +248,7 @@ The earlier [query-worker benchmark](../dev/validation/performance.md#partitione
 | Intercept | Estimated freely (`--intercept-h2` available to fix it). |
 | Two-step estimator | **Off** — not applicable to multi-annotation models (the kernel rejects it). |
 | `chisq_max` | **Default cap `max(0.001 · N.max(), 80)`** when `--chisq-max` is unset, to keep extreme-`χ²` SNPs from dominating the regression. The cap is inclusive (`χ² ≤ cap`); dropped SNPs are logged as `Removed N SNPs with chi^2 > C (...)`. An explicit `--chisq-max` overrides the default. |
-| Counts | `M_5_50` common counts. `N.max()` for the cap is taken **before** filtering. |
+| Counts | Common-SNP counts. `N.max()` for the cap is taken **before** filtering. |
 | Jackknife | `n_blocks = 200`. |
 
 Reported diagnostics: the cell-type regime records per-query `n_snps` +
@@ -274,10 +281,10 @@ estimator state.
 |---|---|---|---|
 | Default two-step cutoff | `30` | `estimate_h2`, `_fit_rg_dataset` | Step-1 `χ²` ceiling when two-step is enabled and `--two-step-cutoff` is unset. |
 | Default partitioned cap | `max(0.001 · N.max(), 80)` | `_resolve_default_chisq_max` | Outlier cap for multi-annotation `h2` when `--chisq-max` is unset. |
-| Constrained h2 intercept | `1` | `Hsq.__null_intercept__` | Standard fixed h2 intercept, requested with `--intercept-h2 1`. |
-| Constrained gencov intercept | `0` | `RG`/`Gencov.__null_intercept__` | Standard fixed covariance intercept, requested with `--intercept-gencov 0`. |
+| Constrained heritability intercept | `1` | `Hsq.__null_intercept__` | Standard fixed heritability intercept, requested with `--intercept-h2 1`. |
+| Constrained genetic-covariance intercept | `0` | `RG`/`Gencov.__null_intercept__` | Standard fixed covariance intercept, requested with `--intercept-gencov 0`. |
 | `old_weights` | `True` iff `n_annot > 1` | `estimate_h2` | Forces legacy regression weights for partitioned models (newer weights unimplemented for `n_annot > 1`). |
-| Two-step mask | `χ² ≤ cutoff` (h2); `Z₁² ≤ cutoff and Z₂² ≤ cutoff` (rg) | `_kernel/regression.py` | Step-1 SNP selection (inclusive; legacy used `<`). |
+| Two-step mask | `χ² ≤ cutoff` (`h2`); `Z₁² ≤ cutoff and Z₂² ≤ cutoff` (`rg`) | `_kernel/regression.py` | Step-1 SNP selection (inclusive; legacy used `<`). |
 | `λ_GC` divisor | `0.4549` | `_kernel/regression.py` | `median(χ²)/0.4549`, the genomic-control inflation summary. |
 | Regression weights (`w_ld`) | from `regression_ld_scores` column | LD-score directory | Heteroscedasticity/LD weights; computed internally, not tunable. |
 
@@ -287,11 +294,11 @@ estimator state.
 
 | Command | Default two-step | Default `chisq_max` | Default intercept | Counts |
 |---|---|---|---|---|
-| `h2` (single-annotation) | `30` (free intercept) | none | estimated | `M_5_50` |
-| `h2` (multi-annotation baseline) | none | `max(0.001·N.max(), 80)` | estimated | `M_5_50` |
-| `rg` | `30` (free h2 intercept) | none (opt-in, product form) | estimated (h2 + gencov) | `M_5_50` |
-| `partitioned-h2` (functional) | none | `max(0.001·N.max(), 80)` | estimated | `M_5_50` |
-| `partitioned-h2` (cell-type) | none | `max(0.001·N.max(), 80)` | estimated | `M_5_50` |
+| `h2` (single-annotation) | `30` (free intercept) | none | estimated | common-SNP |
+| `h2` (multi-annotation baseline) | none | `max(0.001·N.max(), 80)` | estimated | common-SNP |
+| `rg` | `30` (free heritability intercept) | none (opt-in, product form) | estimated (heritability and genetic covariance) | common-SNP |
+| `partitioned-h2` (functional) | none | `max(0.001·N.max(), 80)` | estimated | common-SNP |
+| `partitioned-h2` (cell-type) | none | `max(0.001·N.max(), 80)` | estimated | common-SNP |
 
-All defaults reproduce legacy ldsc2 exactly, except that every `χ²` threshold is
+All defaults reproduce legacy LDSC exactly, except that every `χ²` threshold is
 applied inclusively (`≤`) rather than with legacy's strict `<`.

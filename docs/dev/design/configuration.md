@@ -20,18 +20,18 @@ points.
 Implementation details:
 
 - Compatibility checks run against the current provenance recorded on
-  package-written artifacts. Old package-written sumstats and LD-score artifacts
+  package-written artifacts. Old package-written munged summary statistics and LD-score directories
   without the current schema/provenance contract are rejected and must be
-  regenerated with the current LDSC package.
+  regenerated with the current LDSC3.
 - Current `ldsc munge-sumstats` embeds identity metadata in the
   `sumstats.parquet` footer (no `metadata.json` sidecar); legacy
   `sumstats.gz` carries no embedded metadata. `load_sumstats()` recovers the original
   downstream compatibility `GlobalConfig` from that footer, or returns `None` for supported legacy text. Footerless Parquet is rejected. In
   coordinate-family modes, that snapshot stores the final output genome build;
-  in rsid-family modes, it stores `genome_build=None`. Row-level liftover drops are
+  in rsID-family modes, it stores `genome_build=None`. Row-level liftover drops are
   audited separately in the always-written
   `diagnostics/dropped_snps/dropped.tsv.gz` file.
-  Package-written sumstats artifacts without current identity provenance are not
+  Package-written munged summary statistics without current identity provenance are not
   migrated.
 - `load_ldscore_from_dir()` keeps strict metadata checks and rejects missing or
   invalid package-written root metadata identity provenance with a regeneration
@@ -39,15 +39,21 @@ Implementation details:
 - `AnnotationBuildConfig` normalizes three mutually exclusive LD-score query
   source groups: prebuilt annotations, BED files, and gene lists. BED/gene runs
   carry query statuses through `AnnotationBundle` and `LDScoreResult`; the
-  catalog projection build stays separate from `GlobalConfig.genome_build` in
-  rsID modes.
+  gene-coordinate-catalog projection build stays separate from `GlobalConfig.genome_build` in
+  rsID-family modes.
 
-Memory controls are separate from statistical settings. `LDScoreConfig.query_batch_size` and the batch regression API/CLI setting default to 100 and require a positive integer. Generation uses this width for sequential execution and output query files; direct mode repeats reference traversal. `LDScoreConfig.workers` and indexed `workers` control bounded chromosome worker processes, capped at chromosome count; it does not change the number of pathways in a regression model. `AnnotationBuildConfig` describes source/projection settings, while the workflow's required output directory determines private storage ownership. The obsolete annotation-config output/compression/missing-query fields are removed. See the [memory design](memory-and-cpu.md) for lifetimes and output contracts.
+Memory controls are separate from statistical settings.
+`LDScoreConfig.query_batch_size` and the batch regression API/CLI setting default to 100 and require a positive integer.
+Generation uses this width for sequential execution and output query files; direct mode repeats reference traversal.
+`LDScoreConfig.workers` and indexed `workers` control bounded chromosome workers, capped at chromosome count; it does not change the number of pathways in a regression model.
+`AnnotationBuildConfig` describes source/projection settings, while the workflow's required output directory determines private storage ownership.
+The obsolete annotation-config output/compression/missing-query fields are removed.
+See the [memory design](memory-and-cpu.md) for lifetimes and output contracts.
 
 ## The Problem This Design Solves
 
 Genome build (`hg19`/`hg38`) and SNP identifier mode are global analysis
-assumptions that every step of the pipeline depends on. LDSC supports exactly
+assumptions that every step of the pipeline depends on. LDSC3 supports exactly
 four SNP identifier modes: `rsid`, `rsid_allele_aware`, `chr_pos`, and
 `chr_pos_allele_aware`; the default is `chr_pos_allele_aware`. Mode names are
 exact. Column aliases apply to input headers only. If these settings differ
@@ -126,7 +132,7 @@ For regression merges, the active SNP identifier mode is resolved in this order:
 `LDScoreResult.config_snapshot.snp_identifier`, then
 `SumstatsTable.config_snapshot.snp_identifier`, then the runner's active
 `GlobalConfig.snp_identifier`, then the package default
-`chr_pos_allele_aware`. Disk-loaded LD-score artifacts therefore use their
+`chr_pos_allele_aware`. Disk-loaded LD-score directories therefore use their
 metadata provenance when present; old package-written artifacts without the
 current schema/provenance contract must be regenerated.
 
@@ -214,7 +220,7 @@ regression = runner.build_dataset(sumstats_hg19, ldscore_hg38)  # ← hard error
 ## Workflow-Specific SNP Controls
 
 Standard LDSC still needs two distinct SNP-set controls, but they no longer live
-on `GlobalConfig`. The refactored package assigns them to the workflow objects
+on `GlobalConfig`. LDSC3 assigns them to the workflow objects
 that actually own those decisions.
 
 ### The hierarchy
@@ -222,25 +228,25 @@ that actually own those decisions.
 ```text
 Annotation bundle rows B                      (AnnotationBuilder)
   intersects prepared reference panel A'     (RefPanelConfig ref-panel filters)
-    then optional regression row subset C    (LDScoreConfig regression SNP controls)
+    then optional regression SNP subset C    (LDScoreConfig regression SNP controls)
 ```
 
 | Concept | Owner | CLI flag | When applied | Artifact effect |
 | --- | --- | --- | --- | --- |
-| Reference-panel SNP restriction | `RefPanelConfig.ref_panel_snps_file` | `--ref-panel-snps-file` | `RefPanel.prepare_chromosome()` restricts the panel and aligns `B_chrom` before the kernel call | Deliberately shrinks the compute-time universe to `ld_reference_snps = B ∩ A'`; affects LD scores and count records |
+| Reference-panel SNP restriction | `RefPanelConfig.ref_panel_snps_file` | `--ref-panel-snps-file` | `RefPanel.prepare_chromosome()` restricts the panel and aligns `B_chrom` before the kernel call | Deliberately shrinks the reference SNPs: after all panel filtering and intersection they are `ld_reference_snps = B ∩ A'`, the SNP-grid rows `B` that are also in the filtered panel `A'`; affects LD scores and count records |
 | Reference-panel MAF/sample filters | `RefPanelConfig.maf_min`, `RefPanelConfig.keep_indivs_file` | `--maf-min`, `--keep-indivs-file` | `RefPanel.prepare_chromosome()` applies configured sample selection before PLINK genotype QC/MAF filtering, or filters parquet sidecar rows by MAF | Affects the prepared panel A' and LD computation with inclusive `MAF >= maf_min`; separate from `LDScoreConfig.common_maf_min` |
 | PLINK genetic map (cM windows) | `RefPanelConfig.genetic_map_hg19_sources`, `genetic_map_hg38_sources` | `--genetic-map-hg19-sources`, `--genetic-map-hg38-sources` | `PlinkRefPanel.prepare_chromosome()` resolves the build/map and interpolates `CM` at retained `.bim` positions (map always wins). Ignored with a warning for parquet. | Defines `CM` for `--ld-wind-cm` when the `.bim` `CM` is uninformative; no effect on SNP/kb windows |
 | Reference-metadata export | `LDScoreConfig.export_ref_metadata` | `--export-ref-metadata` | After each chromosome's compute (PLINK worker), writes `ref_metadata/chrN_meta.tsv.gz` | Opt-in provenance/QC artifact (`CHR POS SNP A1 A2 CM MAF`); accepted later by `quantile-h2 --ref-metadata-sources` |
-| Regression row restriction | `LDScoreConfig.regr_snps_file` or bundled HM3 default | `--regr-snps-file` | After LD computation, when normalized/public rows are selected; `--regr-snps-exclude-regions` subtracts named intervals here | Written rows are `ld_regression_snps = B ∩ A' ∩ C ∩ complement(regions)`; `regression_ld_scores` (`w_ld`) uses that identical contributor set |
-| Common-count threshold | `LDScoreConfig.common_maf_min` | `--common-maf-min` | During count-vector and overlap-matrix computation after LD scores are computed | Defines the common-SNP universe with inclusive `MAF >= common_maf_min` (deviates from legacy LDSC's strict `0.05 < FRQ < 0.95`); affects `common_reference_snp_count(s)` and the common-universe overlap matrix, but not LD rows, LD scores, or the stored regression-universe LD score |
+| Regression SNP restriction | `LDScoreConfig.regr_snps_file` or bundled HM3 default | `--regr-snps-file` | After LD computation, when normalized/public rows are selected; `--regr-snps-exclude-regions` subtracts named intervals here | Written rows are `ld_regression_snps = B ∩ A' ∩ C ∩ complement(regions)`; `regression_ld_scores` (`w_ld`) is computed over that same SNP set |
+| Common-SNP-count threshold | `LDScoreConfig.common_maf_min` | `--common-maf-min` | During count-vector and overlap-matrix computation after LD scores are computed | Defines the common reference SNPs with inclusive `MAF >= common_maf_min` (deviates from legacy LDSC's strict `0.05 < FRQ < 0.95`); affects `common_reference_snp_count(s)` and the common-SNP overlap matrix, but not LD rows, LD scores, or the stored regression-SNP LD score |
 
 ### What each control does
 
-**`RefPanelConfig.ref_panel_snps_file`** — the *reference-panel SNP universe*
+**`RefPanelConfig.ref_panel_snps_file`** — the *reference SNPs*
 
-- `AnnotationBuilder.run()` still builds the full annotation universe `B`.
+- `AnnotationBuilder.run()` still builds annotations on the full SNP grid `B`.
 - `run_annotate()` and `ldsc annotate` do **not** apply this restriction.
-- `RefPanel` applies the explicit restriction to the raw panel `A`, producing `A'`, alongside configured sample/MAF filters. Both metadata inspection and chromosome preparation honor it. Bundled HM3 is never a convenience way to shrink the LD-reference universe.
+- `RefPanel` applies the explicit restriction to the raw panel `A`, producing `A'`, alongside configured sample/MAF filters. Both metadata inspection and chromosome preparation honor it. Bundled HM3 is never a convenience way to shrink the reference SNPs.
 - SNP restriction files are identity-only. Duplicate restriction keys collapse
   to one retained key, and non-identity columns such as `CM`, `MAF`, or other
   metadata are ignored rather than carried into LD-score or regression outputs.
@@ -248,7 +254,7 @@ Annotation bundle rows B                      (AnnotationBuilder)
 
 When `None`, the workflow uses the full reference panel `A`.
 
-**`LDScoreConfig.regr_snps_file`** — the *regression row set*
+**`LDScoreConfig.regr_snps_file`** — the *regression SNPs*
 
 - The explicit restriction file or packaged HM3 map is loaded once into the
   `regression_snps` set `C`.
@@ -256,7 +262,7 @@ When `None`, the workflow uses the full reference panel `A`.
 - Only the persisted LD-score rows are reduced to `ld_regression_snps = B ∩ A' ∩ C`.
 - There is no separate public weight artifact. The selected baseline rows keep
   `regression_ld_scores`, the historical `w_ld` LD score computed over the
-  regression SNP universe, in `ldscore.baseline.parquet`. Final h2 and rg
+  regression SNPs, in `ldscore.baseline.parquet`. Final `h2` and `rg`
   regression weights are computed later in the regression kernel from this
   value plus model-specific quantities.
 
@@ -279,7 +285,7 @@ In either allele-aware mode, `A1` and `A2` must be supplied together or both
 omitted. Omitting both makes the restriction match by base SNP identity only.
 The reader accepts whitespace-, tab-, or comma-delimited plain text and `.gz`
 files. Duplicate effective identities collapse to one key; columns outside the
-active identity schema are ignored. For coordinate modes, `CHR` and `POS` must
+active identity schema are ignored. For coordinate-family modes, `CHR` and `POS` must
 use the genome build selected by `--genome-build`.
 
 For example, each of the following tab-delimited files is valid for the named
@@ -342,8 +348,8 @@ ldscore = ldsc.LDScoreCalculator().run(
 )
 ```
 
-For parquet R2 panels, R2 bias and sample size are recorded only in the
-parquet schema (`ldsc:r2_bias` and `ldsc:n_samples`); there are no
+For R² panels, R² bias and sample size are recorded only in the
+Parquet schema (`ldsc:r2_bias` and `ldsc:n_samples`); there are no
 `RefPanelConfig` bias or sample-size fields.
 Readers accept only already-unbiased panels written by the current `build-r2-panel`; other panels must be rebuilt.
 
@@ -351,9 +357,9 @@ Readers accept only already-unbiased panels written by the current `build-r2-pan
 
 `ldscore` and `build-gene-ldscore-index` expose `--regr-snps-exclude-regions`, defaulting
 to `mhc-and-centromeres`. They subtract named regions from the selected
-regression set (bundled HM3 by default) and leave the reference panel, category
+regression set (bundled HM3 by default) and leave the reference panel, annotation
 LD scores, and count vectors untouched. `ldscore --genome-build` selects the
-named interval build; the closed gene-index builder uses its required explicit
+named interval build; the closed gene LD-score index builder uses its required explicit
 hg19 build. Custom intervals require a prefiltered `--regr-snps-file`;
 intentional reference pruning requires `--ref-panel-snps-file` in live
 `ldscore` or at reference-panel build time. `build-r2-panel` has neither
@@ -361,9 +367,9 @@ region-exclusion nor HM3 convenience flags.
 
 ### Artifact contract
 
-- Materialized query `.annot.gz` files and in-memory `AnnotationBundle` objects stay on the annotation universe `B`.
+- Materialized query `.annot.gz` files and in-memory `AnnotationBundle` objects stay on the SNP grid `B`.
 - Ordinary unpartitioned `run_ldscore()` calls may omit baseline/query annotation inputs; the workflow creates a synthetic all-ones `base` annotation after the reference panel has applied any explicit reference-panel restriction.
-- Prebuilt, BED, and gene-list query annotations are valid only with explicit baseline annotations, so the synthetic `base` path is not used for partitioned/query LDSC.
+- Prebuilt, BED, and gene-list query annotations are valid only with explicit baseline annotations, so the synthetic `base` path is not used for partitioned heritability.
 - BED and gene-list sources are query-local failure units. Only `ok`/`warning` queries enter scientific result objects; every source remains represented in diagnostic status records.
 - Reference-panel SNP restrictions become visible only during LD-score calculation, when `ref_panel.prepare_chromosome()` aligns `B_chrom` to the filtered reference rows.
 - Count records are accumulated over `ld_reference_snps = B ∩ A'` and stored in LD-score root `metadata.json`.
@@ -375,7 +381,7 @@ region-exclusion nor HM3 convenience flags.
 Stop passing these controls to `GlobalConfig()`:
 
 - move reference-panel restriction to `RefPanelConfig(ref_panel_snps_file=...)`
-- move regression row restriction to `LDScoreConfig(regr_snps_file=...)` or `run_ldscore(...)`
+- move regression SNP restriction to `LDScoreConfig(regr_snps_file=...)` or `run_ldscore(...)`
 - bundled HM3 is the default regression set; use a custom regression list only
   when that default must be replaced.
 - prefilter a custom regression list for arbitrary intervals; `genome_build` is
@@ -424,13 +430,16 @@ callers who need to preserve that provenance should persist the
 `RefPanelConfig` / `LDScoreConfig` they used alongside the written artifacts.
 
 **`load_sumstats()` recovers provenance for current disk artifacts.**
-Curated `sumstats.parquet` artifacts written by the current munger embed a thin
+Munged `sumstats.parquet` files written by the current munger embed a thin
 identity payload in their footer: `ldsc:artifact_type`, `ldsc:snp_identifier`,
 `ldsc:genome_build`, and optional `ldsc:trait_name`. `.sumstats.gz` carries no
 embedded metadata. Detailed coordinate provenance, liftover
 reports, HM3 provenance, output bookkeeping, and row counts are written to
 `diagnostics/sumstats.log`; row-level liftover drops are written to
-`diagnostics/dropped_snps/dropped.tsv.gz`. There is no sumstats metadata sidecar. The loader reconstructs `config_snapshot` from the Parquet footer identity fields and rejects missing or invalid footer provenance. Supported legacy text remains a separate, explicit input format.
+`diagnostics/dropped_snps/dropped.tsv.gz`.
+There is no summary-statistics metadata sidecar.
+The loader reconstructs `config_snapshot` from the Parquet footer identity fields and rejects missing or invalid footer provenance.
+Supported legacy text remains a separate, explicit input format.
 
 
 **LD-score directories must carry current identity provenance.**
@@ -442,7 +451,7 @@ loading with inferred provenance.
 **Package-written artifacts do not use missing snapshots as a compatibility
 bypass.**
 Objects constructed manually with missing provenance are not a promise of disk
-artifact compatibility. Package-written sumstats and LD-score artifacts that lack
+artifact compatibility. Package-written munged summary statistics and LD-score directories that lack
 the current schema/provenance contract must be regenerated before they can be
 combined in downstream workflows.
 

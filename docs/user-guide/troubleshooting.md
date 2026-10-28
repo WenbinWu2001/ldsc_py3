@@ -336,7 +336,7 @@ Concrete source/output build options do not apply to rsID-family munging.
 
 ### `munge-sumstats`: munged summary statistics are malformed or outdated
 
-**Symptom:** `Cannot load curated sumstats at '<path>': ...` (old schema / bad provenance / missing A1-A2 / duplicate identity rows)
+**Symptom:** `Cannot load munged summary statistics at '<path>': ...` (old schema / bad provenance / missing A1-A2 / duplicate identity rows)
 
 **Likely causes & how to check** (most probable first):
 
@@ -462,7 +462,7 @@ PLINK-backed `ldscore`. Baseline-only and PLINK-only rows are allowed, dropped,
 and counted. For a duplicate effective identity, every row in that source group
 is dropped; no representative is selected. Inspect
 `<index-dir>/diagnostics/dropped_snps/chrN_dropped.tsv.gz` after success (or the
-live log during a failing build). An empty result cannot define an LD universe.
+live log during a failing build). An empty result leaves no reference SNPs for LD scores.
 Under rsID matching, coordinate disagreements stop the build with a repair table.
 Under coordinate matching, differing SNP labels are reported and the PLINK label is published.
 During
@@ -998,7 +998,7 @@ See [keeping fitted results together](workflows/partitioned-heritability.md#read
 | 1 | An aggregate cell-type root was supplied | Select one `diagnostics/query_annotations/<query>/` directory; aggregate rows are separate fits. |
 | 2 | The fitted result predates coefficient-delete persistence | Check for `coefficient_delete_values.parquet`; rerun `partitioned-h2` with current LDSC3. |
 | 3 | Not every original fitted annotation was resupplied | Compare `retained_ld_columns` in model metadata with source headers. |
-| 4 | Reference metadata or annotations come from a different panel/release | Inspect SNP-universe size, annotation-sum, or overlap mismatch text. |
+| 4 | Reference metadata or annotations come from a different panel/release | Inspect the mismatch text for SNP counts, annotation sums, or overlaps. |
 | 5 | Effective SNP identities are duplicated or target coverage is incomplete | Inspect `diagnostics/snp_alignment_issues.tsv.gz`. |
 
 Resupply the exact original annotation sources and matching reference metadata.

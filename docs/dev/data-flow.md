@@ -11,10 +11,10 @@ This document summarizes the user-visible file streams for each public workflow.
 | Layer | Public? | Modules | Role |
 | --- | --- | --- | --- |
 | CLI | yes | `ldsc.cli` | parse subcommands and dispatch |
-| Preprocessing | yes | `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, `ldsc.genome_build_inference` | normalize tokens, headers, identifiers, chromosome order, and coordinate-build assumptions |
+| Preprocessing | yes | `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, `ldsc.genome_build_inference` | normalize tokens, headers, identifiers, chromosome order, and genome-build assumptions |
 | Workflow | yes | feature modules under `src/ldsc/` | build aligned in-memory tables |
 | Kernel | no | `ldsc._kernel.*` | low-level readers and numerical work |
-| Artifact access | yes | `ldsc.ldscore_source` | open canonical LD-score directories, validate schemas/identities, and read selected query columns |
+| Artifact access | yes | `ldsc.ldscore_source` | open LD-score directories, validate schemas/identities, and read selected query columns |
 | Postprocessing | yes | `ldsc.outputs`, `ldsc.plotting`, `ldsc.h2_scale`, pandas writers in `ldsc.regression_runner`, `ldsc._logging` | preflight fixed output paths, emit core/derived results, and write workflow audit logs/failure markers |
 
 ## Package Overview
@@ -22,8 +22,8 @@ This document summarizes the user-visible file streams for each public workflow.
 ```mermaid
 flowchart LR
   IN1[BED intervals or gene lists]
-  IN2[PLINK or parquet R2 reference]
-  IN3[Raw GWAS sumstats]
+  IN2[PLINK reference panel or R² panel]
+  IN3[Raw summary statistics]
 
   subgraph CLI[CLI Layer (public)<br/>ldsc.cli]
     C1[Dispatch subcommands]
@@ -31,10 +31,10 @@ flowchart LR
 
   subgraph WF[Workflow Layer (public)<br/>src/ldsc/*.py]
     W1[Build annotations]
-    W2[Build parquet panel]
-    W2b[Query R2 pairs]
+    W2[Build R² panel]
+    W2b[Query R² pairs]
     W3[Compute LD scores]
-    W4[Munge sumstats]
+    W4[Munge summary statistics]
     W5[Run regression]
   end
 
@@ -45,7 +45,7 @@ flowchart LR
   end
 
   subgraph OUT[Postprocessing (public)<br/>ldsc.outputs / regression_runner]
-    O1[Write LDSC artifacts]
+    O1[Write LDSC3 artifacts]
     O2[Write summary tables]
     O3[Write workflow logs]
   end
@@ -77,8 +77,8 @@ Base modes are allele-blind. `rsid` uses only `SNP`, and `chr_pos` uses only
 `CHR:POS`; any allele columns present in base-mode inputs are passive data and
 do not affect identity, duplicate filtering, retention, or drop reasons.
 Allele-aware modes use unordered, strand-aware `A1/A2` allele sets only to make
-merge keys safer. They require usable alleles on sumstats, reference-panel
-artifacts, R2 parquet endpoints, and LD-score artifacts, and they drop missing,
+merge keys safer. They require usable alleles on summary statistics, reference-panel
+artifacts, R² Parquet endpoints, and LD-score directories, and they drop missing,
 invalid/non-SNP, identical, strand-ambiguous, multi-allelic base-key, and
 duplicate effective-key clusters. Artifact duplicate filtering always computes
 the effective key for the active mode, then drops all rows in duplicate-key
@@ -101,7 +101,7 @@ participate in allele-aware matching.
 
 Supply exactly one grid: baseline `.annot(.gz)` files via `--ref-snp-annot-sources`, or six-column headerless BIM files via `--ref-snp-bim-sources`.
 BIM input uses only SNP metadata and requires no BED/FAM companions.
-Select either BED intervals or focal gene lists; gene lists require a coordinate catalog and explicit padding.
+Select either BED intervals or query gene lists; gene lists require a gene coordinate catalog and explicit padding.
 Existing build, identity, and chromosome-scope rules apply before projection.
 
 ```mermaid
@@ -137,11 +137,11 @@ Output preflight covers both `query.*.annot.gz` and `baseline.*.annot.gz` plus o
 - Projection: `_annotation_queries`, `_annotation_projection`, and `_gene_query_storage`.
 - Publication and reload: `outputs.AnnotationDirectoryWriter` and `_annotation_outputs`.
 
-## 2. `build-r2-panel`: PLINK To Standard Parquet R2 Reference
+## 2. `build-r2-panel`: PLINK To R² Panel
 
 Before chromosome processing starts, the builder precomputes flat current-run
 paths under each emitted `{build}` directory, always-written per-chromosome
-dropped-SNP audit files under `diagnostics/dropped_snps/`, plus the selected
+dropped-SNP diagnostics under `diagnostics/dropped_snps/`, plus the selected
 diagnostic metadata and `build-r2-panel` log paths. It also claims existing
 workflow-owned siblings under `hg19/`, `hg38/`, and `diagnostics/`. The claimed
 package follows the PLINK prefix scope: a concrete single-chromosome prefix
@@ -168,7 +168,7 @@ sidecar.
 | `.bim` row | `22 rs123 0.0 16050075 A G` | variant metadata |
 | `.fam` row | `fam1 iid1 0 0 0 -9` | sample metadata |
 | genetic map, conditional | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | required for every emitted build when cM windows are used; optional for SNP/kb windows |
-| liftover method, optional | `hg38ToHg19.over.chain.gz` | matching source-to-target chain enables cross-build R2 and metadata in chr_pos-family modes (`chr_pos`, `chr_pos_allele_aware`); omitted liftover produces source-build-only output; liftover is rejected in rsID-family modes (`rsid`, `rsid_allele_aware`) |
+| liftover method, optional | `hg38ToHg19.over.chain.gz` | matching source-to-target chain enables cross-build R² and metadata in chr_pos-family modes (`chr_pos`, `chr_pos_allele_aware`); omitted liftover produces source-build-only output; liftover is rejected in rsID-family modes (`rsid`, `rsid_allele_aware`) |
 | keep or restrict file, optional | one IID per row or a headered SNP table through `--ref-panel-snps-file` | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos`-family restrictions must match the source PLINK build; allele-free restrictions match by base key; allele-bearing restrictions, including packaged HM3, match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
 
 ### Flow
@@ -193,7 +193,7 @@ flowchart LR
 
   subgraph K2[Kernel (private)<br/>ldsc._kernel.ref_panel_builder]
     B5[Interpolate cM positions]
-    B6[Emit pairwise R2 rows]
+    B6[Emit pairwise R² rows]
     B7[Format standard schemas]
   end
 
@@ -207,19 +207,19 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| build-specific R2 parquet | `hg38/chr22_r2.parquet` with 4 columns: `IDX_1`, `IDX_2` (int32 sidecar-row indices), `R2` (int16 quantized unbiased R², divided by `ldsc:r2_scale`=32767 on read), `SIGN_R` (bool, Pearson r ≥ 0 between the `A1`/minor allele dosages of the pair) | one row per unordered SNP pair inside the LD window; row groups sorted by `IDX_1` (equivalent to `POS_1` order since sidecar is position-sorted); schema metadata records the identity keys plus `ldsc:n_samples`, `ldsc:r2_bias`, `ldsc:r2_encoding`, `ldsc:r2_scale`, `ldsc:min_r2`, `ldsc:ld_window_mode`/`ldsc:ld_window_value`, `ldsc:n_snps`, and `ldsc:sidecar_identity_sha256` ([contract](../reference/formats/r2-panels.md#25-parquet-schema-metadata)); paired sidecar is mandatory |
-| build-specific runtime metadata sidecar | `hg38/chr22_meta.tsv.gz` with leading `# ldsc:*` identity-provenance comments and `CHR POS SNP CM MAF A1 A2` columns | mandatory authoritative per-SNP universe for the matching R2 parquet; defines the index space referenced by `IDX_1`/`IDX_2`; `A1` is the **minor allele** and `MAF = freq(A1) ≤ 0.5` (canonical orientation); current package-written sidecars carry `artifact_type`, `snp_identifier`, and `genome_build` |
+| build-specific R² Parquet file | `hg38/chr22_r2.parquet` with 4 columns: `IDX_1`, `IDX_2` (int32 sidecar-row indices), `R2` (int16 quantized unbiased R², divided by `ldsc:r2_scale`=32767 on read), `SIGN_R` (bool, Pearson r ≥ 0 between the `A1`/minor allele dosages of the pair) | one row per unordered SNP pair inside the LD window; row groups sorted by `IDX_1` (equivalent to `POS_1` order since sidecar is position-sorted); schema metadata records the identity keys plus `ldsc:n_samples`, `ldsc:r2_bias`, `ldsc:r2_encoding`, `ldsc:r2_scale`, `ldsc:min_r2`, `ldsc:ld_window_mode`/`ldsc:ld_window_value`, `ldsc:n_snps`, and `ldsc:sidecar_identity_sha256` ([contract](../reference/formats/r2-panels.md#25-parquet-schema-metadata)); paired sidecar is mandatory |
+| build-specific runtime sidecar | `hg38/chr22_meta.tsv.gz` with leading `# ldsc:*` identity-provenance comments and `CHR POS SNP CM MAF A1 A2` columns | mandatory authoritative list of the panel SNPs for the matching R² Parquet file; defines the index space referenced by `IDX_1`/`IDX_2`; `A1` is the **minor allele** and `MAF = freq(A1) ≤ 0.5` (canonical orientation); current package-written sidecars carry `artifact_type`, `snp_identifier`, and `genome_build` |
 | dropped-SNP audit sidecar | `diagnostics/dropped_snps/chr22_dropped.tsv.gz` with `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written for each processed chromosome; header-only when no rows were dropped; identity reasons include `missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, and `duplicate_identity`; liftover reasons include `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision` |
 | diagnostic metadata | JSON provenance | `diagnostics/metadata.json` for full-suite runs or `diagnostics/metadata.chr<chrom>.json` for concrete single-chromosome runs; not consumed downstream |
 | workflow log | plain-text lifecycle and package records | `diagnostics/build-r2-panel.log` for full-suite runs or `diagnostics/build-r2-panel.chr<chrom>.log` for concrete single-chromosome runs; not included in `ReferencePanelBuildResult.output_paths` |
 
 **Allele-orientation canonicalization.** The builder orients every SNP so `A1`
 is the minor allele (`freq(A1) ≤ 0.5`): where the `.bim` `A2` allele is the minor
-allele (`freq < 0.5`) it swaps `A1`/`A2` in the meta sidecar **and** negates that
+allele (`freq < 0.5`) it swaps `A1`/`A2` in the sidecar **and** negates that
 SNP's standardized genotype column before the correlation, so `SIGN_R` is computed
 in the same orientation as the swapped labels. This happens at the standardized-
 SNP getter inside the builder; `nextSNPs` itself stays orientation-free, and the
-r²-based in-PLINK LD-score path is unaffected (R² is sign-invariant). A frequency
+R²-based in-PLINK LD-score path is unaffected (R² is sign-invariant). A frequency
 tie at exactly 0.5 keeps PLINK order. See
 [allele orientation](../reference/formats/column-schema.md#allele-orientation-and-frequency-a1-a2-maf-frq).
 
@@ -230,10 +230,10 @@ tie at exactly 0.5 keeps PLINK order. See
 - Kernel: `ldsc._kernel.ref_panel_builder`, `ldsc._kernel.ldscore`, `ldsc._kernel.formats`
 - Postprocessing: parquet and TSV writers in the kernel
 
-## 3. `query-r2`: Standard Parquet R2 Reference To Pair Lookup Table
+## 3. `query-r2`: R² Panel To Pair Lookup Table
 
-`query-r2` is a read-only workflow for package-built index-format R2 panels.
-It opens either a build-r2-panel output directory or one explicit
+`query-r2` is a read-only workflow for package-built R² panels.
+It opens either a `build-r2-panel` output directory or one explicit
 `chrN_meta.tsv.gz` plus `chrN_r2.parquet` pair, validates the sidecar binding
 against parquet metadata, resolves each endpoint under the active SNP
 identifier mode, and looks up stored pair rows. It requires `--output-dir` and
@@ -244,14 +244,14 @@ writes the canonical result directory (`query_r2.tsv` plus
 
 | File | Example | Notes |
 | --- | --- | --- |
-| R2 panel directory or explicit sidecar/parquet pair | `ref_panel/hg38/chr22_r2.parquet` plus `chr22_meta.tsv.gz` | must be package-built index-format R2 with matching sidecar identity hash |
+| R² panel directory or explicit sidecar/parquet pair | `ref_panel/hg38/chr22_r2.parquet` plus `chr22_meta.tsv.gz` | must be a package-built R² panel with matching sidecar identity hash |
 | pair table | `CHR_1 POS_1 A1_1 A2_1 CHR_2 POS_2 A1_2 A2_2` | TSV by default, CSV when filename ends in `.csv`, or stdin via `-`; endpoint columns are suffixed `_1` and `_2` |
 
 ### Flow
 
 ```mermaid
 flowchart LR
-  I1[Panel dir or meta+parquet]
+  I1[Panel directory or sidecar+Parquet pair]
   I2[Pair table]
 
   subgraph WQ[Workflow (public)<br/>ldsc.r2_query]
@@ -280,7 +280,7 @@ flowchart LR
 - Workflow: `ldsc.r2_query`
 - Kernel: `ldsc._kernel.r2_query`, `ldsc._kernel.ldscore`
 
-## 4. `ldscore`: Reference Panel And Optional Annotations To LDSC Artifacts
+## 4. `ldscore`: Reference Panel And Optional Annotations To An LD-Score Directory
 
 The canonical LD-score workflow preflights root `metadata.json`,
 `ldscore.baseline.parquet`, optional single or numbered query batch files, optional
@@ -291,15 +291,19 @@ reruns. Successful overwrites remove obsolete owned single/numbered query files.
 matrix consumed by `partitioned-h2`; it is written only when the run has two or
 more annotation columns, so an unpartitioned single-annotation run (e.g. the
 synthetic `base`) omits it.
-Every Parquet payload spans the computed chromosomes, with one row group per chromosome. Root metadata records baseline row groups and the required ordered `query_batches` manifest, including file membership and chromosome offsets. Readers can select query columns across files or load one chromosome without scanning whole tables. One batch uses `ldscore.query.parquet`; multiple batches use numbered files. See `LDScoreDirectoryWriter.write_batches` in [outputs.py](../../src/ldsc/outputs.py).
+Every Parquet payload spans the computed chromosomes, with one row group per chromosome.
+Root metadata records baseline row groups and the required ordered `query_batches` manifest, including file membership and chromosome offsets.
+Readers can select query columns across files or load one chromosome without scanning whole tables.
+One batch uses `ldscore.query.parquet`; multiple batches use numbered files.
+See `LDScoreDirectoryWriter.write_batches` in [`outputs.py`](../../src/ldsc/outputs.py).
 
 For ordinary unpartitioned LD scores, callers may omit both baseline and query
 inputs. The workflow then creates a synthetic baseline annotation named exactly
 `base`, with value `1.0` for every row returned by the retained reference-panel
-metadata. Query annotations are partitioned-LDSC inputs and require explicit
+metadata. Query annotations are partitioned-heritability inputs and require explicit
 baseline annotations. Query BED inputs and intervals from the required
-one-based gene-coordinate catalog are projected to the same baseline SNP
-universe. `padding_bp` / `--padding-bp` expands either interval type on both
+one-based gene coordinate catalog are projected to the same baseline SNP
+grid. `padding_bp` / `--padding-bp` expands either interval type on both
 sides before overlap projection and clips starts at zero. Live gene lists must
 choose padding explicitly; live BED input defaults to zero. Each source receives a
 status; unusable queries are omitted while usable siblings continue. Explicit
@@ -312,17 +316,17 @@ prebuilt-annotation, no-query, and indexed LD-score modes.
 | --- | --- | --- |
 | baseline annotation shard, optional | `CHR POS SNP CM base`<br/>`1 10583 rs58108140 0.0 1` | optional for unpartitioned runs; required when query annotations are supplied |
 | query annotation shard, optional | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | optional extra annotation columns; valid only with explicit baseline annotations |
-| query BED or gene list, optional | `chr1 1000 2000` or `ENSG00000141510` | mutually exclusive query source routes; direct gene lists additionally require a one-based build-aware coordinate catalog and explicit padding |
-| PLINK prefix or parquet R2 panel | `panel_chr@` or build directory `ref_panel/hg38` | choose one backend |
-| parquet reference metadata sidecar, required with R2 parquet | `CHR POS SNP CM MAF A1 A2` | authoritative SNP index space, CM and MAF; paired `chrN_meta.tsv.gz` is mandatory; `A1/A2` are required for allele-aware modes; PLINK derives its own metadata |
-| regression SNP list, optional | `rs123` or `CHR POS` table | restricts the weight-table SNP set using identity keys only; allele columns may be omitted and then match by base key; allele-bearing restrictions in allele-aware modes match by effective allele-aware key; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
+| query BED or gene list, optional | `chr1 1000 2000` or `ENSG00000141510` | mutually exclusive query source routes; direct gene lists additionally require a one-based build-aware gene coordinate catalog and explicit padding |
+| PLINK prefix or R² panel | `panel_chr@` or build directory `ref_panel/hg38` | choose one backend |
+| R²-panel sidecar, required with an R² panel | `CHR POS SNP CM MAF A1 A2` | authoritative SNP index space, CM and MAF; paired `chrN_meta.tsv.gz` is mandatory; `A1/A2` are required for allele-aware modes; PLINK derives its own metadata |
+| regression SNP list, optional | `rs123` or `CHR POS` table | restricts the regression SNPs using identity keys only; allele columns may be omitted and then match by base key; allele-bearing restrictions in allele-aware modes match by effective allele-aware key; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
 
 ### Flow
 
 ```mermaid
 flowchart LR
   I1[Optional .annot shards, BEDs, or gene lists]
-  I2[PLINK or parquet R2 reference]
+  I2[PLINK reference panel or R² panel]
   I3[Metadata / restriction files]
 
   subgraph P3[Preprocessing (public)<br/>config + path_resolution + column_inference]
@@ -338,11 +342,11 @@ flowchart LR
 
   subgraph K3[Kernel (private)<br/>ldsc._kernel.ldscore]
     C6[Compute chromosome LD scores]
-    C7[Compute regression-universe LD score]
+    C7[Compute regression-SNP LD score]
   end
 
   subgraph O3[Postprocessing (public)<br/>ldsc.outputs]
-    C8[Write LDSC artifacts]
+    C8[Write LDSC3 artifacts]
   end
 
   I1 --> C1 --> C3 --> C4 --> C6 --> C7 --> C5 --> C8
@@ -354,13 +358,13 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| baseline LD-score table | `CHR SNP POS A1 A2 regression_ld_scores base`<br/>`1 rs1 10 A G 1.7 1.2` | `ldscore.baseline.parquet` inside `output_dir`; `regression_ld_scores` is historical `w_ld`, not the final h2/rg regression weight; one row group per chromosome |
+| baseline LD-score table | `CHR SNP POS A1 A2 regression_ld_scores base`<br/>`1 rs1 10 A G 1.7 1.2` | `ldscore.baseline.parquet` inside `output_dir`; `regression_ld_scores` is historical `w_ld`, not the final `h2`/`rg` regression weight; one row group per chromosome |
 | query LD-score table | `CHR SNP POS A1 A2 enhancer_A`<br/>`1 rs1 10 A G 0.4` | single `ldscore.query.parquet` or numbered `ldscore.query.batchNNNNN.parquet` files in the ordered `query_batches` manifest; one row group per chromosome; omitted for baseline-only runs |
 | annotation overlap matrix | `row_annotation col_annotation overlap_all_snps overlap_common_snps`<br/>`base enhancer_A 9000 7500` | `ldscore.overlap.parquet` inside `output_dir`; long-form `AᵀA` baseline-rows block + query self-overlaps; consumed by `partitioned-h2` |
 | metadata | JSON metadata with files, columns, counts, chromosomes, config, row counts, and row-group metadata | `metadata.json` inside `output_dir`; consumed by downstream regression |
 | workflow log | plain-text lifecycle and package records | `diagnostics/ldscore.log` inside `output_dir`; not included in `LDScoreResult.output_paths` |
 | query status | `query source input_type status reason n_annotation_snps details` | `diagnostics/query_annotation_status.tsv`; written for BED/gene-list runs, including skipped inputs |
-| gene-list audit | every nonblank focal/control row and its disposition | `diagnostics/gene_list_audit.tsv.gz` |
+| gene-list audit | every nonblank query/control row and its disposition | `diagnostics/gene_list_audit.tsv.gz` |
 | gene-list source summary | submitted/resolved/rejected/support counts for every source | `diagnostics/gene_list_resolution_summary.tsv` |
 
 ### Modules used
@@ -404,13 +408,13 @@ fixed at `0.05`. See
 named intervals that are subtracted from the regression SNP set only. The
 default is `mhc-and-centromeres`; `none` opts out. Bundled HM3 is the default
 regression set, and `--regr-snps-file` replaces it before the selected
-intervals are subtracted. The full retained reference panel remains the
-baseline/query LD-score contributor universe and the universe for `M`,
+intervals are subtracted. The reference SNPs (the full retained reference panel)
+still contribute to the baseline/query LD scores and to the `M`,
 `M_5_50`, and annotation-overlap counts.
 
 Preset intervals are packaged BED3 files under `src/ldsc/data/regions/`. The
 `mhc` preset is chr6:25–35 Mb and `centromeres` is the pericentromeric ±3 cM
-mask. A 1-based position `p` is excluded when `start < p <= end` for BED
+mask. A one-based position `p` is excluded when `start < p <= end` for BED
 interval `[start, end)`. `--genome-build` is the sole build declaration for
 these named intervals; it must be concrete when artifact metadata cannot
 reliably supply a build.
@@ -419,22 +423,22 @@ There is no public arbitrary-region BED option. To use custom intervals,
 prefilter a custom regression list and pass it with `--regr-snps-file`.
 `build-r2-panel` has no region-exclusion option: deliberate LD-reference
 pruning is expressed only through `--ref-panel-snps-file`. Artifact
-`metadata.json` records the reference-universe policy separately from the
-regression-row/weight policy and its region-removal counts. See
+`metadata.json` records the reference-SNP policy separately from the
+regression-SNP policy and its region-removal counts. See
 [`region-exclusion-presets.md`](../reference/formats/region-exclusion-presets.md) for coordinates
 and migration guidance.
 
-## 5. `munge-sumstats`: Raw GWAS Table To Curated Sumstats
+## 5. `munge-sumstats`: Raw Summary Statistics To Munged Summary Statistics
 
 For the user-facing contract, command patterns, and output schema, see
-[munge-sumstats.md](../reference/munge-sumstats.md).
+[`munge-sumstats.md`](../reference/munge-sumstats.md).
 
 The munging workflow preflights `sumstats.parquet`,
 `sumstats.gz`, `diagnostics/sumstats.log`, and
 `diagnostics/dropped_snps/dropped.tsv.gz` as one owned family before delegating to
 `SumstatsMunger.run()` and then the
 legacy-compatible munging kernel. The workflow owns the log file, parquet
-footer identity metadata, dropped-SNP sidecar, and curated output writing; the
+footer identity metadata, dropped-SNP sidecar, and munged output writing; the
 kernel keeps the low-level parsing and QC. Before calling the kernel, the
 workflow runs format and column inference:
 `--input-format auto` is the default and detects plain whitespace text, including
@@ -446,7 +450,7 @@ output directory, and prints missing fields plus exact repair suggestions.
 Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
 also supports the legacy `sumstats.gz` artifact. With overwrite
 enabled, stale sibling formats not produced by the current run are removed
-after successful writes. Optional sumstats liftover is a `chr_pos`-family step:
+after successful writes. Optional summary-statistics liftover is a `chr_pos`-family step:
 the source build comes from `--source-genome-build` (`auto` by default) or
 munger build inference, SNP restrictions are interpreted in that source build
 before liftover, and `--output-genome-build` is required for coordinate-family
@@ -460,10 +464,10 @@ in `diagnostics/sumstats.log`; row-level drops are written to
 
 | File | Example | Notes |
 | --- | --- | --- |
-| raw sumstats | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer; `NEFF` is not inferred as `N` unless the user explicitly passes `--N-col NEFF` |
-| DANER schema modes and VCF-style plain raw sumstats | old DANER: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers<br/>new DANER: case-insensitive `Nca`/`Nco` or `NCAS`/`NCON` column aliases<br/>plain VCF-style: leading `##` metadata and `#CHROM` header | `--input-format auto` detects these profiles; explicit `--input-format daner-old` or `--input-format daner-new` overrides DANER auto-detection; VCF-style inputs are `plain`. `--input-format` is the sole DANER selector (the legacy `--daner-old`/`--daner-new` booleans are removed). |
-| sumstats SNP keep-list, optional | packaged HM3 by default; `--sumstats-snps-file FILE` replaces it; `--no-snp-restriction` disables it | row filter loaded once before parsing and applied inside each retained chunk; allele-free restrictions match by base key before later identity cleanup; allele-bearing restrictions, including packaged HM3, match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
-| sumstats liftover method, optional | `--output-genome-build hg38`, optionally with `--liftover-chain-file hg19ToHg38.over.chain` | valid only in `chr_pos`-family modes; packaged HM3 maps automatically when builds differ, while custom or unrestricted runs require a chain; updates `CHR`/`POS` after SNP restriction and preserves `SNP` labels |
+| raw summary statistics | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer; `NEFF` is not inferred as `N` unless the user explicitly passes `--N-col NEFF` |
+| DANER schema modes and VCF-style plain raw summary statistics | old DANER: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers<br/>new DANER: case-insensitive `Nca`/`Nco` or `NCAS`/`NCON` column aliases<br/>plain VCF-style: leading `##` metadata and `#CHROM` header | `--input-format auto` detects these profiles; explicit `--input-format daner-old` or `--input-format daner-new` overrides DANER auto-detection; VCF-style inputs are `plain`. `--input-format` is the sole DANER selector (the legacy `--daner-old`/`--daner-new` booleans are removed). |
+| summary-statistics SNP keep-list, optional | packaged HM3 by default; `--sumstats-snps-file FILE` replaces it; `--no-snp-restriction` disables it | row filter loaded once before parsing and applied inside each retained chunk; allele-free restrictions match by base key before later identity cleanup; allele-bearing restrictions, including packaged HM3, match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
+| summary-statistics liftover method, optional | `--output-genome-build hg38`, optionally with `--liftover-chain-file hg19ToHg38.over.chain` | valid only in `chr_pos`-family modes; packaged HM3 maps automatically when builds differ, while custom or unrestricted runs require a chain; updates `CHR`/`POS` after SNP restriction and preserves `SNP` labels |
 | column hints, optional | `--snp ID --chr '#CHROM' --pos POS --a1 EA --a2 NEA` | useful when headers are ambiguous; common aliases infer automatically, and `--infer-only` reports the hints it would apply |
 | INFO lists, optional | `IMPINFO=0.852,0.113,0.842,0.88,NA` | numeric/NA comma-separated per-study values are filtered on their mean; mixed nonnumeric lists such as `0.95,LOW,0.88` are rejected with `--ignore` / `--info-list` suggestions |
 
@@ -499,7 +503,7 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
+| munged summary statistics | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
 | log file | plain-text lifecycle, QC log, coordinate provenance, readable liftover reports, HM3 provenance, output bookkeeping, and count-level drop summaries | workflow-owned `diagnostics/sumstats.log` under `output_dir`, populated from package logger messages emitted during workflow orchestration and kernel QC; excluded from `MungeRunSummary.output_paths` |
 | embedded identity metadata | discrete footer keys `ldsc:artifact_type`, `ldsc:snp_identifier`, `ldsc:genome_build`, and optional `ldsc:trait_name` | written into the `sumstats.parquet` footer (no `metadata.json` sidecar); used by `load_sumstats()` to reconstruct config provenance and trait labels. Footerless Parquet is rejected; legacy text is marked explicitly. |
 | dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `diagnostics/dropped_snps/dropped.tsv.gz`; header-only when no rows were dropped; reasons may include identity drops (`missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, `duplicate_identity`) and liftover drops (`missing_coordinate`, `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`) |
@@ -511,7 +515,7 @@ flowchart LR
 - Kernel: `ldsc._kernel.sumstats_munger`, `ldsc._kernel.liftover`
 - Postprocessing: workflow-owned Parquet/TSV writing, log, and metadata writing
 
-Allele columns keep the LDSC-compatible names `A1` and `A2`. `A1` means the
+Allele columns keep the legacy LDSC names `A1` and `A2`. `A1` means the
 allele that the signed statistic is relative to; `A2` is the counterpart
 allele. This is a signed-statistic convention, not a genome reference-allele
 claim. Positive `Z`, positive `BETA`, positive `LOG_ODDS`, and `OR > 1` are
@@ -519,7 +523,7 @@ interpreted relative to `A1`.
 
 ## 6. `h2`, `partitioned-h2`, and `rg`: Curated Artifacts To Regression Summaries
 
-![Direct LD scores to partitioned-h2, mapped to the code](../assets/partitioned-ldsc-workflow-code-mapped.svg)
+![Direct LD scores to partitioned heritability, mapped to the code](../assets/partitioned-ldsc-workflow-code-mapped.svg)
 
 The figure is generated by `tools/docs/generate_partitioned_ldsc_workflow_figure.py`.
 
@@ -527,7 +531,7 @@ Regression summary commands require `output_dir` and write fixed result
 artifacts. `h2` writes root `h2.tsv` plus diagnostics; `partitioned-h2` writes
 root `partitioned_h2.tsv` plus diagnostics; `rg` writes root `rg.tsv`,
 `rg_full.tsv`, `h2_per_trait.tsv`, and optional diagnostics under
-`diagnostics/pairs/`. RG result tables report nominal p-values only; corrected
+`diagnostics/pairs/`. `rg` result tables report nominal p-values only; corrected
 p-value columns are left to downstream analysis. Existing owned TSVs, optional
 trees, or logs raise before the new table is written unless the command includes
 `--overwrite`. For
@@ -536,10 +540,10 @@ trees, or logs raise before the new table is written unless the command includes
 baseline-only overwrites remove stale `diagnostics/query_annotations/` after
 the new summary is written. Query-mode `partitioned-h2` always writes its
 per-query tree; retired `--write-per-query-results` is rejected. The aggregate `partitioned_h2.tsv` remains the stable summary entry
-point. Baseline-only directories run the functional-category regime and keep
+point. Baseline-only directories run the functional-annotation regime and keep
 complete-model artifacts at the result root.
 The output writer appends `query_result_dir` to the root TSV using the same folder records as the manifest. Paths are relative to the output directory and follow the sorted summary; baseline-only rows contain `NaN`. In-memory summaries and per-query tables retain their scientific schema.
-For rg, `--sumstats-sources` accepts two or more files; three or more files
+For `rg`, `--sumstats-sources` accepts two or more files; three or more files
 produce all unordered pairs unless `--anchor-trait` selects one trait label or
 source path for anchor-vs-rest estimation. `--write-per-pair-detail` adds the
 optional `diagnostics/pairs/` detail tree under the required `output_dir`.
@@ -555,18 +559,18 @@ merge. rsID-family and coordinate-family modes never mix.
 
 | File | Example | Notes |
 | --- | --- | --- |
-| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; current Parquet recovers footer provenance. Legacy `.sumstats[.gz]` requires `SNP/A1/A2/Z/N` and is projected by rsID onto the panel. |
+| munged summary statistics | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; current Parquet recovers footer provenance. Legacy `.sumstats[.gz]` requires `SNP/A1/A2/Z/N` and is projected by rsID onto the panel. |
 | LD-score directory | `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query batch files, optional `ldscore.overlap.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; the overlap sidecar is written only for runs with >=2 annotation columns; `partitioned-h2` requires `ldscore.overlap.parquet` (baseline-only = functional regime, query columns = cell-type regime) and rejects directories that lack it; current parquet files have chromosome-aligned row groups; package-written directories without current metadata identity provenance are rejected and must be regenerated |
 
 ### Flow
 
 ```mermaid
 flowchart LR
-  I1[Current Parquet or legacy sumstats text]
-  I2[LD-score artifacts]
+  I1[Current Parquet or legacy summary-statistics text]
+  I2[LD-score directories]
 
   subgraph P5[Preprocessing (public)<br/>path_resolution + column_inference]
-    E1[Resolve scalar files or rg file groups]
+    E1[Resolve scalar files or genetic-correlation file groups]
     E2[Reload canonical headers]
   end
 
@@ -580,9 +584,9 @@ flowchart LR
   end
 
   subgraph K5[Kernel (private)<br/>ldsc._kernel.regression]
-    E6[Estimate h2]
-    E7[Estimate partitioned h2]
-    E8[Estimate rg]
+    E6[Estimate SNP heritability]
+    E7[Estimate partitioned heritability]
+    E8[Estimate genetic correlation]
   end
 
   I1 --> E1 --> E4 --> E5
@@ -609,7 +613,7 @@ plus one ordinal-prefixed
 sanitized folder per query annotation. Each query folder contains
 `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json`.
 For column definitions and interpretation, see
-[partitioned-h2.md](../reference/results/partitioned-h2.md).
+[`partitioned-h2.md`](../reference/results/partitioned-h2.md).
 
 ### Modules used
 
@@ -617,22 +621,22 @@ For column definitions and interpretation, see
 - Workflow: `ldsc.regression_runner`, `ldsc.sumstats_munger.load_sumstats()`
 - Artifact access: `ldsc.ldscore_source.load_ldscore_from_dir()` and `LDScoreSource.read_queries()`
 - Kernel: `ldsc._kernel.regression`, `ldsc._kernel._jackknife`, `ldsc._kernel._irwls`
-- Postprocessing: pandas TSV writers in `ldsc.regression_runner`; partitioned-h2
-  and rg directory writing in `ldsc.outputs`
+- Postprocessing: pandas TSV writers in `ldsc.regression_runner`; `partitioned-h2`
+  and `rg` directory writing in `ldsc.outputs`
 
 ## 7. `quantile-h2`: One Fitted Model To Target Quantiles
 
-`quantile-h2` is post-fit projection, not another regression. It loads one baseline-only or one per-query fitted model, reconstructs the linked LD-score artifact's common reference-SNP universe from resupplied annotations and reference metadata, and uses matrix multiplication to project whole-data and delete-one-block coefficient vectors onto target-defined quantiles.
+`quantile-h2` is post-fit projection, not another regression. It loads one baseline-only or one per-query fitted model, reconstructs the linked LD-score directory's common reference SNPs from resupplied annotations and reference metadata, and uses matrix multiplication to project whole-data and delete-one-block coefficient vectors onto target-defined quantiles.
 
 ```mermaid
 flowchart LR
-  M[One partitioned-h2 fitted model\nsummary + coefficient deletes]
+  M[One fitted partitioned-heritability model\nsummary + coefficient deletes]
   A[Original fitted annotation sources]
   R[Reference metadata]
   T[Target annotation]
   V[Identity alignment and aggregate validation]
   Q[Legacy-compatible target quantiles]
-  P[Within-quantile annotation sums x fitted tau vectors]
+  P[Within-quantile annotation sums x fitted coefficient vectors]
   O[quantile_h2.tsv + standardized_coefficients.tsv + diagnostics]
   M --> V
   A --> V
@@ -641,9 +645,9 @@ flowchart LR
   M --> P
 ```
 
-The target may be external to the fitted model and contributes only quantile membership. The projection uses fitted annotations only. See [quantile-h2.md](../reference/results/quantile-h2.md) for the exact contracts and formulas.
+The target may be external to the fitted model and contributes only quantile membership. The projection uses fitted annotations only. See [`quantile-h2.md`](../reference/results/quantile-h2.md) for the exact contracts and formulas.
 
-## 8. Plotting And h2 Scale Conversion
+## 8. Plotting And Heritability Scale Conversion
 
 These derived workflows consume complete canonical result roots and never feed
 back into core estimation.
@@ -654,7 +658,7 @@ flowchart LR
   quantile-h2, or rg result]
   M[diagnostics/metadata.json]
   T[Declared numerical TSV]
-  A[rg only: declared single-trait h2 TSV]
+  A[rg only: declared single-trait heritability TSV]
   D[ldsc.plotting contract dispatch]
   F[plots/fixed-name.png + diagnostics]
   H[Canonical h2 result]
@@ -670,9 +674,15 @@ flowchart LR
   C --> K --> O
 ```
 
-`ldsc plot` checks only the plotting-relevant metadata contract and follows declared source files. Both rg views read correlations from `files.rg` and, when available, single-trait observed h2 and SE from `files.h2_per_trait`. The dispatcher loads the tables; builders match heritabilities by trait name and display them on the heatmap diagonal or in the anchor column/subtitle. Missing or unusable h2 values become `failed`, while malformed tables and unsafe source paths abort plotting. Plot metadata records the additional annotation source and observed scale.
+`ldsc plot` checks only the plotting-relevant metadata contract and follows declared source files.
+Both `rg` views read correlations from `files.rg` and, when available, single-trait observed SNP heritability and SE from `files.h2_per_trait`.
+The dispatcher loads the tables; builders match heritabilities by trait name and display them on the heatmap diagonal or in the anchor column/subtitle.
+Missing or unusable heritability values become `failed`, while malformed tables and unsafe source paths abort plotting.
+Plot metadata records the additional annotation source and observed scale.
 
-`ldsc convert-h2-scale` always starts from the observed h2 estimate and SE. Required Matplotlib is loaded only by figure-producing paths; exact conversion does not import it. See [plotting.md](design/plotting.md) for dispatch, ownership, and failure boundaries.
+`ldsc convert-h2-scale` always starts from the observed heritability estimate and SE.
+Required Matplotlib is loaded only by figure-producing paths; exact conversion does not import it.
+See [plotting.md](design/plotting.md) for dispatch, ownership, and failure boundaries.
 
 ## Bounded annotation and model flow
 
@@ -688,9 +698,9 @@ The parent filters from those summaries and uses the same chromosome-at-a-time w
 Consumed fragments are removed before the next batch, while final HM3 LD tables remain aggregate and publish after complete success.
 The prepared no-output Python route remains materialized.
 Batch regression shares trait/baseline alignment, reads selected query columns, and stages each completed fit.
-Optional `partitioned-h2 --workers` processes borrow immutable maps and each fit one complete query model; at most one task is in flight per worker.
+With `partitioned-h2 --workers`, workers borrow immutable maps and each fit one complete query model; at most one task is in flight per worker.
 The coordinator collects results in query order, applies the query-error policy, and publishes after stable summary sorting.
 Workers exit before their output-owned scratch is removed.
-See [query workers](../reference/regression-options.md#43-query-workers-and-memory) and `_QueryWorkers` in [_partitioned_h2_parallel.py](../../src/ldsc/_partitioned_h2_parallel.py).
+See [query workers](../reference/regression-options.md#43-query-workers-and-memory) and `_QueryWorkers` in [`_partitioned_h2_parallel.py`](../../src/ldsc/_partitioned_h2_parallel.py).
 Exact quantile reconstruction uses global float64 boundaries and two bounded annotation passes.
 See [the annotation format policy](design/memory-and-cpu.md#annotation-format-policy) for encoding and [the implemented memory design](design/memory-and-cpu.md) for owner/release boundaries.

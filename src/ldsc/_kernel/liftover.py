@@ -1,10 +1,10 @@
-"""Internal coordinate liftover helpers shared by LDSC workflows.
+"""Internal coordinate liftover helpers shared by LDSC3 workflows.
 
 The helpers in this module are deliberately package-private mechanics rather
 than a public liftover API. Workflow modules own user-facing validation and
 output contracts; this module owns reusable coordinate normalization, chain
 translation, duplicate-coordinate detection, drop accounting, sidecar row
-shaping, and DEBUG-only readable drop examples for sumstats munging and
+shaping, and DEBUG-only readable drop examples for summary-statistics munging and
 reference-panel building.
 """
 
@@ -198,7 +198,7 @@ class SumstatsLiftoverRequest:
         if target_build is not None and target_build not in SUPPORTED_LIFTOVER_BUILDS:
             raise LDSCConfigError(
                 f"Could not configure summary-statistics liftover: output_genome_build={target_build!r} is unsupported. "
-                "Most likely the requested target build is outside LDSC liftover support. "
+                "Most likely the requested target build is outside LDSC3 liftover support. "
                 "Use output_genome_build='hg19' or output_genome_build='hg38'."
             )
         chain_file = None if self.liftover_chain_file is None else str(self.liftover_chain_file)
@@ -729,7 +729,7 @@ def _reject_duplicate_hm3_coordinates(frame: pd.DataFrame, *, build: str) -> Non
         examples = frame.loc[duplicated, ["CHR", pos_column, "SNP"]].head(5).to_dict("records")
         raise LDSCInputError(
             f"Cannot use HM3 curated liftover map: duplicate {build} coordinates were found: {examples}. "
-            "Most likely the map file is malformed or not the packaged LDSC HM3 dual-build map. "
+            "Most likely the map file is malformed or not the packaged dual-build HM3 map. "
             "Use the packaged HM3 map or regenerate the map with unique CHR/POS rows."
         )
 

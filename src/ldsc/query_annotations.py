@@ -1,7 +1,7 @@
 """Shared gene-query coverage, viability, and aligned result finalization.
 
 Resolution selects canonical intervals; backend adapters measure SNP support.
-This module applies the same focal/control policy to both direct and indexed
+This module applies the same query/control policy to both direct and indexed
 measurements, and prunes scientific columns with their counts and provenance.
 It does not load reference artifacts or implement numerical LD-score kernels.
 """
@@ -73,7 +73,7 @@ def assess_gene_coverage(batch, chromosomes):
 
     ``chromosomes`` must come from validated inputs. Support is deliberately
     left unknown here, including for genes outside the evaluated scope.
-    Return the enriched batch and every focal/control coverage failure.
+    Return the enriched batch and every query/control coverage failure.
     """
     return batch.with_coverage(chromosomes)
 
@@ -139,7 +139,7 @@ def gene_control_errors(batch, result=None):
 
 
 def gene_viability_errors(batch, statuses, result=None):
-    """Collect control and all-focal-skipped failures at one viability gate."""
+    """Collect control and all-queries-skipped failures at one viability gate."""
     errors = gene_control_errors(batch, result)
     if (statuses or batch is not None) and all(status.status == "skipped" for status in statuses):
         errors.append(_all_query_annotations_skipped_message(statuses))
@@ -149,7 +149,7 @@ def gene_viability_errors(batch, statuses, result=None):
 def finalize_query_measurements(statuses, count_by_column, varying):
     """Finalize statuses from counts and exact pre-publication variation.
 
-    ``varying[name]`` is true iff the complete regression-row column
+    ``varying[name]`` is true iff the complete regression-SNP column
     contains more than one distinct value, treating NaNs as one value just as
     ``Series.nunique(dropna=False)`` does. Writing workflows combine chromosome
     summaries in direct post-kernel float32 or indexed float64 precision.
@@ -300,7 +300,7 @@ def _select_chromosome_result_queries(
 def _log_gene_catalog_issues(issues: pd.DataFrame) -> None:
     """Summarize catalog defects after their complete diagnostic table is saved."""
     if not issues.empty:
-        LOGGER.warning("Gene-coordinate catalog defects: records=%d. See diagnostics/gene_catalog_issues.tsv.", len(issues))
+        LOGGER.warning("Gene coordinate catalog defects: records=%d. See diagnostics/gene_catalog_issues.tsv.", len(issues))
 
 
 def _log_gene_list_rejections(batch: Any) -> None:

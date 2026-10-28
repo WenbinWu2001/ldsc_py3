@@ -13,7 +13,7 @@ The retired `threads` / `--threads` spelling is not accepted.
 | --- | --- | --- |
 | Direct LD scoring | One chromosome in the active query batch | Requested chromosomes |
 | Indexed LD scoring | One chromosome in the active query batch | Index chromosomes |
-| Gene-index construction | One chromosome | Requested build chromosomes |
+| Gene LD-score index construction | One chromosome | Requested build chromosomes |
 | Batch regression | One complete query-plus-baseline model across all chromosomes | Query count and `query_batch_size` |
 
 The CPU budget is the **detected available CPU count**, returned directly by [`joblib.cpu_count()`](https://joblib.readthedocs.io/en/stable/generated/joblib.cpu_count.html).
@@ -41,8 +41,8 @@ See [`_parallelism.py`](../../src/ldsc/_parallelism.py).
 
 ## Processes, numerical libraries, and memory
 
-All task workflows use reusable managed child processes, including one persistent child for serial execution.
-A ready worker receives the next task; chromosomes and models do not permanently own processes.
+All task workflows use reusable workers, including one persistent worker for serial execution.
+A ready worker receives the next task; chromosomes and models do not permanently own workers.
 Direct and indexed LD keep their pools across query batches, and regression keeps its pool across query-loading batches.
 There are no nested chromosome/model pools.
 The parent coordinates inputs, collection, aggregation, and publication.
@@ -57,10 +57,10 @@ Regression retains its separate process communication and memory-mapping impleme
 
 BLAS and numerical OpenMP each target one thread throughout every worker's lifetime.
 Arrow's CPU and I/O pools are controlled independently and each use one thread per worker.
-Higher inherited numerical thread settings do not override this policy inside children.
+Higher inherited numerical thread settings do not override this policy inside workers.
 These settings do not modify the notebook or Python caller's global numerical or Arrow configuration.
-Standalone numerical entry points without a concurrency option use a controlled serial child and reuse the current child when called from a worker.
-This includes standalone regression fits and summaries, R2-panel construction, quantile calculations, and legacy conversion's annotation overlap products.
+Standalone numerical entry points without a concurrency option use a controlled serial worker and reuse the current worker when called from a worker.
+This includes standalone regression fits and summaries, R² panel construction, quantile calculations, and legacy conversion's annotation overlap products.
 See [`_worker_runtime.py`](../../src/ldsc/_worker_runtime.py) and [`_serial_calculation.py`](../../src/ldsc/_serial_calculation.py).
 
 Runtime inspection checks supported loaded backends after importing NumPy and SciPy; these can use separate BLAS libraries.
@@ -83,7 +83,7 @@ Raw query scratch therefore scales with batch width rather than the total number
 The direct no-output API retains its materialized result path.
 More workers require more private model/chromosome memory.
 The package does not select workers from an automatic memory estimate.
-The [focused index transport probe](../dev/validation/performance.md#gene-index-transport-probe) supports the process migration but does not establish full-genome memory needs or HPC scaling.
+The [focused index transport probe](../dev/validation/performance.md#gene-ld-score-index-transport-probe) supports the process migration but does not establish full-genome memory needs or HPC scaling.
 
 Python scripts must put workflow calls under `if __name__ == "__main__":` for both serial and parallel execution because workers use `spawn`.
 The CLI handles process startup; notebook examples also show a CLI subprocess pattern for environments that cannot launch importable Python workers.
@@ -104,7 +104,7 @@ Both direct and indexed writing workflows use this layout, at every worker count
 The main log records overall progress and each chromosome's diagnostic path.
 Chromosome logs append across batches in the same run and record detailed execution and full Python exception tracebacks.
 A subsequent run follows `--overwrite`: refuse existing owned artifacts by default, or reset owned logs for an explicitly authorized replacement.
-An abnormal child termination may produce no traceback; the main log lists affected in-flight tasks without guessing which chromosome caused the crash.
+An abnormal worker termination may produce no traceback; the main log lists affected in-flight tasks without guessing which chromosome caused the crash.
 Low-level `LDScoreCalculator.run(..., output_config=None)` remains a no-file-output API for already-prepared single-batch inputs.
 
 Any required chromosome failure fails the run.
@@ -117,7 +117,7 @@ All required chromosomes must succeed before cross-chromosome aggregation, and a
 
 Optional direct `--export-ref-metadata` files are staged with temporary results and published only after successful computation.
 Handled computation failures remove these files with the run's scratch.
-Final file publication retains its existing behavior, without additional transactions or rollback; the gene-index builder retains its existing atomic publication transaction.
+Final file publication retains its existing behavior, without additional transactions or rollback; the gene LD-score index builder retains its existing atomic publication transaction.
 Interruption handling is unchanged, and forced termination can leave temporary files.
 Regression's separate explicit `continue_on_query_error` policy is unchanged.
 See [`_ldscore_diagnostics.py`](../../src/ldsc/_ldscore_diagnostics.py), [`LDScoreCalculator.run`](../../src/ldsc/ldscore_calculator.py), and [`indexed_results`](../../src/ldsc/_indexed_ldscore_batches.py).

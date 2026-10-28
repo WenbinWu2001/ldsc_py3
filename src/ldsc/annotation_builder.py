@@ -75,7 +75,7 @@ class AnnotationBuilder:
         Identity checks stage only metadata; no numeric spool is created.
         Public reads retain float32 and logical baseline-then-query column order.
 
-        Preparation emits INFO milestones through the existing LDSC logger.
+        Preparation emits INFO milestones through the existing ``LDSC`` logger.
         This method does not install a file or console handler; ``run_annotate``
         owns the standalone workflow log and canonical output publication.
         """
@@ -157,7 +157,7 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         '--genome-build', default=None, choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
         help=(
             'Genome build for coordinate-based SNP matching. Required with chr_pos or chr_pos_allele_aware; '
-            'auto checks every grid shard and the gene catalog using declarations or bounded inference. '
+            'auto checks every grid shard and the gene coordinate catalog using declarations or bounded inference. '
             'Concrete builds must agree with input declarations; BED inherits the resolved build. No fixed default.'
         ),
     )
@@ -165,7 +165,7 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         '--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
         help=(
             'Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use '
-            'A1/A2. Default: chr_pos_allele_aware; usable alleles are required. chr_pos modes require '
+            'A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Coordinate-family modes require '
             '--genome-build.'
         ),
     )
@@ -175,7 +175,7 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         help=(
             'Headered TSV/TSV.GZ of one-based inclusive gene coordinates. Required with '
             '--query-annot-gene-list-sources; cannot be used with BED-only input. If omitted in BED mode, no gene '
-            'catalog is used. Supply an exact file path; patterns are not expanded.'
+            'coordinate catalog is used. Supply an exact file path; patterns are not expanded.'
         ),
     )
     genes.add_argument(
@@ -225,7 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser : argparse.ArgumentParser
         Parser for arguments accepted after ``ldsc annotate``.
     """
-    parser = argparse.ArgumentParser(description="Project BED or gene-list queries into LDSC .annot.gz files.", allow_abbrev=False)
+    parser = argparse.ArgumentParser(description="Project BED or gene-list queries into LDSC3 .annot.gz files.", allow_abbrev=False)
     add_annotate_arguments(parser)
     return parser
 
@@ -282,7 +282,7 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
     genes = getattr(args, "query_annot_gene_list_sources", None)
     requested = getattr(args, "genome_build", None)
     if identity_mode_family(mode) == "chr_pos" and requested is None and not genes:
-        raise LDSCUsageError("annotate requires --genome-build for chr_pos-family identifiers. Supply auto, hg19, or hg38.")
+        raise LDSCUsageError("annotate requires --genome-build for coordinate-family SNP identifier modes. Supply auto, hg19, or hg38.")
     config = GlobalConfig(snp_identifier=mode, genome_build=(requested or "auto") if identity_mode_family(mode) == "chr_pos" else None,
                           log_level=getattr(args, "log_level", "INFO"))
     return run_annotate(

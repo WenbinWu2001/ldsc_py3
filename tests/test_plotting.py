@@ -167,10 +167,10 @@ def test_rg_diagonal_uses_observed_single_trait_h2_in_metadata_order(tmp_path):
     try:
         labels = {text.get_position(): text.get_text() for text in artifact.axes.texts}
         assert labels[(0.5, 0.5)] == "0.25\n(0.03)"
-        assert labels[(1.5, 1.5)] == "−0.12\n(0.00)"
+        assert labels[(1.5, 1.5)] == "\u22120.12\n(0.00)"
         assert labels[(2.5, 2.5)] == "1.23\n(0.04)"
         assert labels[(0.5, 1.5)] == "0.42\n(0.08)"
-        assert labels[(0.5, 2.5)] == "−0.31\n(0.11)"
+        assert labels[(0.5, 2.5)] == "\u22120.31\n(0.11)"
         assert labels[(1.5, 2.5)] == "failed"
         assert all(x <= y for x, y in labels)
         assert len(artifact.figure.axes) == 1
@@ -205,16 +205,16 @@ def test_anchor_h2_column_and_subtitle_preserve_correlations(tmp_path):
         texts = {text.get_text(): text for text in artifact.axes.texts}
         assert "0.25 (0.03)" in artifact.axes.get_title()
         assert "Observed" in artifact.axes.get_title()
-        assert texts["−0.12 (0.00)"].get_position()[1] == 0
+        assert texts["\u22120.12 (0.00)"].get_position()[1] == 0
         assert texts["1.23 (0.04)"].get_position()[1] == 1
         assert "0.42 (0.08)" in texts
-        assert "−0.31 (0.11)" in texts
+        assert "\u22120.31 (0.11)" in texts
         intervals = [container for container in artifact.axes.containers if hasattr(container, "has_xerr")]
         np.testing.assert_allclose(intervals[0].lines[2][0].get_segments(), [[[0.34, 0], [0.50, 0]]])
         np.testing.assert_allclose(intervals[1].lines[2][0].get_segments(), [[[-0.42, 1], [-0.20, 1]]])
         artifact.figure.canvas.draw()
         renderer = artifact.figure.canvas.get_renderer()
-        for tick, label in zip(artifact.axes.get_yticklabels(), ["−0.12 (0.00)", "1.23 (0.04)"]):
+        for tick, label in zip(artifact.axes.get_yticklabels(), ["\u22120.12 (0.00)", "1.23 (0.04)"]):
             h2_box = texts[label].get_window_extent(renderer)
             assert tick.get_window_extent(renderer).x1 < h2_box.x0
             assert h2_box.x1 < artifact.axes.get_window_extent(renderer).x0

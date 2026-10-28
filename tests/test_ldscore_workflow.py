@@ -163,7 +163,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
     def test_build_parser_genome_build_help_documents_chr_pos_requirement(self):
         help_text = " ".join(ldscore_workflow.build_parser().format_help().split())
 
-        self.assertIn("Required for chr_pos modes", help_text)
+        self.assertIn("Required for coordinate-family modes", help_text)
         self.assertIn("direct gene-list runs default to auto", help_text)
         self.assertIn("Gene-list runs also use this build for --regr-snps-exclude-regions", help_text)
 
@@ -262,7 +262,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             log_level="INFO",
         )
 
-        with self.assertRaisesRegex(LDSCUsageError, "chr_pos-family SNP identifiers.*genome build"):
+        with self.assertRaisesRegex(LDSCUsageError, "coordinate-family SNP identifier mode.*genome build"):
             ldscore_workflow._normalize_run_args(args)
 
     def test_auto_genome_build_does_not_infer_from_r2_directory_name_without_parquet_metadata(self):
@@ -2413,7 +2413,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             log_level="INFO",
         )
 
-        with self.assertRaisesRegex(LDSCUsageError, "keep-indivs-file.*parquet R2 mode"):
+        with self.assertRaisesRegex(LDSCUsageError, "keep-indivs-file.*R2 panel"):
             ldscore_workflow.run_ldscore_from_args(args)
 
     def test_run_ldscore_from_args_warns_and_skips_empty_intersection_chromosome(self):
@@ -2808,7 +2808,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 LDSCUsageError,
-                "user-requested LD window `--ld-wind-kb 1.0` is wider than the input R2 parquet panel window `--ld-wind-kb 0.1`",
+                "user-requested LD window `--ld-wind-kb 1.0` is wider than the input R2 panel window `--ld-wind-kb 0.1`",
             ):
                 kernel_ldscore.validate_ldscore_window_within_r2_panel_window(
                     args,
@@ -2855,7 +2855,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
                 r2_table=str(r2),
                 snp_identifier="chr_pos",
             )
-            with self.assertRaisesRegex(LDSCUsageError, "is wider than the input R2 parquet panel window"):
+            with self.assertRaisesRegex(LDSCUsageError, "is wider than the input R2 panel window"):
                 kernel_ldscore.validate_ldscore_window_within_r2_panel_window(
                     args,
                     parquet_paths=[str(r2)],

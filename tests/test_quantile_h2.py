@@ -367,7 +367,7 @@ class QuantileH2WorkflowTest(unittest.TestCase):
                 metadata["overlap_config"][f"total_{universe}_reference_snps"] = 5
                 path.write_text(json.dumps(metadata), encoding="utf-8")
                 self.args.output_dir = str(self.root / universe)
-                with self.assertRaisesRegex(LDSCInputError, f"different {universe}.*universe size"):
+                with self.assertRaisesRegex(LDSCInputError, f"different {universe}.*count than the fitted"):
                     run_quantile_h2_from_args(self.args)
 
     def test_duplicate_reference_and_target_identities_are_rejected(self):
@@ -387,7 +387,7 @@ class QuantileH2WorkflowTest(unittest.TestCase):
         target = pd.read_csv(path, sep="\t")
         target.iloc[:-1].to_csv(path, sep="\t", index=False)
 
-        with self.assertRaisesRegex(LDSCInputError, "does not cover the common reference-SNP universe"):
+        with self.assertRaisesRegex(LDSCInputError, "does not cover the common reference SNPs"):
             run_quantile_h2_from_args(self.args)
         issues = pd.read_csv(
             Path(self.args.output_dir) / "diagnostics" / "snp_alignment_issues.tsv.gz", sep="\t"

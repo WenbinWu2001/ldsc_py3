@@ -1,4 +1,4 @@
-"""Internal compute kernels for the refactored LDSC package."""
+"""Internal compute kernels for the LDSC3 package."""
 
 __all__ = ["ref_panel_builder"]
 

@@ -101,7 +101,7 @@ class LegacyLDScoreConverter:
     Source directories are treated as immutable. Matching across legacy
     families uses rsID; output coordinates come from the reference LD-score
     table. The converter accepts only allele-unaware ``rsid`` and ``chr_pos``
-    identity modes and fixes legacy common-count semantics at ``0.05``.
+    SNP identifier modes and fixes legacy common-SNP count semantics at ``0.05``.
     """
 
     def convert(
@@ -118,7 +118,7 @@ class LegacyLDScoreConverter:
     ) -> LegacyLDScoreConversionResult:
         """Convert one complete autosomal legacy suite.
 
-        Conversion runs in one managed child with 1 BLAS thread, including
+        Conversion runs in one worker with 1 BLAS thread, including
         annotation overlap reconstruction for baseline-partitioned suites.
 
         Parameters
@@ -189,7 +189,7 @@ class LegacyLDScoreConverter:
         overwrite: bool,
         log_level: str,
     ) -> LegacyLDScoreConversionResult:
-        """Run :meth:`convert` with a resolved log level in the managed child."""
+        """Run :meth:`convert` with a resolved log level in the worker."""
         mode = normalize_snp_identifier_mode(snp_identifier)
         if mode not in {"rsid", "chr_pos"}:
             raise LDSCUsageError(
@@ -303,7 +303,7 @@ class LegacyLDScoreConverter:
             profile = "baseline_partitioned"
             if frequency_root is None:
                 raise LDSCInputError(
-                    "Baseline partitioned legacy LDSC conversion requires --legacy-frequency-dir so common counts and "
+                    "Baseline partitioned legacy LDSC conversion requires --legacy-frequency-dir so common-SNP counts and "
                     "overlap can be reconstructed with the fixed legacy 0.05 threshold. "
                     "Pass a directory containing '<prefix><chrom>.frq(.gz)' for chromosomes 1-22."
                 )
@@ -777,7 +777,7 @@ def build_parser() -> argparse.ArgumentParser:
         '--legacy-reference-dir', required=True, metavar='DIR',
         help=(
             'Required directory containing a complete chromosome 1-22 legacy reference LD-score suite and '
-            '.l2.M_5_50 counts. Baseline partitioned suites also require full annotations and '
+            '.l2.M_5_50 common-SNP count files. Baseline partitioned suites also require full annotations and '
             '--legacy-frequency-dir.'
         ),
     )
@@ -815,7 +815,7 @@ def build_parser() -> argparse.ArgumentParser:
     identity.add_argument(
         '--genome-build', choices=('auto', 'hg19', 'hg38'), default='auto',
         help=(
-            'Genome build of legacy reference coordinates; no coordinate conversion is performed. Default: '
+            'Genome build of legacy reference coordinates; no liftover is performed. Default: '
             'auto, check every retained reference chromosome for chr_pos identity. A concrete build is '
             'required to agree with input declarations; rsid identity needs no coordinate-build inference.'
         ),

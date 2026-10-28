@@ -1,4 +1,4 @@
-"""Workflow configuration dataclasses for the refactored package.
+"""Workflow configuration dataclasses for LDSC3.
 
 Core functionality:
     Define validated, frozen configuration objects for the public workflows.
@@ -147,14 +147,14 @@ def _one_ld_window_message(config_name: str) -> str:
 
 @dataclass(frozen=True, init=False)
 class GlobalConfig:
-    """Shared configuration used across the refactored workflows.
+    """Shared configuration used across LDSC3 workflows.
 
     Parameters
     ----------
     snp_identifier : {"rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"}, optional
         Global SNP identifier mode. Default is ``"chr_pos_allele_aware"``.
-        Mode names are exact. ``"rsid"`` and ``"chr_pos"`` are allele-blind
-        base modes; allele columns are passive for identity. The allele-aware
+        Mode names are exact. ``"rsid"`` and ``"chr_pos"`` are base modes;
+        allele columns are passive for identity. The allele-aware
         variants require usable ``A1/A2`` on package-written identity artifacts
         and add a normalized allele set to the merge key.
     genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
@@ -162,7 +162,7 @@ class GlobalConfig:
         coordinate-build interpretation. Default is ``"auto"``: workflows
         compare declared or bounded inferred evidence across relevant inputs.
         A concrete build must agree with input declarations and supplies the
-        build for unlabeled inputs without inference or coordinate conversion.
+        build for unlabeled inputs without inference or liftover.
         Ignored for ``"rsid"`` identity; interval projection has its own build.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
         Requested logging verbosity for workflow modules. Default is ``"INFO"``.
@@ -170,7 +170,7 @@ class GlobalConfig:
     Notes
     -----
     ``GlobalConfig`` intentionally carries only shared runtime assumptions.
-    Per-run SNP-universe controls such as ``ref_panel_snps_file`` and
+    Per-run SNP restriction controls such as ``ref_panel_snps_file`` and
     ``regr_snps_file`` now live on workflow-specific configs.
     """
     snp_identifier: SNPIdentifierMode = "chr_pos_allele_aware"
@@ -223,7 +223,7 @@ class GlobalConfig:
         if family == "rsid" and self.genome_build == "auto":
             raise LDSCConfigError(
                 f"Could not construct GlobalConfig: genome_build='auto' is not valid for rsid-family "
-                f"snp_identifier={mode!r}. Most likely an auto-build coordinate setting was reused with rsID mode. "
+                f"snp_identifier={mode!r}. Most likely an auto-build coordinate setting was reused with an rsID-family mode. "
                 "Omit genome_build or pass genome_build=None for rsID-family workflows."
             )
         if family == "rsid" and self.genome_build is not None:
@@ -270,18 +270,18 @@ def validate_config_compatibility(
     b: GlobalConfig,
     context: str = "",
 ) -> None:
-    """Raise when ``a`` and ``b`` disagree on critical LDSC workflow settings."""
+    """Raise when ``a`` and ``b`` disagree on critical LDSC3 workflow settings."""
     prefix = f" when combining {context}" if context else ""
     if a.snp_identifier != b.snp_identifier:
         raise ConfigMismatchError(
-            f"Cannot combine LDSC results{prefix}: snp_identifier mismatch "
+            f"Cannot combine LDSC3 results{prefix}: snp_identifier mismatch "
             f"{a.snp_identifier!r} vs {b.snp_identifier!r}. Most likely the inputs were produced "
             "with different --snp-identifier modes. Re-run the upstream workflows with the same "
             "snp_identifier before combining them."
         )
     if a.genome_build != b.genome_build:
         raise ConfigMismatchError(
-            f"Cannot combine LDSC results{prefix}: genome_build mismatch "
+            f"Cannot combine LDSC3 results{prefix}: genome_build mismatch "
             f"{a.genome_build!r} vs {b.genome_build!r}. Most likely the inputs were produced "
             "under different coordinate-build assumptions. Re-run or reload the inputs with the "
             "same genome_build before combining them."
@@ -332,7 +332,7 @@ class AnnotationBuildConfig:
         before SNP overlap projection. Starts are clipped at zero. Default is
         ``0``.
     gene_coordinate_file : path-like, optional
-        Required coordinate catalog for gene-list queries.
+        Required gene coordinate catalog for gene-list queries.
     gene_list_resolution_policy : {"strict", "resolved-only"}, optional
         Identifier-resolution policy, default ``"strict"``: rejected identifiers
         stop preparation after the batch audit. ``"resolved-only"`` permits
@@ -388,7 +388,7 @@ class AnnotationBuildConfig:
         if self.query_annot_gene_list_sources and self.gene_coordinate_file is None:
             raise LDSCConfigError(
                 "Could not construct AnnotationBuildConfig: gene_coordinate_file is required when "
-                "query_annot_gene_list_sources are supplied. The coordinate catalog is the sole gene authority."
+                "query_annot_gene_list_sources are supplied. The gene coordinate catalog is the sole gene authority."
             )
         if not self.query_annot_gene_list_sources and (
             self.gene_coordinate_file is not None
@@ -441,7 +441,7 @@ class RefPanelConfig:
         Exact PLINK ``.bed/.bim/.fam`` prefix, plain chromosome-suite stem,
         glob, or explicit ``@`` suite token. Default is ``None``.
     r2_dir : str or os.PathLike[str] or None, optional
-        Directory containing package-built parquet R2 files named
+        R2 panel directory containing package-built Parquet files named
         ``chr{chrom}_r2.parquet`` and mandatory metadata sidecars named
         ``chr{chrom}_meta.tsv.gz``. Default is ``None``.
     maf_min : float or None, optional
@@ -463,7 +463,7 @@ class RefPanelConfig:
     genetic_map_hg38_sources: str | PathLike[str] | None = None
 
     def __post_init__(self) -> None:
-        """Normalize backend path tokens and validate parquet-R2 settings."""
+        """Normalize backend path tokens and validate R2-panel settings."""
         if self.backend not in {"auto", "plink", "parquet_r2"}:
             raise LDSCConfigError(_invalid_choice_message("RefPanelConfig", "backend", self.backend, "'auto', 'plink', or 'parquet_r2'"))
         if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
@@ -484,20 +484,20 @@ class RefPanelConfig:
 class LDScoreConfig:
     """Configuration for chromosome-wise LD-score calculation.
 
-    Exactly one LD-window field must be provided. With a parquet R2 panel the
+    Exactly one LD-window field must be provided. With an R2 panel the
     window must use the panel's build-window unit and be no wider than it, and
     ``ld_wind_snps`` counts panel sidecar rows rather than retained SNPs. The
-    remaining fields control regression row selection, annotation counts, and
+    remaining fields control regression-SNP selection, annotation counts, and
     execution batch sizes.
 
     Parameters
     ----------
     ld_wind_snps : int or None, optional
-        Window size measured in SNP count. Default is ``None``.
+        LD window measured in SNP count. Default is ``None``.
     ld_wind_kb : float or None, optional
-        Window size measured in kilobases. Default is ``None``.
+        LD window measured in kilobases. Default is ``None``.
     ld_wind_cm : float or None, optional
-        Window size measured in centiMorgans. Default is ``None``.
+        LD window measured in centiMorgans. Default is ``None``.
     regr_snps_file : str or os.PathLike[str] or None, optional
         Optional path to the SNP list defining the regression SNP set used for
         the persisted ``ldscore.baseline.parquet`` row set and, when query
@@ -507,7 +507,7 @@ class LDScoreConfig:
         restrictions through ``regression_snps`` instead.
     snp_batch_size : int, optional
         Number of SNPs per PLINK genotype batch. LD windows are exact for any
-        value, so it changes speed and memory, not LD scores; parquet R2
+        value, so it changes speed and memory, not LD scores; R2 panel
         input ignores it. Default is ``512``.
     query_batch_size : int, optional
         Positive maximum number of focal query columns prepared, computed,
@@ -519,7 +519,7 @@ class LDScoreConfig:
         Inclusive MAF threshold used only for common-SNP count vectors
         (``MAF >= common_maf_min``; deviates from legacy LDSC's strict
         ``0.05 < FRQ < 0.95``). It does not change retained reference SNPs,
-        LD-score rows, LD scores, or persisted regression-universe LD scores.
+        LD-score rows, LD scores, or persisted regression-SNP LD scores.
         Default is ``0.05``.
     whole_chromosome_ok : bool, optional
         Override the guard that rejects windows effectively spanning an entire
@@ -528,13 +528,14 @@ class LDScoreConfig:
         Write retained PLINK reference metadata, including effective CM, under
         ``ref_metadata/`` in the output directory. Default is ``False``.
         Requires an output configuration and is not a zero-write option.
-        Parquet R2 inputs already have authoritative metadata sidecars.
+        R2 panel inputs already have authoritative metadata sidecars.
     workers : int, optional
-        Maximum concurrent task processes, default 1, including on HPC.
+        Maximum number of concurrent workers, default 1, including on HPC.
         Use joblib.cpu_count() as the detected available CPU budget.
         Positive requests above that budget fail before capping by task
         count; negative -k uses max(1, budget + 1 - k). Zero, booleans,
-        and non-integers are invalid. One worker is a managed child.
+        and non-integers are invalid. A value of 1 still runs one worker
+        rather than computing inline.
         Every worker uses 1 BLAS thread in serial and parallel execution.
         Numerical OpenMP and Arrow CPU/I/O limits are also one; unsupported
         numerical limits are logged as unverified and computation continues.
@@ -590,7 +591,7 @@ class GeneLDScoreIndexBuildConfig:
         modes permit annotations to omit both allele columns, but not one.
     plink_prefix : str
         Exact PLINK BED/BIM/FAM prefix or plain chromosome-suite stem; globs
-        and ``@`` chromosome patterns are also accepted.
+        and ``@`` chromosome suites are also accepted.
     output_dir : str
         Publication destination for one complete immutable gene LD-score index.
         While running, mutable logs/history and locking use hidden sibling
@@ -603,7 +604,7 @@ class GeneLDScoreIndexBuildConfig:
         required, and index construction performs no inference or liftover.
         Applicable input declarations must agree with this build.
     snp_identifier : {"rsid", "chr_pos", "rsid_allele_aware", "chr_pos_allele_aware"}
-        Required variant-identity mode, using the shared LD-score matching rules.
+        Required SNP identifier mode, using the shared LD-score matching rules.
     padding_bp : int, optional
         Base pairs added to each side of included transcribed gene intervals.
         Default is 0.
@@ -632,11 +633,12 @@ class GeneLDScoreIndexBuildConfig:
     atom_batch_size : int, optional
         Positive offline internal atom-column batch size. Default is 64.
     workers : int, optional
-        Maximum concurrent task processes, default 1, including on HPC.
+        Maximum number of concurrent workers, default 1, including on HPC.
         Use joblib.cpu_count() as the detected available CPU budget.
         Positive requests above that budget fail before capping by task
         count; negative -k uses max(1, budget + 1 - k). Zero, booleans,
-        and non-integers are invalid. One worker is a managed child.
+        and non-integers are invalid. A value of 1 still runs one worker
+        rather than computing inline.
         Every worker uses 1 BLAS thread in serial and parallel execution.
         Numerical OpenMP and Arrow CPU/I/O limits are also one; unsupported
         numerical limits are logged as unverified and computation continues.
@@ -774,7 +776,7 @@ class ReferencePanelBuildConfig:
     maf_min : float or None, optional
         Optional retained-SNP MAF threshold. Default is ``None``.
     ref_panel_snps_file : str or os.PathLike[str] or None, optional
-        Optional SNP list restricting the emitted reference-panel universe.
+        Optional SNP list restricting the SNPs written to the reference panel.
         Default is ``None``. The identifier mode comes from
         ``GlobalConfig.snp_identifier``. Restriction files may omit alleles and
         then match by base key. In ``chr_pos``-family modes, the restriction
@@ -890,7 +892,7 @@ class ReferencePanelBuildConfig:
 class MungeConfig:
     """Configuration for legacy-compatible summary-statistics munging.
 
-    This dataclass preserves the established LDSC munging behavior while
+    This dataclass preserves the established legacy LDSC munging behavior while
     exposing the options through an explicit Python object rather than a script
     namespace. Coordinate hints for ``CHR`` and ``POS`` may be supplied through
     ``column_hints``; when omitted, the shared column-inference registry accepts
@@ -934,7 +936,7 @@ class MungeConfig:
     chunk_size : int, optional
         Number of input rows processed per chunk. Default is ``1_000_000``.
     output_format : {"parquet", "tsv.gz", "both"}, optional
-        Curated sumstats disk format written by the public workflow. Default is
+        Munged summary-statistics disk format written by the public workflow. Default is
         ``"parquet"``.
     trait_name : str or None, optional
         Optional trait label, stored in Parquet metadata and used for filenames
@@ -957,7 +959,7 @@ class MungeConfig:
     no_snp_restriction : bool, optional
         Disable SNP keep-list restriction while retaining ordinary QC. Mutually
         exclusive with ``sumstats_snps_file``. Default is ``False``: use the
-        packaged HM3 list when no custom file is supplied.
+        packaged HM3 map when no custom file is supplied.
     source_genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"}, optional
         Genome build of raw ``CHR``/``POS`` coordinates. ``"auto"`` asks the
         munger to check raw source chromosomes and coordinate keep lists.
@@ -972,7 +974,7 @@ class MungeConfig:
         HM3 quick liftover under packaged restriction; custom-list or unrestricted
         runs require a chain file. Unresolved source builds abort before QC.
     liftover_chain_file : str or os.PathLike[str] or None, optional
-        Chain file for coordinate-only source-to-output conversion. When omitted,
+        Chain file for source-to-output liftover of coordinates only. When omitted,
         different builds under the default packaged restriction use automatic
         quick liftover from package-bundled reference HM3 metadata. Supplying a
         chain disables quick liftover without changing the SNP restriction.
@@ -1001,7 +1003,7 @@ class MungeConfig:
     overwrite : bool, optional
         If ``True``, replace current outputs and remove stale sibling formats
         for the same resolved trait filename after a successful run. If ``False``, any
-        owned sumstats artifact collision raises before the munging kernel
+        owned summary-statistics artifact collision raises before the munging kernel
         runs. Default is ``False``.
     """
     output_dir: str | PathLike[str] | None = None
@@ -1108,22 +1110,22 @@ class RegressionConfig:
         being fit. Default is ``True``.
     intercept_h2, intercept_gencov : float or None, optional
         Fixed intercept values for single-trait and cross-trait models. In
-        multi-trait rg runs, scalar values are broadcast to every pair.
+        multi-trait ``rg`` runs, scalar values are broadcast to every pair.
         Defaults are ``None``.
     two_step_cutoff : float or None, optional
         Inclusive chi-square cutoff for the two-step estimator's step-1 SNP set
         (``chi^2 <= cutoff`` is retained; deviates from legacy LDSC's strict
         ``chi^2 < cutoff``). Default is ``None``, in which case single-annotation
-        h2 and single-annotation rg with a free h2 intercept fall back to the
+        ``h2`` and single-annotation ``rg`` with a free ``h2`` intercept fall back to the
         legacy default cutoff of ``30``.
     chisq_max : float or None, optional
-        Inclusive maximum chi-square retained for regression fitting. For h2 and
-        partitioned-h2 this keeps ``chi^2 <= chisq_max``; for rg it keeps
-        ``Z1^2 * Z2^2 <= chisq_max^2`` (legacy's opt-in rg filter). Both retain
+        Inclusive maximum chi-square retained for regression fitting. For ``h2`` and
+        ``partitioned-h2`` this keeps ``chi^2 <= chisq_max``; for ``rg`` it keeps
+        ``Z1^2 * Z2^2 <= chisq_max^2`` (legacy LDSC's opt-in ``rg`` filter). Both retain
         the boundary inclusively, deviating from legacy LDSC's strict ``<``.
-        Default is ``None``. When unset, partitioned-h2 (multi-annotation)
+        Default is ``None``. When unset, ``partitioned-h2`` (multi-annotation)
         applies the legacy default outlier cap ``max(0.001 * N.max(), 80)`` to
-        down-weight extreme-chi-square SNPs; single-annotation h2 stays uncapped
+        down-weight extreme-chi-square SNPs; single-annotation ``h2`` stays uncapped
         and relies on the two-step estimator instead.
     samp_prev, pop_prev : float, list of float, or None, optional
         Liability-scale prevalence inputs for binary traits: each a probability
@@ -1134,7 +1136,7 @@ class RegressionConfig:
         are ``None`` (observed scale).
     allow_identity_downgrade : bool, optional
         If ``True``, same-family allele-aware/base regression inputs may run
-        under the base identity mode. Cross-family mixes remain rejected.
+        under the base SNP identifier mode. Cross-family mixes remain rejected.
         Original modes and dropped duplicate counts are logged by regression
         workflows, not persisted in detail metadata. Default is ``False``.
     """

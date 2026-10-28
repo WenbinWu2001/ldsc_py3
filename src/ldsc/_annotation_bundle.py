@@ -25,7 +25,7 @@ class AnnotationBundle:
     Attributes
     ----------
     baseline_columns, query_columns : list of str
-        Ordered model and focal annotation names shared by all chromosomes.
+        Ordered baseline and query annotation names shared by all chromosomes.
     workspace : AnnotationWorkspace or None
         Owner of private, output-contained staging files; ``None`` for the
         file-free ``from_frames`` route.
@@ -57,8 +57,8 @@ class AnnotationBundle:
         Parameters
         ----------
         metadata : pandas.DataFrame
-            SNP rows with ``CHR`` and 1-based integer ``POS`` in the configured
-            build; ``SNP`` is required for rsID identity modes. Chromosome
+            SNP rows with ``CHR`` and one-based integer ``POS`` in the configured
+            build; ``SNP`` is required for rsID-family SNP identifier modes. Chromosome
             labels are normalized. Supply both ``A1`` and ``A2``, or neither;
             allele-free inputs use base identity matching. Optional ``CM`` and
             ``MAF`` do not override reference-panel values during LD scoring.

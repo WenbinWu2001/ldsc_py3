@@ -27,13 +27,13 @@ Task guides are in the [user guide](../user-guide/index.md).
 | [`build-gene-ldscore-index`](#ldsc-build-gene-ldscore-index) | Build a reusable gene LD-score index. |
 | [`convert-ldsc2-ldscores`](#ldsc-convert-ldsc2-ldscores) | Convert selected legacy LD-score suites to LDSC3 format. |
 | [`munge-sumstats`](#ldsc-munge-sumstats) | Munge GWAS summary statistics. |
-| [`h2`](#ldsc-h2) | Estimate heritability from munged sumstats and LD scores. |
+| [`h2`](#ldsc-h2) | Estimate heritability from munged summary statistics and LD scores. |
 | [`partitioned-h2`](#ldsc-partitioned-h2) | Estimate partitioned heritability with independent query models. |
 | [`quantile-h2`](#ldsc-quantile-h2) | Summarize fitted heritability across annotation quantiles. |
 | [`rg`](#ldsc-rg) | Estimate genetic correlation. |
 | [`query-r2`](#ldsc-query-r2) | Query R2 for SNP pairs from a reference panel. |
-| [`convert-h2-scale`](#ldsc-convert-h2-scale) | Convert a saved observed-scale h2 estimate to liability scale. |
-| [`plot`](#ldsc-plot) | Plot a saved LDSC result. |
+| [`convert-h2-scale`](#ldsc-convert-h2-scale) | Convert a saved observed-scale SNP heritability estimate to liability scale. |
+| [`plot`](#ldsc-plot) | Plot a saved LDSC3 result. |
 
 ## `ldsc infer-genome-build`
 
@@ -41,7 +41,7 @@ Inspect an artifact's genome build without writing files.
 
 | Option | Description |
 | --- | --- |
-| `PATH` (positional) | Required exact file or recognized LDSC artifact directory. Read build declarations or infer hg19/hg38 from SNP coordinates. No patterns or multiple paths. Print unknown when evidence is insufficient; unknown exits successfully. Creates no files or logs. |
+| `PATH` (positional) | Required exact file or recognized LDSC3 artifact directory. Read build declarations or infer hg19/hg38 from SNP coordinates. No patterns or multiple paths. Print unknown when evidence is insufficient; unknown exits successfully. Creates no files or logs. |
 
 ## `ldsc annotate`
 
@@ -54,9 +54,9 @@ Find SNPs covered by BED intervals or gene boundaries.
 | `--output-dir` | Required. Required destination for chromosome .annot.gz files and diagnostics. |
 | `--query-annot-bed-sources` | BED intervals to find covered grid SNPs. Accepts exact paths or '*' patterns. Supply exactly one of --query-annot-bed-sources or --query-annot-gene-list-sources; no default. '@' is not expanded; see --ref-snp-annot-sources for wildcard and quoting rules. |
 | `--query-annot-gene-list-sources` | One-column gene-list files to find SNPs within gene intervals. Requires --gene-coordinate-file and explicit --padding-bp. Supply exactly one of this flag or --query-annot-bed-sources; no default. Accepts '*' patterns (see --ref-snp-annot-sources); '@' is not expanded. |
-| `--genome-build` | Genome build for coordinate-based SNP matching. Required with chr_pos or chr_pos_allele_aware; auto checks every grid shard and the gene catalog using declarations or bounded inference. Concrete builds must agree with input declarations; BED inherits the resolved build. No fixed default. |
-| `--snp-identifier` | Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use A1/A2. Default: chr_pos_allele_aware; usable alleles are required. chr_pos modes require --genome-build. |
-| `--gene-coordinate-file` | Headered TSV/TSV.GZ of one-based inclusive gene coordinates. Required with --query-annot-gene-list-sources; cannot be used with BED-only input. If omitted in BED mode, no gene catalog is used. Supply an exact file path; patterns are not expanded. |
+| `--genome-build` | Genome build for coordinate-based SNP matching. Required with chr_pos or chr_pos_allele_aware; auto checks every grid shard and the gene coordinate catalog using declarations or bounded inference. Concrete builds must agree with input declarations; BED inherits the resolved build. No fixed default. |
+| `--snp-identifier` | Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Coordinate-family modes require --genome-build. |
+| `--gene-coordinate-file` | Headered TSV/TSV.GZ of one-based inclusive gene coordinates. Required with --query-annot-gene-list-sources; cannot be used with BED-only input. If omitted in BED mode, no gene coordinate catalog is used. Supply an exact file path; patterns are not expanded. |
 | `--padding-bp` | Extend each BED interval or gene boundary by this many base pairs at both ends, then find covered SNPs. Omission means 0 for BED input; gene-list input requires an explicit nonnegative value, including 0 for gene bodies. Set to 0 if your BED intervals are already padded to avoid double padding. |
 | `--allow-unresolved-genes` | Omit rejected gene identifiers and continue with the usable subset, recording omissions in diagnostics. Default: off (strict resolution; rejected identifiers stop the run). Requires --query-annot-gene-list-sources. Other validation errors remain fatal. |
 | `--gene-exclude-regions` | Exclude MHC-overlapping genes before padding, or none to exclude no genes. Default: none. Requires --query-annot-gene-list-sources when explicitly supplied. |
@@ -73,7 +73,7 @@ Compute LD scores.
 | `--r2-dir` | Precomputed reference-panel directory containing chrN_r2.parquet and required chrN_meta.tsv.gz files. The LD window must use the unit the panel was built with and be no wider. Direct mode requires exactly one of --r2-dir or --plink-prefix. Cannot be combined with --gene-ldscore-index-dir; no default. |
 | `--gene-ldscore-index-dir` | Use a complete prebuilt gene LD-score index instead of a live reference panel. Requires --query-annot-gene-list-sources; cannot be combined with direct-input or direct-computation flags. If omitted, compute LD scores directly. |
 | `--output-dir` | Required. Required destination for LD-score tables, SNP counts, and diagnostics. |
-| `--genome-build` | Genome build for coordinate matching and gene intervals. Required for chr_pos modes; direct gene-list runs default to auto. Auto checks all coordinate inputs and shards; concrete builds must agree with input declarations. Other rsid runs need no build. Gene-list runs also use this build for --regr-snps-exclude-regions. With --gene-ldscore-index-dir, inherit its build and omit this flag. |
+| `--genome-build` | Genome build for coordinate matching and gene intervals. Required for coordinate-family modes; direct gene-list runs default to auto. Auto checks all coordinate inputs and shards; concrete builds must agree with input declarations. Other rsid runs need no build. Gene-list runs also use this build for --regr-snps-exclude-regions. With --gene-ldscore-index-dir, inherit its build and omit this flag. |
 | `--snp-identifier` | Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use A1/A2. Default: chr_pos_allele_aware; usable alleles are required. With --gene-ldscore-index-dir, inherit the stored identity and omit this flag. |
 | `--ld-wind-cm` | Maximum LD-window distance on either side of each SNP, in centiMorgans; requires usable genetic-map coordinates. No default; specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm. Direct mode only. |
 | `--ld-wind-kb` | Maximum LD-window distance on either side of each SNP, in kilobases. No default; specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm. Direct mode only. |
@@ -88,16 +88,16 @@ Compute LD scores.
 | `--allow-unresolved-genes` | Omit rejected gene identifiers and continue with the usable subset, recording omissions in diagnostics. Default: off (strict resolution; rejected identifiers stop the run). Requires --query-annot-gene-list-sources. Other validation errors remain fatal. |
 | `--gene-exclude-regions` | Exclude genes overlapping MHC before extending their intervals; none excludes no genes. Default: none for direct gene-list input. With --gene-ldscore-index-dir, use the stored policy and omit this flag. |
 | `--ref-panel-snps-file` | Headered SNP identity table restricting the reference SNPs contributing to LD scores. If omitted, use all otherwise eligible reference SNPs. Extra columns are ignored and duplicate keys collapse. Direct mode only; rejected with --gene-ldscore-index-dir. Supply an exact file path; patterns are not expanded. |
-| `--regr-snps-file` | Headered SNP identity table selecting regression/output rows and regression-weight contributors. If omitted, use bundled HapMap3 SNPs. --regr-snps-exclude-regions then applies. Direct mode only; rejected with --gene-ldscore-index-dir. Accepts an exact path or a quoted '*' pattern matching exactly one file; '@' is not expanded. |
+| `--regr-snps-file` | Headered SNP identity table selecting the regression SNPs: stored output rows and regression weights. If omitted, use bundled HapMap3 SNPs. --regr-snps-exclude-regions then applies. Direct mode only; rejected with --gene-ldscore-index-dir. Accepts an exact path or a quoted '*' pattern matching exactly one file; '@' is not expanded. |
 | `--keep-indivs-file` | File listing one individual ID (IID) per row to retain from PLINK genotypes. Requires --plink-prefix; cannot be used with --r2-dir or --gene-ldscore-index-dir. If omitted, retain all individuals. Supply an exact file path; patterns are not expanded. |
 | `--maf-min` | Keep reference SNPs with MAF at or above this value, in [0, 0.5]. If omitted, apply no additional MAF threshold. Direct mode only; indexed runs inherit their reference selection. |
-| `--regr-snps-exclude-regions` | Exclude MHC, centromeres, both, or neither from regression/output SNPs after --regr-snps-file or HapMap3 selection. Default: mhc-and-centromeres. Reference contributors and annotation counts are unchanged. Direct mode only; indexed runs inherit this setting. |
-| `--common-maf-min` | Minimum MAF for common-SNP annotation counts, including the boundary. Default: 0.05; does not filter LD-score contributors. Direct mode only; indexed runs inherit their count threshold. |
+| `--regr-snps-exclude-regions` | Exclude MHC, centromeres, both, or neither from regression SNPs after --regr-snps-file or HapMap3 selection. Default: mhc-and-centromeres. Reference SNPs and annotation counts are unchanged. Direct mode only; indexed runs inherit this setting. |
+| `--common-maf-min` | Minimum MAF for common-SNP annotation counts, including the boundary. Default: 0.05; does not filter reference SNPs. Direct mode only; indexed runs inherit their count threshold. |
 | `--genetic-map-hg19-sources` | hg19 genetic-map files used to derive centiMorgan coordinates for PLINK SNPs. Accepts comma-separated exact file paths; '*' and '@' are not expanded. If omitted, use informative PLINK CM values; cM windows require one of these sources. Direct PLINK mode only. |
 | `--genetic-map-hg38-sources` | hg38 genetic-map files used to derive centiMorgan coordinates for PLINK SNPs. Accepts comma-separated exact file paths; '*' and '@' are not expanded. If omitted, use informative PLINK CM values; cM windows require one of these sources. Direct PLINK mode only. |
 | `--export-ref-metadata` | Write reference-panel SNP metadata to ref_metadata/chrN_meta.tsv.gz under --output-dir. Applies to PLINK input only; rejected with --gene-ldscore-index-dir. Default: off; these additional files are not written. |
 | `--yes-really` | Allow an LD window covering an entire chromosome, bypassing the usual guard. Default: off; reject whole-chromosome windows. Direct mode only. |
-| `--workers` | Maximum simultaneous chromosomes in direct or indexed mode. Default: 1, one managed child process. Positive N requests at most N workers; -1 uses the detected available CPU count from joblib.cpu_count(); -2 uses one fewer (minimum one). Reject zero and positive requests above the detected count, then cap by available tasks. Each worker uses 1 BLAS thread, in serial and parallel execution. Detection does not measure idle CPUs or read your scheduler allocation; choose a value consistent with that allocation. More workers can use more memory. |
+| `--workers` | Maximum simultaneous chromosomes in direct or indexed mode. Default: 1, one worker. Positive N requests at most N workers; -1 uses the detected available CPU count from joblib.cpu_count(); -2 uses one fewer (minimum one). Reject zero and positive requests above the detected count, then cap by available tasks. Each worker uses 1 BLAS thread, in serial and parallel execution. Detection does not measure idle CPUs or read your scheduler allocation; choose a value consistent with that allocation. More workers can use more memory. |
 | `--query-batch-size` | Maximum number of query annotations processed at once. Default: 100; use a smaller positive value to reduce memory. Each completed batch has its own query file; direct mode repeats reference traversal. |
 | `--snp-batch-size` | Number of reference SNPs processed per PLINK genotype batch. Default: 512; larger batches use more memory. LD scores do not depend on it. Ignored with --r2-dir; rejected with --gene-ldscore-index-dir. |
 | `--overwrite` | Replace this command's existing output files and remove obsolete outputs from an earlier run. Default: off; stop if output files already exist. |
@@ -110,7 +110,7 @@ Build pairwise R2 panels from PLINK genotypes.
 | Option | Description |
 | --- | --- |
 | `--plink-prefix` | Required. Required PLINK .bed/.bim/.fam filename prefix; chromosome suite stems are also accepted. Quote patterns: '*' matches filename text; '@' substitutes chromosome numbers 1-22 by default. Use '*' to select available files for a chromosome subset where allowed. |
-| `--output-dir` | Required. Required destination for reference-panel R2 files, chromosome SNP metadata, and diagnostics. |
+| `--output-dir` | Required. Required destination for R2 Parquet files, chromosome SNP metadata, and diagnostics. |
 | `--snp-identifier` | Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Controls duplicate removal, SNP-list matching, and the written panel identity. |
 | `--source-genome-build` | Genome build of input PLINK coordinates. Default: auto, check every BIM shard and coordinate keep list before filtering. Concrete builds must agree with input declarations; cM maps follow the resolved build. |
 | `--ld-wind-cm` | Maximum pair distance on either side of each SNP, in centiMorgans. Requires --genetic-map-hg19-sources or --genetic-map-hg38-sources for each emitted build. No default; specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm. |
@@ -121,9 +121,9 @@ Build pairwise R2 panels from PLINK genotypes.
 | `--maf-min` | Keep reference SNPs with MAF at or above this value, in [0, 0.5]. If omitted, apply no additional MAF threshold. |
 | `--genetic-map-hg19-sources` | hg19 genetic-map files for deriving SNP centiMorgan coordinates. Accepts exact paths, '*' and '@' patterns; see --plink-prefix for pattern rules. Required with --ld-wind-cm when hg19 output is written; otherwise optional with no map supplied by default. |
 | `--genetic-map-hg38-sources` | hg38 genetic-map files for deriving SNP centiMorgan coordinates. Accepts exact paths, '*' and '@' patterns; see --plink-prefix for pattern rules. Required with --ld-wind-cm when hg38 output is written; otherwise optional with no map supplied by default. |
-| `--liftover-chain-hg19-to-hg38-file` | Chain file enabling additional hg38 output from hg19 coordinates. Requires coordinate-based --snp-identifier; invalid for rsid modes. If omitted, do not convert hg19 input to hg38. Supply an exact file path; patterns are not expanded. |
-| `--liftover-chain-hg38-to-hg19-file` | Chain file enabling additional hg19 output from hg38 coordinates. Requires coordinate-based --snp-identifier; invalid for rsid modes. If omitted, do not convert hg38 input to hg19. Supply an exact file path; patterns are not expanded. |
-| `--min-r2` | Minimum adjusted R2 to store. Default: 0; zero or negative values keep every pair within the window. A positive value discards smaller R2 values; ldscore then rejects the panel, and query-r2 reports discarded pairs as NaN with status=absent. |
+| `--liftover-chain-hg19-to-hg38-file` | Chain file enabling additional hg38 output from hg19 coordinates. Requires coordinate-based --snp-identifier; invalid for rsID-family modes. If omitted, do not convert hg19 input to hg38. Supply an exact file path; patterns are not expanded. |
+| `--liftover-chain-hg38-to-hg19-file` | Chain file enabling additional hg19 output from hg38 coordinates. Requires coordinate-based --snp-identifier; invalid for rsID-family modes. If omitted, do not convert hg38 input to hg19. Supply an exact file path; patterns are not expanded. |
+| `--min-r2` | Minimum unbiased R2 to store. Default: 0; zero or negative values keep every pair within the window. A positive value discards smaller R2 values; ldscore then rejects the panel, and query-r2 reports discarded pairs as NaN with status=absent. |
 | `--snp-batch-size` | Number of reference SNPs processed per genotype batch. Default: 512; larger batches may improve speed but use more memory. Stored pairs do not depend on it. |
 | `--overwrite` | Replace this command's existing panel files and remove obsolete outputs after success. A concrete chromosome prefix replaces only that chromosome; a suite replaces the full panel. Default: off; stop if output files exist. |
 | `--log-level` | Set detail in the workflow log. DEBUG includes troubleshooting details. INFO includes progress and summaries. WARNING includes warnings and errors. ERROR includes errors only. Each level includes more severe messages. Default: INFO. Run headers and completion status are always recorded. |
@@ -136,23 +136,23 @@ Build a reusable gene LD-score index.
 | --- | --- |
 | `--baseline-annot-sources` | Required. Required baseline annotation tables covering chromosomes 1-22. Accepts exact paths; this command requires full autosomal coverage even when using a glob. Quote patterns: '*' matches filename text; '@' substitutes chromosome numbers 1-22 by default. Use '*' to select available files for a chromosome subset where allowed. |
 | `--plink-prefix` | Required. Required PLINK .bed/.bim/.fam filename prefix or chromosome suite covering 1-22. Accepts suite stems, '*' and '@' patterns; see --baseline-annot-sources for pattern rules. |
-| `--gene-coordinate-file` | Required. Required headered TSV/TSV.GZ gene catalog in the declared build, with one-based inclusive intervals. Defines the full gene set stored in the index. Supply an exact file path; patterns are not expanded. |
+| `--gene-coordinate-file` | Required. Required headered TSV/TSV.GZ gene coordinate catalog in the declared build, with one-based inclusive intervals. Defines the full gene set stored in the index. Supply an exact file path; patterns are not expanded. |
 | `--output-dir` | Required. Required destination for the complete reusable gene LD-score index and diagnostics. |
 | `--snp-identifier` | Required. Required SNP matching rule: rsid uses SNP identifiers; chr_pos uses chromosome and position. The allele-aware variants also compare normalized alleles, following ldscore rules. No default. |
-| `--genome-build` | Required. Required build assertion for coordinate-bearing inputs: hg19 or hg38. Input build declarations must agree after alias normalization. No inference or coordinate conversion. |
+| `--genome-build` | Required. Required build assertion for coordinate-bearing inputs: hg19 or hg38. Input build declarations must agree after alias normalization. No inference or liftover. |
 | `--padding-bp` | Extend each gene boundary by this many base pairs at both ends before finding covered SNPs. Default: 0, use gene bodies. Must be nonnegative and is fixed in the index. |
 | `--gene-exclude-regions` | Exclude MHC-overlapping genes before padding, or none to exclude no genes. Default: mhc. The choice is fixed in the index. |
 | `--ld-wind-cm` | Maximum LD-window distance on either side of each SNP, in centiMorgans. No default; requires informative PLINK CM values or a matching-build genetic map. Specify exactly one LD window. |
 | `--ld-wind-kb` | Maximum LD-window distance in kilobases. No default; specify exactly one LD window. |
 | `--ld-wind-snps` | Maximum LD-window distance in retained SNPs after identity and genotype filtering. No default; specify exactly one LD window. Whole-chromosome windows are rejected. |
-| `--regr-snps-file` | Headered SNP identity table selecting stored regression/output rows and weight contributors. If omitted, use bundled HapMap3 SNPs. --regr-snps-exclude-regions then applies. Supply an exact file path; patterns are not expanded. |
+| `--regr-snps-file` | Headered SNP identity table selecting the regression SNPs: stored output rows and regression weights. If omitted, use bundled HapMap3 SNPs. --regr-snps-exclude-regions then applies. Supply an exact file path; patterns are not expanded. |
 | `--keep-indivs-file` | File listing one individual ID (IID) per row to retain from PLINK genotypes. If omitted, retain all individuals. Supply an exact file path; patterns are not expanded. |
 | `--maf-min` | Keep reference SNPs with MAF at or above this value, in [0, 0.5]. If omitted, apply no additional MAF threshold. |
-| `--regr-snps-exclude-regions` | Exclude MHC, centromeres, both, or neither from --regr-snps-file or HapMap3 output SNPs. Default: mhc-and-centromeres. Reference contributors and annotation counts are unchanged. |
-| `--common-maf-min` | Minimum MAF for common-SNP annotation counts, including the boundary. Default: 0.05; does not filter LD-score contributors. |
+| `--regr-snps-exclude-regions` | Exclude MHC, centromeres, both, or neither from --regr-snps-file or HapMap3 output SNPs. Default: mhc-and-centromeres. Reference SNPs and annotation counts are unchanged. |
+| `--common-maf-min` | Minimum MAF for common-SNP annotation counts, including the boundary. Default: 0.05; does not filter reference SNPs. |
 | `--genetic-map-hg19-sources` | hg19 genetic-map files for deriving SNP centiMorgan coordinates. Accepts comma-separated exact file paths; '*' and '@' are not expanded. If omitted, use informative PLINK CM values; one usable coordinate source is required. |
 | `--genetic-map-hg38-sources` | hg38 genetic-map files for --ld-wind-cm with --genome-build hg38. Same path rules as --genetic-map-hg19-sources. |
-| `--workers` | Maximum simultaneous chromosome builds. Default: 1, one managed child process. Positive N requests at most N workers; -1 uses the detected available CPU count from joblib.cpu_count(); -2 uses one fewer (minimum one). Reject zero and positive requests above the detected count, then cap by available tasks. Each worker uses 1 BLAS thread, in serial and parallel execution. Detection does not measure idle CPUs or read your scheduler allocation; choose a value consistent with that allocation. More workers can use more memory. |
+| `--workers` | Maximum simultaneous chromosome builds. Default: 1, one worker. Positive N requests at most N workers; -1 uses the detected available CPU count from joblib.cpu_count(); -2 uses one fewer (minimum one). Reject zero and positive requests above the detected count, then cap by available tasks. Each worker uses 1 BLAS thread, in serial and parallel execution. Detection does not measure idle CPUs or read your scheduler allocation; choose a value consistent with that allocation. More workers can use more memory. |
 | `--snp-batch-size` | Number of reference SNPs processed per PLINK genotype batch. Default: 512; larger batches use more memory. LD scores do not depend on it. |
 | `--atom-batch-size` | Number of disjoint gene-overlap regions processed together during index construction. Default: 64; a smaller positive value reduces memory use. |
 | `--overwrite` | Replace an existing complete index after the new build succeeds. Default: off; stop if the destination already exists. |
@@ -164,12 +164,12 @@ Convert selected legacy LD-score suites to LDSC3 format.
 
 | Option | Description |
 | --- | --- |
-| `--legacy-reference-dir` | Required. Required directory containing a complete chromosome 1-22 legacy reference LD-score suite and .l2.M_5_50 counts. Baseline partitioned suites also require full annotations and --legacy-frequency-dir. |
+| `--legacy-reference-dir` | Required. Required directory containing a complete chromosome 1-22 legacy reference LD-score suite and .l2.M_5_50 common-SNP count files. Baseline partitioned suites also require full annotations and --legacy-frequency-dir. |
 | `--legacy-weight-dir` | Required. Required directory containing chromosome 1-22 single-column regression-weight LD scores. May equal --legacy-reference-dir for an unpartitioned suite. |
 | `--output-dir` | Required. Required destination for the converted LD-score tables, counts, and diagnostics. Source files are not changed. |
 | `--legacy-frequency-dir` | Directory containing chromosome frequency files used to reconstruct common-SNP counts and overlap. Required for baseline partitioned --legacy-reference-dir input; optional for unpartitioned input, with no frequency suite read when omitted. |
 | `--snp-identifier` | Output SNP matching rule: rsid uses SNP identifiers; chr_pos uses chromosome and position. Default: rsid. Both ignore alleles; chr_pos requires a resolved genome build. |
-| `--genome-build` | Genome build of legacy reference coordinates; no coordinate conversion is performed. Default: auto, check every retained reference chromosome for chr_pos identity. A concrete build is required to agree with input declarations; rsid identity needs no coordinate-build inference. |
+| `--genome-build` | Genome build of legacy reference coordinates; no liftover is performed. Default: auto, check every retained reference chromosome for chr_pos identity. A concrete build is required to agree with input declarations; rsid identity needs no coordinate-build inference. |
 | `--overwrite` | Replace this command's existing output files and remove obsolete outputs from an earlier run. Default: off; stop if output files already exist. |
 | `--log-level` | Set detail in the workflow log. DEBUG includes troubleshooting details. INFO includes progress and summaries. WARNING includes warnings and errors. ERROR includes errors only. Each level includes more severe messages. Default: INFO. Run headers and completion status are always recorded. |
 
@@ -180,26 +180,26 @@ Munge GWAS summary statistics.
 | Option | Description |
 | --- | --- |
 | `--raw-sumstats-file` | Required. Required nonempty raw GWAS summary-statistics file path, including with --infer-only. Columns are detected from their headers unless overridden. Accepts an exact path or a quoted '*' pattern matching exactly one file; '@' is not expanded. |
-| `--output-dir` | Required. Required destination for cleaned summary statistics and diagnostics. Still required with --infer-only, which creates no files or directories. |
+| `--output-dir` | Required. Required destination for munged summary statistics and diagnostics. Still required with --infer-only, which creates no files or directories. |
 | `--trait-name` | Trait label stored in Parquet metadata and used for data filenames after replacing unsafe characters with underscores. Default: no explicit label; use sumstats.parquet or sumstats.gz. |
 | `--output-format` | Write <trait>.parquet, <trait>.sumstats.gz, or both; without --trait-name, use sumstats.parquet or sumstats.gz. Default: parquet; output choice does not change SNP filtering or frequency preservation. |
 | `--infer-only` | Inspect headers and check selected columns for all-missing values in bounded chunks, then print a suggested command without writing files. Requires --raw-sumstats-file and --output-dir. Default: off; perform the full conversion. |
 | `--output-genome-build` | Required output build for chr_pos and chr_pos_allele_aware identity. If different from the source, packaged HM3 uses automatic quick liftover; custom or unrestricted SNPs require --liftover-chain-file, which overrides quick liftover when supplied. Matching builds need no liftover. Cannot be used with rsid or rsid_allele_aware identity; no default. |
-| `--snp-identifier` | Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Coordinate-based modes also require --output-genome-build. |
+| `--snp-identifier` | Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Coordinate-family modes also require --output-genome-build. |
 | `--source-genome-build` | Genome build of source coordinates. Default: auto, check raw chromosomes and coordinate keep lists; stop with a grouped report if evidence conflicts or is insufficient. Concrete builds are checked against declarations and cannot be used with rsid or rsid_allele_aware identity. |
-| `--liftover-chain-file` | Chain file in the source-to-output direction for converting coordinates to --output-genome-build. Requires chr_pos or chr_pos_allele_aware --snp-identifier and an explicit --output-genome-build. If omitted, the default packaged HM3 restriction automatically uses quick liftover with package-bundled reference HM3 metadata when builds differ; supply this flag to disable quick liftover and use the chain instead. Required when builds differ with --sumstats-snps-file or --no-snp-restriction; ignored when builds match. Same exact-one '*' pattern rules as --raw-sumstats-file; '@' is not expanded. |
+| `--liftover-chain-file` | Chain file in the source-to-output direction for liftover to --output-genome-build. Requires chr_pos or chr_pos_allele_aware --snp-identifier and an explicit --output-genome-build. If omitted, the default packaged HM3 restriction automatically uses quick liftover with package-bundled reference HM3 metadata when builds differ; supply this flag to disable quick liftover and use the chain instead. Required when builds differ with --sumstats-snps-file or --no-snp-restriction; ignored when builds match. Same exact-one '*' pattern rules as --raw-sumstats-file; '@' is not expanded. |
 | `--N` | Constant sample-size fallback when per-SNP N or paired case/control columns are absent. Input columns take precedence; --N takes precedence over --N-cas/--N-con. If omitted, use input columns or both case/control constants. |
 | `--N-cas` | Constant case-count fallback. Requires --N-con when used; the constants are added only when input sample-size columns and --N are absent. Default: no case-count constant. |
 | `--N-con` | Constant control-count fallback. Requires --N-cas when used; the constants are added only when input sample-size columns and --N are absent. Default: no control-count constant. |
-| `--sumstats-snps-file` | Replace the default packaged HapMap3 restriction with this headered identity table, matched in the source genome build. Mutually exclusive with --no-snp-restriction. Requires --liftover-chain-file when source and output builds differ, even for a custom HM3 list. Same exact-one '*' pattern rules as --raw-sumstats-file; '@' is not expanded. |
+| `--sumstats-snps-file` | Replace the default packaged HapMap3 restriction with this headered identity table, matched in the source genome build. Mutually exclusive with --no-snp-restriction. Requires --liftover-chain-file when source and output builds differ, even for a custom SNP keep-list. Same exact-one '*' pattern rules as --raw-sumstats-file; '@' is not expanded. |
 | `--no-snp-restriction` | Disable the default packaged HapMap3 keep-list restriction. Ordinary QC still applies. Mutually exclusive with --sumstats-snps-file; requires --liftover-chain-file when source and output builds differ. Default: off; restrict to HapMap3. |
 | `--n-min` | Minimum per-SNP sample size to retain. If omitted or zero, use the 90th percentile of N divided by 1.5. Constant sample sizes are assigned after this filter and are not filtered. |
 | `--nstudy-min` | Minimum number of contributing studies to retain. If omitted or zero, keep the maximum observed count. Applies only when NSTUDY is present and per-SNP sample sizes are absent. |
 | `--info-min` | Keep SNPs with INFO at or above this value. Default: 0.9 when an INFO column is selected; without one the default filter is skipped, and an explicit value is an error. Use --info or --info-list to select a nonstandard column. |
 | `--maf-min` | Keep SNPs whose minor-allele frequency min(FRQ, 1-FRQ) is at or above this value. Default: 0.01 when a frequency column is selected; without one the default filter is skipped, and an explicit value is an error. Output FRQ preserves the original frequency. |
 | `--snp` | Input column containing SNP identifiers; matched case-insensitively. If omitted, detect from headers. SNP identifiers are required for rsid and rsid_allele_aware identity. |
-| `--chr` | Input chromosome column; matched case-insensitively. If omitted, detect from headers. Required in the input for coordinate-based identity; pair with a position column. |
-| `--pos` | Input base-pair position column; matched case-insensitively. If omitted, detect from headers. Required in the input for coordinate-based identity; pair with a chromosome column. |
+| `--chr` | Input chromosome column; matched case-insensitively. If omitted, detect from headers. Required in the input for coordinate-family modes; pair with a position column. |
+| `--pos` | Input base-pair position column; matched case-insensitively. If omitted, detect from headers. Required in the input for coordinate-family modes; pair with a chromosome column. |
 | `--a1` | Input effect-allele column, relative to which the signed statistic is defined; matched case-insensitively. If omitted, detect from headers. Allele-aware identity requires both A1 and A2 in the input. |
 | `--a2` | Input other-allele column; matched case-insensitively. If omitted, detect from headers. Allele-aware identity requires both A1 and A2 in the input. |
 | `--p` | Input p-value column used to calculate Z; matched case-insensitively. If omitted, detect from headers. Input p-values must be in (0, 1]. |
@@ -220,19 +220,19 @@ Munge GWAS summary statistics.
 
 ## `ldsc h2`
 
-Estimate heritability from munged sumstats and LD scores.
+Estimate heritability from munged summary statistics and LD scores.
 
 | Option | Description |
 | --- | --- |
-| `--sumstats-file` | Required. Required cleaned summary-statistics Parquet or legacy .sumstats(.gz) file. SNP identity must be compatible with --ldscore-dir. Accepts an exact path or a quoted '*' pattern matching exactly one file; '@' is not expanded. |
-| `--ldscore-dir` | Required. Required LD-score result directory from ldscore or convert-ldsc2-ldscores, containing predictors, regression weights, and SNP counts. |
+| `--sumstats-file` | Required. Required munged summary-statistics Parquet or legacy .sumstats(.gz) file. SNP identity must be compatible with --ldscore-dir. Accepts an exact path or a quoted '*' pattern matching exactly one file; '@' is not expanded. |
+| `--ldscore-dir` | Required. Required LD-score directory from ldscore or convert-ldsc2-ldscores, containing predictors, regression weights, and SNP counts. |
 | `--output-dir` | Required. Required destination for regression estimates and diagnostics. |
 | `--count-kind` | Reference SNP counts used to scale regression estimates: common uses common-SNP counts, all uses all-SNP counts. Default: common. The requested counts must be in the LD-score directory; the other kind is never substituted. |
 | `--intercept-h2` | Fix the heritability intercept to this value; use 1 for the standard fixed intercept. Cannot be combined with an explicit --two-step-cutoff. If omitted, estimate the intercept. |
 | `--two-step-cutoff` | First-step chi-square cutoff, including the boundary. Requires a single-annotation model with a free intercept; cannot be combined with --intercept-h2. If omitted, use 30 for such models; otherwise disable two-step estimation. |
 | `--chisq-max` | Keep SNPs with chi-square at or below this value. If omitted, use max(0.001 * maximum N, 80) for multi-annotation models; single-annotation models have no chi-square cap. |
 | `--n-blocks` | Number of SNP blocks for jackknife standard errors; must be at least 2. Default: 200, capped at the number of retained SNPs. |
-| `--allow-identity-downgrade` | Allow allele-aware and allele-unaware inputs in the same identity family by matching without alleles. rsid and chr_pos families still cannot be mixed. Default: off; require compatible identity modes. |
+| `--allow-identity-downgrade` | Allow allele-aware and allele-unaware inputs of the same mode family by matching without alleles. rsID-family and coordinate-family modes still cannot be mixed. Default: off; require compatible SNP identifier modes. |
 | `--trait-name` | Trait label used in summaries. If omitted, use the stored trait name or derive one from the input filename. |
 | `--samp-prev` | Sample case fraction, strictly between 0 and 1, for liability-scale estimates. Requires --pop-prev; omit both, or pass nan for both, to report observed-scale estimates only. |
 | `--pop-prev` | Population case fraction, strictly between 0 and 1, for liability-scale estimates. Requires --samp-prev; omit both, or pass nan for both, to report observed-scale estimates only. |
@@ -245,20 +245,20 @@ Estimate partitioned heritability with independent query models.
 
 | Option | Description |
 | --- | --- |
-| `--sumstats-file` | Required. Required cleaned summary-statistics Parquet or legacy .sumstats(.gz) file. SNP identity must be compatible with --ldscore-dir. Accepts an exact path or a quoted '*' pattern matching exactly one file; '@' is not expanded. |
-| `--ldscore-dir` | Required. Required LD-score result directory from ldscore or convert-ldsc2-ldscores, containing predictors, regression weights, and SNP counts. |
+| `--sumstats-file` | Required. Required munged summary-statistics Parquet or legacy .sumstats(.gz) file. SNP identity must be compatible with --ldscore-dir. Accepts an exact path or a quoted '*' pattern matching exactly one file; '@' is not expanded. |
+| `--ldscore-dir` | Required. Required LD-score directory from ldscore or convert-ldsc2-ldscores, containing predictors, regression weights, and SNP counts. |
 | `--output-dir` | Required. Required destination for regression estimates and diagnostics. |
 | `--count-kind` | Reference SNP counts used to scale regression estimates: common uses common-SNP counts, all uses all-SNP counts. Default: common. The requested counts must be in the LD-score directory; the other kind is never substituted. |
 | `--intercept-h2` | Fix the heritability intercept to this value; use 1 for the standard fixed intercept. Cannot be combined with an explicit --two-step-cutoff. If omitted, estimate the intercept. |
 | `--two-step-cutoff` | First-step chi-square cutoff, including the boundary. Requires a single-annotation model with a free intercept; cannot be combined with --intercept-h2. If omitted, use 30 for such models; otherwise disable two-step estimation. |
 | `--chisq-max` | Keep SNPs with chi-square at or below this value. If omitted, use max(0.001 * maximum N, 80) for multi-annotation models; single-annotation models have no chi-square cap. |
 | `--n-blocks` | Number of SNP blocks for jackknife standard errors; must be at least 2. Default: 200, capped at the number of retained SNPs. |
-| `--allow-identity-downgrade` | Allow allele-aware and allele-unaware inputs in the same identity family by matching without alleles. rsid and chr_pos families still cannot be mixed. Default: off; require compatible identity modes. |
+| `--allow-identity-downgrade` | Allow allele-aware and allele-unaware inputs of the same mode family by matching without alleles. rsID-family and coordinate-family modes still cannot be mixed. Default: off; require compatible SNP identifier modes. |
 | `--trait-name` | Trait label used in summaries. If omitted, use the stored trait name or derive one from the input filename. |
 | `--samp-prev` | Sample case fraction, strictly between 0 and 1, for liability-scale estimates. Requires --pop-prev; omit both, or pass nan for both, to report observed-scale estimates only. |
 | `--pop-prev` | Population case fraction, strictly between 0 and 1, for liability-scale estimates. Requires --samp-prev; omit both, or pass nan for both, to report observed-scale estimates only. |
 | `--summary-sort-by` | Order partitioned_h2.tsv by the selected column. Default: auto, coefficient-p for per-query fits and category for baseline-only fits. P-values sort ascending; other numeric values sort descending. |
-| `--workers` | Maximum complete query-plus-baseline models running simultaneously; also capped by query batch size. Default: 1, one managed child process. Positive N requests at most N workers; -1 uses the detected available CPU count from joblib.cpu_count(); -2 uses one fewer (minimum one). Reject zero and positive requests above the detected count, then cap by available tasks. Each worker uses 1 BLAS thread, in serial and parallel execution. Detection does not measure idle CPUs or read your scheduler allocation; choose a value consistent with that allocation. More workers can use more memory. |
+| `--workers` | Maximum complete query-plus-baseline models running simultaneously; also capped by query batch size. Default: 1, one worker. Positive N requests at most N workers; -1 uses the detected available CPU count from joblib.cpu_count(); -2 uses one fewer (minimum one). Reject zero and positive requests above the detected count, then cap by available tasks. Each worker uses 1 BLAS thread, in serial and parallel execution. Detection does not measure idle CPUs or read your scheduler allocation; choose a value consistent with that allocation. More workers can use more memory. |
 | `--query-batch-size` | Maximum number of query annotations loaded at once; each query is fitted separately with the shared baseline. Default: 100; a smaller positive value reduces memory and caps active query workers. |
 | `--continue-on-query-error` | Skip and record queries whose model preparation, regression, or result calculation fails; publish successful fits and write diagnostics/query_status.tsv plus error tracebacks in the log. Default: off; any query error prevents publication. Shared input/output failures and runs with no successful queries still fail. |
 | `--overwrite` | Replace this command's existing output files and remove obsolete outputs from an earlier run. Default: off; stop if output files already exist. |
@@ -275,7 +275,7 @@ Summarize fitted heritability across annotation quantiles.
 | `--target-annotation` | Required. Required unique column name in --target-annot-sources whose values define the quantiles. |
 | `--output-dir` | Required. Required destination for quantile heritability, standardized coefficients, and diagnostics. |
 | `--baseline-annot-sources` | Required. Required original baseline annotation files used to fit the selected model. Accepts exact paths, '*' and '@' patterns; see --target-annot-sources for pattern rules. Resupply their original values and SNP coverage. |
-| `--ref-metadata-sources` | Required. Required reference SNP metadata files with chromosome, position, SNP ID, and MAF; allele-aware matching also uses A1/A2. Accepts exact paths, '*' and '@' patterns; see --target-annot-sources for pattern rules. Use original R2 metadata or PLINK metadata exported by ldscore --export-ref-metadata. |
+| `--ref-metadata-sources` | Required. Required reference SNP metadata files with chromosome, position, SNP ID, and MAF; allele-aware matching also uses A1/A2. Accepts exact paths, '*' and '@' patterns; see --target-annot-sources for pattern rules. Use original R2 panel sidecars or PLINK metadata exported by ldscore --export-ref-metadata. |
 | `--query-annot-sources` | Original query annotation tables for the selected per-query fit; accepts paths, '*' and '@' patterns (see --target-annot-sources). Cannot be combined with --query-annot-bed-sources or --query-annot-gene-list-sources. Omit for baseline-only fits; per-query fits require their matching source. |
 | `--query-annot-bed-sources` | Original BED query files for the selected per-query fit; accepts paths or '*' patterns. Cannot be combined with --query-annot-sources or --query-annot-gene-list-sources. Omit for other query types; reproduce the original --padding-bp. '@' is not expanded; see --target-annot-sources for wildcard and quoting rules. |
 | `--query-annot-gene-list-sources` | Original one-column gene-list files for the selected per-query fit. Requires --gene-coordinate-file; cannot be combined with --query-annot-sources or --query-annot-bed-sources. Omit for other query types; reproduce the original gene settings. Accepts '*' patterns (see --target-annot-sources); '@' is not expanded. |
@@ -295,16 +295,16 @@ Estimate genetic correlation.
 
 | Option | Description |
 | --- | --- |
-| `--sumstats-sources` | Required. Required cleaned Parquet or legacy .sumstats(.gz) files; accepts exact paths or quoted '*' patterns matching filename text and requires at least two files. SNP identity must be compatible with --ldscore-dir. '@' is not expanded. |
-| `--ldscore-dir` | Required. Required LD-score result directory from ldscore or convert-ldsc2-ldscores, containing predictors, regression weights, and SNP counts. |
+| `--sumstats-sources` | Required. Required munged summary-statistics Parquet or legacy .sumstats(.gz) files; accepts exact paths or quoted '*' patterns matching filename text and requires at least two files. SNP identity must be compatible with --ldscore-dir. '@' is not expanded. |
+| `--ldscore-dir` | Required. Required LD-score directory from ldscore or convert-ldsc2-ldscores, containing predictors, regression weights, and SNP counts. |
 | `--output-dir` | Required. Required destination for regression estimates and diagnostics. |
 | `--count-kind` | Reference SNP counts used to scale regression estimates: common uses common-SNP counts, all uses all-SNP counts. Default: common. The requested counts must be in the LD-score directory; the other kind is never substituted. |
 | `--intercept-h2` | Fix the heritability intercept to the same value for both traits in every pair; use 1 for the standard fixed intercept. Cannot be combined with an explicit --two-step-cutoff. If omitted, estimate the intercepts. |
 | `--intercept-gencov` | Fix the genetic-covariance intercept to the same value for every trait pair; use 0 for the standard fixed intercept. Cannot be combined with --two-step-cutoff. Single-annotation fits also require --intercept-h2 because automatic two-step estimation otherwise conflicts with this fixed value. If omitted, estimate the covariance intercepts. |
-| `--two-step-cutoff` | First-step chi-square cutoff, including the boundary. Requires a single-annotation model with free intercepts; cannot be combined with --intercept-h2 or --intercept-gencov. If omitted, use 30 with a free h2 intercept in single-annotation fits; otherwise disable it. |
+| `--two-step-cutoff` | First-step chi-square cutoff, including the boundary. Requires a single-annotation model with free intercepts; cannot be combined with --intercept-h2 or --intercept-gencov. If omitted, use 30 with a free heritability intercept in single-annotation fits; otherwise disable it. |
 | `--chisq-max` | Keep SNPs satisfying Z1^2 * Z2^2 <= VALUE^2 for each trait pair. If omitted, apply no chi-square product cap. This differs from the single-trait chi-square filter. |
 | `--n-blocks` | Number of SNP blocks for jackknife standard errors; must be at least 2. Default: 200, capped at the number of retained SNPs. |
-| `--allow-identity-downgrade` | Allow allele-aware and allele-unaware inputs in the same identity family by matching without alleles. rsid and chr_pos families still cannot be mixed. Default: off; require compatible identity modes. |
+| `--allow-identity-downgrade` | Allow allele-aware and allele-unaware inputs of the same mode family by matching without alleles. rsID-family and coordinate-family modes still cannot be mixed. Default: off; require compatible SNP identifier modes. |
 | `--anchor-trait` | Trait name or input file path to compare against every other trait. Must identify one of --sumstats-sources. If omitted, estimate every unique trait pair. |
 | `--samp-prev` | Comma-separated sample case fractions in resolved --sumstats-sources order, one per trait; each in (0, 1) or nan for a quantitative trait. Requires --pop-prev; cannot be combined with --prevalence-manifest. If neither form is supplied, report observed-scale estimates only. |
 | `--pop-prev` | Comma-separated population case fractions in resolved --sumstats-sources order, one per trait; each in (0, 1) or nan. Requires --samp-prev; cannot be combined with --prevalence-manifest. If neither form is supplied, report observed-scale estimates only. |
@@ -329,7 +329,7 @@ Query R2 for SNP pairs from a reference panel.
 
 ## `ldsc convert-h2-scale`
 
-Convert a saved observed-scale h2 estimate to liability scale.
+Convert a saved observed-scale SNP heritability estimate to liability scale.
 
 | Option | Description |
 | --- | --- |
@@ -343,10 +343,10 @@ Convert a saved observed-scale h2 estimate to liability scale.
 
 ## `ldsc plot`
 
-Plot a saved LDSC result.
+Plot a saved LDSC3 result.
 
 | Option | Description |
 | --- | --- |
-| `--result-dir` | Required. Required saved LDSC result directory to plot. The result type selects the plot automatically; files are written below plots/ in this directory. |
+| `--result-dir` | Required. Required saved LDSC3 result directory to plot. The result type selects the plot automatically; files are written below plots/ in this directory. |
 | `--overwrite` | Replace existing plot files for the selected result type. Default: off; stop if these output files exist. |
 | `--log-level` | Set detail in the workflow log. DEBUG includes troubleshooting details. INFO includes progress and summaries. WARNING includes warnings and errors. ERROR includes errors only. Each level includes more severe messages. Default: INFO. Run headers and completion status are always recorded. |

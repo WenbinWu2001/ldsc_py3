@@ -139,7 +139,7 @@ def build_disjoint_atoms(
 
 
 def map_snps_to_atoms(snp_pos0: np.ndarray, model: ChromosomeAtomModel) -> np.ndarray:
-    """Map 0-based SNP point positions to atom IDs, using -1 outside all atoms."""
+    """Map zero-based SNP point positions to atom IDs, using -1 outside all atoms."""
     positions = np.asarray(snp_pos0, dtype=np.int64)
     if positions.ndim != 1:
         raise LDSCInternalError("SNP positions for atom mapping must be one-dimensional.")

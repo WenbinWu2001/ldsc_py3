@@ -1,4 +1,4 @@
-"""Selective access to canonical aggregate LD-score directories.
+"""Selective access to aggregate LD-score directories.
 
 Directory opening, manifest checks, and shared table/identity validation
 live here, independently of regression orchestration.
@@ -104,7 +104,7 @@ def validate_ldscore_schemas(baseline_columns, query_columns, baseline_schema, q
 def validate_ldscore_baseline_table(
     table: pd.DataFrame, baseline_columns: list[str], config_snapshot: GlobalConfig | None,
 ) -> str:
-    """Validate the shared output baseline and return its SNP identity mode.
+    """Validate the shared output baseline and return its SNP identifier mode.
 
     Query values may still be on disk. Validate this complete baseline before
     passing its matching row slices to ``validate_ldscore_query_table``.
@@ -158,7 +158,7 @@ def _validate_ldscore_output_columns(table, columns, *, table_name, snp_identifi
             raise LDSCInternalError(
                 f"LD-score output writer could not validate {table_name} for allele-aware output because "
                 f"required columns are missing: {missing}. Most likely an upstream LD-score step dropped A1/A2 "
-                "from an allele-aware result table. Regenerate the LD-score artifact with the current LDSC "
+                "from an allele-aware result table. Regenerate the LD-score directory with the current LDSC3 "
                 "package; if this was produced by this run, re-run with DEBUG logging and report the traceback."
             )
         raise LDSCInternalError(
@@ -170,24 +170,24 @@ def _validate_ldscore_output_columns(table, columns, *, table_name, snp_identifi
 
 
 def validate_ldscore_allele_columns(table: pd.DataFrame, *, table_name: str, snp_identifier: str) -> None:
-    """Reject allele-aware LD-score artifacts without usable allele identity."""
+    """Reject allele-aware LD-score tables without usable allele identity."""
     if not is_allele_aware_mode(snp_identifier):
         return
     missing = [column for column in ("A1", "A2") if column not in table.columns]
     if missing:
         raise LDSCInputError(
-            f"LD-score artifact table {table_name} is malformed for snp_identifier='{snp_identifier}' because "
+            f"LD-score table {table_name} is malformed for snp_identifier='{snp_identifier}' because "
             f"allele columns are missing: {missing}. Most likely this artifact was produced by an older package "
-            "version or copied without allele-aware columns. Regenerate the LD-score artifact with the current "
-            "LDSC package."
+            "version or copied without allele-aware columns. Regenerate the LD-score directory with the current "
+            "LDSC3 package."
         )
     try:
         effective_merge_key_series(table, snp_identifier, context=table_name)
     except (LDSCInputError, ValueError) as exc:
         raise LDSCInputError(
-            f"LD-score artifact table {table_name} is malformed for snp_identifier='{snp_identifier}' because "
+            f"LD-score table {table_name} is malformed for snp_identifier='{snp_identifier}' because "
             f"its A1/A2 columns are unusable: {exc}. Most likely the artifact contains malformed allele values "
-            "or duplicate allele-aware SNP identities. Regenerate the LD-score artifact with the current LDSC package."
+            "or duplicate allele-aware SNP identities. Regenerate the LD-score directory with the current LDSC3 package."
         ) from exc
 
 
@@ -211,8 +211,8 @@ class LDScoreSource:
         Validated file, column, and chromosome row-group declarations, with
         resolved paths used by ``read_queries``.
     count_records : list of dict
-        All-reference and common-reference annotation counts; these use the
-        retained reference universe, not only the regression output rows.
+        All-reference and common-reference annotation counts; these count all
+        retained reference SNPs, not only the regression SNPs.
     overlap : LDScoreOverlap or None
         Shared annotation cross-products and SNP totals, when applicable.
     output_paths : dict of str to str
@@ -322,7 +322,7 @@ def load_ldscore_from_dir(
     ldscore_dir: str,
     snp_identifier: str | None = None,
 ) -> LDScoreSource:
-    """Open a canonical LD-score directory with query values read on demand.
+    """Open an LD-score directory with query values read on demand.
 
     Parameters
     ----------
@@ -352,7 +352,7 @@ def load_ldscore_from_dir(
     LDSCInternalError
         A declared baseline/query schema lacks required columns.
     ConfigMismatchError
-        An explicit identity mode disagrees with the saved configuration.
+        An explicit SNP identifier mode disagrees with the saved configuration.
 
     Notes
     -----
@@ -373,7 +373,7 @@ def load_ldscore_from_dir(
             "Most likely this is not a canonical `ldsc ldscore` output directory or the diagnostics file "
             "was copied without the data files. Pass the complete LD-score output directory."
         )
-    LOGGER.info(f"Loading LD-score result directory from '{root}'.")
+    LOGGER.info(f"Loading LD-score directory from '{root}'.")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     config_snapshot = _global_config_from_metadata(metadata)
     files = metadata.get("files", {})
@@ -381,7 +381,7 @@ def load_ldscore_from_dir(
     if not baseline_rel:
         raise LDSCInputError(
             f"Could not load LD-score directory '{root}': metadata is missing `files.baseline`. "
-            "Most likely the LD-score artifact was written by an older version or edited by hand. "
+            "Most likely the LD-score directory was written by an older LDSC3 version or edited by hand. "
             f"Regenerate it with the current `ldsc ldscore`. Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
         )
     baseline_table = pd.read_parquet(root / baseline_rel)
@@ -409,7 +409,7 @@ def load_ldscore_from_dir(
             raise ConfigMismatchError(
                 "snp_identifier mismatch when loading LD-score directory: "
                 f"override {requested_identifier!r} vs metadata {metadata_identifier!r}. "
-                "Use an LD-score artifact written for the requested SNP-identifier mode."
+                "Use an LD-score directory written for the requested SNP identifier mode."
             )
         effective_identifier = requested_identifier
     else:
@@ -466,7 +466,7 @@ def load_ldscore_from_dir(
 
 
 def _validate_count_overlap_config(metadata: dict[str, Any], root: Path) -> None:
-    """Require count and overlap metadata to describe one common reference-SNP universe."""
+    """Require count and overlap metadata to describe the same common reference SNPs."""
     overlap_config = metadata.get("overlap_config")
     if not overlap_config:
         return
@@ -493,8 +493,8 @@ def _global_config_from_metadata(metadata: dict[str, Any]) -> GlobalConfig | Non
     """Recreate a GlobalConfig snapshot when LD-score metadata contains one."""
     if "artifact_type" not in metadata:
         raise LDSCInputError(
-            "Could not read LD-score artifact provenance: metadata lacks `artifact_type`. "
-            "Most likely the LD-score directory was written by an older LDSC version. "
+            "Could not read LD-score directory provenance: metadata lacks `artifact_type`. "
+            "Most likely the LD-score directory was written by an older LDSC3 version. "
             f"Regenerate it with the current `ldsc ldscore`. Other causes & fixes: {_LDSCORE_SCHEMA_DOC}"
         )
     mode = validate_identity_artifact_metadata(metadata, expected_artifact_type="ldscore")

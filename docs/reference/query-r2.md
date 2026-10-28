@@ -2,11 +2,8 @@
 
 Last updated on: 2026-10-27
 
-Query the adjusted (unbiased) R² stored in a `ldsc build-r2-panel` index-format
-panel for a list of SNP pairs, and convert it to a signed Pearson correlation
-`r`. This is the random-access counterpart to the LD-score read path: the
-LD-score workflow streams every stored pair once, while this tool looks up
-specific pairs by SNP identity.
+Query the unbiased R² stored in an R² panel built by `ldsc build-r2-panel` for a list of SNP pairs, and convert it to a signed Pearson correlation `r`.
+This is the random-access counterpart to the LD-score read path: the LD-score workflow streams every stored pair once, while this tool looks up specific pairs by SNP identity.
 
 See the [panel format](formats/r2-panels.md) and the [query wiki guide](../user-guide/workflows/r2-panels.md) for a worked command example.
 
@@ -45,7 +42,7 @@ out2 = panel.query_pairs(pairs_b)
 print(panel.chromosomes, panel.snp_identifier, panel.n_samples)
 ```
 
-A build-r2-panel output directory is the only panel input mode; omitting
+A `build-r2-panel` output directory is the only panel input mode; omitting
 `panel_dir` is a usage error.
 
 ## Pair input format
@@ -73,7 +70,7 @@ The result preserves input rows and columns and writes `r2`, `sign_r`, `r`, and 
 
 | Column | Meaning |
 | --- | --- |
-| `r2` | adjusted (unbiased) R² as stored, dequantized to float; `NaN` when not available |
+| `r2` | unbiased R² as stored, dequantized to float; `NaN` when not available |
 | `sign_r` | harmonized sign `+1`/`-1` (allele-aware modes); `NA` in base modes or where `r2` is `NaN` |
 | `status` | empty (`""`) for a valid `r2`; otherwise the cause of the `NaN` |
 | `r` | signed Pearson `r` (always emitted); `NaN` where `r2` is `NaN` or `sign_r` is `NA` |
@@ -110,8 +107,8 @@ correlation, then takes the root and applies the sign. It is vectorized and pure
 
 ## Lookup strategy
 
-Pairs are matched by an int64 key against the parquet's row groups. The lookup
-auto-selects between two internal paths by query size (not user-configurable):
+Pairs are matched by an int64 key against the row groups of the R² Parquet file.
+The lookup auto-selects between two internal paths by query size (not user-configurable):
 
 - **random-access** — prune row groups using `IDX_1` footer statistics; used for
   small/interactive queries (≤ 50 000 pairs).
@@ -133,7 +130,7 @@ result echoes the input columns plus `r2`, `sign_r`, `r`, and `status`.
 `query-r2` requires `--output-dir` and follows the canonical result-directory
 layout shared by the other commands: `query_r2.tsv` at the root, plus
 `diagnostics/metadata.json` (provenance and per-run status counts) and
-`diagnostics/query-r2.log` (workflow audit log). `--overwrite` replaces the command-owned result files and log; `--log-level` sets the diagnostics-log verbosity.
+`diagnostics/query-r2.log` (workflow log). `--overwrite` replaces the command-owned result files and log; `--log-level` sets the diagnostics-log verbosity.
 
 ```bash
 # Canonical result directory

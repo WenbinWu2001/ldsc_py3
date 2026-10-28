@@ -4,15 +4,19 @@ Last updated on: 2026-10-27
 
 **These coordinates have not yet been independently checked against their sources; they will be reviewed once the exclusion strategy is final.**
 
-> Generated from the packaged BED files under `src/ldsc/data/regions/`. For review of the named regression-row exclusions used by `ldscore`.
+> Generated from the packaged BED files under `src/ldsc/data/regions/`.
+> For review of the named regression-SNP exclusions used by `ldscore`.
 
-A SNP at 1-based position `p` is excluded iff `start < p <= end` for some packaged BED interval `[start, end)` (0-based half-open). For `ldscore`, the intervals are subtracted only from regression/output rows after category LD scores and reference counts have been computed.
+A SNP at 1-based position `p` is excluded iff `start < p <= end` for some packaged BED interval `[start, end)` (0-based half-open).
+For `ldscore`, the intervals are subtracted only from the regression SNPs (the output rows) after annotation LD scores and reference-SNP counts have been computed.
 
 Region coordinates are stored in `src/ldsc/data/regions/` as standard UCSC BED3 files. Each is tab-separated with three columns—`chrom`, `chromStart`, `chromEnd`—using the UCSC 0-based, half-open convention (start inclusive, end exclusive), as the header comments note.
 
 ## CLI choices (`--regr-snps-exclude-regions`)
 
-Single-choice enum; **default `mhc-and-centromeres`**. The selected intervals are subtracted only from the selected regression SNP set (bundled HM3 by default, or `--regr-snps-file`). They do not remove reference SNPs from baseline/query LD-score accumulation, `M`, `M_5_50`, or annotation-overlap counts.
+Single-choice enum; **default `mhc-and-centromeres`**.
+The selected intervals are subtracted only from the selected regression SNPs (the HM3 map by default, or `--regr-snps-file`).
+They do not remove reference SNPs from baseline/query LD-score accumulation, all-SNP counts, common-SNP counts, or annotation-overlap counts.
 
 The former `--exclude-regions` alias is removed. Use `--regr-snps-exclude-regions`; configuration, logs, and index metadata use `regr_snps_exclude_regions`.
 
@@ -20,7 +24,7 @@ The former `--exclude-regions` alias is removed. Use `--regr-snps-exclude-region
 |---|---|---|
 | `none` | None |  |
 | `mhc` | chr6:25–35 Mb | conventional broad MHC exclusion window |
-| `centromeres` | centromere ±3 cM for 23 chroms | `centromeres_core` below + Alkes-group recombination map ±3 cM |
+| `centromeres` | centromere ±3 cM for 23 chroms | `centromeres_core` below + Alkes-group genetic map ±3 cM |
 | `mhc-and-centromeres` **(default)** | `mhc` and `centromeres` |  |
 
 - The internal `centromeres_core` track stores the raw centromere assembly gap
@@ -30,21 +34,22 @@ The former `--exclude-regions` alias is removed. Use `--regr-snps-exclude-region
 
 ## Command scope (which commands honor `--regr-snps-exclude-regions`)
 
-Both **`ldscore`** and **`build-gene-ldscore-index`** expose
-`--regr-snps-exclude-regions`, defaulting to `mhc-and-centromeres`. In both workflows it
-selects persisted regression/output rows and `w_ld` contributors after the
-LD-reference universe has been retained. The regression commands
-(`h2`/`rg`/`partitioned-h2`) have no region option: they inherit the filtered
-artifact rows through their ordinary intersection with munged summary
-statistics. `munge-sumstats` never excludes regions.
+Both **`ldscore`** and **`build-gene-ldscore-index`** expose `--regr-snps-exclude-regions`, defaulting to `mhc-and-centromeres`.
+In both workflows it selects the regression SNPs (the persisted output rows and the SNPs summed in `w_ld`) after the reference SNPs have been retained.
+The regression commands (`h2`/`rg`/`partitioned-h2`) have no region option: they inherit the filtered LD-score directory rows through their ordinary intersection with munged summary statistics.
+`munge-sumstats` never excludes regions.
 
-`build-r2-panel` deliberately has no region-exclusion control: intentional LD-reference pruning must be represented by an explicit `--ref-panel-snps-file`, making the changed reference estimand visible. Prefilter a custom regression list for arbitrary intervals, and use `--genome-build` to select named preset coordinates.
+`build-r2-panel` deliberately has no region-exclusion control: intentional pruning of reference SNPs must be represented by an explicit `--ref-panel-snps-file`, making the changed reference estimand visible.
+Prefilter a custom regression-SNP file for arbitrary intervals, and use `--genome-build` to select named preset coordinates.
 
 ## Source of the coordinates
 
-- **`mhc` (both builds `chr6:25–35 Mb`)** — the conventional broad MHC exclusion window used in GWAS / LD-score work (e.g., supplement of cross-trait ldsc paper). Manually pinned constants, same for hg19 and hg38.
+- **`mhc` (both builds `chr6:25–35 Mb`)** — the conventional broad MHC exclusion window used in GWAS / LD-score work (e.g., supplement of cross-trait LDSC paper).
+  Manually pinned constants, same for hg19 and hg38.
 - **`centromeres_core` (raw gap)** — UCSC REST API. hg19: the `gap` track filtered to `type == centromere`. hg38: the `centromeres` track (multiple models per chromosome) merged to one `[min(start), max(end))` span per chromosome.
-- **`centromeres` (`centromeres_core` ±3 cM)** — each `centromeres_core` span padded by ±3 cM, matching the LD Score regression pericentromeric exclusion of Bulik-Sullivan et al. 2015 *Nat Genet* (Online Methods). cM at the core endpoints is read from the **Alkes-group recombination map** (`genetic_map_{build}_withX`), extended ±3 cM, and inverted back to base pairs. The padded interval is unioned with the core span so it always contains it — this also gives correct behavior on acrocentric chromosomes (13/14/15/21/22), whose p-arm is absent from the map.
+- **`centromeres` (`centromeres_core` ±3 cM)** — each `centromeres_core` span padded by ±3 cM, matching the LD score regression pericentromeric exclusion of Bulik-Sullivan et al. 2015 *Nat Genet* (Online Methods).
+  cM at the core endpoints is read from the **Alkes-group genetic map** (`genetic_map_{build}_withX`), extended ±3 cM, and inverted back to base pairs.
+  The padded interval is unioned with the core span so it always contains it — this also gives correct behavior on acrocentric chromosomes (13/14/15/21/22), whose p-arm is absent from the map.
 
 ## MHC coordinates (chr6, single interval)
 

@@ -92,7 +92,7 @@ def test_cli_preflight_message_and_artifacts(tmp_path, kind, name, rows):
     collision = name != "focal"
     assert ("annotation_name_collision" in result.stderr) == collision
     if collision:
-        assert "Rename conflicting focal source files" in result.stderr
+        assert "Rename conflicting query source files" in result.stderr
     for filename in ("gene_list_audit.tsv.gz", "gene_list_resolution_summary.tsv"):
         assert f"diagnostics/{filename}" in result.stderr
     summary = pd.read_csv(output / "diagnostics/gene_list_resolution_summary.tsv", sep="\t").fillna("")

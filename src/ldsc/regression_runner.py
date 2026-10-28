@@ -6,8 +6,8 @@ Core functionality:
 
 Overview
 --------
-This module is the workflow-layer boundary for the LDSC regression commands.
-It consumes the canonical LD-score result directory introduced by the IO
+This module is the workflow-layer boundary for the LDSC3 regression commands.
+It consumes the LD-score directory introduced by the IO
 refactor: ``metadata.json`` plus split baseline/query parquet tables. Public
 callers pass one ``--ldscore-dir`` input instead of individual LD-score,
 weight, count, and annotation-manifest files. Directory opening and artifact
@@ -16,7 +16,7 @@ owns selected-value validation, trait alignment, and model construction.
 
 Legacy ``.sumstats`` and ``.sumstats.gz`` inputs are accepted at this
 boundary. Their rsIDs are lookup keys: each trait is projected onto the
-canonical LD-score panel, allele orientation is validated and harmonized, and
+regression SNPs in the LD-score directory, allele orientation is validated and harmonized, and
 rejected rows are recorded in a stable diagnostic audit. Legacy LD-score
 fragments are never read here and require explicit conversion first.
 
@@ -24,21 +24,21 @@ Regression chooses either the metadata ``common_reference_snp_counts`` vector or
 ``all_reference_snp_counts`` through ``--count-kind common|all`` (default
 ``common``). Requested counts must be present; the other kind is never substituted.
 Regression merges by the effective key for the resolved SNP identifier mode.
-Base modes are allele-blind; allele-aware/base mixes can run under the base mode
+Base modes ignore alleles; allele-aware/base mixes can run under the base mode
 only when ``--allow-identity-downgrade`` or
-``RegressionConfig.allow_identity_downgrade`` is set, and only within the same
-rsID or coordinate family.
-Partitioned-h2 fits the complete baseline model for baseline-only inputs and
+``RegressionConfig.allow_identity_downgrade`` is set, and only within
+rsID-family or within coordinate-family modes.
+The ``partitioned-h2`` workflow fits the complete baseline model for baseline-only inputs and
 one baseline-plus-query model per query annotation otherwise. Query runs share
 trait/baseline preparation, load query columns in bounded batches, and fit
-in managed whole-query processes via ``workers`` (default one). Completed
-category/delete-value/metadata files are staged immediately. The output-layer
+in whole-query workers via ``workers`` (default one). Completed
+annotation-table/delete-value/metadata files are staged immediately. The output-layer
 ``PartitionedH2DirectoryWriter`` publishes them after final summary sorting.
 Strict batches require every query to succeed. Explicit continuation records
 failed queries and publishes successful models with an attempted-query ledger.
 Genetic correlation accepts two or more munged summary-statistic sources and
-returns the full rg output family:
-the concise headline table, a diagnostic full table, per-trait h2 summaries,
+returns the full ``rg`` output family:
+the concise headline table, a diagnostic full table, per-trait SNP heritability summaries,
 and optional per-pair metadata for filesystem detail outputs.
 
 Regression commands require an ``output_dir`` and create per-run logs under
@@ -168,7 +168,7 @@ def _log_phase_timing(phase: str, *, level=logging.INFO):
 
 @dataclass(frozen=True)
 class RegressionDataset:
-    """Merged regression-ready dataset built from sumstats and LD-score tables.
+    """Merged regression-ready dataset built from summary statistics and LD-score tables.
 
     ``legacy_sumstats_drops`` carries stable row-level projection diagnostics
     when the source was legacy text; it is empty for native LDSC3 inputs.
@@ -197,7 +197,7 @@ class RegressionDataset:
         if missing:
             raise LDSCInternalError(
                 f"h2 regression dataset validation failed: merged table is missing columns {sorted(missing)}. "
-                "Most likely regression preprocessing dropped required sumstats or LD-score columns. "
+                "Most likely regression preprocessing dropped required summary-statistics or LD-score columns. "
                 "Re-run with `--log-level DEBUG` and report the traceback."
             )
 
@@ -287,7 +287,7 @@ class _FitOutcome:
 class PartitionedH2BatchResult:
     """Compact batch summary and valid persistent artifacts for every fitted model.
 
-    Category tables and coefficient delete values are written after each fit.
+    Annotation tables and coefficient delete values are written after each fit.
     Only the summary and path descriptors remain when the batch returns.
     ``summary`` contains scientific columns only. The saved root TSV appends
     ``query_result_dir`` relative to the output root, or ``NaN`` for a
@@ -346,9 +346,9 @@ class RgResultFamily:
 
 
 class RegressionRunner:
-    """Assemble regression datasets and fit in children with 1 BLAS thread each.
+    """Assemble regression datasets and fit in workers with 1 BLAS thread each.
 
-    Standalone fits use one managed child. Batch partitioned fits reuse their
+    Standalone fits use one worker. Batch partitioned fits reuse their
     requested workers across complete query-plus-baseline models.
     """
 
@@ -380,7 +380,7 @@ class RegressionRunner:
 
         If both inputs carry known ``GlobalConfig`` snapshots, their critical
         settings are checked before merging. Unknown-provenance inputs, such as
-        disk-loaded sumstats, are allowed through this compatibility boundary.
+        disk-loaded summary statistics, are allowed through this compatibility boundary.
         The merge uses the effective key for the resolved mode: ``SNP`` in
         ``rsid``, ``SNP:<allele_set>`` in ``rsid_allele_aware``, ``CHR:POS`` in
         ``chr_pos``, and ``CHR:POS:<allele_set>`` in
@@ -432,7 +432,7 @@ class RegressionRunner:
             dropped_identity_rows = int(len(sumstats_dropped) + len(ldscore_dropped))
             sumstats_mode = _sumstats_identity_mode(sumstats_table, self.global_config, fallback_mode=ldscore_mode)
             LOGGER.warning(
-                f"Identity downgrade enabled: LD-score mode {ldscore_mode}, sumstats mode {sumstats_mode}; "
+                f"Identity downgrade enabled: LD-score mode {ldscore_mode}, summary-statistics mode {sumstats_mode}; "
                 f"running regression with effective snp_identifier={identifier_mode!r}. "
                 f"Dropped {dropped_identity_rows} duplicate effective-key rows before merge."
             )
@@ -482,8 +482,8 @@ class RegressionRunner:
         if merged.empty:
             source = sumstats_table.source_path or sumstats_table.trait_name or "sumstats"
             raise LDSCInputError(
-                f"h2 regression retained no overlapping {identifier_mode} SNPs after merging sumstats "
-                f"'{source}' with {len(ldscore_frame)} LD-score rows. Most likely the sumstats and "
+                f"h2 regression retained no overlapping {identifier_mode} SNPs after merging summary statistics "
+                f"'{source}' with {len(ldscore_frame)} LD-score rows. Most likely the summary statistics and "
                 "LD-score directory use different SNP identifiers or genome builds. Regenerate both inputs "
                 "with the same `--snp-identifier` and `--genome-build`, or use `--allow-identity-downgrade` "
                 f"for same-family allele-aware/base mixes. Other causes & fixes: {_REGRESSION_NO_OVERLAP_DOC}"
@@ -566,7 +566,7 @@ class RegressionRunner:
                     merged = pd.DataFrame({name: merged[name].to_numpy(copy=False) for name in merged
                                            if name not in dropped_ld_columns}, copy=False)
                     LOGGER.warning(
-                        "Dropped %d zero-variance LD-score column(s) after merging with sumstats. "
+                        "Dropped %d zero-variance LD-score column(s) after merging with summary statistics. "
                         "These annotations are constant on the regression SNP set and receive no coefficient; "
                         "names are retained in fitted-model metadata (dropped_zero_variance_ld_columns).",
                         len(dropped_ld_columns),
@@ -574,7 +574,7 @@ class RegressionRunner:
             else:
                 raise LDSCInputError(
                     "h2 regression cannot run because all retained LD-score columns have zero variance "
-                    "after merging with sumstats. Most likely the LD-score directory contains a constant "
+                    "after merging with summary statistics. Most likely the LD-score directory contains a constant "
                     "annotation on the retained SNP set. Use LD scores with at least one varying annotation "
                     "or broaden the regression SNP set."
                 )
@@ -645,13 +645,13 @@ class RegressionRunner:
             left_frame, left_dropped = _prepare_regression_identity_table(
                 left_frame,
                 identifier_mode,
-                context=sumstats_table_1.source_path or "trait 1 sumstats",
+                context=sumstats_table_1.source_path or "trait 1 summary statistics",
                 logger=LOGGER,
             )
             right_frame, right_dropped = _prepare_regression_identity_table(
                 right_frame,
                 identifier_mode,
-                context=sumstats_table_2.source_path or "trait 2 sumstats",
+                context=sumstats_table_2.source_path or "trait 2 summary statistics",
                 logger=LOGGER,
             )
             ldscore_frame, ldscore_dropped = _prepare_regression_identity_table(
@@ -737,7 +737,7 @@ class RegressionRunner:
         )
         if merged.empty:
             raise LDSCInputError(
-                f"rg regression retained no overlapping {identifier_mode} SNPs after merging both sumstats "
+                f"rg regression retained no overlapping {identifier_mode} SNPs after merging both summary-statistics "
                 f"tables with {len(ldscore_frame)} LD-score rows. Most likely one trait was munged with a "
                 "different SNP identifier mode, genome build, or allele convention than the LD-score directory. "
                 "Regenerate all inputs with matching identity settings, or use `--allow-identity-downgrade` "
@@ -750,9 +750,9 @@ class RegressionRunner:
         merged = merged.loc[keep].reset_index(drop=True)
         if merged.empty:
             raise LDSCInputError(
-                "rg regression retained no allele-compatible SNPs after harmonizing the two sumstats tables. "
+                "rg regression retained no allele-compatible SNPs after harmonizing the two summary-statistics tables. "
                 "Most likely the traits use different effect-allele conventions or one input was not allele "
-                "harmonized during munging. Regenerate both munged sumstats with A1/A2 columns and matching "
+                "harmonized during munging. Regenerate both munged summary statistics with A1/A2 columns and matching "
                 "SNP identifier mode."
             )
         merged["Z2"] = reg._align_alleles(merged["Z2"].copy(), kept_alleles)
@@ -774,7 +774,7 @@ class RegressionRunner:
                 merged = merged.loc[:, [column for column in merged.columns if column not in dropped_ld_columns]]
                 if dropped_ld_columns:
                     LOGGER.warning(
-                        "Dropped %d zero-variance LD-score column(s) after merging with sumstats. "
+                        "Dropped %d zero-variance LD-score column(s) after merging with summary statistics. "
                         "These annotations are constant on the regression SNP set and receive no coefficient; "
                         "names are retained in fitted-model metadata (dropped_zero_variance_ld_columns).",
                         len(dropped_ld_columns),
@@ -835,7 +835,7 @@ class RegressionRunner:
         config: RegressionConfig | None = None,
         *, log_level=logging.INFO,
     ) -> _FitOutcome:
-        """Fit h2 once and retain its exact SNP population and diagnostic bins.
+        """Fit SNP heritability once and retain its exact SNP population and diagnostic bins.
 
         The aligned frame can borrow read-only worker maps. Slice it only when
         the chi-square filter removes rows, then materialize the design once.
@@ -1032,15 +1032,15 @@ class RegressionRunner:
             recomputed for every fit over the complete aligned genome.
         query_batch_size : int, optional
             Maximum query columns loaded at once, default 100. Pathways in a
-            batch are still fitted separately against baseline categories.
-            Also caps concurrent query workers; a width of one allows one managed child.
+            batch are still fitted separately against the baseline annotations.
+            Also caps concurrent query workers; a width of one allows one worker.
             Independent of the batch width used to generate the LD scores.
         workers : int, optional
-            Maximum concurrent task processes, default 1, including on HPC.
+            Maximum concurrent workers, default 1, including on HPC.
             Use joblib.cpu_count() as the detected available CPU budget.
             Positive requests above that budget fail before capping by task
             count; negative -k uses max(1, budget + 1 - k). Zero, booleans,
-            and non-integers are invalid. One worker is a managed child.
+            and non-integers are invalid. One worker still runs in a separate process.
             Every worker uses 1 BLAS thread in serial and parallel execution.
             Numerical OpenMP and Arrow CPU/I/O limits are also one; unsupported
             numerical limits are logged as unverified and computation continues.
@@ -1252,7 +1252,7 @@ class RegressionRunner:
         dataset: RGRegressionDataset,
         config: RegressionConfig | None = None,
     ) -> _FitOutcome:
-        """Fit rg and retain the population selected by its explicit product cap."""
+        """Fit genetic correlation and retain the population selected by its explicit product cap."""
         config = config or self.regression_config
         merged = dataset.merged
         n_snp = len(merged)
@@ -1320,7 +1320,7 @@ class RegressionRunner:
             separates them, as in ``ldsc rg``; a shared label without source
             paths raises ``LDSCInputError``.
         ldscore_result : LDScoreSource or LDScoreResult
-            Canonical LD-score result. Only baseline LD scores are used for rg.
+            Canonical LD-score result. Only baseline LD scores are used for genetic correlation.
         anchor_index : int or None, optional
             If provided, index of the anchor trait. The method computes
             ``anchor`` against every other trait and skips non-anchor pairs.
@@ -1331,7 +1331,7 @@ class RegressionRunner:
         Returns
         -------
         RgResultFamily
-            Concise rg table, full diagnostic table, per-trait h2 table, and
+            Concise rg table, full diagnostic table, per-trait SNP heritability table, and
             ordered per-pair metadata.
 
         Raises
@@ -1345,7 +1345,7 @@ class RegressionRunner:
         tables = list(sumstats_tables)
         if len(tables) < 2:
             raise LDSCUserError(
-                "rg regression requires at least two sumstats inputs. Most likely `--sumstats-sources` "
+                "rg regression requires at least two summary-statistics inputs. Most likely `--sumstats-sources` "
                 "resolved to fewer than two files. Pass two or more munged `.sumstats` artifacts."
             )
         if anchor_index is not None and not 0 <= anchor_index < len(tables):
@@ -1461,7 +1461,7 @@ def _regression_genome_build(
 
 
 def _snapshot_identity_mode(snapshot: GlobalConfig | None) -> str | None:
-    """Return a normalized SNP identity mode from ``snapshot`` if present."""
+    """Return a normalized SNP identifier mode from ``snapshot`` if present."""
     value = getattr(snapshot, "snp_identifier", None)
     if value is None:
         return None
@@ -1482,7 +1482,7 @@ def _project_legacy_sumstats_to_panel(
     table: SumstatsTable,
     ldscore_result: LDScoreSource | LDScoreResult,
 ) -> tuple[SumstatsTable, pd.DataFrame]:
-    """Project one legacy munged-sumstats table onto canonical panel identity.
+    """Project one legacy munged summary-statistics table onto the regression SNPs in the LD-score directory.
 
     Legacy ``SNP`` values are treated only as rsID lookup keys. The supplied
     LD-score panel owns output coordinates and identifier mode. Allele-aware
@@ -1507,14 +1507,14 @@ def _project_legacy_sumstats_to_panel(
     Raises
     ------
     LDSCInputError
-        If required legacy columns or canonical panel provenance are missing,
+        If required legacy columns or the LD-score directory's SNP identifier metadata are missing,
         or no source row can be projected safely.
     """
     required = {"SNP", "A1", "A2", "Z", "N"}
     missing = sorted(required - set(table.data.columns))
     if missing:
         raise LDSCInputError(
-            f"Cannot use legacy sumstats '{table.source_path or table.trait_name or 'sumstats'}': "
+            f"Cannot use legacy summary-statistics file '{table.source_path or table.trait_name or 'sumstats'}': "
             f"required columns are missing: {missing}. Legacy regression compatibility requires SNP, A1, A2, Z, "
             "and N; allele-less legacy inputs are unsupported for h2, partitioned-h2, and rg."
         )
@@ -1522,20 +1522,20 @@ def _project_legacy_sumstats_to_panel(
     panel_mode = _snapshot_identity_mode(panel_snapshot)
     if panel_snapshot is None or panel_mode is None:
         raise LDSCInputError(
-            "Legacy sumstats projection requires a canonical LD-score panel with recorded "
+            "Legacy summary-statistics projection requires an LD-score directory with recorded "
             "snp_identifier metadata. Regenerate or explicitly convert the LD-score directory first."
         )
     panel_source = ldscore_result.baseline_table
     missing_panel = sorted({"CHR", "POS", "SNP"} - set(panel_source.columns))
     if missing_panel:
         raise LDSCInputError(
-            f"Legacy sumstats projection cannot use the LD-score panel because it is missing {missing_panel}. "
-            "Regenerate the canonical LD-score directory."
+            f"Legacy summary-statistics projection cannot use the LD-score panel because it is missing {missing_panel}. "
+            "Regenerate the LD-score directory."
         )
     allele_aware = is_allele_aware_mode(panel_mode)
     if allele_aware and not {"A1", "A2"}.issubset(panel_source.columns):
         raise LDSCInputError(
-            f"Legacy sumstats projection requires panel A1/A2 for snp_identifier='{panel_mode}', "
+            f"Legacy summary-statistics projection requires panel A1/A2 for snp_identifier='{panel_mode}', "
             "but the canonical LD-score table does not contain both allele columns."
         )
 
@@ -1561,7 +1561,7 @@ def _project_legacy_sumstats_to_panel(
         source["FRQ"] = numeric_frq.where(numeric_frq.between(0.0, 1.0, inclusive="both"))
         if invalid_frq_count:
             LOGGER.warning(
-                "Legacy sumstats '%s' has %d nonnumeric, infinite, or out-of-range FRQ value(s); "
+                "Legacy summary-statistics file '%s' has %d nonnumeric, infinite, or out-of-range FRQ value(s); "
                 "they were retained as missing because regression does not consume FRQ.",
                 table.source_path or table.trait_name or "sumstats",
                 invalid_frq_count,
@@ -1649,8 +1649,8 @@ def _project_legacy_sumstats_to_panel(
     if accepted_rows.empty:
         counts = reasons.dropna().value_counts().to_dict()
         raise LDSCInputError(
-            f"Legacy sumstats '{table.source_path or table.trait_name or 'sumstats'}' retained no SNPs "
-            f"after projection to the canonical LD-score panel (drop counts: {counts})."
+            f"Legacy summary-statistics file '{table.source_path or table.trait_name or 'sumstats'}' retained no SNPs "
+            f"after projection onto the regression SNPs in the LD-score directory (drop counts: {counts})."
         )
     projected_frame = source.loc[accepted_rows].copy()
     panel_column = (lambda column: f"_legacy_panel_{column}") if allele_aware else (lambda column: column)
@@ -1679,13 +1679,13 @@ def _project_legacy_sumstats_to_panel(
     drop_counts = drops["reason"].value_counts(sort=False)
     if not drop_counts.empty:
         LOGGER.warning(
-            "Legacy sumstats '%s' projection dropped %d row(s): %s.",
+            "Legacy summary-statistics file '%s' projection dropped %d row(s): %s.",
             table.source_path or table.trait_name or "sumstats",
             len(drops),
             ", ".join(f"{reason}={int(count)}" for reason, count in drop_counts.items()),
         )
     LOGGER.info(
-        "Projected %d legacy sumstats row(s) from '%s' onto panel identity mode %s; dropped %d.",
+        "Projected %d legacy summary-statistics row(s) from '%s' onto panel SNP identifier mode %s; dropped %d.",
         len(projected_frame),
         table.source_path or table.trait_name or "sumstats",
         panel_mode,
@@ -1715,7 +1715,7 @@ def _sumstats_identity_mode(
     *,
     fallback_mode: str,
 ) -> str:
-    """Return the mode represented by one sumstats input for regression."""
+    """Return the mode represented by one summary-statistics input for regression."""
     return _snapshot_identity_mode(sumstats_table.config_snapshot) or normalize_snp_identifier_mode(fallback_mode)
 
 
@@ -1738,7 +1738,7 @@ def _resolve_h2_identity(
     runner_config: GlobalConfig,
     regression_config: RegressionConfig,
 ):
-    """Resolve one sumstats table and one LD-score result for h2 merging."""
+    """Resolve one summary-statistics table and one LD-score result for h2 merging."""
     ldscore_mode = _ldscore_identity_mode(ldscore_result, runner_config)
     sumstats_mode = _sumstats_identity_mode(sumstats_table, runner_config, fallback_mode=ldscore_mode)
     return resolve_regression_identity_mode(
@@ -1755,7 +1755,7 @@ def _resolve_rg_identity(
     runner_config: GlobalConfig,
     regression_config: RegressionConfig,
 ):
-    """Resolve trait 1, trait 2, and LD-score identity modes for rg."""
+    """Resolve trait 1, trait 2, and LD-score SNP identifier modes for rg."""
     ldscore_mode = _ldscore_identity_mode(ldscore_result, runner_config)
     trait_1_mode = _sumstats_identity_mode(sumstats_table_1, runner_config, fallback_mode=ldscore_mode)
     trait_2_mode = _sumstats_identity_mode(sumstats_table_2, runner_config, fallback_mode=ldscore_mode)
@@ -1808,7 +1808,7 @@ def _with_effective_identity_key(frame: pd.DataFrame, mode: str, *, context: str
 
 
 def _orient_sumstats_z_to_reference_alleles(merged: pd.DataFrame) -> pd.DataFrame:
-    """Orient h2 sumstats Z values to LD-score/reference-panel allele order."""
+    """Orient h2 summary-statistics Z values to LD-score/reference-panel allele order."""
     sumstats_a1 = merged["A1"].astype("string").str.upper()
     sumstats_a2 = merged["A2"].astype("string").str.upper()
     ld_a1 = merged["A1_ld"].astype("string").str.upper()
@@ -1818,7 +1818,7 @@ def _orient_sumstats_z_to_reference_alleles(merged: pd.DataFrame) -> pd.DataFram
     incompatible = ~compatible
     if bool(incompatible.any()):
         LOGGER.warning(
-            "Dropping %d SNPs with incompatible sumstats and LD-score allele order.",
+            "Dropping %d SNPs with incompatible summary-statistics and LD-score allele order.",
             int(incompatible.sum()),
         )
     oriented = merged.loc[~incompatible].copy()
@@ -1863,7 +1863,7 @@ def _select_count_key(
     raise LDSCInputError(
         "Regression requested all-SNP counts, but all-SNP counts are unavailable for LD-score column(s) "
         f"{list(columns)}. This is expected for an imported unpartitioned legacy suite when one or more "
-        "chromosome .M files were missing. Use the default common counts or convert a suite with complete .M files."
+        "chromosome .M files were missing. Use the default common-SNP counts or convert a suite with complete .M files."
     )
 
 
@@ -1939,7 +1939,7 @@ def _count_totals_for_columns(count_records: Sequence[dict[str, Any]], columns: 
         if any(value is None or pd.isna(value) for value in common_values):
             raise LDSCInputError(
                 "Regression found a malformed common-SNP count record with a missing value. "
-                "Reconvert or regenerate the LD-score directory; common counts never fall back silently."
+                "Reconvert or regenerate the LD-score directory; common-SNP counts never fall back silently."
             )
         common_counts = np.asarray([float(value) for value in common_values], dtype=np.float64)
         if not np.isfinite(common_counts).all():
@@ -1958,7 +1958,7 @@ def _is_missing_prevalence(value) -> bool:
 
 
 def _liability_pair(obs, obs_se, samp_prev, pop_prev):
-    """Return (liab, liab_se) for an absolute h2 estimate, or (nan, nan).
+    """Return (liab, liab_se) for an absolute SNP heritability estimate, or (nan, nan).
 
     Liability is defined only when both prevalences are finite probabilities;
     a quantitative trait (None/NaN) or unset prevalence yields NaN. ``obs`` and
@@ -2046,7 +2046,7 @@ def summarize_ld_score_regression_bins(
     reference_snp_count: float,
     max_bins: int = 50,
 ) -> pd.DataFrame:
-    """Summarize the exact fitted SNP population into LD Score rank bins.
+    """Summarize the exact fitted SNP population into LD-score rank bins.
 
     Parameters
     ----------
@@ -2054,7 +2054,7 @@ def summarize_ld_score_regression_bins(
         Final unpartitioned fit exposing ``coef``, ``tot``, and ``intercept``.
     ld_score, chi_square, sample_size, regression_ld_score : array_like
         Equal-length per-SNP values after the h2 chi-square filter. The order is
-        preserved among tied LD Scores.
+        preserved among tied LD scores.
     reference_snp_count : float
         Reference-SNP count used by the fitted h2 model.
     max_bins : int, optional
@@ -2063,7 +2063,7 @@ def summarize_ld_score_regression_bins(
     Returns
     -------
     pandas.DataFrame
-        One row per ascending LD Score bin in
+        One row per ascending LD-score bin in
         :data:`ldsc.outputs.H2_REGRESSION_BIN_COLUMNS` order. Chi-square SD uses
         ``ddof=1`` and is NaN for a singleton bin.
 
@@ -2086,8 +2086,8 @@ def summarize_ld_score_regression_bins(
     lengths = {len(values) for values in arrays}
     if len(lengths) != 1 or not lengths or next(iter(lengths)) == 0:
         raise LDSCInternalError(
-            "h2 regression diagnostics require nonempty, equal-length LD Score, chi-square, "
-            "sample-size, and regression-weight LD Score arrays."
+            "h2 regression diagnostics require nonempty, equal-length LD-score, chi-square, "
+            "sample-size, and regression-weight LD-score arrays."
         )
     if max_bins < 1:
         raise LDSCInternalError("h2 regression diagnostics require max_bins >= 1.")
@@ -2141,11 +2141,11 @@ def summarize_partitioned_h2(
 
     Assembles the model overlap matrix for the retained LD-score columns, runs
     the ported legacy ``_overlap_output`` (augmented with the one-sided
-    coefficient p-value, conditional category heritability, and the overlap
+    coefficient p-value, conditional annotation heritability, and the overlap
     flag), and returns the requested ``annotation_columns`` rows in the single
     lowercase ``PARTITIONED_H2_COLUMNS`` schema. The whole-model total heritability
     is carried on every row (``total_h2_obs``, constant across one fitted model)
-    so each row's ``category_h2_obs`` can be read against it. Per-category and
+    so each row's ``category_h2_obs`` can be read against it. Per-annotation and
     total heritability are reported on both the observed (``*_obs``) and liability
     (``*_liab``) scales; liability columns are NaN unless both prevalences are
     finite probabilities in (0, 1). Proportions, enrichment, and coefficients are
@@ -2229,7 +2229,7 @@ def _summarize_rg_pair(
     """Build the full public rg row from one fitted kernel result.
 
     Per-trait heritability and the pair's genetic covariance are reported on both
-    the observed (``*_obs``) and liability (``*_liab``) scales. The rg ratio
+    the observed (``*_obs``) and liability (``*_liab``) scales. The genetic correlation
     (``rg``/``rg_se``/``z``/``p``) is scale-invariant and unconverted. A trait's
     ``h2_*_liab`` is NaN unless its prevalence is finite; ``gencov_liab`` is NaN
     only when no prevalence was supplied for the run. ``n_snps_used`` is the
@@ -2455,7 +2455,7 @@ def _require_rg_alleles(tables: Sequence[SumstatsTable]) -> None:
 
 
 def _trait_label(table: SumstatsTable) -> str:
-    """Return the public trait label for a sumstats table."""
+    """Return the public trait label for a summary-statistics table."""
     if table.trait_name:
         return str(table.trait_name)
     if table.source_path:
@@ -2588,8 +2588,8 @@ def _log_partitioned_h2_regime(ldscore_result: LDScoreSource | LDScoreResult, ha
         )
     else:
         LOGGER.info(
-            "Functional-category regime: joint fit of %d baseline categories. "
-            "Focus on `enrichment` and `enrichment_p`: `enrichment > 1` means the category's SNPs "
+            "Functional-category regime: joint fit of %d baseline annotations. "
+            "Focus on `enrichment` and `enrichment_p`: `enrichment > 1` means the annotation's SNPs "
             "explain a larger share of heritability than their share of SNPs (`< 1` means a smaller "
             "share); a small `enrichment_p` indicates the enrichment is significantly different from 1, "
             "i.e. significantly larger or smaller.",
@@ -2598,7 +2598,7 @@ def _log_partitioned_h2_regime(ldscore_result: LDScoreSource | LDScoreResult, ha
 
 
 def _log_quantitative_annotation_interpretation(ldscore_result: LDScoreResult) -> None:
-    """Warn once when a fitted model contains quantitative annotations."""
+    """Warn once when a fitted model contains continuous annotations."""
     quantitative = [
         name for name, annotation_type in ldscore_result.annotation_types.items()
         if annotation_type == "quantitative"
@@ -2606,9 +2606,9 @@ def _log_quantitative_annotation_interpretation(ldscore_result: LDScoreResult) -
     if not quantitative:
         return
     LOGGER.warning(
-        "Quantitative annotation(s) detected: count=%d; names are recorded in LD-score annotation_types metadata. Numerical prop_snps, prop_h2, and enrichment summaries "
+        "Continuous annotation(s) detected: count=%d; names are recorded in LD-score annotation_types metadata. Numerical prop_snps, prop_h2, and enrichment summaries "
         "remain visible for compatibility, but they are weighted summaries and do not have the ordinary "
-        "binary-category interpretation. Interpret tau (`coefficient`), its SE, and its coefficient zero-test; "
+        "binary-annotation interpretation. Interpret the coefficient (`coefficient`), its SE, and its coefficient zero-test; "
         "use `ldsc quantile-h2` for post-fit quantile enrichment. To estimate distinct conditional coefficients "
         "for bins, construct binary quantile annotations and refit partitioned-h2.",
         len(quantitative),
@@ -2621,7 +2621,7 @@ def _log_effective_regression_identity(
     runner_config: GlobalConfig,
     regression_config: RegressionConfig,
 ) -> None:
-    """Log the SNP-identity mode regression will actually use, and its source.
+    """Log the SNP identifier mode regression will actually use, and its source.
 
     The GlobalConfig banner reports ``snp_identifier`` as a CLI-level default.
     Regression instead derives the effective mode from each input artifact's
@@ -2968,7 +2968,7 @@ def run_h2_from_args(args):
     """Run single-trait heritability estimation from parsed CLI arguments.
 
     The workflow requires ``args.output_dir`` and preflights ``h2.tsv``, the
-    LD Score regression-bin diagnostic, metadata, and ``diagnostics/h2.log``
+    LD score regression-bin diagnostic, metadata, and ``diagnostics/h2.log``
     before loading inputs. A successful overwrite removes default plots and
     liability-scale post-processing derived from the superseded h2 result.
     """
@@ -3059,9 +3059,9 @@ def run_partitioned_h2_from_args(args):
     collects query errors and publishes only the diagnostic ledger on failure.
     ``args.workers`` uses the shared LD-score/index worker-count policy, with
     query count and ``args.query_batch_size`` as the work limits. The default
-    and every effective count of one use a managed child. Processes each fit
+    and every effective count of one use one worker. Each worker fits
     one complete query model with one native numerical thread; baseline-only
-    input remains one joint fit in a controlled child. Worker death and transport/output
+    input remains one joint fit in one worker. Worker death and transport/output
     failures abort under either query-error policy. Requested/effective counts
     and phase timings are recorded in the workflow log.
     """
@@ -3161,7 +3161,7 @@ def run_rg_from_args(args):
     Raises
     ------
     ValueError
-        If fewer than two sumstats paths resolve or ``output_dir`` is absent.
+        If fewer than two summary-statistics paths resolve or ``output_dir`` is absent.
     """
     from .prevalence import resolve_rg_prevalences
 
@@ -3176,7 +3176,7 @@ def run_rg_from_args(args):
         sumstats_paths = declared_inputs.files['sumstats']
         if len(sumstats_paths) < 2:
             raise LDSCUserError(
-                "rg requires at least two sumstats inputs. Most likely `--sumstats-sources` "
+                "rg requires at least two summary-statistics inputs. Most likely `--sumstats-sources` "
                 "resolved to fewer than two files. Pass two or more munged `.sumstats` artifacts."
             )
         runner, config = _runner_from_args(args)
@@ -3188,7 +3188,7 @@ def run_rg_from_args(args):
             output_dir=output_dir,
         )
         LOGGER.info(
-            f"Starting rg regression for {len(sumstats_paths)} sumstats files "
+            f"Starting rg regression for {len(sumstats_paths)} summary-statistics files "
             f"using LD-score directory '{args.ldscore_dir}'."
         )
         from ._input_preflight import InputGate
@@ -3431,7 +3431,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
         inputs.add_argument(
             '--sumstats-file', required=True, metavar='FILE',
             help=(
-            'Required cleaned summary-statistics Parquet or legacy .sumstats(.gz) file. SNP identity must be '
+            'Required munged summary-statistics Parquet or legacy .sumstats(.gz) file. SNP identity must be '
             'compatible with --ldscore-dir. '
             + SCALAR_PATH_HELP
         ),
@@ -3440,7 +3440,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
         inputs.add_argument(
             '--sumstats-sources', nargs='+', required=True, metavar='SOURCES',
             help=(
-            "Required cleaned Parquet or legacy .sumstats(.gz) files; accepts exact paths or quoted '*' patterns "
+            "Required munged summary-statistics Parquet or legacy .sumstats(.gz) files; accepts exact paths or quoted '*' patterns "
             'matching filename text and requires at least two files. SNP identity must be compatible with '
             "--ldscore-dir. '@' is not expanded."
         ),
@@ -3448,7 +3448,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
     inputs.add_argument(
         '--ldscore-dir', required=True, metavar='DIR',
         help=(
-            'Required LD-score result directory from ldscore or convert-ldsc2-ldscores, containing '
+            'Required LD-score directory from ldscore or convert-ldsc2-ldscores, containing '
             'predictors, regression weights, and SNP counts.'
         ),
     )
@@ -3514,7 +3514,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
             help=(
                 'First-step chi-square cutoff, including the boundary. Requires a single-annotation model with '
                 'free intercepts; cannot be combined with --intercept-h2 or '
-                '--intercept-gencov. If omitted, use 30 with a free h2 intercept in single-annotation fits; '
+                '--intercept-gencov. If omitted, use 30 with a free heritability intercept in single-annotation fits; '
                 'otherwise disable it.'
             ),
         )
@@ -3535,9 +3535,9 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
     advanced.add_argument(
         '--allow-identity-downgrade', action='store_true', default=False,
         help=(
-            'Allow allele-aware and allele-unaware inputs in the same identity family by matching without '
-            'alleles. rsid and chr_pos families still cannot be mixed. Default: off; require compatible '
-            'identity modes.'
+            'Allow allele-aware and allele-unaware inputs of the same mode family by matching without '
+            'alleles. rsID-family and coordinate-family modes still cannot be mixed. Default: off; require '
+            'compatible SNP identifier modes.'
         ),
     )
     return inputs, model, scale, advanced
@@ -3721,5 +3721,5 @@ def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
 
 
 def _load_sumstats_table(path: str, trait_name: str | None) -> SumstatsTable:
-    """Load one curated sumstats artifact through the public workflow helper."""
+    """Load one munged summary-statistics file through the public workflow helper."""
     return load_sumstats(path, trait_name=trait_name)

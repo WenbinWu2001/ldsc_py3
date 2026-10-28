@@ -1,4 +1,4 @@
-"""Shared SNP row-alignment checks for normalized LDSC tables."""
+"""Shared SNP row-alignment checks for normalized LDSC3 tables."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def assert_same_snp_rows(
     if len(left) != len(right):
         raise LDSCInputError(
             f"{context}: row count mismatch ({len(left)} != {len(right)}). "
-            "Most likely paired LDSC artifacts were generated from different SNP sets. "
+            "Most likely paired LDSC3 artifacts were generated from different SNP sets. "
             "Regenerate the paired artifacts together with the same SNP identifier mode."
         )
 
@@ -43,8 +43,8 @@ def assert_same_snp_rows(
         raise LDSCInputError(
             f"{context}: SNP row mismatch at row {row} in {columns}: "
             f"left={left_keys.loc[row].to_dict()}, right={right_keys.loc[row].to_dict()}. "
-            "Most likely paired LDSC artifacts were sorted or filtered differently. "
-            "Regenerate the paired artifacts together from the same SNP universe."
+            "Most likely paired LDSC3 artifacts were sorted or filtered differently. "
+            "Regenerate the paired artifacts together from the same SNPs."
         )
 
     for column in NUMERIC_METADATA_COLUMNS:
@@ -60,7 +60,7 @@ def _require_columns(frame: pd.DataFrame, *, side: str, context: str, snp_identi
     if missing:
         raise LDSCInputError(
             f"{context}: {side} table is missing required SNP row columns: {missing}. "
-            "Most likely the artifact was written by an older LDSC version or with a different "
+            "Most likely the artifact was written by an older LDSC3 version or with a different "
             "SNP identifier mode. Regenerate the artifact with the current workflow."
         )
 
@@ -122,6 +122,6 @@ def _assert_close_numeric_metadata(
         raise LDSCInputError(
             f"{context}: numeric metadata column {column!r} differs at row {row}: "
             f"left={left_values[row]!r}, right={right_values[row]!r}. "
-            "Most likely paired LDSC artifacts have inconsistent metadata sidecars. "
+            "Most likely paired LDSC3 artifacts have inconsistent metadata sidecars. "
             "Regenerate the paired artifacts together."
         )

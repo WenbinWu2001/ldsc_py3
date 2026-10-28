@@ -116,7 +116,7 @@ class ProjectedQueries:
 
 @contextmanager
 def execution_query_bundle(bundle, columns, statuses, output_dir):
-    """Borrow the fixed baseline universe and own one query preparation batch."""
+    """Borrow the fixed baseline SNP rows and own one query preparation batch."""
     active = replace(bundle, query_columns=list(columns), query_statuses=statuses)
     preparation = bundle.query_preparation
     with AnnotationWorkspace(output_dir) as workspace:
@@ -135,7 +135,7 @@ def build_query_shards(bundle, *, bed_sources=(), gene_batch=None, padding_bp=0,
     """Project one query at a time, retaining only per-query and per-gene counts.
 
     Zero-valued chromosome shards are retained for globally supported queries.
-    Gene controls are appended to baseline columns and never enter focal batches.
+    Gene controls are appended to baseline columns and never enter query batches.
     This primitive does not apply reference-panel or LD-score variance checks.
     """
     statuses = query_source_statuses(bed_sources, gene_batch)

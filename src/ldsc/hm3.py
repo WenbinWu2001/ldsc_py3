@@ -54,7 +54,7 @@ def load_hm3_curated_map() -> pd.DataFrame:
 
     Returns all packaged columns while canonicalizing ``CHR``, ``hg19_POS``,
     ``hg38_POS``, ``SNP``, ``A1``, and ``A2`` for reliable filtering,
-    coordinate lookup, and allele-aware SNP identity modes.
+    coordinate lookup, and allele-aware SNP identifier modes.
     """
     return _load_hm3_curated_map_from_path(packaged_hm3_curated_map_path(), preserve_extra_columns=True)
 

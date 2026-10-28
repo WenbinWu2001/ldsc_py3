@@ -154,7 +154,7 @@ Python callers receive paths plus live Matplotlib objects for limited notebook c
 from ldsc import convert_h2_scale, plot_result
 
 plot = plot_result("tutorial_outputs/trait_h2")
-plot.axes.set_title("Trait A: LD Score regression diagnostic")
+plot.axes.set_title("Trait A: LD score regression diagnostic")
 plot.figure.savefig(plot.path, dpi=300, bbox_inches="tight")
 
 conversion = convert_h2_scale(

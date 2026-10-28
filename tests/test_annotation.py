@@ -370,7 +370,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
         help_text = " ".join(stdout.getvalue().split())
         self.assertIn("Required with chr_pos or chr_pos_allele_aware", help_text)
-        self.assertIn("auto checks every grid shard and the gene catalog", help_text)
+        self.assertIn("auto checks every grid shard and the gene coordinate catalog", help_text)
         self.assertIn("Concrete builds must agree with input declarations", help_text)
 
     def test_bed_to_annot_parser_rejects_removed_no_batch_flag(self):

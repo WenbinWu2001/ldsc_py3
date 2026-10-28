@@ -140,7 +140,7 @@ After a BED or gene-list run, `diagnostics/query_annotation_status.tsv` records 
 LDSC3 keeps two SNP sets apart.
 The reference SNPs, all retained reference-panel SNPs, contribute to every LD score and to the annotation counts and overlaps.
 The regression SNPs are the rows written to the output and used in the regression.
-The full definitions are in [LD-score SNP universes](../../reference/ldscore-snp-universes.md).
+The full definitions are in [reference and regression SNPs](../../reference/ldscore-snp-universes.md).
 
 | Option | Effect |
 | --- | --- |

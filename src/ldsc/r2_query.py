@@ -1,6 +1,6 @@
-"""Query adjusted R² for SNP pairs from index-format reference panels.
+"""Query unbiased R2 for SNP pairs from R2 panels.
 
-Public surface for reading a ``ldsc build-r2-panel`` parquet panel by SNP pair:
+Public surface for reading an R2 panel written by ``ldsc build-r2-panel`` by SNP pair:
 the :class:`R2Panel` handle, the one-shot :func:`query_r2` wrapper, and the pure
 :func:`unbiased_r2_to_pearson_r` converter. See
 ``docs/reference/query-r2.md`` for the current input and output contract.
@@ -57,7 +57,7 @@ LOGGER = logging.getLogger("LDSC.r2_query")
 
 
 def unbiased_r2_to_pearson_r(r2_adj, n, sign=None):
-    """Convert adjusted (unbiased) R² to a signed Pearson correlation r.
+    """Convert unbiased R2 to a signed Pearson correlation r.
 
     Inverts the unbiased correction ``r2_adj = r2_raw - (1 - r2_raw) / (n - 2)``
     to recover the biased squared correlation, then takes the square root and
@@ -67,9 +67,9 @@ def unbiased_r2_to_pearson_r(r2_adj, n, sign=None):
     Parameters
     ----------
     r2_adj : float or array-like
-        Adjusted (unbiased) squared correlation as stored in the panel.
+        Unbiased squared correlation as stored in the panel.
     n : int or array-like
-        Reference sample size used to estimate R² (``ldsc:n_samples``).
+        Reference sample size used to estimate R2 (``ldsc:n_samples``).
     sign : int, array-like, or None, optional
         Sign of the Pearson correlation (``+1``/``-1``). ``None`` returns the
         non-negative magnitude ``|r|``.
@@ -106,7 +106,7 @@ def query_r2(
     panel_dir : str or os.PathLike
         Required build-r2-panel output directory or its genome-build child.
     snp_identifier : str or None, optional
-        The panel's recorded identity mode or its base (allele-free) form.
+        The panel's recorded SNP identifier mode or its base form.
         None uses the recorded mode.
     genome_build : {"hg19", "hg38"} or None, optional
         Select the coordinate build when the panel directory contains both.
@@ -144,7 +144,7 @@ class _ChromState:
 
 
 class R2Panel:
-    """Handle over a build-r2-panel index-format R² panel for pair queries.
+    """Handle over an R2 panel written by ``build-r2-panel``, for pair queries.
 
     Open once with :meth:`open`, then call :meth:`query_pairs` many times.
     :meth:`open` validates every chromosome's parquet footer up front. Each
@@ -178,16 +178,16 @@ class R2Panel:
         metadata contract and its matching SNP sidecar; every chromosome's
         Parquet metadata is validated here, and all defects are reported in
         one error. An explicit ``snp_identifier`` must be the panel's recorded
-        mode or that mode's base (allele-free) form. ``validate_binding=True``
+        mode or that mode's base form. ``validate_binding=True``
         checks the sidecar's identity hash and row count when loading a
         chromosome; disabling it does not relax the required metadata. Returns
         a reusable :class:`R2Panel` handle.
         """
         if panel_dir is None:
             raise LDSCUsageError(
-                "Opening an R2 reference panel requires a panel directory. "
+                "Opening an R2 panel requires a panel directory. "
                 "Set --panel-dir (panel_dir in Python) to a build-r2-panel output directory "
-                "containing canonical R2 Parquet files."
+                "containing R2 Parquet files."
             )
 
         paths: dict[str, tuple[str, str]] = {}
@@ -205,7 +205,7 @@ class R2Panel:
 
         if not paths:
             raise LDSCInputError(
-                f"Could not open R2 reference panel '{panel_dir}': no chr*_r2.parquet files were found. "
+                f"Could not open R2 panel '{panel_dir}': no chr*_r2.parquet files were found. "
                 "The directory may not contain build-r2-panel outputs, or the selected genome-build "
                 "subdirectory may be wrong. Set --panel-dir to the matching panel output directory "
                 "and check --genome-build."
@@ -221,7 +221,7 @@ class R2Panel:
             mixed.append(f"different sample sizes (ldsc:n_samples {', '.join(map(str, sample_sizes))})")
         if mixed:
             raise LDSCInputError(
-                f"Could not open R2 reference panel '{panel_dir}': its chromosome files record "
+                f"Could not open R2 panel '{panel_dir}': its chromosome files record "
                 f"{' and '.join(mixed)}. Most likely files from different build-r2-panel runs were "
                 "combined. Use one complete panel directory or regenerate the panel."
             )
@@ -266,7 +266,7 @@ class R2Panel:
             return self._state[chrom]
         if chrom not in self._paths:
             raise LDSCInputError(
-                f"The R2 reference panel has no chromosome {chrom}; available chromosomes: {self.chromosomes}. "
+                f"The R2 panel has no chromosome {chrom}; available chromosomes: {self.chromosomes}. "
                 "The query requests a chromosome absent from this panel. "
                 "Check the selected panel directory and genome build, or use a panel covering "
                 "the intended query chromosome."
@@ -351,28 +351,28 @@ class R2Panel:
         return chrom, idx, qa1, qa2, pa1, pa2
 
     def query_pairs(self, pairs: pd.DataFrame) -> pd.DataFrame:
-        """Return adjusted R² and query-oriented signed r for each SNP pair.
+        """Return unbiased R2 and query-oriented signed r for each SNP pair.
 
         Parameters
         ----------
         pairs : pandas.DataFrame
             Endpoint columns are suffixed ``_1``/``_2``: ``CHR``/``POS`` in
-            coordinate modes or ``SNP`` in rsID modes, with ``A1``/``A2`` in
+            coordinate-family modes or ``SNP`` in rsID-family modes, with ``A1``/``A2`` in
             allele-aware modes. Coordinates use the selected panel build.
             Registered aliases are accepted; input rows are not reordered.
 
         Returns
         -------
         pandas.DataFrame
-            Copy of the input with ``r2`` (float32 adjusted R²), ``sign_r``
+            Copy of the input with ``r2`` (float32 unbiased R2), ``sign_r``
             (nullable Int8, +1/-1), ``r`` (float64 Pearson correlation), and
             ``status`` (string). Existing result-named columns are replaced.
             ``sign_r`` and ``r`` use query A1 dosage orientation, allowing
             allele swaps and strand complements. Both are missing in base
             modes.
-            Unresolved, cross-chromosome, and unstored pairs have NaN R² and
+            Unresolved, cross-chromosome, and unstored pairs have NaN R2 and
             status ``not_in_panel``, ``cross_chromosome``, or ``absent``.
-            Resolved diagonals have R²=1; numeric results have empty status.
+            Resolved diagonals have R2=1; numeric results have empty status.
 
         Raises
         ------
@@ -457,7 +457,7 @@ def _chrom_from_r2_path(r2_path: str) -> str:
     if not name.startswith("chr") or not name.endswith("_r2.parquet"):
         raise LDSCInputError(
             f"R2Panel expected a canonical `chr{{N}}_r2.parquet` filename but got '{name}'. "
-            "Most likely a non-panel parquet was passed. Pass a build-r2-panel R2 file."
+            "Most likely a non-panel parquet was passed. Pass an R2 Parquet file written by build-r2-panel."
         )
     return normalize_chromosome(name[len("chr") : -len("_r2.parquet")])
 
@@ -467,7 +467,7 @@ def _query_keys(endpoint: pd.DataFrame, mode: str) -> np.ndarray:
 
     Unlike :func:`build_snp_id_series`, invalid/ambiguous allele-aware rows do not
     raise: they yield ``None`` so the endpoint resolves to ``not_in_panel`` (spec
-    §7) rather than aborting the whole query.
+    Section 7) rather than aborting the whole query.
     """
     mode = normalize_snp_identifier_mode(mode)
     base = base_key_series(endpoint, mode, context="query pairs")
@@ -560,7 +560,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the ``ldsc query-r2`` argument parser."""
     parser = argparse.ArgumentParser(
         prog="ldsc query-r2",
-        description="Query adjusted R2 (and signed r) for SNP pairs from a reference panel.",
+        description="Query unbiased R2 (and signed r) for SNP pairs from an R2 panel.",
         allow_abbrev=False,
     )
     parser.prog = 'ldsc query-r2'

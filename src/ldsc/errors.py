@@ -1,4 +1,4 @@
-"""Package-specific exception hierarchy for user and internal LDSC failures.
+"""Package-specific exception hierarchy for user and internal LDSC3 failures.
 
 The CLI boundary uses these classes to decide whether a failure should be
 displayed as a clean user-facing message or logged with a developer traceback.

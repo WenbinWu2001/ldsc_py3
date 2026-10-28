@@ -156,7 +156,7 @@ class GenomeBuildCheck:
                 self.unresolved(role, token, exc)
 
     def r2(self, role, directory):
-        """Inspect selected R2 shards, treating build children as alternatives."""
+        """Inspect selected R2 panel shards, treating build children as alternatives."""
         root = Path(directory)
         paths = sorted(root.glob('chr*_r2.parquet'))
         if paths:
@@ -166,7 +166,7 @@ class GenomeBuildCheck:
         alternatives = {build: sorted((root / build).glob('chr*_r2.parquet')) for build in _BUILDS}
         alternatives = {build: paths for build, paths in alternatives.items() if paths}
         if not alternatives:
-            self.unresolved(role, root, 'no R2 Parquet artifacts found')
+            self.unresolved(role, root, 'no R2 Parquet files found')
             return
         if len(alternatives) == 1:
             # A directory name selects an available branch, not a declaration.
@@ -265,7 +265,7 @@ class GenomeBuildCheck:
             self.unresolved(role, path, exc)
 
     def _r2_sidecar_declaration(self, role, path):
-        """Compare a bound R2 sidecar's declaration without re-inferring it.
+        """Compare a bound R2 panel sidecar's declaration without re-inferring it.
 
         The owning Parquet declaration establishes the artifact build when
         the sidecar has no separate declaration. Runtime binding checks still
@@ -279,7 +279,7 @@ class GenomeBuildCheck:
             try:
                 build = _text_options(sidecar)[1].get("genome_build")
                 if build:
-                    self.declared(role, sidecar, build, "R2 sidecar build metadata")
+                    self.declared(role, sidecar, build, "R2 panel sidecar build metadata")
             except _INPUT_ERRORS as exc:
                 self.unresolved(role, sidecar, exc)
 
@@ -334,7 +334,7 @@ class GenomeBuildCheck:
         if any(not entry.builds for entry in checked) or not checked or not known:
             message += "The genome build could not be inferred or resolved for every required coordinate input. "
         message += ("Provide inputs with matching coordinates, correct erroneous build metadata only after "
-                    "verifying the coordinates, or perform an explicit coordinate conversion before this stage. "
+                    "verifying the coordinates, or perform an explicit liftover before this stage. "
                     "No coordinates or build labels were changed. ")
         if self.option:
             message += (f"For unlabeled inputs with a verified build, specify {self.option} hg19 or "

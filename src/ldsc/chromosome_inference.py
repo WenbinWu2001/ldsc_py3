@@ -42,7 +42,7 @@ def _log_normalization(
 
 
 def _normalize_numeric_chromosome(raw: str, text: str, *, context: str | None) -> str:
-    """Normalize a numeric chromosome token, including LDSC-style sex codes."""
+    """Normalize a numeric chromosome token, including PLINK numeric sex-chromosome codes."""
     try:
         number = float(text)
     except ValueError as exc:
@@ -79,7 +79,7 @@ def _normalize_numeric_chromosome(raw: str, text: str, *, context: str | None) -
     else:
         raise LDSCInputError(
             f"Unsupported chromosome label {text!r}. "
-            "Most likely the CHR column contains contigs or chromosomes outside LDSC's supported set. "
+            "Most likely the CHR column contains contigs or chromosomes outside LDSC3's supported set. "
             "Use chromosome labels 1-22, X, Y, M, or MT."
         )
 

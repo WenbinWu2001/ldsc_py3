@@ -142,9 +142,9 @@ class IdentityMetadataValidationTest(unittest.TestCase):
             si.validate_identity_artifact_metadata(metadata, expected_artifact_type="sumstats")
 
         message = str(ctx.exception)
-        self.assertIn("Could not read LDSC sumstats artifact metadata", message)
+        self.assertIn("Could not read LDSC3 sumstats artifact metadata", message)
         self.assertIn("Most likely", message)
-        self.assertIn("Regenerate the artifact with the current LDSC package", message)
+        self.assertIn("Regenerate the artifact with the current LDSC3 package", message)
         self.assertIn(
             "docs/user-guide/troubleshooting.md#common-ldsc3-artifact-schema-or-provenance-is-incompatible",
             message,

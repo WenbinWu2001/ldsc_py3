@@ -823,7 +823,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         log_text = "\n".join(caught.output)
         self.assertIn("Identity downgrade enabled", log_text)
         self.assertIn("LD-score mode chr_pos", log_text)
-        self.assertIn("sumstats mode chr_pos_allele_aware", log_text)
+        self.assertIn("summary-statistics mode chr_pos_allele_aware", log_text)
         self.assertIn("effective snp_identifier='chr_pos'", log_text)
         self.assertIn("Dropped 4 duplicate effective-key rows", log_text)
 
@@ -956,7 +956,7 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertEqual(oriented["SNP"].tolist(), ["same", "complement_same", "literal_reversed", "complement_reversed"])
         np.testing.assert_allclose(oriented["Z"], [1.0, 2.0, -3.0, -4.0])
-        self.assertIn("Dropping 1 SNPs with incompatible sumstats and LD-score allele order", "\n".join(caught.output))
+        self.assertIn("Dropping 1 SNPs with incompatible summary-statistics and LD-score allele order", "\n".join(caught.output))
 
     def test_build_dataset_empty_merge_error_includes_active_config(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())

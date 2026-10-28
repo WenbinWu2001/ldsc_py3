@@ -1,7 +1,7 @@
 """Build, validate, and query exact disjoint-atom gene LD-score indexes.
 
 The offline workflow computes a PLINK-backed LD-score operator for one fixed
-baseline, reference panel, regression-row policy, and gene projection. The online
+baseline, reference panel, regression-SNP policy, and gene projection. The online
 workflow resolves gene lists against the embedded catalog, assembles their
 Boolean union from the stored operator, and writes an ordinary self-contained
 LD-score directory. It never discovers an index or silently falls back to live
@@ -162,7 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument(
         '--gene-coordinate-file', required=True, metavar='FILE',
         help=(
-            'Required headered TSV/TSV.GZ gene catalog in the declared build, with one-based inclusive intervals. '
+            'Required headered TSV/TSV.GZ gene coordinate catalog in the declared build, with one-based inclusive intervals. '
             'Defines the full gene set stored in the index. Supply an exact file path; patterns are not expanded.'
         ),
     )
@@ -184,7 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
         '--genome-build', type=normalize_genome_build, choices=('hg19', 'hg38'), required=True,
         help=(
             'Required build assertion for coordinate-bearing inputs: hg19 or hg38. Input build declarations '
-            'must agree after alias normalization. No inference or coordinate conversion.'
+            'must agree after alias normalization. No inference or liftover.'
         ),
     )
 
@@ -219,7 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
     filters.add_argument(
         '--regr-snps-file', default=None, metavar='FILE',
         help=(
-            'Headered SNP identity table selecting stored regression/output rows and weight contributors. If '
+            'Headered SNP identity table selecting the regression SNPs: stored output rows and regression weights. If '
             'omitted, use bundled HapMap3 SNPs. --regr-snps-exclude-regions then applies. Supply an exact file '
             'path; patterns are not expanded.'
         ),
@@ -242,14 +242,14 @@ def build_parser() -> argparse.ArgumentParser:
         '--regr-snps-exclude-regions', choices=kernel_regions.REGR_SNPS_EXCLUDE_REGIONS_CHOICES, default='mhc-and-centromeres',
         help=(
             'Exclude MHC, centromeres, both, or neither from --regr-snps-file or HapMap3 output SNPs. '
-            'Default: mhc-and-centromeres. Reference contributors and annotation counts are unchanged.'
+            'Default: mhc-and-centromeres. Reference SNPs and annotation counts are unchanged.'
         ),
     )
     filters.add_argument(
         '--common-maf-min', type=float, default=0.05, metavar='VALUE',
         help=(
             'Minimum MAF for common-SNP annotation counts, including the boundary. Default: 0.05; does not '
-            'filter LD-score contributors.'
+            'filter reference SNPs.'
         ),
     )
 
@@ -327,7 +327,7 @@ def build_gene_ldscore_index(
         Comma-separated hg38 genetic-map paths for an hg38 cM window.
         Maps must match the explicit build; kb/SNP windows need no map.
     overwrite : bool, optional
-        Rebuild and replace a complete existing valid index. Gene indexes do
+        Rebuild and replace a complete existing valid index. Gene LD-score indexes do
         not support incremental updates or component reuse. Default is
         ``False``.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
@@ -359,7 +359,7 @@ def build_gene_ldscore_index(
     -----
     All autosomes 1 through 22 are required. Build declarations in applicable
     inputs must agree with the explicit build after alias normalization;
-    construction performs neither build inference nor coordinate conversion.
+    construction performs neither build inference nor liftover.
     Allele-aware modes use shared allele normalization and identity cleanup.
     Annotations may omit both allele columns and match by base identity;
     supplying only one allele column is invalid. Shared-key coordinate or
@@ -428,7 +428,7 @@ def _parse_chromosomes(value: str | Sequence[str]) -> tuple[str, ...]:
                 raise LDSCInputError(
                     f"Invalid chromosome range {token!r}."
                     " Select autosomal chromosome numbers 1 through 22 with valid ranges; production gene "
-                    "indexes require all 22 autosomes."
+                    "LD-score indexes require all 22 autosomes."
                 ) from exc
             selected.update(range(start, end + 1))
         else:
@@ -438,13 +438,13 @@ def _parse_chromosomes(value: str | Sequence[str]) -> tuple[str, ...]:
                 raise LDSCInputError(
                     f"Invalid chromosome token {token!r}."
                     " Select autosomal chromosome numbers 1 through 22 with valid ranges; production gene "
-                    "indexes require all 22 autosomes."
+                    "LD-score indexes require all 22 autosomes."
                 ) from exc
     if not selected or min(selected) < 1 or max(selected) > 22:
         raise LDSCInputError(
             "Gene LD-score index chromosomes must be autosomes 1 through 22."
-            " Select autosomal chromosome numbers 1 through 22 with valid ranges; production gene indexes "
-            "require all 22 autosomes."
+            " Select autosomal chromosome numbers 1 through 22 with valid ranges; production gene LD-score "
+            "indexes require all 22 autosomes."
         )
     return tuple(str(chrom) for chrom in sorted(selected))
 
@@ -496,7 +496,7 @@ def _build_embedded_gene_catalog(
     command="run_build_gene_ldscore_index_from_args(...)",
 )
 def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
-    """Build one exact index through locked preflight and staged publication."""
+    """Build one gene LD-score index through locked preflight and staged publication."""
     started = time.perf_counter()
     chromosomes = tuple(getattr(args, "_test_chromosomes", tuple(str(value) for value in range(1, 23))))
     allow_partial_for_tests = chromosomes != tuple(str(value) for value in range(1, 23))
@@ -578,13 +578,13 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
             except GeneCatalogValidationError as exc:
                 issues_path = _write_gene_catalog_issues(index_path, exc.issues)
                 LOGGER.error(
-                    "Gene-coordinate catalog validation failed with %s defect(s); full repair audit: %s",
+                    "Gene coordinate catalog validation failed with %s defect(s); full repair audit: %s",
                     len(exc.issues),
                     issues_path,
                 )
                 raise
             from ._genome_build_policy import GenomeBuildCheck
-            check = GenomeBuildCheck(config.genome_build, context="gene-index construction", logger=LOGGER)
+            check = GenomeBuildCheck(config.genome_build, context="gene LD-score index construction", logger=LOGGER)
             check.declared("gene catalog", config.gene_coordinate_file, catalog.genome_build)
             for path in declared_inputs.baseline:
                 check.table("baseline annotations", path)
@@ -748,7 +748,7 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
         f"Finished chromosome {chrom}: catalog genes={catalog_genes}, "
         f"retained-reference={evidence['retained_reference_rows']}, "
         f"regression-rows={evidence['regression_rows']}, atoms={evidence['atom_count']}, "
-        f"nonzero SNP–atom LD scores={evidence['nnz_Y']}, elapsed={evidence['elapsed_seconds']:.3f}s."
+        f"nonzero SNP-atom LD scores={evidence['nnz_Y']}, elapsed={evidence['elapsed_seconds']:.3f}s."
     )
     if not len(record.baseline_rows):
         LOGGER.warning(
@@ -854,7 +854,7 @@ def _run_gene_ldscore_index_build(
                 evidence = result.evidence
                 LOGGER.info(
                     "Finished chromosome %s: catalog genes=%s, retained-reference=%s, "
-                    "regression-rows=%s, atoms=%s, nonzero SNP–atom LD scores=%s, elapsed=%.3fs.",
+                    "regression-rows=%s, atoms=%s, nonzero SNP-atom LD scores=%s, elapsed=%.3fs.",
                     result.chromosome, evidence["catalog_genes"], evidence["retained_reference_rows"],
                     evidence["regression_rows"], evidence["atom_count"], evidence["nnz_Y"],
                     evidence["elapsed_seconds"],
@@ -1394,8 +1394,8 @@ def _log_gene_index_summary(payload: dict) -> None:
         f"({inputs['keep_individual_source']})."
     )
     LOGGER.info(
-        "SNP universe: the baseline/PLINK identifier intersection defines LD-score contributors and "
-        "count/overlap members; the configured regression restriction defines persisted rows."
+        "SNP sets: the baseline/PLINK identifier intersection defines the reference SNPs, which enter "
+        "LD scores, counts and overlap; the configured regression restriction defines the regression SNPs."
     )
     LOGGER.info(
         f"Regression-row policy: {config['regression_snps']} with "
@@ -1415,7 +1415,7 @@ def _log_gene_index_summary(payload: dict) -> None:
             f"regression-rows={values['regression_rows']}, "
             f"catalog genes={values['catalog_genes']}, "
             f"genes-with-padded-atoms={values['genes_with_padded_atoms']}, "
-            f"atoms={values['atom_count']}, nonzero SNP–atom LD scores={values['nnz_Y']}, "
+            f"atoms={values['atom_count']}, nonzero SNP-atom LD scores={values['nnz_Y']}, "
             f"payload-bytes={values['payload_bytes']}, "
             f"elapsed={values['elapsed_seconds']:.3f}s."
         )
@@ -1427,7 +1427,7 @@ def _log_gene_index_summary(payload: dict) -> None:
     LOGGER.info(
         f"Gene LD-score index build completed and validated: chromosomes={totals['chromosome_count']}, "
         f"catalog genes={totals['catalog_genes']}, atoms={totals['atom_count']}, "
-        f"nonzero SNP–atom LD scores={totals['operator_nnz']}, payload_bytes={payload['payload_bytes']}, "
+        f"nonzero SNP-atom LD scores={totals['operator_nnz']}, payload_bytes={payload['payload_bytes']}, "
         f"peak_rss_bytes={payload['peak_rss_bytes']}, elapsed_seconds={payload['elapsed_seconds']:.6f}, "
         f"index={publication['index_path']}."
     )
@@ -1696,7 +1696,7 @@ class LoadedGeneLDScoreIndex:
         Scientific settings and canonical input-content identities used to
         calculate ``index_id``.
     gene_catalog : pandas.DataFrame
-        Embedded catalog with unpadded 0-based half-open gene coordinates,
+        Embedded catalog with unpadded zero-based half-open gene coordinates,
         inclusion flags, and chromosome-local row ordering.
     chromosome_paths : dict of str to pathlib.Path
         Validated component locations. No chromosome payload is cached.
@@ -1729,7 +1729,7 @@ class LoadedGeneLDScoreIndex:
         )
 
 
-@report_phase(LOGGER, 'publication', 'immutable gene index')
+@report_phase(LOGGER, 'publication', 'immutable gene LD-score index')
 def publish_gene_ldscore_index(
     index_dir: str | Path,
     *,
@@ -2175,25 +2175,25 @@ def run_indexed_ldscore(
         ``gene_control`` annotation is added.
     gene_list_resolution_policy : {"strict", "resolved-only"}, optional
         Default ``"strict"`` stops on rejected identifiers after auditing all
-        focal lists and the optional control. ``"resolved-only"`` omits
+        query gene lists and the optional control. ``"resolved-only"`` omits
         allowlisted rejected rows with diagnostics; invalid indexes, incomplete
         chromosome coverage, and an unusable requested control remain fatal.
         This Python parameter retains its string values. In ``ldsc ldscore``,
         omit ``--allow-unresolved-genes`` for strict resolution or supply that
         value-free flag for ``"resolved-only"``.
     query_batch_size : int, optional
-        Positive maximum focal columns per operator multiplication, default 100.
+        Positive maximum query columns per operator multiplication, default 100.
         Bounds outstanding chromosome fragments and saved query-file width.
         One batch is consumed before the next is computed; the parent writes
         one chromosome at a time without a genome-wide query array.
         Chromosome operators are reloaded for each batch in a persistent pool.
         Each pathway remains a separate annotation and regression model.
     workers : int, optional
-        Maximum concurrent task processes, default 1, including on HPC.
+        Maximum concurrent workers, default 1, including on HPC.
         Use joblib.cpu_count() as the detected available CPU budget.
         Positive requests above that budget fail before capping by task
         count; negative -k uses max(1, budget + 1 - k). Zero, booleans,
-        and non-integers are invalid. One worker is a managed child.
+        and non-integers are invalid. Even one worker runs in its own process.
         Every worker uses 1 BLAS thread in serial and parallel execution.
         Numerical OpenMP and Arrow CPU/I/O limits are also one; unsupported
         numerical limits are logged as unverified and computation continues.
@@ -2216,7 +2216,7 @@ def run_indexed_ldscore(
     ------
     LDSCInputError
         If the index is invalid, a control is unusable, or every requested
-        focal query is skipped. The all-skipped case writes diagnostics but no
+        query is skipped. The all-skipped case writes diagnostics but no
         scientific LD-score tables.
     ValueError
         Query batch width is not a positive integer or the worker request is
@@ -2284,7 +2284,7 @@ def _run_indexed_ldscore_in_workspace(
 
         issues = getattr(exc, "input_issues", pd.DataFrame([{
             "input_role": "index", "source": str(index_dir), "chrom": "", "reason": "invalid_required_input",
-            "details": str(exc), "repair": "Restore or rebuild the complete immutable autosomes 1–22 index.",
+            "details": str(exc), "repair": "Restore or rebuild the complete immutable autosomes 1-22 index.",
         }], columns=ISSUE_COLUMNS))
         diagnostic = SimpleNamespace(input_issues=issues, chromosome_scope={
             "selection": "validated_immutable_index", "chromosomes": None,
@@ -2296,7 +2296,7 @@ def _run_indexed_ldscore_in_workspace(
     gene_policy = str(index.index_identity.get("gene_exclude_regions", "none"))
     catalog = GeneCatalog.from_embedded_frame(index.gene_catalog)
     if catalog.genome_build != projection_build:
-        raise LDSCInputError("Embedded gene catalog build disagrees with the index projection build.")
+        raise LDSCInputError("Embedded gene coordinate catalog build disagrees with the index projection build.")
     batch = resolve_gene_lists_staged(
         query_gene_list_sources,
         catalog,
@@ -2354,8 +2354,8 @@ def _run_indexed_ldscore_in_workspace(
         raise LDSCInputError("; ".join(control_errors))
     if any(item["query"] == "gene_control" for item in usable):
         raise LDSCInputError(
-            "Focal query name 'gene_control' collides with the reserved fixed control column. "
-            "Rename the focal gene-list file so its query name differs from gene_control."
+            "Query name 'gene_control' collides with the reserved fixed control column. "
+            "Rename the query gene-list file so its query name differs from gene_control."
         )
 
     if "gene_control" in index.baseline_columns:
@@ -2421,7 +2421,7 @@ def build_plink_index_chromosome(
     normalized BIM chromosome labels to complete prefixes. Supplying it avoids
     resolving ``args.bfile`` again; direct callers may omit it to use the same
     content validation lazily through ``PlinkRefPanel``. Genotype alignment,
-    windowing, regression rows, and atom projection are unchanged.
+    windowing, regression SNPs, and atom projection are unchanged.
 
     Baseline and regression-weight scores share one traversal. Each atom batch
     repeats genotype traversal, bounding the active dense atom projection.
@@ -2571,7 +2571,7 @@ def intersect_baseline_plink_by_identifier(
 
     Shared cleanup removes ambiguous identity groups in the selected base or
     allele-aware mode. If baseline metadata omits both allele columns,
-    matching uses base keys after reference allele cleanup; one allele column
+    matching uses base keys after allele cleanup against the reference panel; one allele column
     is invalid. Shared rsIDs with different coordinates and shared base keys
     with incompatible usable normalized alleles raise ``LDSCInputError``
     carrying an ``input_issues`` repair table. Ordinary unmatched rows are
@@ -2839,7 +2839,7 @@ def _cast_index_baseline_rows(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _published_row_metadata_sha256(frame: pd.DataFrame) -> str:
-    """Bind ordered CHR/SNP/POS/A1/A2 metadata for all four identity modes."""
+    """Bind ordered CHR/SNP/POS/A1/A2 metadata for all four SNP identifier modes."""
     required = ["CHR", "SNP", "POS", "A1", "A2"]
     missing = [column for column in required if column not in frame.columns]
     if missing:
@@ -2966,7 +2966,7 @@ def _finalize_staged_index_artifact(
     """Finalize coordinator-owned metadata for a complete staged index.
 
     ``chromosomes`` is already in canonical requested order. This function
-    writes root identity, component identity, the gene catalog, and successful
+    writes root identity, component identity, the gene coordinate catalog, and successful
     diagnostics only after every payload-only shard is durable.
     """
     _write_json(

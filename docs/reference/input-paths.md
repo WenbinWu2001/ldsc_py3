@@ -4,13 +4,13 @@ Last updated on: 2026-10-27
 
 Examples below use the munged file names written without a trait label (`sumstats.parquet`, `sumstats.gz`); naming rules are in [artifact metadata](formats/artifact-metadata.md).
 
-This note explains how to specify filesystem inputs in the refactored package.
+This note explains how to specify filesystem inputs in LDSC3.
 The goal is practical: help you choose the right path form for each workflow and
 avoid ambiguous inputs.
 
 ## Read-only genome-build inspection
 
-`ldsc infer-genome-build PATH` accepts one exact file or recognized LDSC artifact directory.
+`ldsc infer-genome-build PATH` accepts one exact file or recognized LDSC3 artifact directory.
 It does not expand `*` or `@`, guess suffixes, accept PLINK prefixes, or accept multiple paths.
 A standalone `.bim` is sufficient; `.bed` and `.fam` companions are not required.
 Known directories are identified by their existing metadata and artifact layouts, with only relevant members inspected.
@@ -63,9 +63,17 @@ PLINK is an exception to the file-token rule against bare prefixes. `ldscore`, `
 - An exact selected prefix takes precedence over broader stem discovery. Otherwise a plain stem discovers matching PLINK members; a glob selects its actual matches. Every selected prefix must have a complete BED/BIM/FAM trio. Partially present trios are reported rather than silently omitted.
 - Validated BIM `CHR` values establish chromosome identity. Filenames do not select chromosomes. A multi-chromosome trio can supply several chromosomes; different trios containing the same chromosome fail as ambiguous. An explicit `@` member must contain its declared chromosome only.
 - Validation batches missing-member, malformed-trio, and chromosome-conflict issues before computation. BED header/size checks detect truncated or mismatched inputs. Workflows reuse the resulting chromosome-to-prefix mapping; workers do not reinterpret the original token.
-- Coverage remains workflow-specific. Direct query LD-score `@` declarations require autosomes 1-22; plain/glob inputs select their actual validated scope and must match baseline coverage. Gene-index construction always requires autosomes 1-22. Generic group expansion and `build-r2-panel` retain existing `@` members, while rejecting incomplete selected trios.
+- Coverage remains workflow-specific.
+  Direct query LD-score `@` declarations require autosomes 1-22; plain/glob inputs select their actual validated scope and must match baseline coverage.
+  Gene LD-score index construction always requires autosomes 1-22.
+  Generic group expansion and `build-r2-panel` retain existing `@` members, while rejecting incomplete selected trios.
 
-[`inspect_plink_inputs()`](../../src/ldsc/path_resolution.py) returns prefixes, chromosome assignments, and issue records. `require_valid()` raises a combined error, optionally including missing required chromosomes. `resolve_plink_prefix_group()` retains the path-only group interface when no chromosome is requested; per-chromosome resolution uses the shared content validation. The direct workflow combines these issues with its annotation diagnostics. Failed gene-index attempts retain `plink_input_issues.tsv` under `.<output-name>.build-state/`; a later attempt archives that audit alongside the prior log. Failed `build-r2-panel` validation writes `diagnostics/plink_input_issues.tsv`.
+[`inspect_plink_inputs()`](../../src/ldsc/path_resolution.py) returns prefixes, chromosome assignments, and issue records.
+`require_valid()` raises a combined error, optionally including missing required chromosomes.
+`resolve_plink_prefix_group()` retains the path-only group interface when no chromosome is requested; per-chromosome resolution uses the shared content validation.
+The direct workflow combines these issues with its annotation diagnostics.
+Failed gene LD-score index build attempts retain `plink_input_issues.tsv` under `.<output-name>.build-state/`; a later attempt archives that audit alongside the prior log.
+Failed `build-r2-panel` validation writes `diagnostics/plink_input_issues.tsv`.
 
 ### Pattern support in command help
 
@@ -75,31 +83,40 @@ The first suite-capable flag in each command explains this syntax. Later flags r
 
 | Input family | Supported patterns and restrictions |
 | --- | --- |
-| Baseline/prebuilt-query annotations, PLINK prefixes, quantile target/reference metadata | Exact inputs, quoted `*` patterns, and `@` chromosome tokens. Direct query LD-score preflight and gene-index construction enforce their full-suite declarations. Generic group expansion tries chromosomes 1-22 and may retain only existing members; completeness depends on the consuming workflow. |
-| Query BED files and focal gene-list sources | Exact files or quoted `*` patterns; `@` is not expanded. |
-| Raw or curated scalar sumstats files; munging SNP-list and liftover-chain files | Exact file or quoted `*` pattern resolving to exactly one file; `@` is not expanded. |
+| Baseline/prebuilt-query annotations, PLINK prefixes, quantile target/reference metadata | Exact inputs, quoted `*` patterns, and `@` chromosome tokens. Direct query LD-score preflight and gene LD-score index construction enforce their full-suite declarations. Generic group expansion tries chromosomes 1-22 and may retain only existing members; completeness depends on the consuming workflow. |
+| Query BED files and query gene lists | Exact files or quoted `*` patterns; `@` is not expanded. |
+| Raw or munged scalar summary-statistics files; munging SNP-list and liftover-chain files | Exact file or quoted `*` pattern resolving to exactly one file; `@` is not expanded. |
 | `rg --sumstats-sources` | Exact files or quoted `*` patterns selecting multiple files; at least two inputs are required. `@` is not expanded. |
 | `ldscore --regr-snps-file` | Exact file or quoted `*` pattern resolving to one file; `@` is not expanded. |
 | `build-r2-panel` SNP/individual restriction files | Exact file or quoted `*` pattern resolving to one file; `@` is not expanded. |
 | `build-r2-panel` genetic-map sources | Exact files, quoted `*` patterns, or `@` suites. |
 | `ldscore` and `build-gene-ldscore-index` genetic-map sources | Comma-separated exact paths. Their current readers do not expand `*` or `@`. |
-| Gene catalogs, fixed control gene lists, `ldscore` reference-SNP/individual lists, gene-index regression-SNP/individual lists, and `build-r2-panel` liftover-chain files | Exact file paths. Pattern expansion is not implemented by these readers. |
+| Gene coordinate catalogs, fixed control gene lists, `ldscore` reference-SNP/individual lists, gene LD-score index regression-SNP/individual lists, and `build-r2-panel` liftover-chain files | Exact file paths. Pattern expansion is not implemented by these readers. |
 | Input/output directories and `query-r2 --pairs` | Literal paths; no pattern expansion. `--pairs -` retains its standard-input meaning. |
 
 Sources: [`path_resolution.resolve_scalar_path`, `resolve_file_group`, and PLINK resolvers](../../src/ldsc/path_resolution.py); [`_annotation_preflight.resolve_annotation_inputs`](../../src/ldsc/_annotation_preflight.py); [`_direct_annotation.prepare_direct_annotations`](../../src/ldsc/_direct_annotation.py); [`_quantile_inputs.prepare_quantile_statistics`](../../src/ldsc/_quantile_inputs.py); [`gene_list_resolver._expand_focal_gene_list_sources`](../../src/ldsc/gene_list_resolver.py); [`ref_panel_builder.ReferencePanelBuilder._prepare_build_state`](../../src/ldsc/ref_panel_builder.py); [`_kernel.ref_panel._resolve_genetic_map`](../../src/ldsc/_kernel/ref_panel.py); [`gene_ldscore_index._load_builder_genetic_map`](../../src/ldsc/gene_ldscore_index.py).
 
 ### Direct LD-score query scope
 
-Direct gene-list, BED, and prebuilt-query `ldscore` runs use these rules for both PLINK and parquet-R² reference backends:
+Direct gene-list, BED, and prebuilt-query `ldscore` runs use these rules for both PLINK and R² panel reference backends:
 
 1. `@` declares all autosomes 1–22. Every required chromosome input must exist and validate; it does not mean “use whichever chromosomes are present.”
 2. Ordinary globs select the files they actually match. Validated contents, not filenames, determine their chromosome set. For example, `"annotations/*.22.annot.gz"` does not guarantee chr22-only contents: any additional chromosomes in its matched files participate in scope.
 3. Validated baseline and reference chromosome sets must match exactly. An `@` declaration paired with a chr22-only input group therefore fails alignment.
-4. Every selected focal/control gene must lie within that shared scope. Selection means unique successfully resolved genes after explicit gene-region exclusions, before SNP-support filtering. A pathway need not contain genes on every covered chromosome. Any nonempty incompletely covered pathway or control fails the entire batch under both `strict` and `resolved-only`; it is never automatically truncated or skipped. Query BED regions and prebuilt-query SNPs must also be within scope.
+4. Every selected query/control gene must lie within that shared scope.
+   Selection means unique successfully resolved genes after explicit gene-region exclusions, before SNP-support filtering.
+   A pathway need not contain genes on every covered chromosome.
+   Any nonempty incompletely covered pathway or control fails the entire batch under both `strict` and `resolved-only`; it is never automatically truncated or skipped.
+   Query BED regions and prebuilt-query SNPs must also be within scope.
 
 Quote glob tokens on the command line so the package receives the pattern intact. Users own glob selection: a missing file may be undetectable if it disappears from the matches and the remaining baseline/reference artifacts consistently cover the same subset. Use `@` when complete-autosomal coverage is required.
 
-For an intentional subset, use quoted `*` patterns or exact paths selecting matching baseline and PLINK chromosome sets. If a full suite was intended, restore missing files instead. With `--r2-dir`, use a literal directory containing the matching chromosome set. Every selected focal/control gene must still be covered; supply missing chromosome inputs or explicitly revise the gene lists. Replacing `@` with `*` does not filter genes or truncate pathways. Coverage errors and their workflow-log tracebacks include this repair guidance.
+For an intentional subset, use quoted `*` patterns or exact paths selecting matching baseline and PLINK chromosome sets.
+If a full suite was intended, restore missing files instead.
+With `--r2-dir`, use a literal directory containing the matching chromosome set.
+Every selected query/control gene must still be covered; supply missing chromosome inputs or explicitly revise the gene lists.
+Replacing `@` with `*` does not filter genes or truncate pathways.
+Coverage errors and their workflow-log tracebacks include this repair guidance.
 
 BED padding extends the coordinates already present in the input file. Use `--padding-bp 0` if the BED intervals already include the intended gene-region padding, so the regions are not padded twice.
 
@@ -115,7 +132,7 @@ independent optional files:
   `sumstats.gz`, `diagnostics/dropped_snps/dropped.tsv.gz`, and
   `diagnostics/sumstats.log`
   for CLI/workflow runs
-- `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query Parquet files, optional `ldscore.overlap.parquet`, `diagnostics/ld_window_snp_counts.tsv` for parquet `--ld-wind-snps` runs, and `diagnostics/ldscore.log` for CLI/workflow runs
+- `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query Parquet files, optional `ldscore.overlap.parquet`, `diagnostics/ld_window_snp_counts.tsv` for R² panel `--ld-wind-snps` runs, and `diagnostics/ldscore.log` for CLI/workflow runs
 - `convert-ldsc2-ldscores`: canonical `metadata.json`,
   `ldscore.baseline.parquet`, optional `ldscore.overlap.parquet`,
   `diagnostics/conversion_issues.tsv.gz`, and
@@ -137,7 +154,7 @@ independent optional files:
   metadata, dropped-SNP audit, and `annotate.log` under `diagnostics/`
 - `rg`: `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`,
   `diagnostics/metadata.json`, optional `diagnostics/pairs/`, and
-  `diagnostics/rg.log` for CLI/workflow runs; rg tables report nominal
+  `diagnostics/rg.log` for CLI/workflow runs; `rg` tables report nominal
   p-values only and do not include package-computed corrected p-value columns
 - `plot`: one selected fixed PNG plus `diagnostics/metadata.json` and
   `diagnostics/plot.log` below `<result-dir>/plots/`
@@ -163,13 +180,10 @@ the complete tree after the current run succeeds.
 Direct Python data writers enforce the data artifact family they own. Workflow
 wrappers add their workflow log to the preflight family.
 
-The default `plots/` root is an owned sibling of h2, partitioned-h2,
-quantile-h2, and rg; the default `postprocessing/` root is an owned sibling of
-h2. A core no-overwrite run rejects an orphaned owned root. A successful core
-overwrite removes these derived roots after publishing the new core artifacts,
-preventing a plot or conversion from silently describing an older result.
-Python-only `output_dir=` overrides for plotting and conversion are unmanaged
-and therefore outside this cleanup boundary.
+The default `plots/` root is an owned sibling of `h2`, `partitioned-h2`, `quantile-h2`, and `rg`; the default `postprocessing/` root is an owned sibling of `h2`.
+A core no-overwrite run rejects an orphaned owned root.
+A successful core overwrite removes these derived roots after publishing the new core artifacts, preventing a plot or conversion from silently describing an older result.
+Python-only `output_dir=` overrides for plotting and conversion are unmanaged and therefore outside this cleanup boundary.
 
 An authorized overwrite that fails writes `RUN_FAILED.txt` in the applicable
 output scope; concrete chromosome reference-panel attempts use
@@ -204,10 +218,8 @@ Use this when you have one file or prefix per chromosome.
 
 ## How Group Inputs Are Handled
 
-Group-style inputs include annotation files and BED inputs. The public
-reference-panel parquet interface is directory-oriented (`r2_dir`); the loader
-discovers fixed `chr*_r2.parquet` files and optional metadata sidecars inside
-that directory.
+Group-style inputs include annotation files and BED inputs.
+The public R² panel interface is directory-oriented (`r2_dir`); the loader discovers fixed `chr*_r2.parquet` files and optional metadata sidecars inside that directory.
 
 During per-chromosome processing:
 
@@ -268,7 +280,7 @@ after strict row-alignment validation.
 Requirements:
 
 - each file must contain metadata columns equivalent to `CHR`, `POS`, `SNP`, and `CM`
-- query/baseline files for the same chromosome must refer to the same ordered SNP universe
+- query/baseline files for the same chromosome must refer to the same ordered SNP rows
 
 Automatic inference:
 
@@ -345,7 +357,7 @@ Output:
   `--overwrite` is supplied. With overwrite enabled, stale baseline/query shards outside
   the current output family are removed after the current shards are written.
 
-### LD score calculation
+### LD-score calculation
 
 Relevant APIs:
 
@@ -367,18 +379,13 @@ Scalar-style inputs:
 - `ref_panel_snps_file`
 - `regr_snps_file`
 
-These SNP restriction files are scalar identity filters, not chromosome-suite
-inputs. They may resolve through exact-one globs where the workflow calls the
-scalar resolver, but `@` is not a chromosome placeholder for these files. The
-restriction universe is also materialized as an in-memory key set before
-matching. `munge-sumstats` streams raw sumstats chunks and uses packed integer
-keys for base `chr_pos` keep-lists, but it still keeps the complete restriction
-key set in memory; `ldscore` and reference-panel workflows likewise do not
-lazy-load restriction rows by chromosome.
+These SNP restriction files are scalar identity filters, not chromosome-suite inputs.
+They may resolve through exact-one globs where the workflow calls the scalar resolver, but `@` is not a chromosome placeholder for these files.
+The restriction set is also materialized as an in-memory key set before matching.
+`munge-sumstats` streams raw summary-statistics chunks and uses packed integer keys for base `chr_pos` keep-lists, but it still keeps the complete restriction key set in memory; `ldscore` and reference-panel workflows likewise do not lazy-load restriction rows by chromosome.
 
-Bundled HM3 is the default `ldscore` regression set. Supply
-`regr_snps_file` only to replace that selected set; it never changes the
-reference-panel universe.
+The bundled HM3 map defines the default `ldscore` regression SNPs.
+Supply `regr_snps_file` only to replace them; it never changes the reference SNPs.
 
 PLINK prefix input:
 
@@ -393,11 +400,11 @@ How they are handled:
 Requirements:
 
 - annotation files must align on SNP rows within each chromosome
-- parquet R2 directories must use the fixed `chr{chrom}_r2.parquet` naming
+- R² panel directories must use the fixed `chr{chrom}_r2.parquet` naming
   contract, with a mandatory paired `chr{chrom}_meta.tsv.gz` sidecar for each
   chromosome (the sidecar defines the index space)
-- package-built R2 parquet files record `ldsc:r2_bias=unbiased`, `ldsc:n_samples`,
-  and the rest of the [R2 parquet contract](formats/r2-panels.md#25-parquet-schema-metadata) in schema metadata;
+- package-built R² Parquet files record `ldsc:r2_bias=unbiased`, `ldsc:n_samples`,
+  and the rest of the [R² panel contract](formats/r2-panels.md#25-parquet-schema-metadata) in schema metadata;
   there are no bias-related flags, and panels that do not match the contract must be rebuilt
 
 Examples:
@@ -427,8 +434,8 @@ Output:
 - Existing canonical LD-score files or `diagnostics/ldscore.log` are refused before writing unless `--overwrite` or `LDScoreOutputConfig(overwrite=True)` is supplied. Successful overwrites remove stale owned single/numbered query files not produced by the new run. Query batches are staged under the output directory and published after successful computation, with metadata last. See `LDScoreDirectoryWriter.artifact_family` and `write_batches` in [outputs.py](../../src/ldsc/outputs.py).
 - `ldscore.baseline.parquet` contains `CHR`, `POS`, `SNP`,
   `regression_ld_scores`, and baseline LD-score columns. `regression_ld_scores`
-  is the historical `w_ld` LD score over the regression SNP universe, not the
-  final h2/rg regression weight. When both baseline and query inputs are
+  is the historical `w_ld` LD score over the regression SNPs, not the
+  final regression weight of `h2` and `rg`. When both baseline and query inputs are
   omitted, the LD-score workflow writes a synthetic all-ones baseline column
   named `base`.
 - Query files contain `CHR`, `POS`, `SNP`, available alleles, and the query LD-score columns assigned to that batch. They are omitted for baseline-only runs.
@@ -460,7 +467,7 @@ How they are handled:
 - `plink_prefix` is resolved at the PLINK prefix level, not at the individual `.bed/.bim/.fam` file level
 - a chromosome suite such as `panel_chr@` is expanded one chromosome at a time
 - liftover chains are optional; the matching source-to-target chain enables
-  cross-build R2 and metadata outputs in `chr_pos`-family modes, while no matching
+  cross-build R² and metadata outputs in `chr_pos`-family modes, while no matching
   chain produces source-build-only outputs; all reference-panel liftover is
   rejected in `rsid`-family modes
 - genetic maps are required for every emitted build when `--ld-wind-cm` is set;
@@ -494,7 +501,7 @@ Output:
   deterministic paths and existing workflow-owned siblings under `hg19/`,
   `hg38/`, plus owned diagnostics under `diagnostics/`.
 - For a concrete single-chromosome PLINK prefix such as `panel.1`, the owned
-  package is restricted to chromosome 1: `chr1` R2 parquet, `chr1` metadata
+  package is restricted to chromosome 1: the `chr1` R² Parquet file, `chr1` metadata
   sidecars, `diagnostics/dropped_snps/chr1_dropped.tsv.gz`,
   `diagnostics/metadata.chr1.json`, and `diagnostics/build-r2-panel.chr1.log`.
   Sibling chromosomes are not collisions and are not stale cleanup targets.
@@ -511,25 +518,25 @@ Output:
   (header-only when clean) and contain liftover-stage rows with reasons
   `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and
   `target_collision`.
-- The ref-panel directory may contain many chromosome/build artifacts. Treat it
+- The reference-panel directory may contain many chromosome/build artifacts. Treat it
   as one owned family only for full `@` suite invocations; concrete
   per-chromosome invocations use chromosome-specific ownership so parallel
   array jobs can safely share the directory.
 
-### Sumstats munging and regression
+### Summary-statistics munging and regression
 
 Relevant APIs:
 
 - `MungeConfig.raw_sumstats_file`
-- regression artifact paths such as `sumstats_file` and rg
+- regression artifact paths such as `sumstats_file` and `rg`
   `sumstats_sources`
-- `ldscore_dir` for the canonical LD-score result directory
+- `ldscore_dir` for the LD-score directory
 
 Accepted path forms:
 
 - exact path
-- exact-one glob for scalar sumstats file inputs
-- multi-file glob or mixed path/glob list for rg `--sumstats-sources`
+- exact-one glob for scalar summary-statistics file inputs
+- multi-file glob or mixed path/glob list for `rg --sumstats-sources`
 - literal directory for `ldscore_dir`
 - `ldsc munge-sumstats --infer-only` resolves only `--raw-sumstats-file` and
   writes no artifacts; `--output-dir` remains syntactically required for the
@@ -537,9 +544,9 @@ Accepted path forms:
 
 How they are handled:
 
-- h2 and partitioned-h2 sumstats are scalar-style inputs; if a glob expands to
+- `h2` and `partitioned-h2` summary statistics are scalar-style inputs; if a glob expands to
   more than one file, the workflow raises instead of combining them
-- rg `--sumstats-sources` is a group-style input; all resolved files are
+- `rg --sumstats-sources` is a group-style input; all resolved files are
   deduplicated in first-seen order and then used for pair selection
 - `ldscore_dir` is not glob-resolved; it is opened as a directory containing
   `metadata.json` plus parquet payload files
@@ -555,7 +562,7 @@ Output:
   `diagnostics/sumstats.log`, and
   `diagnostics/dropped_snps/dropped.tsv.gz` under `output_dir`;
   `--output-format tsv.gz` writes legacy `sumstats.gz`, and
-  `--output-format both` writes both curated artifacts. Existing owned
+  `--output-format both` writes both munged artifacts. Existing owned
   artifacts for the selected filename family and shared diagnostics are refused unless `--overwrite` or
   `MungeConfig(overwrite=True)` is supplied. With overwrite enabled, a
   successful run removes stale sibling formats for that same stem not produced by the current
@@ -566,16 +573,16 @@ Output:
   `diagnostics/dropped_snps/dropped.tsv.gz`. The Parquet footer carries the thin identity metadata; no root `metadata.json` is written.
 - Packaged HM3 is the default SNP restriction. `--sumstats-snps-file FILE` replaces it; `--no-snp-restriction` disables it. These overrides are mutually exclusive. For different source/output builds, packaged HM3 uses automatic quick liftover, while custom-list or unrestricted runs require a chain file. An explicit chain overrides automatic mapping; matching builds need no liftover.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` require `output_dir` and write
-  fixed result families. For h2, the written family is `h2.tsv`,
+  fixed result families. For `h2`, the written family is `h2.tsv`,
   `diagnostics/ld_score_regression_bins.tsv`, `diagnostics/metadata.json`, and
   workflow-owned `diagnostics/h2.log`. Its default `plots/` and
-  `postprocessing/` roots are owned stale derivatives. For rg, that family is
+  `postprocessing/` roots are owned stale derivatives. For `rg`, that family is
   `rg.tsv`, `rg_full.tsv`,
   `h2_per_trait.tsv`, optional `diagnostics/pairs/`, and workflow-owned
-  `diagnostics/rg.log`; rg outputs carry nominal p-values only; existing owned
+  `diagnostics/rg.log`; `rg` outputs carry nominal p-values only; existing owned
   artifacts are refused unless `--overwrite` is supplied.
 - `ldsc partitioned-h2` requires the LD-score directory to include
-  `ldscore.overlap.parquet`. Baseline-only directories run the functional-category
+  `ldscore.overlap.parquet`. Baseline-only directories run the functional-annotation
   regime; directories with query columns run the cell-type-specific regime.
 - Query-annotation `ldsc partitioned-h2` runs always write a staged
   `diagnostics/query_annotations/` tree under `output_dir`. The retired
@@ -596,15 +603,15 @@ The package makes a limited amount of automatic inference after path resolution:
 - column alias inference
   Example: `#CHROM` and `CHROM` may be accepted as `CHR`; `BP` may be accepted
   as `POS`
-- raw sumstats metadata-line skipping
+- raw summary-statistics metadata-line skipping
   Example: leading `##` lines are skipped before parsing the real header, while
   `#CHROM` remains a valid header column
 - chromosome normalization
   Example: `chr1` may be normalized to `1`
 - genome-build and coordinate-basis inference for `chr_pos` tables when a
   workflow is run with `genome_build="auto"` or `--genome-build auto`
-  Example: an hg38 0-based `CHR`/`POS` restriction table can be inferred and
-  converted to canonical 1-based `CHR:POS` identifiers
+  Example: an hg38 zero-based `CHR`/`POS` restriction table can be inferred and
+  converted to canonical one-based `CHR:POS` identifiers
 - row-level chromosome filtering inside parsed annotation and metadata files
 
 The package does not infer:

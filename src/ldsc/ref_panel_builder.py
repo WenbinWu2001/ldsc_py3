@@ -1,9 +1,9 @@
-"""Workflow wrapper for building standard parquet reference panels from PLINK.
+"""Workflow wrapper for building R2 panels from PLINK.
 
 Core functionality:
     Resolve public PLINK, optional genetic-map, and optional liftover inputs;
-    orchestrate chromosome-wise reference-panel builds; and emit the standard
-    parquet artifacts consumed by the refactored LDSC workflows.
+    orchestrate chromosome-wise reference-panel builds; and emit the R2 panel
+    files consumed by LDSC3 workflows.
 
 Overview
 --------
@@ -220,7 +220,7 @@ def _expected_ref_panel_output_paths(
 ) -> list[Path]:
     """Return deterministic reference-panel artifact paths that may be written.
 
-    The conservative preflight list includes build-specific R2 parquet and
+    The conservative preflight list includes build-specific R2 Parquet files and
     metadata sidecars for every emitted chromosome/build pair.
     """
     out_root = Path(config.output_dir)
@@ -282,7 +282,7 @@ def _ref_panel_output_family(
     When ``chromosomes`` is ``None``, the package spans the full output
     directory contract and is appropriate for a full ``@`` chromosome-suite
     build. When a concrete chromosome list is supplied, only those chromosomes'
-    R2, metadata, dropped-SNP, and chromosome-scoped diagnostic paths are owned
+    R2 Parquet, metadata, dropped-SNP, and chromosome-scoped diagnostic paths are owned
     so concurrent per-chromosome runs do not treat sibling chromosome outputs as
     stale.
     """
@@ -377,7 +377,7 @@ def _atomic_write_json(payload: dict[str, object], path: Path) -> None:
 
 
 class ReferencePanelBuilder:
-    """Build standard parquet reference-panel artifacts from PLINK input."""
+    """Build R2 panels from PLINK input."""
 
     def __init__(self, global_config: GlobalConfig | None = None) -> None:
         """Initialize the builder with shared identifier and build defaults."""
@@ -385,9 +385,9 @@ class ReferencePanelBuilder:
         self._workflow_log_path: Path | None = None
 
     def run(self, config: ReferencePanelBuildConfig) -> ReferencePanelBuildResult:
-        """Build fixed-name parquet reference artifacts for every chromosome.
+        """Build fixed-name R2 panel files for every chromosome.
 
-        Chromosomes run serially in one managed child with 1 BLAS thread.
+        Chromosomes run serially in one worker with 1 BLAS thread.
         The caller's numerical-library settings remain unchanged.
 
         Parameters
@@ -1299,7 +1299,7 @@ def _sort_retained_snps_by_build_position(
     hg38_lookup: dict[int, int],
 ) -> np.ndarray:
     """Return retained PLINK indices in one build's genomic position order."""
-    # Monotone position order here makes index i → position monotone, which lets
+    # Monotone position order here makes index i -> position monotone, which lets
     # yield_pairwise_r2_rows flush cross-batch pairs with non-decreasing IDX_1.
     keep_snps = np.asarray(keep_snps, dtype=int)
     lookup = _position_lookup_for_build(
@@ -1446,7 +1446,7 @@ def _write_dropped_sidecar(dropped_df: pd.DataFrame, path: Path, chrom: str) -> 
 def build_parser() -> argparse.ArgumentParser:
     """Build the feature parser for reference-panel generation."""
     parser = argparse.ArgumentParser(
-        description="Build standard parquet reference-panel artifacts from a PLINK reference input.",
+        description="Build an R2 panel from a PLINK reference input.",
         allow_abbrev=False,
     )
     parser.prog = 'ldsc build-r2-panel'
@@ -1456,7 +1456,7 @@ def build_parser() -> argparse.ArgumentParser:
     identity = parser.add_argument_group('SNP identity and source genome build')
     window = parser.add_argument_group('LD window')
     filters = parser.add_argument_group('SNP and individual selection')
-    maps = parser.add_argument_group('Genetic maps and coordinate conversion')
+    maps = parser.add_argument_group('Genetic maps and liftover')
     runtime = parser.add_argument_group('Storage, performance, and logging')
 
     inputs.add_argument(
@@ -1469,7 +1469,7 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument(
         '--output-dir', required=True, metavar='DIR',
         help=(
-            'Required destination for reference-panel R2 files, chromosome SNP metadata, and diagnostics.'
+            'Required destination for R2 Parquet files, chromosome SNP metadata, and diagnostics.'
         ),
     )
 
@@ -1557,7 +1557,7 @@ def build_parser() -> argparse.ArgumentParser:
         '--liftover-chain-hg19-to-hg38-file', default=None, metavar='FILE',
         help=(
             'Chain file enabling additional hg38 output from hg19 coordinates. Requires coordinate-based '
-            '--snp-identifier; invalid for rsid modes. If omitted, do not convert hg19 input to hg38. Supply an '
+            '--snp-identifier; invalid for rsID-family modes. If omitted, do not convert hg19 input to hg38. Supply an '
             'exact file path; patterns are not expanded.'
         ),
     )
@@ -1565,7 +1565,7 @@ def build_parser() -> argparse.ArgumentParser:
         '--liftover-chain-hg38-to-hg19-file', default=None, metavar='FILE',
         help=(
             'Chain file enabling additional hg19 output from hg38 coordinates. Requires coordinate-based '
-            '--snp-identifier; invalid for rsid modes. If omitted, do not convert hg38 input to hg19. Supply an '
+            '--snp-identifier; invalid for rsID-family modes. If omitted, do not convert hg38 input to hg19. Supply an '
             'exact file path; patterns are not expanded.'
         ),
     )
@@ -1573,7 +1573,7 @@ def build_parser() -> argparse.ArgumentParser:
     runtime.add_argument(
         '--min-r2', dest='min_r2', default=0.0, type=float, metavar='VALUE',
         help=(
-            'Minimum adjusted R2 to store. Default: 0; zero or negative values keep every pair within the '
+            'Minimum unbiased R2 to store. Default: 0; zero or negative values keep every pair within the '
             'window. A positive value discards smaller R2 values; ldscore then rejects the panel, and '
             'query-r2 reports discarded pairs as NaN with status=absent.'
         ),

@@ -3,7 +3,10 @@
 Last updated on: 2026-10-27
 
 This document maps changed legacy LDSC flags to the supported `ldsc` commands and records the flag-cleanup decisions.
-Legacy LDSC source links point to `bulik/ldsc` at commit `aa33296`. “Removed” means the parser rejects the old option; there are no compatibility aliases. A retired option whose behavior is now automatic has that behavior described explicitly below. The [IO argument inventory](cli.md) lists the complete current surface, and [munge-sumstats](munge-sumstats.md) describes its input and artifact contracts.
+Legacy LDSC source links point to `bulik/ldsc` at commit `aa33296`.
+“Removed” means the parser rejects the old option; there are no compatibility aliases.
+A retired option whose behavior is now automatic has that behavior described explicitly below.
+The [IO argument inventory](cli.md) lists the complete current surface, and [`munge-sumstats`](munge-sumstats.md) describes its input and artifact contracts.
 
 ## Changes in the flag cleanup
 
@@ -16,15 +19,15 @@ Some replaced spellings came from earlier LDSC3 revisions rather than legacy LDS
 | `munge_sumstats.py --daner` | `munge-sumstats --format daner-old` | `ldsc munge-sumstats --input-format daner-old` | Read constant case/control counts from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers. Default `--input-format auto` can detect this profile. |
 | `munge_sumstats.py --daner-n` | `munge-sumstats --format daner-new` | `ldsc munge-sumstats --input-format daner-new` | Retain new-DANER selection, using the same shared preparation, aliases, optional fields, validation, and reader as automatically detected new-DANER input. `Nca/Nco`, `NCAS/NCON`, and case variants use the central alias registry. `FRQ_U_*` is optional. |
 | No generic legacy LDSC format selector | `munge-sumstats --format` | `ldsc munge-sumstats --input-format` | Values remain `auto`, `plain`, `daner-old`, and `daner-new`; default remains `auto`. This selects the input profile, independently of `--output-format`. Earlier LDSC3 booleans `--daner-old` and `--daner-new` are also unsupported. |
-| No equivalent legacy LDSC flag | `ldscore --exclude-regions` | `ldsc ldscore --regr-snps-exclude-regions` | The hidden alias is removed. Default remains `mhc-and-centromeres`; choices remain `none`, `mhc`, `centromeres`, and `mhc-and-centromeres`. This changes regression/output rows, not the LD-score contributor or count universe. |
-| No legacy LDSC gene-index command | `build-gene-ldscore-index --exclude-regions` | `ldsc build-gene-ldscore-index --regr-snps-exclude-regions` | Same alias removal and unchanged default region policy. |
-| `ldsc.py --no-intercept` with `--h2` | `h2 --no-intercept` | `ldsc h2 --intercept-h2 1` | Removed shortcut; explicitly fix the h2 intercept to 1. Omit the replacement to estimate it using the existing defaults. |
-| `ldsc.py --no-intercept` in partitioned `--h2` or `--h2-cts` runs | `partitioned-h2 --no-intercept` | `ldsc partitioned-h2 --intercept-h2 1` | Removed shortcut; explicitly fix the h2 intercept to 1 in each fitted model. Omit the replacement to estimate it using the existing defaults. |
-| `ldsc.py --no-intercept` with `--rg` | `rg --no-intercept` | `ldsc rg --intercept-h2 1 --intercept-gencov 0` | Removed shortcut; fix both traits' h2 intercepts to 1 in every pair and each genetic-covariance intercept to 0. Omit both replacements to estimate the intercepts using the existing defaults. |
+| No equivalent legacy LDSC flag | `ldscore --exclude-regions` | `ldsc ldscore --regr-snps-exclude-regions` | The hidden alias is removed. Default remains `mhc-and-centromeres`; choices remain `none`, `mhc`, `centromeres`, and `mhc-and-centromeres`. This changes the regression SNPs and output rows, not the reference SNPs that contribute to LD scores and counts. |
+| No legacy LDSC gene LD-score index command | `build-gene-ldscore-index --exclude-regions` | `ldsc build-gene-ldscore-index --regr-snps-exclude-regions` | Same alias removal and unchanged default region policy. |
+| `ldsc.py --no-intercept` with `--h2` | `h2 --no-intercept` | `ldsc h2 --intercept-h2 1` | Removed shortcut; explicitly fix the heritability intercept to 1. Omit the replacement to estimate it using the existing defaults. |
+| `ldsc.py --no-intercept` in partitioned `--h2` or `--h2-cts` runs | `partitioned-h2 --no-intercept` | `ldsc partitioned-h2 --intercept-h2 1` | Removed shortcut; explicitly fix the heritability intercept to 1 in each fitted model. Omit the replacement to estimate it using the existing defaults. |
+| `ldsc.py --no-intercept` with `--rg` | `rg --no-intercept` | `ldsc rg --intercept-h2 1 --intercept-gencov 0` | Removed shortcut; fix both traits' heritability intercepts to 1 in every pair and each genetic-covariance intercept to 0. Omit both replacements to estimate the intercepts using the existing defaults. |
 
 Direct/indexed `ldscore`, `build-gene-ldscore-index`, and batch regression now use `--workers`.
 The former `--threads` spelling is retired without an alias.
-The default is one managed child; every worker uses 1 BLAS thread in serial and parallel execution.
+The default is one worker; every worker uses 1 BLAS thread in serial and parallel execution.
 See [parallel execution](parallel-execution.md) for joblib CPU detection, validation, and task caps.
 
 Python counterparts also retain `LDScoreConfig.workers`, `run_ldscore(..., workers=...)`, and `GeneLDScoreIndexBuildConfig.workers`. `MungeConfig.keep_maf` is removed because preserving frequency is unconditional. The Python input-profile field remains `MungeConfig.sumstats_format`; its CLI spelling is now `--input-format`.
@@ -35,7 +38,10 @@ Sources: current [`sumstats_munger.build_parser`, `_apply_raw_sumstats_inference
 
 ## Regression intercept consolidation
 
-The legacy LDSC `--no-intercept` flag disabled intercept estimation by choosing standard fixed values. Its name did not mean an h2 intercept of zero. The current CLI rejects that flag, with no hidden alias. Use the following explicit replacements:
+The legacy LDSC `--no-intercept` flag disabled intercept estimation by choosing standard fixed values.
+Its name did not mean a heritability intercept of zero.
+The current CLI rejects that flag, with no hidden alias.
+Use the following explicit replacements:
 
 | Current command | Flags replacing legacy LDSC `--no-intercept` |
 | --- | --- |
@@ -43,9 +49,15 @@ The legacy LDSC `--no-intercept` flag disabled intercept estimation by choosing 
 | `partitioned-h2` | `--intercept-h2 1` |
 | `rg` | `--intercept-h2 1 --intercept-gencov 0` |
 
-These disable intercept estimation by fixing h2 intercepts to 1 and, for `rg`, covariance intercepts to 0. In `rg`, one scalar h2 value applies to both traits in every pair, and one scalar covariance value applies to every pair. Omitting these flags continues to estimate the intercepts with the existing defaults; fixed intercepts have not become automatic. Other numeric fixed values remain accepted through the same flags. `quantile-h2` reads a saved fitted model and has no intercept-estimation flags.
+These disable intercept estimation by fixing heritability intercepts to 1 and, for `rg`, covariance intercepts to 0.
+In `rg`, one scalar heritability-intercept value applies to both traits in every pair, and one scalar covariance value applies to every pair.
+Omitting these flags continues to estimate the intercepts with the existing defaults; fixed intercepts have not become automatic.
+Other numeric fixed values remain accepted through the same flags.
+`quantile-h2` reads a saved fitted model and has no intercept-estimation flags.
 
-Single-annotation `rg --intercept-gencov 0` with a free h2 intercept continues to fail: automatic two-step estimation selects cutoff 30, which conflicts with the fixed covariance intercept. Explicit `--two-step-cutoff` remains incompatible with fixed intercepts and multi-annotation fits. This consolidation adds no way to disable automatic two-step estimation.
+Single-annotation `rg --intercept-gencov 0` with a free heritability intercept continues to fail: automatic two-step estimation selects cutoff 30, which conflicts with the fixed covariance intercept.
+Explicit `--two-step-cutoff` remains incompatible with fixed intercepts and multi-annotation fits.
+This consolidation adds no way to disable automatic two-step estimation.
 
 The public Python `RegressionConfig.use_intercept=False` option remains available and unchanged. The CLI now expresses its standard fixed-intercept behavior through `--intercept-h2` and `--intercept-gencov` only.
 
@@ -74,8 +86,8 @@ Legacy numerical source: [`munge_sumstats.py:321`, `process_n`](https://github.c
 Legacy LDSC computed PLINK LD scores in chunks of `--chunk-size` SNPs (default 50) and widened each SNP's window to a multiple of the chunk, so the chunk size changed the LD scores.
 Legacy LDSC's own code comment notes that these windows differ from the definition in the paper.
 The current PLINK backend keeps the chunked computation but drops every pair outside the requested window, so `--snp-batch-size` in `ldsc ldscore` and `ldsc build-gene-ldscore-index` changes only speed and memory.
-Its LD scores equal legacy LDSC run with `--chunk-size 1` and use the same window rule as the parquet-R2 backend, which always used exact windows.
-The two backends still differ slightly, because parquet R² is stored as int16 and a parquet `--ld-wind-snps` window counts panel rows rather than retained SNPs.
+Its LD scores equal legacy LDSC run with `--chunk-size 1` and use the same window rule as the R² panel backend, which always used exact windows.
+The two backends still differ slightly, because an R² panel stores R² as int16 and an `--ld-wind-snps` window on an R² panel counts panel rows rather than retained SNPs.
 A cM window also differs when the panel's `CM`, interpolated from a genetic map, differs from the `.bim` `CM` the PLINK run uses.
 Gene LD-score indexes built with the earlier rounded windows (`format_version` 2) are rejected and must be rebuilt.
 Published legacy LD scores remain usable unchanged through `ldsc convert-ldsc2-ldscores`.
@@ -98,23 +110,23 @@ These mappings describe current workflows and are not additional changes made by
 
 | Legacy LDSC command/flag | Current entry point | Meaning or required adaptation |
 | --- | --- | --- |
-| `munge_sumstats.py --sumstats FILE` | `ldsc munge-sumstats --raw-sumstats-file FILE` | Raw input; keep it distinct from regression's curated `--sumstats-file`. |
+| `munge_sumstats.py --sumstats FILE` | `ldsc munge-sumstats --raw-sumstats-file FILE` | Raw input; keep it distinct from regression's `--sumstats-file`, which takes munged summary statistics. |
 | `--out PREFIX` | `--output-dir DIRECTORY` on materializing commands | Directory of fixed artifacts, not an output prefix. `plot` and `convert-h2-scale` derive fixed destinations from the input result directory. |
 | `ldsc.py --l2` | `ldsc ldscore` | LD-score computation is a subcommand. |
 | `ldsc.py --bfile PREFIX` | `ldsc ldscore --plink-prefix PREFIX` | PLINK BED/BIM/FAM input; current prefix resolution also handles chromosome suites. |
-| `ldsc.py --extract FILE` | `ldsc ldscore --ref-panel-snps-file FILE` | Select the reference contributor universe using the current headered identity-file contract. |
-| `ldsc.py --keep FILE` | `ldsc ldscore --keep-indivs-file FILE` | Restrict PLINK individuals; invalid with precomputed R2. |
-| `ldsc.py --annot SOURCES` | `--baseline-annot-sources`, optionally `--query-annot-sources` | Explicitly separate baseline annotations from focal queries; current annotation inputs include identity metadata. |
+| `ldsc.py --extract FILE` | `ldsc ldscore --ref-panel-snps-file FILE` | Select the reference SNPs using the current headered identity-file contract. |
+| `ldsc.py --keep FILE` | `ldsc ldscore --keep-indivs-file FILE` | Restrict PLINK individuals; invalid with an R² panel. |
+| `ldsc.py --annot SOURCES` | `--baseline-annot-sources`, optionally `--query-annot-sources` | Explicitly separate baseline annotations from query annotations; current annotation inputs include identity metadata. |
 | `ldsc.py --maf VALUE` | `ldsc ldscore --maf-min VALUE` | Reference-panel MAF filtering; `--common-maf-min` separately controls common-SNP count vectors. |
 | `ldsc.py --chunk-size N` | `ldsc ldscore --snp-batch-size N` | PLINK genotype computation batch size, current default 512. Unlike `--chunk-size`, it does not widen LD windows; see [Exact PLINK LD windows](#exact-plink-ld-windows). This is not munging's `--chunksize`. |
-| `ldsc.py --print-snps FILE` | `--regr-snps-file FILE` with a deliberate workflow adaptation | The current set determines both persisted LD-score rows and regression-weight contributors. It is not merely the old write-only filter; default HM3 selection and region exclusions also apply. |
-| `ldsc.py --h2 FILE` | `ldsc h2 --sumstats-file FILE` or `ldsc partitioned-h2 --sumstats-file FILE` | Select the intended workflow; both consume a canonical LD-score directory. |
-| `ldsc.py --h2-cts FILE`, `--ref-ld-chr-cts` | `ldsc partitioned-h2 --sumstats-file FILE --ldscore-dir DIRECTORY` | Build query LD scores first and use the canonical artifact; old cell-type manifests are not accepted as regression inputs. |
+| `ldsc.py --print-snps FILE` | `--regr-snps-file FILE` with a deliberate workflow adaptation | The current set determines both persisted LD-score rows and the regression SNPs that contribute to the regression weights. It is not merely the old write-only filter; default HM3 selection and region exclusions also apply. |
+| `ldsc.py --h2 FILE` | `ldsc h2 --sumstats-file FILE` or `ldsc partitioned-h2 --sumstats-file FILE` | Select the intended workflow; both consume an LD-score directory. |
+| `ldsc.py --h2-cts FILE`, `--ref-ld-chr-cts` | `ldsc partitioned-h2 --sumstats-file FILE --ldscore-dir DIRECTORY` | Build query LD scores first and use the resulting LD-score directory; old cell-type manifests are not accepted as regression inputs. |
 | `ldsc.py --rg FILES` | `ldsc rg --sumstats-sources FILES` | Current default is all pairs; use `--anchor-trait` for an anchor-versus-rest run. |
-| `--ref-ld`, `--ref-ld-chr`, `--w-ld`, `--w-ld-chr` | `--ldscore-dir DIRECTORY` on regression commands | Predictors, weights, and count metadata come from one canonical artifact. Convert legacy fragments with `convert-ldsc2-ldscores` first. |
+| `--ref-ld`, `--ref-ld-chr`, `--w-ld`, `--w-ld-chr` | `--ldscore-dir DIRECTORY` on regression commands | Predictors, weights, and count metadata come from one LD-score directory. Convert legacy fragments with `convert-ldsc2-ldscores` first. |
 | `--two-step CUTOFF` | `--two-step-cutoff CUTOFF` | Estimator cutoff; current inclusive threshold and model/intercept restrictions still apply. |
 | `--not-M-5-50` | `--count-kind all` | Opt into all-SNP counts. Default remains `--count-kind common`. |
-| `munge_sumstats.py --no-alleles` | `--snp-identifier rsid` or `--snp-identifier chr_pos` | Choose allele-blind identity explicitly; default current identity is `chr_pos_allele_aware`. |
+| `munge_sumstats.py --no-alleles` | `--snp-identifier rsid` or `--snp-identifier chr_pos` | Choose a base mode explicitly; the default SNP identifier mode is `chr_pos_allele_aware`. |
 | `munge_sumstats.py --merge-alleles FILE` | No exact alias; packaged HM3 restriction is the default, `--sumstats-snps-file` replaces it, and `--no-snp-restriction` disables it | Current identity matching and downstream allele alignment have separate roles. A keep-list does not imply allele rewriting or liftover. |
 
 Sources: legacy LDSC [`ldsc.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L423) and [`munge_sumstats.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/munge_sumstats.py#L449); current [`cli.build_parser`](../../src/ldsc/cli.py), [`ldscore_calculator.build_parser`](../../src/ldsc/ldscore_calculator.py), [`regression_runner` argument builders](../../src/ldsc/regression_runner.py), and the [IO inventory, command sections](cli.md). Unlisted unsupported legacy options should not be assumed to have an automatic replacement.
@@ -130,7 +142,7 @@ Line references are to the legacy LDSC repository.
 | `ldsc.py --cts-bin`, `--cts-breaks`, `--cts-names`, `--no-print-annot` (`ldsc.py:460-485`) | No on-the-fly binning of a SNP-to-value file. Continuous-valued annotation files are accepted as query annotations, and `quantile-h2` summarizes a continuous target after fitting. Binning by hand remains possible but is lossy. |
 | `ldsc.py --M` (`ldsc.py:538`) | No manual SNP-count override. Counts come from the LD-score directory; `--count-kind` selects common or all-SNP counts. |
 | `ldsc.py --print-cov` (`ldsc.py:549`) | No covariance-matrix output. |
-| `ldsc.py --print-delete-vals` (`ldsc.py:552`) | No flag; partitioned fits always write `diagnostics/coefficient_delete_values.parquet` ([partitioned-h2 results](results/partitioned-h2.md)). |
+| `ldsc.py --print-delete-vals` (`ldsc.py:552`) | No flag; partitioned fits always write `diagnostics/coefficient_delete_values.parquet` ([`partitioned-h2` results](results/partitioned-h2.md)). |
 | `ldsc.py --invert-anyway` (`ldsc.py:564`) | No forced inversion of ill-conditioned matrices. |
 | `ldsc.py --return-silly-things` (`ldsc.py:570`) | No flag; the default matches legacy LDSC's default behavior. |
 | `ldsc.py --pickle`, `--print-all-cts` (`ldsc.py:560`, `:546`) | No equivalent output options. |
@@ -138,4 +150,6 @@ Line references are to the legacy LDSC repository.
 
 ## Naming audit boundary
 
-Current README, documentation under `docs/`, troubleshooting guidance, tutorials, public configuration docstrings, code comments, and tests use the current names. The shared `--workers` spelling remains current for both LD-score computation and gene-index building. References to the abandoned `--threads` spelling are limited to this decision record, rejection tests, and git history.
+Current README, documentation under `docs/`, troubleshooting guidance, tutorials, public configuration docstrings, code comments, and tests use the current names.
+The shared `--workers` spelling remains current for both LD-score computation and gene LD-score index building.
+References to the abandoned `--threads` spelling are limited to this decision record, rejection tests, and git history.

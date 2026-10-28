@@ -104,7 +104,7 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
                         artifact.write_to(path)
                         shared.identity_drops_by_chrom[chrom] = TsvDiagnostics(path)
                 elif not shared.baseline_table.equals(result.baseline_table):
-                    raise LDSCInputError("LD-score execution batches disagree on shared baseline values or SNP rows. Use one fixed annotation/reference universe for the complete run.")
+                    raise LDSCInputError("LD-score execution batches disagree on shared baseline values or SNP rows. Use the same annotation sources and reference SNPs for the complete run.")
                 require_unique_annotation_names(shared.baseline_columns, [*shared.query_columns, *result.query_columns])
                 shared.query_columns.extend(result.query_columns)
                 shared.count_records.extend(record for record in result.count_records if record["group"] == "query")

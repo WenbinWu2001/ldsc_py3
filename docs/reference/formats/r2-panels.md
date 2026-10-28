@@ -1,15 +1,12 @@
-# Parquet R2 Table: Format Specification and Read Pipeline
+# R² Panel: Format Specification and Read Pipeline
 
 Last updated on: 2026-10-27
 
-This document defines the canonical **index** format for parquet-backed pairwise
-R² reference panels and describes how the read pipeline validates, binds, and
-streams them into the LD-score accumulation.
+This document defines the canonical **index** format for R² panels and describes how the read pipeline validates, binds, and streams them into the LD-score accumulation.
 
-The R² parquet is a compact pair table of **sidecar-row indices**; it carries no
-SNP identity of its own. Identity lives once-per-SNP in the paired metadata
-sidecar, and the parquet references it by integer index. The two files are an
-inseparable pair, bound by a content hash.
+The R² Parquet file is a compact pair table of **sidecar-row indices**; it carries no SNP identity of its own.
+Identity lives once-per-SNP in the paired sidecar, and the Parquet file references it by integer index.
+The two files are an inseparable pair, bound by a content hash.
 
 ---
 
@@ -29,7 +26,7 @@ Removing that expansion/collapse round-trip:
 - keeps the stored pairs independent of how sidecar SNPs are matched, so each reader applies the recorded mode in its remap (§2.4).
 
 A `SIGN_R` bit (sign of the Pearson correlation r) is preserved for downstream
-consumers, though LD-score calculation uses the bias-adjusted R² values and ignores this sign bit.
+consumers, though LD-score calculation uses the unbiased R² values and ignores this sign bit.
 
 ---
 
@@ -117,12 +114,12 @@ The int16→float32 **dequantization is a reader-side step** (divide by
 `ldsc:r2_scale`), not a Parquet codec; see §3.2.
 Readers reject any other R² dtype, encoding, or scale; a panel with a `float32` R² column must be rebuilt.
 
-### 2.4 SNP Identity Modes — handled entirely off the parquet
+### 2.4 SNP Identifier Modes — handled entirely off the parquet
 
 The four identifier modes are `rsid`, `rsid_allele_aware`, `chr_pos`, and
 `chr_pos_allele_aware` (package default `chr_pos_allele_aware`). The index
 parquet stores only indices; the mode affects only how sidecar SNPs are matched
-to the analysis universe when the reader builds its remap (§3).
+to the retained reference SNPs when the reader builds its remap (§3).
 `ldsc:snp_identifier` records the mode the panel was built in, and readers enforce it: `ldscore` requires the active `--snp-identifier` to equal the recorded mode, and `query-r2` accepts the recorded mode or its base form (`rsid` or `chr_pos`).
 
 ### 2.5 Parquet Schema Metadata
@@ -192,8 +189,8 @@ The sidecar is **required**. Because the parquet stores only indices, it is
 meaningless without the exact sidecar; there is no synthesize-from-parquet
 fallback. A missing sidecar is a hard error.
 
-The sidecar feeds the partitioned-LDSC workflow as before: SNP universe `A`,
-all/common counts via `MAF`, and the genetic-map (`CM`) window.
+The sidecar feeds the partitioned-heritability workflow as before: the panel SNPs `A` before filtering,
+all-SNP and common-SNP counts via `MAF`, and the genetic-map (`CM`) window.
 
 ---
 
@@ -204,7 +201,7 @@ point of contact between the LD-score algorithm and the parquet.
 
 ### 3.1 Open, Bind, Remap (`__init__` → `_init_index_path`)
 
-The reader receives the **retained** metadata (the analysis matrix universe, in
+The reader receives the **retained** metadata (the retained reference SNPs, in
 matrix order) exactly as the rest of the pipeline produces it — the index format
 does not change any filtering/restriction/intersection step. It then:
 
@@ -216,15 +213,15 @@ does not change any filtering/restriction/intersection step. It then:
    build order.
 4. Validates the binding (§4): recomputes the identity hash and checks
    `len(sidecar) == n_snps`; mismatch is a hard error.
-5. Builds `remap: build_idx → retained_idx` (int32, `-1` for SNPs not in the
-   analysis universe) and `retained_build_idx: matrix_idx → build_idx`
+5. Builds `remap: build_idx → retained_idx` (int32, `-1` for SNPs that are not
+   retained reference SNPs) and `retained_build_idx: matrix_idx → build_idx`
    (ascending, for pruning) via `build_index_remap`. Matching uses the same
-   mode-dependent identity key (`effective_merge_key_series`) that the matrix
-   universe is keyed by, so the result is identical to the legacy per-pair
+   mode-dependent identity key (`effective_merge_key_series`) that the retained
+   reference SNPs are keyed by, so the result is identical to the former per-pair
    identity lookup. **This is the only place identifier-mode matching happens —
    once per chromosome.** The remap **must be injective over retained indices**:
    if two distinct panel sidecar rows share the same identity key under the
-   active `snp_identifier` and both map onto the analysis universe, they collapse
+   active `snp_identifier` and both map onto the retained reference SNPs, they collapse
    onto one retained SNP and would silently double-count that SNP's pairs. Any
    such collapse is a **hard error** (rebuild the panel or use an allele-aware
    `--snp-identifier`). Because the check is the injectivity of a remap built
@@ -234,7 +231,7 @@ does not change any filtering/restriction/intersection step. It then:
    same **rsID + normalized allele pair**; `chr_pos` → same **CHR:POS**;
    `chr_pos_allele_aware` → same **CHR:POS + normalized allele pair**. So two
    rows at the same `CHR:POS` with different rsIDs stay distinct in both
-   rsid-family modes, and a multi-allelic site splits into distinct SNPs in both
+   rsID-family modes, and a multi-allelic site splits into distinct SNPs in both
    allele-aware modes (the allele set is order-independent, so `A/G` ≡ `G/A`).
    This up-front rejection is what
    lets §3.4 accumulate LD scores with no pair deduplication; with each
@@ -255,7 +252,7 @@ i = remap[IDX_1]; j = remap[IDX_2]
 keep = (i >= 0) & (j >= 0)
 ```
 
-Endpoints not in the analysis universe map to `-1` and are dropped.
+Endpoints that are not retained reference SNPs map to `-1` and are dropped.
 The reader **dequantizes** the int16 column (`r2 = int16_values / ldsc:r2_scale`, with the scale taken from the validated contract) to `float32` and applies no further correction.
 `SIGN_R` is not read (unused by LD-score computation).
 Each decoded batch is a numeric
@@ -274,7 +271,7 @@ This avoids retaining every pair in a chromosome, but it is not a total RSS boun
 ### 3.4 LD-score accumulation (`ld_score_streaming_from_r2_reader`)
 
 Conceptually, the full LD-score matrix is $C=RA$, where $R$ is symmetric with unit diagonal and $A$ contains annotations plus the optional regression-weight column.
-Production retains only requested output rows $O$, computing $C_{\mathrm{out}}=(RA)[O,:]$ while preserving all retained reference contributors.
+Production retains only requested output rows $O$, computing $C_{\mathrm{out}}=(RA)[O,:]$ while preserving all retained reference SNPs.
 The corresponding pair updates are:
 
 ```text
@@ -286,8 +283,8 @@ for each stored pair (i, j, r2) with i < j and i ≥ block_left[j]:
 
 `block_left[j]` applies the read-time LD window, which may be narrower than the build window.
 The driver splits decoded batches to buffer at most `_CSR_CHUNK_PAIRS` pairs, currently 16 million, before projection.
-[`ProjectionAccumulator.add_pairs()`](../../../src/ldsc/_kernel/ldscore_projection.py) filters the window and output targets, expands the required pair orientations, and constructs a rectangular CSR over the chunk's involved outputs and contributors.
-It multiplies in float64 using selected annotation tiles, reusing each contributor tile across output blocks.
+[`ProjectionAccumulator.add_pairs()`](../../../src/ldsc/_kernel/ldscore_projection.py) filters the window and output targets, expands the required pair orientations, and constructs a rectangular CSR over the chunk's involved output rows and reference SNPs.
+It multiplies in float64 using selected annotation tiles, reusing each reference-SNP tile across output blocks.
 Shared baseline columns and weights are projected together, followed by focal column tiles for the active execution batch.
 The next execution batch repeats traversal.
 The production path does not require a full `m×m` upper-triangular CSR or a complete dense annotation matrix.
@@ -313,7 +310,7 @@ There is no dense window matrix or all-chromosome pair cache.
 A wider or denser panel therefore increases streamed work without requiring all its pairs to be resident simultaneously.
 The read-time window still filters pairs before sparse construction, so it can change the working set and arithmetic even though all stored pairs are read.
 Each chromosome worker adds its own working set, while staged output and file cache have separate lifetimes.
-See the [package resource model](../../dev/design/memory-and-cpu.md#precision-universes-and-resource-accounting).
+See the [package resource model](../../dev/design/memory-and-cpu.md#precision-snp-sets-and-resource-accounting).
 
 The builder has a different working set.
 Unrestricted builds stream genotypes from disk; with `--ref-panel-snps-file`, the selected genotypes are read into RAM, with individual filtering applied during the read.
@@ -332,7 +329,7 @@ An R² panel stores only the SNP pairs inside the window it was built with, reco
 | Requested window | Result |
 | --- | --- |
 | Same unit, no wider than the build window | Accepted. |
-| Same unit, wider than the build window | `LDSCUsageError`: "is wider than the input R2 parquet panel window". |
+| Same unit, wider than the build window | `LDSCUsageError`: "is wider than the input R2 panel window". |
 | Different unit, for example a kb panel with `--ld-wind-snps` | `LDSCUsageError`: "windows in different units cannot be checked for coverage". |
 
 A window in a different unit is rejected even when the panel happens to cover it, because coverage is not inferred from per-SNP coordinates.
@@ -345,7 +342,7 @@ Code: `validate_ldscore_window_within_r2_panel_window` in `src/ldsc/_kernel/ldsc
 
 **`--ld-wind-snps` counts panel rows.**
 For an R² panel, `--ld-wind-snps K` spans `K` sidecar rows on each side, whatever SNPs the run keeps.
-When the run keeps fewer SNPs than the panel (`--maf-min`, `--ref-panel-snps-file`, or annotations that cover part of the panel), its SNPs have fewer than `K` contributors on each side.
+When the run keeps fewer SNPs than the panel (`--maf-min`, `--ref-panel-snps-file`, or annotations that cover part of the panel), its SNPs have fewer than `K` reference SNPs on each side.
 The PLINK backend counts the SNPs the run keeps, as legacy LDSC did, so the two backends then differ for the same options.
 Each such run logs one warning with the number of affected chromosomes, one example with its kept and panel SNP counts, and the location of the per-chromosome counts.
 Every R² panel `--ld-wind-snps` run writes `diagnostics/ld_window_snp_counts.tsv` with `CHR`, `panel_snps`, `kept_snps`, `ld_wind_snps` and `counting_basis` (`panel_rows`), listed in the `files` entry of `metadata.json`.
@@ -398,7 +395,7 @@ and hg38 panels.
 **One chromosome per file.** The reader is instantiated per chromosome and
 expects a single-chromosome parquet + sidecar.
 
-**Clean break — index only.** The legacy 10-column canonical schema, the raw
+**Clean break — index only.** The former 10-column canonical schema, the raw
 external-input read path, and the synthesize-from-parquet metadata fallback are
 removed. External R² formats (e.g. TOP-LD pairwise tables, SBayesR binary LD
 matrices) are not read directly; a future converter would turn them into the
@@ -414,7 +411,7 @@ canonical index format offline. Existing 10-column panels must be regenerated.
 | `_kernel/snp_identity.py` | `sidecar_identity_sha256` binding hash |
 | `_kernel/plink_bed.py` | `PlinkBEDFile` genotype source for the build: selective reads retain the selected packed payload; unrestricted panel builds opt into disk streaming. Both decode bounded standardized blocks |
 | `ref_panel_builder.py` | build loop: sidecar built first, hash + `n_snps` passed to the writer |
-| `_kernel/ldscore.py` | `SortedR2BlockReader` index path: full-sidecar load, binding validation, `build_index_remap`, gather decode, `iter_all_pairs` streaming; `ld_score_streaming_from_r2_reader` pair accumulation; raw/legacy and block/query/cache paths removed |
+| `_kernel/ldscore.py` | `SortedR2BlockReader` index path: full-sidecar load, binding validation, `build_index_remap`, gather decode, `iter_all_pairs` streaming; `ld_score_streaming_from_r2_reader` pair accumulation; raw/former-format and block/query/cache paths removed |
 | `_kernel/ldscore_projection.py` | `ProjectionAccumulator`: selected-output float64 scores, rectangular sparse pair operators, bounded annotation operands, and shared weight projection |
 | `_kernel/ref_panel.py` | mandatory sidecar loading; shared `prepare_chromosome` alignment/window policy and `build_reader` contract and identity checks |
 | `tests/` | index writer/reader/binding/remap tests; cross-mode parity gate; build→read parity |

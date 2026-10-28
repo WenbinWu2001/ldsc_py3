@@ -1,11 +1,11 @@
 """Annotation overlap-matrix blocks computed during LD-score estimation.
 
-The overlap matrix ``O = AᵀA`` (``A`` the SNP-by-annotation matrix) drives
-legacy overlap-aware partitioned-heritability summaries. Because partitioned-h2
+The overlap matrix ``O = A.T @ A`` (``A`` the SNP-by-annotation matrix) drives
+legacy overlap-aware partitioned-heritability summaries. Because partitioned heritability
 fits ``baseline + one query`` per model, only the baseline-rows block
-``A_Bᵀ·A`` (shape ``B × (B+Q)``) and each query's self-overlap ``Σ_s A[s,q]²``
+``A_B.T @ A`` (shape ``B x (B+Q)``) and each query's self-overlap ``sum_s A[s,q]**2``
 are ever needed; cross-query overlaps are not. This module computes those blocks
-for the all-SNP and common-SNP universes, with no I/O.
+for all reference SNPs and for the common reference SNPs, with no I/O.
 """
 from __future__ import annotations
 
@@ -17,18 +17,18 @@ import pandas as pd
 
 @dataclass(frozen=True)
 class OverlapContribution:
-    """Per-chromosome (or aggregated) overlap blocks for both SNP universes.
+    """Per-chromosome (or aggregated) overlap blocks for all and common reference SNPs.
 
     Attributes
     ----------
     baseline_block_all, baseline_block_common : numpy.ndarray or None
-        ``A_Bᵀ·A`` over the all/common universe, shape ``(B, B+Q)`` with columns
+        ``A_B.T @ A`` over all or common reference SNPs, shape ``(B, B+Q)`` with columns
         ordered ``baseline + query``. The common block is ``None`` when MAF is
         unavailable.
     query_diagonal_all, query_diagonal_common : numpy.ndarray or None
-        Query self-overlaps ``Σ_s A[s,q]²``, shape ``(Q,)``.
+        Query self-overlaps ``sum_s A[s,q]**2``, shape ``(Q,)``.
     n_all, n_common : int or None
-        SNP-universe sizes (``M_tot``); ``n_common`` is ``None`` without MAF.
+        Reference-SNP counts (``M_tot``); ``n_common`` is ``None`` without MAF.
     """
     baseline_block_all: np.ndarray
     baseline_block_common: np.ndarray | None
@@ -47,8 +47,8 @@ def compute_overlap(
     """Compute baseline-rows overlap blocks and query self-overlaps.
 
     ``annotations`` columns are ordered ``baseline + query`` with ``n_baseline``
-    leading baseline columns. The common universe is ``MAF >= common_maf_min``
-    (inclusive, matching the common-count mask); it is omitted when MAF metadata
+    leading baseline columns. The common reference SNPs have ``MAF >= common_maf_min``
+    (inclusive, matching the common-count mask); their blocks are omitted when MAF metadata
     is absent or all-missing.
     """
     A = annotations.to_numpy(dtype=np.float64, copy=False)
@@ -72,9 +72,9 @@ def compute_overlap(
 def sum_overlap_contributions(contributions: list[OverlapContribution]) -> OverlapContribution:
     """Sum per-chromosome overlap contributions into one aggregate.
 
-    The common universe survives only if every contribution carries it; if any
+    The common-SNP blocks survive only if every contribution carries them; if any
     chromosome lacks MAF, the aggregate common blocks are ``None`` (mirroring how
-    aggregated common counts are dropped when unavailable).
+    aggregated common-SNP counts are dropped when unavailable).
     """
     block_all = np.sum([c.baseline_block_all for c in contributions], axis=0)
     query_diag_all = np.sum([c.query_diagonal_all for c in contributions], axis=0)
@@ -96,7 +96,7 @@ def annotation_statistics(metadata, annotations, n_baseline, *, query_batch_size
 
     Counts and products accumulate in float64 so column width and row tiling
     do not amplify float32 cancellation. Only baseline-by-query overlaps and query diagonals are retained;
-    different focal queries are never crossed. All rows are reference SNPs,
+    different query annotations are never crossed. All rows are reference SNPs,
     independently of which SNPs receive output LD scores.
     """
     from ..annotation_semantics import classify_annotation_values

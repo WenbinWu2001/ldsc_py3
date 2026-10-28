@@ -1,4 +1,4 @@
-"""Tests for the reference-panel R² pair-query API and R²→r converter."""
+"""Tests for the reference-panel R2 pair-query API and R2->r converter."""
 import gzip
 from pathlib import Path
 
@@ -23,7 +23,7 @@ def build_test_panel(
 ):
     """Write one binding-valid index panel (chrN_r2.parquet + chrN_meta.tsv.gz).
 
-    Sidecar rows (0-based index → identity):
+    Sidecar rows (0-based index -> identity):
         0: 1:100 A/G   1: 1:200 C/T   2: 1:300 A/C   3: 1:400 G/T
     Stored pairs (canonical i<j), R2 (adjusted) and SIGN_R (Pearson r >= 0):
         (0,1) R2=0.64 sign=+   (0,2) R2=0.04 sign=-   (1,2) R2=0.25 sign=+

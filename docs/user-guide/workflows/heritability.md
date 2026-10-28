@@ -17,7 +17,7 @@ To divide SNP heritability among annotations, use [partitioned heritability](par
 Both inputs must use the same SNP identifier mode and, for coordinate-family modes, the same genome build.
 `h2` has no option to choose either: it reads them from the two files and stops if they disagree (`--allow-identity-downgrade` is the one exception, described under [options](#options-you-may-change)).
 Choose them when you munge the summary statistics and compute the LD scores; see [SNP identity and genome build](../concepts/snp-identity-and-genome-build.md).
-The regression SNPs (the HM3 map by default) are fixed when the LD scores are computed; see [LD-score SNP universes](../../reference/ldscore-snp-universes.md).
+The regression SNPs (the HM3 map by default) are fixed when the LD scores are computed; see [reference and regression SNPs](../../reference/ldscore-snp-universes.md).
 
 ## Run the analysis
 

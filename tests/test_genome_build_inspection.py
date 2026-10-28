@@ -14,7 +14,7 @@ from ldsc import cli
 from ldsc.genome_build_inference import load_packaged_reference_table
 
 
-RSID_NOTICE = "This artifact’s workflow uses rsIDs for SNP matching."
+RSID_NOTICE = "This artifact's workflow uses rsIDs for SNP matching."
 
 
 def coordinates(build="hg19", chrom=1, n=500, offset=0):

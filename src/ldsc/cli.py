@@ -1,13 +1,13 @@
-"""Unified CLI for the refactored LDSC package.
+"""Unified CLI for the LDSC3 package.
 
 Core functionality:
-    Provide one command surface for annotation building, parquet
-    reference-panel generation, LD-score calculation, summary-statistics
+    Provide one command surface for annotation building, R2 panel
+    generation, LD-score calculation, summary-statistics
     munging, regression, result plotting, and liability-scale post-processing.
 
 Overview
 --------
-The refactored package intentionally exposes a single command, ``ldsc``, with
+LDSC3 intentionally exposes a single command, ``ldsc``, with
 subcommands grouped by user task rather than by historical script name. This
 module owns only argument parsing and dispatch. Scientific work remains in the
 public workflow modules; the plotting runtime remains behind lazy workflow
@@ -55,13 +55,13 @@ _SUBCOMMAND_HELP = {
     "build-gene-ldscore-index": "Build a reusable gene LD-score index.",
     "convert-ldsc2-ldscores": "Convert selected legacy LD-score suites to LDSC3 format.",
     "munge-sumstats": "Munge GWAS summary statistics.",
-    "h2": "Estimate heritability from munged sumstats and LD scores.",
+    "h2": "Estimate heritability from munged summary statistics and LD scores.",
     "partitioned-h2": "Estimate partitioned heritability with independent query models.",
     "quantile-h2": "Summarize fitted heritability across annotation quantiles.",
     "rg": "Estimate genetic correlation.",
     "query-r2": "Query R2 for SNP pairs from a reference panel.",
-    "convert-h2-scale": "Convert a saved observed-scale h2 estimate to liability scale.",
-    "plot": "Plot a saved LDSC result.",
+    "convert-h2-scale": "Convert a saved observed-scale SNP heritability estimate to liability scale.",
+    "plot": "Plot a saved LDSC3 result.",
 }
 
 
@@ -82,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     argparse.ArgumentParser
         Parser whose subcommands mirror the supported public workflows.
     """
-    parser = _NoAbbrevArgumentParser(prog="ldsc", description="LDSC command line interface.")
+    parser = _NoAbbrevArgumentParser(prog="ldsc", description="LDSC3 command line interface.")
     subparsers = parser.add_subparsers(dest="command", required=True, parser_class=_NoAbbrevArgumentParser)
 
     inspection_parser = subparsers.add_parser("infer-genome-build", help=_SUBCOMMAND_HELP["infer-genome-build"])
@@ -153,7 +153,7 @@ def _build_top_level_parser() -> argparse.ArgumentParser:
     argparse.ArgumentParser
         Parser exposing the subcommand names and one-line help only.
     """
-    parser = _NoAbbrevArgumentParser(prog="ldsc", description="LDSC command line interface.")
+    parser = _NoAbbrevArgumentParser(prog="ldsc", description="LDSC3 command line interface.")
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name, help_text in _SUBCOMMAND_HELP.items():
         subparsers.add_parser(name, help=help_text)
@@ -205,7 +205,7 @@ def main(argv: Sequence[str] | None = None):
             h2_scale = _load_h2_scale()
             parser = _NoAbbrevArgumentParser(
                 prog="ldsc convert-h2-scale",
-                description="Convert a saved observed-scale h2 estimate to liability scale.",
+                description="Convert a saved observed-scale SNP heritability estimate to liability scale.",
             )
             h2_scale.add_convert_h2_scale_arguments(parser)
             return h2_scale.run_convert_h2_scale_from_args(parser.parse_args(subargv))
@@ -213,7 +213,7 @@ def main(argv: Sequence[str] | None = None):
             plotting = _load_plotting()
             parser = _NoAbbrevArgumentParser(
                 prog="ldsc plot",
-                description="Create the approved plot for a canonical LDSC result directory.",
+                description="Create the approved plot for a canonical LDSC3 result directory.",
             )
             plotting.add_plot_arguments(parser)
             return plotting.run_plot_from_args(parser.parse_args(subargv))
@@ -222,7 +222,7 @@ def main(argv: Sequence[str] | None = None):
             return sumstats_munger.main(subargv)
         if command == "h2":
             regression_runner = _load_regression_runner()
-            parser = _NoAbbrevArgumentParser(prog="ldsc h2", description="Estimate heritability from munged sumstats and LD scores.")
+            parser = _NoAbbrevArgumentParser(prog="ldsc h2", description="Estimate heritability from munged summary statistics and LD scores.")
             regression_runner.add_h2_arguments(parser)
             parsed = parser.parse_args(subargv)
             return regression_runner.run_h2_from_args(parsed)
@@ -239,7 +239,7 @@ def main(argv: Sequence[str] | None = None):
             quantile_h2 = _load_quantile_h2()
             parser = _NoAbbrevArgumentParser(
                 prog="ldsc quantile-h2",
-                description="Project a fitted partitioned-LDSC model onto continuous-annotation quantiles.",
+                description="Project a fitted partitioned-heritability model onto continuous-annotation quantiles.",
             )
             quantile_h2.add_quantile_h2_arguments(parser)
             return quantile_h2.run_quantile_h2_from_args(parser.parse_args(subargv))
@@ -259,7 +259,7 @@ def main(argv: Sequence[str] | None = None):
 def _add_build_inspection_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "path", metavar="PATH",
-        help=("Required exact file or recognized LDSC artifact directory. Read build declarations "
+        help=("Required exact file or recognized LDSC3 artifact directory. Read build declarations "
               "or infer hg19/hg38 from SNP coordinates. No patterns or multiple paths. "
               "Print unknown when evidence is insufficient; unknown exits successfully. "
               "Creates no files or logs."),
@@ -466,7 +466,7 @@ def _load_legacy_ldscore_converter():
 
 
 def _load_h2_scale():
-    """Import post-fit h2 conversion lazily."""
+    """Import the post-fit heritability scale conversion lazily."""
     from . import h2_scale
 
     return h2_scale

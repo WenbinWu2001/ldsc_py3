@@ -1,6 +1,6 @@
 """Post-fit heritability projection for continuous annotation quantiles.
 
-The numerical functions operate on fitted partitioned-LDSC coefficients and
+The numerical functions operate on fitted partitioned-heritability coefficients and
 annotation sufficient statistics. They do not refit the regression model and
 do not assign a coefficient to an external target annotation.
 """
@@ -152,8 +152,8 @@ def compute_quantile_h2(
 ) -> pd.DataFrame:
     """Project one fitted joint model onto target-defined quantiles.
 
-    Standalone calls use a managed child with 1 BLAS thread; calls from an
-    existing calculation worker reuse that child without another pool.
+    Standalone calls use one worker with 1 BLAS thread; calls from an
+    existing calculation worker reuse that worker without another pool.
 
     Parameters
     ----------
@@ -256,7 +256,7 @@ def compute_standardized_coefficients(
 
     Population standard deviations (``ddof=0``) and the whole-model
     heritability denominator must be computed over the complete common
-    reference-SNP universe. The denominator is not ratio-jackknifed.
+    set of reference SNPs. The denominator is not ratio-jackknifed.
     """
     names = [str(name) for name in annotation_names]
     sd = np.asarray(annotation_sd, dtype=np.float64).reshape(-1)
@@ -340,7 +340,7 @@ class QuantileH2Result:
     alignment_issues_path : str
         Persistent compressed table of every recorded alignment issue.
     metadata : dict
-        Model, input, universe, missingness, and statistic provenance.
+        Model, input, SNP-set, missingness, and statistic provenance.
     output_paths : dict of str to str
         Written result-family paths.
     """
@@ -540,7 +540,7 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
         help=(
             'Required reference SNP metadata files with chromosome, position, SNP ID, and MAF; allele-aware '
             "matching also uses A1/A2. Accepts exact paths, '*' and '@' patterns; see --target-annot-sources for "
-            'pattern rules. Use original R2 metadata or PLINK metadata exported by ldscore --export-ref-metadata.'
+            'pattern rules. Use original R2 panel sidecars or PLINK metadata exported by ldscore --export-ref-metadata.'
         ),
     )
     query_group = original.add_mutually_exclusive_group()
@@ -669,10 +669,10 @@ def build_parser() -> argparse.ArgumentParser:
 def run_quantile_h2_from_args(args) -> QuantileH2Result:
     """Run the verified post-fit continuous-annotation quantile workflow.
 
-    Preparation and projection share one managed child with 1 BLAS thread.
+    Preparation and projection share one worker with 1 BLAS thread.
 
-    The workflow reconstructs the fitted model's common reference-SNP
-    universe from the original annotation sources and reference metadata,
+    The workflow reconstructs the fitted model's common reference
+    SNPs from the original annotation sources and reference metadata,
     assigns eligible SNPs to target-value quantiles, and projects the saved
     whole-data and delete-one-block coefficient vectors onto those quantiles.
     Alignment, counts, and available overlap cross-products are checked; these
@@ -752,14 +752,14 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
         if eligible_total_h2 < 0:
             LOGGER.warning(
                 "Target-eligible fitted-model heritability is negative (%g). Negative quantile estimates and "
-                "nonzero-total proportion/enrichment ratios remain visible; interpret them as noisy linear-model "
+                "nonzero-total proportion and enrichment estimates remain visible; interpret them as noisy linear-model "
                 "estimates, not literal negative biological variance.",
                 eligible_total_h2,
             )
         elif eligible_total_h2 == 0:
             LOGGER.warning(
-                "Target-eligible fitted-model heritability is zero. Quantile h2 estimates remain visible, while "
-                "prop_h2 and enrichment ratio fields are NaN because their denominator is zero."
+                "Target-eligible fitted-model heritability is zero. Quantile SNP heritability estimates remain visible, while "
+                "prop_h2 and enrichment fields are NaN because their denominator is zero."
             )
         total_h2 = float(model.tau @ inputs.full_sums)
         annotation_types = {
@@ -799,7 +799,7 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
             "pop_prev": None if not np.isfinite(pop_prev) else float(pop_prev),
         }
         LOGGER.info(
-            "Fitted model=%s; target=%s; common MAF rule=MAF >= %g; common reference-SNP universe=%d; "
+            "Fitted model=%s; target=%s; common MAF rule=MAF >= %g; common reference SNPs=%d; "
             "target missing exclusions=%d.",
             model.model_type,
             args.target_annotation,
@@ -817,7 +817,7 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
             )
         if total_h2 <= 0:
             LOGGER.warning(
-                "Full fitted-model heritability over the common reference-SNP universe is nonpositive (%g); "
+                "Full fitted-model heritability over the common reference SNPs is nonpositive (%g); "
                 "tau_star fields are NaN while raw tau fields remain available.",
                 total_h2,
             )

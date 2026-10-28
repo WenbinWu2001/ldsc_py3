@@ -212,7 +212,7 @@ def test_unused_catalog_defects_are_saved_with_one_warning(tmp_path, inputs, inv
     issues = pd.read_csv(tmp_path / "direct/diagnostics/gene_catalog_issues.tsv", sep="\t")
     assert len(issues) == 20
     log = (tmp_path / "direct/diagnostics/ldscore.log").read_text()
-    assert log.count("Gene-coordinate catalog defects:") == 1
+    assert log.count("Gene coordinate catalog defects:") == 1
     assert "records=20" in log and "See diagnostics/gene_catalog_issues.tsv" in log
     assert "BAD19" not in log
     if not invalid_query:

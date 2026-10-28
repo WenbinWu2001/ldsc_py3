@@ -12,9 +12,9 @@ Sources:
     (multiple models per chromosome, merged to one [min(start), max(end)) span).
     Kept for reference; NOT wired to any CLI choice.
   - `centromeres.{build}.bed` (the active `centromeres` preset): each core span
-    padded by +/-3 cM, matching the LD Score regression pericentromeric exclusion
+    padded by +/-3 cM, matching the LD score regression pericentromeric exclusion
     of Bulik-Sullivan et al. 2015 Nat Genet (Online Methods). cM is read from the
-    Alkes-group recombination map and inverted back to base pairs; the padded
+    Alkes-group genetic map and inverted back to base pairs; the padded
     interval is unioned with the core span so it always contains it (see
     `pericentromere_intervals`).
   - MHC: pinned broad-exclusion windows (hg19 chr6:25-35Mb; hg38 lifted core).

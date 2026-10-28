@@ -211,7 +211,7 @@ def inspect_declared_inputs(*, baseline=(), query=(), files=(), scalar_files=(),
 
 
 def inspect_r2_headers(directory, genome_build=None, *, ldscore_args=None):
-    """Check every selected R2/sidecar path and Parquet metadata contract before pair scans.
+    """Check every selected R2 Parquet/sidecar path and Parquet metadata contract before pair scans.
 
     With ``ldscore_args`` (parsed ldscore options), each file's recorded build
     window must also admit the requested LD window, and the file must store
@@ -225,7 +225,7 @@ def inspect_r2_headers(directory, genome_build=None, *, ldscore_args=None):
     root = Path(directory)
     children = [root / build for build in ('hg19', 'hg38') if (root / build).is_dir()]
     if genome_build == 'auto' and len(children) > 1 and not list(root.glob('chr*_r2.parquet')):
-        gate = InputGate('R2 declarations and headers')
+        gate = InputGate('R2 panel declarations and headers')
         for child in children:
             gate.check('reference', child,
                        lambda child=child: inspect_r2_headers(child, child.name, ldscore_args=ldscore_args))
@@ -233,9 +233,9 @@ def inspect_r2_headers(directory, genome_build=None, *, ldscore_args=None):
         return root
     root = _resolve_r2_build_dir(directory, genome_build)
     members = sorted({path.name.split('_')[0][3:] for pattern in ('chr*_r2.parquet', 'chr*_meta.tsv.gz') for path in root.glob(pattern)})
-    gate = InputGate('R2 declarations and headers')
+    gate = InputGate('R2 panel declarations and headers')
     if not members:
-        gate.issues.append(input_issue('reference', root, '', 'missing_required_input', 'No R2/sidecar chromosome artifacts found.'))
+        gate.issues.append(input_issue('reference', root, '', 'missing_required_input', 'No R2 Parquet or sidecar chromosome files found.'))
     for chrom in members:
         pair = root / f'chr{chrom}_r2.parquet'
         sidecar = root / f'chr{chrom}_meta.tsv.gz'

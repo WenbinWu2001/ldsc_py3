@@ -9,7 +9,7 @@ The runtime behavior users see (log files, console routing, output preflight and
 
 The writing rules guide new messages and the audit of existing messages; they do not imply that every current message already meets the standard.
 
-The default level, `INFO`, serves users who know what LDSC can do but need not understand its modules, architecture, or numerical implementation.
+The default level, `INFO`, serves users who know what LDSC3 can do but need not understand its modules, architecture, or numerical implementation.
 Messages should explain the task being performed, its outcome, and any action the user needs to take.
 Familiar method terms such as SNP, LD score, genome build, and heritability are appropriate; explain specialized terms when their meaning is needed to understand a failure or remedy.
 
@@ -75,7 +75,7 @@ Use the following content in a natural order; this is a writing standard, not a 
 
 A remedy should name the file, option, schema requirement, or compatibility check the user can act on.
 “Check your input,” “invalid configuration,” and “rerun with DEBUG” alone are insufficient for a known user error.
-For a path-resolution failure, suggest checking the filename and its visibility on the machine running LDSC; do not suggest column or delimiter changes before file reading has begun.
+For a path-resolution failure, suggest checking the filename and its visibility on the machine running LDSC3; do not suggest column or delimiter changes before file reading has begun.
 For an output collision, offer a fresh output directory, or `--overwrite` only when the user intends to replace previous outputs.
 Do not recommend dropping inputs, relaxing filters, or enabling query continuation as a generic repair without explaining how that would change the requested analysis.
 
@@ -85,7 +85,7 @@ The diagnostic pointer applies only after that table has been written:
 ```text
 munge-sumstats could not find the raw summary-statistics file '/path/raw.tsv.gz'.
 No file matched this path; summary-statistic reading has not started.
-Check the filename and its visibility on the machine running LDSC, then set --raw-sumstats-file to an existing readable file.
+Check the filename and its visibility on the machine running LDSC3, then set --raw-sumstats-file to an existing readable file.
 Input issues and repairs: /path/results/diagnostics/input_issues.tsv.
 ```
 
@@ -93,7 +93,7 @@ For an unexpected internal failure, describe the interrupted user task and ident
 Do not attribute an unverified internal failure to bad user data.
 Give the saved log location when available and ask for the command, package version, and relevant developer evidence if the user needs to report the problem.
 If the cause is unknown, say so; do not invent a scientific repair.
-An abnormal worker termination may leave no child traceback, so affected in-flight tasks are evidence of interrupted work rather than proof of the task that caused the termination.
+An abnormal worker termination may leave no worker traceback, so affected in-flight tasks are evidence of interrupted work rather than proof of the task that caused the termination.
 
 Warnings explain what happened, whether processing continues, and how the condition affects the requested analysis or outputs.
 An explicitly requested exclusion can be summarized with its reason, count, and saved audit.
@@ -157,7 +157,7 @@ Log creation depends on the API's output contract:
 - `AnnotationBuilder.run(..., output_dir=...)` requires an output parent for private preparation but does not install a workflow log. `run_annotate(...)` owns standalone output preflight, writing, and `diagnostics/annotate.log`.
 - `LDScoreCalculator.run(..., output_config=...)` creates `diagnostics/ldscore.log` and chromosome logs for writing runs.
   `LDScoreCalculator.run(..., output_config=None)` creates no files.
-- `ReferencePanelBuilder.run(...)` does not create a build-r2-panel workflow log.
+- `ReferencePanelBuilder.run(...)` does not create a `build-r2-panel` workflow log.
 - `RegressionRunner.estimate_*` methods do not create regression logs.
 
 `SumstatsMunger.run(...)` remains a workflow-level API and keeps writing
@@ -184,7 +184,15 @@ BIM mode emits query files only and has no baseline-value output.
 
 ## Streaming memory-workflow diagnostics
 
-Annotation, gene-resolution, direct chromosome-drop, and quantile alignment audits are replayed in bounded chunks into their complete output files. Results keep counts/statuses or persistent paths; they do not retain every chromosome's audit frame. Standalone annotate publishes query shards incrementally and detaches its returned bundle from construction scratch. Batch partitioned-h2 stages complete per-fit details privately and publishes them after final summary sorting, preserving overwrite and failure-marker contracts. Explicit `--continue-on-query-error` permits publication of successful query fits after recording failures in `diagnostics/query_status.tsv`. Each query exception is logged with its name, stage, and traceback; singular jackknife errors also log block indices, retained-row intervals, available panel genomic spans, normal-matrix ranks, and before/after-deletion support counts. A final warning summarizes successful and failed counts. Strict scans publish diagnostics alone when any query fails. See [query failure handling](../../reference/results/partitioned-h2.md#query-failures-and-continuation) and [the memory design](memory-and-cpu.md).
+Annotation, gene-resolution, direct chromosome-drop, and quantile alignment audits are replayed in bounded chunks into their complete output files.
+Results keep counts/statuses or persistent paths; they do not retain every chromosome's audit frame.
+Standalone annotate publishes query shards incrementally and detaches its returned bundle from construction scratch.
+Batch `partitioned-h2` stages complete per-fit details privately and publishes them after final summary sorting, preserving overwrite and failure-marker contracts.
+Explicit `--continue-on-query-error` permits publication of successful query fits after recording failures in `diagnostics/query_status.tsv`.
+Each query exception is logged with its name, stage, and traceback; singular jackknife errors also log block indices, retained-row intervals, available panel genomic spans, normal-matrix ranks, and before/after-deletion support counts.
+A final warning summarizes successful and failed counts.
+Strict scans publish diagnostics alone when any query fails.
+See [query failure handling](../../reference/results/partitioned-h2.md#query-failures-and-continuation) and [the memory design](memory-and-cpu.md).
 
 ### Partitioned query worker diagnostics
 

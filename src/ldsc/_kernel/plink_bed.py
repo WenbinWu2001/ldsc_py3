@@ -99,8 +99,8 @@ class __GenotypeArrayInMemory__(object):
         """Project shared and batched annotations in one genotype traversal.
 
         ``annot`` is a selected-read source or a caller-owned numerical array.
-        Only ``output_rows`` receive float64 score buffers; all aligned SNPs
-        remain contributors. The optional weight mask has its own universe.
+        Only ``output_rows`` receive float64 score buffers; all aligned reference
+        SNPs still contribute. The optional weight mask selects its own SNP set.
         """
         func = lambda x: self.__l2_unbiased__(x, self.n)
         snp_getter = self.nextSNPs
@@ -267,7 +267,7 @@ if ba is not None:
                 raise LDSCInputError(
                     f"PLINK BED loading expected a `.bed` file, got '{fname}'. Most "
                     "likely the PLINK prefix points at the wrong file. Pass the prefix "
-                    "without extension so LDSC can open `<prefix>.bed`."
+                    "without extension so LDSC3 can open `<prefix>.bed`."
                 )
             fh = open(fname, "rb")
             self._fh = fh
@@ -445,5 +445,5 @@ else:
             raise LDSCDependencyError(
                 "PLINK LD-score support could not open genotype data because bitarray is not installed. "
                 "Most likely PLINK reference-panel mode was requested in an environment missing the optional "
-                "dependency. Install bitarray or use parquet R2 reference-panel input."
+                "dependency. Install bitarray or use an R2 panel as the reference panel."
             )

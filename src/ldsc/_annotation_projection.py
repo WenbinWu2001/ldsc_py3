@@ -13,7 +13,7 @@ class ChromosomeProjector:
         self.sorted_positions = self.positions[self.order]
 
     def project(self, intervals, *, padding_bp=0):
-        """Return binary union membership for 0-based half-open intervals."""
+        """Return binary union membership for zero-based half-open intervals."""
         difference = np.zeros(len(self.positions) + 1, dtype=np.int64)
         for start, end in intervals:
             left = np.searchsorted(self.sorted_positions, max(0, int(start) - padding_bp), side='left')

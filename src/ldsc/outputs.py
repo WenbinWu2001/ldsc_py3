@@ -1,11 +1,11 @@
-"""Output writers for the refactored LDSC workflows.
+"""Output writers for the LDSC3 workflows.
 
-The public LD-score workflow writes one canonical result directory containing
+The public LD-score workflow writes one LD-score directory containing
 ``metadata.json``, ``ldscore.baseline.parquet``, optional query files
 (``ldscore.query.parquet`` for one batch or numbered
 ``ldscore.query.batchNNNNN.parquet`` files for multiple batches), and an optional
 ``ldscore.overlap.parquet`` (the
-annotation overlap matrix required by partitioned-h2's overlap-aware category
+annotation overlap matrix required by partitioned-h2's overlap-aware annotation
 tables and read by the shared h2 collinearity guard when there are two or more
 LD-score columns; ``rg`` does not use it). The overlap sidecar is
 written only when the run has two or more annotation columns; an unpartitioned
@@ -31,7 +31,7 @@ checks, adding their own log/audit paths. Writers use the final result to
 select produced paths, metadata file entries, and post-write stale cleanup;
 workflows do not retain a predicted stale list across computation.
 
-Partitioned-h2 regression summaries use the same directory-oriented output
+The ``partitioned-h2`` regression summaries use the same directory-oriented output
 policy. ``PartitionedH2DirectoryWriter`` writes the aggregate ``partitioned_h2.tsv``
 (the scientific ``PARTITIONED_H2_COLUMNS`` plus ``query_result_dir`` for both
 regimes) and can optionally stage a
@@ -44,7 +44,7 @@ uses the same whole-tree staging and replacement policy for optional
 Unpartitioned h2 results also carry
 ``diagnostics/ld_score_regression_bins.tsv``. This table summarizes the exact
 SNP population and final fitted model used by h2 and is the authoritative input
-for the post-processing binned LD Score regression diagnostic plot. The writer
+for the post-processing binned LD score regression diagnostic plot. The writer
 layer persists the table but never imports a plotting library.
 """
 
@@ -237,7 +237,7 @@ class H2OutputConfig:
     Parameters
     ----------
     output_dir : str or os.PathLike[str]
-        Directory that receives ``h2.tsv``, the exact LD Score regression-bin
+        Directory that receives ``h2.tsv``, the exact LD score regression-bin
         diagnostic, and metadata.
     overwrite : bool, optional
         If ``True``, replace existing fixed h2 outputs. Default is ``False``.
@@ -456,7 +456,7 @@ class H2DirectoryWriter:
         metadata : dict
             Scientific and source provenance for the result.
         diagnostic_bins : pandas.DataFrame
-            Exact post-filter LD Score regression-bin summary in
+            Exact post-filter LD score regression-bin summary in
             :data:`H2_REGRESSION_BIN_COLUMNS` order.
 
         Returns
@@ -604,7 +604,7 @@ class LDScoreOutputConfig:
 
 
 class LDScoreDirectoryWriter:
-    """Write canonical LD-score result directories.
+    """Write LD-score directories.
 
     The writer owns ``metadata.json``, one shared baseline, optional single or
     numbered query batch files, and conditional ``ldscore.overlap.parquet``.
@@ -618,7 +618,7 @@ class LDScoreDirectoryWriter:
     @staticmethod
     def artifact_family(output_dir, result=None, *, diagnostics_only=False, gene_list_batch=None,
                         include_logs=False) -> ArtifactFamily:
-        """Describe all owned LD-score artifacts and the outputs selected by a result.
+        """Describe all owned LD-score directory files and the outputs selected by a result.
 
         With no result, describe ownership for early collision checks without
         predicting scientific outputs. Diagnostic-only writes use the same
@@ -859,7 +859,7 @@ class LDScoreDirectoryWriter:
 
         The metadata always includes ``count_config`` so downstream regression
         code can report the common-SNP count threshold even when MAF metadata is
-        unavailable and per-column common counts are omitted. Row-group metadata
+        unavailable and per-column common-SNP counts are omitted. Row-group metadata
         records the chromosome, row-group index, row offset, and row count for
         each chromosome-aligned parquet row group.
         """
@@ -1217,7 +1217,7 @@ class PartitionedH2DirectoryWriter:
         per_query_artifacts : dict of str to PartitionedH2FitArtifacts, optional
             Completed private or persistent fits keyed by original query name.
             Owned files are moved into the sorted publication tree; persistent
-            files are copied. Neither loads category tables or delete-value
+            files are copied. Neither loads annotation tables or delete-value
             matrices. Owned staging must share the output filesystem and may be
             consumed on failure. Workers may stage fits
             concurrently; the coordinator calls this writer after fitting and

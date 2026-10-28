@@ -6,8 +6,8 @@ Core functionality:
 
 Overview
 --------
-This module defines the public token language for filesystem inputs in the
-refactored package. Callers may pass exact paths, standard Python glob
+This module defines the public token language for filesystem inputs in
+LDSC3. Callers may pass exact paths, standard Python glob
 patterns, or explicit chromosome-suite placeholders using ``@``. Resolution is
 a workflow-layer concern; the execution kernels should only ever receive
 concrete string paths or prefixes.
@@ -123,7 +123,7 @@ def _raise_missing_input_path(label: str, token: str, *, cause: Exception | None
             token=token,
             match_count=0,
             likely="the path is misspelled, relative to the wrong working directory, or missing a required suffix",
-            fix="Pass an existing path, an exact-one glob, or an explicit @ chromosome pattern.",
+            fix="Pass an existing path, an exact-one glob, or an explicit @ chromosome suite.",
         )
     ) from cause
 
@@ -136,7 +136,7 @@ def _raise_ambiguous_input_path(label: str, token: str, match_count: int) -> Non
             token=token,
             match_count=match_count,
             likely="the glob is too broad for an input that must resolve to exactly one file",
-            fix="Narrow the path pattern or pass the exact file path.",
+            fix="Narrow the glob or pass the exact file path.",
         )
     )
 
@@ -212,7 +212,7 @@ def resolve_file_group(
     """Resolve one or many path tokens into a deterministic concrete file group.
 
     This function is the workflow-layer entry point for group-style inputs such
-    as annotation files, parquet R2 tables, BED files, and frequency metadata.
+    as annotation files, R2 panel files, BED files, and frequency metadata.
     Each token may be an exact path, a standard Python glob, or, when
     ``allow_chromosome_suite`` is true, an explicit ``@`` chromosome-suite
     token. All matches across all tokens are concatenated, deduplicated while
@@ -329,7 +329,7 @@ def resolve_chromosome_group(
                     raise LDSCInputError(
                         f"Could not resolve {label} path for chromosome {chrom} from token {token!r}. "
                         "Most likely the token does not contain the @ chromosome placeholder and does not exist directly. "
-                        f"Use an existing chromosome-specific path or an explicit @ token. Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
+                        f"Use an existing chromosome-specific path or an explicit @ chromosome suite. Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
                     ) from None
                 continue
             try:
@@ -766,7 +766,7 @@ def preflight_output_artifact_family(
     be workflow-owned. This function examines enumerated paths; it does not scan
     or clean arbitrary directory contents.
 
-    Why two lists instead of one — the ``owned_paths`` / ``produced_paths``
+    Why two lists instead of one -- the ``owned_paths`` / ``produced_paths``
     split is the core mechanism for safe stale cleanup across runs with
     different flag combinations or shard scopes. A single list cannot express
     both "this invocation controls this path" and "the current run will write this path,"
@@ -799,7 +799,7 @@ def preflight_output_artifact_family(
     :func:`remove_output_artifacts`.
 
     For always-written audit sidecars such as the current
-    ``diagnostics/dropped_snps/dropped.tsv.gz`` sumstats liftover sidecar,
+    ``diagnostics/dropped_snps/dropped.tsv.gz`` summary-statistics liftover sidecar,
     include the path in both ``owned_paths`` and ``produced_paths``
     unconditionally. A clean run still produces a header-only file, so the
     prior sidecar is replaced in place rather than treated as a stale

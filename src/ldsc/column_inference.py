@@ -4,7 +4,7 @@
 # centralized aliases and added typed identifier and column normalization.
 # See NOTICE for attribution and dated modifications.
 
-"""Central naming and alias inference registry for the refactored package.
+"""Central naming and alias inference registry for LDSC3.
 
 This module is the single source of truth for:
 
@@ -170,14 +170,14 @@ RESTRICTION_HG38_POS_SPEC = ColumnSpec("hg38_POS", tuple(f"{build}_{pos}" for bu
 
 # Strict internal artifact families.
 INTERNAL_SUMSTATS_ARTIFACT_SPECS = (
-    _canonical_only_spec("CHR", "munged sumstats chromosome"),
-    _canonical_only_spec("POS", "munged sumstats position"),
-    _canonical_only_spec("SNP", "munged sumstats SNP identifier"),
-    _canonical_only_spec("N", "munged sumstats sample size"),
-    _canonical_only_spec("Z", "munged sumstats Z-score"),
-    _canonical_only_spec("A1", "munged sumstats allele 1"),
-    _canonical_only_spec("A2", "munged sumstats allele 2"),
-    _canonical_only_spec("FRQ", "munged sumstats allele frequency"),
+    _canonical_only_spec("CHR", "munged summary-statistics chromosome"),
+    _canonical_only_spec("POS", "munged summary-statistics position"),
+    _canonical_only_spec("SNP", "munged summary-statistics SNP identifier"),
+    _canonical_only_spec("N", "munged summary-statistics sample size"),
+    _canonical_only_spec("Z", "munged summary-statistics Z-score"),
+    _canonical_only_spec("A1", "munged summary-statistics allele 1"),
+    _canonical_only_spec("A2", "munged summary-statistics allele 2"),
+    _canonical_only_spec("FRQ", "munged summary-statistics allele frequency"),
 )
 INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP = {
     spec.canonical: spec for spec in INTERNAL_SUMSTATS_ARTIFACT_SPECS

@@ -6,7 +6,7 @@ Last updated on: 2026-10-27
 
 This is the contributor design guide for implemented memory, CPU, and serialization optimizations across the package.
 Its historical filename remains stable for existing links; its scope includes annotation storage, genotype and R² access, direct and indexed projection, worker transport, regression, and post-fit processing.
-The intended workload includes thousands of pathways tested separately against shared baseline categories, as well as reference-panel construction and repeated use of saved artifacts.
+The intended workload includes thousands of pathways tested separately against shared baseline annotations, as well as reference-panel construction and repeated use of saved artifacts.
 It records mechanisms, owners, scientific invariants, costs, and remaining large allocations so future changes can preserve the design.
 Munging-specific optimization remains outside the current work; shared identity helpers are included because other workflows use them.
 
@@ -22,20 +22,20 @@ The older annotation benchmark scripts were removed from the active tree on Sept
 | Two content passes and disk-backed global identity checks | [Source preparation](#bounded-source-preparation) | Avoid a dense whole-genome annotation matrix and numeric spool; repeat input parsing/decompression. |
 | Exact binary classification and bit-packing | [Annotation format](#annotation-format-policy) | About 32 times smaller binary payload than float32; decode only selected tiles. |
 | Shared baseline/control plus active query preparation | [BED and gene queries](#bed-and-gene-queries) | Retain one generated query batch; preserve complete source validation outside the batch loop. |
-| Selective BED reads and unrestricted build streaming | [Genotypes and panel construction](#genotype-access-and-r2-panel-construction) | Avoid whole-source/sample-filter copies; streaming rereads genotype bytes. |
-| Numeric pair emission and compact R² storage | [Genotypes and panel construction](#genotype-access-and-r2-panel-construction) | Avoid per-pair Python objects and repeated SNP identities; R² quantization is lossy. |
+| Selective BED reads and unrestricted build streaming | [Genotypes and panel construction](#genotype-access-and-r²-panel-construction) | Avoid whole-source/sample-filter copies; streaming rereads genotype bytes. |
+| Numeric pair emission and compact R² storage | [Genotypes and panel construction](#genotype-access-and-r²-panel-construction) | Avoid per-pair Python objects and repeated SNP identities; R² quantization is lossy. |
 | Output-row accumulators, tiled float64 operands, fused weights | [Direct LD scoring](#direct-ld-score-computation) | Reuse each correlation block within a batch; another batch repeats reference traversal. |
-| Bounded R² pair buffers and rectangular sparse products | [Sparse projection](#streamed-r2-projection) | Read stored pairs once per traversal; CSR construction and operand/product tiles still allocate. |
+| Bounded R² pair buffers and rectangular sparse products | [Sparse projection](#streamed-r²-projection) | Read stored pairs once per traversal; CSR construction and operand/product tiles still allocate. |
 | Baseline-by-query overlaps and query diagonals | [Compact sufficient statistics](#compact-count-and-overlap-statistics) | Avoid a query-by-query matrix without changing separate-query models. |
 | Persistent workers, bounded dispatch, controlled native threads | [Chromosome parallelism](#chromosome-parallelism) | Reuse startup and avoid thread oversubscription; each worker adds a live working set. |
-| One active fragment batch and chromosome-order assembly | [Direct scoring](#direct-ld-score-computation), [index access](#immutable-gene-index-access) | Avoid genome-wide query transport/concatenation; write compressed fragments and staged final files. |
-| Immutable atom index and Boolean union selectors | [Index construction](#gene-index-construction-and-reuse) | Amortize genotype work across later runs; pay construction, operator storage, and per-batch reload costs. |
+| One active fragment batch and chromosome-order assembly | [Direct scoring](#direct-ld-score-computation), [index access](#immutable-gene-ld-score-index-access) | Avoid genome-wide query transport/concatenation; write compressed fragments and staged final files. |
+| Immutable atom index and Boolean union selectors | [Index construction](#gene-ld-score-index-construction-and-reuse) | Amortize genotype work across later runs; pay construction, operator storage, and per-batch reload costs. |
 | Shared regression inputs, read-only maps, owned model buffers | [Batch regression](#batch-regression-and-incremental-result-writing) | Avoid baseline IPC/copies; complete genome-wide models and private numerical work remain. |
 | Block sufficient statistics and incremental fit artifacts | [Regression kernels](#regression-kernels-and-saved-result-reuse) | Avoid delete-block data reconstruction and retention of every estimator; keep exact model/jackknife semantics. |
 | Exact quantile boundaries plus streamed aggregates | [Quantiles](#exact-global-quantiles) | Avoid whole fitted-annotation and SNP-by-quantile matrices; retain one eligible target vector for sorting. |
 | Vectorized identities, reusable lookup state, streamed diagnostics | [Lookup reuse](#identity-and-pair-query-reuse), [diagnostics](#diagnostics-and-verification) | Reduce repeated Python work and audit retention; caches and some full diagnostics remain explicit costs. |
 
-## Precision, universes, and resource accounting
+## Precision, SNP sets, and resource accounting
 
 Storage compression, arithmetic precision, and reduced live data are separate design choices.
 Packed annotation bits represent exact 0/1 values losslessly; public annotation reads remain float32.
@@ -44,7 +44,7 @@ LD-score accumulation, annotation sums, overlap products, index operators, and s
 Public LD-score Parquet values remain float32.
 The existing int16 R² panel encoding is lossy and must not be described as equivalent to lossless annotation packing.
 
-Preserve the [SNP-universe contract](../../reference/ldscore-snp-universes.md): reference contributors and all/common counts are broader than regression/output rows.
+Preserve the [reference- and regression-SNP contract](../../reference/ldscore-snp-universes.md): reference SNPs and all-SNP and common-SNP counts are broader than the regression SNPs that become output rows.
 Moving the output mask before score allocation does not remove contributors.
 Preserve physical BIM/BED mappings, genomic SNP order, query declaration order, Boolean interval unions, negative unbiased R², one diagonal contribution, and inclusive native common-MAF thresholds.
 The direct route checks query variation at its existing post-kernel float32 precision; the indexed route checks float64 fragments before public narrowing.
@@ -112,7 +112,7 @@ Multiple query batches require an output configuration; high-level `run_ldscore(
 Handled failures remove owned scratch while preserving the command's existing failure diagnostics and overwrite markers.
 An interrupted process can leave its private directory behind.
 A new run creates fresh staging and does not automatically reuse or remove abandoned directories.
-The existing gene-index construction transaction is the explicit exception to output-contained staging: sibling build-state, locks, staging, publication, and recovery remain governed by the [index contract](../../reference/gene-ldscore-index.md).
+The existing gene LD-score index construction transaction is the explicit exception to output-contained staging: sibling build-state, locks, staging, publication, and recovery remain governed by the [index contract](../../reference/gene-ldscore-index.md).
 
 ## Bounded source preparation
 
@@ -146,7 +146,7 @@ Inputs must remain unchanged between passes.
 Source metadata staging is removed after each source finishes; group selection locators are then removed.
 [`FrameSpool`](../../../src/ldsc/_annotation_storage.py) uses one file of independently serialized frames per spool, including diagnostic spools; descriptors keep no open handles.
 Selection preserves source order within each chromosome and applies requested chromosome filtering only after global identity cleanup.
-Preparation remains serial before the gene-index builder starts chromosome workers.
+Preparation remains serial before the gene LD-score index builder starts chromosome workers.
 
 A September 15 parallelism evaluation tested chromosome selection and writing after committing the shared global identity index.
 Four process workers reduced local preparation time by 25.3% on 1.89 million real baseline rows, while increasing sampled process-tree RSS from 399 to 1,075 MiB.
@@ -173,7 +173,7 @@ Classification uses parsed numeric values before float32 narrowing: for example,
 There is no sampling, tolerance, rounding-based classification, or sparse-matrix choice.
 Any nonbinary value in any scanned source row keeps that column continuous, including rows later excluded by identity or chromosome selection.
 Ordinary annotation missing/nonnumeric input errors retain their existing behavior; zero is an observed value, not a missing-value code.
-Existing advisory classification of fitted annotations still describes the values in its scientific analysis universe; it is separate from this source-wide storage choice.
+Existing advisory classification of fitted annotations still describes the values on the SNPs its analysis uses; it is separate from this source-wide storage choice.
 
 ### Encoding, identities, and order
 
@@ -233,7 +233,7 @@ Parsed input frames and returned float32 tiles remain larger transient allocatio
 
 $S$ is the actual annotation shard row count after annotation identity cleanup and requested chromosome selection.
 Supplied and generated query shards use the cleaned annotation grid, which can include SNPs absent from the retained reference panel.
-During LD calculation, [`MappedAnnotations`](../../../src/ldsc/_kernel/ldscore_projection.py) maps the retained reference contributors onto those annotation rows; it does not create another complete dense annotation matrix.
+During LD calculation, [`MappedAnnotations`](../../../src/ldsc/_kernel/ldscore_projection.py) maps the retained reference SNPs onto those annotation rows; it does not create another complete dense annotation matrix.
 LD output rows are a further regression/output subset.
 Consequently, the reported 1,134,471 LD-score output rows cannot be used to size the intermediate annotation artifacts.
 
@@ -258,20 +258,20 @@ The historical packing change left score accumulators and aggregation alone; lat
 
 [`_annotation_queries.py`](../../../src/ldsc/_annotation_queries.py) and [`_gene_query_storage.py`](../../../src/ldsc/_gene_query_storage.py) prepare query sources separately from baseline artifacts.
 BED intervals are normalized with bounded buffers.
-Gene identifiers resolve once against shared catalog lookup state; selected catalog indices and complete row audits are staged per source.
+Gene identifiers resolve once against shared gene-coordinate-catalog lookup state; selected gene-coordinate-catalog indices and complete row audits are staged per source.
 Direct BED/gene projection prepares only the active execution batch, builds each query on each chromosome, and closes that private batch owner before advancing.
 Global source resolution, duplicate cleanup, coverage/support gates, and the shared baseline/control remain outside that loop.
 A fixed gene control, when requested by direct/indexed LD scoring, belongs to the shared baseline group.
 
 Standalone [`annotate_workflow.py`](../../../src/ldsc/annotate_workflow.py) accepts exactly one BED or gene-list route.
-Gene mode requires explicit nonnegative padding, uses catalog/build and coverage gates, and evaluates support on the cleaned baseline annotation grid.
-It skips empty or globally unsupported focal queries while retaining usable siblings, all-one queries, and zero-valued chromosome shards for queries supported elsewhere.
-It fails when all focal queries are skipped.
+Gene mode requires explicit nonnegative padding, uses gene-coordinate-catalog build and coverage gates, and evaluates support on the cleaned baseline annotation grid.
+It skips empty or globally unsupported query gene lists while retaining usable siblings, all-one queries, and zero-valued chromosome shards for queries supported elsewhere.
+It fails when all query gene lists are skipped.
 Its audits use `annotation_snp_count`; reference-panel support remains unevaluated.
 Direct LD scoring evaluates support on retained reference rows and applies its additional regression-specific viability rules.
 See the [gene-list condition–outcome table](../../reference/annotate.md#gene-list-queries).
 
-## Genotype access and R2 panel construction
+## Genotype access and R² panel construction
 
 [`PlinkBEDFile`](../../../src/ldsc/_kernel/plink_bed.py) reads physical SNP records selectively and applies individual filtering during each read.
 It avoids coexisting full-source and sample-filtered bitarrays and preserves the physical-row mapping when retained SNPs are reordered or dropped.
@@ -304,24 +304,24 @@ The default zero threshold preserves zero and negative unbiased pairs.
 
 ## Direct LD-score computation
 
-[`PreparedChromosome`](../../../src/ldsc/_kernel/ldscore.py) owns the current chromosome's reference reader, contributor metadata, physical-row mappings, LD-window state, selected annotation accessor, and drop diagnostics.
+[`PreparedChromosome`](../../../src/ldsc/_kernel/ldscore.py) owns the current chromosome's reference reader, reference-SNP metadata, physical-row mappings, LD-window state, selected annotation accessor, and drop diagnostics.
 `close()` clears these references and closes the reader, including on failure.
 PLINK physical SNP indices remain distinct from annotation order.
 The reference adapters in [`_kernel/ref_panel.py`](../../../src/ldsc/_kernel/ref_panel.py) do not retain a metadata cache containing all chromosomes.
 
-[`_kernel/ldscore_projection.py`](../../../src/ldsc/_kernel/ldscore_projection.py) separates reference contributors from output rows.
+[`_kernel/ldscore_projection.py`](../../../src/ldsc/_kernel/ldscore_projection.py) separates reference SNPs from output rows.
 Every retained reference SNP can contribute to LD scores, counts, and overlap calculations, even when that SNP is absent from the regression/output set.
 The main accumulator is float64 and has `n_output_rows × (n_output_annotation_columns + 1)` entries; the extra column is the separately governed regression-weight projection.
 Completed direct scores use the existing float32 output conversion.
-Moving the output mask upstream does not restrict the reference contributor universe.
+Moving the output mask upstream does not restrict the reference SNPs.
 
 Within each active direct query batch, each PLINK correlation block is generated once.
 The next execution batch repeats reference preparation and traversal.
 Shared baseline columns and the weight mask are projected together, then query columns are read in batches for that same block.
-For parquet R2, bounded pair batches are scattered through float64 sparse products.
+For R² panels, bounded pair batches are scattered through float64 sparse products.
 Counts and overlap products are accumulated from bounded annotation tiles; the retained overlap summary consists of baseline-by-all-annotation products plus query diagonals, rather than a dense query-by-query matrix.
 Preserve the existing accumulation and validation tolerances when changing these kernels.
-Annotation sums reduce binary 0/1 and normalized float32 continuous values into float64, fixing batch/layout-dependent quantitative counts (completion-review R1).
+Annotation sums reduce binary 0/1 and normalized float32 continuous values into float64, fixing batch/layout-dependent continuous-annotation counts (completion-review R1).
 Independent `math.fsum` checks cover signed and high-offset values at the existing tolerances; overlap products and LD-score accumulation retain their established precision.
 
 `--query-batch-size` defaults to **100** for direct/indexed `ldscore` and batch `partitioned-h2`.
@@ -331,7 +331,7 @@ With exactly 1,000 queries, the default uses ten batches of up to 100.
 The active output-row accumulator scales with batch width.
 Only compact counts, baseline-by-query overlaps, and diagnostic/source descriptors scale with the total requested query count; saved query LD values do not accumulate in memory.
 
-`--snp-batch-size` defaults to **512** for PLINK input in `ldscore`, `build-gene-ldscore-index`, and `build-r2-panel`; parquet R2 input ignores it.
+`--snp-batch-size` defaults to **512** for PLINK input in `ldscore`, `build-gene-ldscore-index`, and `build-r2-panel`; R²-panel input ignores it.
 LD windows are exact for every batch size, so the setting changes only speed and memory.
 Each batch computes about one batch width of out-of-window pairs per SNP before dropping them, and holds a few `(window + batch) × batch` float64 blocks beside the `samples × window` genotype block.
 Measured on 2026-10-27 at revision `38c98d8` (macOS, Apple Accelerate, one BLAS thread) by timing the PLINK kernel alone; LD scores were identical at every size, and memory is the peak above the loaded process:
@@ -347,8 +347,8 @@ Measured on 2026-10-27 at revision `38c98d8` (macOS, Apple Accelerate, one BLAS 
 
 512 was within about 4% of the fastest size on both panels; larger batches add time and memory without changing results.
 Limits: one machine, one chromosome stretch per panel, and single runs; Linux BLAS libraries may favor somewhat larger batches.
-Memory outside the kernel does not depend on the batch size, including each chromosome's in-memory genotypes (`SNPs × samples / 4` bytes) and annotation reads, and it repeats for each `--workers` process.
-`build-r2-panel` uses the same chunk walk but was not timed; its stored pairs are identical for any batch size, with R2 differing by at most one int16 unit from float32 summation order (see `tests/test_plink_exact_windows.py`).
+Memory outside the kernel does not depend on the batch size, including each chromosome's in-memory genotypes (`SNPs × samples / 4` bytes) and annotation reads, and it repeats for each worker.
+`build-r2-panel` uses the same chunk walk but was not timed; its stored pairs are identical for any batch size, with R² differing by at most one int16 unit from float32 summation order (see `tests/test_plink_exact_windows.py`).
 
 For direct file-writing workflows, [`stage_direct_chromosome()`](../../../src/ldsc/_direct_ldscore_batches.py) writes the existing post-kernel float32 query table to a private Parquet fragment before the worker returns.
 The parent receives baseline data, counts, overlaps, variation summaries, and diagnostic descriptors, then combines them without a genome-wide query matrix.
@@ -356,7 +356,7 @@ The parent receives baseline data, counts, overlaps, variation summaries, and di
 Direct filtering uses the same float32 values as the materialized API; indexed filtering continues to use float64.
 The small prepared no-output Python route still returns a materialized `LDScoreResult`.
 
-### Streamed R2 projection
+### Streamed R² projection
 
 [`SortedR2BlockReader.iter_all_pairs()`](../../../src/ldsc/_kernel/ldscore.py) visits row groups once in stored order and decodes bounded Arrow record batches of at most 65,536 rows, including when a stored row group is larger.
 It reads only endpoint indices and R², with no sign column, decoded-row-group cache, or dense window matrix.
@@ -377,12 +377,12 @@ See the [mathematical specification](../../reference/methods/ld-score-computatio
 
 ### Compact count and overlap statistics
 
-[`annotation_statistics()`](../../../src/ldsc/_kernel/overlap.py) computes sums and products on bounded annotation tiles over the full retained contributor universe.
-For $B$ baseline categories and $Q$ independently tested queries, it retains a $B\times(B+Q)$ baseline-by-all block and $Q$ query diagonals, for both all and common SNPs.
+[`annotation_statistics()`](../../../src/ldsc/_kernel/overlap.py) computes sums and products on bounded annotation tiles over all retained reference SNPs.
+For $B$ baseline annotations and $Q$ independently tested queries, it retains a $B\times(B+Q)$ baseline-by-all block and $Q$ query diagonals, for both all and common SNPs.
 No query-query off-diagonal products are needed for the separate query-plus-baseline regressions.
 This changes retained overlap storage from quadratic in all query columns to the sufficient statistics those models actually consume.
 It must not be reused as a full joint-query overlap matrix.
-Common counts use the inclusive configured MAF threshold, independent of output-row selection.
+Common-SNP counts use the inclusive configured MAF threshold, independent of output-row selection.
 
 ## Chromosome parallelism
 
@@ -416,13 +416,13 @@ Handled failure closes the producer and removes owned staging while retaining av
 Resume from the last completed batch is a future feature, not supported now.
 
 Staging until computation succeeds does not make every filesystem publication step a rollback transaction.
-Preserve the existing failure-marker and overwrite contracts; the gene-index builder's complete-directory transaction is a separate mechanism.
+Preserve the existing failure-marker and overwrite contracts; the gene LD-score index builder's complete-directory transaction is a separate mechanism.
 The managed scheduler allows at most one pending task per worker and collects a ready group before refilling, avoiding an unbounded queue of descriptors or completed results.
 Process startup, IPC, and one native thread per worker have costs; extra workers are not assumed to improve small workloads.
 
-## Immutable gene-index access
+## Immutable gene LD-score index access
 
-[`LoadedGeneLDScoreIndex`](../../../src/ldsc/gene_ldscore_index.py) retains catalog/settings metadata, chromosome component paths, and compact support summaries.
+[`LoadedGeneLDScoreIndex`](../../../src/ldsc/gene_ldscore_index.py) retains gene-coordinate-catalog and settings metadata, chromosome component paths, and compact support summaries.
 Integrity validation loads and releases one chromosome at a time.
 Assembly uses `_indexed_ldscore_batches.py` with one active query batch and a persistent chromosome-worker pool.
 Each task reloads its chromosome operator, writes lossless float64 Parquet for that batch, and returns only compact counts, overlap blocks, and exact variation summaries.
@@ -441,7 +441,7 @@ Shared baseline and regression-weight projection use one traversal; separate ato
 Stored operators and common payloads remain float64.
 Smaller query multiplications and separate validation/assembly passes can add overhead; performance claims require end-to-end measurements, not just a count of loaded operators.
 
-### Gene-index construction and reuse
+### Gene LD-score index construction and reuse
 
 [`_kernel/gene_ldscore_index.py`](../../../src/ldsc/_kernel/gene_ldscore_index.py) splits the gene interval union into disjoint atoms and records a Boolean sparse gene-to-atom map.
 Query selectors take the Boolean union of selected genes' atoms, so overlap, nesting, aliases, and duplicate gene selections do not count a SNP twice.
@@ -456,7 +456,7 @@ These are remaining large allocations, not eliminated by compressed NPZ storage.
 Construction workers stage components and return `StagedIndexChromosome` descriptors rather than sending full operators through process IPC.
 
 Later indexed query runs amortize that genotype work through sparse operator-by-selector multiplication.
-The immutable index fixes the reference universe, baseline, gene geometry, output rows, and LD-window settings; live overrides would invalidate reuse and remain rejected.
+The immutable index fixes the reference SNPs, baseline, gene geometry, output rows, and LD-window settings; live overrides would invalidate reuse and remain rejected.
 Loading validates components one chromosome at a time without caching every operator.
 Within scoring, the persistent process pool avoids repeated process startup, but each chromosome task reloads its operator for the active query batch.
 This deliberate extra reading/validation trades CPU and I/O for a bounded fragment backlog and shorter operator/array lifetimes.
@@ -464,13 +464,13 @@ The complete [index contract](../../reference/gene-ldscore-index.md) and [`test_
 
 ## Batch regression and incremental result writing
 
-Query concurrency defaults to one managed child.
-`_partitioned_h2_parallel._QueryWorkers` reuses whole-model processes across loading batches, with 1 BLAS thread per worker.
+Query concurrency defaults to one worker.
+`_partitioned_h2_parallel._QueryWorkers` reuses whole-model workers across loading batches, with 1 BLAS thread per worker.
 Shared numerical columns and each active query batch use dtype-preserving read-only maps.
 Nonnumeric columns and compact model metadata are loaded from private snapshots.
 Each task carries its query name, column descriptor, and a unique fit directory.
 Workers stage complete model results and return compact outcomes.
-At most one task is in flight per process; workers exit before scratch removal.
+At most one task is in flight per worker; workers exit before scratch removal.
 See [query workers](../../reference/regression-options.md#43-query-workers-and-memory).
 
 [`LDScoreSource`](../../../src/ldsc/ldscore_source.py), returned by `load_ldscore_from_dir()`, reads shared baseline/identity metadata and validates schemas without retaining all query values.
@@ -490,11 +490,11 @@ Zero-variance column removal preserves those shared values.
 The kernel reuses its own normalized/weighted design buffers only when the result dtype is preserved, including promotion from float32 inputs to float64 weights.
 Shared inputs remain read-only throughout fitting.
 
-`estimate_partitioned_h2_batch(..., output_dir=..., query_batch_size=100)` writes each completed fit's category table, float64 coefficient delete values, and metadata privately through [`stage_partitioned_h2_fit()`](../../../src/ldsc/outputs.py), then releases estimator details.
+`estimate_partitioned_h2_batch(..., output_dir=..., query_batch_size=100)` writes each completed fit's per-annotation table, float64 coefficient delete values, and metadata privately through [`stage_partitioned_h2_fit()`](../../../src/ldsc/outputs.py), then releases estimator details.
 After final stable summary sorting, the existing writer assigns canonical folders and publishes the complete query tree.
 The returned `PartitionedH2BatchResult` contains the aggregate summary, output paths, and `per_query_artifacts` referencing persistent files.
 It does not contain dictionaries of all detailed DataFrames.
-Baseline-only input remains one joint functional-category fit.
+Baseline-only input remains one joint fit over functional annotations.
 
 The writer moves explicitly owned staged scientific files into publication staging instead of copying them; persistent descriptors remain copy-only.
 Run metadata is written once, while query metadata stores model fields and a relative reference to `diagnostics/metadata.json`.
@@ -542,7 +542,7 @@ Parallelizing independent pairs across processes was identified as the larger po
 
 ## Exact global quantiles
 
-[`_quantile_inputs.py`](../../../src/ldsc/_quantile_inputs.py) and [`_quantile_storage.py`](../../../src/ldsc/_quantile_storage.py) reconstruct the validated common SNP universe with bounded annotation/reference/target reads and narrow SQLite row locators.
+[`_quantile_inputs.py`](../../../src/ldsc/_quantile_inputs.py) and [`_quantile_storage.py`](../../../src/ldsc/_quantile_storage.py) reconstruct the validated common reference SNPs with bounded annotation/reference/target reads and narrow SQLite row locators.
 Reference/target duplicates remain fatal globally, including base-key uniqueness when omitted alleles must be inferred.
 External targets retain float64 values and raw missing-token semantics; they are separate from ordinary packed-binary/dense-float32 annotation storage.
 
@@ -570,7 +570,7 @@ Annotation identity audits, gene row audits, and quantile alignment diagnostics 
 Most result bookkeeping uses compact summaries or persistent paths.
 `FrameSpool`, `IdentityDropSpool`, `TsvDiagnostics`, and quantile `AlignmentDiagnostics` preserve the stage-specific record order without an all-chromosome diagnostic DataFrame.
 Gene audit rows are replayed in bounded chunks, but coverage failures still collect complete affected-gene lists in summary cells and error strings.
-Batch regression also retains the full legacy-sumstats projection drop table through fitting.
+Batch regression also retains the full legacy summary-statistics projection drop table through fitting.
 These are remaining diagnostic-retention gaps (item R3 of the September 10 completion review); complete records should remain available on disk while subsequent work retains counts, bounded examples, and paths.
 Direct results include source-cleanup drops even for a chromosome whose annotation rows were all removed.
 
@@ -619,7 +619,7 @@ Do not extrapolate a short indexed run by multiplying its elapsed time by the nu
 - Restriction caches and reusable pair-panel metadata intentionally trade retained memory for avoided parsing; they are not constant-memory streams.
 - All-query fragment staging and genome-wide direct query concatenation are superseded for writing workflows; the small no-output API intentionally retains a materialized result.
 - There is no batch resume/checkpoint mechanism, public bit-packed annotation format, approximate quantile method, or automatic worker tuning in these designs.
-- Complete affected-gene error lists and the legacy sumstats projection-drop table remain diagnostic-retention costs.
+- Complete affected-gene error lists and the legacy summary-statistics projection-drop table remain diagnostic-retention costs.
 
 ### Maintenance and validation requirements
 

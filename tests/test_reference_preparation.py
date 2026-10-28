@@ -147,7 +147,7 @@ def test_parquet_panel_with_a_pair_floor_is_rejected_at_preparation(tmp_path):
     metadata = write_panel(tmp_path, min_r2=0.05)
     panel = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"),
                               RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
-    with pytest.raises(LDSCInputError, match="omits SNP pairs with adjusted R2 below 0.05"):
+    with pytest.raises(LDSCInputError, match="omits SNP pairs with unbiased R2 below 0.05"):
         panel.prepare_chromosome(
             "1", ldscore.AnnotationBundle(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], []),
             LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True),

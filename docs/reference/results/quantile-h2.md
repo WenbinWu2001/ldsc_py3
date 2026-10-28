@@ -2,26 +2,33 @@
 
 Last updated on: 2026-10-27
 
-Quantile calculation runs in one managed child with **1 BLAS thread**, including input overlap products and post-fit projection.
+Quantile calculation runs in one worker with **1 BLAS thread**, including input overlap products and post-fit projection.
 See [parallel execution](../parallel-execution.md) for native-limit verification and Python process startup.
 
-`ldsc quantile-h2` is a post-fit projection workflow for interpreting a continuous target annotation. It consumes exactly one fitted joint `partitioned-h2` model, reconstructs that model's common reference-SNP universe, assigns eligible SNPs to target-value quantiles, and projects the saved whole-data and delete-one-block coefficient vectors onto those quantiles. It does not refit LDSC.
+`ldsc quantile-h2` is a post-fit projection workflow for interpreting a continuous target annotation.
+It consumes exactly one fitted joint `partitioned-h2` model, reconstructs that model's common reference SNPs, assigns eligible SNPs to target-value quantiles, and projects the saved whole-data and delete-one-block coefficient vectors onto those quantiles.
+It does not refit LDSC.
 
 ## Model and interpretation
 
-For fitted annotations `c`, the model is `Var(beta_j) = sum_c a_c(j) tau_c`. Annotation-specific LD scores, rather than the overlap matrix, identify `tau` and its jackknife uncertainty. The overlap-derived `prop_snps`, `prop_h2`, and `enrichment` values remain numerical output for legacy compatibility, but they do not have the usual category interpretation for a quantitative annotation. The raw coefficient, its SE, and its coefficient zero-test remain meaningful.
+For fitted annotations $c$, the model is $\operatorname{Var}(\beta_j) = \sum_c a_c(j)\,\tau_c$.
+Annotation-specific LD scores, rather than the overlap matrix, identify the coefficients and their jackknife uncertainty.
+The overlap-derived `prop_snps`, `prop_h2`, and `enrichment` values remain numerical output for legacy compatibility, but they do not have the usual binary-annotation interpretation for a continuous annotation.
+The raw coefficient, its SE, and its coefficient zero-test remain meaningful.
 
 The quantile projection uses only fitted annotations:
 
-`h2(Q_q) = sum_c tau_c sum_{j in Q_q} a_c(j)`.
+$h^2_g(Q_q) = \sum_c \tau_c \sum_{j \in Q_q} a_c(j)$.
 
 The target annotation only defines `Q_q`. It may be one of the fitted annotations or an external score. An external target receives no coefficient and contributes no annotation sum to the projection.
 
 The standardized coefficient is
 
-`tau_star_c = tau_c SD(a_c) / (h2_g / M)`,
+$\tau^*_c = \tau_c\,\mathrm{SD}(a_c) / (h^2_g / M)$,
 
-where `SD(a_c)` uses `ddof=0`, and both `h2_g` and `M` use the complete common reference-SNP universe before target-missing exclusions. The scale is fixed; it is not ratio-jackknifed. If the fitted-model total is nonpositive, only `tau_star` fields are `NaN`.
+where $\mathrm{SD}(a_c)$ uses `ddof=0`, and both $h^2_g$ and $M$ use the complete set of common reference SNPs before target-missing exclusions.
+The scale is fixed; it is not ratio-jackknifed.
+If the fitted-model total is nonpositive, only `tau_star` fields are `NaN`.
 
 ## Accepted fitted models
 
@@ -50,9 +57,14 @@ The command deliberately does not copy original annotation matrices into regress
 - the target source with `--target-annot-sources` and its unique column name with `--target-annotation`; and
 - reference metadata with `--ref-metadata-sources`.
 
-Path arguments accept exact files, globs, `@` chromosome placeholders, and existing path-token conventions. Parquet-R2 users can supply the existing `chr*_meta.tsv.gz` sidecars. PLINK users should supply metadata previously produced with `ldscore --export-ref-metadata`. Reference metadata requires `CHR`, `POS` (or `BP`), `SNP`, and `MAF`; allele-aware identity also uses `A1/A2`, with inference allowed only when the base identity is unique.
+Path arguments accept exact files, globs, `@` chromosome placeholders, and existing path-token conventions.
+R² panel users can supply the existing `chr*_meta.tsv.gz` sidecars.
+PLINK users should supply metadata previously produced with `ldscore --export-ref-metadata`.
+Reference metadata requires `CHR`, `POS` (or `BP`), `SNP`, and `MAF`; allele-aware identity also uses `A1/A2`, with inference allowed only when the base identity is unique.
 
-Annotation names must be globally unique within one LD-score artifact. The annotation classifier labels a column `binary` only when all finite values are exactly `0` or `1`; every other finite numeric column is `quantitative`. Classification affects logs and metadata only, never coefficients or other numerical results.
+Annotation names must be globally unique within one LD-score directory.
+The annotation classifier labels a column `binary` only when all finite values are exactly `0` or `1`; every other finite numeric column is `quantitative`.
+Classification affects logs and metadata only, never coefficients or other numerical results.
 
 ### Gene-list resolution
 
@@ -64,15 +76,20 @@ No target value is excluded by default. A nonnumeric, `NaN`, or infinite target 
 
 ## Reconstruction and provenance checks
 
-The workflow inherits the linked LD-score artifact's inclusive common-MAF threshold; it has no common-MAF override. It validates effective SNP identity, duplicate rows, reference/annotation intersections, recorded all-reference and common reference-SNP universe sizes, recorded common-SNP fitted annotation sums, and available overlap cross-products. Aggregate comparisons retain `rtol=1e-6` and `atol=1e-8`. A target whose name matches a fitted annotation must match that resupplied fitted column's float32 values on target-eligible SNPs.
+The workflow inherits the linked LD-score directory's inclusive common-MAF threshold; it has no common-MAF override.
+It validates effective SNP identity, duplicate rows, reference/annotation intersections, the recorded numbers of all and common reference SNPs, recorded common-SNP fitted annotation sums, and available overlap cross-products.
+Aggregate comparisons retain `rtol=1e-6` and `atol=1e-8`.
+A target whose name matches a fitted annotation must match that resupplied fitted column's float32 values on target-eligible SNPs.
 
 These checks establish alignment among resupplied sources and agreement with the available stored aggregate statistics. They do not establish the original annotation value at every SNP: value reassignments that preserve the checked sums and cross-products can pass and change the quantile projections. Resupply the original sources even when alternative sources pass validation. See `quantile_h2._prepare_quantile_inputs()` for the validation sequence.
 
-Rows outside an otherwise valid intersection are recorded as exclusions. Duplicate identities, missing target coverage on the common universe, invalid MAF, and provenance mismatches are fatal. Row-addressable issues are written to `diagnostics/snp_alignment_issues.tsv.gz` even when the run fails.
+Rows outside an otherwise valid intersection are recorded as exclusions.
+Duplicate identities, missing target coverage on the common reference SNPs, invalid MAF, and provenance mismatches are fatal.
+Row-addressable issues are written to `diagnostics/snp_alignment_issues.tsv.gz` even when the run fails.
 
 ## Quantiles and jackknife calculations
 
-The default is five quantiles. Boundaries use the legacy LDSC rule `floor(i * (n - 1) / Q + 0.5)` on sorted eligible target values. Intervals are low-to-high; ties at an internal boundary remain in the lower quantile. An empty realized quantile is a fatal error.
+The default is five quantiles. Boundaries use the legacy LDSC rule $\lfloor i(n - 1)/Q + 0.5 \rfloor$ on sorted eligible target values. Intervals are low-to-high; ties at an internal boundary remain in the lower quantile. An empty realized quantile is a fatal error.
 
 Within-quantile fitted-annotation sums are computed once. Matrix multiplication produces whole-data and all delete-one-block quantile totals. Ratio metrics are recomputed from every delete vector so denominator uncertainty is included. `enrichment_p` is the two-sided normal test of the inside-versus-complement per-SNP contrast; it is not `enrichment / enrichment_se` and does not test the target's coefficient.
 
@@ -96,7 +113,13 @@ When that contrast has zero or missing jackknife SE, `enrichment_p` is `NaN`. `c
 
 ## Bounded exact reconstruction
 
-The implementation validates the global common SNP universe using bounded annotation/reference/target reads and output-owned identity locators. A first pass accumulates full-common sums, cross-products, stable centered variance statistics, and eligible float64 targets. It computes the existing exact global quantile boundaries once, releases the target vector, and reuses those boundaries in a second chromosome pass. Quantile sums/counts require no whole-genome fitted-annotation matrix or dense SNP-by-quantile indicators. Ties, raw missing tokens, aggregate tolerances, and full-common standardization remain unchanged. Complete alignment diagnostics stream to a persistent file referenced by `QuantileH2Result.alignment_issues_path`. See [the memory design](../../dev/design/memory-and-cpu.md#exact-global-quantiles).
+The implementation validates the global set of common reference SNPs using bounded annotation/reference/target reads and output-owned identity locators.
+A first pass accumulates full-common sums, cross-products, stable centered variance statistics, and eligible float64 targets.
+It computes the existing exact global quantile boundaries once, releases the target vector, and reuses those boundaries in a second chromosome pass.
+Quantile sums/counts require no whole-genome fitted-annotation matrix or dense SNP-by-quantile indicators.
+Ties, raw missing tokens, aggregate tolerances, and full-common standardization remain unchanged.
+Complete alignment diagnostics stream to a persistent file referenced by `QuantileH2Result.alignment_issues_path`.
+See [the memory design](../../dev/design/memory-and-cpu.md#exact-global-quantiles).
 
 ## References
 

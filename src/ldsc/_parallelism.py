@@ -1,4 +1,4 @@
-"""Worker budgets and bounded chromosome scheduling for LDSC workflows.
+"""Worker budgets and bounded chromosome scheduling for LDSC3 workflows.
 
 Requests use joblib.cpu_count() directly as the detected available CPU budget.
 Native numerical-library thread settings are owned by the workflow workers.
@@ -85,7 +85,7 @@ def _resolve_worker_count(workers: int, task_count: int, *, task_unit: str = "ch
 
     Negative ``-k`` requests use ``max(1, joblib.cpu_count() + 1 - k)``.
     An explicit positive request above detected availability is an error even
-    when fewer tasks exist. One task uses one managed child, not inline BLAS.
+    when fewer tasks exist. One task uses one worker, not inline BLAS.
     Scheduler allocations not reflected in supported process restrictions
     remain the user's responsibility; this does not measure idle CPUs.
     """
@@ -107,7 +107,7 @@ def _resolve_worker_count(workers: int, task_count: int, *, task_unit: str = "ch
 
 
 WORKERS_HELP = (
-    "Default: 1, one managed child process. Positive N requests at most N workers; "
+    "Default: 1, one worker. Positive N requests at most N workers; "
     "-1 uses the detected available CPU count from joblib.cpu_count(); -2 uses one fewer "
     "(minimum one). Reject zero and positive requests above the detected count, then cap "
     "by available tasks. Each worker uses 1 BLAS thread, in serial and parallel execution. "

@@ -37,7 +37,7 @@ The coordinates above are fictional.
 Build the gene coordinate catalog from one authoritative gene annotation release in one genome build: LDSC3 cannot detect rows that silently mix genome builds.
 It defines the entire set of genes a gene list can name, and no gene coordinate catalog is packaged with LDSC3.
 Direct mode reads it from `--gene-coordinate-file`; a gene LD-score index embeds it when the index is built.
-The full contract is in [gene coordinate catalog](../../reference/formats/gene-lists.md#coordinate-catalog).
+The full contract is in [gene coordinate catalog](../../reference/formats/gene-lists.md#gene-coordinate-catalog).
 
 ### Gene lists
 
@@ -123,7 +123,7 @@ How the inputs are combined:
 - Gene intervals do not restrict the baseline LD scores: every retained reference SNP contributes according to its baseline annotation value, whether or not it lies in a gene.
   Do not prefilter the PLINK or baseline inputs to gene regions unless you intend that narrower reference panel.
 
-The matching rules are in [SNP identity contract](../../reference/gene-ldscore-index.md#snp-identity-contract), the baseline recomputation in [baseline-suite component usage](../../reference/gene-ldscore-index.md#baseline-suite-component-usage), and the gene-region caveat in [baseline LD-score contributor caveat](../../reference/gene-ldscore-index.md#baseline-ld-score-contributor-caveat).
+The matching rules are in [SNP identity contract](../../reference/gene-ldscore-index.md#snp-identity-contract), the baseline recomputation in [baseline-suite component usage](../../reference/gene-ldscore-index.md#baseline-suite-component-usage), and the gene-region caveat in [baseline reference-SNP caveat](../../reference/gene-ldscore-index.md#baseline-reference-snp-caveat).
 
 Resources:
 
@@ -143,7 +143,7 @@ The log first reports annotation preparation (`Reading annotation inputs`, then 
 Its final `Finished` or `Failed` line gives the outcome.
 On success, the closed log moves to `/path/to/indexes/baseline_100kb/diagnostics/build-gene-ldscore-index.log`.
 Input checks run before any computation, and failed checks write their repair tables, such as `plink_input_issues.tsv`, under `.<index-name>.build-state/` next to the destination rather than inside it.
-If the gene coordinate catalog fails validation, repair it using `.<index-name>.build-state/gene_coordinate_catalog_issues.tsv.gz` ([catalog repair](../../reference/results/gene-list-diagnostics.md#coordinate-catalog-repair-and-index-builder-issues)).
+If the gene coordinate catalog fails validation, repair it using `.<index-name>.build-state/gene_coordinate_catalog_issues.tsv.gz` ([catalog repair](../../reference/results/gene-list-diagnostics.md#gene-coordinate-catalog-repair-and-index-builder-issues)).
 
 One output directory holds one complete, immutable index with a single `index_id`; it cannot be extended with chromosomes or settings, so any change to an input or setting needs a complete rebuild.
 The destination stays absent or empty until the whole index is published, and a failed build never leaves a partial index.
@@ -171,7 +171,7 @@ For indexed scoring of a workload like the one measured on the Longleaf cluster 
 
 ## Optional control gene list
 
-When your gene lists were selected from a specific universe, such as the genes measured by an assay, add that universe as one control gene list:
+When your gene lists were selected from a specific set of genes, such as the genes measured by an assay, add that set as one control gene list:
 
 ```bash
 ldsc ldscore \

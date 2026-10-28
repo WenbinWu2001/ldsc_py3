@@ -83,7 +83,7 @@ def _decode_header_line(line):
 
 
 def count_leading_sumstats_comment_lines(fh):
-    """Count leading raw sumstats metadata lines that begin with ``##``."""
+    """Count leading raw summary-statistics metadata lines that begin with ``##``."""
     openfunc, _compression = get_compression(fh)
     count = 0
     with openfunc(fh) as handle:
@@ -258,7 +258,7 @@ def resolve_qc_thresholds(config, mapped_fields):
         if requested is not None:
             conflicts.append((flag, (
                 f"{flag}={requested} requires {needs}, but none was selected. Most likely the "
-                f"{kind} column has a name LDSC does not recognize or was passed to --ignore. "
+                f"{kind} column has a name LDSC3 does not recognize or was passed to --ignore. "
                 f"Select it with {hint}, or omit {flag} to run without {label} filtering."
             )))
     return thresholds, conflicts

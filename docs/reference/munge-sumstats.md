@@ -1,4 +1,4 @@
-# Munge-Sumstats
+# `munge-sumstats`
 
 Last updated on: 2026-10-27
 
@@ -9,7 +9,7 @@ before spending time on a full run.
 ## Workflow
 
 `munge-sumstats` converts one raw GWAS summary-statistics file into an
-LDSC-ready artifact family. The workflow accepts one exact file path, or a glob
+LDSC3-ready artifact family. The workflow accepts one exact file path, or a glob
 that resolves to exactly one file.
 
 The normal workflow is:
@@ -27,15 +27,18 @@ The normal workflow is:
 7. Apply whole-table sample-size filtering and convert p-values into Z scores oriented by the selected signed statistic.
 8. If the resolved source build differs from the requested output build, use an explicit chain file or automatic HM3 quick liftover. Custom-list and unrestricted runs require a chain file. Both methods drop duplicate source and target coordinate groups.
 9. Clean identity keys globally across all retained chunks. Duplicate effective identities are dropped as whole groups.
-10. Write self-describing Parquet by default, optional gzip TSV, and diagnostic audit files. Use the sanitized trait label for data filenames or `sumstats.parquet`/`sumstats.gz` without a label. Report the selected mapping method and counts in stdout and the log after a successful CLI run.
+10. Write self-describing Parquet by default, optional gzip TSV, and diagnostics.
+    Use the sanitized trait label for data filenames or `sumstats.parquet`/`sumstats.gz` without a label.
+    Report the selected mapping method and counts in stdout and the log after a successful CLI run.
 
-The default identity mode is `chr_pos_allele_aware`, so `A1/A2` are required by
-default. Use `--snp-identifier chr_pos` for coordinate identity without
-allele-aware matching, or `--snp-identifier rsid` for rsID-only identity.
+The default SNP identifier mode is `chr_pos_allele_aware`, so `A1/A2` are required by default.
+Use `--snp-identifier chr_pos` for coordinate identity without allele-aware matching, or `--snp-identifier rsid` for rsID-only identity.
 
 ## Preparation and Run Accounting
 
-The public workflow and tests use `_sumstats_input.prepare_munge_input()` to resolve column aliases and hints, DANER sample-size settings, the raw coordinate build/basis, and the optional keep-list. The kernel accepts a `ResolvedMungeInput` and returns a `MungeResult` containing the curated table, counts, coordinate provenance, and separate identity/liftover drop records. CLI parsing and artifact ownership stay in `sumstats_munger.py`; the kernel neither parses CLI flags nor mutates configuration to return results.
+The public workflow and tests use `_sumstats_input.prepare_munge_input()` to resolve column aliases and hints, DANER sample-size settings, the raw coordinate build/basis, and the optional keep-list.
+The kernel accepts a `ResolvedMungeInput` and returns a `MungeResult` containing the munged table, counts, coordinate provenance, and separate identity/liftover drop records.
+CLI parsing and artifact ownership stay in `sumstats_munger.py`; the kernel neither parses CLI flags nor mutates configuration to return results.
 
 Source-build inference reads only `CHR`/`POS` in bounded chunks and stops when sufficient evidence is available. It precedes all QC, and shares its coordinate evidence reader with `--infer-only`. The main parsing pass counts raw records as it reads them; it does not reopen the full raw file to count lines after munging.
 
@@ -57,9 +60,9 @@ All keys are present, including stages with zero drops. Detailed coordinate reas
 
 ## Raw Format Profiles
 
-`--input-format` controls only raw-input schema inference before the shared munging
-kernel runs. It does not change the curated output schema. Supported values are
-`auto`, `plain`, `daner-old`, and `daner-new`.
+`--input-format` controls only raw-input schema inference before the shared munging kernel runs.
+It does not change the munged output schema.
+Supported values are `auto`, `plain`, `daner-old`, and `daner-new`.
 
 | `--input-format` value | Use when | `auto` inference criterion | Special handling |
 | --- | --- | --- | --- |
@@ -120,7 +123,7 @@ build:
 | Concept | CLI flag | Python config | Meaning |
 | --- | --- | --- | --- |
 | Source build | `--source-genome-build` | `source_genome_build` | Build of raw `CHR`/`POS`; defaults to `auto`. |
-| Output build | `--output-genome-build` | `output_genome_build` | Final build written to munged sumstats; required in coordinate-family modes. |
+| Output build | `--output-genome-build` | `output_genome_build` | Final build written to munged summary statistics; required in coordinate-family modes. |
 
 Accepted concrete builds are `hg19` and `hg38`; common aliases such as `hg37`,
 `GRCh37`, and `GRCh38` normalize to canonical values. `auto` is accepted only
@@ -175,7 +178,7 @@ This rule applies to the returned table, Parquet, and gzip TSV. TSV frequency va
 
 ## Embedded Identity Metadata
 
-The curated `sumstats.parquet` is self-describing: its downstream identity
+The munged `sumstats.parquet` is self-describing: its downstream identity
 payload is written into the Parquet **footer** as discrete `ldsc:*` key/value
 entries, so the data file alone is sufficient for regression. No `metadata.json`
 sidecar is written.
@@ -183,7 +186,7 @@ sidecar is written.
 | Footer key | Meaning |
 | --- | --- |
 | `ldsc:artifact_type` | Always `sumstats`. The sole identity guard. |
-| `ldsc:snp_identifier` | Identity mode used when writing the artifact. |
+| `ldsc:snp_identifier` | SNP identifier mode used when writing the artifact. |
 | `ldsc:genome_build` | Final output build in coordinate-family modes; empty for rsID-family modes (decoded as `null`). |
 | `ldsc:trait_name` | Optional biological trait label supplied by the user; empty otherwise. |
 | `ldsc:qc_info_min`, `ldsc:qc_maf_min` | Effective INFO and MAF thresholds of the munge run; empty when that filter was not applied because its column was absent. Readers ignore them. `SumstatsMunger.write_output` copies them from a table returned by `run` and omits them for a table built by hand or loaded from disk, whose thresholds are unknown. |
@@ -194,7 +197,7 @@ The same compatibility state is attached to in-memory results as
 `sumstats.gz` is a plain TSV and carries no embedded metadata; in `both`
 mode only the `.parquet` is self-describing. Legacy `.sumstats` and
 `.sumstats.gz` inputs are accepted through the regression compatibility rule:
-their rsIDs are lookup keys and the canonical LD-score panel supplies identity
+their rsIDs are lookup keys and the LD-score directory supplies identity
 and coordinates. Footerless Parquet is rejected. See
 [`legacy-sumstats.md`](formats/legacy-sumstats.md).
 
@@ -209,7 +212,7 @@ written for clean runs so a missing file is never confused with zero drops.
 
 The audit table uses fields such as `CHR`, `SNP`, `source_pos`, `target_pos`,
 `reason`, `base_key`, `identity_key`, `allele_set`, and `stage` when those
-values are available. Downstream LDSC commands do not consume this file.
+values are available. Downstream LDSC3 commands do not consume this file.
 
 ## `--infer-only`
 
@@ -275,7 +278,7 @@ reproducible.
 Example report shape:
 
 ```text
-Raw sumstats file: data/trait.tsv.gz
+Raw summary-statistics file: data/trait.tsv.gz
 Detected format: plain
 Source genome build: hg19
 Output genome build: hg38
@@ -297,7 +300,7 @@ Next step:
 
 If source-build inference or declaration consistency fails, the report is non-runnable and identifies the affected source.
 An explicit `--source-genome-build` can supply the build for verified unlabeled inputs, but cannot override conflicting metadata or a selected build-specific coordinate column.
-Use matching coordinates, correct erroneous metadata only after verification, or perform an explicit conversion.
+Use matching coordinates, correct erroneous metadata only after verification, or perform an explicit liftover.
 Source and output builds remain separate liftover stages.
 
 With packaged HM3 restriction, a cross-build request is runnable without a method flag: quick liftover is automatic. With a custom list or no restriction, the report requests `--liftover-chain-file <hg19ToHg38.over.chain>` (or the reverse direction). Suggestions preserve the selected restriction instead of switching the SNP set to HM3. An explicit chain file takes precedence; a missing chain path makes the report non-runnable and never falls back to HM3.
@@ -308,11 +311,18 @@ For a cross-build request, `--infer-only` checks that a supplied chain path reso
 
 Munging restricts rows to the packaged curated HM3 map by default. Choose a custom list with `--sumstats-snps-file FILE`, or disable keep-list filtering with `--no-snp-restriction`. Ordinary missing-value, INFO, MAF, sample-size, and identity QC still applies in every mode. Custom lists replace HM3; they are not intersected with it.
 
-The packaged map contains `A1/A2`, so allele-aware identity modes match its effective allele-aware keys. A coordinate or rsID match alone does not guarantee retention in those modes. Base `chr_pos` and `rsid` modes ignore alleles for keep-list matching. Custom keep-lists may omit alleles and then match by base key. See [SNP identity modes](snp-identity-and-genome-build.md).
+The packaged map contains `A1/A2`, so allele-aware modes match its effective allele-aware keys.
+A coordinate or rsID match alone does not guarantee retention in those modes.
+Base `chr_pos` and `rsid` modes ignore alleles for keep-list matching.
+Custom keep-lists may omit alleles and then match by base key.
+See [SNP identifier modes](snp-identity-and-genome-build.md).
 
 HM3 quick liftover uses the package-bundled reference HM3 metadata, which contains coordinates in both builds. It is selected automatically only for packaged HM3 restriction when the resolved source and explicitly requested output builds differ. To opt out of quick liftover, supply `--liftover-chain-file FILE`; the chain replaces the packaged mapping while the HM3 restriction remains active. Neither method changes `SNP` labels.
 
-The former `--use-hm3-snps` and `--use-hm3-quick-liftover` flags, and their `MungeConfig` fields, are removed. Remove them from existing HM3 commands. Add `--no-snp-restriction` (Python: `no_snp_restriction=True`) to retain the previous unrestricted behavior. A custom list still requires a chain for cross-build conversion, even if it happens to contain only HM3 SNPs.
+The former `--use-hm3-snps` and `--use-hm3-quick-liftover` flags, and their `MungeConfig` fields, are removed.
+Remove them from existing HM3 commands.
+Add `--no-snp-restriction` (Python: `no_snp_restriction=True`) to retain the previous unrestricted behavior.
+A custom list still requires a chain for cross-build liftover, even if it happens to contain only HM3 SNPs.
 
 ## Liftover Rules
 
@@ -332,7 +342,10 @@ direction. For example, source `hg19` and output `hg38` expects an
 
 During liftover, the workflow drops rows that cannot be mapped cleanly, including missing coordinates, duplicate source coordinate groups, unmapped coordinates, cross-chromosome mappings, and duplicate target coordinate groups.
 
-After a successful CLI run, a prominent `Munge-sumstats summary:` block appears in stdout and `diagnostics/sumstats.log` at every `--log-level`, including `ERROR`. It names the effective SNP restriction and selected liftover method, distinguishes automatic HM3 mapping from an explicit chain override, and reports mapping input, mapped/retained, and dropped row counts with reasons. Matching-build and rsID runs explicitly report that mapping was not performed. Python API runs record the same summary in the log without printing to stdout.
+After a successful CLI run, a prominent `Munge-sumstats summary:` block appears in stdout and `diagnostics/sumstats.log` at every `--log-level`, including `ERROR`.
+It names the effective SNP restriction and selected liftover method, distinguishes automatic HM3 mapping from an explicit chain override, and reports mapping input, mapped/retained, and dropped row counts with reasons.
+Matching-build and rsID-family runs explicitly report that mapping was not performed.
+Python API runs record the same summary in the log without printing to stdout.
 
 Mapping counts cover only rows that reach the liftover stage, after keep-list filtering and earlier QC. The summary also reports whole-run input/retained/dropped totals and exclusive drop counts for each stage: `sumstats_snps` is the keep-list drop count, `liftover` is the mapping-stage drop count, and `identity` covers final identity cleanup. Stage counts sum to the whole-run dropped total. Row-level liftover and identity removals are recorded in `diagnostics/dropped_snps/dropped.tsv.gz`; earlier QC and keep-list removals have counts rather than individual audit rows.
 
@@ -388,7 +401,7 @@ ldsc munge-sumstats \
   --output-dir outputs/trait_rsid
 ```
 
-Do not pass source/output/liftover flags in rsID modes.
+Do not pass source/output/liftover flags in rsID-family modes.
 
 ## Python API
 

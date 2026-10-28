@@ -1,8 +1,8 @@
-"""Private Matplotlib builders for canonical, already loaded LDSC results.
+"""Private Matplotlib builders for canonical, already loaded LDSC3 results.
 
 The dispatcher owns source-path resolution and output publication. These
 builders validate plotted values and return live figures without refitting.
-For rg, the additional single-trait table supplies observed-scale h2 labels;
+For rg, the additional single-trait table supplies observed-scale SNP heritability labels;
 it never changes correlation values, error bars, or the correlation color scale.
 """
 
@@ -39,7 +39,7 @@ _RG_CMAP = LinearSegmentedColormap.from_list(
 def build_plot(
     kind: str, table: pd.DataFrame, metadata: dict[str, Any], *, h2_per_trait: pd.DataFrame | None = None
 ):
-    """Build one selected plot from loaded tables, including optional rg trait h2."""
+    """Build one selected plot from loaded tables, including optional rg trait SNP heritability."""
     if kind == "ld_score_regression":
         return _plot_h2_bins(table, trait_name=str(metadata.get("trait_name") or "Trait"))
     if kind == "rg_heatmap":
@@ -129,9 +129,9 @@ def _plot_h2_bins(table: pd.DataFrame, *, trait_name: str):
         zorder=3,
     )
     axes.plot(x, fitted, color="#C44E52", linewidth=1.8, label="Fitted LDSC expectation", zorder=2)
-    axes.set_xlabel("Mean LD Score")
+    axes.set_xlabel("Mean LD score")
     axes.set_ylabel(r"Mean chi-square statistic ($\chi^2$)")
-    axes.set_title(f"LD Score regression diagnostic\n{trait_name}")
+    axes.set_title(f"LD score regression diagnostic\n{trait_name}")
     axes.legend(frameon=False, loc="upper left")
     axes.grid(color="#E5E5E5", linewidth=0.8)
     axes.spines[["top", "right"]].set_visible(False)
@@ -166,10 +166,10 @@ def _trait_order(metadata: dict[str, Any], table: pd.DataFrame) -> list[str]:
 def _trait_h2_labels(
     table: pd.DataFrame | None, trait_names: list[str], *, multiline: bool = False
 ) -> dict[str, str]:
-    """Match observed h2 and jackknife SE to requested trait names.
+    """Match observed-scale SNP heritability and jackknife SE to requested trait names.
 
-    Preserve finite h2 values and nonnegative finite SEs, formatting both to
-    two decimals. Missing rows or unusable estimate–SE pairs become ``failed``.
+    Preserve finite SNP heritability values and nonnegative finite SEs, formatting both to
+    two decimals. Missing rows or unusable estimate-SE pairs become ``failed``.
     Validate table structure and unique, nonempty names before selecting rows;
     traits outside the requested order contribute no labels.
     """
@@ -181,14 +181,14 @@ def _trait_h2_labels(
     if table["trait_name"].isna().any() or names.str.strip().eq("").any():
         raise LDSCInputError(
             "h2_per_trait.tsv requires a nonempty trait_name for every row."
-            " Restore the original single-trait h2 table from this rg run. See "
+            " Restore the original single-trait SNP heritability table from this rg run. See "
             "docs/user-guide/troubleshooting.md#plot-rg-heritability-source-is-invalid."
         )
     duplicates = names[names.duplicated()].unique().tolist()
     if duplicates:
         raise LDSCInputError(
             "h2_per_trait.tsv contains duplicate trait rows: " + ", ".join(duplicates) + ". "
-            "Restore the original single-trait h2 table from this rg run. "
+            "Restore the original single-trait SNP heritability table from this rg run. "
             "See docs/user-guide/troubleshooting.md#plot-rg-heritability-source-is-invalid."
         )
     for name, estimate, standard_error in zip(names, table["total_h2_obs"], table["total_h2_obs_se"]):
@@ -201,7 +201,7 @@ def _trait_h2_labels(
 
 
 def _plot_rg_heatmap(table: pd.DataFrame, trait_names: list[str], h2_labels: dict[str, str]):
-    """Draw lower-triangle rg with preformatted observed-h2 diagonal labels."""
+    """Draw lower-triangle genetic correlations with preformatted observed-scale SNP heritability labels."""
     n_traits = len(trait_names)
     index = {name: position for position, name in enumerate(trait_names)}
     estimates = np.full((n_traits, n_traits), np.nan)
@@ -302,7 +302,7 @@ def _plot_rg_heatmap(table: pd.DataFrame, trait_names: list[str], h2_labels: dic
 
 
 def _plot_rg_anchor_forest(table: pd.DataFrame, trait_names: list[str], h2_labels: dict[str, str]):
-    """Draw anchor rg ± one SE with a separate h2 text column and subtitle."""
+    """Draw anchor genetic correlations +/- one SE with a separate SNP heritability text column and subtitle."""
     anchors = table["trait_1"].astype(str).unique().tolist()
     if len(anchors) != 1:
         raise LDSCInputError(
@@ -372,7 +372,7 @@ def _plot_rg_anchor_forest(table: pd.DataFrame, trait_names: list[str], h2_label
     axes.axvline(0, color="#777777", linewidth=1, linestyle="--", zorder=0)
     axes.set_yticks(np.arange(len(partners)), labels=partners)
     axes.set_ylim(len(partners) - 0.5, -0.5)
-    axes.set_xlabel(r"Genetic correlation ($r_g$; estimate ± 1 SE)")
+    axes.set_xlabel(r"Genetic correlation ($r_g$; estimate $\pm$ 1 SE)")
     axes.set_title(
         f"Genetic correlation with {anchor}\n" + r"Observed $h^2$ = " + h2_labels[anchor], pad=30
     )
@@ -426,7 +426,7 @@ def _plot_horizontal_enrichment_bars(
         supplied = np.asarray(list(bar_colors))
         if len(supplied) != len(label_values):
             raise LDSCInputError(
-                "Enrichment bar colors must have one value per category."
+                "Enrichment bar colors must have one value per annotation."
                 " Restore the original partitioned-h2 result table, or regenerate the fitted result; do not "
                 "substitute arbitrary uncertainty values."
             )
@@ -465,7 +465,7 @@ def _plot_horizontal_enrichment_bars(
             axes.text(minimum + 0.02 * span, position, "not available", va="center", color="#666666", fontsize=8.5)
     axes.set_yticks(positions, labels=label_values)
     axes.invert_yaxis()
-    axes.set_xlabel("Heritability enrichment (estimate ± 1 SE)")
+    axes.set_xlabel(r"Heritability enrichment (estimate $\pm$ 1 SE)")
     axes.set_ylabel(y_label)
     axes.set_title(title)
     _finish_horizontal_axes(axes)
@@ -605,7 +605,7 @@ def _optional_float(value: object) -> float:
 def _format_estimate_se(estimate: float, standard_error: float, *, multiline: bool = False) -> str:
     separator = "\n" if multiline else " "
     value = f"{estimate:.2f}{separator}({standard_error:.2f})"
-    return value.replace("-", "−")
+    return value.replace("-", "\u2212")
 
 
 def _format_quantile(value: object) -> str:

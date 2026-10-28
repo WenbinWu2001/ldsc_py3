@@ -18,7 +18,7 @@ shipped with the package.
 Sources (all pinned; accessed 2026-10-27)
 -----------------------------------------
 w_hm3.snplist
-    LDSC HapMap3 SNP list (SNP, A1, A2; 1,217,311 SNPs) distributed by the
+    Legacy LDSC HapMap3 SNP list (SNP, A1, A2; 1,217,311 SNPs) distributed by the
     Alkes group. The original https://data.broadinstitute.org/alkesgroup/
     LDSCORE/w_hm3.snplist.bz2 now returns 404; use the gzipped mirror
     https://doi.org/10.5281/zenodo.7773502 (md5

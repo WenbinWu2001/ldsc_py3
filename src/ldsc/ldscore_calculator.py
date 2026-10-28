@@ -11,13 +11,13 @@ For ordinary unpartitioned LD-score runs, callers may omit both baseline and
 query annotations. In that case the workflow constructs an all-ones baseline
 annotation named exactly ``base`` over the retained reference-panel metadata and
 continues through the same calculator and output writer used by partitioned
-runs. Query annotations remain partitioned-LDSC inputs: they are accepted only
+runs. Query annotations remain partitioned-heritability inputs: they are accepted only
 when explicit baseline annotations are supplied.
 
 Writing workflows create ``diagnostics/ldscore.log`` and detailed
 ``diagnostics/chromosome-logs/chrN.log`` files after output preflight.
 ``LDScoreCalculator.run(..., output_config=None)`` creates no files.
-Every chromosome executes in a managed child with one BLAS thread, including
+Every chromosome executes in a worker with one BLAS thread, including
 serial execution; workers are reused across query batches.
 """
 
@@ -103,8 +103,8 @@ _QUERY_REQUIRES_BASELINE_MESSAGE = (
     "ldscore cannot run query annotations without baseline annotations. Most likely "
     "a prebuilt, BED, or gene-list query source was supplied without `--baseline-annot-sources`. "
     "Pass matching baseline annotations, or create an explicit all-ones `base` "
-    "baseline annotation over the query annotation universe before running "
-    "partitioned LDSC."
+    "baseline annotation over the same SNP rows as the query annotations before estimating "
+    "partitioned heritability."
 )
 _LDSCORE_INTERSECTION_DOC = (
     "docs/user-guide/troubleshooting.md#ldscore-no-annotation-snps-remain-after-reference-panel-intersection"
@@ -136,7 +136,7 @@ class ChromLDScoreResult:
     baseline_columns, query_columns : list of str
         Ordered annotation LD-score columns in the baseline and query tables.
     ld_reference_snps, ld_regression_snps : frozenset of str
-        SNP universes used for count records and regression rows.
+        Reference SNPs used for count records, and regression SNPs.
     annotation_types : dict of str to str, optional
         Per-column ``binary`` or ``quantitative`` classification used only for
         interpretation messages and persisted provenance.
@@ -231,7 +231,7 @@ class LDScoreResult:
     baseline_columns, query_columns : list of str
         Ordered LD-score columns available to regression workflows.
     ld_reference_snps, ld_regression_snps : frozenset of str
-        SNP universes used for count records and persisted regression rows.
+        Reference SNPs used for count records, and persisted regression SNPs.
     chromosome_results : list of ChromLDScoreResult
         Per-chromosome components used to build the aggregate result.
     output_paths : dict, optional
@@ -257,7 +257,7 @@ class LDScoreResult:
     annotation_types : dict of str to str, optional
         Per-column semantic classification used for interpretation only.
     ld_window_snp_counts : pandas.DataFrame or None, optional
-        For a parquet R2 panel with ``--ld-wind-snps``, one row per chromosome
+        For an R2 panel with ``--ld-wind-snps``, one row per chromosome
         with ``CHR``, ``panel_snps`` (sidecar rows), ``kept_snps`` (SNPs this
         run kept), ``ld_wind_snps``, and ``counting_basis="panel_rows"``.
         ``None`` for kb/cM windows and PLINK panels.
@@ -368,7 +368,7 @@ class LDScoreCalculator:
         global_config: GlobalConfig, output_config: LDScoreOutputConfig | None = None,
         regression_snps=None, regression_regions=None, config_snapshot=None,
     ):
-        """Calculate sequential query batches over one fixed SNP universe.
+        """Calculate sequential query batches over one fixed set of reference SNPs.
 
         Parameters
         ----------
@@ -376,7 +376,7 @@ class LDScoreCalculator:
             Prepared baseline and query inputs. ``AnnotationBundle.from_frames``
             supplies a small in-memory dataset without filesystem staging.
         ref_panel : RefPanel
-            Resolved PLINK or R2 adapter; input files are read without mutation.
+            Resolved PLINK or R2 panel adapter; input files are read without mutation.
         ldscore_config : LDScoreConfig
             Scientific settings, query execution width, and chromosome worker
             count. Chromosome workers run within each active query batch.
@@ -392,10 +392,10 @@ class LDScoreCalculator:
             method does not load ``ldscore_config.regr_snps_file`` or apply the
             public workflow's packaged HapMap3 default.
         regression_regions : RegionIntervals or None, optional
-            Already-resolved region exclusions for regression rows and weight
-            contributors. ``None`` applies no region exclusions. Neither this
-            nor ``regression_snps`` changes the retained reference universe
-            used for annotation counts and LD-score contributors.
+            Already-resolved region exclusions for the regression SNPs.
+            ``None`` applies no region exclusions. Neither this nor
+            ``regression_snps`` changes the reference SNPs used for
+            annotation counts and LD scores.
         config_snapshot : dict or None, optional
             Reserved argument; currently unused. Result provenance records
             ``global_config``.
@@ -413,7 +413,7 @@ class LDScoreCalculator:
             disk preparation, or reference-metadata export is requested
             without an output directory.
         LDSCInputError
-            A parquet R2 panel has an invalid chromosome footer or sidecar.
+            An R2 panel has an invalid chromosome footer or sidecar.
             Every chromosome is checked before any is computed, and one error
             lists all issues.
 
@@ -426,7 +426,7 @@ class LDScoreCalculator:
         with active batch width and chromosome workers. Counts and LD
         accumulation use float64; canonical output retains its usual precision.
         The calculator borrows inputs and never closes the caller's bundle.
-        Workers are managed child processes with 1 BLAS thread each, including
+        Each worker uses 1 BLAS thread, including
         serial execution. Writing runs retain chromosome logs under
         ``diagnostics/chromosome-logs``; no-output calls create no files.
         """
@@ -593,7 +593,7 @@ class LDScoreCalculator:
         if not chromosome_results:
             raise LDSCInputError(
                 "ldscore could not compute any chromosome results after intersecting annotations "
-                "with the reference panel. Most likely the annotation SNP IDs, genome build, "
+                "with the reference panel. Most likely the annotation SNP identities, genome build, "
                 "or allele-aware identifier mode do not match the reference panel. Use matching "
                 "annotation and reference-panel artifacts, or rerun with the correct "
                 "`--snp-identifier` and `--genome-build`. "
@@ -705,13 +705,13 @@ class LDScoreCalculator:
     ) -> ChromLDScoreResult:
         """Compute normalized LD-score outputs for one chromosome.
 
-        ``ref_panel.prepare_chromosome`` aligns annotations to the filtered
-        reference universe ``B_chrom ∩ A'_chrom`` and owns the reader until the
+        ``ref_panel.prepare_chromosome`` aligns annotations to the retained
+        reference SNPs ``B_chrom & A'_chrom`` and owns the reader until the
         kernel returns or raises. The same aligned annotation values feed
         numerical projection, counts, overlap, and result provenance.
         ``regression_snps`` defines weight contributions and later restricts
         the normalized output rows.
-        Standalone calls use one child with 1 BLAS thread; calls inside an
+        Standalone calls use one worker with 1 BLAS thread; calls inside an
         existing calculation worker reuse that process.
         """
         backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
@@ -933,7 +933,7 @@ class LDScoreCalculator:
         output_config: LDScoreOutputConfig,
         config_snapshot: dict[str, Any] | None = None,
     ):
-        """Write a previously computed result as a canonical LD-score directory.
+        """Write a previously computed result as an LD-score directory.
 
         Parameters
         ----------
@@ -959,7 +959,7 @@ class LDScoreCalculator:
 def _assert_canonical_maf(metadata: pd.DataFrame) -> None:
     """Verify the canonical invariant that MAF = freq(A1) is the minor allele.
 
-    LD-score artifacts inherit A1/A2/MAF from the reference panel. A panel built
+    LD-score directories inherit A1/A2/MAF from the reference panel. A panel built
     before allele-orientation canonicalization can carry MAF > 0.5 (folded MAF not
     tied to A1); fail loudly rather than silently mis-tie MAF to A1.
     """
@@ -987,7 +987,7 @@ def _split_ldscore_table(
     if is_allele_aware_mode(snp_identifier) and not {"A1", "A2"}.issubset(ldscore_table.columns):
         raise LDSCInternalError(
             "LD-score split-table assembly failed in _split_ldscore_table(): allele-aware "
-            f"SNP identity mode '{snp_identifier}' requires A1/A2 columns, but the LD-score "
+            f"SNP identifier mode '{snp_identifier}' requires A1/A2 columns, but the LD-score "
             "table does not contain both. Most likely an upstream reference-panel or annotation "
             "assembly step dropped allele columns. Re-run with DEBUG logging and report the traceback."
         )
@@ -1094,16 +1094,13 @@ def _count_config_from_ldscore_config(ldscore_config: LDScoreConfig) -> dict[str
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the feature parser for LD-score calculation."""
-    parser = argparse.ArgumentParser(
-        description="Estimate LDSC-compatible LD scores from SNP-level annotation files using PLINK or sorted parquet R2 input.",
-        allow_abbrev=False,
-    )
+    parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.prog = 'ldsc ldscore'
     parser.formatter_class = CLIHelpFormatter
-    parser.description = 'Compute LD scores from a reference panel, or assemble gene-list LD scores from a prebuilt index.'
-    inputs = parser.add_argument_group('Inputs and output', description='Choose direct computation with PLINK or precomputed R2, or indexed computation with gene lists.')
+    parser.description = 'Compute LD scores from a reference panel, or assemble gene-list LD scores from a prebuilt gene LD-score index.'
+    inputs = parser.add_argument_group('Inputs and output', description='Choose direct computation with PLINK or an R2 panel, or indexed computation with gene lists.')
     identity = parser.add_argument_group('Direct mode: SNP identity and genome build')
-    window = parser.add_argument_group('Direct mode: LD window', description='Specify exactly one window; it must fit within any precomputed R2 window.')
+    window = parser.add_argument_group('Direct mode: LD window', description='Specify exactly one window; it must fit within the window of any R2 panel.')
     annotations = parser.add_argument_group('Annotation sources', description='Choose at most one query source type; direct queries need explicit baseline annotations.')
     genes = parser.add_argument_group('BED and gene-list annotations')
     filters = parser.add_argument_group('Direct mode: SNP and individual selection')
@@ -1146,7 +1143,7 @@ def build_parser() -> argparse.ArgumentParser:
     identity.add_argument(
         '--genome-build', choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'), default=None,
         help=(
-            'Genome build for coordinate matching and gene intervals. Required for chr_pos modes; direct '
+            'Genome build for coordinate matching and gene intervals. Required for coordinate-family modes; direct '
             'gene-list runs default to auto. Auto checks all coordinate inputs and shards; concrete builds '
             'must agree with input declarations. Other rsid runs need '
             'no build. Gene-list runs also use this build for --regr-snps-exclude-regions. With '
@@ -1279,7 +1276,7 @@ def build_parser() -> argparse.ArgumentParser:
     filters.add_argument(
         '--regr-snps-file', default=None, metavar='FILE',
         help=(
-            'Headered SNP identity table selecting regression/output rows and regression-weight contributors. If '
+            'Headered SNP identity table selecting the regression SNPs: stored output rows and regression weights. If '
             'omitted, use bundled HapMap3 SNPs. --regr-snps-exclude-regions then applies. Direct mode only; '
             'rejected with --gene-ldscore-index-dir. '
             + SCALAR_PATH_HELP
@@ -1303,8 +1300,8 @@ def build_parser() -> argparse.ArgumentParser:
     filters.add_argument(
         '--regr-snps-exclude-regions', choices=REGR_SNPS_EXCLUDE_REGIONS_CHOICES, default='mhc-and-centromeres',
         help=(
-            'Exclude MHC, centromeres, both, or neither from regression/output SNPs after --regr-snps-file '
-            'or HapMap3 selection. Default: mhc-and-centromeres. Reference contributors and annotation '
+            'Exclude MHC, centromeres, both, or neither from regression SNPs after --regr-snps-file '
+            'or HapMap3 selection. Default: mhc-and-centromeres. Reference SNPs and annotation '
             'counts are unchanged. Direct mode only; indexed runs inherit this setting.'
         ),
     )
@@ -1312,7 +1309,7 @@ def build_parser() -> argparse.ArgumentParser:
         '--common-maf-min', default=0.05, type=float, metavar='VALUE',
         help=(
             'Minimum MAF for common-SNP annotation counts, including the boundary. Default: 0.05; does not '
-            'filter LD-score contributors. Direct mode only; indexed runs inherit their count threshold.'
+            'filter reference SNPs. Direct mode only; indexed runs inherit their count threshold.'
         ),
     )
 
@@ -1748,7 +1745,7 @@ def _annotation_build_config_from_args(args: argparse.Namespace) -> AnnotationBu
 
 
 def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config, global_config):
-    """Measure interval support on the prepared computational SNP universe."""
+    """Measure interval support on the prepared reference SNPs."""
     from .errors import LDSCUserError
 
     batch = annotation_bundle.gene_list_batch
@@ -1830,23 +1827,23 @@ def _validate_run_args(args: argparse.Namespace) -> None:
     keep = getattr(args, "keep", None)
     if _uses_parquet_reference(args) == bool(args.bfile):
         raise LDSCUsageError(
-            "ldscore could not choose a reference-panel backend. Most likely both parquet "
-            "R2 input and PLINK input were supplied, or neither was supplied. Pass exactly "
-            "one of `--r2-dir` for parquet mode or `--plink-prefix` for PLINK mode."
+            "ldscore could not choose a reference-panel backend. Most likely both R2 panel "
+            "input and PLINK input were supplied, or neither was supplied. Pass exactly "
+            "one of `--r2-dir` for R2 panel mode or `--plink-prefix` for PLINK mode."
         )
     if _uses_parquet_reference(args):
         if keep:
             raise LDSCUsageError(
-                "ldscore cannot apply `--keep-indivs-file` in parquet R2 mode. Most likely "
+                "ldscore cannot apply `--keep-indivs-file` in R2 panel mode. Most likely "
                 "`--keep-indivs-file` was combined with `--r2-dir`, but individual-level "
                 "filtering only exists before PLINK genotype LD calculation. Remove "
                 "`--keep-indivs-file`, or rerun in PLINK mode with `--plink-prefix`."
             )
         if identity_mode_family(args.snp_identifier) == "chr_pos" and args.genome_build is None:
             raise LDSCUsageError(
-                "ldscore cannot run parquet R2 mode with chr_pos-family SNP identifiers "
-                "without a genome build. Most likely `--snp-identifier chr_pos` or an "
-                "allele-aware chr_pos mode was supplied without `--genome-build`. Pass "
+                "ldscore cannot run R2 panel mode with a coordinate-family SNP identifier mode "
+                "without a genome build. Most likely `--snp-identifier chr_pos` or "
+                "`--snp-identifier chr_pos_allele_aware` was supplied without `--genome-build`. Pass "
                 "`--genome-build hg19`, `--genome-build hg38`, or `--genome-build auto`."
             )
     if args.ld_wind_cm is not None and args.ld_wind_cm <= 0:
@@ -1918,7 +1915,7 @@ def _uses_parquet_reference(args: argparse.Namespace) -> bool:
 
 
 def _r2_dir_from_args(args: argparse.Namespace) -> str | None:
-    """Return the R2 directory supplied to the LD-score workflow."""
+    """Return the R2 panel directory supplied to the LD-score workflow."""
     return normalize_optional_path_token(getattr(args, "r2_dir", None))
 
 
@@ -1936,7 +1933,7 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
     while per-run controls such as ``ref_panel_snps_file`` and
     ``regr_snps_file`` remain ordinary keyword arguments here. ``output_dir``
     is required because this public workflow always writes canonical artifacts.
-    ``workers`` defaults to one managed child; each worker uses 1 BLAS thread
+    ``workers`` defaults to one worker; each worker uses 1 BLAS thread
     in serial and parallel execution. Python scripts must launch workflow
     calls under ``if __name__ == "__main__":``.
 
@@ -1945,11 +1942,11 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
     reference-panel metadata. ``query_annot_sources`` and
     ``query_annot_bed_sources`` and ``query_annot_gene_list_sources`` require
     explicit baseline annotations because query columns are interpreted
-    relative to that baseline SNP universe. Gene-list inputs are projected
-    from the required one-based coordinate catalog for the resolved build.
+    relative to the baseline annotation rows. Gene-list inputs are projected
+    from the required one-based gene coordinate catalog for the resolved build.
     ``padding_bp`` defaults to zero for live BED input but must be chosen
     explicitly for live gene lists; passing it with a prebuilt annotation
-    query, no query, or an exact index raises ``LDSCUsageError`` even when its
+    query, no query, or a gene LD-score index raises ``LDSCUsageError`` even when its
     value is zero.
 
     With ``gene_ldscore_index_dir``, the gene LD-score index supplies the SNP
@@ -2127,8 +2124,8 @@ def _resolve_ldscore_chr_pos_genome_build(
     normalized = normalize_genome_build(genome_build)
     if normalized is None:
         raise LDSCUsageError(
-            "ldscore cannot resolve chr_pos-family SNP identifiers without a genome build. "
-            "Most likely `--snp-identifier` was set to a chr_pos mode but `--genome-build` "
+            "ldscore cannot resolve a coordinate-family SNP identifier mode without a genome build. "
+            "Most likely `--snp-identifier` was set to a coordinate-family mode but `--genome-build` "
             "was omitted. Pass `--genome-build auto`, `--genome-build hg19`, or "
             "`--genome-build hg38`."
         )
@@ -2136,7 +2133,7 @@ def _resolve_ldscore_chr_pos_genome_build(
 
     check = GenomeBuildCheck(normalized, context="ldscore", logger=LOGGER)
     if gene_catalog_build is not None:
-        check.declared("--gene-coordinate-file", getattr(args, "gene_coordinate_file", None) or "gene-coordinate catalog", gene_catalog_build)
+        check.declared("--gene-coordinate-file", getattr(args, "gene_coordinate_file", None) or "gene coordinate catalog", gene_catalog_build)
     for role in ("baseline_annot_sources", "query_annot_sources"):
         check.paths("--" + role.replace("_", "-"), getattr(args, role, None))
     check.plink("--plink-prefix", getattr(args, "plink_prefix", None))
@@ -2284,10 +2281,10 @@ def _snp_universe_policy(
     regression_regions: kernel_regions.RegionIntervals | None,
     chromosome_results: Sequence[ChromLDScoreResult | DirectChromosomeFragment],
 ) -> dict[str, Any]:
-    """Describe the independently selected LD-reference and regression universes.
+    """Describe the independently selected reference SNPs and regression SNPs.
 
-    This is persisted in ``metadata.json`` so an LD-score artifact cannot make
-    a regression-row exclusion look like a change to its LD-reference
+    This is persisted in ``metadata.json`` so an LD-score directory cannot make
+    a regression-SNP exclusion look like a change to its LD-reference
     estimand. Counts are after retained-reference/annotation alignment, before
     and after the regression-region subtraction respectively.
     """
@@ -2321,7 +2318,7 @@ def _ld_window_snp_counts(ref_panel, ldscore_config: LDScoreConfig, chromosome_r
     """Per-chromosome panel and kept SNP counts behind a parquet ``--ld-wind-snps`` window.
 
     On a parquet panel the window counts panel (sidecar) rows, so a chromosome
-    keeping fewer SNPs than the panel gives its SNPs fewer than K contributors
+    keeping fewer SNPs than the panel gives its SNPs fewer than K reference SNPs
     per side. ``None`` for kb/cM windows and PLINK panels.
     """
     if ldscore_config.ld_wind_snps is None or getattr(getattr(ref_panel, "spec", None), "backend", None) != "parquet_r2":
@@ -2340,7 +2337,7 @@ def _ld_window_snp_counts(ref_panel, ldscore_config: LDScoreConfig, chromosome_r
 
 
 def _check_parquet_reference(ref_panel, chromosomes, ldscore_config: LDScoreConfig, global_config: GlobalConfig) -> None:
-    """Check every chromosome's R2 footer and sidecar before any is computed.
+    """Check every chromosome's R2 panel footer and sidecar before any is computed.
 
     The CLI runs the same checks in its input preflight. Python API callers would
     otherwise learn of a defect only from the first chromosome worker to reach it.
@@ -2356,7 +2353,7 @@ def _check_parquet_reference(ref_panel, chromosomes, ldscore_config: LDScoreConf
         ref_panel.build_reader(chrom, metadata=metadata).close()
 
     r2_dir = ref_panel.spec.r2_dir
-    gate = InputGate("R2 reference panel validation")
+    gate = InputGate("R2 panel validation")
     gate.check("reference", r2_dir, lambda: inspect_r2_headers(
         r2_dir, global_config.genome_build, ldscore_args=ldscore_config))
     for chrom in chromosomes:
@@ -2374,9 +2371,9 @@ def _warn_ld_window_snp_subset(counts: pd.DataFrame | None, where: str) -> None:
     first = subset.iloc[0]
     window = int(first["ld_wind_snps"])
     LOGGER.warning(
-        f"ldscore `--ld-wind-snps {window}` counts positions in the parquet R2 panel; this run kept fewer "
+        f"ldscore `--ld-wind-snps {window}` counts positions in the R2 panel; this run kept fewer "
         f"SNPs than the panel on {len(subset)} chromosome(s) (e.g. chr{first['CHR']}: {first['kept_snps']} of "
-        f"{first['panel_snps']}), so those SNPs have fewer than {window} LD contributors per side. "
+        f"{first['panel_snps']}), so those SNPs have fewer than {window} reference SNPs per side. "
         f"Per-chromosome counts: {where}."
     )
 
@@ -2552,7 +2549,7 @@ def _compute_one_chromosome(
 
 
 def _init_worker(regression_snps, regression_regions=None, log_level: str = "INFO") -> None:
-    """Initialize shared keys and fixed, child-owned native thread limits."""
+    """Initialize shared keys and fixed, worker-owned native thread limits."""
     from ._worker_runtime import initialize_worker
     _WORKER_STATE["regression_snps"] = regression_snps
     _WORKER_STATE["regression_regions"] = regression_regions

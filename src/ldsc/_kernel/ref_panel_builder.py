@@ -1,4 +1,4 @@
-"""Internal helpers for building standard parquet reference panels."""
+"""Internal helpers for building R2 panels."""
 
 from __future__ import annotations
 
@@ -620,7 +620,7 @@ def build_runtime_metadata_table(
     positions: np.ndarray,
     cm_values: np.ndarray | None,
 ) -> pd.DataFrame:
-    """Build the LDSC runtime metadata sidecar for one emitted build.
+    """Build the LDSC3 runtime metadata sidecar for one emitted build.
 
     When ``cm_values`` is ``None``, the sidecar keeps the SNP rows and writes a
     nullable ``CM`` column. This is used by SNP- and kb-window builds that omit
@@ -651,7 +651,7 @@ def _ensure_parent_dir(path: str | PathLike[str]) -> None:
 
 
 def write_dataframe_to_parquet(df: pd.DataFrame, path: str | PathLike[str]) -> str:
-    """Write one generic DataFrame to parquet without LDSC format guarantees."""
+    """Write one generic DataFrame to parquet without LDSC3 format guarantees."""
 
     _ensure_parent_dir(path)
     if "R2" in df.columns:
@@ -705,7 +705,7 @@ def write_r2_parquet(
     min_r2: float = 0.0,
 ) -> str:
     """
-    Write one canonical 4-column index R2 parquet with LDSC schema metadata.
+    Write one canonical 4-column R2 Parquet file with LDSC3 schema metadata.
 
     Columns are ``IDX_1``/``IDX_2`` (int32 sidecar-row indices), ``R2``
     (int16 symmetric quantization, scale ``R2_QUANT_SCALE``=32767, with
@@ -739,21 +739,21 @@ def write_r2_parquet(
         import pyarrow.parquet as pq
     except ImportError as exc:
         raise LDSCDependencyError(
-            "build-r2-panel could not write canonical R2 parquet artifacts because pyarrow is not installed. "
-            "Most likely parquet reference-panel generation was requested in an environment missing pyarrow. "
+            "build-r2-panel could not write R2 Parquet files because pyarrow is not installed. "
+            "Most likely R2 panel generation was requested in an environment missing pyarrow. "
             "Install pyarrow and rerun build-r2-panel."
         ) from exc
 
     if int(n_snps) >= 2**31:
         raise LDSCInputError(
-            f"build-r2-panel cannot write R2 parquet with n_snps={n_snps}: the index "
+            f"build-r2-panel cannot write an R2 Parquet file with n_snps={n_snps}: the index "
             "space exceeds the int32 IDX column range. Most likely the retained reference "
             "panel is too large for the current parquet format. Split the panel or reduce "
-            "the retained SNP universe."
+            "the retained reference SNPs."
         )
     if ld_window_mode is None or ld_window_value is None:
         raise LDSCInternalError(
-            "build-r2-panel could not write R2 parquet LD-window metadata because "
+            "build-r2-panel could not write R2 Parquet file LD-window metadata because "
             "ld_window_mode and ld_window_value were not both provided. Most likely "
             "the reference-panel builder passed an incomplete build-window record. "
             "Re-run with DEBUG logging and report the traceback."
@@ -809,7 +809,7 @@ def write_r2_parquet(
             if bad.size:
                 k = int(bad[0])
                 raise LDSCInternalError(
-                    "build-r2-panel R2 parquet writing failed: pair rows arrived out of "
+                    "build-r2-panel R2 Parquet file writing failed: pair rows arrived out of "
                     "non-decreasing IDX_1 order. "
                     f"Received IDX_1={int(sequence[k + 1])} after IDX_1={int(sequence[k])}. "
                     "Most likely retained SNP sorting or pair emission is inconsistent. "
@@ -871,7 +871,7 @@ def write_runtime_metadata_sidecar(
     genome_build: str,
     snp_identifier: str,
 ) -> str:
-    """Write one gzip-compressed LDSC runtime metadata sidecar."""
+    """Write one gzip-compressed LDSC3 runtime metadata sidecar."""
 
     _ensure_parent_dir(path)
     identity_metadata = identity_artifact_metadata(
@@ -890,7 +890,7 @@ def build_restriction_mask(
     restriction_values: set[str] | RestrictionIdentityKeys,
     mode: str,
 ) -> np.ndarray:
-    """Build the retained-SNP boolean mask for one restriction universe."""
+    """Build the retained-SNP boolean mask for one SNP restriction set."""
 
     if isinstance(restriction_values, RestrictionIdentityKeys):
         if restriction_values.match_kind == "identity":
@@ -944,7 +944,7 @@ def _build_allele_aware_restriction_mask(
 
 
 def _restriction_base_keys(keys: set[str]) -> set[str]:
-    """Extract allele-blind base keys from allele-aware identity keys."""
+    """Extract base keys from allele-aware identity keys."""
     base_keys: set[str] = set()
     for key in keys:
         parts = str(key).rsplit(":", 2)

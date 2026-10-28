@@ -2,12 +2,9 @@
 
 Last updated on: 2026-10-27
 
-This document gives the input-to-output mathematical specification for the
-exact gene-list index used by `ldsc ldscore`. It describes the online indexed
-algorithm in full and the offline `build-gene-ldscore-index` construction more
-concisely. The index is an exact factorization of the matching direct PLINK
-calculation, not an approximation and not a sum of separately calculated
-per-gene LD scores.
+This document gives the input-to-output mathematical specification for the gene LD-score index used by `ldsc ldscore`.
+It describes the online indexed algorithm in full and the offline `build-gene-ldscore-index` construction more concisely.
+The index is an exact factorization of the matching direct PLINK calculation, not an approximation and not a sum of separately calculated per-gene LD scores.
 
 ## 1. Scope and chromosome-local notation
 
@@ -18,14 +15,14 @@ identifier-key inner intersection and genotype filtering.
 | Symbol | Shape | Meaning |
 | --- | --- | --- |
 | $n$ | scalar | selected PLINK reference individuals |
-| $m$ | scalar | retained LD-reference SNPs |
-| $r$ | scalar | persisted regression/output SNPs, with $r\le m$ |
+| $m$ | scalar | reference SNPs |
+| $r$ | scalar | regression SNPs (persisted output rows), with $r\le m$ |
 | $b$ | scalar | supplied baseline annotation columns |
 | $g$ | scalar | embedded catalog genes |
 | $t$ | scalar | disjoint gene atoms |
 | $X$ | $n\times m$ | centered and variance-normalized PLINK genotypes |
 | $A$ | $m\times b$ | supplied baseline annotations on retained reference SNPs |
-| $R$ | $m\times m$ | within-window adjusted-$r^2$ LD operator |
+| $R$ | $m\times m$ | within-window unbiased-$r^2$ LD operator |
 | $p$ | $m\times 1$ | Boolean persisted-row/regression-SNP selector |
 | $P$ | $r\times m$ | row-selection matrix induced by $p$ |
 | $G$ | $g\times t$ | Boolean gene-to-atom membership |
@@ -35,21 +32,21 @@ identifier-key inner intersection and genotype filtering.
 | $c$ | $m\times 1$ | Boolean common-SNP mask |
 | $Y$ | $r\times t$ | stored gene LD-score operator $PRH$ |
 
-The four SNP universes must not be conflated:
+The four SNP sets must not be conflated:
 
-1. The **source universe** is the raw baseline and PLINK input.
-2. The **LD-reference universe** of size $m$ is their identifier-key inner
+1. The **source SNPs** are the SNPs in the raw baseline and PLINK input.
+2. The **reference SNPs**, $m$ in number, are their identifier-key inner
    intersection after genotype usability checks, optional individual selection,
    and optional retained-reference MAF filtering.
-3. The **common universe** is the subset selected by
+3. The **common reference SNPs** are the subset selected by
    $c_i=\mathbf{1}[\operatorname{MAF}_i\ge\tau]$, where
    $\tau=\texttt{common_maf_min}$ (default 0.05).
-4. The **persisted regression/output universe** of size $r$ is selected from the
-   reference universe by the bundled HapMap3 or custom regression-SNP keys and
+4. The **regression SNPs**, $r$ in number, are the persisted output rows selected
+   from the reference SNPs by the HM3 map or custom regression-SNP keys and
    then by the configured regression-region subtraction.
 
-LD-score contributions, annotation counts, and annotation overlaps use the
-LD-reference universe. Only persisted rows are written to the output tables.
+LD-score contributions, annotation counts, and annotation overlaps use the reference SNPs.
+Only persisted rows are written to the output tables.
 Consequently, a nonpersisted SNP—including an MHC or centromeric SNP removed by
 the regression-region policy—can contribute LD, counts, and overlaps.
 
@@ -61,8 +58,8 @@ $$
 \rho_{ij}=\frac{1}{n}X_{\cdot i}^{\mathsf T}X_{\cdot j}.
 $$
 
-Let $\nu=n-2$ when $n>2$ and $\nu=n$ otherwise, matching the PLINK kernel. The
-adjusted squared-correlation contribution is
+Let $\nu=n-2$ when $n>2$ and $\nu=n$ otherwise, matching the PLINK kernel.
+The unbiased squared-correlation contribution is
 
 $$
 \widetilde r_{ij}^{\,2}
@@ -82,8 +79,8 @@ R_{ij}=
 \end{cases}
 $$
 
-The standardized self-correlation makes $R_{ii}=1$. Off-diagonal adjusted
-values may be negative; neither construction nor indexed assembly clamps them.
+The standardized self-correlation makes $R_{ii}=1$.
+Off-diagonal unbiased values may be negative; neither construction nor indexed assembly clamps them.
 
 For any reference-SNP annotation vector $q\in\mathbb{R}^{m}$, its LD score on
 the persisted rows is
@@ -202,11 +199,11 @@ Here $d,d_c\in\mathbb{N}^{t}$ count all/common reference SNPs in each atom;
 $D,D_c\in\mathbb{R}^{b\times t}$ contain baseline-to-atom overlaps;
 $M_A,M_{A,c}\in\mathbb{R}^{b}$ are baseline annotation counts; and
 $O_A,O_{A,c}\in\mathbb{R}^{b\times b}$ are baseline overlap Gram matrices.
-The corresponding reference-universe totals are $m$ and $\mathbf{1}^{\mathsf T}c$.
+The corresponding reference-SNP totals are $m$ and $\mathbf{1}^{\mathsf T}c$.
 
 `atom_statistics.npz` stores $d,d_c,D,D_c$;
 `baseline_statistics.npz` stores $M_A,M_{A,c},O_A,O_{A,c}$ and the two
-reference-universe totals.
+reference-SNP totals.
 
 ## 4. Full online indexed algorithm
 
@@ -248,7 +245,7 @@ q_q=Hz_q.
 $$
 
 Because atoms are disjoint, $q_q$ is exactly the direct padded-gene union on the
-retained reference-SNP grid.
+retained reference SNPs.
 
 ### 4.3 Assemble focal and control LD scores
 
@@ -285,9 +282,9 @@ M_q=d^{\mathsf T}z_q,
 M_{q,c}=d_c^{\mathsf T}z_q.
 $$
 
-The control counts are $d^{\mathsf T}z_0$ and $d_c^{\mathsf T}z_0$. Supplied
-baseline counts come directly from $M_A$ and $M_{A,c}$. These quantities use the
-LD-reference universe, not merely the $r$ persisted rows.
+The control counts are $d^{\mathsf T}z_0$ and $d_c^{\mathsf T}z_0$.
+Supplied baseline counts come directly from $M_A$ and $M_{A,c}$.
+These quantities use the reference SNPs, not merely the $r$ persisted rows.
 
 ### 4.5 Assemble annotation overlaps
 
@@ -332,8 +329,8 @@ queries. Their absence must not be interpreted as zero overlap.
 
 ### 4.6 Aggregate chromosomes
 
-All score tables preserve the index's chromosome and persisted-row order. Counts,
-overlap blocks, query diagonals, and reference-universe totals are additive:
+All score tables preserve the index's chromosome and persisted-row order.
+Counts, overlap blocks, query diagonals, and reference-SNP totals are additive:
 
 $$
 L_Q=\operatorname{row\_concat}_k L_Q^{(k)},
@@ -353,12 +350,10 @@ $$
 M_q>0
 $$
 
-and its assembled values in $L_Q$ have nonzero variance across the persisted
-regression rows. A zero-hit query receives status `zero_annotation_snps`; a
-constant LD-score column receives status `zero_variance_ld_scores`. The workflow
-removes a skipped focal query consistently from $L_Q$, its count record, its
-fixed-row overlap column, and its query self-overlap. The fixed supplied
-baseline and optional control are not focal-query pruning candidates.
+and its assembled values in $L_Q$ have nonzero variance across the regression SNPs.
+A zero-hit query receives status `zero_annotation_snps`; a constant LD-score column receives status `zero_variance_ld_scores`.
+The workflow removes a skipped focal query consistently from $L_Q$, its count record, its fixed-row overlap column, and its query self-overlap.
+The fixed supplied baseline and optional control are not focal-query pruning candidates.
 
 If every focal query is skipped, the workflow writes query diagnostics but no
 scientific LD-score tables and exits with an error.
@@ -370,17 +365,16 @@ After query-status validation, the ordinary LD-score writer publishes:
 | Artifact | Mathematical content |
 | --- | --- |
 | `ldscore.baseline.parquet` | persisted SNP identities, $w$, $L_A$, and optional $\ell_0$ |
-| `ldscore.query.parquet` or numbered query batch files | persisted SNP identities and the corresponding columns of \(L_Q\) |
+| `ldscore.query.parquet` or numbered query batch files | persisted SNP identities and the corresponding columns of $L_Q$ |
 | `ldscore.overlap.parquet` | all/common fixed-row overlap blocks and focal-query self-overlaps |
-| `metadata.json` | annotation counts, SNP-universe totals/policies, columns, ordered `query_batches`, `index_id`, and provenance |
+| `metadata.json` | annotation counts, SNP-set totals and policies, columns, ordered `query_batches`, `index_id`, and provenance |
 | `diagnostics/` | query resolution/status and workflow audit records |
 
 Execution groups the same matrix products into query batches. For each batch, a persistent worker pool reloads one chromosome operator per task and writes float64 fragments; the coordinator combines them in canonical chromosome order and writes one genome-wide batch at a time. `workers` controls chromosome workers and is capped at chromosome count; `query_batch_size` controls query width. These runtime choices do not change the matrices or scientific definitions above. One batch uses the single query filename; multiple batches use numbered files recorded in the required manifest. See `indexed_results` in [_indexed_ldscore_batches.py](../../../src/ldsc/_indexed_ldscore_batches.py) and [`test_gene_index_streaming.py`](../../../tests/test_gene_index_streaming.py).
 
-Scientific matrix products and stored operator values use float64. The canonical
-Parquet writer narrows LD-score columns to the public float32 storage dtype.
-Negative adjusted-$r^2$ contributions are preserved, and no epsilon pruning or
-post-assembly clamping is applied.
+Scientific matrix products and stored operator values use float64.
+The canonical Parquet writer narrows LD-score columns to the public float32 storage dtype.
+Negative unbiased-$r^2$ contributions are preserved, and no epsilon pruning or post-assembly clamping is applied.
 
 ## 5. Why online assembly is fast
 
@@ -427,11 +421,11 @@ and query statuses remain exact contracts. Continuous baseline overlap values
 obey the same formulas and use a validated absolute tolerance of $10^{-7}$.
 
 **Validation evidence (August 3 and 5, 2026).**
-On chromosome 22 of `1000G.EUR.QC` (hg19; 141,123 reference SNPs; 17,380 regression rows after HM3 restriction and region exclusion; 838 atoms; $\mathrm{nnz}(Y)=614{,}523$), direct and indexed runs were compared for the `rsid` and `chr_pos` identity modes.
+On chromosome 22 of `1000G.EUR.QC` (hg19; 141,123 reference SNPs; 17,380 regression SNPs after HM3 restriction and region exclusion; 838 atoms; $\mathrm{nnz}(Y)=614{,}523$), direct and indexed runs were compared for the `rsid` and `chr_pos` SNP identifier modes.
 Every LD-score value was identical after the normal float32 output cast, for both the Phase 3 baseline and baselineLD v2.2 suites.
 Binary-baseline overlaps were exactly identical.
 The baselineLD v2.2 continuous overlaps differed by at most $7.654\times10^{-8}$, which is the empirical basis for the $10^{-7}$ overlap tolerance.
-Matching downstream `partitioned-h2` runs on a synthetic sumstats table gave identical results (maximum absolute difference 0).
+Matching downstream `partitioned-h2` runs on a synthetic summary-statistics table gave identical results (maximum absolute difference 0).
 Each chromosome-22 index build took 103–153 s with 1.30–1.76 GB peak RSS.
 
 ## 7. File-to-symbol map
@@ -449,7 +443,7 @@ Each chromosome-22 index build took 103–153 s with 1.30–1.76 GB peak RSS.
 
 ## 8. Related documentation and implementation
 
-- [Exact gene LD-score index user guide](../gene-ldscore-index.md)
+- [Gene LD-score index reference](../gene-ldscore-index.md)
 - [Gene-list indexed `ldscore` tutorial](../../user-guide/workflows/gene-list-ld-scores.md)
 - [Gene-list input format](../formats/gene-lists.md) and [gene-list diagnostics and repair](../results/gene-list-diagnostics.md)
 - [General LD-score accumulation mathematics](ld-score-computation.md)
@@ -460,4 +454,6 @@ Each chromosome-22 index build took 103–153 s with 1.30–1.76 GB peak RSS.
 
 ## Computation and verification seams
 
-`ldsc._kernel.gene_ldscore_index.assemble_selected_atom_statistics` assembles the counts and baseline/control overlaps consumed by `run_indexed_ldscore`. SNP-grid reconstruction is a test oracle, not a second runtime implementation. `tests/test_gene_ldscore_index_kernel.py` checks hand-computed counts/overlaps and reconstructs interval-union membership independently; `tests/test_gene_ldscore_index.py` checks live-versus-indexed outputs.
+`ldsc._kernel.gene_ldscore_index.assemble_selected_atom_statistics` assembles the counts and baseline/control overlaps consumed by `run_indexed_ldscore`.
+SNP-level reconstruction is a test oracle, not a second runtime implementation.
+`tests/test_gene_ldscore_index_kernel.py` checks hand-computed counts/overlaps and reconstructs interval-union membership independently; `tests/test_gene_ldscore_index.py` checks live-versus-indexed outputs.

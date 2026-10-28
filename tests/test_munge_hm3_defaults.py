@@ -139,7 +139,7 @@ def test_real_packaged_hm3_infers_source_before_automatic_mapping(tmp_path):
     ("chr_pos", "hg38", False, "HM3 quick liftover (automatic; package-bundled HM3 metadata)"),
     ("chr_pos", "hg38", True, "chain file (explicit; HM3 quick liftover disabled)"),
     ("chr_pos", "hg19", True, "none (source and output builds match; supplied chain ignored)"),
-    ("rsid", None, False, "none (rsID identity; coordinate conversion not applicable)"),
+    ("rsid", None, False, "none (rsID identity; liftover not applicable)"),
 ])
 def test_cli_reports_selected_method_and_counts_in_stdout_and_log(
     inputs, tmp_path, capsys, level, mode, target, chain, method,

@@ -35,8 +35,8 @@ ALLELE_AWARE_MODES = ("rsid_allele_aware", "chr_pos_allele_aware")
 BASE_MODES = ("rsid", "chr_pos")
 ARTIFACT_TYPES = frozenset({"sumstats", "ref_panel_r2", "ref_panel_metadata", "ldscore"})
 REGENERATE_ARTIFACT_MESSAGE = (
-    "This artifact was not written with the current LDSC schema/provenance contract. "
-    "Regenerate it with the current LDSC package."
+    "This artifact was not written with the current LDSC3 schema/provenance contract. "
+    "Regenerate it with the current LDSC3 package."
 )
 _ARTIFACT_METADATA_TROUBLESHOOTING = (
     "docs/user-guide/troubleshooting.md#common-ldsc3-artifact-schema-or-provenance-is-incompatible"
@@ -86,7 +86,7 @@ class RestrictionIdentityKeys:
 
 @dataclass(frozen=True)
 class IdentityCompatibility:
-    """Effective regression identity mode and whether downgrade was used."""
+    """Effective regression SNP identifier mode and whether downgrade was used."""
 
     effective_mode: str
     downgrade_applied: bool
@@ -113,7 +113,7 @@ def identity_artifact_metadata(
     """Return the minimal identity metadata persisted with reloadable artifacts."""
     if artifact_type not in ARTIFACT_TYPES:
         raise LDSCInternalError(
-            f"Cannot write LDSC identity metadata: artifact_type={artifact_type!r} is not registered. "
+            f"Cannot write LDSC3 identity metadata: artifact_type={artifact_type!r} is not registered. "
             "Most likely a new internal artifact writer was added without updating ARTIFACT_TYPES. "
             "Add the artifact type to the central identity metadata registry."
         )
@@ -129,10 +129,10 @@ def validate_identity_artifact_metadata(metadata: dict[str, object], *, expected
     if metadata.get("artifact_type") != expected_artifact_type:
         actual_type = metadata.get("artifact_type")
         raise LDSCInputError(
-            f"Could not read LDSC {expected_artifact_type} artifact metadata: expected "
+            f"Could not read LDSC3 {expected_artifact_type} artifact metadata: expected "
             f"artifact_type={expected_artifact_type!r}, got artifact_type={actual_type!r}. "
-            "Most likely the artifact was written by an older LDSC version or by another tool. "
-            "Regenerate the artifact with the current LDSC package. "
+            "Most likely the artifact was written by an older LDSC3 version or by another tool. "
+            "Regenerate the artifact with the current LDSC3 package. "
             f"Other causes & fixes: {_ARTIFACT_METADATA_TROUBLESHOOTING}"
         )
     try:
@@ -140,9 +140,9 @@ def validate_identity_artifact_metadata(metadata: dict[str, object], *, expected
     except LDSCConfigError as exc:
         actual_mode = metadata.get("snp_identifier")
         raise LDSCInputError(
-            f"Could not read LDSC {expected_artifact_type} artifact metadata: snp_identifier={actual_mode!r} is invalid. "
+            f"Could not read LDSC3 {expected_artifact_type} artifact metadata: snp_identifier={actual_mode!r} is invalid. "
             "Most likely the artifact metadata is missing, outdated, or was edited by hand. "
-            "Regenerate the artifact with the current LDSC package. "
+            "Regenerate the artifact with the current LDSC3 package. "
             f"Other causes & fixes: {_ARTIFACT_METADATA_TROUBLESHOOTING}"
         ) from exc
 
@@ -156,7 +156,7 @@ def identity_mode_family(mode: str) -> Literal["rsid", "chr_pos"]:
 
 
 def identity_base_mode(mode: str) -> Literal["rsid", "chr_pos"]:
-    """Return the allele-blind base mode for ``mode``."""
+    """Return the base mode for ``mode``."""
     return identity_mode_family(mode)
 
 
@@ -166,10 +166,10 @@ def resolve_regression_identity_mode(
     *,
     allow_identity_downgrade: bool,
 ) -> IdentityCompatibility:
-    """Resolve two regression inputs to one effective SNP identity mode.
+    """Resolve two regression inputs to one effective SNP identifier mode.
 
     Downgrade is regression-only. When enabled, same-family allele-aware/base
-    mixes run under the allele-blind base mode. rsID-family and
+    mixes run under the base mode. rsID-family and
     coordinate-family modes are never compatible.
     """
     left = normalize_snp_identifier_mode(left_mode)
@@ -185,7 +185,7 @@ def resolve_regression_identity_mode(
     if not allow_identity_downgrade:
         raise LDSCUsageError(
             f"Cannot resolve regression SNP identity: input modes {left!r} and {right!r} differ in allele-awareness. "
-            "Most likely one input is allele-aware and the other is allele-blind. "
+            "Most likely one input uses an allele-aware mode and the other a base mode. "
             "Use matching snp_identifier modes, or pass --allow-identity-downgrade to run under the base mode."
         )
     return IdentityCompatibility(effective_mode=identity_base_mode(left), downgrade_applied=True)
@@ -335,12 +335,12 @@ def _require_columns(frame: pd.DataFrame, columns: tuple[str, ...], *, context: 
         raise LDSCInputError(
             f"Cannot build SNP identity for {context}: missing canonical column(s) {joined}. "
             "Most likely the input file schema does not match the requested snp_identifier mode. "
-            "Use the correct input file or regenerate the artifact with the current LDSC package."
+            "Use the correct input file or regenerate the artifact with the current LDSC3 package."
         )
 
 
 def base_key_series(frame: pd.DataFrame, mode: str, *, context: str) -> pd.Series:
-    """Build allele-blind base identity keys for an exact SNP identifier mode."""
+    """Build base identity keys for an exact SNP identifier mode."""
     family = identity_mode_family(mode)
     if family == "rsid":
         _require_columns(frame, ("SNP",), context=context)
@@ -382,7 +382,7 @@ def effective_merge_key_series(frame: pd.DataFrame, mode: str, *, context: str =
         raise LDSCInputError(
             f"Cannot build allele-aware SNP identity for {context}: invalid A1/A2 rows were found ({reason}). "
             "Most likely the input contains missing, non-ACGT, identical, or strand-ambiguous allele pairs. "
-            "Clean the allele columns or use an allele-blind snp_identifier mode."
+            "Clean the allele columns or use a base snp_identifier mode (rsid or chr_pos)."
         )
     keys = pd.Series(pd.NA, index=frame.index, dtype=object)
     valid = base.notna() & allele_set.notna()
@@ -532,7 +532,7 @@ def collapse_restriction_identity_keys(
     logger: logging.Logger | None = None,
 ) -> RestrictionIdentityKeys:
     """
-    Build set-like restriction keys under the active identity mode.
+    Build set-like restriction keys under the active SNP identifier mode.
 
     Restriction tables are filters, not metadata sources. The active base or
     allele-aware key is computed, repeated keys collapse to one retained key,

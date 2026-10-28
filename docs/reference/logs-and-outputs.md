@@ -33,7 +33,8 @@ Public workflow entry points share one logging policy:
 - Workflow result objects and `output_paths` mappings do not include log files.
 - INFO describes major phases, numbered batch start/completion, chromosome work, and aggregate outcomes. Successful query timings, source mappings, and full annotation lists belong at DEBUG.
 - Gene exclusions, rejected rows, unsupported genes, and non-OK query outcomes use counts by role/reason and pointers to complete diagnostics. Exclusion counts describe submitted input rows, including repeats across lists; they are not counts of distinct genes. Failure messages retain the affected query/pair, stage, and traceback.
-- A diagnostic pointer replaces detail only when the corresponding file is written. Warnings without an equivalent complete diagnostic, including raw summary-statistic QC warnings, remain self-contained.
+- A diagnostic pointer replaces detail only when the corresponding file is written.
+  Warnings without an equivalent complete diagnostic, including raw summary-statistics QC warnings, remain self-contained.
 
 Nested workflow logging contexts retain the active outer log rather than opening a second file or replacing its settings.
 The owning context restores the previous logger level and removes its own handler on exit.
@@ -62,7 +63,7 @@ CLI entry points that activate logging without a workflow file retain their exis
 Errors before a workflow log opens cannot provide a traceback from that unopened file.
 Current internal-error reports add the saved logfile pointer when available; expected user-error reports use the context and pointers supplied by their exception message.
 
-The package does not install a root logger handler, and LDSC records may propagate to handlers installed by an application.
+The package does not install a root logger handler, and records from the `LDSC` logger may propagate to handlers installed by an application.
 Claims of “file only” above describe the package's own routing, not suppression of application logging.
 Calling `run_cli(argv=...)` programmatically does not install the CLI console handler.
 
@@ -75,42 +76,51 @@ Python entry points print no console notices; callers inspect the returned statu
 
 In `ldscore`, the successful gene-list notice distinguishes unsupported gene-list rows from queries skipped after LD-score computation.
 It reports an unsupported-row count only when that count is positive, explains each SNP-support or zero-variance outcome in words, and states that skipped queries are omitted from LD-score outputs.
-For example, a notice can report three queries skipped because their LD scores are constant on regression SNP rows (`zero_variance_ld_scores`), even when every evaluated gene has retained reference-SNP support.
-SNP support is measured on the retained reference-SNP universe; LD-score variation is evaluated on regression SNP rows.
+For example, a notice can report three queries skipped because their LD scores are constant on the regression SNPs (`zero_variance_ld_scores`), even when every evaluated gene has retained reference-SNP support.
+SNP support is measured on the retained reference SNPs; LD-score variation is evaluated on the regression SNPs.
 The reason codes, diagnostic schemas, query-selection policy, and console/file routing remain unchanged.
 
 After a successful `munge-sumstats` CLI run, stdout displays a `Munge-sumstats summary:` block with the selected restriction, liftover method, mapping/drop counts and reasons, and whole-run row accounting. The workflow writes the identical block to `diagnostics/sumstats.log` through `log_summary`, which bypasses the module-record threshold like lifecycle audit lines. This summary remains visible at every `--log-level`; Python API runs write it only to the log. See [liftover rules and count interpretation](munge-sumstats.md#liftover-rules).
 
 ## Output-Family Preflight
 
-Public workflow layers treat their fixed current-contract outputs plus workflow
-log as one owned family. Without `--overwrite`, any existing owned artifact
-rejects the run before the log is opened. With `--overwrite`, stale owned
-siblings that the successful run did not produce are removed after the current
-outputs are written. Legacy root log names such as `sumstats.log`,
-`annotate.log`, `ldscore.log`, `build-r2-panel*.log`, or regression logs at the
-output root are not part of the current owned family. For `build-r2-panel`,
-concrete chromosome PLINK prefixes own only the matching chromosome-scoped log,
-while `@` chromosome-suite prefixes own the full build-r2-panel log family.
+Public workflow layers treat their fixed current-contract outputs plus workflow log as one owned family.
+Without `--overwrite`, any existing owned artifact rejects the run before the log is opened.
+With `--overwrite`, stale owned siblings that the successful run did not produce are removed after the current outputs are written.
+Legacy root log names such as `sumstats.log`, `annotate.log`, `ldscore.log`, `build-r2-panel*.log`, or regression logs at the output root are not part of the current owned family.
+For `build-r2-panel`, concrete chromosome PLINK prefixes own only the matching chromosome-scoped log, while `@` chromosome-suite prefixes own the full `build-r2-panel` log family.
 
 This keeps an output directory from mixing artifacts from different
 configurations, while preserving unrelated user files. Direct Python writer
 APIs apply the same rule to their data artifacts. Standalone `run_annotate()` owns the canonical annotation log; `AnnotationBuilder.run()` prepares private data without installing a workflow log.
 
-The six directory writers in `ldsc.outputs` each expose `artifact_family()`, returning an `ArtifactFamily` with selected output paths and the complete owned scope. H2, partitioned-h2, rg, quantile-h2, query-r2, and LD-score workflow preflights consult their writer's declaration and add workflow-owned logs or audits. The legacy LDSC converter and indexed LD-score CLI also consult the LD-score writer. Declarations only describe paths; the existing `path_resolution.preflight_output_artifact_family()` still performs collision checks.
+The six directory writers in `ldsc.outputs` each expose `artifact_family()`, returning an `ArtifactFamily` with selected output paths and the complete owned scope.
+`h2`, `partitioned-h2`, `rg`, `quantile-h2`, `query-r2`, and LD-score workflow preflights consult their writer's declaration and add workflow-owned logs or audits.
+The legacy LDSC converter and indexed LD-score CLI also consult the LD-score writer.
+Declarations only describe paths; the existing `path_resolution.preflight_output_artifact_family()` still performs collision checks.
 
 Early checks discard the returned stale list because the final scientific and diagnostic outputs are not yet known. Each writer derives its final declaration from the result or write options, uses those same selected paths for output and metadata file entries, and removes stale owned siblings after its existing publication step. LD-score diagnostics-only writes use this same declaration; existing `diagnostics/dropped_snps/chr*_dropped.tsv.gz` reports are included in early collision checks and final reconciliation. There is no second workflow cleanup based on an earlier prediction.
 
-Annotation, munging, and reference-panel build workflows retain their local ownership declarations and existing cleanup stages. Reference-panel builds keep their chromosome scope, and gene-index publication retains its dedicated transaction. Logs and workflow-only audit extensions do not enter scientific metadata through `ArtifactFamily`. Failure markers remain owned by the marker helper. Validation lives in `tests/test_artifact_declarations.py`, `tests/test_output.py`, `tests/test_derived_output_lifecycle.py`, `tests/test_failure_markers.py`, and the reference-panel/index workflow tests.
+Annotation, munging, and reference-panel build workflows retain their local ownership declarations and existing cleanup stages.
+Reference-panel builds keep their chromosome scope, and gene LD-score index publication retains its dedicated transaction.
+Logs and workflow-only audit extensions do not enter scientific metadata through `ArtifactFamily`.
+Failure markers remain owned by the marker helper.
+Validation lives in `tests/test_artifact_declarations.py`, `tests/test_output.py`, `tests/test_derived_output_lifecycle.py`, `tests/test_failure_markers.py`, and the reference-panel/index workflow tests.
 
 ## Staged input validation
 
-Output ownership and input validity are separate gates. Existing artifact-family checks authorize logs/diagnostics and prevent replacement without overwrite. Input gates do not authorize scientific output replacement, remove stale science files, or imply that publication succeeded. R2 builds derive their chromosome-specific output family from validated PLINK contents; their early discovery repair table can therefore precede the full output-family check, as the previous PLINK repair table did.
+Output ownership and input validity are separate gates.
+Existing artifact-family checks authorize logs/diagnostics and prevent replacement without overwrite.
+Input gates do not authorize scientific output replacement, remove stale science files, or imply that publication succeeded.
+R² panel builds derive their chromosome-specific output family from validated PLINK contents; their early discovery repair table can therefore precede the full output-family check, as the previous PLINK repair table did.
 
-[`_input_preflight.InputGate`](../../src/ldsc/_input_preflight.py) collects independent input errors across objects at a stage and retains `input_issues` on the exception. Writing workflows persist the existing six-column `input_issues.tsv` repair table under diagnostics; gene-index builds use the sibling `.<index>.build-state/` directory. Existing PLINK and gene-specific audits remain available. The table is a diagnostic, not a new scientific artifact or resumable checkpoint.
+[`_input_preflight.InputGate`](../../src/ldsc/_input_preflight.py) collects independent input errors across objects at a stage and retains `input_issues` on the exception.
+Writing workflows persist the existing six-column `input_issues.tsv` repair table under diagnostics; gene LD-score index builds use the sibling `.<index>.build-state/` directory.
+Existing PLINK and gene-specific audits remain available.
+The table is a diagnostic, not a new scientific artifact or resumable checkpoint.
 
 Input-preflight errors name the failed input, report the issue count and an actionable repair, and point to the written `diagnostics/input_issues.tsv`.
-A missing raw-summary-statistic path identifies `--raw-sumstats-file`, reports that path resolution found no matching file, and states that summary-statistic reading has not started.
+A missing raw summary-statistics path identifies `--raw-sumstats-file`, reports that path resolution found no matching file, and states that summary-statistics reading has not started.
 The primary message shows that pathname once; the chained developer traceback retains the original exception and its full context.
 The diagnostic table retains its six-column schema and preserves specialized nested diagnostics.
 Other captured operation errors distinguish missing and unreadable inputs and record exception types and operating-system error numbers when available.
@@ -118,9 +128,17 @@ One captured failure becomes the error's direct cause; multiple captured failure
 The declaration-validation phase reports `failed_inputs` as the number of distinct role/source/chromosome combinations with issues.
 When a phase total is unknown, progress omits the denominator; any reported completed count uses `completed=N`.
 
-Direct LD scores check declarations and annotation headers, resolve gene-list controls, and validate reference content before annotation staging. PLINK companion mappings and reference scope evidence are reused; annotation headers supply the source scan widths. Gene-index and R2 construction check baseline/auxiliary declarations and PLINK companions together. Index consumers check every component path, small chromosome identity metadata, and Parquet header before opening the first numerical operator. See [`test_staged_input_preflight.py`](../../tests/test_staged_input_preflight.py).
+Direct LD scores check declarations and annotation headers, resolve gene-list controls, and validate reference content before annotation staging.
+PLINK companion mappings and reference scope evidence are reused; annotation headers supply the source scan widths.
+Gene LD-score index and R² panel construction check baseline/auxiliary declarations and PLINK companions together.
+Index consumers check every component path, small chromosome identity metadata, and Parquet header before opening the first numerical operator.
+See [`test_staged_input_preflight.py`](../../tests/test_staged_input_preflight.py).
 
-Validation remains staged: BIM/FAM rows and BED dimensions require reference inspection; annotation row alignment, duplicate identities, chromosome contents, and gene support require their content scans. R2 query-scope validation streams pair integrity before preparation and reuses that scope result. Baseline-only R2 runs check sidecar/reader compatibility early and retain pair-content checks in the consuming reader, avoiding an additional full pair scan. Ordinary globs cannot reveal a chromosome that is absent consistently from all matches. Scientific omission, ignored-option, overwrite, and failure-marker policies remain unchanged.
+Validation remains staged: BIM/FAM rows and BED dimensions require reference inspection; annotation row alignment, duplicate identities, chromosome contents, and gene support require their content scans.
+R² panel query-scope validation streams pair integrity before preparation and reuses that scope result.
+Baseline-only R² panel runs check sidecar/reader compatibility early and retain pair-content checks in the consuming reader, avoiding an additional full pair scan.
+Ordinary globs cannot reveal a chromosome that is absent consistently from all matches.
+Scientific omission, ignored-option, overwrite, and failure-marker policies remain unchanged.
 
 ## Annotation preparation
 
@@ -133,7 +151,12 @@ Annotation storage: binary=50 packed-bit columns, continuous=3 float32 columns; 
 Annotation preparation complete: chromosomes=22, retained SNPs=1,000,000, elapsed=30.00s.
 ```
 
-The counts, bytes, and time above are illustrative. The first line precedes the validation/classification pass; the second precedes global identity validation, retained-row selection, and a second input pass that writes final compact stores directly. The storage line counts each supplied logical column once; bytes sum the completed NPY files across retained chromosomes, including headers but excluding Parquet metadata, identity/diagnostic scratch, and any subsequently generated queries. These are file sizes, not peak RSS. Completion appears only after usable annotation shards are ready, with the number of retained chromosomes, logical SNP rows after identity cleanup and any chromosome selection, and elapsed preparation time. Aligned baseline/query files describe the same logical rows and do not double the SNP count. For the gene-index builder these messages precede `Starting chromosome N`; preparation remains serial.
+The counts, bytes, and time above are illustrative.
+The first line precedes the validation/classification pass; the second precedes global identity validation, retained-row selection, and a second input pass that writes final compact stores directly.
+The storage line counts each supplied logical column once; bytes sum the completed NPY files across retained chromosomes, including headers but excluding Parquet metadata, identity/diagnostic scratch, and any subsequently generated queries.
+These are file sizes, not peak RSS. Completion appears only after usable annotation shards are ready, with the number of retained chromosomes, logical SNP rows after identity cleanup and any chromosome selection, and elapsed preparation time.
+Aligned baseline/query files describe the same logical rows and do not double the SNP count.
+For the gene LD-score index builder these messages precede `Starting chromosome N`; preparation remains serial.
 
 These milestones accompany structured phase records from `_progress.PhaseProgress`: start, complete, failed, and time-throttled progress at bounded chunk/object checkpoints after at least 30 seconds. INFO reports the phase, completed units, known totals, and elapsed time. Individual source/query names remain in structured records and appear in text at DEBUG. Annotation scans share one INFO phase across the source collection; individual scans have DEBUG phases. File totals count completed sources, while row totals in staging phases count scanned/staged rows, not unique genome-wide SNPs. A blocking call cannot emit an intermediate record until control returns.
 
@@ -177,7 +200,12 @@ the failure, it remains with the usual `Failed` footer and traceback. A
 successful materializing retry removes its applicable marker after normal
 success. No-overwrite failures create no marker.
 
-The marker helper uses `path_resolution.normalize_path_token`, matching output preflight and publication. CLI marker scope follows the last occurrence of a destination option, as argparse does. Marker-only directories do not collide with writer artifact families. Gene-index preflight, direct publication, and interrupted-publication recovery share recognition of owned diagnostics; this excludes symlinks, special files, and unrelated empty subdirectories. Existing recovery of a validated owned backup preserves the failure marker until the current build succeeds. See [`test_output_directory_retries.py`](../../tests/test_output_directory_retries.py).
+The marker helper uses `path_resolution.normalize_path_token`, matching output preflight and publication.
+CLI marker scope follows the last occurrence of a destination option, as argparse does.
+Marker-only directories do not collide with writer artifact families.
+Gene LD-score index preflight, direct publication, and interrupted-publication recovery share recognition of owned diagnostics; this excludes symlinks, special files, and unrelated empty subdirectories.
+Existing recovery of a validated owned backup preserves the failure marker until the current build succeeds.
+See [`test_output_directory_retries.py`](../../tests/test_output_directory_retries.py).
 
 CLI help and `munge-sumstats --infer-only` bypass the marker lifecycle entirely. Even with `--overwrite`, they create no output directories or files and never create, replace, or remove a failure marker. This also applies when inference or argument parsing fails.
 
@@ -205,7 +233,10 @@ Arguments are shell-quoted where necessary, and negative numeric option values r
 Do not abbreviate the recorded invocation when compacting long input or output summaries.
 
 `Inputs:` and `Outputs:` are audit sections, not machine-readable manifests.
-`Outputs:` is separated from preceding workflow records by a blank line so summary blocks such as `Metadata:` remain visually distinct. Numbered LD-score query files are represented by their file count and a pointer to the complete `metadata.json.query_batches` manifest. Diagnostic paths remain individually listed. Large annotate/rg input groups use counts and provenance pointers; the exact `Call:` is preserved.
+`Outputs:` is separated from preceding workflow records by a blank line so summary blocks such as `Metadata:` remain visually distinct.
+Numbered LD-score query files are represented by their file count and a pointer to the complete `metadata.json.query_batches` manifest.
+Diagnostic paths remain individually listed.
+Large `annotate`/`rg` input groups use counts and provenance pointers; the exact `Call:` is preserved.
 
 Liftover drop summaries in ordinary logs are count-only. Row-level drop audit
 records belong in the workflow's dropped-SNP sidecar, and example SNPs are
@@ -254,22 +285,20 @@ Every regression CLI command requires `--output-dir` and writes its command log
 under that directory's `diagnostics/` tree.
 
 `convert-h2-scale` is post-processing rather than a regression fit and derives
-its destination from an existing h2 result. `plot` does the same for any
+its destination from an existing `h2` result. `plot` does the same for any
 supported result suite.
 
-LD-score logs report binary and quantitative annotation counts; names remain in `metadata.json.annotation_types` and DEBUG output. Partitioned-h2 logs repeat an actionable interpretation warning when quantitative annotations are present: legacy numerical proportion/enrichment summaries remain visible, but only coefficient-based fields retain their ordinary interpretation for those annotations. Quantile-h2 logs the selected fitted model, target, inherited common-MAF rule, common reference-SNP universe size, missing exclusions, and realized bin counts; per-bin bounds/counts remain in `quantile_h2.tsv` and DEBUG output. Row-addressable alignment issues are written to `snp_alignment_issues.tsv.gz` rather than expanded into the log.
+LD-score logs report binary and continuous annotation counts; names remain in `metadata.json.annotation_types` and DEBUG output.
+`partitioned-h2` logs repeat an actionable interpretation warning when continuous annotations are present: legacy numerical proportion/enrichment summaries remain visible, but only coefficient-based fields retain their ordinary interpretation for those annotations.
+`quantile-h2` logs the selected fitted model, target, inherited common-MAF rule, number of common reference SNPs, missing exclusions, and realized bin counts; per-bin bounds/counts remain in `quantile_h2.tsv` and DEBUG output.
+Row-addressable alignment issues are written to `snp_alignment_issues.tsv.gz` rather than expanded into the log.
 
-## Exact gene-index build log
+## Exact gene LD-score index build log
 
-The exact gene-index builder uses the same lifecycle banner, `Call:`, `Inputs:`,
-`Outputs:`, and `Finished`/`Failed` footer as the other artifact-building
-commands. Its stable path is created before chromosome work so it can be
-monitored live. Its concise INFO narrative records resolved configuration and input
-counts, the baseline/PLINK identifier intersection and configured regression-row universe, start and
-completion for each chromosome, catalog genes after exclusion, retained
-and regression rows, atom/operator nonzeros, component bytes, and publication
-state. The JSON sidecar is the machine-readable summary; the log renders the
-same per-chromosome and aggregate measurements rather than recomputing them.
+The exact gene LD-score index builder uses the same lifecycle banner, `Call:`, `Inputs:`, `Outputs:`, and `Finished`/`Failed` footer as the other artifact-building commands.
+Its stable path is created before chromosome work so it can be monitored live.
+Its concise INFO narrative records resolved configuration and input counts, the baseline/PLINK identifier intersection and configured regression SNPs, start and completion for each chromosome, catalog genes after exclusion, retained SNPs and regression SNPs, atom/operator nonzeros, component bytes, and publication state.
+The JSON sidecar is the machine-readable summary; the log renders the same per-chromosome and aggregate measurements rather than recomputing them.
 
 For this builder, `Finished chromosome N` is emitted only after the worker has closed every chromosome payload and atomically installed the shard in the hidden run-specific stage. It means the internal shard is durable and its in-memory record can be released; it does not report partial public publication. The public destination changes only after all chromosome and shared metadata are finalized and the complete stage reloads successfully.
 
@@ -304,7 +333,10 @@ Phase start: batch; query fitting 2/3; completed=0/1000
 Phase complete: computation; query fitting; completed=3000/3000; success=3000
 ```
 
-A completed scan can contain query failures; the status counts, final diagnostic summary, and existing strict/continue policy determine publication. Transport/process failures still terminate the phase with a failed event. `rg` similarly reports per-trait h2 and pair-fitting totals, retaining pair-specific failure diagnostics. Quantile and R² query workflows finish with result counts and table pointers.
+A completed scan can contain query failures; the status counts, final diagnostic summary, and existing strict/continue policy determine publication.
+Transport/process failures still terminate the phase with a failed event.
+`rg` similarly reports per-trait heritability and pair-fitting totals, retaining pair-specific failure diagnostics.
+Quantile and R² query workflows finish with result counts and table pointers.
 
 Munging emits one immediate warning per invalid P, INFO, or FRQ category within a parsing run, then reports accumulated category counts. Counts can overlap and are separate from exclusive QC removal counts. Subsequent API runs receive their own warnings. The INFO accepted-range message describes the existing [0,2] check; no filter cutoff changed. Complete raw QC row details are not all present in the dropped-SNP sidecar, so the warnings and final QC summary retain their own counts and meaning. Source: `parse_dat()` and `_invalid_value_summary()` in [_kernel/sumstats_munger.py](../../src/ldsc/_kernel/sumstats_munger.py).
 
@@ -312,7 +344,7 @@ Munging emits one immediate warning per invalid P, INFO, or FRQ category within 
 
 Direct and indexed writing workflows create `diagnostics/ldscore.log` and `diagnostics/chromosome-logs/chrN.log`, including for one worker.
 The main log lists all chromosome log paths and overall progress.
-Children append detailed records and Python exception tracebacks to their own chromosome files across query batches within the run.
+Workers append detailed records and Python exception tracebacks to their own chromosome files across query batches within the run.
 Numerical backend verification and independent Arrow CPU/I/O counts are recorded at the task boundary.
 A handled chromosome failure retains logs, reports the chromosome and batch in the main log, cancels pending tasks where possible, and removes temporary results after normal worker shutdown.
 A broken pool reports affected in-flight tasks and their paths without claiming a confirmed crash source.

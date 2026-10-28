@@ -423,7 +423,7 @@ An authorized overwrite can leave `RUN_FAILED.txt` after failure. Inspect diagno
 
 ### `annotate`: no annotation SNP rows remain
 
-**Symptom:** `annotate loaded no SNP rows...` / `...no annotation rows remain after SNP identity cleanup...`
+**Symptom:** `Annotation file '<path>' has no SNP rows...` / `annotate retained no annotation rows after SNP identity cleanup...`
 
 **Likely causes & how to check** (most probable first):
 
@@ -442,7 +442,7 @@ An authorized overwrite can leave `RUN_FAILED.txt` after failure. Inspect diagno
    See [annotation column requirements](../reference/formats/column-schema.md); reference-panel CM/MAF, rather than supplied annotation CM/MAF, governs LD-score calculation.
 3. Match `--snp-identifier` and `--genome-build` to the annotation identity columns, then rerun.
 
-**Developer reference:** `_annotation.builder.AnnotationBuilder._run_single_universe()`, `_annotation.builder.AnnotationBuilder._run_sharded_inputs()`, and `_annotation.builder.AnnotationBuilder._apply_identity_cleanup()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_annotation.preflight.inspect_annotation_inputs()`, `_annotation.sources._scan()`, and `_annotation.sources.prepare_annotation_sources()` · **Exception:** `LDSCInputError`
 
 ## `build-gene-ldscore-index`
 
@@ -1010,7 +1010,7 @@ If the saved fit records a different comparison, use a compatible fitted result.
 Changing this SNP-count policy requires regenerating LD scores and refitting `partitioned-h2`; it changes the fitted SNP population and must be intentional.
 Keep the saved comparison metadata faithful to the fit that produced it.
 
-**Developer reference:** `_regression.quantile_h2.load_fitted_partitioned_model()` / `_regression.quantile_h2._prepare_quantile_inputs()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_regression.quantile_h2.load_fitted_partitioned_model()` / `_regression.quantile_inputs.prepare_quantile_statistics()` · **Exception:** `LDSCInputError`
 
 ### `quantile-h2`: target values are invalid or quantiles are empty
 
@@ -1025,7 +1025,7 @@ If exactly one token denotes missingness, pass it with `--target-missing-value`;
 If boundary ties produce an empty quantile, reduce `--num-quantiles` or use a less discrete target, recognizing that this changes the requested grouping.
 Ties are intentionally kept in the lower-valued quantile for legacy compatibility.
 
-**Developer reference:** `_regression.quantile_h2._read_target_annotation()` / `_regression.quantile_h2.assign_legacy_quantiles()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_regression.quantile_storage.target_chunks()` / `_regression.quantile_inputs.prepare_quantile_statistics()` · **Exception:** `LDSCInputError`
 
 ## `plot`
 

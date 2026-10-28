@@ -81,7 +81,7 @@ It validates effective SNP identity, duplicate rows, reference/annotation inters
 Aggregate comparisons retain `rtol=1e-6` and `atol=1e-8`.
 A target whose name matches a fitted annotation must match that resupplied fitted column's float32 values on target-eligible SNPs.
 
-These checks establish alignment among resupplied sources and agreement with the available stored aggregate statistics. They do not establish the original annotation value at every SNP: value reassignments that preserve the checked sums and cross-products can pass and change the quantile projections. Resupply the original sources even when alternative sources pass validation. See `_regression.quantile_h2._prepare_quantile_inputs()` for the validation sequence.
+These checks establish alignment among resupplied sources and agreement with the available stored aggregate statistics. They do not establish the original annotation value at every SNP: value reassignments that preserve the checked sums and cross-products can pass and change the quantile projections. Resupply the original sources even when alternative sources pass validation. See `_regression.quantile_inputs.prepare_quantile_statistics()` for the validation sequence.
 
 Rows outside an otherwise valid intersection are recorded as exclusions.
 Duplicate identities, missing target coverage on the common reference SNPs, invalid MAF, and provenance mismatches are fatal.

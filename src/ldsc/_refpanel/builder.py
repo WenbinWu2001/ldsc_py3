@@ -32,11 +32,9 @@ from __future__ import annotations
 
 import argparse
 import gc
-import json
 import logging
 import os
 import re
-import tempfile
 
 from dataclasses import asdict, dataclass, field, replace as dataclass_replace
 from pathlib import Path
@@ -45,6 +43,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
+from .._runtime.artifacts import _atomic_write_json
 from .._runtime.serial_calculation import serial_calculation
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from .._runtime.workflow_logging import LOG_LEVEL_HELP
@@ -370,19 +369,6 @@ def _relative_to_output_dir(path: str, output_dir: Path) -> str:
         return str(candidate.relative_to(output_dir))
     except ValueError:
         return str(candidate)
-
-
-def _atomic_write_json(payload: dict[str, object], path: Path) -> None:
-    """Write JSON through a temporary sibling file, then replace."""
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
-    os.close(fd)
-    tmp_path = Path(tmp_name)
-    try:
-        tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-        os.replace(tmp_path, path)
-    except Exception:
-        tmp_path.unlink(missing_ok=True)
-        raise
 
 
 class ReferencePanelBuilder:

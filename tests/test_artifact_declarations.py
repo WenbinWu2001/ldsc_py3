@@ -71,3 +71,18 @@ def test_ldscore_overwrite_keeps_produced_reports_and_reconciles_optional_output
         assert (load_ldscore_from_dir(output).overlap is not None) == has_overlap
         assert output / "diagnostics" / "ldscore.log" not in {Path(path) for path in result.output_paths.values()}
         assert unrelated.read_text() == "keep my notes"
+
+
+def test_atomic_json_writer_serializes_and_ends_with_newline(tmp_path):
+    import numpy as np
+
+    from ldsc._runtime.artifacts import _atomic_write_json
+
+    path = tmp_path / "metadata.json"
+    _atomic_write_json({"path": tmp_path / "x.tsv", "values": np.array([1, 2])}, path)
+
+    text = path.read_text(encoding="utf-8")
+    assert text.endswith("}\n")
+    assert json.loads(text) == {"path": str(tmp_path / "x.tsv"), "values": [1, 2]}
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["metadata.json"]
+

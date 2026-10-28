@@ -18,7 +18,8 @@ from __future__ import annotations
 
 from .._runtime.cli_help import CLIHelpFormatter
 from .._runtime.workflow_logging import LOG_LEVEL_HELP
-from .._runtime.result_files import atomic_write_json, declared_result_file
+from .._runtime.artifacts import _atomic_write_json
+from .._runtime.result_files import declared_result_file
 
 import argparse
 from dataclasses import dataclass
@@ -246,7 +247,7 @@ def convert_h2_scale(
         _atomic_write_dataframe(table, paths["table"])
         if mode == "sensitivity":
             _plot_prevalence_sensitivity(table, paths["plot"], pyplot)
-        atomic_write_json(metadata, paths["metadata"])
+        _atomic_write_json(metadata, paths["metadata"])
         log_outputs(
             table=paths["table"],
             metadata=paths["metadata"],

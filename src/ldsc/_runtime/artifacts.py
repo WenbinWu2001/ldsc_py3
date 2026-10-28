@@ -120,12 +120,12 @@ def _atomic_write_dataframe(df: pd.DataFrame, path: Path, *, na_rep: str | None 
 
 
 def _atomic_write_json(payload: dict[str, object], path: Path) -> None:
-    """Write JSON through a temporary sibling file, then replace."""
+    """Publish serializable JSON through a temporary sibling, cleaning it on failure."""
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     os.close(fd)
     tmp_path = Path(tmp_name)
     try:
-        tmp_path.write_text(json.dumps(_to_serializable(payload), indent=2, sort_keys=True), encoding="utf-8")
+        tmp_path.write_text(json.dumps(_to_serializable(payload), indent=2, sort_keys=True) + "\n", encoding="utf-8")
         os.replace(tmp_path, path)
     except Exception:
         tmp_path.unlink(missing_ok=True)

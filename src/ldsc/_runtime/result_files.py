@@ -3,10 +3,7 @@
 Workflow-specific metadata validation and scientific dispatch stay with callers.
 """
 
-import json
-import os
 from pathlib import Path
-import tempfile
 
 from ..errors import LDSCInputError
 
@@ -50,18 +47,3 @@ def declared_result_file(
             "Restore this file and its matching metadata from the same run, or regenerate the upstream result."
         )
     return path
-
-
-def atomic_write_json(payload: dict[str, object], path: Path) -> None:
-    """Publish JSON through a temporary sibling, cleaning it on failure."""
-    file_descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
-    )
-    os.close(file_descriptor)
-    temporary_path = Path(temporary_name)
-    try:
-        temporary_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        os.replace(temporary_path, path)
-    except Exception:
-        temporary_path.unlink(missing_ok=True)
-        raise

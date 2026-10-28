@@ -161,7 +161,7 @@ Runtime compatibility is carried by the Parquet footer and paired SNP sidecar, n
 | `ldsc:ld_window_mode`, `ldsc:ld_window_value` | Parquet footer | Build window used for downstream compatibility checks |
 | `ldsc:row_group_size` | Parquet footer | Informational intended row-group size |
 
-See the [complete format contract](r2-panels.md) and `write_r2_parquet` in `src/ldsc/_kernel/ref_panel_builder.py`.
+See the [complete format contract](r2-panels.md) and `write_r2_parquet` in `src/ldsc/_refpanel/build_kernel.py`.
 
 ### `query-r2`
 
@@ -175,7 +175,7 @@ pair_query/
 
 The TSV preserves input columns and writes `r2`, nullable `sign_r` (+1/-1), signed Pearson `r`, and `status`. `sign_r` and `r` use query allele orientation; they are not panel-orientation labels. There is no `sign` alias. Missing values are serialized as `NaN`.
 
-Diagnostic metadata records `artifact_type=query_r2_result`, the relative `files` map, `panel_dir`, `snp_identifier`, the requested `genome_build`, `n_samples`, `n_pairs`, and `status_counts`. The empty successful status is counted as `resolved`; other counts use `not_in_panel`, `cross_chromosome`, or `absent`. This JSON is provenance only. Sources: `_query_r2_metadata` in `src/ldsc/r2_query.py` and `QueryR2DirectoryWriter` in `src/ldsc/outputs.py`.
+Diagnostic metadata records `artifact_type=query_r2_result`, the relative `files` map, `panel_dir`, `snp_identifier`, the requested `genome_build`, `n_samples`, `n_pairs`, and `status_counts`. The empty successful status is counted as `resolved`; other counts use `not_in_panel`, `cross_chromosome`, or `absent`. This JSON is provenance only. Sources: `_query_r2_metadata` in `src/ldsc/_refpanel/query.py` and `QueryR2DirectoryWriter` in `src/ldsc/outputs.py`.
 
 ### `annotate`
 

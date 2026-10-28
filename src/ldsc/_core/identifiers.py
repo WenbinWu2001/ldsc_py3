@@ -625,3 +625,58 @@ def _read_packed_chr_pos_restriction_rows(
             flush()
     flush()
     return values
+
+
+def identifier_keys(df: pd.DataFrame, mode: str) -> pd.Series:
+    """Build the canonical SNP identifier series used for matching within the kernel."""
+    mode = normalize_snp_identifier_mode(mode)
+    if identity_mode_family(mode) == "rsid" or is_allele_aware_mode(mode):
+        return build_snp_id_series(df, mode)
+    keyed, _report = build_chr_pos_key_frame(
+        df,
+        context="LD-score SNP matching",
+        drop_missing=True,
+        logger=LOGGER,
+    )
+    keys = pd.Series(pd.NA, index=df.index, dtype="object")
+    keys.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].astype(str)
+    return keys
+
+
+def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_mode: str, chrom: str) -> None:
+    """Reject ambiguous retained SNP identifiers before parquet matching begins."""
+    if is_allele_aware_mode(identifier_mode):
+        keys = effective_merge_key_series(
+            metadata,
+            identifier_mode,
+            context=f"retained SNP metadata for chromosome {chrom}",
+        )
+        duplicated = keys.duplicated(keep=False)
+        if duplicated.any():
+            raise LDSCInputError(
+                f"Chromosome {chrom} has duplicate retained SNP identities. "
+                f"This is ambiguous in {identifier_mode} mode. Most likely the selected "
+                "SNP identifier mode is too coarse for the retained reference panel. "
+                "Use an allele-aware mode or remove duplicate retained SNP identities."
+            )
+        return
+
+    if identity_mode_family(identifier_mode) == "chr_pos":
+        duplicated = metadata.duplicated(subset=["CHR", "POS"], keep=False)
+        if duplicated.any():
+            raise LDSCInputError(
+                f"Chromosome {chrom} has duplicate retained SNP positions. "
+                "This is ambiguous in base chr_pos mode. Most likely multiple alleles "
+                "share the same CHR/POS coordinate. Use an allele-aware chr_pos mode or "
+                "remove duplicate retained positions."
+            )
+        return
+
+    duplicated = metadata["SNP"].duplicated(keep=False)
+    if duplicated.any():
+        raise LDSCInputError(
+            f"Chromosome {chrom} has duplicate retained SNP identities. "
+            "This is ambiguous in `rsid` mode. Most likely the retained reference "
+            "panel contains duplicate rsIDs. Use `rsid_allele_aware` or remove "
+            "duplicate retained SNP identities."
+        )

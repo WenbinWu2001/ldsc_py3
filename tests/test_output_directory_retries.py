@@ -12,9 +12,9 @@ from ldsc.outputs import (
     LDScoreDirectoryWriter,
     PartitionedH2DirectoryWriter,
     QuantileH2DirectoryWriter,
-    QueryR2DirectoryWriter,
     RgDirectoryWriter,
 )
+from ldsc._refpanel.outputs import QueryR2DirectoryWriter
 from ldsc._runtime.paths import ensure_output_directory, remove_output_artifacts
 from ldsc.errors import LDSCInputError
 

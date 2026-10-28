@@ -6,9 +6,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import ldsc._kernel.ref_panel_builder as kernel_builder
+import ldsc._refpanel.build_kernel as kernel_builder
+from ldsc._refpanel.r2_format import write_r2_parquet, write_runtime_metadata_sidecar
 from ldsc._core.snp_identity import sidecar_identity_sha256
-from ldsc.r2_query import unbiased_r2_to_pearson_r
+from ldsc._refpanel.query import unbiased_r2_to_pearson_r
 
 pytest.importorskip("pyarrow")
 
@@ -43,7 +44,7 @@ def build_test_panel(
         }
     )
     meta_path = build_dir / f"chr{chrom}_meta.tsv.gz"
-    kernel_builder.write_runtime_metadata_sidecar(
+    write_runtime_metadata_sidecar(
         sidecar, meta_path, genome_build=genome_build, snp_identifier=snp_identifier
     )
     identity_hash = sidecar_identity_sha256(sidecar)
@@ -52,7 +53,7 @@ def build_test_panel(
     r2 = np.array([0.64, 0.04, 0.25], dtype=np.float32)
     sign = np.array([1, -1, 1], dtype=np.int8)
     r2_path = build_dir / f"chr{chrom}_r2.parquet"
-    kernel_builder.write_r2_parquet(
+    write_r2_parquet(
         pair_chunks=[(i, j, r2, sign)],
         path=r2_path,
         genome_build=genome_build,
@@ -72,9 +73,9 @@ def build_test_panel(
 def test_readers_require_sign_r(tmp_path, reader, old_sign):
     import pyarrow.parquet as pq
 
-    from ldsc._kernel.ldscore import SortedR2BlockReader
+    from ldsc._refpanel.r2_format import SortedR2BlockReader
     from ldsc.errors import LDSCInputError
-    from ldsc.r2_query import R2Panel
+    from ldsc._refpanel.query import R2Panel
 
     _, meta_path, r2_path = build_test_panel(tmp_path)
     table = pq.read_table(r2_path)
@@ -133,7 +134,7 @@ class TestLookupPairsInParquet:
         return pq.ParquetFile(str(r2_path))
 
     def test_returns_stored_r2_and_sign(self, tmp_path):
-        from ldsc._kernel.r2_query import lookup_pairs_in_parquet
+        from ldsc._refpanel.r2_format import lookup_pairs_in_parquet
 
         _, _, r2_path = build_test_panel(tmp_path)
         pf = self._open(r2_path)
@@ -144,7 +145,7 @@ class TestLookupPairsInParquet:
         np.testing.assert_array_equal(sign, [1, -1, 1])
 
     def test_absent_pair_is_nan_with_zero_sign(self, tmp_path):
-        from ldsc._kernel.r2_query import lookup_pairs_in_parquet
+        from ldsc._refpanel.r2_format import lookup_pairs_in_parquet
 
         _, _, r2_path = build_test_panel(tmp_path)
         pf = self._open(r2_path)
@@ -158,23 +159,23 @@ class TestLookupPairsInParquet:
         # The lookup auto-selects the prune+random path vs the streaming scan by
         # query size; force each path via the crossover constant and assert equal
         # results. (Strategy is no longer user-selectable; only the internal rule.)
-        from ldsc._kernel import r2_query as kernel_r2
+        from ldsc._refpanel import r2_format
 
         _, _, r2_path = build_test_panel(tmp_path)
         pf = self._open(r2_path)
         i = np.array([0, 0, 1, 0], dtype=np.int64)
         j = np.array([1, 2, 2, 3], dtype=np.int64)
-        monkeypatch.setattr(kernel_r2, "_RANDOM_STRATEGY_MAX_PAIRS", 100)  # random path
-        rg_r2, rg_sign = kernel_r2.lookup_pairs_in_parquet(pf, i, j, n_snps=4, r2_scale=32767.0)
-        monkeypatch.setattr(kernel_r2, "_RANDOM_STRATEGY_MAX_PAIRS", 0)  # streaming path
-        st_r2, st_sign = kernel_r2.lookup_pairs_in_parquet(pf, i, j, n_snps=4, r2_scale=32767.0)
+        monkeypatch.setattr(r2_format, "_RANDOM_STRATEGY_MAX_PAIRS", 100)  # random path
+        rg_r2, rg_sign = r2_format.lookup_pairs_in_parquet(pf, i, j, n_snps=4, r2_scale=32767.0)
+        monkeypatch.setattr(r2_format, "_RANDOM_STRATEGY_MAX_PAIRS", 0)  # streaming path
+        st_r2, st_sign = r2_format.lookup_pairs_in_parquet(pf, i, j, n_snps=4, r2_scale=32767.0)
         np.testing.assert_array_equal(np.nan_to_num(rg_r2, nan=-1), np.nan_to_num(st_r2, nan=-1))
         np.testing.assert_array_equal(rg_sign, st_sign)
 
 
 class TestR2PanelOpen:
     def test_open_panel_dir_exposes_metadata(self, tmp_path):
-        from ldsc.r2_query import R2Panel
+        from ldsc._refpanel.query import R2Panel
 
         build_test_panel(tmp_path, snp_identifier="chr_pos_allele_aware", n_samples=1234)
         panel = R2Panel.open(tmp_path, genome_build="hg38")
@@ -184,14 +185,14 @@ class TestR2PanelOpen:
 
     def test_open_requires_panel_dir(self, tmp_path):
         from ldsc.errors import LDSCUsageError
-        from ldsc.r2_query import R2Panel
+        from ldsc._refpanel.query import R2Panel
 
         with pytest.raises(LDSCUsageError):
             R2Panel.open()  # panel_dir omitted
 
     def test_binding_mismatch_is_hard_error(self, tmp_path):
         from ldsc.errors import LDSCInputError
-        from ldsc.r2_query import R2Panel
+        from ldsc._refpanel.query import R2Panel
 
         build_dir, meta_path, _ = build_test_panel(tmp_path)
         # Corrupt the sidecar identity by rewriting one allele (breaks the hash).
@@ -212,13 +213,13 @@ class TestR2PanelOpen:
 
 class TestQueryPairs:
     def _panel(self, tmp_path, mode="chr_pos_allele_aware"):
-        from ldsc.r2_query import R2Panel
+        from ldsc._refpanel.query import R2Panel
 
         build_test_panel(tmp_path, snp_identifier=mode)
         return R2Panel.open(tmp_path, genome_build="hg38")
 
     def test_stored_diagonal_absent_cross_and_missing(self, tmp_path):
-        from ldsc.r2_query import R2Panel
+        from ldsc._refpanel.query import R2Panel
 
         # Two-chromosome panel so the cross-chromosome row resolves both endpoints.
         build_test_panel(tmp_path, chrom="1", snp_identifier="chr_pos_allele_aware")
@@ -337,7 +338,7 @@ class TestQueryPairs:
 
 class TestQueryR2Wrapper:
     def test_query_r2_one_shot_matches_handle(self, tmp_path):
-        from ldsc.r2_query import query_r2
+        from ldsc._refpanel.query import query_r2
 
         build_test_panel(tmp_path, snp_identifier="chr_pos_allele_aware")
         pairs = pd.DataFrame(
@@ -349,7 +350,7 @@ class TestQueryR2Wrapper:
         assert "status" in out.columns
 
     def test_signed_r_always_present(self, tmp_path):
-        from ldsc.r2_query import query_r2
+        from ldsc._refpanel.query import query_r2
 
         build_test_panel(tmp_path, snp_identifier="chr_pos_allele_aware", n_samples=1000)
         pairs = pd.DataFrame(
@@ -447,7 +448,7 @@ class TestQueryR2Writer:
     def test_writes_nan_literal_for_missing_values(self, tmp_path):
         # Missing numeric r2/r render as the explicit literal "NaN", consistent
         # with the other result writers; the string `status` "" marker is unaffected.
-        from ldsc.outputs import QueryR2DirectoryWriter, QueryR2OutputConfig
+        from ldsc._refpanel.outputs import QueryR2DirectoryWriter, QueryR2OutputConfig
 
         result = pd.DataFrame(
             {

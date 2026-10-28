@@ -26,7 +26,8 @@ from typing import Sequence
 
 from ._runtime.cli_help import CLIHelpFormatter
 from ._annotation import builder as annotation_builder
-from . import gene_ldscore_index, ldscore_calculator, r2_query, ref_panel_builder
+from . import gene_ldscore_index, ldscore_calculator
+from ._refpanel import query as r2_query, builder as ref_panel_builder
 from ._runtime.workflow_logging import (
     install_cli_console_handler,
     last_workflow_log_path,

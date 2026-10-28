@@ -19,19 +19,19 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from ._runtime.cli_help import CLIHelpFormatter
-from ._runtime.workflow_logging import LOG_LEVEL_HELP
-from ._core.identifiers import build_snp_id_series
-from ._kernel.ldscore import _load_full_panel_sidecar, _validate_index_binding, read_r2_parquet_contracts
-from ._kernel.r2_query import lookup_pairs_in_parquet
-from ._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
+from .._runtime.cli_help import CLIHelpFormatter
+from .._runtime.workflow_logging import LOG_LEVEL_HELP
+from .._core.identifiers import build_snp_id_series
+from .r2_format import _load_full_panel_sidecar, _validate_index_binding, read_r2_parquet_contracts
+from .r2_format import lookup_pairs_in_parquet
+from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from .outputs import QueryR2DirectoryWriter, QueryR2OutputConfig
-from ._runtime.paths import ensure_output_directory
-from ._kernel.ref_panel import (
+from .._runtime.paths import ensure_output_directory
+from .adapters import (
     _r2_dir_metadata_paths,
     _r2_dir_r2_paths,
 )
-from ._core.snp_identity import (
+from .._core.snp_identity import (
     COMPLEMENT,
     allele_set_series,
     base_key_series,
@@ -40,8 +40,8 @@ from ._core.snp_identity import (
     is_allele_aware_mode,
     normalize_snp_identifier_mode,
 )
-from ._core.chromosomes import normalize_chromosome
-from ._core.columns import (
+from .._core.chromosomes import normalize_chromosome
+from .._core.columns import (
     A1_COLUMN_SPEC,
     A2_COLUMN_SPEC,
     CHR_COLUMN_SPEC,
@@ -51,7 +51,7 @@ from ._core.columns import (
     normalize_column_token,
     resolve_optional_column,
 )
-from .errors import LDSCInputError, LDSCUsageError
+from ..errors import LDSCInputError, LDSCUsageError
 
 LOGGER = logging.getLogger("LDSC.r2_query")
 
@@ -236,7 +236,7 @@ class R2Panel:
             )
         panel = cls(paths, mode, contracts)
         if panel._mode.startswith('chr_pos'):
-            from ._genome.build_policy import GenomeBuildCheck
+            from .._genome.build_policy import GenomeBuildCheck
             check = GenomeBuildCheck(genome_build, context='query-r2', logger=LOGGER)
             for _, parquet_path in paths.values():
                 check.table('--panel-dir', parquet_path)
@@ -650,9 +650,9 @@ def _write_query_r2_directory(args: argparse.Namespace, pairs: pd.DataFrame | No
     )
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     with workflow_logging("query-r2", log_path, log_level=args.log_level):
-        from ._runtime.preflight import inspect_declared_inputs
-        from ._ref_panel_preflight import inspect_r2_headers
-        from ._runtime.progress import PhaseProgress
+        from .._runtime.preflight import inspect_declared_inputs
+        from .preflight import inspect_r2_headers
+        from .._runtime.progress import PhaseProgress
         inspect_declared_inputs(files=[] if args.pairs == '-' else [('pairs', args.pairs)],
             checks=[('reference', args.panel_dir, lambda: inspect_r2_headers(args.panel_dir, args.genome_build))],
             issues_path=diagnostics_dir/'input_issues.tsv')

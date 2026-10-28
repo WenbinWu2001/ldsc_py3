@@ -6,7 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc import gene_ldscore_index, ldscore_calculator, ref_panel_builder
+from ldsc import gene_ldscore_index, ldscore_calculator
+from ldsc._refpanel import builder as ref_panel_builder
 from ldsc.errors import LDSCInputError
 
 

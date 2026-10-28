@@ -316,7 +316,7 @@ The builder has a different working set.
 Unrestricted builds stream genotypes from disk; with `--ref-panel-snps-file`, the selected genotypes are read into RAM, with individual filtering applied during the read.
 Pair computation keeps the current batch, window-spanning carry-over columns and pending pair batches, so memory depends on retained individuals, selected SNPs, window density and `--snp-batch-size`; wider windows also increase computation and output size.
 A positive `--min-r2` reduces the stored pairs, and `ldscore` rejects such a panel (`query-r2` still reads it).
-See `ReferencePanelBuilder._build_chromosome` in `src/ldsc/ref_panel_builder.py` and `yield_pairwise_r2_rows` in `src/ldsc/_kernel/ref_panel_builder.py`.
+See `ReferencePanelBuilder._build_chromosome` in `src/ldsc/_refpanel/builder.py` and `yield_pairwise_r2_rows` in `src/ldsc/_refpanel/build_kernel.py`.
 
 ### 3.7 LD windows and sidecar values in `ldscore`
 
@@ -349,7 +349,7 @@ Every R² panel `--ld-wind-snps` run writes `diagnostics/ld_window_snp_counts.ts
 SNPs that share a position are computed in sidecar row order and written sorted by `CHR`, `POS`, then `SNP`.
 That output order matches an annotation-ordered run only because SNPs that share `CHR`, `POS` and `SNP` never reach computation: the identity policy drops them as duplicate or multi-allelic.
 If that policy changes to keep such SNPs, `ParquetR2RefPanel.prepare_chromosome` would also need to return them to annotation order.
-Code: `build_window_coordinates` in `src/ldsc/_kernel/ldscore.py`, `ParquetR2RefPanel.prepare_chromosome` in `src/ldsc/_kernel/ref_panel.py`, and `_ld_window_snp_counts` in `src/ldsc/ldscore_calculator.py`.
+Code: `build_window_coordinates` in `src/ldsc/_kernel/ldscore.py`, `ParquetR2RefPanel.prepare_chromosome` in `src/ldsc/_refpanel/adapters.py`, and `_ld_window_snp_counts` in `src/ldsc/ldscore_calculator.py`.
 
 **`CM` and `MAF` come from the reference panel.**
 Annotation `CM` and `MAF` values are ignored.

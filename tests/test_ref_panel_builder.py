@@ -17,11 +17,15 @@ import numpy as np
 import pandas as pd
 
 
-from ldsc._kernel import ref_panel_builder as kernel_builder
+from ldsc._refpanel import build_kernel as kernel_builder
+from ldsc._refpanel import r2_format
+from ldsc._refpanel.r2_format import build_runtime_metadata_table
+from ldsc._refpanel.windows import r2_panel_window_coordinates
 from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS, RestrictionIdentityKeys, empty_identity_drop_frame
 from ldsc.config import GlobalConfig, ReferencePanelBuildConfig
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
-from ldsc import ldscore_calculator, ref_panel_builder, reset_global_config, set_global_config
+from ldsc import ldscore_calculator, reset_global_config, set_global_config
+from ldsc._refpanel import builder as ref_panel_builder
 
 
 # --- columnar pair-emission test helpers -------------------------------------
@@ -397,7 +401,7 @@ class PairwiseEmissionTest(unittest.TestCase):
         self.assertEqual(left_indices, sorted(left_indices))
 
     def test_unbiased_r2_array_upper_clips_at_one_keeps_negatives(self):
-        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._refpanel import build_kernel as kb
         # corr=1.0 -> raw sq=1.0; float roundoff can give sq slightly >1.
         corr = np.array([1.0, np.nextafter(np.float64(1.0), 2.0), 0.0], dtype=np.float64)
         out = kb._unbiased_r2_array(corr, n_samples=100)
@@ -431,7 +435,7 @@ class RetainedSnpOrderingTest(unittest.TestCase):
         )
         build_positions = np.array([100, 250], dtype=np.int64)
 
-        coords, max_dist = kernel_builder.build_window_coordinates(
+        coords, max_dist = r2_panel_window_coordinates(
             metadata=ref_panel_builder._metadata_with_build_positions(metadata, build_positions),
             cm_values=None,
             ld_wind_snps=None,
@@ -449,7 +453,7 @@ class StandardTableFormattingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "chr1.parquet"
             with self.assertRaises(ImportError) as ctx:
-                kernel_builder.write_r2_parquet(
+                r2_format.write_r2_parquet(
                     pair_chunks=dict_chunks([{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]),
                     path=path, genome_build="hg19", n_samples=10,
                     snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
@@ -465,7 +469,7 @@ class StandardTableFormattingTest(unittest.TestCase):
         rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "hg19" / "chr1_r2.parquet"
-            kernel_builder.write_r2_parquet(
+            r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=42,
                 snp_identifier="rsid_allele_aware", row_group_size=50_000,
                 n_snps=2, sidecar_identity_sha256="ab" * 32,
@@ -486,7 +490,7 @@ class StandardTableFormattingTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             default_path = Path(tmpdir) / "default.parquet"
-            kernel_builder.write_r2_parquet(
+            r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks([]), path=default_path, genome_build="hg19", n_samples=10,
                 snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
                 ld_window_mode="kb", ld_window_value=1000.0,
@@ -494,7 +498,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             self.assertEqual(pq.read_schema(str(default_path)).metadata[b"ldsc:min_r2"], b"0.0")
 
             filtered_path = Path(tmpdir) / "filtered.parquet"
-            kernel_builder.write_r2_parquet(
+            r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks([]), path=filtered_path, genome_build="hg19", n_samples=10,
                 snp_identifier="chr_pos", min_r2=0.3, n_snps=2, sidecar_identity_sha256="0" * 64,
                 ld_window_mode="kb", ld_window_value=1000.0,
@@ -508,7 +512,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             for mode, value in (("kb", None), (None, 1000.0), (None, None)):
                 path = Path(tmpdir) / f"{mode}_{value}.parquet"
                 with self.subTest(mode=mode, value=value), self.assertRaisesRegex(LDSCInternalError, "ld_window_mode"):
-                    kernel_builder.write_r2_parquet(
+                    r2_format.write_r2_parquet(
                         pair_chunks=dict_chunks([]), path=path, genome_build="hg19", n_samples=10,
                         snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
                         ld_window_mode=mode, ld_window_value=value,
@@ -521,7 +525,7 @@ class StandardTableFormattingTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "panel.parquet"
-            kernel_builder.write_r2_parquet(
+            r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks([]),
                 path=path,
                 genome_build="hg19",
@@ -558,7 +562,7 @@ class StandardTableFormattingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "chr1.parquet"
             with mock.patch.object(pq, "ParquetWriter", spy_writer):
-                kernel_builder.write_r2_parquet(
+                r2_format.write_r2_parquet(
                     pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
                     snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
                     ld_window_mode="kb", ld_window_value=1000.0,
@@ -586,7 +590,7 @@ class StandardTableFormattingTest(unittest.TestCase):
 
             with mock.patch("pyarrow.Codec", _NoZstdCodec):
                 with self.assertWarns(UserWarning) as cm:
-                    kernel_builder.write_r2_parquet(
+                    r2_format.write_r2_parquet(
                         pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
                         snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
                         ld_window_mode="kb", ld_window_value=1000.0,
@@ -608,7 +612,7 @@ class StandardTableFormattingTest(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "chr1_r2.parquet"
-            kernel_builder.write_r2_parquet(
+            r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
                 snp_identifier="chr_pos", n_snps=3, sidecar_identity_sha256="0" * 64,
                 ld_window_mode="kb", ld_window_value=1000.0,
@@ -637,7 +641,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             }
         )
 
-        table = kernel_builder.build_runtime_metadata_table(
+        table = build_runtime_metadata_table(
             metadata=metadata,
             positions=np.array([120], dtype=np.int64),
             cm_values=np.array([0.5], dtype=float),
@@ -658,7 +662,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             }
         )
 
-        table = kernel_builder.build_runtime_metadata_table(
+        table = build_runtime_metadata_table(
             metadata=metadata,
             positions=np.array([120], dtype=np.int64),
             cm_values=np.array([0.5], dtype=float),
@@ -679,7 +683,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             }
         )
 
-        table = kernel_builder.build_runtime_metadata_table(
+        table = build_runtime_metadata_table(
             metadata=metadata,
             positions=np.array([120], dtype=np.int64),
             cm_values=None,
@@ -1238,11 +1242,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 "_resolve_mappable_snp_positions",
                 side_effect=fake_resolve,
             ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"
+                "ldsc._refpanel.builder.write_r2_parquet"
             ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
+                "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
             ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile"
+                "ldsc._refpanel.builder.PlinkBEDFile"
             ) as mock_bed:
                 mock_bed.return_value.kept_snps = [2]
                 mock_bed.return_value.maf = np.array([0.3])
@@ -1299,11 +1303,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 "_resolve_mappable_snp_positions",
                 side_effect=fake_resolve,
             ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"
+                "ldsc._refpanel.builder.write_r2_parquet"
             ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
+                "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
             ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile"
+                "ldsc._refpanel.builder.PlinkBEDFile"
             ) as mock_bed:
                 mock_bed.return_value.kept_snps = [2]
                 mock_bed.return_value.maf = np.array([0.3])
@@ -1372,9 +1376,9 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
             )
 
-            with mock.patch("ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"), mock.patch(
-                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
-            ), mock.patch("ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile") as mock_bed:
+            with mock.patch("ldsc._refpanel.builder.write_r2_parquet"), mock.patch(
+                "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
+            ), mock.patch("ldsc._refpanel.builder.PlinkBEDFile") as mock_bed:
                 mock_bed.return_value.kept_snps = [0]
                 mock_bed.return_value.maf = np.array([0.3])
                 mock_bed.return_value.freq = 1 - np.array([0.3])
@@ -1409,9 +1413,9 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
             )
 
-            with mock.patch("ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"), mock.patch(
-                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
-            ), mock.patch("ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile") as mock_bed:
+            with mock.patch("ldsc._refpanel.builder.write_r2_parquet"), mock.patch(
+                "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
+            ), mock.patch("ldsc._refpanel.builder.PlinkBEDFile") as mock_bed:
                 mock_bed.return_value.kept_snps = [0]
                 mock_bed.return_value.maf = np.array([0.3])
                 mock_bed.return_value.freq = 1 - np.array([0.3])
@@ -1480,11 +1484,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 "_resolve_mappable_snp_positions",
                 side_effect=fake_resolve,
             ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"
+                "ldsc._refpanel.builder.write_r2_parquet"
             ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
+                "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
             ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile"
+                "ldsc._refpanel.builder.PlinkBEDFile"
             ) as mock_bed:
                 mock_bed.return_value.kept_snps = [0, 1, 2]
                 mock_bed.return_value.maf = np.array([0.2, 0.2, 0.3])
@@ -1681,11 +1685,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             "_resolve_mappable_snp_positions",
             side_effect=fake_resolve,
         ), mock.patch(
-            "ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"
+            "ldsc._refpanel.builder.write_r2_parquet"
         ), mock.patch(
-            "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
+            "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
         ), mock.patch(
-            "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile"
+            "ldsc._refpanel.builder.PlinkBEDFile"
         ) as mock_bed:
             mock_bed.return_value.kept_snps = list(kept_snps)
             mock_bed.return_value.maf = np.full(len(kept_snps), 0.3)
@@ -2291,11 +2295,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 bed_instances.append(bed)
 
             with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=fake_mappable), mock.patch(
-                "ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"
+                "ldsc._refpanel.builder.write_r2_parquet"
             ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
+                "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
             ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile",
+                "ldsc._refpanel.builder.PlinkBEDFile",
                 side_effect=bed_instances,
             ) as mock_bed:
                 with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
@@ -2606,11 +2610,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 "_resolve_mappable_snp_positions",
                 side_effect=fake_resolve,
             ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"
+                "ldsc._refpanel.builder.write_r2_parquet"
             ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
+                "ldsc._refpanel.builder.write_runtime_metadata_sidecar"
             ), mock.patch(
-                "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile"
+                "ldsc._refpanel.builder.PlinkBEDFile"
             ) as mock_bed:
                 mock_bed.return_value.kept_snps = [0]
                 mock_bed.return_value.maf = np.array([0.3])
@@ -2880,7 +2884,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
         if not map_hg38.exists():
             self.skipTest("minimal hg38 genetic-map fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
-        real_bed = ref_panel_builder.kernel_ldscore.PlinkBEDFile
+        real_bed = ref_panel_builder.PlinkBEDFile
         live_refs: list[weakref.ref] = []
         alive_at_construction: list[int] = []
 
@@ -2893,7 +2897,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with mock.patch(
-                "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile",
+                "ldsc._refpanel.builder.PlinkBEDFile",
                 side_effect=tracking_bed,
             ):
                 build_result = ref_panel_builder.run_build_ref_panel(
@@ -3096,35 +3100,38 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
 class R2QuantizationTest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_quantize_r2_endpoint_is_exact(self):
-        from ldsc._kernel import ref_panel_builder as kb
-        q = kb._quantize_r2(np.array([1.0, 1.000010, 0.0, -0.0003], dtype=np.float32))
+        from ldsc._refpanel import build_kernel as kb
+        from ldsc._refpanel.r2_format import R2_QUANT_SCALE, _quantize_r2
+        q = _quantize_r2(np.array([1.0, 1.000010, 0.0, -0.0003], dtype=np.float32))
         self.assertEqual(q.dtype, np.int16)
         self.assertEqual(int(q[0]), 32767)                 # 1.0 -> 32767
         self.assertEqual(int(q[1]), 32767)                 # >1 clips to 32767
         self.assertEqual(int(q[2]), 0)
         self.assertLess(int(q[3]), 0)                      # negative preserved
         # endpoint round-trips to EXACTLY 1.0
-        self.assertEqual(float(np.float32(32767) / np.float32(kb.R2_QUANT_SCALE)), 1.0)
+        self.assertEqual(float(np.float32(32767) / np.float32(R2_QUANT_SCALE)), 1.0)
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_quantize_r2_precision_within_half_step(self):
-        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._refpanel import build_kernel as kb
+        from ldsc._refpanel.r2_format import R2_QUANT_SCALE, _quantize_r2
         r2 = np.linspace(-0.0003, 1.0, 5000).astype(np.float32)
-        decoded = kb._quantize_r2(r2).astype(np.float32) / np.float32(kb.R2_QUANT_SCALE)
+        decoded = _quantize_r2(r2).astype(np.float32) / np.float32(R2_QUANT_SCALE)
         self.assertLessEqual(float(np.max(np.abs(decoded - r2))), 2e-5)
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_write_r2_parquet_stores_int16_with_bss_and_scale_metadata(self):
         import pyarrow as pa
         import pyarrow.parquet as pq
-        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._refpanel import build_kernel as kb
+        from ldsc._refpanel import r2_format
         if not pa.Codec.is_available("zstd"):
             self.skipTest("zstd unavailable")
         rows = [{"i": 0, "j": 1, "R2": 1.0, "sign": "+"},
                 {"i": 0, "j": 2, "R2": -0.0003, "sign": "-"}]
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "chr1_r2.parquet"
-            kb.write_r2_parquet(pair_chunks=dict_chunks(rows), path=path, genome_build="hg19",
+            r2_format.write_r2_parquet(pair_chunks=dict_chunks(rows), path=path, genome_build="hg19",
                                 n_samples=100, snp_identifier="chr_pos", n_snps=3,
                                 sidecar_identity_sha256="0" * 64, ld_window_mode="kb", ld_window_value=1000.0)
             pf = pq.ParquetFile(path)
@@ -3149,11 +3156,12 @@ class IndexWriterTest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_writes_four_columns_and_binding_metadata(self):
         import pyarrow.parquet as pq
-        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._refpanel import build_kernel as kb
+        from ldsc._refpanel import r2_format
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "hg19" / "chr1_r2.parquet"
-            kb.write_r2_parquet(
+            r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks(self._rows()), path=path, genome_build="hg19",
                 n_samples=100, snp_identifier="chr_pos", min_r2=0.0,
                 n_snps=3, sidecar_identity_sha256="deadbeef" * 8,
@@ -3168,14 +3176,15 @@ class IndexWriterTest(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_asserts_idx1_sort_invariant(self):
-        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._refpanel import build_kernel as kb
+        from ldsc._refpanel import r2_format
 
         bad = [{"i": 2, "j": 3, "R2": 0.5, "sign": "+"},
                {"i": 0, "j": 1, "R2": 0.5, "sign": "+"}]
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "chr1_r2.parquet"
             with self.assertRaisesRegex(LDSCInternalError, "non-decreasing IDX_1"):
-                kb.write_r2_parquet(
+                r2_format.write_r2_parquet(
                     pair_chunks=dict_chunks(bad), path=path, genome_build="hg19", n_samples=100,
                     snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
                     sidecar_identity_sha256="0" * 64,
@@ -3186,7 +3195,8 @@ class IndexWriterTest(unittest.TestCase):
 class IndexArrowTableTest(unittest.TestCase):
     def test_index_arrow_table_has_four_columns(self):
         import pyarrow as pa
-        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._refpanel import build_kernel as kb
+        from ldsc._refpanel.r2_format import _standard_r2_index_table
 
         schema = pa.schema([("IDX_1", pa.int32()), ("IDX_2", pa.int32()),
                             ("R2", pa.int16()), ("SIGN_R", pa.bool_())])
@@ -3195,7 +3205,7 @@ class IndexArrowTableTest(unittest.TestCase):
             {"i": 0, "j": 3, "R2": -0.01, "sign": "-"},
         ]
         i, j, r2, sign = pair_chunk(rows)
-        table = kb._standard_r2_index_table(pa, schema, i=i, j=j, r2=r2, sign=sign)
+        table = _standard_r2_index_table(pa, schema, i=i, j=j, r2=r2, sign=sign)
         self.assertEqual(table.schema.names, ["IDX_1", "IDX_2", "R2", "SIGN_R"])
         self.assertEqual(table.column("IDX_1").to_pylist(), [0, 0])
         self.assertEqual(table.column("IDX_2").to_pylist(), [2, 3])

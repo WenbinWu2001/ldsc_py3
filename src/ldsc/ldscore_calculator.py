@@ -79,10 +79,12 @@ from ._runtime.paths import (
 )
 from ._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ._kernel import ldscore as kernel_ldscore
+from ._refpanel.prepared import ChromosomeAnnotations
+from ._refpanel.r2_format import read_r2_parquet_contract
 from ._core import regions as kernel_regions
 from ._annotation.overlap import OverlapContribution, sum_overlap_contributions
 from ._core.regions import REGR_SNPS_EXCLUDE_REGIONS_CHOICES, regr_snps_exclude_regions_choice_to_presets
-from ._kernel.ref_panel_builder import SIDECAR_FLOAT_FORMAT
+from ._refpanel.r2_format import SIDECAR_FLOAT_FORMAT
 from ._core.identifiers import build_snp_id_series, read_snp_restriction_keys
 from ._core.snp_identity import RestrictionIdentityKeys
 from ._core.row_alignment import assert_same_snp_rows, sort_frame_by_genomic_position
@@ -647,7 +649,7 @@ class LDScoreCalculator:
         Pending tasks are cancelled on failure; normal executor shutdown waits
         for active borrowers before the caller releases annotation scratch.
         """
-        from ._kernel.ref_panel import PlinkRefPanel
+        from ._refpanel.adapters import PlinkRefPanel
         if pool is None:
             with ProcessPoolExecutor(max_workers=worker_count, mp_context=mp.get_context("spawn"),
                                      initializer=_init_worker,
@@ -1447,7 +1449,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
         with workflow_logging("ldscore", log_path, log_level=getattr(args,"log_level","INFO")):
             from ._annotation.preflight import inspect_annotation_inputs
             from ._runtime.preflight import InputGate
-            from ._ref_panel_preflight import inspect_r2_headers
+            from ._refpanel.preflight import inspect_r2_headers
             from ._ldscore_preflight import inspect_reference_inputs
             from ._runtime.progress import PhaseProgress
             declared_inputs = inspect_annotation_inputs(
@@ -2217,7 +2219,7 @@ def _regression_region_intervals(
 
 def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig, *, chromosome_prefixes=None):
     """Build the reference-panel adapter that owns the ``A -> A'`` restriction."""
-    from ._kernel.ref_panel import RefPanelLoader
+    from ._refpanel.adapters import RefPanelLoader
 
     ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
     r2_dir = _r2_dir_from_args(args)
@@ -2242,7 +2244,7 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig, 
             genetic_map_hg38_sources=getattr(args, "genetic_map_hg38_sources", None),
         )
     if spec.backend == "plink" and chromosome_prefixes is not None:
-        from ._kernel.ref_panel import PlinkRefPanel
+        from ._refpanel.adapters import PlinkRefPanel
 
         return PlinkRefPanel(global_config, spec, chromosome_prefixes=chromosome_prefixes)
     return RefPanelLoader(global_config).load(spec)
@@ -2326,7 +2328,7 @@ def _ld_window_snp_counts(ref_panel, ldscore_config: LDScoreConfig, chromosome_r
     rows = [
         {
             "CHR": str(result.chrom),
-            "panel_snps": kernel_ldscore.read_r2_parquet_contract(ref_panel.resolve_r2_paths(result.chrom)[0]).n_snps,
+            "panel_snps": read_r2_parquet_contract(ref_panel.resolve_r2_paths(result.chrom)[0]).n_snps,
             "kept_snps": int(result.reference_snp_count),
             "ld_wind_snps": int(ldscore_config.ld_wind_snps),
             "counting_basis": "panel_rows",
@@ -2345,7 +2347,7 @@ def _check_parquet_reference(ref_panel, chromosomes, ldscore_config: LDScoreConf
     if getattr(getattr(ref_panel, "spec", None), "backend", None) != "parquet_r2":
         return
     from ._runtime.preflight import InputGate
-    from ._ref_panel_preflight import inspect_r2_headers
+    from ._refpanel.preflight import inspect_r2_headers
     from ._ldscore_preflight import read_r2_sidecar_for_chromosome
 
     def check_sidecar(chrom):
@@ -2468,12 +2470,12 @@ def _stage_chromosome_drops(bundle, chrom, reference_drops):
 
 def _kernel_annotation_bundle(bundle, chrom):
     """Borrow one chromosome's metadata and selected annotation reader."""
-    from ._kernel.ldscore_projection import MappedAnnotations
+    from ._refpanel.prepared import MappedAnnotations
 
     shard = bundle.shard(chrom)
     metadata = shard.metadata()
     values = MappedAnnotations(shard, np.arange(shard.n_rows), tuple(bundle.baseline_columns + bundle.query_columns))
-    return kernel_ldscore.AnnotationBundle(metadata, values, list(bundle.baseline_columns), list(bundle.query_columns))
+    return ChromosomeAnnotations(metadata, values, list(bundle.baseline_columns), list(bundle.query_columns))
 
 
 # Worker state shared within a pool worker process. ``regression_snps`` is set
@@ -2515,7 +2517,7 @@ def _compute_one_chromosome(
     With ``fragment_dir``, the outcome carries a private query path and compact
     summaries; otherwise it retains the materialized chromosome result.
     """
-    from ._kernel.ref_panel import RefPanelLoader
+    from ._refpanel.adapters import RefPanelLoader
 
     with chromosome_log(log_path, chrom, batch_label):
         if regression_snps == _WORKER_UNSET:
@@ -2526,7 +2528,7 @@ def _compute_one_chromosome(
         if prefixes is None:
             prefixes = chrom_bundle.source_summary.get('chromosome_scope',{}).get('reference_prefixes_by_chrom')
         if ref_panel_spec.backend == 'plink' and prefixes:
-            from ._kernel.ref_panel import PlinkRefPanel
+            from ._refpanel.adapters import PlinkRefPanel
             ref_panel = PlinkRefPanel(global_config,ref_panel_spec,chromosome_prefixes=prefixes)
         else:
             ref_panel = RefPanelLoader(global_config).load(ref_panel_spec)

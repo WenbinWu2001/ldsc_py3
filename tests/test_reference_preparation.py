@@ -8,8 +8,10 @@ import pytest
 
 from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfig, RefPanelConfig
 from ldsc._kernel import ldscore
-from ldsc._kernel.ref_panel import ParquetR2RefPanel
-from ldsc._kernel.ref_panel_builder import write_r2_parquet, write_runtime_metadata_sidecar
+from ldsc._refpanel.prepared import ChromosomeAnnotations
+from ldsc._refpanel.r2_format import SortedR2BlockReader
+from ldsc._refpanel.adapters import ParquetR2RefPanel
+from ldsc._refpanel.r2_format import write_r2_parquet, write_runtime_metadata_sidecar
 from ldsc._core.snp_identity import sidecar_identity_sha256
 from ldsc.errors import LDSCInputError
 
@@ -72,7 +74,7 @@ def test_prepared_annotations_share_reference_rows_alleles_cm_maf_and_counts(tmp
     values = pd.DataFrame({"base": [1.0, 99.0, 3.0], "flag": [True, True, False]})
     config = GlobalConfig(snp_identifier=mode, genome_build="hg19")
     panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
-    bundle = ldscore.AnnotationBundle(metadata, values, ["base", "flag"], [])
+    bundle = ChromosomeAnnotations(metadata, values, ["base", "flag"], [])
     with panel.prepare_chromosome("1", bundle, LDScoreConfig(ld_wind_cm=0.3, whole_chromosome_ok=True)) as prepared:
         assert prepared.annotations.read().dtype == np.float32
         np.testing.assert_array_equal(prepared.annotations.read(), [[1, 1], [3, 0]])
@@ -101,12 +103,12 @@ def test_parquet_preparation_releases_reader_on_calculation_failure(tmp_path, mo
     metadata = write_panel(tmp_path)
     config = GlobalConfig(snp_identifier="rsid")
     panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
-    bundle = ldscore.AnnotationBundle(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], [])
+    bundle = ChromosomeAnnotations(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], [])
 
     def fail_decode(self, table, row_group_index):
         raise LDSCInputError("injected decode failure")
 
-    monkeypatch.setattr(ldscore.SortedR2BlockReader, "_decode_index_batch", fail_decode)
+    monkeypatch.setattr(SortedR2BlockReader, "_decode_index_batch", fail_decode)
     with pytest.raises(LDSCInputError, match="injected decode failure"):
         with panel.prepare_chromosome("1", bundle, LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True)) as prepared:
             reader = prepared.reader
@@ -149,7 +151,7 @@ def test_parquet_panel_with_a_pair_floor_is_rejected_at_preparation(tmp_path):
                               RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
     with pytest.raises(LDSCInputError, match="omits SNP pairs with unbiased R2 below 0.05"):
         panel.prepare_chromosome(
-            "1", ldscore.AnnotationBundle(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], []),
+            "1", ChromosomeAnnotations(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], []),
             LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True),
         )
 
@@ -160,7 +162,7 @@ def test_parquet_genetic_maps_are_ignored_at_preparation(tmp_path, caplog):
         backend="parquet_r2", r2_dir=tmp_path, genetic_map_hg19_sources="unused-map.tsv",
     ))
     with panel.prepare_chromosome(
-        "1", ldscore.AnnotationBundle(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], []),
+        "1", ChromosomeAnnotations(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], []),
         LDScoreConfig(ld_wind_cm=0.3, whole_chromosome_ok=True),
     ) as prepared:
         np.testing.assert_allclose(prepared.metadata["CM"], [0.1, 0.3])
@@ -183,7 +185,7 @@ def test_plink_preparation_maps_sorted_annotations_to_physical_bed_columns(tmp_p
     metadata = metadata.sort_values("POS").reset_index(drop=True)
     args = Namespace(bfile=str(prefix), snp_identifier="rsid", ld_wind_snps=10,
                      ld_wind_kb=None, ld_wind_cm=None, yes_really=True)
-    with prepare_plink("1", ldscore.AnnotationBundle(metadata, pd.DataFrame({"base": metadata.POS}), ["base"], []), args) as prepared:
+    with prepare_plink("1", ChromosomeAnnotations(metadata, pd.DataFrame({"base": metadata.POS}), ["base"], []), args) as prepared:
         assert prepared.metadata["SNP"].tolist() == ["rs_7", "rs_6", "rs_5", "rs_4"]
         np.testing.assert_array_equal(prepared.annotations.read()[:, 0], [1, 2, 3, 4])
         golden = np.load(source.parents[1] / "golden" / "reader_golden.npz")
@@ -191,7 +193,7 @@ def test_plink_preparation_maps_sorted_annotations_to_physical_bed_columns(tmp_p
 
 
 def test_reference_preparation_defers_value_reads_and_kernel_returns_only_output_rows(tmp_path):
-    from ldsc._kernel.ldscore_projection import ArrayAnnotations
+    from ldsc._refpanel.prepared import ArrayAnnotations
 
     metadata = write_panel(tmp_path)
     reads = []
@@ -202,7 +204,7 @@ def test_reference_preparation_defers_value_reads_and_kernel_returns_only_output
     source = RecordingSource(np.array([[1,2,0],[1,0,4]],dtype=np.float32), ('base','q1','q2'))
     config = GlobalConfig(snp_identifier='rsid')
     panel = ParquetR2RefPanel(config, RefPanelConfig(backend='parquet_r2',r2_dir=tmp_path))
-    bundle = ldscore.AnnotationBundle(metadata,source,['base'],['q1','q2'])
+    bundle = ChromosomeAnnotations(metadata,source,['base'],['q1','q2'])
     with panel.prepare_chromosome('1',bundle,LDScoreConfig(ld_wind_snps=1,whole_chromosome_ok=True)) as prepared:
         assert not reads
         result = ldscore.compute_chromosome('1',prepared,snp_identifier='rsid',snp_batch_size=1,
@@ -217,7 +219,7 @@ def test_reference_preparation_defers_value_reads_and_kernel_returns_only_output
         assert all(len(names)<=1 for names in reads)
 def test_prepared_chromosome_close_releases_state_once():
     from types import SimpleNamespace
-    from ldsc._kernel.ldscore import PreparedChromosome
+    from ldsc._refpanel.prepared import PreparedChromosome
 
     calls = []
     reader = SimpleNamespace(close=lambda: calls.append(1))

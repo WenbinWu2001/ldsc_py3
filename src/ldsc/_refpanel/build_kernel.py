@@ -5,11 +5,9 @@ from __future__ import annotations
 import gzip
 import logging
 import re
-import warnings
 from dataclasses import dataclass
-from pathlib import Path
 from os import PathLike
-from typing import Iterable, Iterator, Sequence
+from typing import Iterator, Sequence
 
 import numpy as np
 import pandas as pd
@@ -24,33 +22,20 @@ from .._core.columns import (
     resolve_restriction_chr_pos_columns,
     resolve_restriction_rsid_column,
 )
-from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError
+from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError
 from .._genome.liftover import LiftOverMappingResult, LiftOverTranslator
 from .._core.snp_identity import (
     RestrictionIdentityKeys,
     allele_set_series,
     base_key_series,
-    identity_artifact_metadata,
     identity_mode_family,
     restriction_membership_mask,
-    sidecar_identity_sha256,
 )
 
 LOGGER = logging.getLogger("LDSC.ref_panel_builder.kernel")
 _BUILD_REF_PANEL_LIFTOVER_DOC = (
     "docs/user-guide/troubleshooting.md#build-r2-panel-liftover-or-genetic-map-configuration-is-incomplete"
 )
-# Text format of float columns (CM, MAF) in every reference-metadata sidecar.
-SIDECAR_FLOAT_FORMAT = "%.9g"
-
-
-def round_to_sidecar_precision(values) -> np.ndarray:
-    """Return ``values`` exactly as a sidecar stores them and readers parse them back.
-
-    Build-time decisions such as the cM window use these values, so the pairs a
-    panel stores match the window ``ldscore`` later rebuilds from the sidecar.
-    """
-    return np.char.mod(SIDECAR_FLOAT_FORMAT, np.asarray(values, dtype=float)).astype(float)
 
 
 GENETIC_MAP_CM_SPEC = ColumnSpec(
@@ -290,62 +275,6 @@ def build_plink_metadata_frame(
         }
     )
     return out.reset_index(drop=True)
-
-
-def build_window_coordinates(
-    *,
-    metadata: pd.DataFrame,
-    cm_values: np.ndarray,
-    ld_wind_snps: int | None,
-    ld_wind_kb: float | None,
-    ld_wind_cm: float | None,
-) -> tuple[np.ndarray, float]:
-    """Build the coordinate vector used to define block-left windows."""
-
-    if ld_wind_snps is not None:
-        return np.arange(len(metadata), dtype=float), float(ld_wind_snps)
-    if ld_wind_kb is not None:
-        return metadata["POS"].to_numpy(dtype=float), float(ld_wind_kb) * 1000.0
-    cm_values = np.asarray(cm_values, dtype=float)
-    if np.isnan(cm_values).any():
-        raise LDSCInputError(
-            "build-r2-panel cannot use cM LD windows because interpolated CM values "
-            "are missing for retained SNPs. Most likely the genetic map does not cover "
-            "all retained positions. Provide a complete genetic map or use an SNP/kb "
-            f"LD window. Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
-        )
-    return cm_values, float(ld_wind_cm)
-
-
-def compute_block_left(coords: np.ndarray, max_dist: float) -> np.ndarray:
-    """Compute the standard LDSC block-left window array."""
-
-    coords = np.asarray(coords, dtype=float)
-    m = len(coords)
-    block_left = np.zeros(m, dtype=int)
-    j = 0
-    for i in range(m):
-        while j < m and abs(coords[j] - coords[i]) > max_dist:
-            j += 1
-        block_left[i] = j
-    return block_left
-
-
-# int16 symmetric R2 quantization (refactor #11). Scale 32767 = int16 max, so
-# the endpoint is exact: round(1.0 * 32767) = 32767, decoded 32767/32767 = 1.0.
-R2_QUANT_SCALE = 32767
-R2_ENCODING = "int16_symmetric"
-
-
-def _quantize_r2(r2: np.ndarray) -> np.ndarray:
-    """Symmetric int16 quantization of unbiased R2 (scale ``R2_QUANT_SCALE``).
-
-    ``stored = clip(round(R2 * 32767), -32767, 32767)``. The clip is defensive:
-    with the upstream ``min(R2, 1.0)`` and ``|negatives| ~ 1/N`` it never fires
-    on real data. float64 multiply makes rounding deterministic at half-steps.
-    """
-    scaled = np.rint(r2.astype(np.float64) * R2_QUANT_SCALE)
-    return np.clip(scaled, -R2_QUANT_SCALE, R2_QUANT_SCALE).astype(np.int16)
 
 
 def _unbiased_r2_array(correlation: np.ndarray, n_samples: int) -> np.ndarray:
@@ -612,259 +541,6 @@ def iter_pairwise_r2_rows(
         )
     )
 
-
-def build_runtime_metadata_table(
-    *,
-    metadata: pd.DataFrame,
-    positions: np.ndarray,
-    cm_values: np.ndarray | None,
-) -> pd.DataFrame:
-    """Build the LDSC3 runtime metadata sidecar for one emitted build.
-
-    When ``cm_values`` is ``None``, the sidecar keeps the SNP rows and writes a
-    nullable ``CM`` column. This is used by SNP- and kb-window builds that omit
-    genetic maps.
-    """
-    cm_column = (
-        pd.Series(pd.array([pd.NA] * len(metadata), dtype="Float64"))
-        if cm_values is None
-        else pd.Series(np.asarray(cm_values, dtype=float))
-    )
-
-    values = {
-        "CHR": metadata["CHR"].map(normalize_chromosome).astype(str),
-        "POS": np.asarray(positions, dtype=np.int64),
-        "SNP": metadata["SNP"].astype(str),
-        "A1": metadata["A1"].astype(str),
-        "A2": metadata["A2"].astype(str),
-        "CM": cm_column,
-        "MAF": pd.to_numeric(metadata["MAF"], errors="coerce").astype(float),
-    }
-    return pd.DataFrame(values).reset_index(drop=True)
-
-
-def _ensure_parent_dir(path: str | PathLike[str]) -> None:
-    """Create the parent directory for ``path`` if it does not already exist."""
-    parent = Path(path).parent
-    parent.mkdir(parents=True, exist_ok=True)
-
-
-def _standard_r2_index_table(pa, schema, *, i, j, r2, sign):
-    """Build one 4-column index ``pyarrow.Table`` from concatenated pair columns.
-
-    ``i``/``j`` are sidecar-row indices (stored int32), ``r2`` is unbiased float32
-    stored as symmetric int16 (scale ``R2_QUANT_SCALE``), and ``sign`` is int8
-    ``+1``/``-1`` stored as the ``SIGN_R`` bool (``True`` when the correlation r >= 0).
-    The indices are stored as-is; no reference-SNP join or identifier expansion.
-    """
-    if i.size == 0:
-        return schema.empty_table()
-    return pa.Table.from_arrays(
-        [
-            pa.array(i.astype(np.int32), type=pa.int32()),
-            pa.array(j.astype(np.int32), type=pa.int32()),
-            pa.array(_quantize_r2(r2), type=pa.int16()),
-            pa.array(sign == 1, type=pa.bool_()),
-        ],
-        schema=schema,
-    )
-
-
-def write_r2_parquet(
-    *,
-    pair_chunks: Iterable[PairColumns],
-    path: str | PathLike[str],
-    genome_build: str,
-    n_samples: int,
-    snp_identifier: str,
-    n_snps: int,
-    sidecar_identity_sha256: str,
-    batch_size: int = 100_000,
-    row_group_size: int = 50_000,
-    ld_window_mode: str,
-    ld_window_value: float,
-    min_r2: float = 0.0,
-) -> str:
-    """
-    Write one canonical 4-column R2 Parquet file with LDSC3 schema metadata.
-
-    Columns are ``IDX_1``/``IDX_2`` (int32 sidecar-row indices), ``R2``
-    (int16 symmetric quantization, scale ``R2_QUANT_SCALE``=32767, with
-    ``BYTE_STREAM_SPLIT`` encoding; the endpoint ``1.0`` maps to exactly 32767),
-    and ``SIGN_R`` (bit-packed bool, ``True`` when the Pearson correlation r >= 0).
-    Pairs must arrive in non-decreasing ``IDX_1`` order because row-group pruning
-    depends on monotonic footer statistics.
-
-    The parquet is bound to its per-SNP sidecar by ``ldsc:n_snps`` (the index
-    space size) and ``ldsc:sidecar_identity_sha256`` (a hash of the sidecar's
-    ``CHR:POS:A1:A2`` identity). The stored indices are meaningless without the
-    matching sidecar, so the reader hard-fails on a binding mismatch.
-
-    ``min_r2`` records the unbiased-R2 floor applied upstream during pair
-    emission; it does not itself filter rows here. The table is
-    pairwise-complete only when ``ldsc:min_r2`` is non-positive; ldscore
-    rejects any other value, and query-r2 reports absent pairs as absent.
-
-    ``ld_window_mode`` and ``ld_window_value`` record the build-time LD window
-    that bounded emitted pairs. LD-score calculation uses these fields to reject
-    wider requested windows that would require pairs the parquet does not store.
-
-    Column chunks are compressed with zstd level 9 when the codec is available
-    (falling back to snappy otherwise). Compression is recorded per column-chunk
-    in the footer and auto-detected on read.
-    """
-
-    _ensure_parent_dir(path)
-    try:
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-    except ImportError as exc:
-        raise LDSCDependencyError(
-            "build-r2-panel could not write R2 Parquet files because pyarrow is not installed. "
-            "Most likely R2 panel generation was requested in an environment missing pyarrow. "
-            "Install pyarrow and rerun build-r2-panel."
-        ) from exc
-
-    if int(n_snps) >= 2**31:
-        raise LDSCInputError(
-            f"build-r2-panel cannot write an R2 Parquet file with n_snps={n_snps}: the index "
-            "space exceeds the int32 IDX column range. Most likely the retained reference "
-            "panel is too large for the current parquet format. Split the panel or reduce "
-            "the retained reference SNPs."
-        )
-    if ld_window_mode is None or ld_window_value is None:
-        raise LDSCInternalError(
-            "build-r2-panel could not write R2 Parquet file LD-window metadata because "
-            "ld_window_mode and ld_window_value were not both provided. Most likely "
-            "the reference-panel builder passed an incomplete build-window record. "
-            "Re-run with DEBUG logging and report the traceback."
-        )
-
-    pa_meta = {
-        **{
-            f"ldsc:{key}".encode("utf-8"): str(value).encode("utf-8")
-            for key, value in identity_artifact_metadata(
-                artifact_type="ref_panel_r2",
-                snp_identifier=snp_identifier,
-                genome_build=genome_build,
-            ).items()
-        },
-        b"ldsc:sorted_by_build": genome_build.encode("utf-8"),
-        b"ldsc:row_group_size": str(row_group_size).encode("utf-8"),
-        b"ldsc:n_samples": str(n_samples).encode("utf-8"),
-        b"ldsc:r2_bias": b"unbiased",
-        b"ldsc:min_r2": str(min_r2).encode("utf-8"),
-        b"ldsc:n_snps": str(int(n_snps)).encode("utf-8"),
-        b"ldsc:sidecar_identity_sha256": str(sidecar_identity_sha256).encode("utf-8"),
-        b"ldsc:r2_encoding": R2_ENCODING.encode("utf-8"),
-        b"ldsc:r2_scale": str(R2_QUANT_SCALE).encode("utf-8"),
-        b"ldsc:ld_window_mode": str(ld_window_mode).encode("utf-8"),
-        b"ldsc:ld_window_value": str(ld_window_value).encode("utf-8"),
-    }
-    schema = pa.schema(
-        [
-            ("IDX_1", pa.int32()),
-            ("IDX_2", pa.int32()),
-            ("R2", pa.int16()),
-            ("SIGN_R", pa.bool_()),
-        ]
-    ).with_metadata(pa_meta)
-    writer = None
-    buf_i: list[np.ndarray] = []
-    buf_j: list[np.ndarray] = []
-    buf_r2: list[np.ndarray] = []
-    buf_sign: list[np.ndarray] = []
-    buffered = 0
-    prev_idx1: int | None = None
-
-    def _flush() -> None:
-        nonlocal writer, prev_idx1, buf_i, buf_j, buf_r2, buf_sign, buffered
-        i = np.concatenate(buf_i) if buf_i else np.empty(0, dtype=np.int64)
-        j = np.concatenate(buf_j) if buf_j else np.empty(0, dtype=np.int64)
-        r2 = np.concatenate(buf_r2) if buf_r2 else np.empty(0, dtype=np.float32)
-        sign = np.concatenate(buf_sign) if buf_sign else np.empty(0, dtype=np.int8)
-        table = _standard_r2_index_table(pa, schema, i=i, j=j, r2=r2, sign=sign)
-        if i.size:
-            sequence = i if prev_idx1 is None else np.concatenate(([prev_idx1], i))
-            bad = np.flatnonzero(np.diff(sequence) < 0)
-            if bad.size:
-                k = int(bad[0])
-                raise LDSCInternalError(
-                    "build-r2-panel R2 Parquet file writing failed: pair rows arrived out of "
-                    "non-decreasing IDX_1 order. "
-                    f"Received IDX_1={int(sequence[k + 1])} after IDX_1={int(sequence[k])}. "
-                    "Most likely retained SNP sorting or pair emission is inconsistent. "
-                    "Re-run with DEBUG logging and report the traceback."
-                )
-            prev_idx1 = int(i[-1])
-        if writer is None:
-            # IDX_2: DELTA_BINARY_PACKED exploits sorted right-neighbors (median
-            # forward-gap = 1), collapsing ~650 MB to ~6 MB vs the default
-            # dictionary path. R2: BYTE_STREAM_SPLIT splits the int16 byte planes
-            # so zstd compresses the low-entropy high byte (R2 clusters near 0)
-            # apart from the noisy low byte. use_dictionary restricts auto-
-            # dictionary to IDX_1 only so PyArrow cannot override either encoding.
-            enc_kwargs = dict(
-                column_encoding={"IDX_2": "DELTA_BINARY_PACKED", "R2": "BYTE_STREAM_SPLIT"},
-                use_dictionary=["IDX_1"],
-            )
-            if pa.Codec.is_available("zstd"):
-                writer = pq.ParquetWriter(
-                    str(path), schema, compression="zstd", compression_level=9, **enc_kwargs
-                )
-            else:
-                warnings.warn(
-                    "zstd codec is not available in this pyarrow build; "
-                    "falling back to snappy compression. "
-                    "Install pyarrow from conda-forge or PyPI to enable zstd.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-                writer = pq.ParquetWriter(str(path), schema, compression="snappy", **enc_kwargs)
-        writer.write_table(table, row_group_size=row_group_size)
-        buf_i, buf_j, buf_r2, buf_sign = [], [], [], []
-        buffered = 0
-
-    try:
-        for chunk in pair_chunks:
-            ci, cj, cr2, csign = chunk
-            if ci.size == 0:
-                continue
-            buf_i.append(ci)
-            buf_j.append(cj)
-            buf_r2.append(cr2)
-            buf_sign.append(csign)
-            buffered += int(ci.size)
-            if buffered >= batch_size:
-                _flush()
-        if buffered or writer is None:
-            _flush()
-    finally:
-        if writer is not None:
-            writer.close()
-    return str(path)
-
-
-def write_runtime_metadata_sidecar(
-    df: pd.DataFrame,
-    path: str | PathLike[str],
-    *,
-    genome_build: str,
-    snp_identifier: str,
-) -> str:
-    """Write one gzip-compressed LDSC3 runtime metadata sidecar."""
-
-    _ensure_parent_dir(path)
-    identity_metadata = identity_artifact_metadata(
-        artifact_type="ref_panel_metadata",
-        snp_identifier=snp_identifier,
-        genome_build=genome_build,
-    )
-    with gzip.open(path, "wt", encoding="utf-8") as handle:
-        for key, value in identity_metadata.items():
-            handle.write(f"# ldsc:{key}={value}\n")
-        df.to_csv(handle, sep="\t", index=False, na_rep="NA", float_format=SIDECAR_FLOAT_FORMAT)
-    return str(path)
 
 def build_restriction_mask(
     metadata: pd.DataFrame,

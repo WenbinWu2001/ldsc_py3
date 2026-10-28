@@ -43,6 +43,16 @@ try:
     )
     from ldsc._core import plink_files as kernel_formats
     from ldsc._kernel import ldscore as kernel_ldscore
+    from ldsc._annotation.overlap import compute_overlap
+    from ldsc._refpanel import plink as plink_bed
+    from ldsc._refpanel import r2_format, windows as ld_windows
+    from ldsc._refpanel.prepared import ChromosomeAnnotations
+    from ldsc._refpanel.r2_format import validate_ldscore_window_within_r2_panel_window
+    from ldsc._refpanel.windows import (
+        assert_cm_usable,
+        ldscore_window_coordinates,
+        validate_window_positions_sorted,
+    )
     from ldsc._core.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
 except ImportError:
     AnnotationBuildConfig = None
@@ -125,7 +135,7 @@ def _write_legacy_r2_parquet(path: Path) -> None:
 class R2AutoLoadCLITest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
     def test_package_parquet_metadata_duplicates_remain_invariant_failures(self):
-        from ldsc._kernel.ref_panel import ParquetR2RefPanel
+        from ldsc._refpanel.adapters import ParquetR2RefPanel
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -751,7 +761,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         fam = kernel_formats.PlinkFAMFile(str(prefix.with_suffix(".fam")))
         keep_indivs = fam.loj(kernel_formats.FilterFile(str(keep_path)).IDList)
         bim = kernel_formats.PlinkBIMFile(str(prefix.with_suffix(".bim")))
-        bed = kernel_ldscore.PlinkBEDFile(
+        bed = plink_bed.PlinkBEDFile(
             str(prefix.with_suffix(".bed")),
             len(fam.IDList),
             bim,
@@ -764,7 +774,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")
         metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(int)
         metadata["MAF"] = pd.to_numeric(metadata["MAF"], errors="coerce")
-        block_left = kernel_ldscore.get_block_lefts(np.arange(bed.m), 10)
+        block_left = ld_windows.get_block_lefts(np.arange(bed.m), 10)
         ld_scores = kernel_ldscore.ld_scores_from_genotypes(bed, block_left, 50, annot=np.ones((bed.m, 1), dtype=np.float32))
         return metadata.reset_index(drop=True), np.ravel(ld_scores)
 
@@ -1205,7 +1215,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
             workflow_bundle = self._build_annotation_bundle(prefix)
-            bundle = kernel_ldscore.AnnotationBundle(
+            bundle = ChromosomeAnnotations(
                 metadata=fixture_metadata(workflow_bundle),
                 annotations=fixture_values(workflow_bundle, 'baseline'),
                 baseline_columns=workflow_bundle.baseline_columns,
@@ -1247,7 +1257,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
             wb = self._build_annotation_bundle(prefix)
             order = np.argsort(fixture_metadata(wb)["POS"].to_numpy(), kind="mergesort")[::-1]
-            bundle = kernel_ldscore.AnnotationBundle(
+            bundle = ChromosomeAnnotations(
                 metadata=fixture_metadata(wb).iloc[order].reset_index(drop=True),
                 annotations=fixture_values(wb, 'baseline').iloc[order].reset_index(drop=True),
                 baseline_columns=wb.baseline_columns,
@@ -1274,7 +1284,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
             wb = self._build_annotation_bundle(prefix)
-            bundle = kernel_ldscore.AnnotationBundle(
+            bundle = ChromosomeAnnotations(
                 metadata=fixture_metadata(wb), annotations=fixture_values(wb, 'baseline'),
                 baseline_columns=wb.baseline_columns, query_columns=wb.query_columns,
             )
@@ -1287,7 +1297,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
             wb = self._build_annotation_bundle(prefix)
-            bundle = kernel_ldscore.AnnotationBundle(
+            bundle = ChromosomeAnnotations(
                 metadata=fixture_metadata(wb), annotations=fixture_values(wb, 'baseline'),
                 baseline_columns=wb.baseline_columns, query_columns=wb.query_columns,
             )
@@ -1298,7 +1308,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertGreaterEqual(result.metadata["CM"].nunique(), 2)
 
     def test_compute_chromosome_writes_ref_metadata_sidecar(self):
-        from ldsc._kernel.ref_panel import RefPanelLoader
+        from ldsc._refpanel.adapters import RefPanelLoader
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
@@ -1477,7 +1487,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 autospec=True,
                 return_value=annotation_bundle,
             ), mock.patch(
-                "ldsc._kernel.ref_panel.RefPanelLoader.load",
+                "ldsc._refpanel.adapters.RefPanelLoader.load",
                 autospec=True,
                 return_value=self.make_ref_panel_stub(backend="plink"),
             ), mock.patch.object(
@@ -1629,7 +1639,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
 
             with mock.patch(
-                "ldsc._kernel.ref_panel.RefPanelLoader.load",
+                "ldsc._refpanel.adapters.RefPanelLoader.load",
                 autospec=True,
             ) as load_panel, self.assertRaisesRegex(LDSCInputError, "rejected 2 of 3") as error:
                 ldscore_workflow.run_ldscore_from_args(args)
@@ -1814,7 +1824,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
 
             with mock.patch(
-                "ldsc._kernel.ref_panel.RefPanelLoader.load",
+                "ldsc._refpanel.adapters.RefPanelLoader.load",
                 autospec=True,
                 return_value=ref_panel,
             ), mock.patch.object(
@@ -1869,7 +1879,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
 
             with mock.patch(
-                "ldsc._kernel.ref_panel.RefPanelLoader.load",
+                "ldsc._refpanel.adapters.RefPanelLoader.load",
                 autospec=True,
                 return_value=ref_panel,
             ), mock.patch.object(
@@ -1923,7 +1933,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
 
             with mock.patch(
-                "ldsc._kernel.ref_panel.RefPanelLoader.load",
+                "ldsc._refpanel.adapters.RefPanelLoader.load",
                 autospec=True,
                 return_value=ref_panel,
             ), mock.patch.object(
@@ -1995,7 +2005,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 autospec=True,
                 return_value=annotation_bundle,
             ), mock.patch(
-                "ldsc._kernel.ref_panel.RefPanelLoader.load",
+                "ldsc._refpanel.adapters.RefPanelLoader.load",
                 autospec=True,
                 return_value=ref_panel,
             ), mock.patch.object(
@@ -2429,7 +2439,7 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
                 }
             )
             with self.assertRaisesRegex(AssertionError, "concrete"):
-                reader = kernel_ldscore.SortedR2BlockReader(
+                reader = r2_format.SortedR2BlockReader(
                     paths=[str(path)],
                     chrom="1",
                     metadata=metadata,
@@ -2457,29 +2467,31 @@ class IndexBindingTest(unittest.TestCase):
 
     def test_load_full_panel_sidecar_reads_canonical_columns(self):
         from ldsc._kernel import ldscore as ls
+        from ldsc._refpanel.r2_format import _load_full_panel_sidecar
         with tempfile.TemporaryDirectory() as tmp:
             meta, df = self._sidecar(tmp)
             r2 = meta.with_name("chr1_r2.parquet")
-            loaded = ls._load_full_panel_sidecar(str(r2))
+            loaded = _load_full_panel_sidecar(str(r2))
             self.assertEqual(list(loaded["CHR"].astype(str)), ["1", "1", "1"])
             self.assertEqual(list(loaded["POS"].astype(int)), [10, 20, 30])
 
     def test_validate_binding_raises_on_hash_mismatch(self):
         from ldsc._kernel import ldscore as ls
+        from ldsc._refpanel.r2_format import _validate_index_binding
         from ldsc._core.snp_identity import sidecar_identity_sha256
         with tempfile.TemporaryDirectory() as tmp:
             meta, df = self._sidecar(tmp)
             good = sidecar_identity_sha256(df)
-            ls._validate_index_binding(df, n_snps=3, identity_hash=good, context="t")  # no raise
+            _validate_index_binding(df, n_snps=3, identity_hash=good, context="t")  # no raise
             with self.assertRaisesRegex(LDSCInputError, "identity hash"):
-                ls._validate_index_binding(df, n_snps=3, identity_hash="0" * 64, context="t")
+                _validate_index_binding(df, n_snps=3, identity_hash="0" * 64, context="t")
             with self.assertRaisesRegex(LDSCInputError, "n_snps"):
-                ls._validate_index_binding(df, n_snps=999, identity_hash=good, context="t")
+                _validate_index_binding(df, n_snps=999, identity_hash=good, context="t")
 
 
 class IndexRemapTest(unittest.TestCase):
     def test_remap_maps_build_rows_to_retained_indices_chr_pos(self):
-        from ldsc._kernel.ldscore import build_index_remap
+        from ldsc._refpanel.r2_format import build_index_remap
 
         full = pd.DataFrame({"CHR": ["1"] * 4, "POS": [10, 20, 30, 40],
                              "SNP": ["a", "b", "c", "d"], "A1": list("ACGT"), "A2": list("GTAC")})
@@ -2492,7 +2504,7 @@ class IndexRemapTest(unittest.TestCase):
         self.assertEqual(retained_build_idx.tolist(), [2, 0])
 
     def test_remap_allele_aware_uses_alleles(self):
-        from ldsc._kernel.ldscore import build_index_remap
+        from ldsc._refpanel.r2_format import build_index_remap
 
         # Two multi-allelic variants at the same position with distinct,
         # non-strand-complement allele sets: {A,G} vs {A,C}.
@@ -2505,7 +2517,8 @@ class IndexRemapTest(unittest.TestCase):
 
 class IndexReaderDecodeTest(unittest.TestCase):
     def _make_panel(self, tmp):
-        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._refpanel import build_kernel as kb
+        from ldsc._refpanel import r2_format
         from ldsc._core.snp_identity import sidecar_identity_sha256
 
         full = pd.DataFrame({"CHR": ["1"] * 4, "POS": [10, 20, 30, 40],
@@ -2519,14 +2532,14 @@ class IndexReaderDecodeTest(unittest.TestCase):
             {"i": 1, "j": 2, "R2": 0.4, "sign": "-"},
             {"i": 2, "j": 3, "R2": 0.9, "sign": "+"},
         ]
-        kb.write_r2_parquet(pair_chunks=dict_chunks(rows), path=r2, genome_build="hg19", n_samples=100,
+        r2_format.write_r2_parquet(pair_chunks=dict_chunks(rows), path=r2, genome_build="hg19", n_samples=100,
                             snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
                             sidecar_identity_sha256=sidecar_identity_sha256(full), ld_window_mode="kb", ld_window_value=1000.0)
         return r2, full
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_streaming_drops_unretained_endpoint(self):
-        from ldsc._kernel.ldscore import SortedR2BlockReader
+        from ldsc._refpanel.r2_format import SortedR2BlockReader
         with tempfile.TemporaryDirectory() as tmp:
             r2, full = self._make_panel(tmp)
             # retained = panel rows 0,1,2 (drop pos40); matrix order = [10,20,30]
@@ -2551,7 +2564,8 @@ class IndexReaderDecodeTest(unittest.TestCase):
 class R2PanelWindowValidationTest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_ldscore_accepts_equal_recorded_r2_panel_window(self):
-        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._refpanel import build_kernel as kb
+        from ldsc._refpanel import r2_format
         from ldsc._core.snp_identity import sidecar_identity_sha256
 
         panel = pd.DataFrame(
@@ -2568,7 +2582,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             meta = _write_index_sidecar(tmp, panel)
             r2 = meta.with_name("chr1_r2.parquet")
-            kb.write_r2_parquet(
+            r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks([]),
                 path=r2,
                 genome_build="hg19",
@@ -2589,7 +2603,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
                 snp_identifier="chr_pos",
             )
 
-            kernel_ldscore.validate_ldscore_window_within_r2_panel_window(
+            validate_ldscore_window_within_r2_panel_window(
                 args,
                 parquet_paths=[str(r2)],
                 chrom="1",
@@ -2597,7 +2611,8 @@ class R2PanelWindowValidationTest(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_ldscore_rejects_window_wider_than_recorded_r2_panel_window(self):
-        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._refpanel import build_kernel as kb
+        from ldsc._refpanel import r2_format
         from ldsc._core.snp_identity import sidecar_identity_sha256
 
         panel = pd.DataFrame(
@@ -2614,7 +2629,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             meta = _write_index_sidecar(tmp, panel)
             r2 = meta.with_name("chr1_r2.parquet")
-            kb.write_r2_parquet(
+            r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks([{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}]),
                 path=r2,
                 genome_build="hg19",
@@ -2637,7 +2652,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
                 LDSCUsageError,
                 "user-requested LD window `--ld-wind-kb 1.0` is wider than the input R2 panel window `--ld-wind-kb 0.1`",
             ):
-                kernel_ldscore.validate_ldscore_window_within_r2_panel_window(
+                validate_ldscore_window_within_r2_panel_window(
                     args,
                     parquet_paths=[str(r2)],
                     chrom="1",
@@ -2645,7 +2660,8 @@ class R2PanelWindowValidationTest(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_ldscore_rejects_any_strictly_larger_same_mode_window(self):
-        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._refpanel import build_kernel as kb
+        from ldsc._refpanel import r2_format
         from ldsc._core.snp_identity import sidecar_identity_sha256
 
         panel = pd.DataFrame(
@@ -2662,7 +2678,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             meta = _write_index_sidecar(tmp, panel)
             r2 = meta.with_name("chr1_r2.parquet")
-            kb.write_r2_parquet(
+            r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks([]),
                 path=r2,
                 genome_build="hg19",
@@ -2683,7 +2699,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
                 snp_identifier="chr_pos",
             )
             with self.assertRaisesRegex(LDSCUsageError, "is wider than the input R2 panel window"):
-                kernel_ldscore.validate_ldscore_window_within_r2_panel_window(
+                validate_ldscore_window_within_r2_panel_window(
                     args,
                     parquet_paths=[str(r2)],
                     chrom="1",
@@ -2691,7 +2707,8 @@ class R2PanelWindowValidationTest(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_ldscore_rejects_requested_window_mode_differing_from_r2_panel_mode(self):
-        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._refpanel import build_kernel as kb
+        from ldsc._refpanel import r2_format
         from ldsc._core.snp_identity import sidecar_identity_sha256
 
         panel = pd.DataFrame(
@@ -2708,7 +2725,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             meta = _write_index_sidecar(tmp, panel)
             r2 = meta.with_name("chr1_r2.parquet")
-            kb.write_r2_parquet(
+            r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks([]),
                 path=r2,
                 genome_build="hg19",
@@ -2729,7 +2746,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
                 snp_identifier="chr_pos",
             )
             with self.assertRaises(LDSCUsageError) as caught:
-                kernel_ldscore.validate_ldscore_window_within_r2_panel_window(
+                validate_ldscore_window_within_r2_panel_window(
                     args,
                     parquet_paths=[str(r2)],
                     chrom="1",
@@ -2747,7 +2764,8 @@ class IndexCrossModeParityTest(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_ld_scores_identical_across_modes_from_one_index_parquet(self):
-        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._refpanel import build_kernel as kb
+        from ldsc._refpanel import r2_format
         from ldsc._core.snp_identity import sidecar_identity_sha256
 
         panel = pd.DataFrame({
@@ -2772,12 +2790,12 @@ class IndexCrossModeParityTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             meta = _write_index_sidecar(tmp, panel)
             r2 = meta.with_name("chr1_r2.parquet")
-            kb.write_r2_parquet(pair_chunks=dict_chunks(pairs), path=r2, genome_build="hg19", n_samples=100,
+            r2_format.write_r2_parquet(pair_chunks=dict_chunks(pairs), path=r2, genome_build="hg19", n_samples=100,
                                 snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
                                 sidecar_identity_sha256=sidecar_identity_sha256(panel), ld_window_mode="kb", ld_window_value=1000.0)
             mode_scores = {}
             for mode in ("rsid", "chr_pos", "rsid_allele_aware", "chr_pos_allele_aware"):
-                reader = kernel_ldscore.SortedR2BlockReader(
+                reader = r2_format.SortedR2BlockReader(
                     paths=[str(r2)], chrom="1",
                     metadata=panel[["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"]].copy(),
                     identifier_mode=mode,
@@ -2800,7 +2818,7 @@ class IndexCrossModeParityTest(unittest.TestCase):
 class RawSchemaRejectedTest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_legacy_raw_schema_is_rejected(self):
-        from ldsc._kernel.ldscore import SortedR2BlockReader
+        from ldsc._refpanel.r2_format import SortedR2BlockReader
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "chr1_r2.parquet"
             _write_legacy_r2_parquet(path)  # writes old 10-col canonical schema
@@ -2814,8 +2832,10 @@ class RawSchemaRejectedTest(unittest.TestCase):
 class R2DequantizationTest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_reader_dequantizes_int16_panel_to_float32(self):
-        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._refpanel import build_kernel as kb
+        from ldsc._refpanel import r2_format
         from ldsc._kernel import ldscore as kernel_ldscore
+        from ldsc._refpanel import r2_format
         from ldsc._core.snp_identity import sidecar_identity_sha256
         panel = pd.DataFrame({"CHR": ["1"] * 3, "POS": [100, 120, 140],
                               "SNP": ["rs1", "rs2", "rs3"], "A1": ["A"] * 3, "A2": ["C"] * 3,
@@ -2825,10 +2845,10 @@ class R2DequantizationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             meta = _write_index_sidecar(tmp, panel)
             r2 = meta.with_name("chr1_r2.parquet")
-            kb.write_r2_parquet(pair_chunks=dict_chunks(pairs), path=r2, genome_build="hg19", n_samples=100,
+            r2_format.write_r2_parquet(pair_chunks=dict_chunks(pairs), path=r2, genome_build="hg19", n_samples=100,
                                 snp_identifier="chr_pos", min_r2=0.0, n_snps=3,
                                 sidecar_identity_sha256=sidecar_identity_sha256(panel), ld_window_mode="kb", ld_window_value=1000.0)
-            reader = kernel_ldscore.SortedR2BlockReader(
+            reader = r2_format.SortedR2BlockReader(
                 paths=[str(r2)], chrom="1", metadata=panel.copy(),
                 identifier_mode="chr_pos",
                 genome_build="hg19")
@@ -3004,7 +3024,7 @@ def test_gene_list_mhc_query_keeps_reference_counts_but_not_regression_row(tmp_p
         region_intervals=intervals,
     )
     counts, common_counts = kernel_ldscore.compute_counts(metadata, annotations)
-    overlap = kernel_ldscore.compute_overlap(metadata, annotations, n_baseline=1)
+    overlap = compute_overlap(metadata, annotations, n_baseline=1)
 
     assert fixture_values(bundle, 'query')["hla"].tolist() == [0.0, 1.0, 0.0]
     np.testing.assert_array_equal(regression_mask, np.array([1.0, 0.0, 1.0], dtype=np.float32))
@@ -3032,30 +3052,30 @@ def test_cm_window_consistent_across_backends():
     cm = pd.Series([0.0, 0.4, 0.9, 1.6])
     md = pd.DataFrame({"CM": cm, "POS": [1, 2, 3, 4]})
     args = argparse.Namespace(ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=1.0)
-    coords_a, dist_a = kernel_ldscore.build_window_coordinates(md, args)
-    coords_b, dist_b = kernel_ldscore.build_window_coordinates(md.copy(), args)
+    coords_a, dist_a = ldscore_window_coordinates(md, args)
+    coords_b, dist_b = ldscore_window_coordinates(md.copy(), args)
     np.testing.assert_array_equal(
-        kernel_ldscore.get_block_lefts(coords_a, dist_a),
-        kernel_ldscore.get_block_lefts(coords_b, dist_b),
+        ld_windows.get_block_lefts(coords_a, dist_a),
+        ld_windows.get_block_lefts(coords_b, dist_b),
     )
     # The kb window over the same physical positions is likewise deterministic.
     args_kb = argparse.Namespace(ld_wind_snps=None, ld_wind_kb=1.0, ld_wind_cm=None)
-    coords_kb, dist_kb = kernel_ldscore.build_window_coordinates(md, args_kb)
+    coords_kb, dist_kb = ldscore_window_coordinates(md, args_kb)
     np.testing.assert_array_equal(coords_kb, md["POS"].to_numpy(dtype=float))
 
 
 def test_assert_cm_usable_rejects_all_zero():
     with pytest.raises(LDSCInputError, match="all zero|uninformative"):
-        kernel_ldscore.assert_cm_usable(pd.Series([0.0, 0.0, 0.0]), chrom="1")
+        assert_cm_usable(pd.Series([0.0, 0.0, 0.0]), chrom="1")
 
 
 def test_assert_cm_usable_rejects_constant():
     with pytest.raises(LDSCInputError):
-        kernel_ldscore.assert_cm_usable(pd.Series([2.5, 2.5, 2.5]), chrom="1")
+        assert_cm_usable(pd.Series([2.5, 2.5, 2.5]), chrom="1")
 
 
 def test_assert_cm_usable_accepts_two_distinct_values():
-    kernel_ldscore.assert_cm_usable(pd.Series([0.0, 0.1, 0.1]), chrom="1")  # no raise
+    assert_cm_usable(pd.Series([0.0, 0.1, 0.1]), chrom="1")  # no raise
 
 
 @serial_calculation
@@ -3074,14 +3094,14 @@ def test_public_plink_calculation_prepares_genotypes_once():
     config = GlobalConfig(snp_identifier="rsid")
     panel = PlinkRefPanel(config, RefPanelConfig(backend="plink", plink_prefix=PLINK_FIXTURES / "plink"))
     readers = []
-    reader_class = kernel_ldscore.PlinkBEDFile
+    reader_class = plink_bed.PlinkBEDFile
 
     def open_reader(*args, **kwargs):
         reader = reader_class(*args, **kwargs)
         readers.append(reader)
         return reader
 
-    with mock.patch.object(kernel_ldscore, "PlinkBEDFile", side_effect=open_reader):
+    with mock.patch("ldsc._refpanel.adapters.PlinkBEDFile", side_effect=open_reader):
         result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
             "1", bundle, panel, LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True), config,
         )
@@ -3106,17 +3126,17 @@ def test_build_parser_accepts_genetic_map_and_export_flags():
 def test_validate_window_positions_sorted_accepts_non_decreasing():
     metadata = pd.DataFrame({"CHR": ["1", "1", "1"], "POS": [100, 100, 250]})
     # Non-decreasing (including a tie) must pass without raising.
-    kernel_ldscore.validate_window_positions_sorted(metadata, chrom="1")
+    validate_window_positions_sorted(metadata, chrom="1")
 
 
 def test_validate_window_positions_sorted_rejects_unsorted_metadata():
     metadata = pd.DataFrame({"CHR": ["1", "1", "1"], "POS": [100, 300, 250]})
     with pytest.raises(LDSCInternalError, match="non-decreasing order"):
-        kernel_ldscore.validate_window_positions_sorted(metadata, chrom="1")
+        validate_window_positions_sorted(metadata, chrom="1")
 
 
 def test_validate_window_positions_sorted_ignores_chromosome_boundary_drop():
     # A position drop across a chromosome boundary is expected, not an error:
     # the window is computed per chromosome.
     metadata = pd.DataFrame({"CHR": ["1", "1", "2"], "POS": [100, 999, 1]})
-    kernel_ldscore.validate_window_positions_sorted(metadata, chrom="1")
+    validate_window_positions_sorted(metadata, chrom="1")

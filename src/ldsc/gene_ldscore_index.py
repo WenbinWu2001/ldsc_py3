@@ -45,6 +45,9 @@ from ._runtime.workflow_logging import LOG_LEVEL_HELP
 from ._runtime.parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _run_chromosome_tasks, _validate_workers
 from ._runtime.progress import report_phase, advance
 from ._kernel import ldscore as kernel_ldscore
+from ._annotation.overlap import compute_overlap
+from ._refpanel.adapters import resolve_keep_individuals
+from ._refpanel.prepared import ChromosomeAnnotations
 from ._kernel.gene_ldscore_index import (
     AtomStatistics,
     ChromosomeAtomModel,
@@ -59,6 +62,7 @@ from ._kernel.gene_ldscore_index import (
 )
 from ._core.regions import RegionIntervals
 from ._core.identifiers import read_snp_restriction_keys
+from ._core.plink_files import PlinkFAMFile
 from ._core.snp_identity import (
     RestrictionIdentityKeys,
     allele_set_series,
@@ -563,7 +567,7 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 hostname=socket.gethostname(),
             )
             from ._annotation.preflight import inspect_annotation_inputs
-            from ._ref_panel_preflight import GENETIC_MAP_HEADER_CHECKS
+            from ._refpanel.preflight import GENETIC_MAP_HEADER_CHECKS
             declared_inputs = inspect_annotation_inputs(
                 header_checks=GENETIC_MAP_HEADER_CHECKS,
                 baseline=config.baseline_annot_sources, plink=config.plink_prefix, chromosomes=chromosomes,
@@ -650,7 +654,7 @@ def _build_one_index_chromosome(chrom, shard, baseline_columns, baseline_drop, c
         for frame in baseline_drop.frames():
             intersection.diagnostics["baseline_duplicate_rows_dropped"] += int(frame.reason.eq("duplicate_identity").sum())
             intersection.diagnostics["baseline_identity_rows_dropped"] += len(frame)
-        kernel_bundle = kernel_ldscore.AnnotationBundle(
+        kernel_bundle = ChromosomeAnnotations(
             metadata=intersection.metadata,
             annotations=intersection.annotations,
             baseline_columns=list(baseline_columns),
@@ -1467,7 +1471,7 @@ def _load_builder_genetic_map(args):
     if args.ld_wind_cm is None:
         raise LDSCInputError("Genetic-map sources require --ld-wind-cm. Omit the map for kb or SNP-count windows.")
     from ._genome.build_policy import GenomeBuildCheck
-    from ._kernel.ref_panel_builder import load_genetic_map_group
+    from ._refpanel.build_kernel import load_genetic_map_group
     check = GenomeBuildCheck(build, context="gene-index genetic map", logger=LOGGER)
     check.paths("genetic map", sources)
     check.resolve()
@@ -1592,8 +1596,8 @@ def _builder_index_identity(
             ]
         )
     assert first_prefix is not None
-    fam = kernel_ldscore.legacy_parse.PlinkFAMFile(str(first_prefix) + ".fam")
-    keep_indices = kernel_ldscore.resolve_keep_individuals(config.keep_indivs_file, fam)
+    fam = PlinkFAMFile(str(first_prefix) + ".fam")
+    keep_indices = resolve_keep_individuals(config.keep_indivs_file, fam)
     selected_indices = list(range(len(fam.IDList))) if keep_indices is None else list(keep_indices)
     selected_ids = _selected_individual_ids(fam, selected_indices)
     selected_digest = hashlib.sha256(
@@ -2404,7 +2408,7 @@ def _selector_for_resolution(
 
 def build_plink_index_chromosome(
     chrom: str,
-    baseline_bundle: kernel_ldscore.AnnotationBundle,
+    baseline_bundle: ChromosomeAnnotations,
     args,
     *,
     regression_keys: set[str] | RestrictionIdentityKeys,
@@ -2430,7 +2434,7 @@ def build_plink_index_chromosome(
     The chromosome baseline matrix is also explicitly materialized in float64.
     """
     from .config import LDScoreConfig, RefPanelConfig
-    from ._kernel.ref_panel import PlinkRefPanel
+    from ._refpanel.adapters import PlinkRefPanel
 
     global_options = {"snp_identifier": args.snp_identifier}
     if hasattr(args, "genome_build"):
@@ -2482,7 +2486,7 @@ def build_plink_index_chromosome(
             baseline_frame,
             common_maf_min=getattr(args, "common_maf_min", 0.05),
         )
-        overlap = kernel_ldscore.compute_overlap(
+        overlap = compute_overlap(
             metadata,
             baseline_frame,
             n_baseline=len(baseline_bundle.baseline_columns),

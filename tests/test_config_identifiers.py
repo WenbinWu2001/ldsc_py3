@@ -232,7 +232,7 @@ class WorkflowConfigTest(unittest.TestCase):
                 "parse_bed_to_annot_args",
                 "run_bed_to_annot",
             ),
-            "ldsc._kernel.ref_panel": ("RefPanelSpec",),
+            "ldsc._refpanel.adapters": ("RefPanelSpec",),
             "ldsc.sumstats_munger": ("RawSumstatsSpec",),
             "ldsc.outputs": ("OutputSpec",),
         }

@@ -83,7 +83,7 @@ def test_truncated_gzip_does_not_hide_other_input_failures(tmp_path):
 def write_r2_inputs(tmp_path):
     import numpy as np
     import pandas as pd
-    from ldsc._kernel.ref_panel_builder import write_runtime_metadata_sidecar, write_r2_parquet
+    from ldsc._refpanel.r2_format import write_runtime_metadata_sidecar, write_r2_parquet
     from ldsc._core.snp_identity import sidecar_identity_sha256
 
     args = write_inputs(tmp_path)

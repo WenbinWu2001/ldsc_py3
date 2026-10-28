@@ -22,7 +22,10 @@ from scipy import sparse
 
 from ldsc import cli, gene_ldscore_index, ldscore_calculator
 from ldsc.config import GeneLDScoreIndexBuildConfig, GlobalConfig, reset_global_config, set_global_config
+from ldsc._core.plink_files import PlinkFAMFile
 from ldsc._kernel import ldscore as kernel_ldscore
+from ldsc._annotation.overlap import compute_overlap
+from ldsc._refpanel.prepared import ChromosomeAnnotations
 from ldsc._kernel.gene_ldscore_index import AtomStatistics, build_disjoint_atoms
 from ldsc.errors import LDSCInputError, LDSCUsageError
 from ldsc.gene_ldscore_index import (
@@ -310,7 +313,7 @@ def test_builder_chromosome_selection_is_canonical_and_unique():
 
 def test_selected_individual_identity_uses_fam_row_order():
     prefix = Path(__file__).resolve().parent / "fixtures" / "plink" / "plink"
-    fam = kernel_ldscore.legacy_parse.PlinkFAMFile(str(prefix.with_suffix(".fam")))
+    fam = PlinkFAMFile(str(prefix.with_suffix(".fam")))
 
     assert _selected_individual_ids(fam, [1, 0]) == [
         str(fam.IDList.iloc[1, 0]),
@@ -466,7 +469,7 @@ def test_prepared_plink_chromosome_is_reused_by_direct_ldscore():
     )
     metadata = bim[["CHR", "SNP", "CM", "POS"]].copy()
     annotations = pd.DataFrame({"base": metadata["POS"].astype(np.float64)})
-    bundle = kernel_ldscore.AnnotationBundle(metadata, annotations, ["base"], [])
+    bundle = ChromosomeAnnotations(metadata, annotations, ["base"], [])
     args = Namespace(
         bfile=str(prefix),
         keep=None,
@@ -516,7 +519,7 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
             "query": (metadata["POS"] >= 4).to_numpy(dtype=np.float32),
         }
     )
-    bundle = kernel_ldscore.AnnotationBundle(
+    bundle = ChromosomeAnnotations(
         metadata,
         annotations,
         ["base", "baseline_aux"],
@@ -596,7 +599,7 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
     expected_M, expected_M_5_50 = kernel_ldscore.compute_counts(
         prepared.metadata, expected_frame, common_maf_min=args.common_maf_min
     )
-    expected_overlap = kernel_ldscore.compute_overlap(
+    expected_overlap = compute_overlap(
         prepared.metadata,
         expected_frame,
         n_baseline=2,
@@ -679,7 +682,7 @@ def test_direct_plink_duplicate_group_is_dropped_and_recorded(tmp_path):
     duplicate_key = str(bim.loc[0, "SNP"])
     bim.loc[1, "SNP"] = duplicate_key
     bim.to_csv(prefix.with_suffix(".bim"), sep="\t", header=False, index=False)
-    bundle = kernel_ldscore.AnnotationBundle(
+    bundle = ChromosomeAnnotations(
         bim[["CHR", "SNP", "CM", "POS"]],
         pd.DataFrame({"base": np.ones(len(bim))}),
         ["base"],
@@ -717,7 +720,7 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches(tmp_path, snp_
     bim.to_csv(prefix.with_suffix(".bim"), sep="\t", index=False, header=False)
     metadata = bim[["CHR", "SNP", "CM", "POS"]].copy()
     baseline = pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float64)})
-    base_bundle = kernel_ldscore.AnnotationBundle(metadata, baseline, ["base"], [])
+    base_bundle = ChromosomeAnnotations(metadata, baseline, ["base"], [])
     args = Namespace(
         bfile=str(prefix), keep=None, maf_min=None, maf=None,
         ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=None,
@@ -763,7 +766,7 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches(tmp_path, snp_
         [any(start <= pos - 1 < end for start, end in gene_intervals[:2]) for pos in metadata["POS"]],
         dtype=np.float64,
     )
-    direct_bundle = kernel_ldscore.AnnotationBundle(
+    direct_bundle = ChromosomeAnnotations(
         metadata,
         pd.DataFrame({"base": baseline["base"], "query": direct_annotation}),
         ["base"],
@@ -797,7 +800,7 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
             "baseline_aux": (metadata["POS"] % 2).to_numpy(dtype=np.float32),
         }
     )
-    bundle = kernel_ldscore.AnnotationBundle(
+    bundle = ChromosomeAnnotations(
         metadata, baseline_frame, ["base", "baseline_aux"], []
     )
     args = Namespace(
@@ -1322,7 +1325,7 @@ def test_plink_operator_matches_independent_dense_adjusted_r2_reference(snp_batc
         prefix.with_suffix(".bim"), sep=r"\s+", header=None,
         names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
     )
-    bundle = kernel_ldscore.AnnotationBundle(
+    bundle = ChromosomeAnnotations(
         bim[["CHR", "SNP", "CM", "POS"]],
         pd.DataFrame({"base": np.ones(len(bim))}),
         ["base"],

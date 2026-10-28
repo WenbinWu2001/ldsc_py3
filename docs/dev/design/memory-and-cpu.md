@@ -71,7 +71,7 @@ The key includes resolved path, modification time, and size; this is a reuse key
 The cache retains full filters, has no automatic eviction, and can be reset with `clear_snp_restriction_keys_cache()` in long-lived callers.
 Inputs are expected to remain unchanged during a workflow.
 
-[`R2Panel`](../../../src/ldsc/r2_query.py) lazily retains per-chromosome sidecar/index/Parquet reader state for repeated pair queries.
+[`R2Panel`](../../../src/ldsc/_refpanel/query.py) lazily retains per-chromosome sidecar/index/Parquet reader state for repeated pair queries.
 [`lookup_pairs_in_parquet()`](../../../src/ldsc/_kernel/r2_query.py) canonicalizes query endpoint indices into numeric keys, deduplicates lookup work, and restores requested order and repeated queries in the result.
 Small requests prune row groups using `IDX_1` footer ranges; absent statistics conservatively keep the group.
 Larger requests scan the file sequentially, matching numeric keys without constructing an all-pairs DataFrame.
@@ -273,12 +273,12 @@ See the [gene-list condition–outcome table](../../reference/annotate.md#gene-l
 
 ## Genotype access and R² panel construction
 
-[`PlinkBEDFile`](../../../src/ldsc/_kernel/plink_bed.py) reads physical SNP records selectively and applies individual filtering during each read.
+[`PlinkBEDFile`](../../../src/ldsc/_refpanel/plink.py) reads physical SNP records selectively and applies individual filtering during each read.
 It avoids coexisting full-source and sample-filtered bitarrays and preserves the physical-row mapping when retained SNPs are reordered or dropped.
 The ordinary reader retains the selected packed genotype payload in memory; standardized numerical genotype blocks are decoded as needed.
 It does not imply that direct LD scoring or index construction streams all genotype payloads from disk.
 
-[`ReferencePanelBuilder._build_chromosome()`](../../../src/ldsc/ref_panel_builder.py) enables disk streaming when there is no explicit reference-SNP restriction.
+[`ReferencePanelBuilder._build_chromosome()`](../../../src/ldsc/_refpanel/builder.py) enables disk streaming when there is no explicit reference-SNP restriction.
 This path retains SNP/MAF bookkeeping and reads genotype batches again for computation instead of retaining the whole selected bitarray.
 An explicitly restricted build retains its selected genotype payload.
 The builder requests float32 standardized genotype blocks; the direct LD/index numerical path keeps its existing float64 computation.
@@ -287,7 +287,7 @@ The build-side sliding window retains the current batch and window-spanning carr
 It never needs a dense chromosome-wide correlation matrix, but a dense wide window can still be expensive.
 The chromosome owner releases the reader after writing.
 
-[`yield_pairwise_r2_rows()`](../../../src/ldsc/_kernel/ref_panel_builder.py) emits columnar numeric chunks rather than one dictionary per pair.
+[`yield_pairwise_r2_rows()`](../../../src/ldsc/_refpanel/build_kernel.py) emits columnar numeric chunks rather than one dictionary per pair.
 Vectorized triangle/window masks select cross-block and within-block pairs.
 `_PendingPairs` retains numeric arrays for left-endpoint groups until all their right neighbors have been seen, then emits stable ordered pairs.
 `write_r2_parquet()` converts these arrays directly to Arrow without an intervening pandas frame.
@@ -307,7 +307,7 @@ The default zero threshold preserves zero and negative unbiased pairs.
 [`PreparedChromosome`](../../../src/ldsc/_kernel/ldscore.py) owns the current chromosome's reference reader, reference-SNP metadata, physical-row mappings, LD-window state, selected annotation accessor, and drop diagnostics.
 `close()` clears these references and closes the reader, including on failure.
 PLINK physical SNP indices remain distinct from annotation order.
-The reference adapters in [`_kernel/ref_panel.py`](../../../src/ldsc/_kernel/ref_panel.py) do not retain a metadata cache containing all chromosomes.
+The reference adapters in [`_refpanel/adapters.py`](../../../src/ldsc/_refpanel/adapters.py) do not retain a metadata cache containing all chromosomes.
 
 [`_kernel/ldscore_projection.py`](../../../src/ldsc/_kernel/ldscore_projection.py) separates reference SNPs from output rows.
 Every retained reference SNP can contribute to LD scores, counts, and overlap calculations, even when that SNP is absent from the regression/output set.

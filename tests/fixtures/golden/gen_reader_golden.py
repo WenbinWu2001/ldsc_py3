@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from ldsc._core import plink_files as legacy_parse
-from ldsc._kernel.plink_bed import PlinkBEDFile
+from ldsc._refpanel.plink import PlinkBEDFile
 
 FIX = Path("tests/fixtures/plink/plink")
 OUT = Path("tests/fixtures/golden/reader_golden.npz")

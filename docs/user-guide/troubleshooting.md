@@ -669,7 +669,7 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
    not hand-edit or independently copy sidecars.
 3. Use one consistent R² panel directory per genome build and reference-panel run.
 
-**Developer reference:** `_kernel.ldscore.read_r2_parquet_contracts`, `_kernel.ldscore.SortedR2BlockReader`, sidecar-binding guards, and `validate_ldscore_window_within_r2_panel_window` · **Exception:** `LDSCInputError`; `LDSCUsageError` for LD-window mismatches (cause 7)
+**Developer reference:** `_refpanel.r2_format.read_r2_parquet_contracts`, `_refpanel.r2_format.SortedR2BlockReader`, sidecar-binding guards, and `validate_ldscore_window_within_r2_panel_window` · **Exception:** `LDSCInputError`; `LDSCUsageError` for LD-window mismatches (cause 7)
 
 ### `ldscore`: genome build could not be resolved consistently
 
@@ -745,7 +745,7 @@ SNP selection is checked for every chromosome before any genotypes are read, and
 3. Correct an unintended threshold, restriction, or individual selection, or regenerate compatible PLINK/reference inputs.
    If the intended filters legitimately retain no usable SNPs, do not weaken them solely to make the command finish; any revised filter changes the panel being constructed.
 
-**Developer reference:** `ref_panel_builder.ReferencePanelBuilder.run()` and reference-panel metadata cleanup paths · **Exception:** `LDSCInputError`
+**Developer reference:** `_refpanel.builder.ReferencePanelBuilder.run()` and reference-panel metadata cleanup paths · **Exception:** `LDSCInputError`
 
 ### `build-r2-panel`: liftover or genetic-map configuration is incomplete
 
@@ -768,7 +768,7 @@ SNP selection is checked for every chromosome before any genotypes are read, and
 3. Use liftover chains only in chr_pos-family modes and make the chain direction
    match the source and target builds.
 
-**Developer reference:** `ref_panel_builder.ReferencePanelBuilder._prepare_build_state()`, chromosome liftover setup, and genetic-map interpolation helpers · **Exception:** `LDSCUsageError` / `LDSCInputError`
+**Developer reference:** `_refpanel.builder.ReferencePanelBuilder._prepare_build_state()`, chromosome liftover setup, and genetic-map interpolation helpers · **Exception:** `LDSCUsageError` / `LDSCInputError`
 
 ### `build-r2-panel`: SNP restriction does not match the source panel
 
@@ -792,7 +792,7 @@ SNP selection is checked for every chromosome before any genotypes are read, and
    A concrete `--source-genome-build` bypasses fresh inference and must agree with declarations; it does not convert positions.
 3. Fix ragged rows or delimiter/header issues before rerunning.
 
-**Developer reference:** `ref_panel_builder.ReferencePanelBuilder._resolve_source_genome_build()`, `_genome.build_policy.GenomeBuildCheck`, and `_core.columns.resolve_restriction_chr_pos_columns()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_refpanel.builder.ReferencePanelBuilder._resolve_source_genome_build()`, `_genome.build_policy.GenomeBuildCheck`, and `_core.columns.resolve_restriction_chr_pos_columns()` · **Exception:** `LDSCInputError`
 
 ### `build-r2-panel`: reference-panel artifact is incompatible
 
@@ -815,7 +815,7 @@ SNP selection is checked for every chromosome before any genotypes are read, and
 2. Regenerate the reference panel with the current `ldsc build-r2-panel`.
 3. Pass a concrete build-specific R² panel directory or set the matching genome build.
 
-**Developer reference:** `_kernel.ref_panel.ParquetR2RefPanel` and metadata sidecar readers · **Exception:** `LDSCInputError`
+**Developer reference:** `_refpanel.adapters.ParquetR2RefPanel` and metadata sidecar readers · **Exception:** `LDSCInputError`
 
 ## `convert-ldsc2-ldscores`
 

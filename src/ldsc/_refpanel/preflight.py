@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from ._core.columns import CHR_COLUMN_SPEC, POS_COLUMN_SPEC, resolve_required_column
-from ._runtime.preflight import InputGate, _readable, input_issue
-from ._kernel.ref_panel_builder import GENETIC_MAP_CM_SPEC
+from .._core.columns import CHR_COLUMN_SPEC, POS_COLUMN_SPEC, resolve_required_column
+from .._runtime.preflight import InputGate, _readable, input_issue
+from .build_kernel import GENETIC_MAP_CM_SPEC
 
 
 def _check_genetic_map_header(path):
@@ -34,10 +34,12 @@ def inspect_r2_headers(directory, genome_build=None, *, ldscore_args=None):
     window must also admit the requested LD window, and the file must store
     every pair (``ldsc:min_r2`` not positive).
     """
-    from ._kernel.ldscore import (
-        read_r2_parquet_contract, reject_truncated_r2_panel, validate_ldscore_window_within_r2_panel_window,
+    from .r2_format import (
+        read_r2_parquet_contract,
+        reject_truncated_r2_panel,
+        validate_ldscore_window_within_r2_panel_window,
     )
-    from ._kernel.ref_panel import _resolve_r2_build_dir
+    from .adapters import _resolve_r2_build_dir
 
     root = Path(directory)
     children = [root / build for build in ('hg19', 'hg38') if (root / build).is_dir()]

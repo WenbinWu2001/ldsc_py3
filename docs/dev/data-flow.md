@@ -186,12 +186,12 @@ flowchart LR
     B8[Interpret SNP restrictions in source build]
   end
 
-  subgraph W2[Workflow (public)<br/>ldsc.ref_panel_builder]
+  subgraph W2[Workflow (public)<br/>ldsc._refpanel.builder]
     B3[Discover chromosomes]
     B4[Prepare build state]
   end
 
-  subgraph K2[Kernel (private)<br/>ldsc._kernel.ref_panel_builder]
+  subgraph K2[Kernel (private)<br/>ldsc._refpanel.build_kernel]
     B5[Interpolate cM positions]
     B6[Emit pairwise R² rows]
     B7[Format standard schemas]
@@ -226,8 +226,8 @@ tie at exactly 0.5 keeps PLINK order. See
 ### Modules used
 
 - Preprocessing: `ldsc.config`, `ldsc._runtime.paths`
-- Workflow: `ldsc.ref_panel_builder`
-- Kernel: `ldsc._kernel.ref_panel_builder`, `ldsc._kernel.ldscore`, `ldsc._core.plink_files`
+- Workflow: `ldsc._refpanel.builder`
+- Kernel: `ldsc._refpanel.build_kernel`, `ldsc._kernel.ldscore`, `ldsc._core.plink_files`
 - Postprocessing: parquet and TSV writers in the kernel
 
 ## 3. `query-r2`: R² Panel To Pair Lookup Table
@@ -254,7 +254,7 @@ flowchart LR
   I1[Panel directory or sidecar+Parquet pair]
   I2[Pair table]
 
-  subgraph WQ[Workflow (public)<br/>ldsc.r2_query]
+  subgraph WQ[Workflow (public)<br/>ldsc._refpanel.query]
     Q1[Open panel and validate sidecar binding]
     Q2[Resolve endpoint identity keys]
     Q3[Harmonize sign and optional r]
@@ -277,7 +277,7 @@ flowchart LR
 
 ### Modules used
 
-- Workflow: `ldsc.r2_query`
+- Workflow: `ldsc._refpanel.query`
 - Kernel: `ldsc._kernel.r2_query`, `ldsc._kernel.ldscore`
 
 ## 4. `ldscore`: Reference Panel And Optional Annotations To An LD-Score Directory

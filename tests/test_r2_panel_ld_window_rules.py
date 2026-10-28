@@ -104,21 +104,27 @@ def test_snp_count_window_counts_panel_rows_when_the_run_keeps_fewer_snps(tmp_pa
 
 def _tied_snp_panel(build_dir):
     """A 4-SNP rsID panel whose rows 1 and 2 (rs3, then rs2) share position 200."""
-    from ldsc._kernel import ref_panel_builder as kb
+    from ldsc._refpanel import build_kernel as kb
+    from ldsc._core.snp_identity import sidecar_identity_sha256
+    from ldsc._refpanel.r2_format import (
+        build_runtime_metadata_table,
+        write_r2_parquet,
+        write_runtime_metadata_sidecar,
+    )
 
     panel = pd.DataFrame({"CHR": ["1"] * 4, "POS": [100, 200, 200, 300], "SNP": ["rs1", "rs3", "rs2", "rs4"],
                           "A1": ["A", "A", "A", "A"], "A2": ["C", "C", "G", "C"], "MAF": [0.3, 0.25, 0.4, 0.35]})
     build_dir.mkdir(parents=True)
-    sidecar = kb.build_runtime_metadata_table(metadata=panel, positions=panel["POS"].to_numpy(), cm_values=None)
+    sidecar = build_runtime_metadata_table(metadata=panel, positions=panel["POS"].to_numpy(), cm_values=None)
     pairs = [(0, 1, 0.5), (0, 2, 0.1), (1, 2, 0.4), (1, 3, 0.2), (2, 3, 0.6)]
-    kb.write_r2_parquet(
+    write_r2_parquet(
         pair_chunks=[(np.array([p[0] for p in pairs]), np.array([p[1] for p in pairs]),
                       np.array([p[2] for p in pairs], dtype=np.float32), np.ones(len(pairs), dtype=np.int8))],
         path=build_dir / "chr1_r2.parquet", genome_build="hg19", n_samples=200, snp_identifier="rsid",
-        n_snps=len(panel), sidecar_identity_sha256=kb.sidecar_identity_sha256(sidecar),
+        n_snps=len(panel), sidecar_identity_sha256=sidecar_identity_sha256(sidecar),
         ld_window_mode="snps", ld_window_value=1.0,
     )
-    kb.write_runtime_metadata_sidecar(sidecar, build_dir / "chr1_meta.tsv.gz", genome_build="hg19",
+    write_runtime_metadata_sidecar(sidecar, build_dir / "chr1_meta.tsv.gz", genome_build="hg19",
                                       snp_identifier="rsid")
     return sidecar
 
@@ -131,7 +137,7 @@ def test_snp_count_window_computes_same_position_snps_in_panel_order(tmp_path):
     those of the same run with the annotation listed in sidecar order.
     """
     from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfig, RefPanelConfig
-    from ldsc._kernel.ref_panel import ParquetR2RefPanel
+    from ldsc._refpanel.adapters import ParquetR2RefPanel
     from ldsc.outputs import LDScoreOutputConfig
 
     sidecar = _tied_snp_panel(tmp_path / "panel")

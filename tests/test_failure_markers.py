@@ -8,7 +8,7 @@ import pytest
 
 from ldsc import cli
 from ldsc._runtime.workflow_logging import overwrite_failure_marker
-from ldsc import ref_panel_builder
+from ldsc._refpanel import builder as ref_panel_builder
 from ldsc.errors import LDSCInputError
 
 

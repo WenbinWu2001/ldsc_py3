@@ -11,14 +11,14 @@ import pytest
 
 from ldsc.config import GlobalConfig, RefPanelConfig
 from ldsc.errors import LDSCInputError
-from ldsc._kernel.ref_panel import (
+from ldsc._refpanel.adapters import (
     ParquetR2RefPanel,
     PlinkRefPanel,
     RefPanelLoader,
     _read_metadata_table,
     _snp_id_series_for_matching,
 )
-from ldsc._kernel.ref_panel_builder import build_restriction_mask
+from ldsc._refpanel.build_kernel import build_restriction_mask
 
 import numpy as np
 
@@ -58,7 +58,7 @@ def _write_canonical_r2_parquet(
 ) -> None:
     """Write a package-format R2 parquet with no pairs; sidecar tests pair it with their own rows."""
     import pyarrow.parquet as pq
-    from ldsc._kernel.ref_panel_builder import write_r2_parquet
+    from ldsc._refpanel.r2_format import write_r2_parquet
 
     write_r2_parquet(
         pair_chunks=[], path=path, genome_build=genome_build, n_samples=10,
@@ -297,13 +297,14 @@ class PlinkRefPanelTest(unittest.TestCase):
 class ParquetRefPanelTest(unittest.TestCase):
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_missing_sidecar_is_a_hard_error(self):
-        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._refpanel import build_kernel as kb
+        from ldsc._refpanel import r2_format
 
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
             build_dir.mkdir(parents=True)
             # index parquet present, but no chr1_meta.tsv.gz sidecar alongside it
-            kb.write_r2_parquet(
+            r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks([{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}]),
                 path=build_dir / "chr1_r2.parquet", genome_build="hg38", n_samples=10,
                 snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
@@ -641,7 +642,7 @@ class ParquetRefPanelTest(unittest.TestCase):
     def test_sidecar_metadata_reads_back_the_values_the_builder_used(self):
         # build-r2-panel windows on round_to_sidecar_precision(CM); the reader must
         # return exactly those values for CM and MAF.
-        from ldsc._kernel.ref_panel_builder import round_to_sidecar_precision, write_runtime_metadata_sidecar
+        from ldsc._refpanel.r2_format import round_to_sidecar_precision, write_runtime_metadata_sidecar
 
         cm = np.array([12.3456789012345, 123.456789012345, 0.000123456789012])
         maf = np.array([0.0123456789012, 0.333333333333, 1.23456789012e-05])

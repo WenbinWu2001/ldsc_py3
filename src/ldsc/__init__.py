@@ -84,9 +84,9 @@ from .outputs import (
     RgDirectoryWriter,
     RgOutputConfig,
 )
-from .ref_panel_builder import ReferencePanelBuildResult, ReferencePanelBuilder, run_build_ref_panel
-from ._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPanelLoader
-from .r2_query import R2Panel, query_r2, unbiased_r2_to_pearson_r
+from ._refpanel.builder import ReferencePanelBuildResult, ReferencePanelBuilder, run_build_ref_panel
+from ._refpanel.adapters import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPanelLoader
+from ._refpanel.query import R2Panel, query_r2, unbiased_r2_to_pearson_r
 
 _LAZY_EXPORTS = {
     "MungeRunSummary": (".sumstats_munger", "MungeRunSummary"),

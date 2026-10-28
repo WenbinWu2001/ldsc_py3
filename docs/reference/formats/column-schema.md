@@ -80,7 +80,7 @@ Sample-size selection, INFO-list columns and `--infer-only` are described in the
 | Input | Column names |
 | --- | --- |
 | R² panel pair files | Fixed columns `IDX_1`, `IDX_2`, `R2` and `SIGN_R`, with no aliases; the sidecar uses the shared metadata aliases. |
-| Genetic maps | The cM column accepts `CM`, `GENETIC_MAP_CM`, `GENETICMAPCM`, `GENETIC_MAP(CM)` and `GENETICMAP(CM)`; this family is defined in `src/ldsc/_kernel/ref_panel_builder.py`, the only alias family outside the registry. |
+| Genetic maps | The cM column accepts `CM`, `GENETIC_MAP_CM`, `GENETICMAPCM`, `GENETIC_MAP(CM)` and `GENETICMAP(CM)`; this family is defined in `src/ldsc/_refpanel/build_kernel.py`, the only alias family outside the registry. |
 | Package-written artifacts | Munged summary statistics, annotation files and LD-score directories are read with canonical names only, which catches schema drift in files the package wrote. |
 
 ### Setting values

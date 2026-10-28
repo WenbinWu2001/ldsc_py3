@@ -66,18 +66,24 @@ def _write_index_panel(
     n_samples: int = 200,
 ) -> None:
     """Write canonical index R2 parquet + sidecar for each chromosome."""
-    from ldsc._kernel import ref_panel_builder as kb
+    from ldsc._refpanel import build_kernel as kb
+    from ldsc._core.snp_identity import sidecar_identity_sha256
+    from ldsc._refpanel.r2_format import (
+        build_runtime_metadata_table,
+        write_r2_parquet,
+        write_runtime_metadata_sidecar,
+    )
 
     build_dir.mkdir(parents=True, exist_ok=True)
     for chrom, (panel, pairs) in chroms.items():
         positions = panel["POS"].to_numpy(dtype=np.int64)
-        runtime_meta = kb.build_runtime_metadata_table(metadata=panel, positions=positions, cm_values=None)
-        identity_hash = kb.sidecar_identity_sha256(runtime_meta)
+        runtime_meta = build_runtime_metadata_table(metadata=panel, positions=positions, cm_values=None)
+        identity_hash = sidecar_identity_sha256(runtime_meta)
         i = np.array([p[0] for p in pairs], dtype=np.int64)
         j = np.array([p[1] for p in pairs], dtype=np.int64)
         r2 = np.array([p[2] for p in pairs], dtype=np.float32)
         sign = np.ones(len(i), dtype=np.int8)
-        kb.write_r2_parquet(
+        write_r2_parquet(
             pair_chunks=[(i, j, r2, sign)],
             path=build_dir / f"chr{chrom}_r2.parquet",
             genome_build=genome_build,
@@ -88,7 +94,7 @@ def _write_index_panel(
             ld_window_mode="kb",
             ld_window_value=1000.0,
         )
-        kb.write_runtime_metadata_sidecar(
+        write_runtime_metadata_sidecar(
             runtime_meta,
             build_dir / f"chr{chrom}_meta.tsv.gz",
             genome_build=genome_build,
@@ -392,7 +398,7 @@ def test_parallel_worker_crash_message_names_threads_flag(two_chrom_panel, monke
     from concurrent.futures.process import BrokenProcessPool
 
     import ldsc.ldscore_calculator as mod
-    from ldsc._kernel.ref_panel import RefPanelLoader
+    from ldsc._refpanel.adapters import RefPanelLoader
     from ldsc.errors import LDSCInternalError
 
     chrom, bundle, _spec, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
@@ -544,7 +550,7 @@ def _run_with_one_empty_chrom(build_dir: Path, out_dir: Path, workers: int) -> P
     """Run with a bundle whose chr2 SNPs do not match the panel (forces a skip)."""
     import warnings as _warnings
 
-    from ldsc._kernel.ref_panel import RefPanelLoader
+    from ldsc._refpanel.adapters import RefPanelLoader
     from ldsc._annotation.builder import AnnotationBundle
     from ldsc.config import GlobalConfig, LDScoreConfig, RefPanelConfig
     from ldsc.ldscore_calculator import LDScoreCalculator

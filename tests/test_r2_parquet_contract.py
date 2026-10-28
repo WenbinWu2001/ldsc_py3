@@ -17,11 +17,12 @@ pq = pytest.importorskip("pyarrow.parquet")
 
 from ldsc.config import GlobalConfig, RefPanelConfig
 from ldsc.errors import LDSCInputError
-from ldsc._ref_panel_preflight import inspect_r2_headers
-from ldsc._kernel import ref_panel_builder as kb
-from ldsc._kernel.ref_panel import ParquetR2RefPanel
+from ldsc._refpanel.preflight import inspect_r2_headers
+from ldsc._refpanel import build_kernel as kb
+from ldsc._refpanel.r2_format import write_r2_parquet, write_runtime_metadata_sidecar
+from ldsc._refpanel.adapters import ParquetR2RefPanel
 from ldsc._core.snp_identity import sidecar_identity_sha256
-from ldsc.r2_query import R2Panel
+from ldsc._refpanel.query import R2Panel
 
 ANCHOR = "docs/user-guide/troubleshooting.md#ldscore-r2-panel-is-incompatible"
 
@@ -33,11 +34,11 @@ def _write_panel(root: Path, chrom: str = "1", *, snp_identifier: str = "chr_pos
         "A1": ["A", "A", "C"], "A2": ["C", "G", "T"], "CM": [0.0, 0.0, 0.0], "MAF": [0.3, 0.2, 0.4],
     })
     meta = root / f"chr{chrom}_meta.tsv.gz"
-    kb.write_runtime_metadata_sidecar(panel, meta, genome_build="hg19", snp_identifier=snp_identifier)
+    write_runtime_metadata_sidecar(panel, meta, genome_build="hg19", snp_identifier=snp_identifier)
     r2 = meta.with_name(f"chr{chrom}_r2.parquet")
     pairs = [(np.array([0, 0]), np.array([1, 2]), np.array([1.0, 0.25], dtype=np.float32),
               np.array([1, -1], dtype=np.int8))]
-    kb.write_r2_parquet(
+    write_r2_parquet(
         pair_chunks=pairs, path=r2, genome_build="hg19", n_samples=100, snp_identifier=snp_identifier,
         n_snps=3, sidecar_identity_sha256=sidecar_identity_sha256(panel),
         ld_window_mode="kb", ld_window_value=1000.0,

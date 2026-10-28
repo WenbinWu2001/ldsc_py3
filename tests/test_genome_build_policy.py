@@ -196,7 +196,7 @@ def test_converter_validates_weight_build_declaration_before_conversion(tmp_path
 @pytest.mark.parametrize('validator', ['_validate_r2_identity_matches_config', '_validate_metadata_identity_matches_config'])
 def test_low_level_reference_validation_does_not_replace_input_build(validator):
     from ldsc import GlobalConfig
-    from ldsc._kernel import ref_panel
+    from ldsc._refpanel import adapters as ref_panel
     metadata = {'snp_identifier': 'chr_pos', 'genome_build': 'GRCh38'}
     with pytest.raises(LDSCInputError, match='Conflicting genome-build evidence'):
         getattr(ref_panel, validator)(metadata, GlobalConfig(snp_identifier='chr_pos', genome_build='hg19'))
@@ -243,7 +243,7 @@ def test_metadata_and_alternative_columns_are_trusted_without_inference(tmp_path
 
 
 def test_panel_auto_failure_is_written_to_workflow_log(tmp_path, monkeypatch):
-    from ldsc import ref_panel_builder
+    from ldsc._refpanel import builder as ref_panel_builder
     monkeypatch.setattr('ldsc._runtime.worker_runtime._INITIALIZED', True)
     prefix = tmp_path / 'panel'
     frame = coordinates(1, 'hg19').assign(SNP=lambda f: 'rs' + f.POS.astype(str), CM=0, A1='A', A2='C')

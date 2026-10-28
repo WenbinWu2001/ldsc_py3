@@ -211,7 +211,7 @@ def test_header_gate_checks_all_sources_without_scanning(tmp_path, monkeypatch):
 
 
 def test_r2_builder_aggregates_late_trio_and_keep_defects(tmp_path, monkeypatch):
-    from ldsc import ref_panel_builder
+    from ldsc._refpanel import builder as ref_panel_builder
     write_inputs(tmp_path)
     (tmp_path/'1000G.EUR.QC.22.bed').unlink()
     args = ref_panel_builder.build_parser().parse_args([
@@ -304,7 +304,7 @@ def test_direct_reuses_discovery_and_reference_validation_with_phase_records(tmp
 
 
 def test_r2_builder_aggregates_map_header_and_late_companion(tmp_path, monkeypatch):
-    from ldsc import ref_panel_builder
+    from ldsc._refpanel import builder as ref_panel_builder
     write_inputs(tmp_path)
     bad_map = tmp_path/'map.tsv'
     bad_map.write_text('CHR POS wrong\n21 100 0.1\n')
@@ -357,7 +357,7 @@ def test_malformed_manifest_aggregates_with_other_missing_inputs(tmp_path, manif
 
 
 def test_r2_successful_retry_clears_stale_input_repair_table(tmp_path):
-    from ldsc import ref_panel_builder
+    from ldsc._refpanel import builder as ref_panel_builder
     write_inputs(tmp_path)
     bed = tmp_path/'1000G.EUR.QC.22.bed'
     original = bed.read_bytes()

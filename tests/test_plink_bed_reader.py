@@ -18,7 +18,7 @@ _HAS_BA = importlib.util.find_spec("bitarray") is not None
 pytestmark = pytest.mark.skipif(not _HAS_BA, reason="bitarray required")
 
 from ldsc._core import plink_files as legacy_parse
-from ldsc._kernel.plink_bed import PlinkBEDFile
+from ldsc._refpanel.plink import PlinkBEDFile
 
 FIX = Path("tests/fixtures/plink/plink")
 READER_GOLDEN = Path("tests/fixtures/golden/reader_golden.npz")
@@ -122,7 +122,7 @@ def test_streaming_rewind_replays_identically():
 
 def _run_build_ref_panel(tmp_path):
     """Run an unrestricted source-only build on the real fixture; return parquet path."""
-    from ldsc.ref_panel_builder import ReferencePanelBuilder, ReferencePanelBuildConfig
+    from ldsc._refpanel.builder import ReferencePanelBuilder, ReferencePanelBuildConfig
     from ldsc.config import GlobalConfig
 
     for ext in (".bed", ".bim", ".fam"):

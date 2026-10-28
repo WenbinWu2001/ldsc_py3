@@ -21,7 +21,7 @@ from .config import RefPanelConfig
 from .errors import LDSCInputError, LDSCUserError
 from ._runtime.paths import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
 from ._core import regions
-from ._kernel.ref_panel import RefPanelLoader, _read_metadata_table, _resolve_r2_build_dir
+from ._refpanel.adapters import RefPanelLoader, _read_metadata_table, _resolve_r2_build_dir
 
 
 AUTOSOMES = list(map(str, range(1, 23)))

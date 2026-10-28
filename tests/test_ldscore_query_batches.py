@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc._kernel.ldscore_projection import ArrayAnnotations
+from ldsc._refpanel.prepared import ArrayAnnotations
 from ldsc._annotation.overlap import annotation_statistics
 from ldsc.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from ldsc import load_ldscore_from_dir
@@ -18,7 +18,7 @@ from tests.test_output import make_split_ldscore_result
 
 def prepared_case(tmp_path):
     from ldsc import GlobalConfig, RefPanelConfig, LDScoreConfig
-    from ldsc._kernel.ref_panel import ParquetR2RefPanel
+    from ldsc._refpanel.adapters import ParquetR2RefPanel
     from tests.test_ldscore_parallelism import _PANEL_CHROMS, _write_index_panel
     panel_dir = tmp_path / "panel"
     _write_index_panel(panel_dir, _PANEL_CHROMS)

@@ -102,7 +102,7 @@ Measurement (2026-10-27; former kernel ported from legacy LDSC at `c67b40e` vers
 Limits: one chromosome, panel, trait, and window were measured.
 Smaller `--ld-wind-snps` windows and sparse panels change more; on the 32-SNP test fixture, `--ld-wind-snps 3` at batch 128 formerly covered the whole chromosome.
 
-Sources: legacy LDSC [`ldscore/ldscore.py:167-168`, `__corSumVarBlocks__`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldscore/ldscore.py#L167-L168); current [`_kernel/plink_bed.py`, `__corSumVarBlocks__` and `_zero_pairs_outside_window`](../../src/ldsc/_kernel/plink_bed.py), tested in [`test_ldscore_projection.py`](../../tests/test_ldscore_projection.py) and [`test_plink_exact_windows.py`](../../tests/test_plink_exact_windows.py).
+Sources: legacy LDSC [`ldscore/ldscore.py:167-168`, `__corSumVarBlocks__`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldscore/ldscore.py#L167-L168); current [`_kernel/plink_bed.py`, `__corSumVarBlocks__` and `_zero_pairs_outside_window`](../../src/ldsc/_refpanel/plink.py), tested in [`test_ldscore_projection.py`](../../tests/test_ldscore_projection.py) and [`test_plink_exact_windows.py`](../../tests/test_plink_exact_windows.py).
 
 ## Established command and input renames
 

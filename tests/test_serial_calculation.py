@@ -43,4 +43,4 @@ def test_cli_reports_an_expected_worker_error_on_one_line(tmp_path, monkeypatch,
     lines = capsys.readouterr().err.strip().splitlines()
     assert len(lines) == 1
     assert lines[0].startswith("[ERROR] Error: PLINK BED loading retained no SNPs")
-    assert "plink_bed.py" in (output / "diagnostics/build-r2-panel.chr22.log").read_text(encoding="utf-8")
+    assert "_refpanel/plink.py" in (output / "diagnostics/build-r2-panel.chr22.log").read_text(encoding="utf-8")

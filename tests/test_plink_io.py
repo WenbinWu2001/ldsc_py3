@@ -16,6 +16,9 @@ from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError
 try:
     import bitarray as ba
     from ldsc._kernel import ldscore as ld
+    from ldsc._refpanel.plink import PlinkBEDFile
+    from ldsc._refpanel.r2_format import SortedR2BlockReader, build_index_remap
+    from ldsc._refpanel.windows import get_block_lefts
 except ModuleNotFoundError:
     ba = None
     ld = None
@@ -57,7 +60,7 @@ class LDScoreHelpersTest(unittest.TestCase):
             ((1, 4, 6, 7, 7, 8), 2, (0, 1, 1, 2, 2, 2)),
         ]
         for coords, max_dist, expected in cases:
-            assert_array_equal(ld.get_block_lefts(coords, max_dist), expected)
+            assert_array_equal(get_block_lefts(coords, max_dist), expected)
 
 
 @unittest.skipIf(ld is None or ba is None, "bitarray dependency is not installed")
@@ -68,7 +71,7 @@ class PlinkBedFileTest(unittest.TestCase):
         self.bim = ps.PlinkBIMFile(str(PLINK_FIXTURES / "plink.bim"))
 
     def test_bed(self):
-        bed = ld.PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim)
+        bed = PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim)
         self.assertEqual(bed.m, 4)
         self.assertEqual(bed.n, self.sample_count)
         self.assertEqual(len(bed.geno), 64)
@@ -76,7 +79,7 @@ class PlinkBedFileTest(unittest.TestCase):
         assert_array_almost_equal(bed.freq, expected)
 
     def test_filter_snps(self):
-        bed = ld.PlinkBEDFile(
+        bed = PlinkBEDFile(
             str(PLINK_FIXTURES / "plink.bed"),
             self.sample_count,
             self.bim,
@@ -87,7 +90,7 @@ class PlinkBedFileTest(unittest.TestCase):
         self.assertEqual(bed.geno[0:10], ba.bitarray("0001011111"))
 
     def test_filter_indivs(self):
-        bed = ld.PlinkBEDFile(
+        bed = PlinkBEDFile(
             str(PLINK_FIXTURES / "plink.bed"),
             self.sample_count,
             self.bim,
@@ -99,7 +102,7 @@ class PlinkBedFileTest(unittest.TestCase):
         self.assertEqual(bed.geno[8:12], ba.bitarray("0001"))
 
     def test_filter_indivs_and_snps(self):
-        bed = ld.PlinkBEDFile(
+        bed = PlinkBEDFile(
             str(PLINK_FIXTURES / "plink.bed"),
             self.sample_count,
             self.bim,
@@ -112,10 +115,10 @@ class PlinkBedFileTest(unittest.TestCase):
 
     def test_bad_filename(self):
         with self.assertRaises(LDSCInputError):
-            ld.PlinkBEDFile(str(PLINK_FIXTURES / "plink.bim"), 9, self.bim)
+            PlinkBEDFile(str(PLINK_FIXTURES / "plink.bim"), 9, self.bim)
 
     def test_next_snps_errors(self):
-        bed = ld.PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim)
+        bed = PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim)
         with self.assertRaises(LDSCConfigError):
             bed.nextSNPs(0)
         with self.assertRaises(LDSCInternalError):
@@ -123,7 +126,7 @@ class PlinkBedFileTest(unittest.TestCase):
 
     def test_next_snps(self):
         for width in [1, 2, 3]:
-            bed = ld.PlinkBEDFile(
+            bed = PlinkBEDFile(
                 str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim
             )
             x = bed.nextSNPs(width)
@@ -132,13 +135,13 @@ class PlinkBedFileTest(unittest.TestCase):
             self.assertTrue(np.all(np.abs(np.std(x, axis=0) - 1) < 0.01))
 
     def test_next_snps_dtype_default_is_float64(self):
-        bed = ld.PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim)
+        bed = PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim)
         x = bed.nextSNPs(3)
         self.assertEqual(x.dtype, np.float64)
 
     def test_next_snps_dtype_float32_matches_float64(self):
         width = 4
-        bed = ld.PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim)
+        bed = PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim)
         x64 = bed.nextSNPs(width)
         bed._currentSNP -= width
         x32 = bed.nextSNPs(width, dtype=np.float32)
@@ -177,7 +180,8 @@ class IndexParquetRuntimeTest(unittest.TestCase):
         )
 
     def _write_index_panel(self, tmpdir, panel_meta, pairs, *, genome_build="hg19", row_group_size=2):
-        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._refpanel import build_kernel as kb
+        from ldsc._refpanel import r2_format
         from ldsc._core.snp_identity import sidecar_identity_sha256
 
         r2 = Path(tmpdir) / "chr1_r2.parquet"
@@ -185,7 +189,7 @@ class IndexParquetRuntimeTest(unittest.TestCase):
         with gzip.open(meta, "wt") as handle:
             handle.write("# ldsc:schema_version=2\n")
             panel_meta.to_csv(handle, sep="\t", index=False)
-        kb.write_r2_parquet(
+        r2_format.write_r2_parquet(
             pair_chunks=dict_chunks(pairs),
             path=r2,
             genome_build=genome_build,
@@ -201,7 +205,7 @@ class IndexParquetRuntimeTest(unittest.TestCase):
         return r2
 
     def _reader(self, r2, reader_meta, *, genome_build="hg19"):
-        return ld.SortedR2BlockReader(
+        return SortedR2BlockReader(
             paths=[str(r2)],
             chrom="1",
             metadata=reader_meta,
@@ -257,7 +261,7 @@ class IndexParquetRuntimeTest(unittest.TestCase):
                     return self._real.read_row_group(*args, **kwargs)
 
             with mock.patch("pyarrow.parquet.ParquetFile", FakePF):
-                with self.assertLogs("LDSC.ldscore", level="WARNING") as log_ctx:
+                with self.assertLogs("LDSC.ref_panel", level="WARNING") as log_ctx:
                     self._reader(r2, self._reader_meta(["rs1", "rs2"], [100, 120]))
             message = "\n".join(log_ctx.output)
             self.assertIn(str(r2), message)
@@ -276,7 +280,7 @@ class IndexParquetRuntimeTest(unittest.TestCase):
 
             shutil.copy(r2a, r2b)
             with self.assertRaises(LDSCInputError) as ctx:
-                ld.SortedR2BlockReader(
+                SortedR2BlockReader(
                     paths=[str(r2a), str(r2b)],
                     chrom="1",
                     metadata=self._reader_meta(["rs1", "rs2"], [100, 120]),
@@ -291,14 +295,14 @@ class IndexParquetRuntimeTest(unittest.TestCase):
         full = pd.DataFrame({"SNP": ["rsX", "rsY", "rsX"]})
         retained = pd.DataFrame({"SNP": ["rsX", "rsY"]})
         with self.assertRaises(LDSCInputError) as ctx:
-            ld.build_index_remap(full, retained, "rsid")
+            build_index_remap(full, retained, "rsid")
         self.assertIn("collapse", str(ctx.exception).lower())
 
     def test_build_index_remap_injective_builds_retained_build_idx(self):
         # rsB is absent from the retained universe (maps to -1); rsA, rsC are kept.
         full = pd.DataFrame({"SNP": ["rsA", "rsB", "rsC"]})
         retained = pd.DataFrame({"SNP": ["rsA", "rsC"]})
-        remap, retained_build_idx = ld.build_index_remap(full, retained, "rsid")
+        remap, retained_build_idx = build_index_remap(full, retained, "rsid")
         np.testing.assert_array_equal(remap, [0, -1, 1])
         np.testing.assert_array_equal(retained_build_idx, [0, 2])
 

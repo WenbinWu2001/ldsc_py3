@@ -6,48 +6,8 @@ Reference SNPs may be absent from the output SNP set. Accumulation is float64;
 the calling workflow controls its established artifact precision conversion.
 """
 
-from dataclasses import dataclass
 
 import numpy as np
-
-
-@dataclass
-class ArrayAnnotations:
-    """Selected reads over a caller-owned, explicitly supplied numerical array."""
-
-    values: np.ndarray
-    columns: tuple[str, ...]
-
-    @property
-    def shape(self):
-        return self.values.shape
-
-    def read(self, *, rows=None, columns=None):
-        indices = np.arange(self.shape[0]) if rows is None else np.arange(self.shape[0])[rows] if isinstance(rows, slice) else np.asarray(rows, dtype=int)
-        selected = range(self.shape[1]) if columns is None else [self.columns.index(name) for name in columns]
-        return self.values[np.ix_(indices, selected)]
-
-
-@dataclass
-class MappedAnnotations:
-    """Map reference row requests to a resolved source's row/column reader.
-
-    ``source`` supplies ``read(rows=..., columns=...)`` and contains only a
-    chromosome descriptor. ``row_indices`` maps each retained reference SNP
-    to its annotation row. No genome-wide matrix or source cache is created.
-    """
-
-    source: object
-    row_indices: np.ndarray
-    columns: tuple[str, ...]
-
-    @property
-    def shape(self):
-        return len(self.row_indices), len(self.columns)
-
-    def read(self, *, rows=None, columns=None):
-        selected = self.row_indices if rows is None else self.row_indices[rows]
-        return self.source.read(rows=selected, columns=self.columns if columns is None else columns)
 
 
 class ProjectionAccumulator:

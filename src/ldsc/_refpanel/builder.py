@@ -10,7 +10,7 @@ Overview
 This module is the public entry point for the `build-r2-panel` workflow. It
 keeps path resolution, logging configuration, and cross-file validation in the
 workflow layer, then delegates pairwise-R2 generation and parquet serialization to
-``ldsc._kernel.ref_panel_builder``. Before chromosome processing begins, the
+``ldsc._refpanel.build_kernel``. Before chromosome processing begins, the
 workflow precomputes deterministic parquet, metadata sidecar, and dropped-SNP
 audit destinations and refuses any existing workflow-owned artifact unless
 ``overwrite=True`` was configured. Concrete single-chromosome invocations own
@@ -45,40 +45,49 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from ._runtime.serial_calculation import serial_calculation
-from ._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
-from ._runtime.workflow_logging import LOG_LEVEL_HELP
-from ._core.columns import (
+from .._runtime.serial_calculation import serial_calculation
+from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
+from .._runtime.workflow_logging import LOG_LEVEL_HELP
+from .._core.columns import (
     normalize_genome_build,
     normalize_snp_identifier_mode,
 )
-from ._core.snp_identity import (
+from .._core.snp_identity import (
     IDENTITY_DROP_COLUMNS,
     RestrictionIdentityKeys,
     clean_identity_artifact_table,
     coerce_identity_drop_frame,
     empty_identity_drop_frame,
     identity_mode_family,
+    sidecar_identity_sha256,
 )
-from .config import (
+from ..config import (
     DEFAULT_SNP_BATCH_SIZE, GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner,
 )
-from ._core.coordinates import normalize_chr_pos_frame
-from ._runtime.progress import report_phase
-from ._runtime.paths import ensure_output_directory, preflight_output_artifact_family, remove_output_artifacts, resolve_file_group, inspect_plink_inputs, resolve_scalar_path
-from ._runtime.workflow_logging import (
+from .._core.coordinates import normalize_chr_pos_frame
+from .._runtime.progress import report_phase
+from .._runtime.paths import ensure_output_directory, preflight_output_artifact_family, remove_output_artifacts, resolve_file_group, inspect_plink_inputs, resolve_scalar_path
+from .._runtime.workflow_logging import (
     configure_package_logging,
     log_inputs,
     log_outputs,
     materializing_overwrite_guard,
     workflow_logging,
 )
-from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
-from ._core import plink_files as legacy_parse
-from ._core import identifiers as kernel_identifiers
-from ._kernel import ldscore as kernel_ldscore
-from ._kernel import ref_panel_builder as kernel_builder
-from ._genome.liftover import (
+from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
+from .._core import plink_files as legacy_parse
+from .._core import identifiers as kernel_identifiers
+from .._core.chromosomes import chrom_sort_key
+from .plink import PlinkBEDFile
+from . import build_kernel as kernel_builder
+from .r2_format import (
+    build_runtime_metadata_table,
+    round_to_sidecar_precision,
+    write_r2_parquet,
+    write_runtime_metadata_sidecar,
+)
+from .windows import compute_block_left, r2_panel_window_coordinates
+from .._genome.liftover import (
     duplicate_coordinate_drop_result,
     liftover_drop_report,
     log_liftover_drop_report,
@@ -435,8 +444,8 @@ class ReferencePanelBuilder:
         print_global_config_banner(type(self).__name__, self.global_config)
         self._configure_logging()
         output_dir = ensure_output_directory(config.output_dir, label="output directory")
-        from ._runtime.preflight import inspect_declared_inputs
-        from ._ref_panel_preflight import GENETIC_MAP_HEADER_CHECKS
+        from .._runtime.preflight import inspect_declared_inputs
+        from .preflight import GENETIC_MAP_HEADER_CHECKS
         declared_inputs = inspect_declared_inputs(plink=config.plink_prefix, header_checks=GENETIC_MAP_HEADER_CHECKS,
             files=[(name, getattr(config, name, None)) for name in (
                 'genetic_map_hg19_sources', 'genetic_map_hg38_sources')],
@@ -517,7 +526,7 @@ class ReferencePanelBuilder:
                     f"Other causes & fixes: {_BUILD_REF_PANEL_EMPTY_DOC}"
                 )
 
-            chrom_records.sort(key=lambda item: kernel_ldscore.chrom_sort_key(item[0]))
+            chrom_records.sort(key=lambda item: chrom_sort_key(item[0]))
             output_keys = sorted({key for _, paths in chrom_records for key in paths})
             output_paths = {key: [paths[key] for _, paths in chrom_records] for key in output_keys}
             output_paths["metadata"] = [str(metadata_path)]
@@ -559,7 +568,7 @@ class ReferencePanelBuilder:
                 "Most likely a Python caller bypassed CLI choices with an invalid build token. "
                 "Use `source_genome_build='auto'`, `'hg19'`, or `'hg38'`."
             )
-        from ._genome.build_policy import GenomeBuildCheck
+        from .._genome.build_policy import GenomeBuildCheck
 
         check = GenomeBuildCheck(config.source_genome_build, context="build-r2-panel", option="--source-genome-build", logger=LOGGER)
         for prefix in resolved_prefixes:
@@ -594,7 +603,7 @@ class ReferencePanelBuilder:
                 label="hg38 genetic map",
                 allow_chromosome_suite=True,
             )
-        from ._genome.build_policy import GenomeBuildCheck
+        from .._genome.build_policy import GenomeBuildCheck
         for build, paths in (("hg19", hg19_files), ("hg38", hg38_files)):
             if paths:
                 check = GenomeBuildCheck(build, context=f"build-r2-panel {build} genetic map", logger=LOGGER)
@@ -728,8 +737,8 @@ class ReferencePanelBuilder:
         chromosomes left without SNPs are skipped with a warning. Returns the
         ``(prefix, chrom)`` pairs that keep SNPs.
         """
-        from ._runtime.preflight import InputGate, input_issue
-        from ._runtime.progress import PhaseProgress
+        from .._runtime.preflight import InputGate, input_issue
+        from .._runtime.progress import PhaseProgress
 
         issues, buildable = [], []
         with PhaseProgress(LOGGER, 'validation', 'reference-panel SNP selection', len(chrom_sources)) as progress:
@@ -921,7 +930,7 @@ class ReferencePanelBuilder:
             # Unrestricted builds keep ~every SNP, so selective read cannot shrink
             # the genotype payload; stream it instead. Restricted builds stay in
             # RAM, where the kept set is already small.
-            geno = kernel_ldscore.PlinkBEDFile(
+            geno = PlinkBEDFile(
                 prefix + ".bed",
                 len(fam.IDList),
                 bim,
@@ -989,7 +998,7 @@ class ReferencePanelBuilder:
             )
             if cm_values is not None:
                 # Window on the CM the sidecar will store, which ldscore reads back.
-                cm_values = kernel_builder.round_to_sidecar_precision(cm_values)
+                cm_values = round_to_sidecar_precision(cm_values)
             if cm_values is None and config.ld_wind_cm is not None:
                 raise LDSCUsageError(
                     f"build-r2-panel cannot compute cM LD windows for chromosome {chrom} "
@@ -998,26 +1007,26 @@ class ReferencePanelBuilder:
                     "Pass the matching genetic map or use an SNP/kb LD window. "
                     f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
                 )
-            coords, max_dist = kernel_builder.build_window_coordinates(
+            coords, max_dist = r2_panel_window_coordinates(
                 metadata=_metadata_with_build_positions(metadata, build_positions),
                 cm_values=cm_values,
                 ld_wind_snps=config.ld_wind_snps,
                 ld_wind_kb=config.ld_wind_kb,
                 ld_wind_cm=config.ld_wind_cm,
             )
-            block_left = kernel_builder.compute_block_left(coords, max_dist)
+            block_left = compute_block_left(coords, max_dist)
             r2_path = Path(config.output_dir) / build / f"chr{chrom}_r2.parquet"
             meta_path = Path(config.output_dir) / build / f"chr{chrom}_meta.tsv.gz"
 
             # Build the sidecar table first so the parquet can record the binding
             # hash (CHR:POS:A1:A2) of the exact sidecar shipped alongside it. The
             # pair indices emitted below reference this table's row order.
-            runtime_metadata = kernel_builder.build_runtime_metadata_table(
+            runtime_metadata = build_runtime_metadata_table(
                 metadata=metadata,
                 positions=build_positions,
                 cm_values=cm_values,
             )
-            identity_hash = kernel_builder.sidecar_identity_sha256(runtime_metadata)
+            identity_hash = sidecar_identity_sha256(runtime_metadata)
 
             # Canonical A1=minor orientation: negate standardized columns where the
             # .bim A2 allele is minor (freq < 0.5) so SIGN_R is computed in the same
@@ -1027,7 +1036,7 @@ class ReferencePanelBuilder:
                 lambda b: geno.nextSNPs(b, dtype=np.float32),
                 flip_sign,
             )
-            kernel_builder.write_r2_parquet(
+            write_r2_parquet(
                 pair_chunks=kernel_builder.yield_pairwise_r2_rows(
                     block_left=block_left,
                     snp_batch_size=config.snp_batch_size,
@@ -1058,7 +1067,7 @@ class ReferencePanelBuilder:
                     else config.ld_wind_cm
                 ),
             )
-            kernel_builder.write_runtime_metadata_sidecar(
+            write_runtime_metadata_sidecar(
                 runtime_metadata,
                 meta_path,
                 genome_build=build,
@@ -1705,7 +1714,7 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
         command's choices, a flag is not a bool, or ``snp_identifier``,
         ``genome_build`` or ``log_level`` is passed.
     """
-    from ._runtime.workflow_kwargs import GLOBAL_CONFIG_RUNTIME_OPTIONS, namespace_from_kwargs
+    from .._runtime.workflow_kwargs import GLOBAL_CONFIG_RUNTIME_OPTIONS, namespace_from_kwargs
 
     rejected = {
         **GLOBAL_CONFIG_RUNTIME_OPTIONS,

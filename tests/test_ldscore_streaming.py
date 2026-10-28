@@ -80,7 +80,7 @@ def _observe_prepared_chromosome(*args, **kwargs):
     import os
     import weakref
     from ldsc import ldscore_calculator
-    from ldsc._kernel.ref_panel import ParquetR2RefPanel
+    from ldsc._refpanel.adapters import ParquetR2RefPanel
     previous = []
     loads = []
     original = ParquetR2RefPanel.prepare_chromosome

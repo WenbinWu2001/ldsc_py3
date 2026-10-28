@@ -17,8 +17,9 @@ from tests.test_gene_ldscore_index import run_indexed_ldscore
 
 def _check_worker_serialization_lifetimes(*args, **kwargs):
     from ldsc import gene_ldscore_index as core
+    from ldsc._gene_index_scoring import LoadedGeneLDScoreIndex
 
-    original_load = core.LoadedGeneLDScoreIndex.load_chromosome
+    original_load = LoadedGeneLDScoreIndex.load_chromosome
     original_assemble = core.assemble_indexed_ld_scores
     original_write = batches.pq.write_table
     arrays, operators = [], []
@@ -39,13 +40,13 @@ def _check_worker_serialization_lifetimes(*args, **kwargs):
             assert all(ref() is None for ref in operators), "chromosome operator survives into serialization"
         return original_write(table, path, **options)
 
-    core.LoadedGeneLDScoreIndex.load_chromosome = load
+    LoadedGeneLDScoreIndex.load_chromosome = load
     core.assemble_indexed_ld_scores = assemble
     batches.pq.write_table = write
     try:
         return batches._write_chromosome(*args, **kwargs)
     finally:
-        core.LoadedGeneLDScoreIndex.load_chromosome = original_load
+        LoadedGeneLDScoreIndex.load_chromosome = original_load
         core.assemble_indexed_ld_scores = original_assemble
         batches.pq.write_table = original_write
 

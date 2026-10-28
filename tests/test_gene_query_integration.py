@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from ldsc import gene_ldscore_index as index_workflow
+from ldsc._gene_index_scoring import run_indexed_ldscore
 from ldsc.ldscore_calculator import build_parser, run_ldscore_from_args
 from ldsc.errors import LDSCInputError
 
@@ -157,7 +158,7 @@ def test_real_direct_and_indexed_outputs_agree(tmp_path, inputs, policy):
     control.write_text("G2\n")
     sources = [mixed, empty, zero]
     direct = run_ldscore_from_args(direct_args(tmp_path, inputs, sources, policy=policy, control=control))
-    indexed = index_workflow.run_indexed_ldscore(
+    indexed = run_indexed_ldscore(
         build_index(tmp_path, inputs), query_gene_list_sources=sources, control_gene_list_file=control,
         gene_list_resolution_policy=policy, output_dir=tmp_path / "indexed", _allow_partial_for_tests=True,
     )
@@ -261,7 +262,7 @@ def test_indexed_incomplete_coverage_remains_a_separate_fatal_gate(tmp_path, inp
     focal.write_text("G1\nGX\n")
     control.write_text("GX\n")
     with pytest.raises(LDSCInputError, match="incomplete chromosome coverage"):
-        index_workflow.run_indexed_ldscore(index, query_gene_list_sources=[focal], control_gene_list_file=control,
+        run_indexed_ldscore(index, query_gene_list_sources=[focal], control_gene_list_file=control,
                                          gene_list_resolution_policy=policy, output_dir=tmp_path / "indexed", _allow_partial_for_tests=True)
     summary = pd.read_csv(tmp_path / "indexed/diagnostics/gene_list_resolution_summary.tsv", sep="\t")
     assert summary.coverage_status.tolist() == ["partial", "none"]
@@ -276,7 +277,7 @@ def test_indexed_missing_components_are_reported_together(tmp_path, inputs):
     focal = tmp_path / "focal.txt"
     focal.write_text("G1\n")
     with pytest.raises(LDSCInputError, match="preflight"):
-        index_workflow.run_indexed_ldscore(index, query_gene_list_sources=[focal], output_dir=tmp_path / "indexed", _allow_partial_for_tests=True)
+        run_indexed_ldscore(index, query_gene_list_sources=[focal], output_dir=tmp_path / "indexed", _allow_partial_for_tests=True)
     issues = pd.read_csv(tmp_path / "indexed/diagnostics/input_issues.tsv", sep="\t")
     assert len(issues) == 2
     assert not (tmp_path / "indexed/diagnostics/gene_list_audit.tsv.gz").exists()

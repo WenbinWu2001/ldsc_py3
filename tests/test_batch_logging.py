@@ -51,7 +51,7 @@ def test_progress_counts_outcomes_and_retains_object_only_at_debug(caplog, monke
 def test_ldscore_batches_log_boundaries_and_one_global_status(tmp_path, inputs, indexed):
     from ldsc._runtime.workflow_logging import workflow_logging
     from ldsc.ldscore_calculator import run_ldscore_from_args
-    from ldsc.gene_ldscore_index import run_indexed_ldscore
+    from ldsc._gene_index_scoring import run_indexed_ldscore
 
     sources = [tmp_path / f"{name}.txt" for name in ("first", "second", "third")]
     for source, gene in zip(sources, ("G1", "G2", "G1")):

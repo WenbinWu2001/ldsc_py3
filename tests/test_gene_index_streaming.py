@@ -7,7 +7,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc import gene_ldscore_index as index_module
+from ldsc import _gene_index_scoring as index_scoring, gene_ldscore_index as index_module
+from ldsc import _gene_index_artifact
+from ldsc._gene_index_artifact import _catalog_identity_records
 from tests.test_gene_ldscore_index import (
     _artifact_payload, load_gene_ldscore_index, publish_gene_ldscore_index,
     run_indexed_ldscore,
@@ -23,7 +25,7 @@ def two_chromosome_index(tmp_path):
     catalog["gene_index"] = np.arange(4)
     catalog["catalog_line"] = np.arange(2, 6)
     identity = {**identity, "chromosomes": ["21", "22"],
-                "catalog": index_module._catalog_identity_records(catalog)}
+                "catalog": _catalog_identity_records(catalog)}
     first = replace(record, baseline_rows=record.baseline_rows.assign(
         CHR="21", SNP=["rs3", "rs4"]), atom_model=replace(record.atom_model, chromosome="21"))
     return publish_gene_ldscore_index(
@@ -34,7 +36,7 @@ def two_chromosome_index(tmp_path):
 
 def test_validated_index_releases_operators_and_keeps_support(tmp_path, monkeypatch):
     path = two_chromosome_index(tmp_path)
-    original = index_module._load_index_chromosome
+    original = _gene_index_artifact._load_index_chromosome
     live = []
 
     def checked_load(*args, **kwargs):
@@ -43,7 +45,7 @@ def test_validated_index_releases_operators_and_keeps_support(tmp_path, monkeypa
         live.append(weakref.ref(record.operator))
         return record
 
-    monkeypatch.setattr(index_module, "_load_index_chromosome", checked_load)
+    monkeypatch.setattr(index_scoring, "_load_index_chromosome", checked_load)
     index = load_gene_ldscore_index(path)
     assert all(ref() is None for ref in live)
     assert index.chromosomes == ("21", "22")
@@ -56,7 +58,7 @@ def _observed_index_task(*args, **kwargs):
     import os
     from pathlib import Path
     from ldsc import _indexed_ldscore_batches as batches
-    original_load = index_module._load_index_chromosome
+    original_load = _gene_index_artifact._load_index_chromosome
     original_assemble = index_module.assemble_indexed_ld_scores
     loads, widths, live = [], [], []
     def load(*values, **options):
@@ -69,7 +71,7 @@ def _observed_index_task(*args, **kwargs):
         if selectors.ndim == 2:
             widths.append(selectors.shape[1])
         return original_assemble(operator, selectors)
-    index_module._load_index_chromosome = load
+    index_scoring._load_index_chromosome = load
     index_module.assemble_indexed_ld_scores = assemble
     try:
         result = batches._write_chromosome(*args, **kwargs)
@@ -78,7 +80,7 @@ def _observed_index_task(*args, **kwargs):
             json.dumps({"loads": loads, "widths": widths}))
         return result
     finally:
-        index_module._load_index_chromosome = original_load
+        index_scoring._load_index_chromosome = original_load
         index_module.assemble_indexed_ld_scores = original_assemble
 
 
@@ -91,7 +93,7 @@ def test_index_assembly_reloads_and_releases_each_operator_per_batch(tmp_path, m
         query = tmp_path / f"{name}.txt"
         query.write_text(genes)
         queries.append(query)
-    original_load = index_module._load_index_chromosome
+    original_load = _gene_index_artifact._load_index_chromosome
     loads, live = [], []
     def load(*args, **kwargs):
         assert all(ref() is None for ref in live)
@@ -103,7 +105,7 @@ def test_index_assembly_reloads_and_releases_each_operator_per_batch(tmp_path, m
     events = tmp_path / "events"
     events.mkdir()
     monkeypatch.setenv("LDSC_TEST_INDEX_EVENTS", str(events))
-    monkeypatch.setattr(index_module, "_load_index_chromosome", load)
+    monkeypatch.setattr(index_scoring, "_load_index_chromosome", load)
     monkeypatch.setattr(batches, "_write_chromosome", _observed_index_task)
     result = run_indexed_ldscore(path, query_gene_list_sources=queries,
                                 output_dir=tmp_path / "out", query_batch_size=batch_size)

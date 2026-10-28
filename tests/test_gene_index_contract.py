@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from ldsc import gene_ldscore_index as index
+from ldsc._gene_index_scoring import load_gene_ldscore_index
 from ldsc.config import GeneLDScoreIndexBuildConfig
 from ldsc.errors import LDSCConfigError, LDSCInputError
 
@@ -148,7 +149,7 @@ def test_complete_autosomal_index_build_and_reload(tmp_path, build, mode, unit, 
         snp_identifier=mode, regr_snps_file=str(restriction), regr_snps_exclude_regions='none',
         gene_exclude_regions='none', **{f'ld_wind_{unit}': value})
     path = index.build_gene_ldscore_index(config)
-    loaded = index.load_gene_ldscore_index(path)
+    loaded = load_gene_ldscore_index(path)
     assert loaded.chromosomes == tuple(chromosomes)
     assert loaded.genome_build == build and loaded.snp_identifier == mode
     assert loaded.index_identity['ld_window'] == {'unit': unit, 'value': value}
@@ -164,9 +165,9 @@ def test_complete_autosomal_index_build_and_reload(tmp_path, build, mode, unit, 
     root['format_version'] = 2
     (path / 'metadata.json').write_text(json.dumps(root))
     with pytest.raises(LDSCInputError, match='Rebuild the complete index') as rejected:
-        index.load_gene_ldscore_index(path)
+        load_gene_ldscore_index(path)
     assert 'exact PLINK LD windows' in str(rejected.value)
     root.pop('format_version')
     (path / 'metadata.json').write_text(json.dumps(root))
     with pytest.raises(LDSCInputError, match='Rebuild the complete index'):
-        index.load_gene_ldscore_index(path)
+        load_gene_ldscore_index(path)

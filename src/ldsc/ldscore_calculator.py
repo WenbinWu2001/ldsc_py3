@@ -1625,7 +1625,7 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
         raise LDSCInputError(
             "ldscore indexed mode requires --query-annot-gene-list-sources."
         )
-    from .gene_ldscore_index import run_indexed_ldscore
+    from ._gene_index_scoring import run_indexed_ldscore
     output_dir = Path(normalize_path_token(args.output_dir))
     log_path = output_dir / "diagnostics" / "ldscore.log"
     LDScoreDirectoryWriter.artifact_family(output_dir, include_logs=True).preflight(

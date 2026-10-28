@@ -2152,7 +2152,7 @@ def summarize_partitioned_h2(
     scale-invariant. ``annotation_columns`` must be a subset of
     ``dataset.retained_ld_columns``.
     """
-    from .overlap_matrix import assemble_model_overlap, overlap_aware_category_table
+    from ._overlap_model import assemble_model_overlap, overlap_aware_category_table
 
     overlap = dataset.ldscore_overlap
     if overlap is None:
@@ -2736,7 +2736,7 @@ def _raise_on_model_collinearity(dataset: RegressionDataset, x: np.ndarray) -> N
     overlap = getattr(dataset, "ldscore_overlap", None)
     if overlap is None or len(dataset.retained_ld_columns) < 2:
         return
-    from .overlap_matrix import assemble_model_overlap, model_collinearity_error
+    from ._overlap_model import assemble_model_overlap, model_collinearity_error
 
     use_common = dataset.count_key_used_for_regression == COMMON_COUNT_KEY
     try:

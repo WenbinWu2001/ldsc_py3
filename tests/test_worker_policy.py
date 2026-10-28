@@ -6,7 +6,7 @@ import pytest
 
 from ldsc.config import LDScoreConfig, GeneLDScoreIndexBuildConfig
 from ldsc.errors import LDSCConfigError
-from ldsc.gene_ldscore_index import run_indexed_ldscore
+from ldsc._gene_index_scoring import run_indexed_ldscore
 
 
 @pytest.mark.parametrize("workers", [0, True, False, 1.5, 1.0, "2", None])
@@ -52,6 +52,8 @@ def test_workflows_share_detected_budget_and_managed_processes(tmp_path, monkeyp
     import os
     import numpy as np
     from ldsc import gene_ldscore_index as builder, ldscore_calculator as direct
+    from ldsc import _gene_index_scoring
+    from ldsc._gene_index_scoring import _load_gene_ldscore_index
     from ldsc import _indexed_ldscore_batches as indexed
     from ldsc import RegressionRunner, RegressionConfig
     from tests.test_plink_workflow_resolution import write_inputs, index_args
@@ -78,7 +80,7 @@ def test_workflows_share_detected_budget_and_managed_processes(tmp_path, monkeyp
     args = index_args(tmp_path, token, tmp_path / "index", workers=workers)
     args.workers = workers
     path = builder.run_build_gene_ldscore_index_from_args(args)
-    index = builder._load_gene_ldscore_index(path, _allow_partial_for_tests=True)
+    index = _load_gene_ldscore_index(path, _allow_partial_for_tests=True)
     np.testing.assert_array_equal(index.gene_support, [4, 4])
 
     args = direct.build_parser().parse_args([
@@ -93,7 +95,7 @@ def test_workflows_share_detected_budget_and_managed_processes(tmp_path, monkeyp
 
     query = tmp_path / "query.txt"
     query.write_text("G21\n")
-    result = builder.run_indexed_ldscore(path, query_gene_list_sources=[query], workers=workers,
+    result = _gene_index_scoring.run_indexed_ldscore(path, query_gene_list_sources=[query], workers=workers,
                                         output_dir=tmp_path / "indexed", _allow_partial_for_tests=True)
     np.testing.assert_allclose(result.baseline_table["base"], np.ones(8), atol=1e-7)
     np.testing.assert_allclose(result.read_queries(["query"])["query"], [1.] * 4 + [0.] * 4, atol=1e-7)

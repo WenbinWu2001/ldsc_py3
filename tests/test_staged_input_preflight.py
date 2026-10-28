@@ -5,7 +5,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from ldsc import gene_ldscore_index as index_module, ldscore_calculator
+from ldsc import _gene_index_scoring as index_scoring, gene_ldscore_index as index_module, ldscore_calculator
+from ldsc._gene_index_scoring import _load_gene_ldscore_index
 from ldsc.errors import LDSCInputError
 from tests.test_plink_workflow_resolution import write_inputs, index_args
 
@@ -150,9 +151,9 @@ def test_index_missing_late_component_precedes_any_operator_load(tmp_path, monke
     from tests.test_gene_index_streaming import two_chromosome_index
     path = two_chromosome_index(tmp_path)
     (path / "chromosomes/chr22/ldscore_operator.npz").unlink()
-    monkeypatch.setattr(index_module, "_load_index_chromosome", forbid_work)
+    monkeypatch.setattr(index_scoring, "_load_index_chromosome", forbid_work)
     with pytest.raises(LDSCInputError, match="ldscore_operator"):
-        index_module._load_gene_ldscore_index(path, _allow_partial_for_tests=True)
+        _load_gene_ldscore_index(path, _allow_partial_for_tests=True)
 
 
 def test_builder_reports_all_declared_inputs_before_staging(tmp_path, monkeypatch):
@@ -233,9 +234,9 @@ def test_index_late_metadata_and_early_header_errors_precede_operator_loading(tm
     metadata['chromosome'] = '21'
     component.write_text(json.dumps(metadata))
     (path/'chromosomes/chr21/atoms.parquet').write_bytes(b'not parquet')
-    monkeypatch.setattr(index_module, '_load_index_chromosome', forbid_work)
+    monkeypatch.setattr(index_scoring, '_load_index_chromosome', forbid_work)
     with pytest.raises(LDSCInputError) as failure:
-        index_module._load_gene_ldscore_index(path, _allow_partial_for_tests=True)
+        _load_gene_ldscore_index(path, _allow_partial_for_tests=True)
     assert len(failure.value.input_issues) == 2
     assert set(failure.value.input_issues.chrom) == {'21', '22'}
 

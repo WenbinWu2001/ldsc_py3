@@ -21,6 +21,8 @@ import pytest
 from scipy import sparse
 
 from ldsc import cli, gene_ldscore_index, ldscore_calculator
+from ldsc import _gene_index_scoring
+from ldsc._gene_index_artifact import _canonical_frame_sha256, _catalog_identity_records, _write_json
 from ldsc.config import GeneLDScoreIndexBuildConfig, GlobalConfig, reset_global_config, set_global_config
 from ldsc._core.plink_files import PlinkFAMFile
 from ldsc._kernel import ldscore as kernel_ldscore
@@ -34,10 +36,9 @@ from ldsc.gene_ldscore_index import (
     _parse_chromosomes,
     _selected_individual_ids,
     build_plink_index_chromosome,
-    calculate_index_id,
-    IndexChromosomeData,
     intersect_baseline_plink_by_identifier,
 )
+from ldsc._gene_index_artifact import calculate_index_id, IndexChromosomeData
 from ldsc._annotation.gene_lists import GeneCatalog, GeneCatalogValidationError
 from ldsc.ldscore_calculator import LDScoreCalculator
 from ldsc.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
@@ -45,7 +46,7 @@ from ldsc.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 
 def load_gene_ldscore_index(path):
     """Load a deliberately partial test fixture through the private seam."""
-    return gene_ldscore_index._load_gene_ldscore_index(
+    return _gene_index_scoring._load_gene_ldscore_index(
         path, _allow_partial_for_tests=True
     )
 
@@ -59,7 +60,7 @@ def publish_gene_ldscore_index(*args, **kwargs):
 
 def run_indexed_ldscore(*args, **kwargs):
     """Run against a deliberately partial test index through the private seam."""
-    return gene_ldscore_index.run_indexed_ldscore(
+    return _gene_index_scoring.run_indexed_ldscore(
         *args, **kwargs, _allow_partial_for_tests=True
     )
 
@@ -80,7 +81,7 @@ def test_builder_parser_requires_catalog_and_hides_partial_chromosome_control():
     assert "--gene-coordinate-file" in help_text
     assert "--chromosomes" not in help_text
     assert "_allow_partial_for_tests" not in inspect.signature(
-        gene_ldscore_index.load_gene_ldscore_index
+        _gene_index_scoring.load_gene_ldscore_index
     ).parameters
     assert "_chromosomes" not in inspect.signature(GeneLDScoreIndexBuildConfig).parameters
     with pytest.raises(SystemExit):
@@ -207,7 +208,7 @@ def _artifact_payload():
     index_identity = {
         "chromosomes": ["22"], "baseline": "fixture", "plink": "fixture",
         "snp_identifier": "rsid", "genome_build": "hg19",
-        "catalog": gene_ldscore_index._catalog_identity_records(catalog),
+        "catalog": _catalog_identity_records(catalog),
         "projection_build": "hg19", "padding_bp": 100000, "gene_exclude_regions": "mhc",
     }
     return chromosome, catalog, index_identity
@@ -269,7 +270,7 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
         lambda *args, **kwargs: {
             **index_identity,
             "chromosomes": ["1", "2"],
-            "catalog": gene_ldscore_index._catalog_identity_records(embedded_catalog),
+            "catalog": _catalog_identity_records(embedded_catalog),
         },
     )
     for chrom in ("1", "2"):
@@ -1421,9 +1422,9 @@ def test_canonical_table_identity_ignores_row_order_when_key_sort_is_declared():
     )
     reversed_frame = frame.iloc[::-1].reset_index(drop=True)
 
-    assert gene_ldscore_index._canonical_frame_sha256(
+    assert _canonical_frame_sha256(
         frame, sort_by=("CHR", "POS", "SNP")
-    ) == gene_ldscore_index._canonical_frame_sha256(
+    ) == _canonical_frame_sha256(
         reversed_frame, sort_by=("CHR", "POS", "SNP")
     )
 
@@ -1489,7 +1490,7 @@ def test_public_loader_rejects_partial_index_before_gene_resolution(tmp_path):
     )
 
     with pytest.raises(LDSCInputError, match="autosomes 1 through 22"):
-        gene_ldscore_index.load_gene_ldscore_index(index_dir)
+        _gene_index_scoring.load_gene_ldscore_index(index_dir)
 
 
 def test_chr_pos_index_round_trip_uses_coordinate_identity_and_publishes_plink_labels(tmp_path):
@@ -1744,10 +1745,10 @@ def test_index_publication_recovery_restores_one_valid_owned_backup(tmp_path, fa
         "artifact_type": "gene_ldscore_index_publication",
         "target": str(index_dir.resolve()),
     }
-    gene_ldscore_index._write_json(transaction / ".gene-index-publication.json", marker)
+    _write_json(transaction / ".gene-index-publication.json", marker)
     backup = transaction / "index.backup"
     index_dir.rename(backup)
-    gene_ldscore_index._write_json(backup / ".gene-index-publication.json", marker)
+    _write_json(backup / ".gene-index-publication.json", marker)
     if failed_destination != "absent":
         index_dir.mkdir()
         (index_dir / "RUN_FAILED.txt").write_text("interrupted publication")
@@ -1910,7 +1911,7 @@ def test_explicit_indexed_mode_dispatches_without_live_reference(monkeypatch, tm
         captured.update(kwargs)
         return sentinel
 
-    monkeypatch.setattr(gene_ldscore_index, "run_indexed_ldscore", fake_run)
+    monkeypatch.setattr(_gene_index_scoring, "run_indexed_ldscore", fake_run)
 
     result = cli.main(
         [
@@ -1949,9 +1950,9 @@ def test_explicit_indexed_cli_writes_the_canonical_workflow_log(tmp_path, monkey
     marker.write_text("earlier failed overwrite")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("LDSC_INDEXED_OUT", str(output_dir))
-    real_load = gene_ldscore_index._load_gene_ldscore_index
+    real_load = _gene_index_scoring._load_gene_ldscore_index
     monkeypatch.setattr(
-        gene_ldscore_index,
+        _gene_index_scoring,
         "_load_gene_ldscore_index",
         lambda path, **_kwargs: real_load(path, _allow_partial_for_tests=True),
     )
@@ -2060,9 +2061,9 @@ def test_python_indexed_mode_inherits_index_identity_over_registered_global_conf
     )
     genes = tmp_path / "focal.txt"
     genes.write_text("G1\n", encoding="utf-8")
-    real_load = gene_ldscore_index._load_gene_ldscore_index
+    real_load = _gene_index_scoring._load_gene_ldscore_index
     monkeypatch.setattr(
-        gene_ldscore_index,
+        _gene_index_scoring,
         "_load_gene_ldscore_index",
         lambda path, **_kwargs: real_load(path, _allow_partial_for_tests=True),
     )

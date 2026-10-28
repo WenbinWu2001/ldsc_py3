@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from ldsc import gene_ldscore_index, ldscore_calculator
+from ldsc._gene_index_scoring import _load_gene_ldscore_index
 from ldsc._refpanel import builder as ref_panel_builder
 from ldsc.errors import LDSCInputError
 
@@ -56,7 +57,7 @@ def test_gene_index_and_ldscore_share_plink_resolution_and_scores(tmp_path, form
     else:
         token = str(tmp_path / ("1000G.EUR.QC." + {"plain": "", "glob": "*", "at": "@"}[form]))
     output = gene_ldscore_index.run_build_gene_ldscore_index_from_args(index_args(tmp_path, token, tmp_path / "index"))
-    index = gene_ldscore_index._load_gene_ldscore_index(output, _allow_partial_for_tests=True)
+    index = _load_gene_ldscore_index(output, _allow_partial_for_tests=True)
     assert index.chromosomes == ("21", "22")
     np.testing.assert_array_equal(index.gene_support, [4, 4])
     for chrom in index.chromosomes:
@@ -155,6 +156,6 @@ def test_failed_gene_index_build_can_retry_with_its_failure_marker(tmp_path):
     args.plink_prefix = str(tmp_path / "1000G.EUR.QC.")
     gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     assert not marker.exists()
-    index = gene_ldscore_index._load_gene_ldscore_index(output, _allow_partial_for_tests=True)
+    index = _load_gene_ldscore_index(output, _allow_partial_for_tests=True)
     assert index.chromosomes == ("21", "22")
     np.testing.assert_array_equal(index.gene_support, [4, 4])

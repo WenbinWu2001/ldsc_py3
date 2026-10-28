@@ -176,7 +176,8 @@ def _validate_aggregates(model, metadata, sums, products):
             raise LDSCInputError(f"quantile-h2 fitted annotation '{name}' has common reference-SNP sum {actual}, expected {expected}. Resupply the exact annotation sources used for LD-score construction.")
     overlap_path = (metadata.get("files") or {}).get("overlap")
     if overlap_path:
-        from .overlap_matrix import assemble_model_overlap, overlap_from_long_frame
+        from ._overlap_model import assemble_model_overlap
+        from .overlap_matrix import overlap_from_long_frame
 
         config = metadata.get("overlap_config") or {}
         overlap = overlap_from_long_frame(pd.read_parquet(model.ldscore_dir / str(overlap_path)),

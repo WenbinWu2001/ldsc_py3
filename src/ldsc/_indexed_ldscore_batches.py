@@ -65,17 +65,18 @@ def _write_baseline(record, control_selector, directory):
 def _write_chromosome(index, chrom, batch, declarations, control_resolution, ordinal, total_batches, root, log_path=None):
     """Load, compute, and release one chromosome for the active query batch."""
     from . import gene_ldscore_index as core
+    from ._gene_index_scoring import _selector_for_resolution
 
     with chromosome_log(log_path, chrom, f"indexed batch {ordinal + 1}/{total_batches}"):
         directory = Path(root) / f"chr{chrom}"
         directory.mkdir()
         record = index.load_chromosome(chrom)
-        control_selector = (None if control_resolution is None else core._selector_for_resolution(
+        control_selector = (None if control_resolution is None else _selector_for_resolution(
             index.gene_catalog, record.atom_model, chrom, control_resolution))
         baseline_statistics = _write_baseline(record, control_selector, directory) if ordinal == 0 else None
         supplied = len(index.baseline_columns)
         n_baseline = supplied + int(control_selector is not None)
-        selectors = [core._selector_for_resolution(
+        selectors = [_selector_for_resolution(
             index.gene_catalog, record.atom_model, chrom,
             batch.selection(item["input_role"], item["source_ordinal"])) for item in declarations]
         query_counts = np.empty((2, len(declarations)), dtype=np.float64)

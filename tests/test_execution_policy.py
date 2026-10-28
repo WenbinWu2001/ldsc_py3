@@ -256,12 +256,13 @@ def test_abnormal_ld_termination_reports_unconfirmed_source_and_retains_logs(tmp
         run = lambda: _run_minimal_ldscore(panel, output, 2)
     else:
         from ldsc import _indexed_ldscore_batches as indexed, gene_ldscore_index as core
+        from ldsc._gene_index_scoring import run_indexed_ldscore
         from tests.test_gene_index_streaming import two_chromosome_index
         index = two_chromosome_index(tmp_path)
         query = tmp_path / "query.txt"
         query.write_text("G1\nG3\n")
         monkeypatch.setattr(indexed, "_write_chromosome", _crash_indexed_task)
-        run = lambda: core.run_indexed_ldscore(index, query_gene_list_sources=[query], output_dir=output, workers=2, _allow_partial_for_tests=True)
+        run = lambda: run_indexed_ldscore(index, query_gene_list_sources=[query], output_dir=output, workers=2, _allow_partial_for_tests=True)
     before = {child.pid for child in mp.active_children()}
     with pytest.raises((LDSCInternalError, BrokenProcessPool)):
         run()
@@ -291,6 +292,7 @@ def _fail_indexed_second_batch(*args, **kwargs):
 
 def test_indexed_python_failure_reports_batch_and_full_chromosome_traceback(tmp_path, monkeypatch):
     from ldsc import _indexed_ldscore_batches as indexed, gene_ldscore_index as core
+    from ldsc._gene_index_scoring import run_indexed_ldscore
     from tests.test_gene_index_streaming import two_chromosome_index
     index = two_chromosome_index(tmp_path)
     queries = [tmp_path / f"query{i}.txt" for i in range(2)]
@@ -299,7 +301,7 @@ def test_indexed_python_failure_reports_batch_and_full_chromosome_traceback(tmp_
     monkeypatch.setattr(indexed, "_write_chromosome", _fail_indexed_second_batch)
     output = tmp_path / "out"
     with pytest.raises(OSError, match="indexed batch failure"):
-        core.run_indexed_ldscore(index, query_gene_list_sources=queries, output_dir=output, query_batch_size=1, _allow_partial_for_tests=True)
+        run_indexed_ldscore(index, query_gene_list_sources=queries, output_dir=output, query_batch_size=1, _allow_partial_for_tests=True)
     main = (output / "diagnostics/ldscore.log").read_text()
     assert "chromosome 21" in main and "batch 2/2" in main and "chr21.log" in main
     detail = (output / "diagnostics/chromosome-logs/chr21.log").read_text()

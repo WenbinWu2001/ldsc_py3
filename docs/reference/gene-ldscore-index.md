@@ -301,7 +301,9 @@ Only the configured regression restriction and region policy select the regressi
 See also the task-oriented [build guide](../user-guide/workflows/gene-list-ld-scores.md)
 and [indexed LD-score guide](../user-guide/workflows/gene-list-ld-scores.md).
 
-The build lifecycle retains preceding/current lock coordination in `_gene_index_build_lock` and recognized old-log archival in `_migrate_legacy_gene_index_build_state`. This protects destinations that may still have an earlier writer and preserves operational history. Active build-state locking, validated publication, and interrupted-publication recovery remain required; these are not unused runtime helpers.
+`_gene_index_build_lock` holds one nonblocking lock, `.<index-name>.build-state/build-gene-ldscore-index.lock`, for each destination.
+The builder neither reads nor migrates the visible `<index-name>.build/` log directory or the standalone `.<index-name>.build-gene-ldscore-index.lock` of earlier releases.
+Active build-state locking, validated publication, and interrupted-publication recovery remain required; these are not unused runtime helpers.
 
 ## Bounded validation and query assembly
 

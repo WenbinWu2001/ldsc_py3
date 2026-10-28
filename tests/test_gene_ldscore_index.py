@@ -1076,10 +1076,10 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
         log_level="INFO",
     )
 
-    legacy_state = tmp_path / "suite.build"
-    legacy_state.mkdir()
-    (legacy_state / "build-gene-ldscore-index.log").write_text(
-        "legacy build log\n", encoding="utf-8"
+    unrelated_sibling = tmp_path / "suite.build"
+    unrelated_sibling.mkdir()
+    (unrelated_sibling / "build-gene-ldscore-index.log").write_text(
+        "not owned by this build\n", encoding="utf-8"
     )
     index_dir = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
 
@@ -1111,8 +1111,8 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     assert pd.read_csv(dropped_sidecar, sep="\t").empty
     assert not (build_state / "build-gene-ldscore-index.log").exists()
     assert (build_state / "build-gene-ldscore-index.lock").exists()
-    assert any((build_state / "history").glob("*.log"))
-    assert not legacy_state.exists()
+    assert not list((build_state / "history").glob("*.log"))
+    assert (unrelated_sibling / "build-gene-ldscore-index.log").read_text(encoding="utf-8") == "not owned by this build\n"
 
 
 def test_completed_chromosome_is_durably_staged_before_other_workers_finish(
@@ -1696,6 +1696,7 @@ def test_index_preflight_rejects_nonempty_invalid_directory_even_with_overwrite(
 def test_index_build_lock_rejects_a_second_builder_for_same_absolute_target(tmp_path):
     index_dir = tmp_path / "index"
     with gene_ldscore_index._gene_index_build_lock(index_dir):
+        assert not (tmp_path / ".index.build-gene-ldscore-index.lock").exists()
         with pytest.raises(
             LDSCInputError,
             match=r"\.index\.build-state/build-gene-ldscore-index\.log",

@@ -518,11 +518,9 @@ builder-owned path manually or let the next invocation retry recognized
 cleanup. Never delete an unmarked neighboring directory based only on a similar
 name.
 
-The preceding release used a visible `<index-dir>.build/` log directory and a
-standalone hidden lock. On the next invocation, recognized logs/history migrate
-to `.<index-name>.build-state/`, and the obsolete standalone lock participates
-in that transition run before it is removed. Unrecognized files are preserved
-and reported rather than deleted.
+Earlier releases kept logs in a visible `<index-dir>.build/` directory and used a standalone hidden lock, `.<index-name>.build-gene-ldscore-index.lock`.
+The current builder ignores both, so it does not wait for a build started by an earlier release.
+Let any such build finish before building the same destination, then remove the old directory and lock manually if you no longer need their logs.
 
 ### `build-gene-ldscore-index`: required identity or build option is missing
 

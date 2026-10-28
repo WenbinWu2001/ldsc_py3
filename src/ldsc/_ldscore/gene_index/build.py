@@ -997,49 +997,32 @@ def _run_gene_ldscore_index_build(
 
 @contextmanager
 def _gene_index_build_lock(index_path: Path):
-    """Hold nonblocking legacy and current locks for one absolute destination."""
+    """Hold a nonblocking build lock for one absolute destination."""
     destination = index_path.expanduser().resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
     build_state = _gene_index_build_state_dir(destination)
     build_state.mkdir(parents=True, exist_ok=True)
-    legacy_lock_path = destination.parent / f".{destination.name}.build-gene-ldscore-index.lock"
-    lock_paths = (legacy_lock_path, build_state / "build-gene-ldscore-index.lock")
-    handles = []
+    handle = (build_state / "build-gene-ldscore-index.lock").open("a+", encoding="utf-8")
     try:
-        for lock_path in lock_paths:
-            handle = lock_path.open("a+", encoding="utf-8")
-            try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as exc:
-                handle.seek(0)
-                owner = handle.read().strip() or "unknown owner"
-                handle.close()
-                raise LDSCInputError(
-                    f"Another build-gene-ldscore-index process is active for {destination} ({owner}). "
-                    f"Monitor {_gene_index_build_state_dir(destination) / 'build-gene-ldscore-index.log'}."
-                ) from exc
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
             handle.seek(0)
-            handle.truncate()
-            handle.write(f"pid={os.getpid()} host={socket.gethostname()} target={destination}\n")
-            handle.flush()
-            handles.append(handle)
-        yield
+            owner = handle.read().strip() or "unknown owner"
+            raise LDSCInputError(
+                f"Another build-gene-ldscore-index process is active for {destination} ({owner}). "
+                f"Monitor {build_state / 'build-gene-ldscore-index.log'}."
+            ) from exc
+        handle.seek(0)
+        handle.truncate()
+        handle.write(f"pid={os.getpid()} host={socket.gethostname()} target={destination}\n")
+        handle.flush()
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     finally:
-        if handles:
-            try:
-                legacy_lock_path.unlink(missing_ok=True)
-            except OSError as exc:
-                warnings.warn(
-                    f"The obsolete gene-index lock file could not be removed: {legacy_lock_path} "
-                    f"({type(exc).__name__}: {exc}). It is safe to remove when no build is active.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-        for handle in reversed(handles):
-            try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-            finally:
-                handle.close()
+        handle.close()
 
 
 def _preflight_gene_index_output(
@@ -1182,61 +1165,18 @@ def _gene_index_build_state_dir(index_path: Path) -> Path:
     return destination.with_name(f".{destination.name}.build-state")
 
 
-def _legacy_gene_index_build_state_dir(index_path: Path) -> Path:
-    """Return the visible sidecar path used by the preceding log contract."""
-    destination = index_path.expanduser()
-    return destination.with_name(f"{destination.name}.build")
-
-
-def _archive_gene_index_log(log_path: Path, history: Path, *, label: str = "") -> Path:
+def _archive_gene_index_log(log_path: Path, history: Path) -> Path:
     """Move one closed operational log to a collision-resistant history path."""
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-    suffix = f".{label}" if label else ""
-    archived = history / f"build-gene-ldscore-index.{timestamp}{suffix}.log"
+    archived = history / f"build-gene-ldscore-index.{timestamp}.log"
     os.replace(log_path, archived)
     return archived
-
-
-def _migrate_legacy_gene_index_build_state(index_path: Path, build_state: Path) -> None:
-    """Move recognized logs from the former visible ``<index>.build`` sidecar."""
-    legacy = _legacy_gene_index_build_state_dir(index_path)
-    if not legacy.is_dir():
-        return
-    history = build_state / "history"
-    history.mkdir(parents=True, exist_ok=True)
-    legacy_log = legacy / "build-gene-ldscore-index.log"
-    if legacy_log.is_file():
-        _archive_gene_index_log(legacy_log, history, label="legacy")
-    legacy_history = legacy / "history"
-    if legacy_history.is_dir():
-        for source in sorted(legacy_history.iterdir()):
-            if not source.is_file():
-                continue
-            destination = history / source.name
-            if destination.exists():
-                timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-                destination = history / f"{source.stem}.migrated.{timestamp}{source.suffix}"
-            os.replace(source, destination)
-        try:
-            legacy_history.rmdir()
-        except OSError:
-            pass
-    try:
-        legacy.rmdir()
-    except OSError:
-        warnings.warn(
-            f"The former gene-index build-state directory contains unrecognized files and was "
-            f"not removed: {legacy}. Recognized logs were migrated to {build_state}.",
-            UserWarning,
-            stacklevel=2,
-        )
 
 
 def _prepare_gene_index_log(index_path: Path) -> Path:
     """Archive prior attempts and return the hidden stable live-log path."""
     build_state = _gene_index_build_state_dir(index_path)
     build_state.mkdir(parents=True, exist_ok=True)
-    _migrate_legacy_gene_index_build_state(index_path, build_state)
     log_path = build_state / "build-gene-ldscore-index.log"
     if log_path.exists():
         history = build_state / "history"

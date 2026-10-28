@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from .._runtime.cli_help import CLIHelpFormatter
 from .._runtime.workflow_logging import LOG_LEVEL_HELP
-from .._runtime.artifacts import _atomic_write_json
+from .._runtime.artifacts import _atomic_write_dataframe, _atomic_write_json
 from .._runtime.result_files import declared_result_file
 
 import argparse
@@ -28,7 +28,6 @@ import json
 import math
 import os
 from pathlib import Path
-import tempfile
 
 import numpy as np
 import pandas as pd
@@ -244,7 +243,7 @@ def convert_h2_scale(
             pop_prev_range=pop_prev_range,
             num_points=len(prevalences),
         )
-        _atomic_write_dataframe(table, paths["table"])
+        _atomic_write_dataframe(table, paths["table"], na_rep="NaN")
         if mode == "sensitivity":
             _plot_prevalence_sensitivity(table, paths["plot"], pyplot)
         _atomic_write_json(metadata, paths["metadata"])
@@ -495,17 +494,3 @@ def _plot_prevalence_sensitivity(table: pd.DataFrame, path: Path, pyplot) -> Non
     axis.spines[["top", "right"]].set_visible(False)
     figure.savefig(path, dpi=300, facecolor="white")
     pyplot.close(figure)
-
-
-def _atomic_write_dataframe(table: pd.DataFrame, path: Path) -> None:
-    file_descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
-    )
-    os.close(file_descriptor)
-    temporary_path = Path(temporary_name)
-    try:
-        table.to_csv(temporary_path, sep="\t", index=False, na_rep="NaN")
-        os.replace(temporary_path, path)
-    except Exception:
-        temporary_path.unlink(missing_ok=True)
-        raise

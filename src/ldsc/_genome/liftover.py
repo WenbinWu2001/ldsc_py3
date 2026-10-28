@@ -483,8 +483,12 @@ def _coerce_liftover_drop_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return output.reset_index(drop=True)
 
 
-def load_hm3_curated_map(path: str | PathLike[str]) -> pd.DataFrame:
-    """Load the curated dual-build HM3 map into canonical columns."""
+def load_hm3_map_file(path: str | PathLike[str]) -> pd.DataFrame:
+    """Load a curated dual-build HM3 map file into canonical columns.
+
+    Unlike ``ldsc.load_hm3_curated_map``, which loads the packaged map with all
+    its columns, this reads any map file and keeps only the canonical columns.
+    """
     return _load_hm3_curated_map_from_path(path, preserve_extra_columns=False)
 
 
@@ -798,7 +802,7 @@ def _apply_hm3_liftover(
             "Most likely HM3 quick liftover was enabled without a curated map path. "
             "Provide the packaged HM3 dual-build map file."
         )
-    mapping = load_hm3_curated_map(request.hm3_map_file)
+    mapping = load_hm3_map_file(request.hm3_map_file)
     source_column = f"{source_build}_POS"
     target_column = f"{request.target_build}_POS"
     lookup = mapping.loc[:, ["CHR", source_column, target_column]].rename(columns={source_column: "POS"})

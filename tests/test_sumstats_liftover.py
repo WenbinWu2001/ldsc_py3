@@ -15,7 +15,7 @@ from ldsc._genome.liftover import (
     LiftOverMappingResult,
     SumstatsLiftoverRequest,
     apply_sumstats_liftover,
-    load_hm3_curated_map,
+    load_hm3_map_file,
 )
 from ldsc.errors import LDSCInputError, LDSCUsageError
 
@@ -35,7 +35,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
             handle.write(text)
         return path
 
-    def test_load_hm3_curated_map_accepts_aliases_and_ignores_extra_columns(self):
+    def test_load_hm3_map_file_accepts_aliases_and_ignores_extra_columns(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = self.write_hm3_map(
                 Path(tmpdir),
@@ -44,7 +44,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 "1\t200\t2000\trs2\tignored\n",
             )
 
-            loaded = load_hm3_curated_map(path)
+            loaded = load_hm3_map_file(path)
 
             self.assertEqual(loaded.columns.tolist(), ["CHR", "hg19_POS", "hg38_POS", "SNP"])
             self.assertEqual(loaded["CHR"].tolist(), ["1", "1"])
@@ -52,7 +52,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
             self.assertEqual(loaded["hg38_POS"].tolist(), [1000, 2000])
             self.assertEqual(loaded["SNP"].tolist(), ["rs1", "rs2"])
 
-    def test_load_hm3_curated_map_rejects_duplicate_source_or_target_coordinates(self):
+    def test_load_hm3_map_file_rejects_duplicate_source_or_target_coordinates(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             duplicate_hg19 = self.write_hm3_map(
@@ -62,7 +62,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 "1\t100\t2000\trs2\n",
             )
             with self.assertRaisesRegex(LDSCInputError, "duplicate.*hg19"):
-                load_hm3_curated_map(duplicate_hg19)
+                load_hm3_map_file(duplicate_hg19)
 
             duplicate_hg38 = self.write_hm3_map(
                 root,
@@ -71,7 +71,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 "1\t200\t1000\trs2\n",
             )
             with self.assertRaisesRegex(LDSCInputError, "duplicate.*hg38"):
-                load_hm3_curated_map(duplicate_hg38)
+                load_hm3_map_file(duplicate_hg38)
 
     def test_hm3_liftover_uses_coordinates_only_and_preserves_snp_labels(self):
         with tempfile.TemporaryDirectory() as tmpdir:

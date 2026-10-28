@@ -10,9 +10,9 @@ from ldsc.errors import LDSCInputError, LDSCUsageError
 
 
 def _load_module(testcase: unittest.TestCase):
-    spec = importlib.util.find_spec("ldsc.genome_build_inference")
-    testcase.assertIsNotNone(spec, "ldsc.genome_build_inference module is missing")
-    return __import__("ldsc.genome_build_inference", fromlist=["dummy"])
+    spec = importlib.util.find_spec("ldsc._genome.build_inference")
+    testcase.assertIsNotNone(spec, "ldsc._genome.build_inference module is missing")
+    return __import__("ldsc._genome.build_inference", fromlist=["dummy"])
 
 
 def _build_reference_table(n_rows: int = 250) -> pd.DataFrame:

@@ -91,7 +91,7 @@ from .gene_list_resolver import (
     GeneSourceSelection,
     select_index_eligible_gene_indices,
 )
-from .hm3 import packaged_hm3_curated_map_path
+from ._genome.hm3 import packaged_hm3_curated_map_path
 from ._runtime.paths import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
 
 
@@ -584,7 +584,7 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                     issues_path,
                 )
                 raise
-            from ._genome_build_policy import GenomeBuildCheck
+            from ._genome.build_policy import GenomeBuildCheck
             check = GenomeBuildCheck(config.genome_build, context="gene LD-score index construction", logger=LOGGER)
             check.declared("gene catalog", config.gene_coordinate_file, catalog.genome_build)
             for path in declared_inputs.baseline:
@@ -1466,7 +1466,7 @@ def _load_builder_genetic_map(args):
         return None
     if args.ld_wind_cm is None:
         raise LDSCInputError("Genetic-map sources require --ld-wind-cm. Omit the map for kb or SNP-count windows.")
-    from ._genome_build_policy import GenomeBuildCheck
+    from ._genome.build_policy import GenomeBuildCheck
     from ._kernel.ref_panel_builder import load_genetic_map_group
     check = GenomeBuildCheck(build, context="gene-index genetic map", logger=LOGGER)
     check.paths("genetic map", sources)

@@ -23,7 +23,7 @@ from ._core.columns import normalize_genome_build
 from .config import AnnotationBuildConfig, GlobalConfig, get_global_config, print_global_config_banner
 from .errors import LDSCInputError
 from .gene_list_resolver import GeneCatalog, GeneCatalogValidationError
-from ._genome_build_policy import GenomeBuildCheck
+from ._genome.build_policy import GenomeBuildCheck
 from .outputs import AnnotationDirectoryWriter
 from ._runtime.paths import ensure_output_directory, resolve_file_group, split_cli_path_tokens
 from .query_annotations import (

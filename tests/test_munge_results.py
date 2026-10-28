@@ -10,7 +10,7 @@ import pytest
 from ldsc import GlobalConfig, MungeConfig, SumstatsMunger, load_sumstats
 from ldsc import _sumstats_input as munge_input
 from ldsc._kernel import sumstats_munger as kernel_munge
-from ldsc._kernel.liftover import LiftOverMappingResult, SumstatsLiftoverRequest
+from ldsc._genome.liftover import LiftOverMappingResult, SumstatsLiftoverRequest
 
 
 @pytest.mark.parametrize("suffix,compress", [(".tsv", str.encode), (".gz", lambda text: gzip.compress(text.encode())), (".bz2", lambda text: bz2.compress(text.encode()))])
@@ -124,7 +124,7 @@ def test_summary_reports_the_sample_size_rule_actually_used(tmp_path, columns, r
 
 
 def test_production_build_inference_uses_bounded_raw_evidence_before_qc(tmp_path, monkeypatch):
-    from ldsc.genome_build_inference import load_packaged_reference_table
+    from ldsc._genome.build_inference import load_packaged_reference_table
 
     reference = load_packaged_reference_table().head(300)
     rows = [f"{row.CHR} {int(row.hg19_POS) - 1} evidence{idx} 0 0 1000\n"
@@ -134,7 +134,7 @@ def test_production_build_inference_uses_bounded_raw_evidence_before_qc(tmp_path
     raw = tmp_path / "raw.tsv"
     raw.write_text("CHR POS SNP P BETA N\n" + "".join(rows))
     evidence_sizes = []
-    from ldsc import _genome_build_policy as policy
+    from ldsc._genome import build_policy as policy
     resolve = policy.infer_chr_pos_build
 
     def observe_evidence(frame, **kwargs):
@@ -161,7 +161,7 @@ def test_production_build_inference_uses_bounded_raw_evidence_before_qc(tmp_path
 
 
 def test_coordinate_liftover_and_identity_counts_are_exclusive(tmp_path, monkeypatch):
-    from ldsc._kernel import liftover
+    from ldsc._genome import liftover
 
     raw = tmp_path / "raw.tsv"
     raw.write_text(

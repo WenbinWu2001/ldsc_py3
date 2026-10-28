@@ -65,7 +65,7 @@ print(ldsc.__file__)
     def test_top_level_exports_genome_build_inference_api(self):
         import ldsc
         from ldsc import ChrPosBuildInference, infer_chr_pos_build, resolve_chr_pos_table
-        from ldsc.genome_build_inference import (
+        from ldsc._genome.build_inference import (
             ChrPosBuildInference as ModuleChrPosBuildInference,
             infer_chr_pos_build as module_infer_chr_pos_build,
             resolve_chr_pos_table as module_resolve_chr_pos_table,

@@ -284,7 +284,7 @@ class LegacyLDScoreConverter:
                 "Restore missing shards or rename misnamed copies from the matching source suite."
             )
 
-        from ._genome_build_policy import GenomeBuildCheck
+        from ._genome.build_policy import GenomeBuildCheck
         build_check = GenomeBuildCheck(build_hint, context="convert-ldsc2-ldscores", logger=LOGGER)
         for role, paths in (("reference", reference_family.paths), ("weight", weight_family.paths),
                             ("annotation", annotation_family)):
@@ -1374,7 +1374,7 @@ def _resolve_output_coordinates(
     rsID output carries no coordinate build and requires no inference.
     """
     output = frame.copy()
-    from ._genome_build_policy import GenomeBuildCheck
+    from ._genome.build_policy import GenomeBuildCheck
     check = build_check or GenomeBuildCheck(build_hint, context='convert-ldsc2-ldscores', logger=LOGGER)
     if build_check is None and mode != "rsid":
         check.frames('--legacy-reference-dir', context, [output])

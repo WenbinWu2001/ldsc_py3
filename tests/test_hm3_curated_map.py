@@ -22,7 +22,7 @@ import unittest
 
 import pandas as pd
 
-from ldsc.hm3 import _load_hm3_curated_map_from_path
+from ldsc._genome.hm3 import _load_hm3_curated_map_from_path
 
 TOOL = Path(__file__).resolve().parents[1] / "tools" / "hm3" / "build_hm3_curated_map.py"
 

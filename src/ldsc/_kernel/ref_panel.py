@@ -33,7 +33,7 @@ from .._core.columns import (
 )
 from ..config import GlobalConfig, LDScoreConfig, RefPanelConfig, validate_config_compatibility
 from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCUsageError
-from ..genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
+from .._genome.build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from .._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
 from .._core import plink_files as legacy_parse
 from . import ldscore as kernel_ldscore
@@ -79,7 +79,7 @@ def _artifact_global_config(metadata, global_config, source):
     """Validate declared coordinates before constructing an artifact snapshot."""
     build = metadata.get("genome_build")
     if identity_mode_family(global_config.snp_identifier) == "chr_pos":
-        from .._genome_build_policy import GenomeBuildCheck
+        from .._genome.build_policy import GenomeBuildCheck
         check = GenomeBuildCheck(global_config.genome_build, context="reference-panel validation", logger=LOGGER)
         if build is not None:
             check.declared("reference artifact", source, build)
@@ -667,7 +667,7 @@ class RefPanelLoader:
 
 def _infer_restricted_ref_panel_build(ref_panel_spec: RefPanelConfig, requested="auto") -> str:
     """Resolve all panel shards and coordinate restrictions before filtering."""
-    from .._genome_build_policy import GenomeBuildCheck
+    from .._genome.build_policy import GenomeBuildCheck
 
     check = GenomeBuildCheck(requested, context='reference-panel loading', logger=LOGGER)
     if ref_panel_spec.backend == 'plink':
@@ -873,7 +873,7 @@ def _resolve_genetic_map(panel, chrom, metadata):
     if sources is None:
         raise LDSCInputError(f"ldscore needs a `--genetic-map-{build}-sources` file to derive CM for the PLINK panel (resolved build {build}), but it was not supplied.")
     from .ref_panel_builder import load_genetic_map_group
-    from .._genome_build_policy import GenomeBuildCheck
+    from .._genome.build_policy import GenomeBuildCheck
     check = GenomeBuildCheck(build, context="PLINK genetic map", logger=LOGGER)
     check.paths(f"--genetic-map-{build}-sources", sources)
     check.resolve()

@@ -52,7 +52,7 @@ See [inspection troubleshooting](../user-guide/troubleshooting.md#infer-genome-b
 ## Genome-build policy
 
 This contract governs inference, checking, and resolution before coordinate-dependent computation.
-The shared collector is `GenomeBuildCheck` in [_genome_build_policy.py](../../src/ldsc/_genome_build_policy.py); statistical evidence remains in `genome_build_inference.py`.
+The shared collector is `GenomeBuildCheck` in [_genome/build_policy.py](../../src/ldsc/_genome/build_policy.py); statistical evidence remains in `genome_build_inference.py`.
 No new flags or per-input build declarations are required by this policy.
 
 ### One build for inputs used together
@@ -84,14 +84,14 @@ Repair the inputs by supplying matching coordinates, correcting erroneous metada
 For inputs that require coordinate inference, sample at most 5,000 rows from every relevant file/chromosome.
 Coordinate columns are streamed to discover chromosomes; inference uses only those bounded samples.
 The current criteria require at least 200 uniquely informative packaged HM3 matches and at least 99% support for the winning build/coordinate-basis hypothesis.
-See `MIN_INSPECTED_REFERENCE_SNPS` and `DOMINANCE_THRESHOLD` in [genome_build_inference.py](../../src/ldsc/genome_build_inference.py).
+See `MIN_INSPECTED_REFERENCE_SNPS` and `DOMINANCE_THRESHOLD` in [_genome/build_inference.py](../../src/ldsc/_genome/build_inference.py).
 Successful inference for one input must not stop evidence collection for the remaining inputs or shards.
 An exhaustive build check of every coordinate row is not performed.
 Mixtures confined to unsampled rows can escape detection.
 
 ### Inference method and reference maps
 
-`infer_chr_pos_build()` in `src/ldsc/genome_build_inference.py` compares input `(CHR, POS)` pairs with four hypotheses: hg19 one-based, hg19 zero-based, hg38 one-based, and hg38 zero-based.
+`infer_chr_pos_build()` in `src/ldsc/_genome/build_inference.py` compares input `(CHR, POS)` pairs with four hypotheses: hg19 one-based, hg19 zero-based, hg38 one-based, and hg38 zero-based.
 It deduplicates valid pairs, counts a pair as informative only when it matches exactly one hypothesis, and accepts the best hypothesis only when the thresholds above are met.
 When the best hypothesis falls short, the error lists the matched counts and fractions for all four hypotheses; [troubleshooting](../user-guide/troubleshooting.md#common-genome-build-could-not-be-inferred) explains how to read them.
 Zero-based input is converted to one-based positions before downstream matching; all normalized coordinates used downstream are one-based.
@@ -101,7 +101,7 @@ Its SNPs are non-strand-ambiguous, unique in both `(CHR, hg19_POS)` and `(CHR, h
 It is built from the HM3 map with `python tools/hm3/build_hm3_chr_pos_reference.py --curated-map src/ldsc/data/hm3_curated_map.tsv.gz --output src/ldsc/data/hm3_chr_pos_reference.tsv.gz` and loaded once per process by `load_packaged_reference_table()`.
 The HM3 map itself (`src/ldsc/data/hm3_curated_map.tsv.gz`, loaded by `ldsc.load_hm3_curated_map()` with columns `CHR`, `hg19_POS`, `hg38_POS`, `SNP`, `A1` and `A2`) is the regression-SNP, restriction and quick-liftover map, not the inference reference; allele-aware keep-list matching uses its `A1` and `A2`.
 
-Evidence collected per input type before a workflow build is resolved (`GenomeBuildCheck` in `src/ldsc/_genome_build_policy.py`):
+Evidence collected per input type before a workflow build is resolved (`GenomeBuildCheck` in `src/ldsc/_genome/build_policy.py`):
 
 | Input type | Evidence |
 | --- | --- |
@@ -197,7 +197,7 @@ SNP identity and file-format validation remain separate: an explicit build does 
 
 ## Liftover
 
-`munge-sumstats` and `build-r2-panel` share one liftover implementation, `src/ldsc/_kernel/liftover.py`; workflow-specific options and drop accounting are in the [`munge-sumstats` reference](munge-sumstats.md#liftover-rules) and the [R² panel tutorial](../user-guide/workflows/r2-panels.md).
+`munge-sumstats` and `build-r2-panel` share one liftover implementation, `src/ldsc/_genome/liftover.py`; workflow-specific options and drop accounting are in the [`munge-sumstats` reference](munge-sumstats.md#liftover-rules) and the [R² panel tutorial](../user-guide/workflows/r2-panels.md).
 Liftover is available only in coordinate-family modes.
 
 - Chain mapping takes and returns one-based positions; the 0-based coordinates of `pyliftover` are converted on both sides.

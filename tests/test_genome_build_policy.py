@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from ldsc.errors import LDSCInputError
-from ldsc.genome_build_inference import load_packaged_reference_table
+from ldsc._genome.build_inference import load_packaged_reference_table
 from ldsc.ldscore_calculator import _resolve_ldscore_chr_pos_genome_build
 
 
@@ -158,7 +158,7 @@ def test_converter_explicit_build_is_authoritative():
 
 @pytest.mark.parametrize('requested', ['auto', 'hg19'])
 def test_in_memory_build_labels_are_declarations(requested):
-    from ldsc._genome_build_policy import GenomeBuildCheck
+    from ldsc._genome.build_policy import GenomeBuildCheck
     frame = coordinates(1, 'hg19', 2).assign(genome_build='GRCh38')
     check = GenomeBuildCheck(requested, context='in-memory annotations')
     check.declared('reference', 'panel', 'hg19')
@@ -217,7 +217,7 @@ def test_regression_reports_all_traits_and_panel_without_override():
 
 
 def test_keep_list_generic_fallback_only_when_matching_build_column_absent(tmp_path):
-    from ldsc._genome_build_policy import GenomeBuildCheck
+    from ldsc._genome.build_policy import GenomeBuildCheck
     path = tmp_path / 'keep.csv'
     frame = coordinates(1, 'hg38').assign(hg19_POS=lambda f: f.POS + 100)
     frame.to_csv(path, index=False)
@@ -230,7 +230,7 @@ def test_keep_list_generic_fallback_only_when_matching_build_column_absent(tmp_p
 def test_metadata_and_alternative_columns_are_trusted_without_inference(tmp_path):
     import pyarrow as pa
     import pyarrow.parquet as pq
-    from ldsc._genome_build_policy import GenomeBuildCheck
+    from ldsc._genome.build_policy import GenomeBuildCheck
     reference, keep = tmp_path / 'panel.parquet', tmp_path / 'keep.tsv'
     table = pa.Table.from_pandas(coordinates(1, 'hg38', 2)).replace_schema_metadata({b'ldsc:genome_build': b'hg19'})
     pq.write_table(table, reference)
@@ -276,7 +276,7 @@ def test_ldscore_plink_only_auto_resolves_from_bim(tmp_path):
 
 
 def test_build_sample_preserves_existing_invalid_coordinate_drop_policy():
-    from ldsc._genome_build_policy import GenomeBuildCheck
+    from ldsc._genome.build_policy import GenomeBuildCheck
     raw = pd.concat([pd.DataFrame({'CHR': ['chrUn', None], 'POS': ['bad', 123]}), coordinates(1, 'hg19')], ignore_index=True)
     check = GenomeBuildCheck('auto', context='test')
     check.frames('--raw-sumstats-file', 'raw', [raw])
@@ -286,7 +286,7 @@ def test_build_sample_preserves_existing_invalid_coordinate_drop_policy():
 def test_conflicting_r2_footer_declarations_are_both_reported(tmp_path):
     import pyarrow as pa
     import pyarrow.parquet as pq
-    from ldsc._genome_build_policy import GenomeBuildCheck
+    from ldsc._genome.build_policy import GenomeBuildCheck
     path = tmp_path / 'chr1_r2.parquet'
     table = pa.table({'IDX_1': [0]}).replace_schema_metadata({b'ldsc:genome_build': b'hg19', b'ldsc:sorted_by_build': b'hg38'})
     pq.write_table(table, path)
@@ -301,7 +301,7 @@ def test_r2_sidecar_declaration_participates_with_an_explicit_build(tmp_path):
     import gzip
     import pyarrow as pa
     import pyarrow.parquet as pq
-    from ldsc._genome_build_policy import GenomeBuildCheck
+    from ldsc._genome.build_policy import GenomeBuildCheck
     path = tmp_path / 'chr1_r2.parquet'
     pq.write_table(pa.table({'IDX_1': [0]}).replace_schema_metadata(
         {b'ldsc:genome_build': b'hg19'}), path)
@@ -322,7 +322,7 @@ def test_r2_sidecar_declaration_participates_with_an_explicit_build(tmp_path):
 
 @pytest.mark.parametrize('requested, declared', [('hg19', 'GRCh38'), ('GRCh37', 'hg38')])
 def test_explicit_build_rejects_conflicting_declarations(requested, declared):
-    from ldsc._genome_build_policy import GenomeBuildCheck
+    from ldsc._genome.build_policy import GenomeBuildCheck
     check = GenomeBuildCheck(requested, context='test')
     check.declared('gene catalog', 'genes.tsv', declared)
     with pytest.raises(LDSCInputError) as caught:
@@ -332,8 +332,8 @@ def test_explicit_build_rejects_conflicting_declarations(requested, declared):
 
 
 def test_explicit_build_accepts_aliases_and_unlabeled_coordinates_without_inference(tmp_path, monkeypatch):
-    from ldsc._genome_build_policy import GenomeBuildCheck
-    monkeypatch.setattr('ldsc._genome_build_policy.infer_chr_pos_build',
+    from ldsc._genome.build_policy import GenomeBuildCheck
+    monkeypatch.setattr('ldsc._genome.build_policy.infer_chr_pos_build',
                         lambda *a, **k: pytest.fail('Explicit builds must not infer coordinates'))
     declared, unlabeled = tmp_path / 'declared.tsv', tmp_path / 'unlabeled.tsv'
     declared.write_text('# ldsc:genome_build=GRCh37\nCHR\tPOS\n1\t123\n')
@@ -366,7 +366,7 @@ def test_munge_preserves_bzip2_build_validation(tmp_path, declared, fails):
 
 def test_annotation_sidecar_declarations_must_agree(tmp_path):
     import json
-    from ldsc._genome_build_policy import GenomeBuildCheck
+    from ldsc._genome.build_policy import GenomeBuildCheck
     path = tmp_path / 'baseline.annot'
     path.write_text('CHR\tPOS\tbase\n1\t123\t1\n')
     (tmp_path / 'diagnostics').mkdir()
@@ -380,7 +380,7 @@ def test_annotation_sidecar_declarations_must_agree(tmp_path):
 
 
 def test_mixed_catalog_labels_are_conflicts_not_coordinate_alternatives(tmp_path):
-    from ldsc._genome_build_policy import GenomeBuildCheck
+    from ldsc._genome.build_policy import GenomeBuildCheck
     path = tmp_path / 'mixed.tsv'
     path.write_text('CHR\tPOS\tgenome_build\n1\t123\thg19\n2\t456\thg38\n')
     check = GenomeBuildCheck('hg19', context='test')
@@ -391,7 +391,7 @@ def test_mixed_catalog_labels_are_conflicts_not_coordinate_alternatives(tmp_path
 
 @pytest.mark.parametrize('build', ['hg19', 'hg38'])
 def test_explicit_build_selects_coordinate_alternatives(tmp_path, build):
-    from ldsc._genome_build_policy import GenomeBuildCheck
+    from ldsc._genome.build_policy import GenomeBuildCheck
     path = tmp_path / 'alternatives.tsv'
     path.write_text('CHR\thg19_POS\thg38_POS\n1\t123\t456\n')
     check = GenomeBuildCheck(build, context='test')
@@ -430,7 +430,7 @@ def test_panel_explicit_source_build_checks_keep_list_declaration(tmp_path):
 def test_declared_footer_and_column_must_agree(tmp_path):
     import pyarrow as pa
     import pyarrow.parquet as pq
-    from ldsc._genome_build_policy import GenomeBuildCheck
+    from ldsc._genome.build_policy import GenomeBuildCheck
     path = tmp_path / 'conflicting.parquet'
     pq.write_table(pa.table({'CHR': [1], 'POS': [123], 'genome_build': ['hg38']})
                    .replace_schema_metadata({b'ldsc:genome_build': b'hg19'}), path)

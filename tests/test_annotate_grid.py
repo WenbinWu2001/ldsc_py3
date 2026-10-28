@@ -136,7 +136,7 @@ def test_bim_bad_structure_has_actionable_failure(tmp_path, content, message):
 
 
 def test_bim_auto_build_uses_packaged_evidence(tmp_path):
-    from ldsc.genome_build_inference import load_packaged_reference_table
+    from ldsc._genome.build_inference import load_packaged_reference_table
     reference = load_packaged_reference_table().head(500)
     bim, bed = tmp_path / 'grid.bim', tmp_path / 'focal.bed'
     bim.write_text(''.join(f'{row.CHR} rs{i} 0 {row.hg19_POS} A C\n' for i, row in enumerate(reference.itertuples(index=False))))

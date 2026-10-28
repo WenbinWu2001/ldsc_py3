@@ -63,13 +63,13 @@ from .errors import (
     LDSCUsageError,
     LDSCUserError,
 )
-from .genome_build_inference import (
+from ._genome.build_inference import (
     ChrPosBuildInference,
     infer_chr_pos_build,
     resolve_genome_build,
     resolve_chr_pos_table,
 )
-from .hm3 import load_hm3_curated_map
+from ._genome.hm3 import load_hm3_curated_map
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
 from .gene_ldscore_index import build_gene_ldscore_index, load_gene_ldscore_index
 from .outputs import (

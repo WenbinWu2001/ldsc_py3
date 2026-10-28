@@ -153,7 +153,7 @@ In either case, confirm the genome build from the source metadata before declari
 2. Fix column mapping or delimiter issues before retrying automatic inference.
 3. Rebuild the input so all CHR/POS rows use one genome build and one coordinate basis.
 
-**Developer reference:** `genome_build_inference.resolve_genome_build()` and `genome_build_inference.resolve_chr_pos_table()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_genome.build_inference.resolve_genome_build()` and `_genome.build_inference.resolve_chr_pos_table()` · **Exception:** `LDSCInputError`
 
 ### Common: genome-build consistency check failed
 
@@ -381,7 +381,7 @@ Concrete source/output build options do not apply to rsID-family munging.
 
 Successful runs report the method and counts in stdout and `diagnostics/sumstats.log`, including at `--log-level ERROR`; failed runs retain the error and available counts in the log and do not print a success summary. An all-dropped liftover fails before writing the dropped-SNP sidecar, so inspect its count-bearing error first. Mapping input is measured after earlier QC and keep-list filtering. See the [liftover behavior table](../reference/munge-sumstats.md#liftover-rules).
 
-**Developer reference:** `_kernel.liftover.apply_sumstats_liftover()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_genome.liftover.apply_sumstats_liftover()` · **Exception:** `LDSCInputError`
 
 ## `annotate`
 
@@ -486,7 +486,7 @@ SNP contradictions produce `.<index-name>.build-state/baseline_plink_issues.tsv`
 The table identifies shared keys, baseline/PLINK sources, coordinates and usable normalized allele pairs, and a reason such as `coordinate_mismatch`, `allele_mismatch`, or `cross_chromosome_coordinate_mismatch`.
 Verify the reference releases and repair the indicated records; ordinary unmatched SNPs and shared-policy identity cleanup remain separate diagnostics.
 
-**Developer reference:** `gene_ldscore_index._validate_baseline_plink_inputs()` and `_genome_build_policy.GenomeBuildCheck` · **Exception:** `LDSCInputError`
+**Developer reference:** `gene_ldscore_index._validate_baseline_plink_inputs()` and `_genome.build_policy.GenomeBuildCheck` · **Exception:** `LDSCInputError`
 
 ### `build-gene-ldscore-index`: a partial hidden stage remains after failure
 
@@ -693,7 +693,7 @@ For verified unlabeled inputs, assert the build with `--genome-build hg19` or `-
 
 See the [complete grouped report](#common-genome-build-consistency-check-failed) and [keep-list guidance](#common-keep-list-build-could-not-be-resolved).
 
-**Developer reference:** `ldscore_calculator._resolve_ldscore_chr_pos_genome_build()` and `_genome_build_policy.GenomeBuildCheck` · **Exception:** `LDSCInputError`
+**Developer reference:** `ldscore_calculator._resolve_ldscore_chr_pos_genome_build()` and `_genome.build_policy.GenomeBuildCheck` · **Exception:** `LDSCInputError`
 
 ### `ldscore`: unusable CM for ld-wind-cm
 
@@ -792,7 +792,7 @@ SNP selection is checked for every chromosome before any genotypes are read, and
    A concrete `--source-genome-build` bypasses fresh inference and must agree with declarations; it does not convert positions.
 3. Fix ragged rows or delimiter/header issues before rerunning.
 
-**Developer reference:** `ref_panel_builder.ReferencePanelBuilder._resolve_source_genome_build()`, `_genome_build_policy.GenomeBuildCheck`, and `_core.columns.resolve_restriction_chr_pos_columns()` · **Exception:** `LDSCInputError`
+**Developer reference:** `ref_panel_builder.ReferencePanelBuilder._resolve_source_genome_build()`, `_genome.build_policy.GenomeBuildCheck`, and `_core.columns.resolve_restriction_chr_pos_columns()` · **Exception:** `LDSCInputError`
 
 ### `build-r2-panel`: reference-panel artifact is incompatible
 

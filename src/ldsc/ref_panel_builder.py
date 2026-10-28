@@ -78,7 +78,7 @@ from ._core import plink_files as legacy_parse
 from ._core import identifiers as kernel_identifiers
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel import ref_panel_builder as kernel_builder
-from ._kernel.liftover import (
+from ._genome.liftover import (
     duplicate_coordinate_drop_result,
     liftover_drop_report,
     log_liftover_drop_report,
@@ -559,7 +559,7 @@ class ReferencePanelBuilder:
                 "Most likely a Python caller bypassed CLI choices with an invalid build token. "
                 "Use `source_genome_build='auto'`, `'hg19'`, or `'hg38'`."
             )
-        from ._genome_build_policy import GenomeBuildCheck
+        from ._genome.build_policy import GenomeBuildCheck
 
         check = GenomeBuildCheck(config.source_genome_build, context="build-r2-panel", option="--source-genome-build", logger=LOGGER)
         for prefix in resolved_prefixes:
@@ -594,7 +594,7 @@ class ReferencePanelBuilder:
                 label="hg38 genetic map",
                 allow_chromosome_suite=True,
             )
-        from ._genome_build_policy import GenomeBuildCheck
+        from ._genome.build_policy import GenomeBuildCheck
         for build, paths in (("hg19", hg19_files), ("hg38", hg38_files)):
             if paths:
                 check = GenomeBuildCheck(build, context=f"build-r2-panel {build} genetic map", logger=LOGGER)

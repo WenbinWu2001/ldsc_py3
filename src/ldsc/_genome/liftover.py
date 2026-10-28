@@ -24,7 +24,7 @@ from .._core.coordinates import complete_coordinate_mask, normalize_chr_pos_fram
 from .._core.chromosomes import normalize_chromosome
 from .._core.columns import normalize_genome_build, normalize_snp_identifier_mode
 from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
-from ..hm3 import _load_hm3_curated_map_from_path
+from .hm3 import _load_hm3_curated_map_from_path
 from .._core.snp_identity import identity_mode_family
 
 LOGGER = logging.getLogger("LDSC.liftover")

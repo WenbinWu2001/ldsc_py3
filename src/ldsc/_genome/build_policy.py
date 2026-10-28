@@ -16,14 +16,14 @@ from pathlib import Path
 import pandas as pd
 import pyarrow.parquet as pq
 
-from ._core.coordinates import normalize_chr_pos_frame
-from ._core.columns import (
+from .._core.coordinates import normalize_chr_pos_frame
+from .._core.columns import (
     normalize_genome_build, resolve_optional_column, resolve_required_column,
     RESTRICTION_CHRPOS_SPEC_MAP, RESTRICTION_HG19_POS_SPEC, RESTRICTION_HG38_POS_SPEC,
 )
-from .errors import LDSCInputError, LDSCUserError
-from .genome_build_inference import infer_chr_pos_build
-from ._runtime.paths import resolve_file_group, resolve_plink_prefix_group, split_cli_path_tokens
+from ..errors import LDSCInputError, LDSCUserError
+from .build_inference import infer_chr_pos_build
+from .._runtime.paths import resolve_file_group, resolve_plink_prefix_group, split_cli_path_tokens
 
 _INPUT_ERRORS = (OSError, ValueError, KeyError, EOFError, LDSCUserError)
 _BUILDS = frozenset(("hg19", "hg38"))

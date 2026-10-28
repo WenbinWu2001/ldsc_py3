@@ -1099,7 +1099,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
         )
 
-        with mock.patch('ldsc._genome_build_policy.infer_chr_pos_build',
+        with mock.patch('ldsc._genome.build_policy.infer_chr_pos_build',
                         return_value=SimpleNamespace(genome_build='hg38', coordinate_basis='1-based', inspected_snp_count=500)):
             dataset = runner.build_dataset(sumstats, ldscore_result, query_columns=["query1"])
 
@@ -1857,11 +1857,11 @@ class RegressionWorkflowTest(unittest.TestCase):
         frame = pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [10], "Z": [1.0], "N": [100.0]})
         sumstats = replace(self.make_sumstats_table(), data=frame, config_snapshot=None)
         with mock.patch(
-            "ldsc._genome_build_policy.infer_chr_pos_build", return_value=SimpleNamespace(genome_build="hg38", coordinate_basis="1-based", inspected_snp_count=500)
+            "ldsc._genome.build_policy.infer_chr_pos_build", return_value=SimpleNamespace(genome_build="hg38", coordinate_basis="1-based", inspected_snp_count=500)
         ):
             regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
         with mock.patch(
-            "ldsc._genome_build_policy.infer_chr_pos_build", return_value=SimpleNamespace(genome_build="hg19", coordinate_basis="1-based", inspected_snp_count=500)
+            "ldsc._genome.build_policy.infer_chr_pos_build", return_value=SimpleNamespace(genome_build="hg19", coordinate_basis="1-based", inspected_snp_count=500)
         ):
             with self.assertRaisesRegex(LDSCInputError, "Conflicting genome-build evidence"):
                 regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
@@ -1870,7 +1870,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         frame = pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [10], "Z": [1.0], "N": [100.0]})
         sumstats = replace(self.make_sumstats_table(), data=frame, config_snapshot=None)
         with mock.patch(
-            "ldsc._genome_build_policy.infer_chr_pos_build", side_effect=LDSCInputError("could not infer")
+            "ldsc._genome.build_policy.infer_chr_pos_build", side_effect=LDSCInputError("could not infer")
         ):
             with self.assertRaisesRegex(LDSCInputError, "unresolved:"):
                 regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")

@@ -1437,7 +1437,7 @@ def _regression_genome_build(
     """
     if identity_mode_family(identifier_mode) != "chr_pos":
         return
-    from ._genome_build_policy import GenomeBuildCheck
+    from ._genome.build_policy import GenomeBuildCheck
 
     check = GenomeBuildCheck('auto', context='regression', option=None, logger=LOGGER)
     tables = sumstats_tables if isinstance(sumstats_tables, (list, tuple)) else [sumstats_tables]

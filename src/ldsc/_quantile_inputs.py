@@ -191,7 +191,7 @@ def prepare_quantile_statistics(args, model, workspace, diagnostics):
     """Validate sources and reduce chromosome artifacts using exact global bounds."""
     metadata = json.loads((model.ldscore_dir / "metadata.json").read_text(encoding="utf-8"))
     if str(metadata.get('snp_identifier', '')).startswith('chr_pos'):
-        from ._genome_build_policy import GenomeBuildCheck
+        from ._genome.build_policy import GenomeBuildCheck
         check = GenomeBuildCheck('auto', context='quantile-h2', option=None)
         check.declared('saved LD scores', model.ldscore_dir, metadata.get('genome_build'))
         for role in ('baseline_annot_sources', 'query_annot_sources', 'target_annot_sources', 'ref_metadata_sources', 'gene_coordinate_file'):

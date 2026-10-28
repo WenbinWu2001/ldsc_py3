@@ -23,7 +23,7 @@ import pandas as pd
 
 from ldsc._core.snp_identity import allele_set_series
 from ldsc.errors import LDSCUsageError
-from ldsc.hm3 import _load_hm3_curated_map_from_path, packaged_hm3_curated_map_path
+from ldsc._genome.hm3 import _load_hm3_curated_map_from_path, packaged_hm3_curated_map_path
 
 REFERENCE_COLUMNS = ["CHR", "hg19_POS", "hg38_POS"]
 

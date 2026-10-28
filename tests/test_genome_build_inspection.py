@@ -11,7 +11,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ldsc import cli
-from ldsc.genome_build_inference import load_packaged_reference_table
+from ldsc._genome.build_inference import load_packaged_reference_table
 
 
 RSID_NOTICE = "This artifact's workflow uses rsIDs for SNP matching."
@@ -321,7 +321,7 @@ def test_cli_entrypoints_streams_exits_and_read_only(tmp_path, entrypoint):
 
 
 def test_internal_failure_returns_two(tmp_path, monkeypatch, caplog):
-    from ldsc import _genome_build_inspection
+    from ldsc._genome import build_inspection as _genome_build_inspection
 
     path = tmp_path / "input.tsv"
     path.write_text("SNP\nrs1\n")

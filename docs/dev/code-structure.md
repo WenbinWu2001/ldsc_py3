@@ -77,12 +77,12 @@ ldsc_py3_restructured/
 | `ldsc._runtime.workflow_logging` | shared workflow logging context, `LDSC` logger level handling, lifecycle audit lines, CLI console-handler routing (file-authoritative, console error-only) with run-aborting traceback capture, durable authorized-overwrite failure markers without rollback, and log-only formatting helpers |
 | `ldsc._core.columns` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc._core.chromosomes` | canonical chromosome normalization and ordering |
-| `ldsc.genome_build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
-| `ldsc.hm3` | public packaged curated HM3 map loader and installed map path helper for workflow internals |
+| `ldsc._genome.build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
+| `ldsc._genome.hm3` | public packaged curated HM3 map loader and installed map path helper for workflow internals |
 | `ldsc.gene_list_resolver` | required/embedded gene-coordinate-catalog validation and vectorized query/control resolution into exact IDs, intervals, audits, and summaries |
 | `ldsc.query_annotations` | shared gene coverage, resolution/support precedence, required-control and all-skipped failures, ordered diagnostics, and aligned result pruning; does not import workflow orchestration |
 | `tools/hm3/build_hm3_chr_pos_reference.py` | maintenance tool (outside the package) that rebuilds the compact HM3 coordinate reference used by genome-build inference |
-| `ldsc._kernel.liftover` | shared hg19/hg38 liftover helpers, chain-file translation, dual-build HM3 quick liftover, drop-all coordinate collision helpers, and readable drop reports |
+| `ldsc._genome.liftover` | shared hg19/hg38 liftover helpers, chain-file translation, dual-build HM3 quick liftover, drop-all coordinate collision helpers, and readable drop reports |
 | `ldsc._core.regions` | packaged and user BED interval loading plus region-exclusion masks |
 | `ldsc._kernel.plink_bed` | PLINK genotype reader (`PlinkBEDFile` and its `__GenotypeArrayInMemory__` base, including LD-score block sums): selective SNP reads with fused individual filtering retain only selected packed genotypes; unrestricted panel builds opt into disk streaming instead |
 | `ldsc.annotation_builder` | public annotation builder and general standalone parser/API dispatch seam |
@@ -143,8 +143,8 @@ ldsc_py3_restructured/
 | change a keyword-argument Python workflow (`run_ldscore`, `run_build_ref_panel`, `run_h2`, `run_partitioned_h2`, `run_rg`, `run_quantile_h2`) | the function in its workflow module, keyword checks in `src/ldsc/_runtime/workflow_kwargs.py`; verify `tests/test_workflow_keyword_checks.py` and `tests/test_python_regression_workflows.py` |
 | change workflow log files, lifecycle lines, or log-level handling | `src/ldsc/_runtime/workflow_logging.py`, then the workflow orchestration function that owns the output directory |
 | change header aliases or identifier/build normalization | `src/ldsc/_core/columns.py` |
-| change read-only artifact build inspection | `src/ldsc/_genome_build_inspection.py`, with CLI dispatch in `src/ldsc/cli.py` and coverage in `tests/test_genome_build_inspection.py` |
-| change automatic `chr_pos` genome-build inference | `src/ldsc/genome_build_inference.py` |
+| change read-only artifact build inspection | `src/ldsc/_genome/build_inspection.py`, with CLI dispatch in `src/ldsc/cli.py` and coverage in `tests/test_genome_build_inspection.py` |
+| change automatic `chr_pos` genome-build inference | `src/ldsc/_genome/build_inference.py` |
 | change annotation loading or `ldsc annotate` behavior | `src/ldsc/annotation_builder.py`, then `src/ldsc/_annotation_sources.py` and `src/ldsc/annotate_workflow.py` |
 | change BED parsing or interval projection | `src/ldsc/_core/regions.py:iter_bed_rows`, then `src/ldsc/_annotation_queries.py` and `src/ldsc/_annotation_projection.py:ChromosomeProjector` |
 | change gene coordinate catalog validation, identifier resolution, or list naming | `src/ldsc/gene_list_resolver.py`, then `src/ldsc/annotation_builder.py` |

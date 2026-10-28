@@ -609,7 +609,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 self.assertEqual(request.coordinate_basis, "0-based")
                 return original_parse(dat_gen, request)
 
-            with mock.patch("ldsc._genome_build_policy.infer_chr_pos_build", return_value=inference), \
+            with mock.patch("ldsc._genome.build_policy.infer_chr_pos_build", return_value=inference), \
                  mock.patch.object(kernel_munge, "parse_dat", side_effect=assert_auto_resolved_before_parse):
                 table = SumstatsMunger().run(
                     MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, trait_name="trait"),
@@ -1338,7 +1338,7 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path.write_text("CHR POS SNP A1 A2 P BETA N\n1 99 rs1 A G .05 .05 1000\n")
             inference = mock.Mock(genome_build="hg38", coordinate_basis="0-based", inspected_snp_count=1,
                                   match_counts={}, match_fractions={}, summary_message="inferred hg38 0-based")
-            with mock.patch("ldsc._genome_build_policy.infer_chr_pos_build", return_value=inference), \
+            with mock.patch("ldsc._genome.build_policy.infer_chr_pos_build", return_value=inference), \
                  mock.patch.object(kernel_munge, "munge_sumstats", wraps=kernel_munge.munge_sumstats) as kernel:
                 sumstats_workflow.main(["--no-snp-restriction",
                     "--raw-sumstats-file", str(raw_path), "--output-dir", str(tmpdir / "out"),
@@ -2141,7 +2141,7 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
 
-            with mock.patch("ldsc._genome_build_policy.infer_chr_pos_build", return_value=inference):
+            with mock.patch("ldsc._genome.build_policy.infer_chr_pos_build", return_value=inference):
                 table = SumstatsMunger().run(
                     MungeConfig(no_snp_restriction=True, raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(
@@ -2616,7 +2616,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertIn("--source-genome-build hg38", output)
 
     def test_infer_only_checks_later_chromosomes_without_output(self):
-        from ldsc.genome_build_inference import load_packaged_reference_table
+        from ldsc._genome.build_inference import load_packaged_reference_table
         reference = load_packaged_reference_table()
         with tempfile.TemporaryDirectory() as tmpdir:
             raw_path = Path(tmpdir) / "raw.tsv"

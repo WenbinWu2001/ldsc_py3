@@ -47,7 +47,7 @@ Missing/unreadable inputs, malformed/unsupported formats, unrecognized directori
 A successful inspection does not replace the workflow consistency checks below.
 See the [full inspection contract](../../reference/snp-identity-and-genome-build.md#standalone-build-inspection).
 
-Source: `inspect_genome_build()` in [_genome_build_inspection.py](../../../src/ldsc/_genome_build_inspection.py), CLI dispatch in [cli.py](../../../src/ldsc/cli.py), and [inspection acceptance tests](../../../tests/test_genome_build_inspection.py).
+Source: `inspect_genome_build()` in [_genome/build_inspection.py](../../../src/ldsc/_genome/build_inspection.py), CLI dispatch in [cli.py](../../../src/ldsc/cli.py), and [inspection acceptance tests](../../../tests/test_genome_build_inspection.py).
 
 ## Genome-build inference, checking, and overrides
 

@@ -236,7 +236,7 @@ class R2Panel:
             )
         panel = cls(paths, mode, contracts)
         if panel._mode.startswith('chr_pos'):
-            from ._genome_build_policy import GenomeBuildCheck
+            from ._genome.build_policy import GenomeBuildCheck
             check = GenomeBuildCheck(genome_build, context='query-r2', logger=LOGGER)
             for _, parquet_path in paths.values():
                 check.table('--panel-dir', parquet_path)

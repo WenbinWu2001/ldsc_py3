@@ -11,7 +11,7 @@ This document summarizes the user-visible file streams for each public workflow.
 | Layer | Public? | Modules | Role |
 | --- | --- | --- | --- |
 | CLI | yes | `ldsc.cli` | parse subcommands and dispatch |
-| Preprocessing | yes | `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`, `ldsc._core.chromosomes`, `ldsc.genome_build_inference` | normalize tokens, headers, identifiers, chromosome order, and genome-build assumptions |
+| Preprocessing | yes | `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`, `ldsc._core.chromosomes`, `ldsc._genome.build_inference` | normalize tokens, headers, identifiers, chromosome order, and genome-build assumptions |
 | Workflow | yes | feature modules under `src/ldsc/` | build aligned in-memory tables |
 | Kernel | no | `ldsc._kernel.*` | low-level readers and numerical work |
 | Artifact access | yes | `ldsc.ldscore_source` | open LD-score directories, validate schemas/identities, and read selected query columns |
@@ -512,7 +512,7 @@ flowchart LR
 
 - Preprocessing: `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`
 - Workflow: `ldsc.sumstats_munger`, `ldsc._sumstats_input`
-- Kernel: `ldsc._kernel.sumstats_munger`, `ldsc._kernel.liftover`
+- Kernel: `ldsc._kernel.sumstats_munger`, `ldsc._genome.liftover`
 - Postprocessing: workflow-owned Parquet/TSV writing, log, and metadata writing
 
 Allele columns keep the legacy LDSC names `A1` and `A2`. `A1` means the

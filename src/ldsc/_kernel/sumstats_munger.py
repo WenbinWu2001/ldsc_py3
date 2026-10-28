@@ -41,7 +41,7 @@ from .._core.identifiers import (
     read_snp_restriction_keys,
     restriction_file_has_allele_columns,
 )
-from .liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
+from .._genome.liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
 from .._core.snp_identity import (
     VALID_SNPS,
     RestrictionIdentityKeys,

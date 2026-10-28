@@ -117,7 +117,7 @@ def test_unresolved_source_and_missing_output_never_choose_a_build(inputs, tmp_p
 
 
 def test_real_packaged_hm3_infers_source_before_automatic_mapping(tmp_path):
-    from ldsc.genome_build_inference import load_packaged_reference_table
+    from ldsc._genome.build_inference import load_packaged_reference_table
 
     reference = load_packaged_reference_table().head(300)
     reference = reference.assign(SNP=[f"label_{i}" for i in range(len(reference))])

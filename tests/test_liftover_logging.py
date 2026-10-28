@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 
-from ldsc._kernel.liftover import LiftoverDropReport, log_liftover_drop_report
+from ldsc._genome.liftover import LiftoverDropReport, log_liftover_drop_report
 
 
 def test_liftover_drop_report_logs_counts_at_info_and_examples_at_debug(caplog, tmp_path):

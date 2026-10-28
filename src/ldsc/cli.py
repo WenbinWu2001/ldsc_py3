@@ -179,7 +179,7 @@ def main(argv: Sequence[str] | None = None):
         command = argv[0]
         subargv = argv[1:]
         if command == "infer-genome-build":
-            from ._genome_build_inspection import inspect_genome_build
+            from ._genome.build_inspection import inspect_genome_build
 
             parser = _NoAbbrevArgumentParser(
                 prog="ldsc infer-genome-build", description=_SUBCOMMAND_HELP[command],

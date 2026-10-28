@@ -2139,7 +2139,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
 
     def test_normalize_run_args_chr_pos_auto_infers_matching_annotation_and_r2_dir_builds(self):
-        from ldsc.genome_build_inference import load_packaged_reference_table
+        from ldsc._genome.build_inference import load_packaged_reference_table
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             baseline, r2_dir = root / 'baseline.annot', root / 'panel'
@@ -2197,7 +2197,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
     def test_normalize_run_args_chr_pos_auto_rejects_annotation_r2_build_mismatch(self):
-        from ldsc.genome_build_inference import load_packaged_reference_table
+        from ldsc._genome.build_inference import load_packaged_reference_table
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             baseline, r2_dir = root / 'baseline.annot', root / 'panel'

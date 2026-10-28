@@ -69,7 +69,7 @@ from .errors import (
     LDSCUsageError,
     LDSCUserError,
 )
-from .hm3 import packaged_hm3_curated_map_path
+from ._genome.hm3 import packaged_hm3_curated_map_path
 from ._runtime.paths import (
     ensure_output_directory,
     preflight_output_artifact_family,
@@ -87,7 +87,7 @@ from ._core.snp_identity import (
     is_allele_aware_mode,
     validate_identity_artifact_metadata,
 )
-from ._kernel.liftover import SumstatsLiftoverRequest, default_liftover_metadata
+from ._genome.liftover import SumstatsLiftoverRequest, default_liftover_metadata
 from ._kernel import sumstats_munger as kernel_munge
 from . import _sumstats_input as munge_input
 

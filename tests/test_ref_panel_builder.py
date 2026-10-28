@@ -2307,7 +2307,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertTrue(any("synchronized cross-build drops" in message for message in logs.output))
 
     def test_builder_run_infers_source_genome_build_before_build_state_preparation(self):
-        from ldsc.genome_build_inference import load_packaged_reference_table
+        from ldsc._genome.build_inference import load_packaged_reference_table
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             rows = load_packaged_reference_table().head(500)

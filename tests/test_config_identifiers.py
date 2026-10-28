@@ -20,7 +20,7 @@ from ldsc.config import (
     RegressionConfig,
     normalize_genome_build,
 )
-from ldsc.genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
+from ldsc._genome.build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from ldsc._core.columns import clean_header
 from ldsc._core.identifiers import (
     build_chr_pos_snp_id,

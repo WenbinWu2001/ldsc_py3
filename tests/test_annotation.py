@@ -1398,7 +1398,7 @@ class AnnotationWrapperTest(unittest.TestCase):
                 self.assertTrue(Path(result.output_paths["query_annotations"][0]).is_file())
 
     def test_main_chr_pos_auto_resolves_build_before_running(self):
-        from ldsc.genome_build_inference import load_packaged_reference_table
+        from ldsc._genome.build_inference import load_packaged_reference_table
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             baseline, bed = root / "baseline.2.annot", root / "query.bed"

@@ -64,7 +64,7 @@ from .config import (
     print_global_config_banner,
     validate_config_compatibility,
 )
-from .hm3 import packaged_hm3_curated_map_path
+from ._genome.hm3 import packaged_hm3_curated_map_path
 from .outputs import (
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
@@ -441,7 +441,7 @@ class LDScoreCalculator:
                 "Reference metadata is a filesystem artifact, so pass LDScoreOutputConfig(output_dir=...)."
             )
         if identity_mode_family(global_config.snp_identifier) == "chr_pos":
-            from ._genome_build_policy import GenomeBuildCheck
+            from ._genome.build_policy import GenomeBuildCheck
             check = GenomeBuildCheck(global_config.genome_build, context='LDScoreCalculator', logger=LOGGER)
             for role, obj in (("annotations", annotation_bundle), ("reference panel", ref_panel)):
                 snapshot = getattr(obj, 'config_snapshot', None) or getattr(obj, 'global_config', None)
@@ -2129,7 +2129,7 @@ def _resolve_ldscore_chr_pos_genome_build(
             "was omitted. Pass `--genome-build auto`, `--genome-build hg19`, or "
             "`--genome-build hg38`."
         )
-    from ._genome_build_policy import GenomeBuildCheck
+    from ._genome.build_policy import GenomeBuildCheck
 
     check = GenomeBuildCheck(normalized, context="ldscore", logger=LOGGER)
     if gene_catalog_build is not None:

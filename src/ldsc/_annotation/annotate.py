@@ -27,7 +27,7 @@ from .._genome.build_policy import GenomeBuildCheck
 from .outputs import AnnotationDirectoryWriter
 from .._runtime.paths import ensure_output_directory, resolve_file_group, split_cli_path_tokens
 from .query_outcomes import (
-    gene_query_statuses, gene_viability_errors, all_query_annotations_skipped_message,
+    gene_query_statuses, gene_viability_errors, all_query_annotations_skipped_message, gene_list_gate_a_message,
     emit_bed_query_notice, emit_gene_gate_b_notice, emit_resolved_only_notice,
 )
 
@@ -55,18 +55,12 @@ def _projection_build(requested, mode, baseline_tokens, catalog, *, bim_tokens=(
 
 
 def _gate_a_error(batch, naming_error=None):
-    samples, rejected = [], 0
-    for frame in batch.audit_frames():
-        invalid = frame.loc[frame.disposition.eq('rejected')]
-        rejected += len(invalid)
-        for row in invalid.head(max(0, 10-len(samples))).itertuples(index=False):
-            samples.append(f'{row.source} line {row.line}: {row.input_gene!r} ({row.reason})')
-    sources = batch.summary.loc[batch.summary.source_status.eq('error')]
-    issues = [f'{row.source}: {row.source_reasons}' for row in sources.head(10).itertuples(index=False)]
-    issues.extend(samples)
+    # Shares the ldscore wording: per-source counts, omitted examples, audit filter, overwrite.
+    parts = [gene_list_gate_a_message(batch)]
     if naming_error:
-        issues.append(str(naming_error))
-    return LDSCInputError(f'Gene-list catalog preflight rejected {rejected} submitted row(s). ' + '; '.join(issues) + '. Complete diagnostics: diagnostics/gene_list_audit.tsv.gz and diagnostics/gene_list_resolution_summary.tsv. Repair the listed inputs and rerun. Other causes & fixes: docs/user-guide/troubleshooting.md#annotate-gene-list-preflight')
+        parts.append(str(naming_error))
+    parts.append('Other causes & fixes: docs/user-guide/troubleshooting.md#annotate-gene-list-preflight')
+    return LDSCInputError(' '.join(parts))
 
 
 @materializing_overwrite_guard(lambda *args, **kwargs: (kwargs.get('output_dir'), kwargs.get('overwrite', False), 'RUN_FAILED.txt') if kwargs.get('output_dir') else None, command='run_annotate(...)')

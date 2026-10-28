@@ -60,10 +60,12 @@ The contract is in [reference SNPs on the annotation SNP grid](docs/reference/ld
 - Baseline and prebuilt query files still need identical rows in identical order; that row-mismatch error now explains the shared SNP grid and links a new troubleshooting section.
 - The earlier decision-5 example ("a BIM grid A, B, C with a baseline covering A and B") already failed through row alignment before this work, so it was not the missing check; the tests in `tests/test_reference_snp_funnel.py` cover the grid-versus-panel behavior instead.
 
-### Open
+### Resolved follow-ups (2026-10-28)
 
-1. **Gene-list strict error guidance is incomplete:** `_gate_a_error()` gives a total rejected count and up to ten examples, but no per-source rejected/submitted counts, omitted-example count, audit filter, or overwrite guidance.
-   This is a localized message change.
+- `annotate`'s gene-list preflight error (`_gate_a_error()`) now reuses `gene_list_gate_a_message()`, the `ldscore` wording: per-source rejected/submitted counts, up to ten examples with the omitted count, a suggested audit filter and the `--overwrite` rerun, followed by any naming collision and the troubleshooting link.
+  A message with no rejected rows no longer prints an empty `()`.
+- rsID-family runs on an R² panel no longer print "genome_build is set but will be ignored": `_artifact_global_config()` drops the build that the panel records instead of passing it to `GlobalConfig`.
+  The warning remains for a build the caller supplies.
 
 ## Reading map
 

@@ -62,6 +62,33 @@ def test_annotate_reports_name_and_identifier_issues_together(tmp_path):
     assert_no_projection_outputs(output)
 
 
+def test_strict_rejection_message_counts_sources_and_guides_repair(tmp_path):
+    baseline, _, _, catalog = inputs(tmp_path)
+    many, few = tmp_path / "many.txt", tmp_path / "few.txt"
+    many.write_text("".join(f"MISSING{index:02d}\n" for index in range(12)))
+    few.write_text("G1\nUNKNOWN\n")
+    output = tmp_path / "out"
+
+    with pytest.raises(LDSCInputError) as failure:
+        run_annotate(
+            ref_snp_annot_sources=baseline,
+            query_annot_gene_list_sources=[many, few],
+            gene_coordinate_file=catalog,
+            padding_bp=0,
+            genome_build="hg19",
+            global_config=GlobalConfig(snp_identifier="rsid"),
+            output_dir=output,
+        )
+
+    message = str(failure.value)
+    assert "rejected 13 of 14 submitted row(s)" in message
+    assert "many.txt: 12/12 rejected; few.txt: 1/2 rejected" in message
+    assert "3 more rejected row(s) are in the audit" in message
+    assert "Suggested audit filter: source == 'many.txt' & disposition == 'rejected'" in message
+    assert "--overwrite" in message
+    assert "docs/user-guide/troubleshooting.md#annotate-gene-list-preflight" in message
+
+
 @pytest.mark.parametrize("kind,name,rows", [
     ("annot", "focal", "UNKNOWN\n"),
     ("annot", "base", "G1\n"),
@@ -122,10 +149,11 @@ def test_gene_gate_stops_before_grid_preparation(tmp_path, monkeypatch, kind, is
     for operation in ("_projection_build", "prepare_annotation_sources", "prepare_bim_grid", "build_query_shards"):
         monkeypatch.setattr(annotate_workflow, operation, unexpected_preparation)
     output = tmp_path / "out"
-    with pytest.raises(LDSCInputError, match="Gene-list catalog preflight"):
+    with pytest.raises(LDSCInputError, match="Gene-list catalog preflight") as failure:
         run_annotate(**grid, query_annot_gene_list_sources=[genes], gene_coordinate_file=catalog,
                      padding_bp=0, genome_build="hg19", global_config=GlobalConfig(snp_identifier="rsid"),
                      output_dir=output)
+    assert "()" not in str(failure.value)
     assert_no_projection_outputs(output)
 
 

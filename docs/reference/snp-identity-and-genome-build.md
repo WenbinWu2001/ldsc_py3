@@ -289,6 +289,9 @@ That design must also revisit the R² panel `--ld-wind-snps` ordering of same-po
 `__post_init__` enforces this table. The coordinate-family `None` raise
 converts a latent error into an early, actionable failure.
 
+The rsID-family warning is for a build the caller supplied.
+Reference panels always record their build, and an rsID-family run drops that recorded build without a warning (`_artifact_global_config()` in `src/ldsc/_refpanel/adapters.py`).
+
 ---
 
 ## Default State

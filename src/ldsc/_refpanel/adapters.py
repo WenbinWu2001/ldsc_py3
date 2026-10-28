@@ -100,7 +100,12 @@ def _artifact_global_config(metadata, global_config, source):
         if build is not None:
             check.declared("reference artifact", source, build)
         build = check.resolve()
-    return GlobalConfig(snp_identifier=str(metadata["snp_identifier"]), genome_build=build)
+    mode = str(metadata["snp_identifier"])
+    # Artifacts always record a build; rsID-family identity ignores it, so drop it
+    # here instead of triggering GlobalConfig's warning about a user-supplied build.
+    if identity_mode_family(mode) == "rsid":
+        build = None
+    return GlobalConfig(snp_identifier=mode, genome_build=build)
 
 
 def _validate_r2_identity_matches_config(metadata: dict[str, object], global_config: GlobalConfig, *, source="R2 panel") -> None:

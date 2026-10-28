@@ -152,6 +152,20 @@ def test_parquet_panel_with_a_pair_floor_is_rejected_at_preparation(tmp_path):
         )
 
 
+def test_rsid_preparation_of_a_build_tagged_panel_raises_no_genome_build_warning(tmp_path, recwarn):
+    # Panels always record their build; rsID-family runs ignore it without
+    # the GlobalConfig warning meant for a user-supplied genome_build.
+    metadata = write_panel(tmp_path)
+    panel = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"),
+                              RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
+    with panel.prepare_chromosome(
+        "1", ChromosomeAnnotations(metadata, pd.DataFrame({"base": [1, 1]}), ["base"], []),
+        LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True),
+    ):
+        pass
+    assert not [warning for warning in recwarn if "genome_build is set" in str(warning.message)]
+
+
 def test_parquet_genetic_maps_are_ignored_at_preparation(tmp_path, caplog):
     metadata = write_panel(tmp_path, ld_window=("cm", 1.0))
     panel = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"), RefPanelConfig(

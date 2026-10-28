@@ -395,8 +395,8 @@ def gene_list_gate_a_message(batch: Any) -> str:
     else:
         source_filter = "disposition == 'rejected'"
     return (
-        f"Gene-list catalog preflight rejected {n_rejected} of {submitted} submitted row(s) "
-        f"({breakdown}). First issues: {issue_text}{omitted_text}. "
+        f"Gene-list catalog preflight rejected {n_rejected} of {submitted} submitted row(s)"
+        f"{f' ({breakdown})' if breakdown else ''}. First issues: {issue_text}{omitted_text}. "
         "Complete diagnostics: diagnostics/gene_list_audit.tsv.gz and "
         "diagnostics/gene_list_resolution_summary.tsv. "
         f"Suggested audit filter: {source_filter}. Repair the listed gene-list rows first, then rerun "

@@ -127,6 +127,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
   If an unrequested input-resolution, filtering, ambiguity, or compatibility condition can silently change the scientific analysis, fail before substantial computation with a nonzero, actionable error and machine-readable diagnostics.
   If it is unclear whether an operation warrants an error or warning, or whether it could affect the scientific analysis, ask the user to decide.
   Explicitly requested transformations may succeed when their effect is recorded in the result diagnostics and provenance.
+  Recorded exception: `ldscore` excludes reference-panel SNPs that are not on the annotation SNP grid without failing and reports them instead; scope and rationale are in `docs/reference/ldscore-snp-universes.md`, "Reference SNPs on the annotation SNP grid".
 - Use exhaustive, stage-specific validation gates that collect every safely discoverable issue across focal/control inputs before aborting.
   An unreadable structural contract may fail immediately, a referenced analysis-changing defect must fail, and an unreferenced latent defect may be diagnosed without failing a correct run.
   Design diagnostics for concrete identification and repair; preserve explicit query-continuation policies and their attempted-query records, without introducing silent recovery.

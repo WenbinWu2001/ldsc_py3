@@ -50,6 +50,7 @@ The contract is in [reference SNPs on the annotation SNP grid](docs/reference/ld
 
 - The annotation files define the annotation SNP grid; the reference SNPs are the grid SNPs among the reference-panel SNPs that pass the panel's filters.
   Panel SNPs off the grid are excluded without failing: the user's recorded exception to the AGENTS.md rule that unrequested, analysis-changing filtering must fail, because legacy baseline-LD annotations exist only for 1000 Genomes Phase 3 SNPs.
+  With the user's approval, that AGENTS.md rule now carries a one-line pointer to the exception.
   No CLI option was added, and `ldscore` does not read the grid kind recorded by `annotate`.
 - The exclusion is never silent: `diagnostics/reference_snp_funnel.tsv` (two funnels per chromosome, fixed rows per backend, `NA` for steps that did not run), one log WARNING and a stderr notice after successful CLI runs, and `LDScoreResult.reference_snp_funnel` for in-memory runs.
   PLINK counts the grid step before genotype QC; counts come from batch 1 only.
@@ -61,9 +62,8 @@ The contract is in [reference SNPs on the annotation SNP grid](docs/reference/ld
 
 ### Open
 
-1. The user approves any AGENTS.md pointer to the decision-5 exception before AGENTS.md is edited.
-2. "annotation SNP grid" and "reference-SNP funnel" await the user's approval under proposed terms in `docs/dev/DOCS_VOCABULARY.md`.
-3. **Gene-list strict error guidance is incomplete:** `_gate_a_error()` gives a total rejected count and up to ten examples, but no per-source rejected/submitted counts, omitted-example count, audit filter, or overwrite guidance.
+1. "annotation SNP grid" and "reference-SNP funnel" await the user's approval under proposed terms in `docs/dev/DOCS_VOCABULARY.md`.
+2. **Gene-list strict error guidance is incomplete:** `_gate_a_error()` gives a total rejected count and up to ten examples, but no per-source rejected/submitted counts, omitted-example count, audit filter, or overwrite guidance.
    This is a localized message change.
 
 ## Reading map

@@ -1,0 +1,295 @@
+from argparse import Namespace
+from pathlib import Path
+import tempfile
+import unittest
+from unittest import mock
+
+import numpy as np
+import pandas as pd
+
+
+import ldsc
+from ldsc import GlobalConfig, set_global_config, reset_global_config
+from ldsc.config import ConfigMismatchError, validate_config_compatibility
+from ldsc.errors import LDSCUsageError
+from ldsc._annotation import builder as annotation_builder
+from ldsc._ldscore import calculator as ldscore_calculator
+from ldsc._regression import runner as regression_runner
+from ldsc._refpanel import builder as ref_panel_builder
+from ldsc._ldscore.calculator import LDScoreResult
+from ldsc._refpanel.builder import ReferencePanelBuildConfig, ReferencePanelBuilder
+from ldsc._regression.runner import RegressionRunner
+from ldsc._sumstats.munger import SumstatsTable
+from tests.runtime.test_path_resolution import _write_plink_trio
+
+
+def _make_build_config(tmpdir: Path) -> ReferencePanelBuildConfig:
+    return ReferencePanelBuildConfig(
+        plink_prefix=tmpdir / "panel.@",
+        source_genome_build="hg19",
+        genetic_map_hg19_sources=tmpdir / "hg19.map",
+        genetic_map_hg38_sources=tmpdir / "hg38.map",
+        liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
+        output_dir=tmpdir / "out",
+        ld_wind_kb=1.0,
+    )
+
+
+def _make_sumstats_table() -> SumstatsTable:
+    return SumstatsTable(
+        data=pd.DataFrame(
+            {
+                "SNP": ["rs1", "rs2"],
+                "Z": [2.0, 1.0],
+                "N": [1000.0, 1000.0],
+                "A1": ["A", "C"],
+                "A2": ["G", "T"],
+            }
+        ),
+        has_alleles=True,
+        source_path="sumstats.gz",
+        trait_name="trait",
+        provenance={},
+    )
+
+
+def _make_ldscore_result() -> LDScoreResult:
+    baseline_table = pd.DataFrame(
+        {
+            "CHR": ["1", "1"],
+            "SNP": ["rs1", "rs2"],
+            "BP": [10, 20],
+            "regression_ld_scores": [3.0, 4.0],
+            "base": [1.0, 2.0],
+        }
+    )
+    return LDScoreResult(
+        baseline_table=baseline_table,
+        query_table=None,
+        count_records=[
+            {
+                "group": "baseline",
+                "column": "base",
+                "all_reference_snp_count": 10.0,
+                "common_reference_snp_count": 8.0,
+            }
+        ],
+        baseline_columns=["base"],
+        query_columns=[],
+        ld_reference_snps=frozenset(),
+        ld_regression_snps=frozenset({"rs1", "rs2"}),
+        chromosome_results=[],
+    )
+
+
+class GlobalConfigRegistryTest(unittest.TestCase):
+    def tearDown(self) -> None:
+        reset_global_config()
+
+    def test_global_config_default_uses_chr_pos_allele_aware_auto(self):
+        config = GlobalConfig()
+
+        self.assertEqual(config.snp_identifier, "chr_pos_allele_aware")
+        self.assertEqual(config.genome_build, "auto")
+
+    def test_chr_pos_requires_genome_build_fix_it(self):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "Pass genome_build='auto'"):
+            GlobalConfig(snp_identifier="chr_pos", genome_build=None)
+
+    def test_rsid_default_keeps_genome_build_none(self):
+        config = GlobalConfig(snp_identifier="rsid")
+
+        self.assertEqual(config.snp_identifier, "rsid")
+        self.assertIsNone(config.genome_build)
+
+    def test_registered_global_config_defaults_to_chr_pos_allele_aware_auto(self):
+        config = ldsc.get_global_config()
+
+        self.assertEqual(config.snp_identifier, "chr_pos_allele_aware")
+        self.assertEqual(config.genome_build, "auto")
+
+    def test_reset_global_config_restores_chr_pos_allele_aware_auto(self):
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
+
+        config = reset_global_config()
+
+        self.assertEqual(config.snp_identifier, "chr_pos_allele_aware")
+        self.assertEqual(config.genome_build, "auto")
+
+    def test_run_annotate_uses_registered_global_config_and_logs_once(self):
+        import tempfile
+        from pathlib import Path
+
+        set_global_config(GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            baseline, bed = root / "base.annot", root / "query.bed"
+            baseline.write_text("CHR\tPOS\tSNP\tbase\n1\t10\trs1\t1\n")
+            bed.write_text("1\t9\t10\n")
+            with mock.patch("builtins.print") as patched_print, self.assertLogs("LDSC.config", level="INFO") as caught:
+                with ldsc.run_annotate(query_annot_bed_sources=[bed], ref_snp_annot_sources=[baseline], output_dir=root / "out") as result:
+                    self.assertEqual(result.config_snapshot.snp_identifier, "rsid")
+                    self.assertIsNone(result.config_snapshot.genome_build)
+                    self.assertEqual(result.config_snapshot.log_level, "DEBUG")
+            patched_print.assert_not_called()
+            self.assertEqual(len(caught.records), 1)
+            self.assertIn("GlobalConfig", caught.records[0].getMessage())
+
+    def test_run_annotate_rejects_removed_shared_kwargs(self):
+        with self.assertRaises(TypeError):
+            ldsc.run_annotate(
+                query_annot_bed_sources="beds/*.bed",
+                ref_snp_annot_sources="baseline.@.annot.gz",
+                output_dir="out",
+                snp_identifier="rsid",
+            )
+
+    def test_run_ldscore_uses_registered_global_config_for_python_defaults(self):
+        set_global_config(GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
+
+        def _assert_args(args):
+            self.assertEqual(args.snp_identifier, "rsid")
+            self.assertIsNone(args.genome_build)
+            self.assertEqual(args.log_level, "DEBUG")
+            raise RuntimeError("stop after inspecting args")
+
+        with mock.patch.object(ldscore_calculator, "run_ldscore_from_args", side_effect=_assert_args):
+            with self.assertRaisesRegex(RuntimeError, "stop after inspecting args"):
+                ldscore_calculator.run_ldscore(
+                    output_dir="results/example",
+                    baseline_annot_sources="baseline.annot.gz",
+                    r2_dir="reference_panel/hg38",
+                    ld_wind_cm=1.0,
+                )
+
+    def test_run_ldscore_rejects_removed_shared_kwargs(self):
+        with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
+            ldscore_calculator.run_ldscore(
+                output_dir="results/example",
+                baseline_annot_sources="baseline.annot.gz",
+                r2_dir="reference_panel/hg38",
+                ld_wind_cm=1.0,
+                snp_identifier="rsid",
+            )
+
+    def test_run_ldscore_rejects_retired_io_kwargs(self):
+        with self.assertRaisesRegex(LDSCUsageError, "baseline_annot_paths"):
+            ldscore_calculator.run_ldscore(
+                output_dir="results/example",
+                baseline_annot_paths="baseline.annot.gz",
+                plink_path="plink/panel",
+                ld_wind_snps=10,
+            )
+
+    def test_run_build_ref_panel_rejects_removed_shared_kwargs(self):
+        with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
+            ref_panel_builder.run_build_ref_panel(
+                plink_prefix="plink/panel",
+                source_genome_build="hg19",
+                genetic_map_hg19_sources="maps/hg19.txt",
+                genetic_map_hg38_sources="maps/hg38.txt",
+                liftover_chain_hg19_to_hg38_file="chains/hg19ToHg38.over.chain",
+                output_dir="out/panel",
+                ld_wind_kb=1.0,
+                log_level="DEBUG",
+            )
+
+    def test_run_build_ref_panel_rejects_retired_io_kwargs(self):
+        with self.assertRaisesRegex(LDSCUsageError, "plink_path"):
+            ref_panel_builder.run_build_ref_panel(
+                plink_path="plink/panel",
+                source_genome_build="hg19",
+                genetic_map_hg19_path="maps/hg19.txt",
+                output_dir="out/panel",
+                ld_wind_kb=1.0,
+            )
+
+    def test_reference_panel_builder_uses_registered_global_config_and_logs_once(self):
+        from tests.worker_fixtures import calculation_body
+        self.enterContext(calculation_body())
+        set_global_config(GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = _make_build_config(Path(tmpdir))
+            Path(config.genetic_map_hg19_sources).write_text("CHR POS CM\n1 100 0.1\n")
+            Path(config.genetic_map_hg38_sources).write_text("CHR POS CM\n1 100 0.1\n")
+            builder = ReferencePanelBuilder()
+            _write_plink_trio(Path(tmpdir) / "panel.1", ["1"])
+
+            with mock.patch.object(
+                builder, "_configure_logging"
+            ), mock.patch.object(
+                builder, "_prepare_build_state", return_value=mock.sentinel.state
+            ), mock.patch.object(
+                builder, "_check_chromosome_selections", side_effect=lambda chrom_sources, *_args: chrom_sources
+            ), mock.patch.object(
+                builder,
+                "_build_chromosome",
+                return_value={"r2_hg19": "r2-19", "r2_hg38": "r2-38", "meta_hg19": "m19", "meta_hg38": "m38"},
+            ), mock.patch("builtins.print") as patched_print:
+                with self.assertLogs("LDSC.config", level="INFO") as caught:
+                    result = builder.run(config)
+
+        self.assertEqual(builder.global_config, ldsc.get_global_config())
+        self.assertEqual(result.chromosomes, ["1"])
+        patched_print.assert_not_called()
+        self.assertEqual(len(caught.records), 1)
+        self.assertEqual(caught.records[0].levelname, "INFO")
+        self.assertIn("GlobalConfig", caught.records[0].getMessage())
+
+    def test_regression_runner_uses_registered_global_config_and_logs_once(self):
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
+        runner = RegressionRunner()
+
+        with mock.patch("builtins.print") as patched_print:
+            with self.assertLogs("LDSC.config", level="INFO") as caught:
+                dataset = runner.build_dataset(_make_sumstats_table(), _make_ldscore_result())
+
+        self.assertEqual(runner.global_config, ldsc.get_global_config())
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2"])
+        patched_print.assert_not_called()
+        self.assertEqual(len(caught.records), 1)
+        self.assertEqual(caught.records[0].levelname, "INFO")
+        self.assertIn("GlobalConfig", caught.records[0].getMessage())
+
+    def test_cli_normalization_ignores_registered_python_global_config(self):
+        set_global_config(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38", log_level="WARNING"))
+
+        args = Namespace(
+            snp_identifier="rsid",
+            genome_build=None,
+            log_level="DEBUG",
+            output_dir="results/example",
+            keep_indivs_file=None,
+        )
+
+        normalized_args, global_config = ldscore_calculator._normalize_run_args(args)
+
+        self.assertEqual(normalized_args.snp_identifier, "rsid")
+        self.assertEqual(global_config.snp_identifier, "rsid")
+        self.assertIsNone(global_config.genome_build)
+        self.assertEqual(global_config.log_level, "DEBUG")
+
+
+class ConfigCompatibilityTest(unittest.TestCase):
+    def test_validate_config_compatibility_rejects_genome_build_mismatch(self):
+        left = GlobalConfig(genome_build="hg19", snp_identifier="chr_pos")
+        right = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos")
+
+        with self.assertRaisesRegex(ConfigMismatchError, "genome_build mismatch"):
+            validate_config_compatibility(left, right, context="test")
+
+    def test_validate_config_compatibility_rejects_snp_identifier_mismatch(self):
+        with self.assertWarns(UserWarning):
+            cfg = GlobalConfig(genome_build="hg38", snp_identifier="rsid")
+        self.assertIsNone(cfg.genome_build)
+        left = cfg
+        right = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos")
+
+        with self.assertRaisesRegex(ConfigMismatchError, "snp_identifier mismatch"):
+            validate_config_compatibility(left, right, context="test")
+
+    def test_validate_config_compatibility_accepts_matching_critical_fields(self):
+        shared = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos")
+
+        validate_config_compatibility(shared, shared, context="test")

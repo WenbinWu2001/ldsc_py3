@@ -29,6 +29,11 @@ ldsc_py3_restructured/
 │   ├── _regression/          tier 7: estimators, h2/partitioned-h2/rg, liability scale, quantile-h2
 │   └── _plotting/            tier 8: result plots
 ├── tests/
+│   ├── conftest.py  annotation_fixtures.py  ref_panel_helpers.py  worker_fixtures.py   shared helpers
+│   ├── fixtures/             small checked-in inputs and golden expectations
+│   ├── core/  runtime/  genome/  annotation/  refpanel/  sumstats/  ldscore/  regression/  plotting/
+│   │                         one folder per domain package, named without the underscore
+│   └── package/              root shell: package layout, import tiers, CLI help, configuration
 └── tools/
 ```
 
@@ -53,7 +58,7 @@ Packages are arranged in tiers, and a module may import from its own package and
 | 8 | `_plotting` |
 | 9 | `cli.py`, `__init__.py`, `__main__.py` |
 
-[`tests/test_layering.py`](../../tests/test_layering.py) enforces the table: it reads every import inside the package, including imports inside functions and under `TYPE_CHECKING`, and fails on an import that points upward or between peers.
+[`tests/package/test_layering.py`](../../tests/package/test_layering.py) enforces the table: it reads every import inside the package, including imports inside functions and under `TYPE_CHECKING`, and fails on an import that points upward or between peers.
 It also fails when a module outside the root shell sits at the package root.
 Function-level imports remain for optional or heavy dependencies, such as Matplotlib and the SciPy-backed workflows, but never to avoid an import cycle.
 
@@ -151,13 +156,13 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | Goal | Start here |
 | --- | --- |
 | change CLI flags or subcommand wiring | workflow `build_parser` / `add_*_arguments` functions, then `src/ldsc/cli.py` for dispatch and copied help groups; follow [CLI help guidelines](guidelines/cli-help.md) |
-| change help wrapping or shared log-level wording | `src/ldsc/_runtime/cli_help.py:CLIHelpFormatter`, `src/ldsc/_runtime/workflow_logging.py:LOG_LEVEL_HELP`; verify `tests/test_cli_help.py` |
+| change help wrapping or shared log-level wording | `src/ldsc/_runtime/cli_help.py:CLIHelpFormatter`, `src/ldsc/_runtime/workflow_logging.py:LOG_LEVEL_HELP`; verify `tests/package/test_cli_help.py` |
 | change path-token behavior | `src/ldsc/_runtime/paths.py` |
 | change output collision policy | `src/ldsc/_runtime/paths.py`, then the workflow writer that owns the artifact |
-| change a keyword-argument Python workflow (`run_ldscore`, `run_build_ref_panel`, `run_h2`, `run_partitioned_h2`, `run_rg`, `run_quantile_h2`) | the function in its workflow module, keyword checks in `src/ldsc/_runtime/workflow_kwargs.py`; verify `tests/test_workflow_keyword_checks.py` and `tests/test_python_regression_workflows.py` |
+| change a keyword-argument Python workflow (`run_ldscore`, `run_build_ref_panel`, `run_h2`, `run_partitioned_h2`, `run_rg`, `run_quantile_h2`) | the function in its workflow module, keyword checks in `src/ldsc/_runtime/workflow_kwargs.py`; verify `tests/package/test_workflow_keyword_checks.py` and `tests/regression/test_python_regression_workflows.py` |
 | change workflow log files, lifecycle lines, or log-level handling | `src/ldsc/_runtime/workflow_logging.py`, then the workflow orchestration function that owns the output directory |
 | change header aliases or identifier/build normalization | `src/ldsc/_core/columns.py` |
-| change read-only artifact build inspection | `src/ldsc/_genome/build_inspection.py`, with CLI dispatch in `src/ldsc/cli.py` and coverage in `tests/test_genome_build_inspection.py` |
+| change read-only artifact build inspection | `src/ldsc/_genome/build_inspection.py`, with CLI dispatch in `src/ldsc/cli.py` and coverage in `tests/genome/test_genome_build_inspection.py` |
 | change automatic `chr_pos` genome-build inference | `src/ldsc/_genome/build_inference.py` |
 | change annotation loading or `ldsc annotate` behavior | `src/ldsc/_annotation/builder.py`, then `src/ldsc/_annotation/sources.py` and `src/ldsc/_annotation/annotate.py` |
 | change BED parsing or interval projection | `src/ldsc/_core/regions.py:iter_bed_rows`, then `src/ldsc/_annotation/interval_queries.py` and `src/ldsc/_annotation/interval_projection.py:ChromosomeProjector` |
@@ -181,7 +186,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | change owned artifact declarations | `src/ldsc/_runtime/artifacts.py`, then the domain writer: `src/ldsc/_annotation/outputs.py`, `src/ldsc/_refpanel/outputs.py`, `src/ldsc/_ldscore/outputs.py` or `src/ldsc/_regression/outputs.py` |
 | change LD-score directory files, Parquet row-group layout, or LD-score metadata | `src/ldsc/_ldscore/outputs.py` |
 | change the `partitioned-h2` per-query layout, the `rg` result-family layout, or regression metadata payloads | `src/ldsc/_regression/outputs.py` |
-| change which module may import which | the tier table above and `tests/test_layering.py` |
+| change which module may import which | the tier table above and `tests/package/test_layering.py` |
 
 ## Architectural Rules That Matter In Practice
 
@@ -228,19 +233,25 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 
 ## Test Map
 
+Each test file sits in the folder of the domain package whose code it mainly exercises, such as `tests/ldscore/` for `_ldscore`.
+Tests of shared machinery that every workflow uses, such as output writers, workflow logs, failure markers, workers and input preflight, are in `tests/runtime/`.
+Tests of the root shell and of the package as a whole are in `tests/package/`.
+Shared helpers and `fixtures/` stay at the top of `tests/`; tests import them, and one another, by full module path, for example `from tests.annotation.test_annotate_streaming import inputs`.
+Each test folder has an `__init__.py`, so `pytest` and `python -m unittest discover -s tests -p 'test*.py'` both find every folder.
+
 | Area | Main tests |
 | --- | --- |
-| output layer | `tests/test_output.py` |
-| annotation workflow | `tests/test_annotation.py` |
-| reference-panel builder | `tests/test_ref_panel_builder.py` |
-| R² pair query | `tests/test_r2_query.py` |
-| LD-score workflow | `tests/test_ldscore_workflow.py` |
-| gene coordinate catalog and gene-list resolution | `tests/test_gene_list_resolver.py` |
-| summary-statistics munging | `tests/test_sumstats_munger.py` |
-| regression workflow | `tests/test_regression_workflow.py` |
-| path and config contracts | `tests/test_path_resolution.py`, `tests/test_config_identifiers.py`, `tests/test_column_inference.py`, `tests/test_genome_build_inference.py` |
-| package layout and import tiers | `tests/test_layering.py`, `tests/test_package_layout.py` |
-| region exclusion | `tests/test_regions.py` |
+| output layer | `tests/runtime/test_output.py` |
+| annotation workflow | `tests/annotation/test_annotation.py` |
+| reference-panel builder | `tests/refpanel/test_ref_panel_builder.py` |
+| R² pair query | `tests/refpanel/test_r2_query.py` |
+| LD-score workflow | `tests/ldscore/test_ldscore_workflow.py` |
+| gene coordinate catalog and gene-list resolution | `tests/annotation/test_gene_list_resolver.py` |
+| summary-statistics munging | `tests/sumstats/test_sumstats_munger.py` |
+| regression workflow | `tests/regression/test_regression_workflow.py` |
+| path and config contracts | `tests/runtime/test_path_resolution.py`, `tests/core/test_config_identifiers.py`, `tests/core/test_column_inference.py`, `tests/genome/test_genome_build_inference.py` |
+| package layout and import tiers | `tests/package/test_layering.py`, `tests/package/test_package_layout.py` |
+| region exclusion | `tests/core/test_regions.py` |
 
 `AnnotationBundle.validate()` validates row alignment and annotation names; identity cleanup occurs during builder construction. It no longer accepts an ignored identifier argument. Column-name inference uses `infer_chr_pos_columns`; numerical window construction uses `get_block_lefts`. Their former forwarding spellings are removed without changing accepted input column aliases or legacy formats.
 

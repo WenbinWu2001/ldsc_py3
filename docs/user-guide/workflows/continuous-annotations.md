@@ -106,7 +106,7 @@ If you need coefficients for separate binary quantile annotations rather than a 
 
 ## Quantitative-count precision
 
-An earlier memory completion review identified batch-dependent float32 annotation-count discrepancies. LD-score calculation now sums the normalized float32 annotation values in float64 for both all-SNP and common-SNP counts. The existing validation tolerances are unchanged. Regenerate affected LD-score directories before refitting; do not loosen downstream validation to accommodate older incorrect counts. See [`test_ldscore_query_batches.py`](../../../tests/test_ldscore_query_batches.py) and `annotation_statistics` in [_annotation/overlap.py](../../../src/ldsc/_annotation/overlap.py).
+An earlier memory completion review identified batch-dependent float32 annotation-count discrepancies. LD-score calculation now sums the normalized float32 annotation values in float64 for both all-SNP and common-SNP counts. The existing validation tolerances are unchanged. Regenerate affected LD-score directories before refitting; do not loosen downstream validation to accommodate older incorrect counts. See [`test_ldscore_query_batches.py`](../../../tests/ldscore/test_ldscore_query_batches.py) and `annotation_statistics` in [_annotation/overlap.py](../../../src/ldsc/_annotation/overlap.py).
 
 ## Memory during exact quantile analysis
 

@@ -77,7 +77,7 @@ Small requests prune row groups using `IDX_1` footer ranges; absent statistics c
 Larger requests scan the file sequentially, matching numeric keys without constructing an all-pairs DataFrame.
 Returned arrays still scale with requested pairs, and a reused panel handle can retain metadata for every chromosome it touches.
 This query access pattern is separate from the full sequential reader used for LD-score calculation.
-See [the pair-query reference](../../reference/query-r2.md) and [`test_r2_query.py`](../../../tests/test_r2_query.py).
+See [the pair-query reference](../../reference/query-r2.md) and [`test_r2_query.py`](../../../tests/refpanel/test_r2_query.py).
 
 ## Ownership and lifetime
 
@@ -292,7 +292,7 @@ Vectorized triangle/window masks select cross-block and within-block pairs.
 `_PendingPairs` retains numeric arrays for left-endpoint groups until all their right neighbors have been seen, then emits stable ordered pairs.
 `write_r2_parquet()` converts these arrays directly to Arrow without an intervening pandas frame.
 Its writer buffer flushes at its configured pair threshold and can overshoot by one incoming chunk; a row-group size controls file layout, not total process RAM.
-See [`test_ref_panel_builder.py`](../../../tests/test_ref_panel_builder.py) and the [R² format reference](../../reference/formats/r2-panels.md).
+See [`test_ref_panel_builder.py`](../../../tests/refpanel/test_ref_panel_builder.py) and the [R² format reference](../../reference/formats/r2-panels.md).
 
 The [R² format](../../reference/formats/r2-panels.md) stores two int32 sidecar indices, quantized int16 R², and a bit-packed correlation sign instead of repeating identity strings per pair.
 The identity sidecar is stored once per SNP and bound to pair indices by the required identity hash.
@@ -348,7 +348,7 @@ Measured on 2026-10-27 at revision `38c98d8` (macOS, Apple Accelerate, one BLAS 
 512 was within about 4% of the fastest size on both panels; larger batches add time and memory without changing results.
 Limits: one machine, one chromosome stretch per panel, and single runs; Linux BLAS libraries may favor somewhat larger batches.
 Memory outside the kernel does not depend on the batch size, including each chromosome's in-memory genotypes (`SNPs × samples / 4` bytes) and annotation reads, and it repeats for each worker.
-`build-r2-panel` uses the same chunk walk but was not timed; its stored pairs are identical for any batch size, with R² differing by at most one int16 unit from float32 summation order (see `tests/test_plink_exact_windows.py`).
+`build-r2-panel` uses the same chunk walk but was not timed; its stored pairs are identical for any batch size, with R² differing by at most one int16 unit from float32 summation order (see `tests/ldscore/test_plink_exact_windows.py`).
 
 For direct file-writing workflows, [`stage_direct_chromosome()`](../../../src/ldsc/_ldscore/direct_batches.py) writes the existing post-kernel float32 query table to a private Parquet fragment before the worker returns.
 The parent receives baseline data, counts, overlaps, variation summaries, and diagnostic descriptors, then combines them without a genome-wide query matrix.
@@ -402,7 +402,7 @@ The entire active fragment directory is removed before the next batch, including
 On failure, workers finish shutdown before borrowed annotation or fragment workspaces are removed.
 Worker count and query batch size control different dimensions of memory; more workers can increase total process-tree memory and may be slower for small inputs.
 Baseline tables, worker kernel arrays, and staged final outputs have separate lifetimes, so bounded query fragments do not establish a whole-job RAM limit.
-See [the replay measurements](../validation/performance.md#direct-ld-score-assembly) and [`test_direct_batch_staging.py`](../../../tests/test_direct_batch_staging.py) for the evidence boundary.
+See [the replay measurements](../validation/performance.md#direct-ld-score-assembly) and [`test_direct_batch_staging.py`](../../../tests/ldscore/test_direct_batch_staging.py) for the evidence boundary.
 
 **Public LD tables aggregate chromosomes within each query batch.** One batch uses `ldscore.query.parquet`; multiple batches use ordered `ldscore.query.batch00001.parquet` files.
 Root `metadata.json.query_batches` records each file, ordered query columns, and chromosome row groups.
@@ -460,7 +460,7 @@ The immutable index fixes the reference SNPs, baseline, gene geometry, output ro
 Loading validates components one chromosome at a time without caching every operator.
 Within scoring, the persistent process pool avoids repeated process startup, but each chromosome task reloads its operator for the active query batch.
 This deliberate extra reading/validation trades CPU and I/O for a bounded fragment backlog and shorter operator/array lifetimes.
-The complete [index contract](../../reference/gene-ldscore-index.md) and [`test_gene_index_streaming.py`](../../../tests/test_gene_index_streaming.py) cover ownership and numerical behavior.
+The complete [index contract](../../reference/gene-ldscore-index.md) and [`test_gene_index_streaming.py`](../../../tests/ldscore/test_gene_index_streaming.py) cover ownership and numerical behavior.
 
 ## Batch regression and incremental result writing
 
@@ -499,8 +499,8 @@ Baseline-only input remains one joint fit over functional annotations.
 The writer moves explicitly owned staged scientific files into publication staging instead of copying them; persistent descriptors remain copy-only.
 Run metadata is written once, while query metadata stores model fields and a relative reference to `diagnostics/metadata.json`.
 The [result contract](../../reference/results/partitioned-h2.md) defines the ownership and complete-directory copying requirements.
-[`test_regression_memory.py`](../../../tests/test_regression_memory.py) checks shared-input lifetime, filtering, and independent weighted least-squares agreement.
-[`test_partitioned_publication.py`](../../../tests/test_partitioned_publication.py) checks exact file reuse, persistent-input preservation, metadata recovery after relocation, and failure cleanup.
+[`test_regression_memory.py`](../../../tests/regression/test_regression_memory.py) checks shared-input lifetime, filtering, and independent weighted least-squares agreement.
+[`test_partitioned_publication.py`](../../../tests/regression/test_partitioned_publication.py) checks exact file reuse, persistent-input preservation, metadata recovery after relocation, and failure cleanup.
 
 Explicit `continue_on_query_error=True` permits failed query regressions while preserving private staging until the scan finishes.
 Successful model artifacts publish with a compact attempted-query status ledger; strict mode remains the default and publishes diagnostics alone if any query fails.
@@ -524,11 +524,11 @@ The two IRWLS reweightings are the existing estimator, not a new early-stopping 
 [`LstsqJackknifeFast`](../../../src/ldsc/_regression/jackknife.py) uses existing block sufficient statistics: compute block $X^\top X$ and $X^\top y$ summaries once, then obtain delete-block fits by subtracting one block's summaries from the totals.
 For $J$ blocks and $p$ predictors, the retained block summaries scale as $O(Jp^2)$ rather than storing $J$ copies of the SNP-by-predictor data.
 Each delete fit still solves a small system; aligned block boundaries, weighting, singular-design errors, and estimator semantics remain unchanged.
-[`test_jackknife.py`](../../../tests/test_jackknife.py) supplies numerical comparisons rather than asserting only that an allocation disappeared.
+[`test_jackknife.py`](../../../tests/regression/test_jackknife.py) supplies numerical comparisons rather than asserting only that an allocation disappeared.
 
 Legacy summary-statistic projection in [`_regression/runner.py`](../../../src/ldsc/_regression/runner.py) uses column-wise identity/allele masks rather than row-wise Python processing.
 It preserves alignment and drop diagnostics; it still materializes the trait and projection-drop table.
-[`test_legacy_sumstats_projection_performance.py`](../../../tests/test_legacy_sumstats_projection_performance.py) guards both agreement and a local performance budget, not a universal machine-independent runtime.
+[`test_legacy_sumstats_projection_performance.py`](../../../tests/regression/test_legacy_sumstats_projection_performance.py) guards both agreement and a local performance budget, not a universal machine-independent runtime.
 Saved fit coefficients, counts, overlaps, and delete values support quantile analysis, heritability-scale conversion, and plotting without refitting the model.
 Figure-producing paths import Matplotlib lazily, avoiding its startup work for non-plotting calls.
 
@@ -574,7 +574,7 @@ Batch regression also retains the full legacy summary-statistics projection drop
 These are remaining diagnostic-retention gaps (item R3 of the September 10 completion review); complete records should remain available on disk while subsequent work retains counts, bounded examples, and paths.
 Direct results include source-cleanup drops even for a chromosome whose annotation rows were all removed.
 
-The focused contract tests are [`test_annotation_format.py`](../../../tests/test_annotation_format.py), [`test_annotation_storage.py`](../../../tests/test_annotation_storage.py), [`test_annotation_preparation.py`](../../../tests/test_annotation_preparation.py), [`test_annotate_streaming.py`](../../../tests/test_annotate_streaming.py), [`test_ldscore_streaming.py`](../../../tests/test_ldscore_streaming.py), [`test_reference_preparation.py`](../../../tests/test_reference_preparation.py), [`test_gene_index_streaming.py`](../../../tests/test_gene_index_streaming.py), [`test_regression_streaming.py`](../../../tests/test_regression_streaming.py), and [`test_quantile_streaming.py`](../../../tests/test_quantile_streaming.py).
+The focused contract tests are [`test_annotation_format.py`](../../../tests/annotation/test_annotation_format.py), [`test_annotation_storage.py`](../../../tests/annotation/test_annotation_storage.py), [`test_annotation_preparation.py`](../../../tests/annotation/test_annotation_preparation.py), [`test_annotate_streaming.py`](../../../tests/annotation/test_annotate_streaming.py), [`test_ldscore_streaming.py`](../../../tests/ldscore/test_ldscore_streaming.py), [`test_reference_preparation.py`](../../../tests/refpanel/test_reference_preparation.py), [`test_gene_index_streaming.py`](../../../tests/ldscore/test_gene_index_streaming.py), [`test_regression_streaming.py`](../../../tests/regression/test_regression_streaming.py), and [`test_quantile_streaming.py`](../../../tests/regression/test_quantile_streaming.py).
 They combine independent numerical/membership expectations with selected-read, allocation-shape, lifetime, publication, and failure tests.
 Packed-format checks include literal byte expectations, non-byte-aligned writes, padding, empty/duplicate/reordered selections, bounded decoding, worker descriptor transfer, global exact classification, and file-free preparation.
 On September 15, the full suite passed 1,812 tests and 132 subtests, with one skip; unittest discovery ran 1,000 tests successfully with one skip.
@@ -587,18 +587,18 @@ Peak memory, runtime, private disk, and persistent output size are reported sepa
 The September 14 sequential-query benchmarks ran at revision `cf1dfac` on chromosome 22 with 1,000 gene lists, 53 binary baselines, 489 individuals, 141,123 reference SNPs, and 17,380 output SNPs.
 Reducing generation width from 1,000 to 100 used 82.2% less peak private scratch and took 1.903 times as long, with essentially unchanged peak RSS (about 1.17 GiB).
 All 17,380,000 query LD values per run matched the preserved pre-change width-1,000 result exactly, as did baseline tables, row order, counts, and overlaps.
-The numerical checks are in [`test_ldscore_query_batches.py`](../../../tests/test_ldscore_query_batches.py), [`test_ldscore_streaming.py`](../../../tests/test_ldscore_streaming.py), [`test_gene_index_streaming.py`](../../../tests/test_gene_index_streaming.py), and [`test_regression_streaming.py`](../../../tests/test_regression_streaming.py).
+The numerical checks are in [`test_ldscore_query_batches.py`](../../../tests/ldscore/test_ldscore_query_batches.py), [`test_ldscore_streaming.py`](../../../tests/ldscore/test_ldscore_streaming.py), [`test_gene_index_streaming.py`](../../../tests/ldscore/test_gene_index_streaming.py), and [`test_regression_streaming.py`](../../../tests/regression/test_regression_streaming.py).
 Whole-genome RAM and runtime figures remain conditional projections; the older benchmark report predates this implementation.
 
 ### Recent optimization sequence and evidence
 
 | Implemented change | Revision / evidence | Interpretation boundary |
 | --- | --- | --- |
-| Sequential execution/output query batches | `cf1dfac`; [`test_ldscore_query_batches.py`](../../../tests/test_ldscore_query_batches.py) and the benchmark above | Smaller width reduced scratch in the measured local workload but repeated traversal increased wall time; this predates later assembly changes. |
+| Sequential execution/output query batches | `cf1dfac`; [`test_ldscore_query_batches.py`](../../../tests/ldscore/test_ldscore_query_batches.py) and the benchmark above | Smaller width reduced scratch in the measured local workload but repeated traversal increased wall time; this predates later assembly changes. |
 | Lossless binary annotation storage | `59ee02b`; [annotation format policy](#annotation-format-policy) and the size measurement above | Exact classification and decoding verified; 32-fold binary payload reduction is not a job-RSS measurement. |
-| Indexed active-batch staging and streamed assembly | `659738a`; [`test_indexed_batch_staging.py`](../../../tests/test_indexed_batch_staging.py), [LD-score guide](../../user-guide/workflows/ld-scores.md) | Bounds outstanding raw fragments and parent arrays; per-batch operator reloads add work. |
-| Regression metadata/file reuse and fewer model copies | `7a478e6`; [`test_partitioned_publication.py`](../../../tests/test_partitioned_publication.py), [`test_regression_memory.py`](../../../tests/test_regression_memory.py), [regression guide](../../user-guide/workflows/partitioned-heritability.md) | Measures and preserves full-model fits; neither changes the estimator nor eliminates worker-private matrices. |
-| Direct file-writing streamed assembly | `3a4d729`; [`test_direct_batch_staging.py`](../../../tests/test_direct_batch_staging.py), [replay measurements](../validation/performance.md#direct-ld-score-assembly) | Local end-to-end parity is separate from precomputed full-row assembly replays, which do not measure genotype computation. |
+| Indexed active-batch staging and streamed assembly | `659738a`; [`test_indexed_batch_staging.py`](../../../tests/ldscore/test_indexed_batch_staging.py), [LD-score guide](../../user-guide/workflows/ld-scores.md) | Bounds outstanding raw fragments and parent arrays; per-batch operator reloads add work. |
+| Regression metadata/file reuse and fewer model copies | `7a478e6`; [`test_partitioned_publication.py`](../../../tests/regression/test_partitioned_publication.py), [`test_regression_memory.py`](../../../tests/regression/test_regression_memory.py), [regression guide](../../user-guide/workflows/partitioned-heritability.md) | Measures and preserves full-model fits; neither changes the estimator nor eliminates worker-private matrices. |
+| Direct file-writing streamed assembly | `3a4d729`; [`test_direct_batch_staging.py`](../../../tests/ldscore/test_direct_batch_staging.py), [replay measurements](../validation/performance.md#direct-ld-score-assembly) | Local end-to-end parity is separate from precomputed full-row assembly replays, which do not measure genotype computation. |
 
 The indexed, regression, and direct rows summarize the optimizations integrated during the October session.
 Their detailed evidence remains attached to the corresponding implementation or workflow guide rather than being generalized into a universal speedup or RAM recommendation.
@@ -634,7 +634,7 @@ Include negative R², one diagonal, contributor-only SNPs, mixed binary/continuo
 Exercise worker, reader, and writer failures to prove shutdown precedes scratch cleanup and unsuccessful computation leaves no published scientific result.
 Record numerical tolerances, schemas, row/column order, diagnostics, and relocation behavior alongside measurements.
 
-Useful entry tests beyond the annotation/regression list above are [`test_plink_bed_reader.py`](../../../tests/test_plink_bed_reader.py), [`test_ref_panel_builder.py`](../../../tests/test_ref_panel_builder.py), [`test_ldscore_projection.py`](../../../tests/test_ldscore_projection.py), [`test_direct_batch_staging.py`](../../../tests/test_direct_batch_staging.py), [`test_partitioned_query_workers.py`](../../../tests/test_partitioned_query_workers.py), and [`test_worker_policy.py`](../../../tests/test_worker_policy.py).
+Useful entry tests beyond the annotation/regression list above are [`test_plink_bed_reader.py`](../../../tests/refpanel/test_plink_bed_reader.py), [`test_ref_panel_builder.py`](../../../tests/refpanel/test_ref_panel_builder.py), [`test_ldscore_projection.py`](../../../tests/ldscore/test_ldscore_projection.py), [`test_direct_batch_staging.py`](../../../tests/ldscore/test_direct_batch_staging.py), [`test_partitioned_query_workers.py`](../../../tests/regression/test_partitioned_query_workers.py), and [`test_worker_policy.py`](../../../tests/runtime/test_worker_policy.py).
 For performance claims, record package revision and dirty state, dependencies, input dimensions, concurrency/native limits, cache conditions, repeated matched wall/CPU measurements, anonymous/cache peaks, and peak scratch occupancy.
 Distinguish local kernel tests, local integration, assembly-only replays, and full HPC runs.
 Documentation-only updates do not establish a new performance result or justify reducing requested RAM.

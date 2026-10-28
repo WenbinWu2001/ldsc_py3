@@ -2,13 +2,13 @@
 
 Last updated on: 2026-10-28
 
-Branch `restructure`; checked against HEAD `952703b` on 2026-10-28.
+Branch `restructure`; checked on 2026-10-28 after the move to per-domain test folders.
 Nothing below is in progress; each open item needs the user's go-ahead.
 
 ## Completed: domain subpackage reorganization of `src/ldsc`
 
 - The reorganization landed on `restructure` on 2026-10-28, from `9236b80` (dead-code cleanup) to the documentation commit `docs: describe the domain layout`.
-  [Code structure](docs/dev/code-structure.md) and [architecture](docs/dev/architecture.md) describe the layout, and `tests/test_layering.py` enforces its import tiers.
+  [Code structure](docs/dev/code-structure.md) and [architecture](docs/dev/architecture.md) describe the layout, and `tests/package/test_layering.py` enforces its import tiers.
 - Follow-up cleanup landed on 2026-10-28 in the `refactor` commits from `cabe537` to `5b3cede`:
   - `window_coordinates` and `get_block_lefts` in `src/ldsc/_refpanel/windows.py` serve both `ldscore` and `build-r2-panel`; each command keeps its own missing-CM error.
   - `_runtime.artifacts.atomic_write_json` is the one atomic JSON writer, and every file it writes ends with a newline; `h2_scale` uses the shared `atomic_write_dataframe`.
@@ -17,7 +17,8 @@ Nothing below is in progress; each open item needs the user's go-ahead.
   - Four dead or test-only helpers were removed, `_genome.liftover.load_hm3_curated_map(path)` became `load_hm3_map_file`, and three modules stopped re-exporting names they do not define.
   - The 24 underscore-prefixed names that other domains imported lost the underscore (`_runtime.preflight._readable` became `check_readable`), so an underscore again means module-local.
 - Look-alike helpers deliberately kept, because each carries a domain-specific error message or return type: the four `_require_columns`, the two `_read_json`, and the two `get_compression`.
-- Remaining follow-up, not started: consider per-domain test folders.
+- Tests moved into per-domain folders on 2026-10-28: `tests/<domain>/` for each domain package (named without the underscore) and `tests/package/` for the root shell; the [test map](docs/dev/code-structure.md#test-map) describes the layout.
+- The glossary approved the terms domain package, tier and root shell on 2026-10-28.
 
 ## Annotation SNP grids and LD-score annotation coverage
 
@@ -58,12 +59,13 @@ The contract is in [reference SNPs on the annotation SNP grid](docs/reference/ld
 - `snp_universe_policy.ld_reference_universe.selection` was removed from `metadata.json`; the reference-panel source is in the log's `Inputs:` section.
 - Gene LD-score indexes are format version 4: each chromosome stores `reference_snp_funnel.parquet`, which replaces `pre_qc_rows` and `annotation_intersection_removed` (the latter counted every `.bim` row, not the chromosome's); indexed scoring writes the inherited funnel and repeats the WARNING.
 - Baseline and prebuilt query files still need identical rows in identical order; that row-mismatch error now explains the shared annotation SNP grid and links a new troubleshooting section.
-- The earlier decision-5 example ("a BIM grid A, B, C with a baseline covering A and B") already failed through row alignment before this work, so it was not the missing check; the tests in `tests/test_reference_snp_funnel.py` cover the grid-versus-panel behavior instead.
+- The earlier decision-5 example ("a BIM grid A, B, C with a baseline covering A and B") already failed through row alignment before this work, so it was not the missing check; the tests in `tests/ldscore/test_reference_snp_funnel.py` cover the grid-versus-panel behavior instead.
 
 ### Resolved follow-ups (2026-10-28)
 
 - `annotate`'s gene-list preflight error (`_gate_a_error()`) now reuses `gene_list_gate_a_message()`, the `ldscore` wording: per-source rejected/submitted counts, up to ten examples with the omitted count, a suggested audit filter and the `--overwrite` rerun, followed by any naming collision and the troubleshooting link.
   A message with no rejected rows no longer prints an empty `()`.
+  Each example names its gene-list file, and the count of examples not shown follows the examples.
 - rsID-family runs on an R² panel no longer print "genome_build is set but will be ignored": `_artifact_global_config()` drops the build that the panel records instead of passing it to `GlobalConfig`.
   The warning remains for a build the caller supplies.
 

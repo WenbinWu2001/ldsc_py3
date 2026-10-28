@@ -107,7 +107,7 @@ Annotation, munging, and reference-panel build workflows retain their local owne
 Reference-panel builds keep their chromosome scope, and gene LD-score index publication retains its dedicated transaction.
 Logs and workflow-only audit extensions do not enter scientific metadata through `ArtifactFamily`.
 Failure markers remain owned by the marker helper.
-Validation lives in `tests/test_artifact_declarations.py`, `tests/test_output.py`, `tests/test_derived_output_lifecycle.py`, `tests/test_failure_markers.py`, and the reference-panel/index workflow tests.
+Validation lives in `tests/runtime/test_artifact_declarations.py`, `tests/runtime/test_output.py`, `tests/runtime/test_derived_output_lifecycle.py`, `tests/runtime/test_failure_markers.py`, and the reference-panel/index workflow tests.
 
 ## Staged input validation
 
@@ -134,7 +134,7 @@ Direct LD scores check declarations and annotation headers, resolve gene-list co
 PLINK companion mappings and reference scope evidence are reused; annotation headers supply the source scan widths.
 Gene LD-score index and R² panel construction check baseline/auxiliary declarations and PLINK companions together.
 Index consumers check every component path, small chromosome identity metadata, and Parquet header before opening the first numerical operator.
-See [`test_staged_input_preflight.py`](../../tests/test_staged_input_preflight.py).
+See [`test_staged_input_preflight.py`](../../tests/runtime/test_staged_input_preflight.py).
 
 Validation remains staged: BIM/FAM rows and BED dimensions require reference inspection; annotation row alignment, duplicate identities, chromosome contents, and gene support require their content scans.
 R² panel query-scope validation streams pair integrity before preparation and reuses that scope result.
@@ -207,7 +207,7 @@ CLI marker scope follows the last occurrence of a destination option, as argpars
 Marker-only directories do not collide with writer artifact families.
 Gene LD-score index preflight, direct publication, and interrupted-publication recovery share recognition of owned diagnostics; this excludes symlinks, special files, and unrelated empty subdirectories.
 Existing recovery of a validated owned backup preserves the failure marker until the current build succeeds.
-See [`test_output_directory_retries.py`](../../tests/test_output_directory_retries.py).
+See [`test_output_directory_retries.py`](../../tests/runtime/test_output_directory_retries.py).
 
 CLI help and `munge-sumstats --infer-only` bypass the marker lifecycle entirely. Even with `--overwrite`, they create no output directories or files and never create, replace, or remove a failure marker. This also applies when inference or argument parsing fails.
 

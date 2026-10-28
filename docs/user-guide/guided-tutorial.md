@@ -509,7 +509,7 @@ annot_processed/
 Regression accepts legacy `.sumstats` and `.sumstats.gz` files containing `SNP`, `A1`, `A2`, `Z`, and `N` directly through `--sumstats-file` or `--sumstats-sources`; remunging is optional. Legacy LD-score suites must first pass through `ldsc convert-ldsc2-ldscores`. That converter accepts complete chromosome 1–22 unpartitioned or baseline-only suites with the required counts and supporting inputs. Regression then reads the converted canonical directory.
 
 See the [legacy summary statistics contract](../reference/formats/legacy-sumstats.md) and [conversion guide](workflows/migrating-from-legacy-ldsc.md).
-Dedicated [summary-statistics tests](../../tests/test_legacy_sumstats_compatibility.py) and [conversion tests](../../tests/test_legacy_ldscore_converter.py) cover these routes; this coverage does not imply equivalence for every possible dataset.
+Dedicated [summary-statistics tests](../../tests/regression/test_legacy_sumstats_compatibility.py) and [conversion tests](../../tests/ldscore/test_legacy_ldscore_converter.py) cover these routes; this coverage does not imply equivalence for every possible dataset.
 
 ## Further workflow references
 

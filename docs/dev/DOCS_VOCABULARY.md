@@ -131,7 +131,7 @@ These terms are for the developer guide and contributor documentation.
 | Term | Definition | Avoid | API/CLI identifier |
 | --- | --- | --- | --- |
 | domain package | A private package under `src/ldsc/` that holds one area of the package, such as `_annotation` or `_ldscore`. | "domain subpackage" | `src/ldsc/_<domain>/` |
-| tier | A level in the one-directional import order of the domain packages, enforced by `tests/test_layering.py`. | "layer", which names the CLI, workflow and output layers | `PACKAGE_TIERS` and `SHELL_TIERS` in `tests/test_layering.py` |
+| tier | A level in the one-directional import order of the domain packages, enforced by `tests/package/test_layering.py`. | "layer", which names the CLI, workflow and output layers | `PACKAGE_TIERS` and `SHELL_TIERS` in `tests/package/test_layering.py` |
 | root shell | The modules at the package root that belong to no domain package: `__init__`, `__main__`, `cli`, `config` and `errors`. | "public shell", "shell" | |
 
 ## Identifier differences

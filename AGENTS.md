@@ -25,7 +25,7 @@ python -m pip install -e ".[dev]"
 ldsc --help
 python -m ldsc --help
 # Focused package/CLI checks; select scientific tests for the affected workflow.
-pytest tests/test_package_layout.py tests/test_cli_help.py
+pytest tests/package/test_package_layout.py tests/package/test_cli_help.py
 # Broader validation; run the two runners sequentially.
 pytest
 python -m unittest discover -s tests -p 'test*.py' -v

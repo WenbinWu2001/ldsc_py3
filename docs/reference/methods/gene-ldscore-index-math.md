@@ -370,7 +370,7 @@ After query-status validation, the ordinary LD-score writer publishes:
 | `metadata.json` | annotation counts, SNP-set totals and policies, columns, ordered `query_batches`, `index_id`, and provenance |
 | `diagnostics/` | query resolution/status and workflow audit records |
 
-Execution groups the same matrix products into query batches. For each batch, a persistent worker pool reloads one chromosome operator per task and writes float64 fragments; the coordinator combines them in canonical chromosome order and writes one genome-wide batch at a time. `workers` controls chromosome workers and is capped at chromosome count; `query_batch_size` controls query width. These runtime choices do not change the matrices or scientific definitions above. One batch uses the single query filename; multiple batches use numbered files recorded in the required manifest. See `indexed_results` in [_ldscore/gene_index/batches.py](../../../src/ldsc/_ldscore/gene_index/batches.py) and [`test_gene_index_streaming.py`](../../../tests/test_gene_index_streaming.py).
+Execution groups the same matrix products into query batches. For each batch, a persistent worker pool reloads one chromosome operator per task and writes float64 fragments; the coordinator combines them in canonical chromosome order and writes one genome-wide batch at a time. `workers` controls chromosome workers and is capped at chromosome count; `query_batch_size` controls query width. These runtime choices do not change the matrices or scientific definitions above. One batch uses the single query filename; multiple batches use numbered files recorded in the required manifest. See `indexed_results` in [_ldscore/gene_index/batches.py](../../../src/ldsc/_ldscore/gene_index/batches.py) and [`test_gene_index_streaming.py`](../../../tests/ldscore/test_gene_index_streaming.py).
 
 Scientific matrix products and stored operator values use float64.
 The canonical Parquet writer narrows LD-score columns to the public float32 storage dtype.
@@ -456,4 +456,4 @@ Each chromosome-22 index build took 103–153 s with 1.30–1.76 GB peak RSS.
 
 `ldsc._ldscore.gene_index.atoms.assemble_selected_atom_statistics` assembles the counts and baseline/control overlaps consumed by `run_indexed_ldscore`.
 SNP-level reconstruction is a test oracle, not a second runtime implementation.
-`tests/test_gene_ldscore_index_kernel.py` checks hand-computed counts/overlaps and reconstructs interval-union membership independently; `tests/test_gene_ldscore_index.py` checks live-versus-indexed outputs.
+`tests/ldscore/test_gene_ldscore_index_kernel.py` checks hand-computed counts/overlaps and reconstructs interval-union membership independently; `tests/ldscore/test_gene_ldscore_index.py` checks live-versus-indexed outputs.

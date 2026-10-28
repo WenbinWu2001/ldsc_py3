@@ -77,7 +77,7 @@ error and rerun the same materializing command with `--overwrite`; a successful
 retry removes the applicable marker. Do not treat the marker as a scientific
 result file.
 
-Markers, logs, audits, and scientific outputs use the same expanded destination. A marker alone does not prevent retry. If an older version placed logs or markers under a literal `$VARIABLE` or `~` directory, update the package and rerun using the intended destination; existing misplaced directories are not migrated or deleted automatically. Regression coverage is in [`test_output_directory_retries.py`](../../tests/test_output_directory_retries.py).
+Markers, logs, audits, and scientific outputs use the same expanded destination. A marker alone does not prevent retry. If an older version placed logs or markers under a literal `$VARIABLE` or `~` directory, update the package and rerun using the intended destination; existing misplaced directories are not migrated or deleted automatically. Regression coverage is in [`test_output_directory_retries.py`](../../tests/runtime/test_output_directory_retries.py).
 
 ### Common: input path did not resolve to one file
 

@@ -36,7 +36,7 @@ On the BED route, coordinate-family modes require `--genome-build`, and the BED 
 
 The catalog has one declared build and one-based inclusive intervals `[start, end]`.
 Each interval is converted once to `[start - 1, end)`, padded on both sides, and clipped at 0.
-For example, an unpadded catalog interval `[101, 110]` marks the one-based SNP positions 101 and 110 but not 100 or 111, the same as the BED interval `[100, 110)` (`tests/test_annotate_grid.py`).
+For example, an unpadded catalog interval `[101, 110]` marks the one-based SNP positions 101 and 110 but not 100 or 111, the same as the BED interval `[100, 110)` (`tests/annotation/test_annotate_grid.py`).
 A query annotation is the binary union of its intervals over the grid rows that survive SNP identity cleanup.
 Gene identifiers match exactly and case-sensitively, as described in the [gene-list format](formats/gene-lists.md).
 

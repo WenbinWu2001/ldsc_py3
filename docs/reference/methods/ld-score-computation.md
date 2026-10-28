@@ -282,7 +282,7 @@ Linearity proves the mathematical result, not bitwise equality between floating-
 Changing $K$, tile layout, query width, or backend can reorder sums and alter roundoff.
 Validate against independent float64 expectations with the established numerical tolerances, and compare transport-only changes at matched layouts.
 There is no universal per-SNP LD-score error bound independent of pair count and annotation weights.
-See [`test_ldscore_projection.py`](../../../tests/test_ldscore_projection.py), [`test_ldscore_streaming.py`](../../../tests/test_ldscore_streaming.py), and [`test_direct_batch_staging.py`](../../../tests/test_direct_batch_staging.py).
+See [`test_ldscore_projection.py`](../../../tests/ldscore/test_ldscore_projection.py), [`test_ldscore_streaming.py`](../../../tests/ldscore/test_ldscore_streaming.py), and [`test_direct_batch_staging.py`](../../../tests/ldscore/test_direct_batch_staging.py).
 
 ---
 

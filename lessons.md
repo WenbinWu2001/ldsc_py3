@@ -1,7 +1,7 @@
 
 # Lessons
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 ## Refactoring must preserve attribution outside removable banners
 
@@ -264,23 +264,23 @@ Last updated on: 2026-10-27
   The LD-score reader checks row alignment before identity cleanup, so those inputs could fail despite coming from one annotation run.
   Export supplied baseline values and generated queries from the same cleaned grid, and return handles to the exports.
   BIM-only projection has no supplied baseline values and must not fabricate any.
-  Verify downstream scoring after deleting the original baseline input, including continuous-value preservation; see `tests/test_annotate_grid.py`.
+  Verify downstream scoring after deleting the original baseline input, including continuous-value preservation; see `tests/annotation/test_annotate_grid.py`.
 
 ## Identifier failures must not hide independent query-name failures
 
 - Standalone annotation aborted on rejected gene identifiers before checking source-derived query names, hiding simultaneous baseline or reserved-name collisions from both the terminal and source summary.
   Check names from resolved declarations and validated annotation headers before the fatal gene-list gate, then write the enriched diagnostics and raise once.
   Preserve resolver-owned duplicate-name reasons and stop before grid preparation or projection.
-  Verify terminal messages, saved audits, and preparation boundaries together; see `tests/test_annotate_preflight.py`.
+  Verify terminal messages, saved audits, and preparation boundaries together; see `tests/annotation/test_annotate_preflight.py`.
 
 ## Build-specific column specifications must not declare generic POS
 
 - Summary/root cause/correction: Both build-specific restriction specifications used `POS` as their canonical field, so asking whether hg19/hg38 columns existed classified a generic `POS` column as both declarations and bypassed coordinate inference.
   Give build-specific specifications their own canonical column names, prefer the matching declaration, and test ordinary generic, named, and alternative-column inputs through the workflow build check.
-  Keep build evidence collection separate from the reader's final column selection; see `tests/test_genome_build_policy.py`.
+  Keep build evidence collection separate from the reader's final column selection; see `tests/genome/test_genome_build_policy.py`.
 
 ## Read-only commands must bypass writes before argument parsing
 
 - Summary/root cause/correction: Registering a read-only helper in the shared CLI also admitted it to failure-marker handling, which examines raw `--overwrite` and `--output-dir` arguments before the command parser rejects them.
   Exclude read-only helpers from that lifecycle before parsing; test rejected write options against an existing input directory and assert that no failure marker or other file appears.
-  Internal-error advice must also omit workflow-only logging options and stale workflow-log pointers for the helper; see `tests/test_genome_build_inspection.py`.
+  Internal-error advice must also omit workflow-only logging options and stale workflow-log pointers for the helper; see `tests/genome/test_genome_build_inspection.py`.

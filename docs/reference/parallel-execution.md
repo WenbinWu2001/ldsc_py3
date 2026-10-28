@@ -124,4 +124,4 @@ See [`_ldscore/diagnostics.py`](../../src/ldsc/_ldscore/diagnostics.py), [`LDSco
 
 Representative chromosome scaling, full-genome memory, HPC Arrow I/O, and repeated serial work remain benchmarking topics.
 The uniform BLAS policy is a confirmed resource policy, not a claim of universally optimal performance.
-Tested behavior is in [`test_worker_policy.py`](../../tests/test_worker_policy.py), [`test_execution_policy.py`](../../tests/test_execution_policy.py), and [`test_ldscore_parallelism.py`](../../tests/test_ldscore_parallelism.py).
+Tested behavior is in [`test_worker_policy.py`](../../tests/runtime/test_worker_policy.py), [`test_execution_policy.py`](../../tests/runtime/test_execution_policy.py), and [`test_ldscore_parallelism.py`](../../tests/ldscore/test_ldscore_parallelism.py).

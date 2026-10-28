@@ -124,6 +124,16 @@ On each page that names S-LDSC, the first mention gives the full name and citati
 | failure marker | The file left after a failed overwrite, removed by a successful retry. | "error file" | `RUN_FAILED.txt` |
 | worker | A managed child process that runs one task (a chromosome or a model); each uses one BLAS thread. | "thread", "job", "process" for this unit | `--workers`; `workers=` |
 
+### Package structure
+
+These terms are for the developer guide and contributor documentation.
+
+| Term | Definition | Avoid | API/CLI identifier |
+| --- | --- | --- | --- |
+| domain package | A private package under `src/ldsc/` that holds one area of the package, such as `_annotation` or `_ldscore`. | "domain subpackage" | `src/ldsc/_<domain>/` |
+| tier | A level in the one-directional import order of the domain packages, enforced by `tests/test_layering.py`. | "layer", which names the CLI, workflow and output layers | `PACKAGE_TIERS` and `SHELL_TIERS` in `tests/test_layering.py` |
+| root shell | The modules at the package root that belong to no domain package: `__init__`, `__main__`, `cli`, `config` and `errors`. | "public shell", "shell" | |
+
 ## Identifier differences
 
 These identifiers differ from the prose term or from each other; they are recorded here, not renamed.
@@ -159,6 +169,3 @@ Add a row when a concept appears under several names: the concept, the proposed 
 
 | Concept | Proposed term | Variants and locations |
 | --- | --- | --- |
-| A private package under `src/ldsc/` that holds one area of the package, such as `_annotation` or `_ldscore` | domain package | "domain subpackage" (the removed reorganization specification); "domain packages" (`docs/dev/code-structure.md:36`, `docs/dev/data-flow.md:15`, `docs/dev/architecture.md:52`) |
-| A level in the one-directional import order of the domain packages, enforced by `tests/test_layering.py` | tier | "tiers" (`docs/dev/code-structure.md:21`, `docs/dev/architecture.md:63`); "layer" already names the CLI, workflow and output layers in `docs/dev/architecture.md` and should not be used for this concept |
-| The modules at the package root that belong to no domain package: `__init__`, `__main__`, `cli`, `config` and `errors` | root shell | "public shell" (`docs/dev/code-structure.md:19`, `docs/dev/architecture.md:113`); "shell" (`docs/dev/code-structure.md:57`); "root shell" (`tests/test_layering.py:8`) |

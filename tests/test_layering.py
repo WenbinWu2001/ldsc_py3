@@ -106,7 +106,7 @@ def find_violations(package_root):
 
 
 def find_misplaced_modules(package_root):
-    """Return modules and packages at the package root outside the shell and the tiered packages."""
+    """Return modules and packages at the package root outside the root shell and the tiered packages."""
     package_root = Path(package_root)
     shell = {name.rpartition(".")[2] for name in SHELL_TIERS if name != "ldsc"} | {"__init__"}
     packages = {name.rpartition(".")[2] for name in PACKAGE_TIERS}

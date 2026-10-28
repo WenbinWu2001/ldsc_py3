@@ -60,7 +60,7 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 
 The matrix answers which layer owns an object and which objects take part in a workflow.
 The public import boundary is `ldsc`, the command boundary is `ldsc.cli`, and every package whose name starts with an underscore is internal.
-The packages form one-directional tiers, `_core` < `_runtime` < `config` < `_genome` < (`_annotation`, `_refpanel`, `_sumstats`) < `_ldscore` < `_regression` < `_plotting` < the shell, enforced by `tests/test_layering.py`; the [code structure](code-structure.md#dependency-direction) gives the rules.
+The packages form one-directional tiers, `_core` < `_runtime` < `config` < `_genome` < (`_annotation`, `_refpanel`, `_sumstats`) < `_ldscore` < `_regression` < `_plotting` < the root shell, enforced by `tests/test_layering.py`; the [code structure](code-structure.md#dependency-direction) gives the rules.
 
 | Layer | Shared CLI, config, path, and schema contracts | Annotation building | Reference-panel building and loading | LD-score calculation | Summary-statistics munging | Regression | Output and persistence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -110,7 +110,7 @@ ldsc_py3_restructured/
 │   │   └── data-flow.md         # workflow-level file streams
 │   └── assets/
 ├── src/ldsc/
-│   ├── __init__.py  __main__.py  cli.py  config.py  errors.py   # public shell
+│   ├── __init__.py  __main__.py  cli.py  config.py  errors.py   # root shell
 │   ├── _core/               # chromosomes, columns, coordinates, SNP identity, regions, PLINK companion files
 │   ├── _runtime/            # paths, input preflight, workflow logging, progress, workers, keyword checks, artifact writers
 │   ├── _genome/             # genome-build inference and policy, build inspection, liftover, HM3 map

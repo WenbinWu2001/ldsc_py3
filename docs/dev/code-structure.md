@@ -16,7 +16,7 @@ It catalogs implemented storage, streaming, reuse, and numerical-buffer designs,
 ldsc_py3_restructured/
 ├── docs/
 ├── src/ldsc/
-│   ├── __init__.py  __main__.py  cli.py  config.py  errors.py   public shell
+│   ├── __init__.py  __main__.py  cli.py  config.py  errors.py   root shell
 │   ├── data/                 packaged HM3 maps and region presets
 │   ├── _core/                tier 1: chromosomes, columns, coordinates, SNP identity, regions, PLINK companion files
 │   ├── _runtime/             tier 2: paths, input preflight, logging, progress, workers, keyword checks, result-file writers
@@ -54,7 +54,7 @@ Packages are arranged in tiers, and a module may import from its own package and
 | 9 | `cli.py`, `__init__.py`, `__main__.py` |
 
 [`tests/test_layering.py`](../../tests/test_layering.py) enforces the table: it reads every import inside the package, including imports inside functions and under `TYPE_CHECKING`, and fails on an import that points upward or between peers.
-It also fails when a module outside the shell sits at the package root.
+It also fails when a module outside the root shell sits at the package root.
 Function-level imports remain for optional or heavy dependencies, such as Matplotlib and the SciPy-backed workflows, but never to avoid an import cycle.
 
 - `ldsc.cli` parses arguments and dispatches; workflow logic lives in the domain packages.

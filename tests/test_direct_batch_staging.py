@@ -10,8 +10,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc import AnnotationBundle, LDScoreCalculator, ldscore_calculator
-from ldsc.outputs import LDScoreOutputConfig
+from ldsc import AnnotationBundle, LDScoreCalculator
+from ldsc._ldscore import calculator as ldscore_calculator
+from ldsc._ldscore.outputs import LDScoreOutputConfig
 from tests.test_ldscore_query_batches import prepared_case
 from tests.test_gene_query_integration import inputs, direct_args
 
@@ -118,7 +119,7 @@ def test_direct_global_filtering_matches_materialized_output(tmp_path, width, em
 
 
 def test_direct_parent_releases_and_deletes_each_consumed_fragment(tmp_path, monkeypatch):
-    from ldsc import _ldscore_fragments as fragments
+    from ldsc._ldscore import fragments
 
     metadata, baseline, queries, config, panel, numerical = prepared_case(tmp_path)
     read = fragments.pd.read_parquet
@@ -152,7 +153,7 @@ def _fail_last_batch(*args, **kwargs):
 
 @pytest.mark.parametrize("failure", ["worker", "alignment", "writer"])
 def test_direct_final_batch_failure_removes_private_outputs(tmp_path, monkeypatch, failure):
-    from ldsc import _ldscore_fragments as fragments
+    from ldsc._ldscore import fragments
     from ldsc.errors import LDSCInputError
 
     metadata, baseline, queries, config, panel, numerical = prepared_case(tmp_path)
@@ -227,7 +228,7 @@ def test_direct_failure_waits_for_workers_before_removing_borrowed_scratch(tmp_p
 
 
 def test_real_plink_gene_batches_preserve_all_metadata_and_diagnostics(tmp_path, monkeypatch, inputs):
-    from ldsc.ldscore_calculator import run_ldscore_from_args
+    from ldsc._ldscore.calculator import run_ldscore_from_args
 
     _, annotation_path, _, _ = inputs
     annotations = pd.read_csv(annotation_path, sep="\t")

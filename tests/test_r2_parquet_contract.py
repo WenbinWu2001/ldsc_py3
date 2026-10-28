@@ -206,7 +206,7 @@ def test_python_api_run_reports_every_chromosome_defect_before_computing(tmp_pat
     import gzip
 
     from ldsc import AnnotationBundle, LDScoreCalculator
-    from ldsc.outputs import LDScoreOutputConfig
+    from ldsc._ldscore.outputs import LDScoreOutputConfig
     from tests.test_ldscore_query_batches import prepared_case
 
     metadata, baseline, queries, config, panel, numerical = prepared_case(tmp_path)

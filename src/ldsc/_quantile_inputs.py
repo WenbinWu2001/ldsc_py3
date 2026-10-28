@@ -177,7 +177,7 @@ def _validate_aggregates(model, metadata, sums, products):
     overlap_path = (metadata.get("files") or {}).get("overlap")
     if overlap_path:
         from ._overlap_model import assemble_model_overlap
-        from .overlap_matrix import overlap_from_long_frame
+        from ._ldscore.overlap_table import overlap_from_long_frame
 
         config = metadata.get("overlap_config") or {}
         overlap = overlap_from_long_frame(pd.read_parquet(model.ldscore_dir / str(overlap_path)),

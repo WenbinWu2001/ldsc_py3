@@ -8,7 +8,7 @@ import pytest
 @pytest.mark.parametrize('sparse_pairs', [False, True])
 def test_projection_preserves_nonoutput_contributors_and_weight_universe(batch_size, sparse_pairs):
     from ldsc._refpanel.prepared import ArrayAnnotations
-    from ldsc._kernel.ldscore_projection import ProjectionAccumulator
+    from ldsc._ldscore.compute import ProjectionAccumulator
 
     annotations = np.array([[1, 1, 0, -2], [1, 0, 3, 4], [1, 2, 1, 0], [1, 0, 0, 5]], dtype=np.float32)
     r2 = np.array([[1, .25, .5, 0], [.25, 1, .125, -.05], [.5, .125, 1, .75], [0, -.05, .75, 1]], dtype=np.float64)
@@ -31,7 +31,7 @@ def test_projection_preserves_nonoutput_contributors_and_weight_universe(batch_s
 
 def test_pair_window_filter_and_no_output_rows(tmp_path):
     from ldsc._refpanel.prepared import ArrayAnnotations
-    from ldsc._kernel.ldscore_projection import ProjectionAccumulator
+    from ldsc._ldscore.compute import ProjectionAccumulator
 
     source = ArrayAnnotations(np.array([[1,2],[1,4],[1,8]],dtype=np.float32), ('base','q'))
     accumulator=ProjectionAccumulator(source, n_baseline=1, output_rows=[2], query_batch_size=1)
@@ -46,7 +46,7 @@ def test_pair_window_filter_and_no_output_rows(tmp_path):
 
 def test_accessor_reads_only_query_batches_and_bounded_contributor_tiles():
     from ldsc._refpanel.prepared import ArrayAnnotations
-    from ldsc._kernel.ldscore_projection import ProjectionAccumulator
+    from ldsc._ldscore.compute import ProjectionAccumulator
 
     reads=[]
     class RecordingAnnotations(ArrayAnnotations):
@@ -64,7 +64,7 @@ def test_accessor_reads_only_query_batches_and_bounded_contributor_tiles():
 @pytest.mark.parametrize('batch_size', [1, 2, 1000])
 def test_plink_projection_reuses_genotype_traversal(batch_size):
     from ldsc._refpanel.plink import __GenotypeArrayInMemory__
-    from ldsc._kernel.ldscore import ld_scores_from_genotypes
+    from ldsc._ldscore.compute import ld_scores_from_genotypes
     from ldsc._refpanel.prepared import ArrayAnnotations
 
     genotypes = np.array([[0,1,2,0], [1,2,0,1], [2,0,1,0], [0,0,2,2], [1,1,0,2]], dtype=float)
@@ -112,7 +112,7 @@ def test_plink_ld_scores_use_the_exact_window_for_every_chunk_size(window, chunk
     exercises the single initial block. ``gap`` reaches the empty-left-block path.
     """
     from ldsc._refpanel.windows import get_block_lefts
-    from ldsc._kernel.ldscore import ld_scores_from_genotypes
+    from ldsc._ldscore.compute import ld_scores_from_genotypes
     from ldsc._refpanel.prepared import ArrayAnnotations
     from ldsc._refpanel.plink import __GenotypeArrayInMemory__
 
@@ -151,7 +151,7 @@ def test_plink_ld_scores_use_the_exact_window_for_every_chunk_size(window, chunk
 
 @pytest.mark.parametrize('batch_size', [1, 2, 1000])
 def test_r2_projection_reuses_pair_traversal(batch_size):
-    from ldsc._kernel.ldscore import ld_score_streaming_from_r2_reader
+    from ldsc._ldscore.compute import ld_score_streaming_from_r2_reader
     from ldsc._refpanel.prepared import ArrayAnnotations
 
     class PairReader:

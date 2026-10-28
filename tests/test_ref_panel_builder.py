@@ -24,7 +24,8 @@ from ldsc._refpanel.windows import r2_panel_window_coordinates
 from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS, RestrictionIdentityKeys, empty_identity_drop_frame
 from ldsc.config import GlobalConfig, ReferencePanelBuildConfig
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
-from ldsc import ldscore_calculator, reset_global_config, set_global_config
+from ldsc._ldscore import calculator as ldscore_calculator
+from ldsc import reset_global_config, set_global_config
 from ldsc._refpanel import builder as ref_panel_builder
 
 

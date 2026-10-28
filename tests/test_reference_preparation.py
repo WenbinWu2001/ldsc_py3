@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfig, RefPanelConfig
-from ldsc._kernel import ldscore
+from ldsc._ldscore import compute as ldscore
 from ldsc._refpanel.prepared import ChromosomeAnnotations
 from ldsc._refpanel.r2_format import SortedR2BlockReader
 from ldsc._refpanel.adapters import ParquetR2RefPanel

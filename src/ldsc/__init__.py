@@ -70,14 +70,12 @@ from ._genome.build_inference import (
     resolve_chr_pos_table,
 )
 from ._genome.hm3 import load_hm3_curated_map
-from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
-from .gene_ldscore_index import build_gene_ldscore_index
-from ._gene_index_scoring import load_gene_ldscore_index
+from ._ldscore.calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
+from ._ldscore.gene_index.build import build_gene_ldscore_index
+from ._ldscore.gene_index.scoring import load_gene_ldscore_index
 from .outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
-    LDScoreDirectoryWriter,
-    LDScoreOutputConfig,
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
     QuantileH2DirectoryWriter,
@@ -85,6 +83,7 @@ from .outputs import (
     RgDirectoryWriter,
     RgOutputConfig,
 )
+from ._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from ._refpanel.builder import ReferencePanelBuildResult, ReferencePanelBuilder, run_build_ref_panel
 from ._refpanel.adapters import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPanelLoader
 from ._refpanel.query import R2Panel, query_r2, unbiased_r2_to_pearson_r
@@ -96,11 +95,11 @@ _LAZY_EXPORTS = {
     "SumstatsTable": ("._sumstats.munger", "SumstatsTable"),
     "infer_raw_sumstats": ("._sumstats.munger", "infer_raw_sumstats"),
     "load_sumstats": ("._sumstats.munger", "load_sumstats"),
-    "load_ldscore_from_dir": (".ldscore_source", "load_ldscore_from_dir"),
-    "LDScoreSource": (".ldscore_source", "LDScoreSource"),
-    "LegacyLDScoreConverter": (".legacy_ldscore_converter", "LegacyLDScoreConverter"),
-    "LegacyLDScoreConversionResult": (".legacy_ldscore_converter", "LegacyLDScoreConversionResult"),
-    "convert_ldsc2_ldscores": (".legacy_ldscore_converter", "convert_ldsc2_ldscores"),
+    "load_ldscore_from_dir": ("._ldscore.source", "load_ldscore_from_dir"),
+    "LDScoreSource": ("._ldscore.source", "LDScoreSource"),
+    "LegacyLDScoreConverter": ("._ldscore.legacy_converter", "LegacyLDScoreConverter"),
+    "LegacyLDScoreConversionResult": ("._ldscore.legacy_converter", "LegacyLDScoreConversionResult"),
+    "convert_ldsc2_ldscores": ("._ldscore.legacy_converter", "convert_ldsc2_ldscores"),
     "RegressionDataset": (".regression_runner", "RegressionDataset"),
     "PreparedRegressionInputs": (".regression_runner", "PreparedRegressionInputs"),
     "PartitionedH2BatchResult": (".regression_runner", "PartitionedH2BatchResult"),

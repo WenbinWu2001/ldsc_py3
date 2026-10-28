@@ -228,7 +228,7 @@ If $O=[0,2]$ in the example, the selected scores are $[1.6,2.3]^\top$.
 SNPs 1 and 3 still contribute; dropping them before multiplication would give the wrong answer.
 The diagonal is seeded once on output rows by `add_diagonal()`.
 
-[`ld_score_streaming_from_r2_reader()`](../../../src/ldsc/_kernel/ldscore.py) splits decoded record batches so at most $K=16{,}000{,}000$ pairs are buffered before projection, with a final partial chunk.
+[`ld_score_streaming_from_r2_reader()`](../../../src/ldsc/_ldscore/compute.py) splits decoded record batches so at most $K=16{,}000{,}000$ pairs are buffered before projection, with a final partial chunk.
 $K$ is independent of Parquet row-group size and PLINK `snp_batch_size`; it is not clamped below by $m$.
 The pair buffer, concatenated arrays, two-direction expansion, CSR and sorting workspace can coexist, so $K$ is not a byte/RSS cap.
 The reader uses record batches of at most 65,536 rows even for oversized row groups.

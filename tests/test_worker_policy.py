@@ -6,7 +6,7 @@ import pytest
 
 from ldsc.config import LDScoreConfig, GeneLDScoreIndexBuildConfig
 from ldsc.errors import LDSCConfigError
-from ldsc._gene_index_scoring import run_indexed_ldscore
+from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
 
 
 @pytest.mark.parametrize("workers", [0, True, False, 1.5, 1.0, "2", None])
@@ -51,10 +51,11 @@ def test_cli_rejects_invalid_workers(module, value, capsys):
 def test_workflows_share_detected_budget_and_managed_processes(tmp_path, monkeypatch, cpus, workers, expected):
     import os
     import numpy as np
-    from ldsc import gene_ldscore_index as builder, ldscore_calculator as direct
-    from ldsc import _gene_index_scoring
-    from ldsc._gene_index_scoring import _load_gene_ldscore_index
-    from ldsc import _indexed_ldscore_batches as indexed
+    from ldsc._ldscore.gene_index import build as builder
+    from ldsc._ldscore import calculator as direct
+    from ldsc._ldscore.gene_index import scoring as _gene_index_scoring
+    from ldsc._ldscore.gene_index.scoring import _load_gene_ldscore_index
+    from ldsc._ldscore.gene_index import batches as indexed
     from ldsc import RegressionRunner, RegressionConfig
     from tests.test_plink_workflow_resolution import write_inputs, index_args
     from tests.test_regression_streaming import batch_inputs

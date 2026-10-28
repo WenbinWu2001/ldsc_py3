@@ -7,7 +7,7 @@ import pytest
 
 from ldsc.errors import LDSCInputError
 from ldsc._genome.build_inference import load_packaged_reference_table
-from ldsc.ldscore_calculator import _resolve_ldscore_chr_pos_genome_build
+from ldsc._ldscore.calculator import _resolve_ldscore_chr_pos_genome_build
 
 
 def coordinates(chrom, build, n=500):
@@ -148,7 +148,7 @@ def test_munge_preview_trusts_the_selected_build_specific_source_column(tmp_path
 
 
 def test_converter_explicit_build_is_authoritative():
-    from ldsc.legacy_ldscore_converter import _resolve_output_coordinates
+    from ldsc._ldscore.legacy_converter import _resolve_output_coordinates
     original = coordinates(1, 'hg38')
     emitted, build, provenance = _resolve_output_coordinates(original, 'chr_pos', 'hg19', context='reference')
     assert build == 'hg19'
@@ -181,7 +181,7 @@ def test_munge_preview_rejects_conflicting_source_declaration(tmp_path):
 
 def test_converter_validates_weight_build_declaration_before_conversion(tmp_path, monkeypatch):
     from tests.test_legacy_ldscore_converter import _write_unpartitioned_suite, _write_text
-    from ldsc.legacy_ldscore_converter import convert_ldsc2_ldscores
+    from ldsc._ldscore.legacy_converter import convert_ldsc2_ldscores
     monkeypatch.setattr('ldsc._runtime.worker_runtime._INITIALIZED', True)
     reference, weights = tmp_path / 'reference', tmp_path / 'weights'
     _write_unpartitioned_suite(reference, weights)

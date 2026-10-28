@@ -13,11 +13,11 @@ import pytest
 
 from ldsc import regression_runner as workflow
 from ldsc import cli, load_ldscore_from_dir
-from ldsc.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
+from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from tests import test_regression_workflow as fixtures
 from tests.test_regression_fit_outcomes import h2_dataset
-from ldsc.ldscore_calculator import LDScoreResult
-from ldsc.overlap_matrix import LDScoreOverlap
+from ldsc._ldscore.calculator import LDScoreResult
+from ldsc._ldscore.overlap_table import LDScoreOverlap
 from ldsc._annotation.overlap import OverlapContribution
 
 

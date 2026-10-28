@@ -15,20 +15,20 @@ import os
 
 import pandas as pd
 
-from ._annotation.storage import TsvDiagnostics
-from ._annotation.semantics import require_unique_annotation_names
-from .errors import LDSCInputError
-from .ldscore_source import validate_ldscore_baseline_table, validate_ldscore_query_table
-from ._runtime.artifacts import _to_serializable
+from .._annotation.storage import TsvDiagnostics
+from .._annotation.semantics import require_unique_annotation_names
+from ..errors import LDSCInputError
+from .source import validate_ldscore_baseline_table, validate_ldscore_query_table
+from .._runtime.artifacts import _to_serializable
 from .outputs import _write_chromosome_aligned_parquet
-from ._runtime.paths import ensure_output_directory, remove_output_artifacts
-from ._annotation.query_outcomes import gene_viability_errors
+from .._runtime.paths import ensure_output_directory, remove_output_artifacts
+from .._annotation.query_outcomes import gene_viability_errors
 
 if TYPE_CHECKING:
-    from .config import GlobalConfig
-    from ._annotation.gene_query_storage import StagedGeneListBatch
-    from .overlap_matrix import LDScoreOverlap
-    from ._annotation.query_outcomes import QueryAnnotationStatus
+    from ..config import GlobalConfig
+    from .._annotation.gene_query_storage import StagedGeneListBatch
+    from .overlap_table import LDScoreOverlap
+    from .._annotation.query_outcomes import QueryAnnotationStatus
 
 
 @dataclass(slots=True)
@@ -60,7 +60,7 @@ class _LDScorePublication:
 
 def write_ldscore_batches(writer, results, output_config, query_status_order=()):
     """Consume one result at a time, then publish the complete artifact family."""
-    from ._ldscore_fragments import StagedLDScoreBatch, write_query_fragments
+    from .fragments import StagedLDScoreBatch, write_query_fragments
 
     root = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
     writer.artifact_family(root).preflight(overwrite=output_config.overwrite)
@@ -149,7 +149,7 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
             staged_family = writer.artifact_family(stage, shared)
             paths = staged_family.paths
             if shared.overlap is not None:
-                from .overlap_matrix import overlap_to_long_frame
+                from .overlap_table import overlap_to_long_frame
                 overlap_to_long_frame(shared.overlap).to_parquet(paths["overlap"], index=False)
             writer._write_query_diagnostic_files(shared, paths)
             writer._write_ld_window_snp_counts(shared, paths)
@@ -177,8 +177,8 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
             close = getattr(results, "close", None)
             if close is not None:
                 close()
-    from .ldscore_source import load_ldscore_from_dir
-    from ._annotation.gene_query_storage import persistent_gene_diagnostics
+    from .source import load_ldscore_from_dir
+    from .._annotation.gene_query_storage import persistent_gene_diagnostics
     source = load_ldscore_from_dir(str(root))
     paths = {key: str(value) for key, value in family.paths.items()}
     return replace(source, output_paths=paths, query_statuses=shared.query_statuses,

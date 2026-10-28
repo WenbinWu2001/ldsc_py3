@@ -19,10 +19,10 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ._runtime.progress import PhaseProgress
-from ._runtime.parallelism import _resolve_worker_count, _run_chromosome_tasks
-from ._ldscore_diagnostics import chromosome_log, report_chromosome_failure
-from ._query_variation import ScoreVariation, summarize_variation, combine_variation
+from ..._runtime.progress import PhaseProgress
+from ..._runtime.parallelism import _resolve_worker_count, _run_chromosome_tasks
+from ..diagnostics import chromosome_log, report_chromosome_failure
+from ..query_variation import ScoreVariation, summarize_variation, combine_variation
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
@@ -39,7 +39,7 @@ class _ChromosomeBatchSummary:
 
 def _write_baseline(record, control_selector, directory):
     """Stage shared baseline scores once and return all/common statistics."""
-    from . import gene_ldscore_index as core
+    from . import build as core
 
     supplied = len(record.baseline_count_all)
     n_baseline = supplied + int(control_selector is not None)
@@ -64,8 +64,8 @@ def _write_baseline(record, control_selector, directory):
 
 def _write_chromosome(index, chrom, batch, declarations, control_resolution, ordinal, total_batches, root, log_path=None):
     """Load, compute, and release one chromosome for the active query batch."""
-    from . import gene_ldscore_index as core
-    from ._gene_index_scoring import _selector_for_resolution
+    from . import build as core
+    from .scoring import _selector_for_resolution
 
     with chromosome_log(log_path, chrom, f"indexed batch {ordinal + 1}/{total_batches}"):
         directory = Path(root) / f"chr{chrom}"
@@ -133,11 +133,11 @@ def indexed_results(index, batch, declarations, control, width, root, workers, s
     chromosome at a time. Index loading repeats for each batch. A failed task
     must finish pool shutdown before its batch workspace is removed.
     """
-    from .config import GlobalConfig
-    from .ldscore_calculator import _init_worker
-    from ._ldscore_fragments import StagedLDScoreBatch
-    from .overlap_matrix import LDScoreOverlap
-    from ._annotation.query_outcomes import finalize_query_measurements
+    from ...config import GlobalConfig
+    from ..calculator import _init_worker
+    from ..fragments import StagedLDScoreBatch
+    from ..overlap_table import LDScoreOverlap
+    from ..._annotation.query_outcomes import finalize_query_measurements
 
     root = Path(root) / "indexed-batches"
     root.mkdir()

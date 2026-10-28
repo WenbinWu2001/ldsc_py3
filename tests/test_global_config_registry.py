@@ -13,9 +13,10 @@ from ldsc import GlobalConfig, set_global_config, reset_global_config
 from ldsc.config import ConfigMismatchError, validate_config_compatibility
 from ldsc.errors import LDSCUsageError
 from ldsc._annotation import builder as annotation_builder
-from ldsc import ldscore_calculator, regression_runner
+from ldsc._ldscore import calculator as ldscore_calculator
+from ldsc import regression_runner
 from ldsc._refpanel import builder as ref_panel_builder
-from ldsc.ldscore_calculator import LDScoreResult
+from ldsc._ldscore.calculator import LDScoreResult
 from ldsc._refpanel.builder import ReferencePanelBuildConfig, ReferencePanelBuilder
 from ldsc.regression_runner import RegressionRunner
 from ldsc._sumstats.munger import SumstatsTable

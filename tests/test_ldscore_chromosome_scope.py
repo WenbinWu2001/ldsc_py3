@@ -5,7 +5,7 @@ from argparse import Namespace
 import pytest
 
 from ldsc.config import GlobalConfig
-from ldsc._ldscore_preflight import inspect_direct_inputs
+from ldsc._ldscore.preflight import inspect_direct_inputs
 
 
 def write_inputs(tmp_path):
@@ -125,7 +125,7 @@ def test_parquet_orphan_members_are_batched(tmp_path):
 def test_parquet_gene_workflow_distinguishes_valid_zero_support(tmp_path, maf_min, expected):
     import json
     import pandas as pd
-    from ldsc.ldscore_calculator import build_parser, run_ldscore_from_args
+    from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
     from ldsc.errors import LDSCInputError
 
     inputs = write_r2_inputs(tmp_path)

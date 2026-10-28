@@ -11,16 +11,16 @@ from pathlib import Path
 
 import numpy as np
 
-from ._annotation.bundle import AnnotationBundle
-from ._runtime.preflight import input_issue
-from ._annotation.interval_queries import build_query_shards, prepare_bed_queries, query_source_statuses, ProjectedQueries
-from ._annotation.sources import prepare_annotation_sources
-from ._annotation.storage import AnnotationShard, ColumnStore
-from ._ldscore_preflight import validate_direct_scope
-from ._annotation.semantics import require_unique_annotation_names
-from .errors import LDSCInputError
+from .._annotation.bundle import AnnotationBundle
+from .._runtime.preflight import input_issue
+from .._annotation.interval_queries import build_query_shards, prepare_bed_queries, query_source_statuses, ProjectedQueries
+from .._annotation.sources import prepare_annotation_sources
+from .._annotation.storage import AnnotationShard, ColumnStore
+from .preflight import validate_direct_scope
+from .._annotation.semantics import require_unique_annotation_names
+from ..errors import LDSCInputError
 from .outputs import LDScoreDirectoryWriter
-from ._annotation.query_outcomes import _gene_list_gate_a_message
+from .._annotation.query_outcomes import _gene_list_gate_a_message
 
 
 def prepare_direct_annotations(args, config, spec, workspace, output_config, *, declared_inputs, reference_inputs, batch=None):

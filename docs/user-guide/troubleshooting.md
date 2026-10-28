@@ -486,7 +486,7 @@ SNP contradictions produce `.<index-name>.build-state/baseline_plink_issues.tsv`
 The table identifies shared keys, baseline/PLINK sources, coordinates and usable normalized allele pairs, and a reason such as `coordinate_mismatch`, `allele_mismatch`, or `cross_chromosome_coordinate_mismatch`.
 Verify the reference releases and repair the indicated records; ordinary unmatched SNPs and shared-policy identity cleanup remain separate diagnostics.
 
-**Developer reference:** `gene_ldscore_index._validate_baseline_plink_inputs()` and `_genome.build_policy.GenomeBuildCheck` · **Exception:** `LDSCInputError`
+**Developer reference:** `_ldscore.gene_index.build._validate_baseline_plink_inputs()` and `_genome.build_policy.GenomeBuildCheck` · **Exception:** `LDSCInputError`
 
 ### `build-gene-ldscore-index`: a partial hidden stage remains after failure
 
@@ -592,7 +592,7 @@ Read `diagnostics/input_issues.tsv` and `diagnostics/chromosome_scope.json`. For
 
 Coverage follows unique identifier resolution and explicit gene exclusions, before SNP filtering. Unevaluated support remains blank. Fully covered genes with no retained computational reference SNPs have valid zero-support measurements; focal queries can be skipped for zero support/variance, whereas unusable controls and all-focal-skipped batches fail. See [the complete diagnostic vocabulary](../reference/results/gene-list-diagnostics.md).
 
-Replacing `@` with `*` changes file selection only; it does not remove genes outside the selected chromosome set. The raised error, `diagnostics/ldscore.log`, and input-issue repair text describe these alternatives. Source: [`_ldscore_preflight.validate_direct_scope` / `inspect_direct_inputs`](../../src/ldsc/_ldscore_preflight.py).
+Replacing `@` with `*` changes file selection only; it does not remove genes outside the selected chromosome set. The raised error, `diagnostics/ldscore.log`, and input-issue repair text describe these alternatives. Source: [`_ldscore.preflight.validate_direct_scope` / `inspect_direct_inputs`](../../src/ldsc/_ldscore/preflight.py).
 
 For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set it to 0 when your BED files already contain the intended padded regions, to avoid double padding.
 
@@ -642,7 +642,7 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
 3. Correct a restriction prepared from mismatched inputs.
    Broaden or remove an intentional restriction only if the resulting reference SNP population is appropriate for the analysis.
 
-**Developer reference:** `ldscore_calculator._align_annotation_bundle_to_ref_panel()`, `_kernel.ldscore.compute_chrom_from_parquet()`, and `_kernel.ldscore.compute_chrom_from_plink()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_ldscore.calculator._align_annotation_bundle_to_ref_panel()`, `_ldscore.compute.compute_chrom_from_parquet()`, and `_ldscore.compute.compute_chrom_from_plink()` · **Exception:** `LDSCInputError`
 
 <a id="ldscore-r2-panel-is-incompatible"></a>
 
@@ -693,7 +693,7 @@ For verified unlabeled inputs, assert the build with `--genome-build hg19` or `-
 
 See the [complete grouped report](#common-genome-build-consistency-check-failed) and [keep-list guidance](#common-keep-list-build-could-not-be-resolved).
 
-**Developer reference:** `ldscore_calculator._resolve_ldscore_chr_pos_genome_build()` and `_genome.build_policy.GenomeBuildCheck` · **Exception:** `LDSCInputError`
+**Developer reference:** `_ldscore.calculator._resolve_ldscore_chr_pos_genome_build()` and `_genome.build_policy.GenomeBuildCheck` · **Exception:** `LDSCInputError`
 
 ### `ldscore`: unusable CM for ld-wind-cm
 
@@ -861,7 +861,7 @@ an explicit build only when it is known; an explicit declaration that conflicts
 with decisive evidence is rejected. See
 `docs/reference/formats/legacy-ldscores.md` for the complete contract.
 
-**Developer reference:** `legacy_ldscore_converter.LegacyLDScoreConverter` · **Exception:** `LDSCInputError`
+**Developer reference:** `_ldscore.legacy_converter.LegacyLDScoreConverter` · **Exception:** `LDSCInputError`
 
 ## regression
 

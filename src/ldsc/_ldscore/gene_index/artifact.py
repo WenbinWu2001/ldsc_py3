@@ -22,9 +22,9 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
-from ._core.snp_identity import clean_identity_artifact_table
-from ._kernel.gene_ldscore_index import AtomStatistics, ChromosomeAtomModel, validate_ldscore_operator
-from .errors import LDSCInputError, LDSCInternalError
+from ..._core.snp_identity import clean_identity_artifact_table
+from .atoms import AtomStatistics, ChromosomeAtomModel, validate_ldscore_operator
+from ...errors import LDSCInputError, LDSCInternalError
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
@@ -426,7 +426,7 @@ def _write_index_artifact(
 
 def inspect_index_paths(directory, *, metadata=None):
     """Inspect root declarations and all component paths without loading arrays."""
-    from ._runtime.preflight import InputGate, _readable, input_issue
+    from ..._runtime.preflight import InputGate, _readable, input_issue
 
     root = Path(directory)
     if metadata is None:

@@ -6,7 +6,7 @@ from scipy import sparse
 
 from ldsc.errors import LDSCInternalError
 
-from ldsc._kernel.gene_ldscore_index import (
+from ldsc._ldscore.gene_index.atoms import (
     assemble_atom_selector,
     assemble_indexed_ld_scores,
     assemble_selected_atom_statistics,

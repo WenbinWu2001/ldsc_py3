@@ -18,10 +18,10 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from ._annotation.gene_lists import GeneCatalog, GeneSourceSelection, select_index_eligible_gene_indices
-from ._annotation.storage import AnnotationWorkspace
-from ._core.snp_identity import normalize_snp_identifier_mode
-from ._gene_index_artifact import (
+from ..._annotation.gene_lists import GeneCatalog, GeneSourceSelection, select_index_eligible_gene_indices
+from ..._annotation.storage import AnnotationWorkspace
+from ..._core.snp_identity import normalize_snp_identifier_mode
+from .artifact import (
     IndexChromosomeData,
     _INDEX_FORMAT_VERSION,
     _catalog_identity_records,
@@ -30,11 +30,11 @@ from ._gene_index_artifact import (
     calculate_index_id,
     inspect_index_paths,
 )
-from ._kernel.gene_ldscore_index import ChromosomeAtomModel, assemble_atom_selector
-from ._runtime.parallelism import _validate_workers
-from ._runtime.paths import normalize_path_token
-from ._runtime.progress import advance, report_phase
-from .errors import LDSCInputError
+from .atoms import ChromosomeAtomModel, assemble_atom_selector
+from ..._runtime.parallelism import _validate_workers
+from ..._runtime.paths import normalize_path_token
+from ..._runtime.progress import advance, report_phase
+from ...errors import LDSCInputError
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
@@ -424,8 +424,8 @@ def run_indexed_ldscore(
         raise ValueError("query_batch_size must be a positive integer.")
     _validate_workers(workers)
     output_dir = normalize_path_token(output_dir)
-    from ._runtime.preflight import inspect_declared_inputs
-    from .outputs import LDScoreDirectoryWriter
+    from ..._runtime.preflight import inspect_declared_inputs
+    from ..outputs import LDScoreDirectoryWriter
     LDScoreDirectoryWriter.artifact_family(output_dir).preflight(overwrite=overwrite)
     try:
         inspect_declared_inputs(files=[('query genes', query_gene_list_sources), ('control genes', control_gene_list_file)],
@@ -456,19 +456,19 @@ def _run_indexed_ldscore_in_workspace(
     workspace, _allow_partial_for_tests,
 ):
     """Own staged gene selections until the canonical result has been written."""
-    from ._annotation.gene_query_storage import resolve_gene_lists_staged
-    from ._annotation.query_outcomes import (
+    from ..._annotation.gene_query_storage import resolve_gene_lists_staged
+    from ..._annotation.query_outcomes import (
     assess_gene_coverage,
     gene_query_statuses,
     gene_control_errors,
     gene_viability_errors,
 )
-    from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
+    from ..outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 
     try:
         index = _load_gene_ldscore_index(index_dir, _allow_partial_for_tests=_allow_partial_for_tests)
     except (OSError, ValueError, LDSCInputError) as exc:
-        from ._ldscore_preflight import ISSUE_COLUMNS
+        from ..preflight import ISSUE_COLUMNS
 
         issues = getattr(exc, "input_issues", pd.DataFrame([{
             "input_role": "index", "source": str(index_dir), "chrom": "", "reason": "invalid_required_input",
@@ -493,7 +493,7 @@ def _run_indexed_ldscore_in_workspace(
         resolution_policy=gene_list_resolution_policy,
         gene_exclude_regions=gene_policy,
     )
-    from ._annotation.query_outcomes import (
+    from ..._annotation.query_outcomes import (
     _gene_list_gate_a_message,
     _log_gene_list_rejections,
     _log_gene_list_snp_support,
@@ -551,9 +551,9 @@ def _run_indexed_ldscore_in_workspace(
             "Index supplied baseline columns contain reserved name 'gene_control'. "
             "Rebuild the index with a distinct baseline annotation name; gene_control is reserved for the requested gene control."
         )
-    from ._indexed_ldscore_batches import indexed_results
+    from .batches import indexed_results
 
-    from ._ldscore_diagnostics import ldscore_logs
+    from ..diagnostics import ldscore_logs
     with ldscore_logs(output_dir, index.chromosomes, overwrite=overwrite,
                       log_level=logging.getLevelName(LOGGER.getEffectiveLevel())) as log_paths:
         results = indexed_results(index, batch, usable, control_resolution, query_batch_size,

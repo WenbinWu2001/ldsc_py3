@@ -8,8 +8,8 @@ import shutil
 import pandas as pd
 import pytest
 
-from ldsc import gene_ldscore_index as index
-from ldsc._gene_index_scoring import load_gene_ldscore_index
+from ldsc._ldscore.gene_index import build as index
+from ldsc._ldscore.gene_index.scoring import load_gene_ldscore_index
 from ldsc.config import GeneLDScoreIndexBuildConfig
 from ldsc.errors import LDSCConfigError, LDSCInputError
 

@@ -15,12 +15,10 @@ import numpy as np
 
 from ldsc.config import GlobalConfig
 from ldsc.errors import LDSCInputError, LDSCInternalError
-from ldsc.ldscore_calculator import LDScoreResult
+from ldsc._ldscore.calculator import LDScoreResult
 from ldsc.outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
-    LDScoreDirectoryWriter,
-    LDScoreOutputConfig,
     PARTITIONED_H2_COLUMNS,
     QUANTILE_H2_COLUMNS,
     RG_CONCISE_COLUMNS,
@@ -34,6 +32,7 @@ from ldsc.outputs import (
     RgDirectoryWriter,
     RgOutputConfig,
 )
+from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from ldsc import load_ldscore_from_dir
 
 
@@ -244,7 +243,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
     def _overlap(self):
         import numpy as np
         from ldsc._annotation.overlap import OverlapContribution
-        from ldsc.overlap_matrix import LDScoreOverlap
+        from ldsc._ldscore.overlap_table import LDScoreOverlap
 
         contribution = OverlapContribution(
             baseline_block_all=np.array([[10.0, 4.0]]),     # base x [base, query]

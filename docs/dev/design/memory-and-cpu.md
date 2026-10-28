@@ -304,7 +304,7 @@ The default zero threshold preserves zero and negative unbiased pairs.
 
 ## Direct LD-score computation
 
-[`PreparedChromosome`](../../../src/ldsc/_kernel/ldscore.py) owns the current chromosome's reference reader, reference-SNP metadata, physical-row mappings, LD-window state, selected annotation accessor, and drop diagnostics.
+[`PreparedChromosome`](../../../src/ldsc/_ldscore/compute.py) owns the current chromosome's reference reader, reference-SNP metadata, physical-row mappings, LD-window state, selected annotation accessor, and drop diagnostics.
 `close()` clears these references and closes the reader, including on failure.
 PLINK physical SNP indices remain distinct from annotation order.
 The reference adapters in [`_refpanel/adapters.py`](../../../src/ldsc/_refpanel/adapters.py) do not retain a metadata cache containing all chromosomes.
@@ -350,15 +350,15 @@ Limits: one machine, one chromosome stretch per panel, and single runs; Linux BL
 Memory outside the kernel does not depend on the batch size, including each chromosome's in-memory genotypes (`SNPs × samples / 4` bytes) and annotation reads, and it repeats for each worker.
 `build-r2-panel` uses the same chunk walk but was not timed; its stored pairs are identical for any batch size, with R² differing by at most one int16 unit from float32 summation order (see `tests/test_plink_exact_windows.py`).
 
-For direct file-writing workflows, [`stage_direct_chromosome()`](../../../src/ldsc/_direct_ldscore_batches.py) writes the existing post-kernel float32 query table to a private Parquet fragment before the worker returns.
+For direct file-writing workflows, [`stage_direct_chromosome()`](../../../src/ldsc/_ldscore/direct_batches.py) writes the existing post-kernel float32 query table to a private Parquet fragment before the worker returns.
 The parent receives baseline data, counts, overlaps, variation summaries, and diagnostic descriptors, then combines them without a genome-wide query matrix.
-[`_query_variation.py`](../../../src/ldsc/_query_variation.py) combines each chromosome's first values and within-chromosome variation flags, including columns that are constant within chromosomes but differ between chromosomes.
+[`_ldscore/query_variation.py`](../../../src/ldsc/_ldscore/query_variation.py) combines each chromosome's first values and within-chromosome variation flags, including columns that are constant within chromosomes but differ between chromosomes.
 Direct filtering uses the same float32 values as the materialized API; indexed filtering continues to use float64.
 The small prepared no-output Python route still returns a materialized `LDScoreResult`.
 
 ### Streamed R² projection
 
-[`SortedR2BlockReader.iter_all_pairs()`](../../../src/ldsc/_kernel/ldscore.py) visits row groups once in stored order and decodes bounded Arrow record batches of at most 65,536 rows, including when a stored row group is larger.
+[`SortedR2BlockReader.iter_all_pairs()`](../../../src/ldsc/_ldscore/compute.py) visits row groups once in stored order and decodes bounded Arrow record batches of at most 65,536 rows, including when a stored row group is larger.
 It reads only endpoint indices and R², with no sign column, decoded-row-group cache, or dense window matrix.
 Mode-dependent sidecar identity validation and remapping happen once per chromosome reader.
 Builder pair uniqueness plus an injective retained-SNP remap remove the need for a repeated per-pair identity join or deduplication set.
@@ -410,7 +410,7 @@ Baseline, counts, and overlap are shared once.
 `_ldscore_batch_output.py` stages all query files inside the output directory, publishes after successful computation, and writes metadata last.
 Its `_LDScorePublication` record retains only the shared baseline, counts, overlap, provenance, and diagnostic descriptors needed for publication.
 Materialized query tables, producer SNP sets, chromosome results, and staged query paths remain with the active batch and can be released before the next batch is requested.
-`ldscore_source.validate_ldscore_baseline_table()` checks the shared baseline before deferred reads; `validate_ldscore_query_table()` checks either a complete materialized query table or one fragment against the corresponding baseline rows.
+`_ldscore.source.validate_ldscore_baseline_table()` checks the shared baseline before deferred reads; `validate_ldscore_query_table()` checks either a complete materialized query table or one fragment against the corresponding baseline rows.
 Each fragment has one row-alignment check, with the existing allele-aware identity and row-order rules.
 Handled failure closes the producer and removes owned staging while retaining available diagnostics.
 Resume from the last completed batch is a future feature, not supported now.
@@ -422,12 +422,12 @@ Process startup, IPC, and one native thread per worker have costs; extra workers
 
 ## Immutable gene LD-score index access
 
-[`LoadedGeneLDScoreIndex`](../../../src/ldsc/gene_ldscore_index.py) retains gene-coordinate-catalog and settings metadata, chromosome component paths, and compact support summaries.
+[`LoadedGeneLDScoreIndex`](../../../src/ldsc/_ldscore/gene_index/build.py) retains gene-coordinate-catalog and settings metadata, chromosome component paths, and compact support summaries.
 Integrity validation loads and releases one chromosome at a time.
 Assembly uses `_indexed_ldscore_batches.py` with one active query batch and a persistent chromosome-worker pool.
 Each task reloads its chromosome operator, writes lossless float64 Parquet for that batch, and returns only compact counts, overlap blocks, and exact variation summaries.
 The coordinator reduces those summaries in index order and applies the shared query-status policy before narrowing values.
-[`_ldscore_fragments.write_query_fragments`](../../../src/ldsc/_ldscore_fragments.py) validates, converts, and writes one chromosome at a time, deleting each consumed fragment.
+[`_ldscore.fragments.write_query_fragments`](../../../src/ldsc/_ldscore/fragments.py) validates, converts, and writes one chromosome at a time, deleting each consumed fragment.
 There is no genome-wide query concatenation or retained-column copy in this path.
 All active-batch scratch is removed before another batch is submitted, including when every query in a batch is skipped.
 The score payload bound is proportional to output SNP rows times batch width, while each live query-score array is chromosome-sized.
@@ -443,12 +443,12 @@ Smaller query multiplications and separate validation/assembly passes can add ov
 
 ### Gene LD-score index construction and reuse
 
-[`_kernel/gene_ldscore_index.py`](../../../src/ldsc/_kernel/gene_ldscore_index.py) splits the gene interval union into disjoint atoms and records a Boolean sparse gene-to-atom map.
+[`_ldscore/gene_index/atoms.py`](../../../src/ldsc/_ldscore/gene_index/atoms.py) splits the gene interval union into disjoint atoms and records a Boolean sparse gene-to-atom map.
 Query selectors take the Boolean union of selected genes' atoms, so overlap, nesting, aliases, and duplicate gene selections do not count a SNP twice.
 SNP-to-atom lookup uses sorted interval boundaries; atom counts and baseline-overlap summaries use bin counts and sparse membership rather than a complete dense SNP-by-atom matrix.
 The [index mathematics](../../reference/methods/gene-ldscore-index-math.md) defines why multiplication by a union selector reproduces the requested query.
 
-[`build_plink_index_chromosome()`](../../../src/ldsc/gene_ldscore_index.py) computes shared baseline and regression-weight projections in one traversal.
+[`build_plink_index_chromosome()`](../../../src/ldsc/_ldscore/gene_index/build.py) computes shared baseline and regression-weight projections in one traversal.
 It then traverses the genotype blocks again for each atom batch, retaining the resulting float64 sparse operator blocks until their final horizontal assembly.
 Atom batching bounds the active dense projection but does not bound the complete chromosome operator or the final assembly copies.
 This builder also explicitly reads its chromosome baseline matrix into float64.
@@ -473,7 +473,7 @@ Workers stage complete model results and return compact outcomes.
 At most one task is in flight per worker; workers exit before scratch removal.
 See [query workers](../../reference/regression-options.md#43-query-workers-and-memory).
 
-[`LDScoreSource`](../../../src/ldsc/ldscore_source.py), returned by `load_ldscore_from_dir()`, reads shared baseline/identity metadata and validates schemas without retaining all query values.
+[`LDScoreSource`](../../../src/ldsc/_ldscore/source.py), returned by `load_ldscore_from_dir()`, reads shared baseline/identity metadata and validates schemas without retaining all query values.
 `read_queries(columns)` selects only requested Parquet columns and does not cache them.
 Writing workflows return `LDScoreSource` directly; `read_queries(columns)` may span files and exceed generation width, preserves requested order, and imposes no RAM cap.
 `LDScoreResult` remains the explicitly materialized result, including small prepared no-output calculations; writing workflows use private fragment descriptors instead.

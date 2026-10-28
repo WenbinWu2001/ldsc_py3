@@ -114,4 +114,4 @@ Some downstream workflows consume specific diagnostics: plotting reads declared 
 Keep complete result directories together.
 See [workflow logging](../../reference/logs-and-outputs.md) and the [artifact metadata inventory](../../reference/formats/artifact-metadata.md).
 
-Sources: `resolve_scalar_path` and `resolve_file_group` in [_runtime/paths.py](../../../src/ldsc/_runtime/paths.py), command parsers in [ldscore_calculator.py](../../../src/ldsc/ldscore_calculator.py) and [_sumstats/munger.py](../../../src/ldsc/_sumstats/munger.py), and the shared writers in [outputs.py](../../../src/ldsc/outputs.py).
+Sources: `resolve_scalar_path` and `resolve_file_group` in [_runtime/paths.py](../../../src/ldsc/_runtime/paths.py), command parsers in [_ldscore/calculator.py](../../../src/ldsc/_ldscore/calculator.py) and [_sumstats/munger.py](../../../src/ldsc/_sumstats/munger.py), and the shared writers in [outputs.py](../../../src/ldsc/outputs.py).

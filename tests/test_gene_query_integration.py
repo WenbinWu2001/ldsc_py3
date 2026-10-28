@@ -7,9 +7,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc import gene_ldscore_index as index_workflow
-from ldsc._gene_index_scoring import run_indexed_ldscore
-from ldsc.ldscore_calculator import build_parser, run_ldscore_from_args
+from ldsc._ldscore.gene_index import build as index_workflow
+from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
+from ldsc._ldscore.calculator import build_parser, run_ldscore_from_args
 from ldsc.errors import LDSCInputError
 
 

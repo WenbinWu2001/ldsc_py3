@@ -9,15 +9,15 @@ import pandas as pd
 import pytest
 from scipy import sparse
 
-from ldsc import _indexed_ldscore_batches as batches
-from ldsc._query_variation import summarize_variation, combine_variation
+from ldsc._ldscore.gene_index import batches
+from ldsc._ldscore.query_variation import summarize_variation, combine_variation
 from tests.test_gene_index_streaming import two_chromosome_index
 from tests.test_gene_ldscore_index import run_indexed_ldscore
 
 
 def _check_worker_serialization_lifetimes(*args, **kwargs):
-    from ldsc import gene_ldscore_index as core
-    from ldsc._gene_index_scoring import LoadedGeneLDScoreIndex
+    from ldsc._ldscore.gene_index import build as core
+    from ldsc._ldscore.gene_index.scoring import LoadedGeneLDScoreIndex
 
     original_load = LoadedGeneLDScoreIndex.load_chromosome
     original_assemble = core.assemble_indexed_ld_scores
@@ -146,7 +146,7 @@ def test_query_pruning_precedes_float32_narrowing_and_allows_skipped_batch(tmp_p
 
 
 def test_fragment_writer_releases_each_chromosome_before_reading_next(tmp_path, monkeypatch):
-    from ldsc import _ldscore_fragments as fragments
+    from ldsc._ldscore import fragments
 
     index = two_chromosome_index(tmp_path)
     query = tmp_path / "query.txt"

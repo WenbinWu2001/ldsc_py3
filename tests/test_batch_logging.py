@@ -50,8 +50,8 @@ def test_progress_counts_outcomes_and_retains_object_only_at_debug(caplog, monke
 @pytest.mark.parametrize("indexed", [False, True])
 def test_ldscore_batches_log_boundaries_and_one_global_status(tmp_path, inputs, indexed):
     from ldsc._runtime.workflow_logging import workflow_logging
-    from ldsc.ldscore_calculator import run_ldscore_from_args
-    from ldsc._gene_index_scoring import run_indexed_ldscore
+    from ldsc._ldscore.calculator import run_ldscore_from_args
+    from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
 
     sources = [tmp_path / f"{name}.txt" for name in ("first", "second", "third")]
     for source, gene in zip(sources, ("G1", "G2", "G1")):
@@ -193,7 +193,7 @@ def test_quantile_log_points_to_bin_table():
 @pytest.mark.parametrize("invalid_query", [False, True])
 def test_unused_catalog_defects_are_saved_with_one_warning(tmp_path, inputs, invalid_query):
     from ldsc.errors import LDSCInputError
-    from ldsc.ldscore_calculator import run_ldscore_from_args
+    from ldsc._ldscore.calculator import run_ldscore_from_args
     import json
 
     with inputs[3].open("a") as stream:

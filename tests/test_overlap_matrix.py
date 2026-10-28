@@ -63,7 +63,7 @@ def test_sum_overlap_contributions_drops_common_if_any_chrom_lacks_it():
 
 def test_overlap_long_frame_round_trip():
     from ldsc._annotation.overlap import OverlapContribution
-    from ldsc.overlap_matrix import (
+    from ldsc._ldscore.overlap_table import (
         LDScoreOverlap, overlap_to_long_frame, overlap_from_long_frame,
     )
     contribution = OverlapContribution(
@@ -175,7 +175,7 @@ def test_overlap_aware_hand_example_disjoint_plus_base():
 
 def test_assemble_model_overlap_reconstructs_submatrix():
     from ldsc._annotation.overlap import OverlapContribution
-    from ldsc.overlap_matrix import LDScoreOverlap
+    from ldsc._ldscore.overlap_table import LDScoreOverlap
     from ldsc._overlap_model import assemble_model_overlap
     # Full A: baseline=[base, catA], query=[q1, q2]
     A = np.array([

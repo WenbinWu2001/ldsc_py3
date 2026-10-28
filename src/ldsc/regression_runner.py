@@ -91,8 +91,8 @@ from ._core.snp_identity import (
 from ._core.row_alignment import assert_same_snp_rows
 from ._runtime.parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _validate_workers
 from ._core.columns import infer_chr_pos_columns, normalize_snp_identifier_mode
-from .ldscore_calculator import LDScoreResult
-from .ldscore_source import LDScoreSource, load_ldscore_from_dir
+from ._ldscore.calculator import LDScoreResult
+from ._ldscore.source import LDScoreSource, load_ldscore_from_dir
 from .outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
@@ -102,12 +102,12 @@ from .outputs import (
     PartitionedH2OutputConfig,
     PartitionedH2FitArtifacts,
     stage_partitioned_h2_fit,
-    REGRESSION_LD_SCORE_COLUMN,
     RG_CONCISE_COLUMNS,
     RG_FULL_COLUMNS,
     RgDirectoryWriter,
     RgOutputConfig,
 )
+from ._ldscore.outputs import REGRESSION_LD_SCORE_COLUMN
 from ._annotation.storage import AnnotationWorkspace
 from ._sumstats.munger import SumstatsTable, load_sumstats
 from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError

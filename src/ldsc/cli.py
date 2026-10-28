@@ -26,7 +26,8 @@ from typing import Sequence
 
 from ._runtime.cli_help import CLIHelpFormatter
 from ._annotation import builder as annotation_builder
-from . import gene_ldscore_index, ldscore_calculator
+from ._ldscore.gene_index import build as gene_ldscore_index
+from ._ldscore import calculator as ldscore_calculator
 from ._refpanel import query as r2_query, builder as ref_panel_builder
 from ._runtime.workflow_logging import (
     install_cli_console_handler,
@@ -462,7 +463,7 @@ def _load_quantile_h2():
 
 def _load_legacy_ldscore_converter():
     """Import the legacy converter lazily for lightweight top-level help."""
-    from . import legacy_ldscore_converter
+    from ._ldscore import legacy_converter as legacy_ldscore_converter
 
     return legacy_ldscore_converter
 

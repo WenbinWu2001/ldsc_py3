@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from ._annotation.overlap import OverlapContribution
+from .._annotation.overlap import OverlapContribution
 
 
 @dataclass(frozen=True)

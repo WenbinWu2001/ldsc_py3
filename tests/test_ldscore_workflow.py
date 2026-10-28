@@ -35,14 +35,14 @@ try:
         PlinkRefPanel,
         RefPanelConfig,
     )
-    from ldsc import ldscore_calculator as ldscore_workflow
-    from ldsc.ldscore_calculator import (
+    from ldsc._ldscore import calculator as ldscore_workflow
+    from ldsc._ldscore.calculator import (
         build_parser,
         _normalize_run_args,
         _resolve_regression_region_build,
     )
     from ldsc._core import plink_files as kernel_formats
-    from ldsc._kernel import ldscore as kernel_ldscore
+    from ldsc._ldscore import compute as kernel_ldscore
     from ldsc._annotation.overlap import compute_overlap
     from ldsc._refpanel import plink as plink_bed
     from ldsc._refpanel import r2_format, windows as ld_windows
@@ -1182,7 +1182,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 kernel_ldscore.compute_counts(metadata, annotations)
 
     def test_count_config_records_inclusive_operator(self):
-        from ldsc.ldscore_calculator import _count_config_from_ldscore_config
+        from ldsc._ldscore.calculator import _count_config_from_ldscore_config
         from ldsc.config import LDScoreConfig
 
         cfg = _count_config_from_ldscore_config(LDScoreConfig(ld_wind_cm=1.0, common_maf_min=0.05))
@@ -2466,7 +2466,7 @@ class IndexBindingTest(unittest.TestCase):
         return _write_index_sidecar(tmp, df), df
 
     def test_load_full_panel_sidecar_reads_canonical_columns(self):
-        from ldsc._kernel import ldscore as ls
+        from ldsc._ldscore import compute as ls
         from ldsc._refpanel.r2_format import _load_full_panel_sidecar
         with tempfile.TemporaryDirectory() as tmp:
             meta, df = self._sidecar(tmp)
@@ -2476,7 +2476,7 @@ class IndexBindingTest(unittest.TestCase):
             self.assertEqual(list(loaded["POS"].astype(int)), [10, 20, 30])
 
     def test_validate_binding_raises_on_hash_mismatch(self):
-        from ldsc._kernel import ldscore as ls
+        from ldsc._ldscore import compute as ls
         from ldsc._refpanel.r2_format import _validate_index_binding
         from ldsc._core.snp_identity import sidecar_identity_sha256
         with tempfile.TemporaryDirectory() as tmp:
@@ -2834,7 +2834,7 @@ class R2DequantizationTest(unittest.TestCase):
     def test_reader_dequantizes_int16_panel_to_float32(self):
         from ldsc._refpanel import build_kernel as kb
         from ldsc._refpanel import r2_format
-        from ldsc._kernel import ldscore as kernel_ldscore
+        from ldsc._ldscore import compute as kernel_ldscore
         from ldsc._refpanel import r2_format
         from ldsc._core.snp_identity import sidecar_identity_sha256
         panel = pd.DataFrame({"CHR": ["1"] * 3, "POS": [100, 120, 140],

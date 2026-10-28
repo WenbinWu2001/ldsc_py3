@@ -94,7 +94,7 @@ The first suite-capable flag in each command explains this syntax. Later flags r
 | Gene coordinate catalogs, fixed control gene lists, `ldscore` reference-SNP/individual lists, gene LD-score index regression-SNP/individual lists, and `build-r2-panel` liftover-chain files | Exact file paths. Pattern expansion is not implemented by these readers. |
 | Input/output directories and `query-r2 --pairs` | Literal paths; no pattern expansion. `--pairs -` retains its standard-input meaning. |
 
-Sources: [`_runtime.paths.resolve_scalar_path`, `resolve_file_group`, and PLINK resolvers](../../src/ldsc/_runtime/paths.py); [`_annotation.preflight.resolve_annotation_inputs`](../../src/ldsc/_annotation/preflight.py); [`_direct_annotation.prepare_direct_annotations`](../../src/ldsc/_direct_annotation.py); [`_quantile_inputs.prepare_quantile_statistics`](../../src/ldsc/_quantile_inputs.py); [`_annotation.gene_lists._expand_focal_gene_list_sources`](../../src/ldsc/_annotation/gene_lists.py); [`_refpanel.builder.ReferencePanelBuilder._prepare_build_state`](../../src/ldsc/_refpanel/builder.py); [`_refpanel.adapters._resolve_genetic_map`](../../src/ldsc/_refpanel/adapters.py); [`gene_ldscore_index._load_builder_genetic_map`](../../src/ldsc/gene_ldscore_index.py).
+Sources: [`_runtime.paths.resolve_scalar_path`, `resolve_file_group`, and PLINK resolvers](../../src/ldsc/_runtime/paths.py); [`_annotation.preflight.resolve_annotation_inputs`](../../src/ldsc/_annotation/preflight.py); [`_ldscore.direct_annotation.prepare_direct_annotations`](../../src/ldsc/_ldscore/direct_annotation.py); [`_quantile_inputs.prepare_quantile_statistics`](../../src/ldsc/_quantile_inputs.py); [`_annotation.gene_lists._expand_focal_gene_list_sources`](../../src/ldsc/_annotation/gene_lists.py); [`_refpanel.builder.ReferencePanelBuilder._prepare_build_state`](../../src/ldsc/_refpanel/builder.py); [`_refpanel.adapters._resolve_genetic_map`](../../src/ldsc/_refpanel/adapters.py); [`_ldscore.gene_index.build._load_builder_genetic_map`](../../src/ldsc/_ldscore/gene_index/build.py).
 
 ### Direct LD-score query scope
 
@@ -120,7 +120,7 @@ Coverage errors and their workflow-log tracebacks include this repair guidance.
 
 BED padding extends the coordinates already present in the input file. Use `--padding-bp 0` if the BED intervals already include the intended gene-region padding, so the regions are not padded twice.
 
-Scope is logged and persisted in `diagnostics/chromosome_scope.json`; input failures use `diagnostics/input_issues.tsv`. See the [gene-list scope examples](formats/gene-lists.md#direct-query-chromosome-scope). Public indexes remain complete-autosomal. `_ldscore_preflight.inspect_direct_inputs()` enforces the direct-query contract before projection; other commands retain their own path contracts.
+Scope is logged and persisted in `diagnostics/chromosome_scope.json`; input failures use `diagnostics/input_issues.tsv`. See the [gene-list scope examples](formats/gene-lists.md#direct-query-chromosome-scope). Public indexes remain complete-autosomal. `_ldscore.preflight.inspect_direct_inputs()` enforces the direct-query contract before projection; other commands retain their own path contracts.
 
 ### Coherent output artifact families
 

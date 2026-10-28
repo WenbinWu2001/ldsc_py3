@@ -138,7 +138,7 @@ def test_snp_count_window_computes_same_position_snps_in_panel_order(tmp_path):
     """
     from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfig, RefPanelConfig
     from ldsc._refpanel.adapters import ParquetR2RefPanel
-    from ldsc.outputs import LDScoreOutputConfig
+    from ldsc._ldscore.outputs import LDScoreOutputConfig
 
     sidecar = _tied_snp_panel(tmp_path / "panel")
     config = GlobalConfig(snp_identifier="rsid")

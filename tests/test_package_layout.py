@@ -373,7 +373,7 @@ print(ldsc.__file__)
 
     def test_ldscore_overwrite_flag_maps_to_output_config(self):
         from ldsc import cli
-        from ldsc import ldscore_calculator
+        from ldsc._ldscore import calculator as ldscore_calculator
 
         parser = cli.build_parser()
         args = parser.parse_args(

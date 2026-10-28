@@ -7,9 +7,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc import _gene_index_scoring as index_scoring, gene_ldscore_index as index_module
-from ldsc import _gene_index_artifact
-from ldsc._gene_index_artifact import _catalog_identity_records
+from ldsc._ldscore.gene_index import scoring as index_scoring, build as index_module
+from ldsc._ldscore.gene_index import artifact as _gene_index_artifact
+from ldsc._ldscore.gene_index.artifact import _catalog_identity_records
 from tests.test_gene_ldscore_index import (
     _artifact_payload, load_gene_ldscore_index, publish_gene_ldscore_index,
     run_indexed_ldscore,
@@ -57,7 +57,7 @@ def _observed_index_task(*args, **kwargs):
     import json
     import os
     from pathlib import Path
-    from ldsc import _indexed_ldscore_batches as batches
+    from ldsc._ldscore.gene_index import batches
     original_load = _gene_index_artifact._load_index_chromosome
     original_assemble = index_module.assemble_indexed_ld_scores
     loads, widths, live = [], [], []
@@ -101,7 +101,7 @@ def test_index_assembly_reloads_and_releases_each_operator_per_batch(tmp_path, m
         live.append(weakref.ref(record.operator))
         loads.append(args[1])
         return record
-    from ldsc import _indexed_ldscore_batches as batches
+    from ldsc._ldscore.gene_index import batches
     events = tmp_path / "events"
     events.mkdir()
     monkeypatch.setenv("LDSC_TEST_INDEX_EVENTS", str(events))

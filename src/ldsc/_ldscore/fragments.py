@@ -14,8 +14,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .errors import LDSCInternalError
-from .ldscore_source import validate_ldscore_query_table
+from ..errors import LDSCInternalError
+from .source import validate_ldscore_query_table
 from .outputs import _cast_parquet_floats
 
 

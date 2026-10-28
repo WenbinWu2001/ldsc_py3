@@ -14,7 +14,7 @@ This document summarizes the user-visible file streams for each public workflow.
 | Preprocessing | yes | `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`, `ldsc._core.chromosomes`, `ldsc._genome.build_inference` | normalize tokens, headers, identifiers, chromosome order, and genome-build assumptions |
 | Workflow | yes | feature modules under `src/ldsc/` | build aligned in-memory tables |
 | Kernel | no | `ldsc._kernel.*` | low-level readers and numerical work |
-| Artifact access | yes | `ldsc.ldscore_source` | open LD-score directories, validate schemas/identities, and read selected query columns |
+| Artifact access | yes | `ldsc._ldscore.source` | open LD-score directories, validate schemas/identities, and read selected query columns |
 | Postprocessing | yes | `ldsc.outputs`, `ldsc.plotting`, `ldsc.h2_scale`, pandas writers in `ldsc.regression_runner`, `ldsc._runtime.workflow_logging` | preflight fixed output paths, emit core/derived results, and write workflow audit logs/failure markers |
 
 ## Package Overview
@@ -227,7 +227,7 @@ tie at exactly 0.5 keeps PLINK order. See
 
 - Preprocessing: `ldsc.config`, `ldsc._runtime.paths`
 - Workflow: `ldsc._refpanel.builder`
-- Kernel: `ldsc._refpanel.build_kernel`, `ldsc._kernel.ldscore`, `ldsc._core.plink_files`
+- Kernel: `ldsc._refpanel.build_kernel`, `ldsc._ldscore.compute`, `ldsc._core.plink_files`
 - Postprocessing: parquet and TSV writers in the kernel
 
 ## 3. `query-r2`: R² Panel To Pair Lookup Table
@@ -278,7 +278,7 @@ flowchart LR
 ### Modules used
 
 - Workflow: `ldsc._refpanel.query`
-- Kernel: `ldsc._kernel.r2_query`, `ldsc._kernel.ldscore`
+- Kernel: `ldsc._kernel.r2_query`, `ldsc._ldscore.compute`
 
 ## 4. `ldscore`: Reference Panel And Optional Annotations To An LD-Score Directory
 
@@ -334,13 +334,13 @@ flowchart LR
     C2[Normalize identifier mode]
   end
 
-  subgraph W3[Workflow (public)<br/>ldsc.ldscore_calculator]
+  subgraph W3[Workflow (public)<br/>ldsc._ldscore.calculator]
     C3[Resolve/project queries or synthesize base]
     C4[Select backend]
     C5[Aggregate chromosome results]
   end
 
-  subgraph K3[Kernel (private)<br/>ldsc._kernel.ldscore]
+  subgraph K3[Kernel (private)<br/>ldsc._ldscore.compute]
     C6[Compute chromosome LD scores]
     C7[Compute regression-SNP LD score]
   end
@@ -370,8 +370,8 @@ flowchart LR
 ### Modules used
 
 - Preprocessing: `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`
-- Workflow: `ldsc.ldscore_calculator`
-- Kernel: `ldsc._kernel.ldscore`
+- Workflow: `ldsc._ldscore.calculator`
+- Kernel: `ldsc._ldscore.compute`
 - Postprocessing: `ldsc.outputs`
 
 ## 4A. `convert-ldsc2-ldscores`: Selected legacy LDSC Suites To Canonical LDSC3
@@ -574,7 +574,7 @@ flowchart LR
     E2[Reload canonical headers]
   end
 
-  subgraph S5[Artifact access (public)<br/>ldsc.ldscore_source]
+  subgraph S5[Artifact access (public)<br/>ldsc._ldscore.source]
     E3[Open LDScoreSource and read selected queries]
   end
 
@@ -619,7 +619,7 @@ For column definitions and interpretation, see
 
 - Preprocessing: `ldsc._runtime.paths`, `ldsc._core.columns`
 - Workflow: `ldsc.regression_runner`, `ldsc._sumstats.munger.load_sumstats()`
-- Artifact access: `ldsc.ldscore_source.load_ldscore_from_dir()` and `LDScoreSource.read_queries()`
+- Artifact access: `ldsc._ldscore.source.load_ldscore_from_dir()` and `LDScoreSource.read_queries()`
 - Kernel: `ldsc._kernel.regression`, `ldsc._kernel._jackknife`, `ldsc._kernel._irwls`
 - Postprocessing: pandas TSV writers in `ldsc.regression_runner`; `partitioned-h2`
   and `rg` directory writing in `ldsc.outputs`

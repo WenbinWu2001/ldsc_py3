@@ -14,7 +14,7 @@ from tests.test_ldscore_chromosome_scope import write_r2_inputs
 @pytest.mark.parametrize('batch_size', [1,2,1000])
 def test_direct_file_queries_use_shards_and_leave_only_persistent_outputs(tmp_path,monkeypatch,batch_size):
     from ldsc._annotation.builder import AnnotationBuilder
-    from ldsc import ldscore_calculator
+    from ldsc._ldscore import calculator as ldscore_calculator
     from ldsc import config
     monkeypatch.setattr(config, "_GLOBAL_CONFIG", config.GlobalConfig(snp_identifier="rsid"))
 
@@ -79,7 +79,7 @@ def _observe_prepared_chromosome(*args, **kwargs):
     """Check annotation ownership inside the actual persistent serial child."""
     import os
     import weakref
-    from ldsc import ldscore_calculator
+    from ldsc._ldscore import calculator as ldscore_calculator
     from ldsc._refpanel.adapters import ParquetR2RefPanel
     previous = []
     loads = []
@@ -102,7 +102,8 @@ def _observe_prepared_chromosome(*args, **kwargs):
 
 
 def test_sequential_run_releases_prepared_chromosome_before_loading_next(tmp_path,monkeypatch):
-    from ldsc import config, ldscore_calculator
+    from ldsc import config
+    from ldsc._ldscore import calculator as ldscore_calculator
     from tests.test_ldscore_parallelism import _PANEL_CHROMS, _write_index_panel
     monkeypatch.setattr(config,'_GLOBAL_CONFIG',config.GlobalConfig(snp_identifier='rsid'))
     panel = tmp_path/'panel'

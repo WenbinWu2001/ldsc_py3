@@ -12,7 +12,7 @@ from typing import Any
 
 import pandas as pd
 
-from ._query_variation import ScoreVariation, summarize_variation
+from .query_variation import ScoreVariation, summarize_variation
 
 
 @dataclass(frozen=True)

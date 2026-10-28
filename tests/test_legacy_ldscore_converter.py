@@ -100,7 +100,7 @@ def test_converter_is_public_and_cli_has_the_approved_minimal_arguments() -> Non
 
 def test_private_kernel_has_no_legacy_ldscore_emitter_or_regression_readers() -> None:
     from ldsc._core import plink_files as formats
-    from ldsc._kernel import ldscore
+    from ldsc._ldscore import compute as ldscore
 
     for name in (
         "emit_outputs",

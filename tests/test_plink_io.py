@@ -15,7 +15,7 @@ from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError
 
 try:
     import bitarray as ba
-    from ldsc._kernel import ldscore as ld
+    from ldsc._ldscore import compute as ld
     from ldsc._refpanel.plink import PlinkBEDFile
     from ldsc._refpanel.r2_format import SortedR2BlockReader, build_index_remap
     from ldsc._refpanel.windows import get_block_lefts

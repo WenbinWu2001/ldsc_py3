@@ -105,7 +105,7 @@ def _write_index_panel(
 def _run_minimal_ldscore(build_dir: Path, out_dir: Path, workers: int) -> Path:
     """Run a synthetic-base LD-score job over the index panel; return out_dir."""
     from ldsc.config import GlobalConfig, set_global_config
-    from ldsc.ldscore_calculator import run_ldscore
+    from ldsc._ldscore.calculator import run_ldscore
 
     regression_snps = build_dir / "regression_snps.tsv"
     pd.concat(
@@ -246,7 +246,7 @@ def _chrom1_inputs(build_dir: Path):
 
 
 def test_compute_one_chromosome_returns_success_outcome(two_chrom_panel):
-    from ldsc.ldscore_calculator import _compute_one_chromosome
+    from ldsc._ldscore.calculator import _compute_one_chromosome
 
     chrom, bundle, spec, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
     outcome = _compute_one_chromosome(chrom, bundle, spec, ldcfg, gcfg, regression_snps=reg)
@@ -264,7 +264,7 @@ def test_compute_one_chromosome_returns_success_outcome(two_chrom_panel):
 def test_worker_propagates_untyped_errors_even_with_empty_intersection_wording(
     two_chrom_panel, monkeypatch, error_type, message,
 ):
-    from ldsc.ldscore_calculator import LDScoreCalculator, _compute_one_chromosome
+    from ldsc._ldscore.calculator import LDScoreCalculator, _compute_one_chromosome
 
     error = error_type(message)
 
@@ -279,7 +279,7 @@ def test_worker_propagates_untyped_errors_even_with_empty_intersection_wording(
 
 
 def test_worker_skips_typed_empty_reference_independent_of_message(two_chrom_panel, monkeypatch):
-    from ldsc.ldscore_calculator import LDScoreCalculator, _compute_one_chromosome
+    from ldsc._ldscore.calculator import LDScoreCalculator, _compute_one_chromosome
 
     def empty(*args, **kwargs):
         raise EmptyReferenceSNPs("The requested SNP filters retained no computational rows.")
@@ -297,7 +297,7 @@ def test_worker_skips_typed_empty_reference_independent_of_message(two_chrom_pan
 
 
 def _inspect_ld_worker():
-    from ldsc.ldscore_calculator import _WORKER_STATE
+    from ldsc._ldscore.calculator import _WORKER_STATE
     from ldsc._runtime.worker_runtime import native_thread_state
     return _WORKER_STATE, native_thread_state(), dict((key, os.environ[key]) for key in
                                                    ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"))
@@ -306,7 +306,7 @@ def _inspect_ld_worker():
 def test_init_worker_overrides_inherited_limits_in_child(monkeypatch):
     from concurrent.futures import ProcessPoolExecutor
     import multiprocessing as mp
-    from ldsc.ldscore_calculator import _init_worker
+    from ldsc._ldscore.calculator import _init_worker
     monkeypatch.setenv("OMP_NUM_THREADS", "4")
     with ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn"), initializer=_init_worker,
                              initargs=({"rs1", "rs2"}, None, "WARNING")) as pool:
@@ -323,14 +323,14 @@ def test_init_worker_overrides_inherited_limits_in_child(monkeypatch):
 def test_run_chromosomes_dispatch_exists():
     # Guards that the sequential-vs-pool dispatch seam exists, so the equivalence
     # test below actually exercises the pool path rather than passing trivially.
-    from ldsc.ldscore_calculator import LDScoreCalculator
+    from ldsc._ldscore.calculator import LDScoreCalculator
 
     assert hasattr(LDScoreCalculator, "_run_chromosomes")
 
 
 def test_pool_path_executes_for_multiple_workers(run_minimal_ldscore, monkeypatch):
     # Confirm a ProcessPoolExecutor is actually constructed when workers>1.
-    import ldsc.ldscore_calculator as mod
+    import ldsc._ldscore.calculator as mod
 
     calls = {"n": 0}
     real_executor = mod.ProcessPoolExecutor
@@ -345,7 +345,7 @@ def test_pool_path_executes_for_multiple_workers(run_minimal_ldscore, monkeypatc
 
 
 def test_serial_workers_constructs_one_managed_pool(run_minimal_ldscore, monkeypatch):
-    import ldsc.ldscore_calculator as mod
+    import ldsc._ldscore.calculator as mod
 
     calls = {"n": 0}
     real_executor = mod.ProcessPoolExecutor
@@ -362,7 +362,7 @@ def test_serial_workers_constructs_one_managed_pool(run_minimal_ldscore, monkeyp
 def test_scheduler_bounds_submitted_work_by_workers(monkeypatch):
     from concurrent.futures import Future
     from types import SimpleNamespace
-    from ldsc import ldscore_calculator as mod
+    from ldsc._ldscore import calculator as mod
 
     active = peak = 0
     class MeasuredFuture(Future):
@@ -397,7 +397,7 @@ def test_scheduler_bounds_submitted_work_by_workers(monkeypatch):
 def test_parallel_worker_crash_message_names_threads_flag(two_chrom_panel, monkeypatch, failure_stage):
     from concurrent.futures.process import BrokenProcessPool
 
-    import ldsc.ldscore_calculator as mod
+    import ldsc._ldscore.calculator as mod
     from ldsc._refpanel.adapters import RefPanelLoader
     from ldsc.errors import LDSCInternalError
 
@@ -460,7 +460,7 @@ def test_parallel_output_matches_sequential(run_minimal_ldscore):
 
 def test_partitioned_parallel_preserves_scores_counts_overlap_and_classification(two_chrom_panel, tmp_path):
     from ldsc.config import GlobalConfig, set_global_config
-    from ldsc.ldscore_calculator import run_ldscore
+    from ldsc._ldscore.calculator import run_ldscore
     from ldsc import load_ldscore_from_dir
 
     metadata = pd.concat([panel for panel, _ in _PANEL_CHROMS.values()], ignore_index=True)
@@ -553,8 +553,8 @@ def _run_with_one_empty_chrom(build_dir: Path, out_dir: Path, workers: int) -> P
     from ldsc._refpanel.adapters import RefPanelLoader
     from ldsc._annotation.builder import AnnotationBundle
     from ldsc.config import GlobalConfig, LDScoreConfig, RefPanelConfig
-    from ldsc.ldscore_calculator import LDScoreCalculator
-    from ldsc.outputs import LDScoreOutputConfig
+    from ldsc._ldscore.calculator import LDScoreCalculator
+    from ldsc._ldscore.outputs import LDScoreOutputConfig
 
     metadata = pd.DataFrame(
         {
@@ -604,7 +604,7 @@ def test_skip_path_matches_under_pool(two_chrom_panel, tmp_path):
 
 
 def test_cli_threads_reaches_config():
-    from ldsc.ldscore_calculator import _ldscore_config_from_args, build_parser
+    from ldsc._ldscore.calculator import _ldscore_config_from_args, build_parser
 
     parser = build_parser()
     args = parser.parse_args(["--output-dir", "x", "--ld-wind-cm", "1", "--workers", "2"])
@@ -612,7 +612,7 @@ def test_cli_threads_reaches_config():
 
 
 def test_cli_threads_accepts_negative():
-    from ldsc.ldscore_calculator import _ldscore_config_from_args, build_parser
+    from ldsc._ldscore.calculator import _ldscore_config_from_args, build_parser
 
     parser = build_parser()
     args = parser.parse_args(["--output-dir", "x", "--ld-wind-cm", "1", "--workers", "-1"])
@@ -620,7 +620,7 @@ def test_cli_threads_accepts_negative():
 
 
 def test_cli_threads_defaults_to_one():
-    from ldsc.ldscore_calculator import _ldscore_config_from_args, build_parser
+    from ldsc._ldscore.calculator import _ldscore_config_from_args, build_parser
 
     parser = build_parser()
     args = parser.parse_args(["--output-dir", "x", "--ld-wind-cm", "1"])
@@ -629,7 +629,7 @@ def test_cli_threads_defaults_to_one():
 
 def test_retired_threads_setting_is_rejected_by_cli_and_python():
     from ldsc.errors import LDSCUsageError
-    from ldsc.ldscore_calculator import build_parser, run_ldscore
+    from ldsc._ldscore.calculator import build_parser, run_ldscore
 
     with pytest.raises(SystemExit) as caught:
         build_parser().parse_args(["--output-dir", "unused", "--threads", "2"])

@@ -196,7 +196,7 @@ all-SNP and common-SNP counts via `MAF`, and the genetic-map (`CM`) window.
 
 ## 3. Read Pipeline
 
-Implemented in `SortedR2BlockReader` (`src/ldsc/_kernel/ldscore.py`), the single
+Implemented in `SortedR2BlockReader` (`src/ldsc/_ldscore/compute.py`), the single
 point of contact between the LD-score algorithm and the parquet.
 
 ### 3.1 Open, Bind, Remap (`__init__` → `_init_index_path`)
@@ -338,7 +338,7 @@ The CLI checks every selected chromosome file in its header preflight, before pa
 `ParquetR2RefPanel.prepare_chromosome` repeats the check for each chromosome it prepares, for example through `LDScoreCalculator.compute_chromosome`.
 Because `build-r2-panel` chooses the stored pairs from the `CM` values as written to the sidecar (section 2.7), a window no wider than the panel's never needs a pair the panel did not store, in any unit.
 A PLINK `--ld-wind-cm` run matches an R² panel cM run only when both use the same `CM` values: `.bim` column 3, or the genetic map the panel was built with.
-Code: `validate_ldscore_window_within_r2_panel_window` in `src/ldsc/_kernel/ldscore.py` and `inspect_r2_headers` in `src/ldsc/_runtime/preflight.py`.
+Code: `validate_ldscore_window_within_r2_panel_window` in `src/ldsc/_ldscore/compute.py` and `inspect_r2_headers` in `src/ldsc/_runtime/preflight.py`.
 
 **`--ld-wind-snps` counts panel rows.**
 For an R² panel, `--ld-wind-snps K` spans `K` sidecar rows on each side, whatever SNPs the run keeps.
@@ -349,7 +349,7 @@ Every R² panel `--ld-wind-snps` run writes `diagnostics/ld_window_snp_counts.ts
 SNPs that share a position are computed in sidecar row order and written sorted by `CHR`, `POS`, then `SNP`.
 That output order matches an annotation-ordered run only because SNPs that share `CHR`, `POS` and `SNP` never reach computation: the identity policy drops them as duplicate or multi-allelic.
 If that policy changes to keep such SNPs, `ParquetR2RefPanel.prepare_chromosome` would also need to return them to annotation order.
-Code: `build_window_coordinates` in `src/ldsc/_kernel/ldscore.py`, `ParquetR2RefPanel.prepare_chromosome` in `src/ldsc/_refpanel/adapters.py`, and `_ld_window_snp_counts` in `src/ldsc/ldscore_calculator.py`.
+Code: `build_window_coordinates` in `src/ldsc/_ldscore/compute.py`, `ParquetR2RefPanel.prepare_chromosome` in `src/ldsc/_refpanel/adapters.py`, and `_ld_window_snp_counts` in `src/ldsc/_ldscore/calculator.py`.
 
 **`CM` and `MAF` come from the reference panel.**
 Annotation `CM` and `MAF` values are ignored.

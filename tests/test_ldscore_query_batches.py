@@ -11,7 +11,7 @@ import pytest
 
 from ldsc._refpanel.prepared import ArrayAnnotations
 from ldsc._annotation.overlap import annotation_statistics
-from ldsc.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
+from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from ldsc import load_ldscore_from_dir
 from tests.test_output import make_split_ldscore_result
 
@@ -198,8 +198,8 @@ def test_batch_writer_releases_tables_and_reads_across_files(tmp_path):
     assert loaded.count_records[0]["all_reference_snp_count"] == 10
     assert not list(tmp_path.glob(".ldsc-batches-*"))
 def test_batch_write_failure_closes_producer_and_removes_scratch(tmp_path, monkeypatch):
-    from ldsc.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-    from ldsc import _ldscore_batch_output
+    from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
+    from ldsc._ldscore import batch_publication as _ldscore_batch_output
 
     closed = []
     def results():

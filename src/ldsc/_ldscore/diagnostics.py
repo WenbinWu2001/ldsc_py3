@@ -4,8 +4,8 @@ from contextlib import contextmanager, nullcontext
 import logging
 from pathlib import Path
 
-from ._runtime.workflow_logging import workflow_logging
-from ._runtime.worker_runtime import log_native_thread_state
+from .._runtime.workflow_logging import workflow_logging
+from .._runtime.worker_runtime import log_native_thread_state
 
 LOGGER = logging.getLogger("LDSC.ldscore")
 

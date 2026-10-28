@@ -8,7 +8,7 @@ from typing import Iterator, Sequence
 import numpy as np
 from scipy import sparse
 
-from ..errors import LDSCInternalError
+from ...errors import LDSCInternalError
 
 
 @dataclass(frozen=True)

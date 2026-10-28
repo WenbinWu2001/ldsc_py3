@@ -120,7 +120,7 @@ Handled computation failures remove these files with the run's scratch.
 Final file publication retains its existing behavior, without additional transactions or rollback; the gene LD-score index builder retains its existing atomic publication transaction.
 Interruption handling is unchanged, and forced termination can leave temporary files.
 Regression's separate explicit `continue_on_query_error` policy is unchanged.
-See [`_ldscore_diagnostics.py`](../../src/ldsc/_ldscore_diagnostics.py), [`LDScoreCalculator.run`](../../src/ldsc/ldscore_calculator.py), and [`indexed_results`](../../src/ldsc/_indexed_ldscore_batches.py).
+See [`_ldscore/diagnostics.py`](../../src/ldsc/_ldscore/diagnostics.py), [`LDScoreCalculator.run`](../../src/ldsc/_ldscore/calculator.py), and [`indexed_results`](../../src/ldsc/_ldscore/gene_index/batches.py).
 
 Representative chromosome scaling, full-genome memory, HPC Arrow I/O, and repeated serial work remain benchmarking topics.
 The uniform BLAS policy is a confirmed resource policy, not a claim of universally optimal performance.

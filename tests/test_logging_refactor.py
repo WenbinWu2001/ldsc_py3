@@ -247,7 +247,7 @@ class LoggingRefactorTest(unittest.TestCase):
             self.assertEqual(_logging.last_workflow_log_path(), str(log_path))
 
     def test_ldscore_kernel_does_not_own_logging_configuration(self):
-        from ldsc._kernel import ldscore
+        from ldsc._ldscore import compute as ldscore
 
         self.assertFalse(hasattr(ldscore, "configure_logging"))
 

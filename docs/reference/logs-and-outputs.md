@@ -319,7 +319,7 @@ Indexed mode logs chromosome computation for the active query batch, followed by
 The next batch's chromosome work starts only after the current batch has been streamed into private output and its raw fragments removed.
 Batch completion describes completed private work, not a published or resumable result.
 Each backend reports one whole-run query-status total after finalization.
-Sources: `LDScoreCalculator.run()` in [ldscore_calculator.py](../../src/ldsc/ldscore_calculator.py) and `indexed_results()` in [_indexed_ldscore_batches.py](../../src/ldsc/_indexed_ldscore_batches.py).
+Sources: `LDScoreCalculator.run()` in [_ldscore/calculator.py](../../src/ldsc/_ldscore/calculator.py) and `indexed_results()` in [_ldscore/gene_index/batches.py](../../src/ldsc/_ldscore/gene_index/batches.py).
 
 Partitioned regression reports actual completed query outcomes, with status counts, through the same parent-owned progress stream for serial and parallel execution. Parallel collection advances when each result arrives, and timed waits can report unchanged completed counts while workers compute. Serial fits report when control returns. Numbered batch boundaries appear even for fast batches; per-query successful phases require DEBUG. For example, omitting elapsed times:
 
@@ -350,4 +350,4 @@ A handled chromosome failure retains logs, reports the chromosome and batch in t
 A broken pool reports affected in-flight tasks and their paths without claiming a confirmed crash source.
 Reruns follow `--overwrite`, resetting owned logs rather than appending an unrelated run.
 `LDScoreCalculator.run(..., output_config=None)` retains its no-file-output contract.
-See [parallel execution](parallel-execution.md) and [`_ldscore_diagnostics`](../../src/ldsc/_ldscore_diagnostics.py).
+See [parallel execution](parallel-execution.md) and [`_ldscore_diagnostics`](../../src/ldsc/_ldscore/diagnostics.py).

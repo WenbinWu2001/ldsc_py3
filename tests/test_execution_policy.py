@@ -66,8 +66,8 @@ def test_direct_chromosome_logs_append_across_batches_and_reset_on_overwrite(tmp
     import re
     from dataclasses import replace
     from ldsc import AnnotationBundle, LDScoreCalculator
-    from ldsc.outputs import LDScoreOutputConfig
-    from ldsc import ldscore_calculator as direct
+    from ldsc._ldscore.outputs import LDScoreOutputConfig
+    from ldsc._ldscore import calculator as direct
     from tests.test_ldscore_query_batches import prepared_case
     pools = []
     original_pool = direct.ProcessPoolExecutor
@@ -102,7 +102,7 @@ def test_direct_chromosome_logs_append_across_batches_and_reset_on_overwrite(tmp
 
 
 def _fail_second_chromosome(*args, **kwargs):
-    from ldsc.ldscore_calculator import LDScoreCalculator, _compute_one_chromosome
+    from ldsc._ldscore.calculator import LDScoreCalculator, _compute_one_chromosome
     original = LDScoreCalculator.compute_chromosome
     def fail(self, chrom, **options):
         if chrom == "22":
@@ -116,7 +116,7 @@ def _fail_second_chromosome(*args, **kwargs):
 
 
 def test_direct_failure_keeps_logs_but_removes_staged_reference_metadata(tmp_path, monkeypatch):
-    from ldsc import ldscore_calculator as direct
+    from ldsc._ldscore import calculator as direct
     from tests.test_plink_workflow_resolution import write_inputs
     write_inputs(tmp_path)
     monkeypatch.setattr(direct, "_compute_one_chromosome", _fail_second_chromosome)
@@ -142,7 +142,7 @@ def test_direct_failure_keeps_logs_but_removes_staged_reference_metadata(tmp_pat
 def test_direct_failure_cancels_pending_without_submitting_more(monkeypatch):
     from concurrent.futures import Future
     from types import SimpleNamespace
-    from ldsc import ldscore_calculator as direct
+    from ldsc._ldscore import calculator as direct
     submitted, shutdown = [], []
     failed, pending = Future(), Future()
     failed.set_exception(ValueError("task failure"))
@@ -168,8 +168,8 @@ def test_direct_waits_for_running_worker_before_query_batch_cleanup(tmp_path, mo
     from threading import Event
     from ldsc import AnnotationBundle, LDScoreCalculator
     from ldsc._annotation import interval_queries as _annotation_queries
-    from ldsc import ldscore_calculator as direct
-    from ldsc.outputs import LDScoreOutputConfig
+    from ldsc._ldscore import calculator as direct
+    from ldsc._ldscore.outputs import LDScoreOutputConfig
     from tests.test_ldscore_query_batches import prepared_case
 
     metadata, baseline, queries, config, panel, numerical = prepared_case(tmp_path)
@@ -231,13 +231,13 @@ def test_direct_waits_for_running_worker_before_query_batch_cleanup(tmp_path, mo
 
 
 def _crash_direct_task(*args, **kwargs):
-    from ldsc._ldscore_diagnostics import chromosome_log
+    from ldsc._ldscore.diagnostics import chromosome_log
     with chromosome_log(kwargs["log_path"], args[0], kwargs["batch_label"]):
         os._exit(17)
 
 
 def _crash_indexed_task(*args, **kwargs):
-    from ldsc._ldscore_diagnostics import chromosome_log
+    from ldsc._ldscore.diagnostics import chromosome_log
     with chromosome_log(args[-1], args[1], "indexed query batches"):
         os._exit(17)
 
@@ -248,15 +248,15 @@ def test_abnormal_ld_termination_reports_unconfirmed_source_and_retains_logs(tmp
     from concurrent.futures.process import BrokenProcessPool
     output = tmp_path / "out"
     if mode == "direct":
-        from ldsc import ldscore_calculator as direct
+        from ldsc._ldscore import calculator as direct
         from tests.test_ldscore_parallelism import _write_index_panel, _PANEL_CHROMS, _run_minimal_ldscore
         panel = tmp_path / "panel"
         _write_index_panel(panel, _PANEL_CHROMS)
         monkeypatch.setattr(direct, "_compute_one_chromosome", _crash_direct_task)
         run = lambda: _run_minimal_ldscore(panel, output, 2)
     else:
-        from ldsc import _indexed_ldscore_batches as indexed, gene_ldscore_index as core
-        from ldsc._gene_index_scoring import run_indexed_ldscore
+        from ldsc._ldscore.gene_index import batches as indexed, build as core
+        from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
         from tests.test_gene_index_streaming import two_chromosome_index
         index = two_chromosome_index(tmp_path)
         query = tmp_path / "query.txt"
@@ -277,7 +277,7 @@ def test_abnormal_ld_termination_reports_unconfirmed_source_and_retains_logs(tmp
 
 
 def _fail_indexed_second_batch(*args, **kwargs):
-    from ldsc import _indexed_ldscore_batches as indexed
+    from ldsc._ldscore.gene_index import batches as indexed
     original = indexed.pq.write_table
     def save(table, path, **options):
         if args[5] == 1 and path.name == "query.parquet":
@@ -291,8 +291,8 @@ def _fail_indexed_second_batch(*args, **kwargs):
 
 
 def test_indexed_python_failure_reports_batch_and_full_chromosome_traceback(tmp_path, monkeypatch):
-    from ldsc import _indexed_ldscore_batches as indexed, gene_ldscore_index as core
-    from ldsc._gene_index_scoring import run_indexed_ldscore
+    from ldsc._ldscore.gene_index import batches as indexed, build as core
+    from ldsc._ldscore.gene_index.scoring import run_indexed_ldscore
     from tests.test_gene_index_streaming import two_chromosome_index
     index = two_chromosome_index(tmp_path)
     queries = [tmp_path / f"query{i}.txt" for i in range(2)]
@@ -312,7 +312,7 @@ def test_indexed_python_failure_reports_batch_and_full_chromosome_traceback(tmp_
 
 def _fail_index_builder_after_durable_first_chromosome(*args):
     from pathlib import Path
-    from ldsc import gene_ldscore_index as builder
+    from ldsc._ldscore.gene_index import build as builder
     if args[0] == "22":
         shard = args[-1] / "chromosomes/chr21/ldscore_operator.npz"
         assert shard.is_file()
@@ -323,7 +323,7 @@ def _fail_index_builder_after_durable_first_chromosome(*args):
 
 def test_real_index_worker_failure_removes_completed_shards(tmp_path, monkeypatch):
     from pathlib import Path
-    from ldsc import gene_ldscore_index as builder
+    from ldsc._ldscore.gene_index import build as builder
     from tests.test_plink_workflow_resolution import write_inputs, index_args
     write_inputs(tmp_path)
     event = tmp_path / "durable-shard.txt"

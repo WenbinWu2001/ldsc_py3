@@ -99,7 +99,7 @@ Strict resolution is the default in `annotate`, direct/indexed `ldscore`, and `q
 
 The retired `--gene-list-resolution-policy` option is rejected; there is no compatibility alias. Remove `--gene-list-resolution-policy strict` from old commands and replace `--gene-list-resolution-policy resolved-only` with `--allow-unresolved-genes`.
 
-Python callers still use `gene_list_resolution_policy="strict"` or `gene_list_resolution_policy="resolved-only"`. Metadata and diagnostic tables retain those policy strings. For `quantile-h2`, reproduce the resolution policy and inputs used to create the fitted annotations. Sources: `build_parser()` in [ldscore_calculator.py](../../../src/ldsc/ldscore_calculator.py), `add_annotate_arguments()` in [_annotation/builder.py](../../../src/ldsc/_annotation/builder.py), and `add_quantile_h2_arguments()` in [quantile_h2.py](../../../src/ldsc/quantile_h2.py).
+Python callers still use `gene_list_resolution_policy="strict"` or `gene_list_resolution_policy="resolved-only"`. Metadata and diagnostic tables retain those policy strings. For `quantile-h2`, reproduce the resolution policy and inputs used to create the fitted annotations. Sources: `build_parser()` in [_ldscore/calculator.py](../../../src/ldsc/_ldscore/calculator.py), `add_annotate_arguments()` in [_annotation/builder.py](../../../src/ldsc/_annotation/builder.py), and `add_quantile_h2_arguments()` in [quantile_h2.py](../../../src/ldsc/quantile_h2.py).
 
 Strict Gate A scans all focal lists and the optional control together and then
 stops if any submitted row cannot supply one valid interval. It writes the

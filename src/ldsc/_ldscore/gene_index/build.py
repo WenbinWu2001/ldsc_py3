@@ -38,16 +38,16 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
-from ._runtime.worker_runtime import initialize_worker, native_thread_state
-from ._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
-from ._runtime.workflow_logging import LOG_LEVEL_HELP
-from ._runtime.parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _run_chromosome_tasks
-from ._runtime.progress import report_phase
-from ._kernel import ldscore as kernel_ldscore
-from ._annotation.overlap import compute_overlap
-from ._refpanel.adapters import resolve_keep_individuals
-from ._refpanel.prepared import ChromosomeAnnotations
-from ._kernel.gene_ldscore_index import (
+from ..._runtime.worker_runtime import initialize_worker, native_thread_state
+from ..._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
+from ..._runtime.workflow_logging import LOG_LEVEL_HELP
+from ..._runtime.parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _run_chromosome_tasks
+from ..._runtime.progress import report_phase
+from .. import compute as kernel_ldscore
+from ..._annotation.overlap import compute_overlap
+from ..._refpanel.adapters import resolve_keep_individuals
+from ..._refpanel.prepared import ChromosomeAnnotations
+from .atoms import (
     build_disjoint_atoms,
     compute_atom_statistics,
     iter_snp_atom_blocks,
@@ -56,10 +56,10 @@ from ._kernel.gene_ldscore_index import (
     assemble_selected_atom_statistics,
     validate_ldscore_operator,
 )
-from ._core.regions import RegionIntervals
-from ._core.identifiers import read_snp_restriction_keys
-from ._core.plink_files import PlinkFAMFile
-from ._core.snp_identity import (
+from ..._core.regions import RegionIntervals
+from ..._core.identifiers import read_snp_restriction_keys
+from ..._core.plink_files import PlinkFAMFile
+from ..._core.snp_identity import (
     RestrictionIdentityKeys,
     allele_set_series,
     base_key_series,
@@ -70,29 +70,29 @@ from ._core.snp_identity import (
     identity_mode_family,
     is_allele_aware_mode,
 )
-from ._core import regions as kernel_regions
-from ._runtime.workflow_logging import (
+from ..._core import regions as kernel_regions
+from ..._runtime.workflow_logging import (
     log_inputs,
     log_outputs,
     materializing_overwrite_guard,
     set_workflow_log_path,
     workflow_logging,
 )
-from ._annotation.storage import AnnotationWorkspace, FrameSpool
-from ._annotation.sources import prepare_annotation_sources
-from ._core.chromosomes import normalize_chromosome, normalize_chromosome_series
-from ._core.coordinates import positive_int_position_series
-from ._core.columns import normalize_genome_build
-from .config import DEFAULT_SNP_BATCH_SIZE, GeneLDScoreIndexBuildConfig, GlobalConfig, get_global_config
-from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError
-from ._annotation.gene_lists import (
+from ..._annotation.storage import AnnotationWorkspace, FrameSpool
+from ..._annotation.sources import prepare_annotation_sources
+from ..._core.chromosomes import normalize_chromosome, normalize_chromosome_series
+from ..._core.coordinates import positive_int_position_series
+from ..._core.columns import normalize_genome_build
+from ...config import DEFAULT_SNP_BATCH_SIZE, GeneLDScoreIndexBuildConfig, GlobalConfig, get_global_config
+from ...errors import LDSCInputError, LDSCInternalError, LDSCUsageError
+from ..._annotation.gene_lists import (
     GeneCatalog,
     GeneCatalogValidationError,
     select_index_eligible_gene_indices,
 )
-from ._genome.hm3 import packaged_hm3_curated_map_path
-from ._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
-from ._gene_index_artifact import (
+from ..._genome.hm3 import packaged_hm3_curated_map_path
+from ..._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
+from .artifact import (
     IndexChromosomeData,
     StagedIndexChromosome,
     _canonical_frame_sha256,
@@ -108,7 +108,7 @@ from ._gene_index_artifact import (
     _write_json,
     calculate_index_id,
 )
-from ._gene_index_scoring import _load_gene_ldscore_index
+from .scoring import _load_gene_ldscore_index
 
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
@@ -562,8 +562,8 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 process_id=os.getpid(),
                 hostname=socket.gethostname(),
             )
-            from ._annotation.preflight import inspect_annotation_inputs
-            from ._refpanel.preflight import GENETIC_MAP_HEADER_CHECKS
+            from ..._annotation.preflight import inspect_annotation_inputs
+            from ..._refpanel.preflight import GENETIC_MAP_HEADER_CHECKS
             declared_inputs = inspect_annotation_inputs(
                 header_checks=GENETIC_MAP_HEADER_CHECKS,
                 baseline=config.baseline_annot_sources, plink=config.plink_prefix, chromosomes=chromosomes,
@@ -584,7 +584,7 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                     issues_path,
                 )
                 raise
-            from ._genome.build_policy import GenomeBuildCheck
+            from ..._genome.build_policy import GenomeBuildCheck
             check = GenomeBuildCheck(config.genome_build, context="gene LD-score index construction", logger=LOGGER)
             check.declared("gene catalog", config.gene_coordinate_file, catalog.genome_build)
             for path in declared_inputs.baseline:
@@ -792,8 +792,8 @@ def _run_gene_ldscore_index_build(
         else GlobalConfig(snp_identifier=config.snp_identifier, genome_build=config.genome_build)
     )
     regression_path = Path(config.regr_snps_file or packaged_hm3_curated_map_path())
-    from ._runtime.preflight import InputGate
-    from ._runtime.progress import PhaseProgress
+    from ..._runtime.preflight import InputGate
+    from ..._runtime.progress import PhaseProgress
     state_dir = _gene_index_build_state_dir(Path(config.output_dir))
     gate = InputGate('Reference/control content validation', state_dir/'input_issues.tsv')
     with PhaseProgress(LOGGER, 'validation', 'PLINK, regression restriction, and genetic map content'):
@@ -1420,8 +1420,8 @@ def _load_builder_genetic_map(args):
         return None
     if args.ld_wind_cm is None:
         raise LDSCInputError("Genetic-map sources require --ld-wind-cm. Omit the map for kb or SNP-count windows.")
-    from ._genome.build_policy import GenomeBuildCheck
-    from ._refpanel.build_kernel import load_genetic_map_group
+    from ..._genome.build_policy import GenomeBuildCheck
+    from ..._refpanel.build_kernel import load_genetic_map_group
     check = GenomeBuildCheck(build, context="gene-index genetic map", logger=LOGGER)
     check.paths("genetic map", sources)
     check.resolve()
@@ -1747,8 +1747,8 @@ def build_plink_index_chromosome(
     ``atom_batch_size`` does not bound the final operator or assembly copies.
     The chromosome baseline matrix is also explicitly materialized in float64.
     """
-    from .config import LDScoreConfig, RefPanelConfig
-    from ._refpanel.adapters import PlinkRefPanel
+    from ...config import LDScoreConfig, RefPanelConfig
+    from ..._refpanel.adapters import PlinkRefPanel
 
     global_options = {"snp_identifier": args.snp_identifier}
     if hasattr(args, "genome_build"):

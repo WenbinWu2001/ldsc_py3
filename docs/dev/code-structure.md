@@ -91,27 +91,27 @@ ldsc_py3_restructured/
 | `ldsc._annotation.saved_results` | saved baseline/query descriptors with no original-input dependencies; deferred preparation on explicit reads and construction-owner detachment |
 | `ldsc._annotation.bim_grid` | metadata-only standalone BIM grid scans using shared identity cleanup; no genotype companions or value synthesis |
 | `ldsc._annotation.sources`, `ldsc._annotation.identity_cleanup`, `ldsc._annotation.loading` | bounded input scans, aligned source preparation, global identity cleanup, and shared source-backed construction |
-| `ldsc._annotation.annotate`, `ldsc._annotation.interval_queries`, `ldsc._direct_annotation` | standalone BED/gene gates, incremental projection, and direct LD-score integration |
+| `ldsc._annotation.annotate`, `ldsc._annotation.interval_queries`, `ldsc._ldscore.direct_annotation` | standalone BED/gene gates, incremental projection, and direct LD-score integration |
 | `ldsc._annotation.gene_query_storage` | staged per-source gene selections and complete audit replay with shared gene-coordinate-catalog state |
 | `ldsc._annotation.in_memory` | small prepared annotations and diagnostics without filesystem writes |
-| `ldsc._ldscore_batch_output` | consume/release materialized or staged query batches, retain explicit shared publication state, and publish complete LD-score directories |
-| `ldsc._ldscore_fragments` | describe producer-owned chromosome fragments and validate/write one query frame at a time against the shared baseline |
+| `ldsc._ldscore.batch_publication` | consume/release materialized or staged query batches, retain explicit shared publication state, and publish complete LD-score directories |
+| `ldsc._ldscore.fragments` | describe producer-owned chromosome fragments and validate/write one query frame at a time against the shared baseline |
 | `ldsc._runtime.workflow_kwargs` | validate Python keyword arguments for `run_ldscore`, `run_build_ref_panel`, `run_h2`, `run_partitioned_h2`, `run_rg`, and `run_quantile_h2` against the command parser before any write; run the regression and post-fit workflows under a failure marker naming the Python function |
 | `ldsc._runtime.parallelism` | shared `workers` validation, joblib detected CPU budgets, task caps, and execution summaries |
 | `ldsc._runtime.worker_runtime`, `ldsc._runtime.serial_calculation` | fixed one-BLAS-thread worker policy, runtime verification, independent Arrow limits, and controlled standalone numerical calls |
-| `ldsc._ldscore_diagnostics` | chromosome logs, batch context, and accurate task/pool failure reporting |
-| `ldsc._indexed_ldscore_batches` | bounded chromosome workers holding one operator each and deterministic batch-fragment assembly |
+| `ldsc._ldscore.diagnostics` | chromosome logs, batch context, and accurate task/pool failure reporting |
+| `ldsc._ldscore.gene_index.batches` | bounded chromosome workers holding one operator each and deterministic batch-fragment assembly |
 | `ldsc._quantile_inputs`, `ldsc._quantile_storage` | bounded reconstruction of the common reference SNPs, exact global boundaries, sufficient statistics, and streamed alignment diagnostics |
 | `ldsc._kernel.ldscore_projection` | float64 output-row accumulators and query batches sharing each LD block |
 | `ldsc._refpanel.builder` | R²-panel build workflow, including source-build inference, optional coordinate liftover, explicit SNP/sample restrictions, and optional `min_r2` pair-emission threshold |
 | `ldsc._refpanel.query` | public `query-r2` CLI/API, `R2Panel`, one-shot `query_r2()`, sidecar-binding validation, endpoint key resolution, sign harmonization, and optional unbiased-R²-to-Pearson-r conversion |
-| `ldsc.ldscore_calculator` | LD-score orchestration, gene-coordinate-catalog build selection, direct prepared-SNP support measurement, optional synthetic `base`, aggregation, and output routing through shared query finalization |
-| `ldsc._ldscore_preflight` | validates direct annotation/reference contents and chromosome equality; enforces complete `@` declarations, authoritative glob matches, and consolidated required-input diagnostics |
-| `ldsc.legacy_ldscore_converter` | sole legacy LDSC LD-score-suite import boundary: deterministic family discovery, rsID joins, count/overlap validation or reconstruction, source/discovery provenance without source-file hashes, diagnostics, and canonical LDSC3 directory writing |
+| `ldsc._ldscore.calculator` | LD-score orchestration, gene-coordinate-catalog build selection, direct prepared-SNP support measurement, optional synthetic `base`, aggregation, and output routing through shared query finalization |
+| `ldsc._ldscore.preflight` | validates direct annotation/reference contents and chromosome equality; enforces complete `@` declarations, authoritative glob matches, and consolidated required-input diagnostics |
+| `ldsc._ldscore.legacy_converter` | sole legacy LDSC LD-score-suite import boundary: deterministic family discovery, rsID joins, count/overlap validation or reconstruction, source/discovery provenance without source-file hashes, diagnostics, and canonical LDSC3 directory writing |
 | `ldsc._sumstats.munger` | raw-summary-statistics CLI/API orchestration, `--input-format auto` / `--infer-only` header inference, Parquet/TSV munged output writing, self-describing `sumstats.parquet` footer identity metadata, diagnostics under `diagnostics/`, canonical `CHR`/`POS` summary-statistics output, and munged summary-statistics loader |
 | `ldsc._sumstats.munge_input` | private workflow helper resolving raw schema, DANER/sample-size settings, bounded source-build evidence and keep-lists into `ResolvedMungeInput` |
 | `ldsc._sumstats.munge_kernel` | chunk QC and restriction, whole-table N and sign conversion, resolved liftover and global identity cleanup; returns `MungeResult` with counts and provenance |
-| `ldsc.ldscore_source` | canonical directory loading, manifest/schema and table/identity validation shared with writers, resident baseline/count/overlap metadata, and uncached selected-query reads |
+| `ldsc._ldscore.source` | canonical directory loading, manifest/schema and table/identity validation shared with writers, resident baseline/count/overlap metadata, and uncached selected-query reads |
 | `ldsc.regression_runner` | file-driven regression dataset assembly, automatic legacy summary-statistics rsID-to-panel projection and allele harmonization, active effective identity-key merging (`SNP`, `SNP:<allele_set>`, `CHR:POS`, or `CHR:POS:<allele_set>`), `h2`/`partitioned-h2`/`rg` estimator dispatch (including the two overlap-aware `partitioned-h2` regimes), observed/liability-scale summary columns, exact final-fit `h2` regression-bin diagnostics, and `rg` result-family writing |
 | `ldsc._partitioned_h2_parallel`, `ldsc._runtime.parallelism` | private read-only regression maps, bounded spawned whole-query workers, worker termination/log forwarding, and shared worker-count resolution; statistical calculations remain in `RegressionRunner._fit_partitioned_query()` |
 | `ldsc.quantile_h2` | post-fit continuous-target quantile assignment, reconstruction and verification of the fitted sources and common reference SNPs, vectorized coefficient/delete-value projection, standardized `tau_star`, CLI orchestration, and diagnostics |
@@ -119,7 +119,7 @@ ldsc_py3_restructured/
 | `ldsc.h2_scale` | strict post-fit observed-to-liability conversion from a canonical `h2` result, including exact and prevalence-range modes and the fixed nested derived-result family |
 | `ldsc.plotting` | sole public metadata-driven plotting dispatcher, lazy plotting-runtime boundary, fixed plot-family output, and live `PlotArtifact` return object |
 | `ldsc.plotting._builders` | private Matplotlib-only headless builders for the approved `h2`, `rg`, `partitioned-h2`, and `quantile-h2` plots |
-| `ldsc.overlap_matrix` | public-layer overlap container (`LDScoreOverlap`), long-form parquet (de)serialization, per-model overlap assembly, the overlap-aware annotation table (ported `_overlap_output` + augmentation), and the collinearity hard-error check (`model_collinearity_error`) |
+| `ldsc._ldscore.overlap_table` | public-layer overlap container (`LDScoreOverlap`), long-form parquet (de)serialization, per-model overlap assembly, the overlap-aware annotation table (ported `_overlap_output` + augmentation), and the collinearity hard-error check (`model_collinearity_error`) |
 | `ldsc.outputs` | per-writer `artifact_family()` declarations shared by workflow preflight, final writes, metadata file entries, and cleanup; artifact naming, LD-score parquet and query-diagnostic layout, `partitioned-h2` per-query layout, `rg` result-family layout, metadata JSON payloads, and serialization |
 | `ldsc._annotation.overlap` | low-level annotation overlap-block computation (`OverlapContribution`, `compute_overlap`, `sum_overlap_contributions`) |
 | `ldsc._annotation.tables` | concrete annotation table reading and numeric-value validation |
@@ -127,7 +127,7 @@ ldsc_py3_restructured/
 | `ldsc._refpanel.build_kernel` | optional genetic-map parsing, optional liftover, parquet schemas, pairwise LD emission |
 | `ldsc._refpanel.adapters` | runtime PLINK/R²-panel adapters; `RefPanel.prepare_chromosome` owns reference filtering, annotation alignment, window/bias policy, and reader lifetime |
 | `ldsc._kernel.r2_query` | low-level R²-panel pair lookup used by `ldsc._refpanel.query` |
-| `ldsc._kernel.ldscore` | `PreparedChromosome` data contract, LD-score projection from prepared state, streaming R²-panel reader, annotation/window/count primitives; no legacy artifact emitters |
+| `ldsc._ldscore.compute` | `PreparedChromosome` data contract, LD-score projection from prepared state, streaming R²-panel reader, annotation/window/count primitives; no legacy artifact emitters |
 | `ldsc._kernel.regression` | LDSC estimators for `Hsq` and `RG`; `Hsq.summary`, `Gencov.summary`, and `RG.summary` are kept deliberately because `estimate_h2`/`estimate_rg` return these estimators to Python users, even though no internal caller uses the summaries |
 | `ldsc._kernel._jackknife`, `ldsc._kernel._irwls` | supporting numerical routines used by regression |
 | `ldsc._core.plink_files`, `ldsc._core.identifiers` | retained PLINK/list primitives and SNP identifier helpers; obsolete legacy regression-artifact readers are removed |
@@ -148,17 +148,17 @@ ldsc_py3_restructured/
 | change annotation loading or `ldsc annotate` behavior | `src/ldsc/_annotation/builder.py`, then `src/ldsc/_annotation/sources.py` and `src/ldsc/_annotation/annotate.py` |
 | change BED parsing or interval projection | `src/ldsc/_core/regions.py:iter_bed_rows`, then `src/ldsc/_annotation/interval_queries.py` and `src/ldsc/_annotation/interval_projection.py:ChromosomeProjector` |
 | change gene coordinate catalog validation, identifier resolution, or list naming | `src/ldsc/_annotation/gene_lists.py`, then `src/ldsc/_annotation/builder.py` |
-| change BED/gene partial-success statuses or diagnostic schemas | `src/ldsc/_annotation/query_outcomes.py`, `src/ldsc/ldscore_calculator.py`, `src/ldsc/outputs.py` |
+| change BED/gene partial-success statuses or diagnostic schemas | `src/ldsc/_annotation/query_outcomes.py`, `src/ldsc/_ldscore/calculator.py`, `src/ldsc/outputs.py` |
 | change R²-panel build logic | `src/ldsc/_refpanel/builder.py`, then `src/ldsc/_refpanel/build_kernel.py` |
-| change named regression-SNP region exclusion for `ldscore` or gene LD-score index construction | `src/ldsc/config.py`, `src/ldsc/_core/regions.py`, then `src/ldsc/ldscore_calculator.py` or `src/ldsc/gene_ldscore_index.py` |
+| change named regression-SNP region exclusion for `ldscore` or gene LD-score index construction | `src/ldsc/config.py`, `src/ldsc/_core/regions.py`, then `src/ldsc/_ldscore/calculator.py` or `src/ldsc/_ldscore/gene_index/build.py` |
 | change R² pair lookup CLI/API behavior | `src/ldsc/_refpanel/query.py`, then `src/ldsc/_kernel/r2_query.py` |
 | change runtime PLINK/R²-panel reference access | `src/ldsc/_refpanel/adapters.py` |
-| change LD-score orchestration, optional-baseline behavior, or output packaging | `src/ldsc/ldscore_calculator.py`, `src/ldsc/outputs.py` |
-| change saved LD-score loading or selected-query reads | `src/ldsc/ldscore_source.py`; keep model-specific validation in `src/ldsc/regression_runner.py` |
-| change LD-score math | `src/ldsc/_kernel/ldscore.py` |
+| change LD-score orchestration, optional-baseline behavior, or output packaging | `src/ldsc/_ldscore/calculator.py`, `src/ldsc/outputs.py` |
+| change saved LD-score loading or selected-query reads | `src/ldsc/_ldscore/source.py`; keep model-specific validation in `src/ldsc/regression_runner.py` |
+| change LD-score math | `src/ldsc/_ldscore/compute.py` |
 | change raw summary-statistics ingestion, format inference, `CHR`/`POS` handling, summary-statistics SNP keep-list filtering, liftover drop audit sidecars, footer provenance, or munged loading | `src/ldsc/_sumstats/munger.py`, then `src/ldsc/_sumstats/munge_kernel.py` |
 | change regression dataset assembly or CLI summaries | `src/ldsc/regression_runner.py`, then `src/ldsc/outputs.py`, `docs/reference/results/partitioned-h2.md` for `partitioned-h2` output layout, `docs/reference/formats/artifact-metadata.md` for `rg` output contracts, and `docs/reference/regression-options.md` for the tunable estimator parameters and defaults |
-| change annotation-name validation or continuous-annotation classification | `src/ldsc/_annotation/semantics.py`, then `src/ldsc/ldscore_calculator.py` and `src/ldsc/outputs.py` |
+| change annotation-name validation or continuous-annotation classification | `src/ldsc/_annotation/semantics.py`, then `src/ldsc/_ldscore/calculator.py` and `src/ldsc/outputs.py` |
 | change target quantiles, standardized coefficients, or post-fit alignment | `src/ldsc/quantile_h2.py`, then `src/ldsc/outputs.py` and `docs/reference/results/quantile-h2.md` |
 | change LDSC estimators | `src/ldsc/_kernel/regression.py` |
 | change binary-trait prevalence parsing or observed-to-liability conversion | `src/ldsc/prevalence.py` (input parsing/validation), then `src/ldsc/regression_runner.py` (summary/metadata wiring) and `src/ldsc/_kernel/regression.py` (`liability_conversion_factor`) |
@@ -233,12 +233,12 @@ ldsc_py3_restructured/
 | Change | Current contract | Main owner |
 | --- | --- | --- |
 | annotations and interval projection | [BED input](../reference/formats/bed-intervals.md), [gene lists](../reference/formats/gene-lists.md), [query repair](../reference/results/gene-list-diagnostics.md) | `_annotation.builder.AnnotationBuilder`; `_annotation.interval_queries.build_query_shards`; `_annotation.interval_projection.ChromosomeProjector` |
-| panel preparation, CM/MAF and traversal | [R² pipeline](../reference/formats/r2-panels.md), [pair accumulation](../reference/methods/ld-score-computation.md), [window behavior](../reference/formats/r2-panels.md#37-ld-windows-and-sidecar-values-in-ldscore) | `_refpanel.adapters.RefPanel.prepare_chromosome`; `_kernel.ldscore.compute_chromosome` |
-| regression SNPs and region masks | [reference and regression SNPs](../reference/ldscore-snp-universes.md), [region exclusions](../reference/formats/region-exclusion-presets.md) | `ldscore_calculator._regression_region_intervals`; `_kernel.ldscore.regression_mask_from_keys`; `gene_ldscore_index` resolves indexed policy |
+| panel preparation, CM/MAF and traversal | [R² pipeline](../reference/formats/r2-panels.md), [pair accumulation](../reference/methods/ld-score-computation.md), [window behavior](../reference/formats/r2-panels.md#37-ld-windows-and-sidecar-values-in-ldscore) | `_refpanel.adapters.RefPanel.prepare_chromosome`; `_ldscore.compute.compute_chromosome` |
+| regression SNPs and region masks | [reference and regression SNPs](../reference/ldscore-snp-universes.md), [region exclusions](../reference/formats/region-exclusion-presets.md) | `_ldscore.calculator._regression_region_intervals`; `_ldscore.compute.regression_mask_from_keys`; `gene_ldscore_index` resolves indexed policy |
 | reference construction and pair queries | [pair query](../reference/query-r2.md), [path contract](../reference/input-paths.md) | `_refpanel.builder.ReferencePanelBuilder`; `_refpanel.query.R2Panel`; `outputs.QueryR2DirectoryWriter` |
 | munging and liftover | [munging](../reference/munge-sumstats.md), [liftover](../reference/snp-identity-and-genome-build.md#liftover) | `_sumstats.munger.SumstatsMunger`; `_sumstats.munge_input.prepare_munge_input`; `_sumstats.munge_kernel` |
 | regression and overlap | [configuration](../reference/regression-options.md), [partitioned results](../reference/results/partitioned-h2.md) | `regression_runner.RegressionRunner`; `overlap_matrix`; `_kernel.regression` |
-| indexed gene queries | [index](../reference/gene-ldscore-index.md), [mathematics](../reference/methods/gene-ldscore-index-math.md) | `gene_ldscore_index`; `_kernel.gene_ldscore_index` |
+| indexed gene queries | [index](../reference/gene-ldscore-index.md), [mathematics](../reference/methods/gene-ldscore-index-math.md) | `gene_ldscore_index`; `_ldscore.gene_index.atoms` |
 | derived results | [plotting](design/plotting.md), [quantile projection](../reference/results/quantile-h2.md) | `plotting`, `h2_scale`, `quantile_h2`; shared `_result_files` |
 
 `query-r2` requires `--output-dir`; `QueryR2DirectoryWriter` writes its result directory.

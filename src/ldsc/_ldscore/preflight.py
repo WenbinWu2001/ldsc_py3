@@ -15,13 +15,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from ._annotation.parsing import normalize_annotation_chunk
-from ._core.chromosomes import normalize_chromosome
-from .config import RefPanelConfig
-from .errors import LDSCInputError, LDSCUserError
-from ._runtime.paths import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
-from ._core import regions
-from ._refpanel.adapters import RefPanelLoader, _read_metadata_table, _resolve_r2_build_dir
+from .._annotation.parsing import normalize_annotation_chunk
+from .._core.chromosomes import normalize_chromosome
+from ..config import RefPanelConfig
+from ..errors import LDSCInputError, LDSCUserError
+from .._runtime.paths import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
+from .._core import regions
+from .._refpanel.adapters import RefPanelLoader, _read_metadata_table, _resolve_r2_build_dir
 
 
 AUTOSOMES = list(map(str, range(1, 23)))
@@ -70,7 +70,7 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
     PLINK integrity reads BIM/FAM and BED header/size, without correlations.
     The returned evidence is reused by the later content-dependent scope gate.
     """
-    from ._runtime.progress import PhaseProgress
+    from .._runtime.progress import PhaseProgress
     issues, declarations = [], []
     sets = {"reference": set()}
     reference_prefixes = {}
@@ -238,7 +238,7 @@ def validate_direct_scope(args, global_config, batch, output_config, **prepared_
     from types import SimpleNamespace
 
     from .outputs import LDScoreDirectoryWriter
-    from ._annotation.query_outcomes import assess_gene_coverage, gene_query_statuses, gene_control_errors
+    from .._annotation.query_outcomes import assess_gene_coverage, gene_query_statuses, gene_control_errors
 
     logger = logging.getLogger("LDSC.ldscore_calculator")
     evidence = inspect_direct_inputs(args, global_config, **prepared_inputs)

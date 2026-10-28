@@ -9,11 +9,11 @@ from ldsc._annotation.outputs import AnnotationDirectoryWriter
 from ldsc.outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
-    LDScoreDirectoryWriter,
     PartitionedH2DirectoryWriter,
     QuantileH2DirectoryWriter,
     RgDirectoryWriter,
 )
+from ldsc._ldscore.outputs import LDScoreDirectoryWriter
 from ldsc._refpanel.outputs import QueryR2DirectoryWriter
 from ldsc._runtime.paths import ensure_output_directory, remove_output_artifacts
 from ldsc.errors import LDSCInputError

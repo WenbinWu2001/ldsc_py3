@@ -5,8 +5,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from ldsc import _gene_index_scoring as index_scoring, gene_ldscore_index as index_module, ldscore_calculator
-from ldsc._gene_index_scoring import _load_gene_ldscore_index
+from ldsc._ldscore.gene_index import scoring as index_scoring, build as index_module
+from ldsc._ldscore import calculator as ldscore_calculator
+from ldsc._ldscore.gene_index.scoring import _load_gene_ldscore_index
 from ldsc.errors import LDSCInputError
 from tests.test_plink_workflow_resolution import write_inputs, index_args
 
@@ -281,7 +282,8 @@ def test_direct_reuses_discovery_and_reference_validation_with_phase_records(tmp
     import logging
     from unittest.mock import Mock
     import numpy as np
-    from ldsc import GlobalConfig, set_global_config, _ldscore_preflight
+    from ldsc import GlobalConfig, set_global_config
+    from ldsc._ldscore import preflight as _ldscore_preflight
     from ldsc._runtime import paths as path_resolution
     write_inputs(tmp_path)
     discover = Mock(wraps=path_resolution._discover_plink_members)

@@ -21,10 +21,10 @@ from scipy import stats
 from ldsc.config import ConfigMismatchError, GlobalConfig, RegressionConfig, reset_global_config, set_global_config
 from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 from ldsc._annotation.overlap import OverlapContribution
-from ldsc.overlap_matrix import LDScoreOverlap
+from ldsc._ldscore.overlap_table import LDScoreOverlap
 
 try:
-    from ldsc.ldscore_calculator import LDScoreResult
+    from ldsc._ldscore.calculator import LDScoreResult
     from ldsc import cli
     from ldsc import regression_runner
     from ldsc.regression_runner import RegressionRunner
@@ -361,7 +361,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         # Consistent overlap: diag(O) equals each annotation's M_annot, and
         # M_tot (total_*_reference_snps) is larger than every category count.
         from ldsc._annotation.overlap import OverlapContribution
-        from ldsc.overlap_matrix import LDScoreOverlap
+        from ldsc._ldscore.overlap_table import LDScoreOverlap
 
         return LDScoreOverlap.from_contribution(
             OverlapContribution(
@@ -1900,7 +1900,7 @@ class RegressionWorkflowTest(unittest.TestCase):
 
     def _baseline_only_ldscore_result(self):
         from ldsc._annotation.overlap import OverlapContribution
-        from ldsc.overlap_matrix import LDScoreOverlap
+        from ldsc._ldscore.overlap_table import LDScoreOverlap
 
         overlap = LDScoreOverlap.from_contribution(
             OverlapContribution(

@@ -1,6 +1,6 @@
 """Reference-panel fixtures exercised through the production preparation interface."""
 from ldsc import GlobalConfig, LDScoreConfig, PlinkRefPanel, RefPanelConfig
-from ldsc._kernel import ldscore
+from ldsc._ldscore import compute as ldscore
 
 
 def write_tiny_plink(prefix, metadata):

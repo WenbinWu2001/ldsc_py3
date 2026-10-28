@@ -3,7 +3,7 @@
 The converter is the public import boundary for legacy LD-score suites:
 reference and weight ``.l2.ldscore(.gz)`` families, counts, and, for baseline
 partitioned suites, annotations and frequencies. Regression consumes the
-resulting canonical :class:`ldsc.ldscore_calculator.LDScoreResult` directory.
+resulting canonical :class:`ldsc._ldscore.calculator.LDScoreResult` directory.
 Standalone annotation workflows retain their separate ``.annot(.gz)`` readers.
 """
 
@@ -19,17 +19,17 @@ import re
 import numpy as np
 import pandas as pd
 
-from ._runtime.serial_calculation import serial_calculation
-from ._runtime.cli_help import CLIHelpFormatter
-from ._runtime.workflow_logging import LOG_LEVEL_HELP
-from ._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
-from ._core.columns import normalize_genome_build, normalize_snp_identifier_mode
-from .config import GlobalConfig, get_global_config
-from .errors import LDSCInputError, LDSCUsageError
-from .ldscore_calculator import LDScoreResult
-from .overlap_matrix import LDScoreOverlap
+from .._runtime.serial_calculation import serial_calculation
+from .._runtime.cli_help import CLIHelpFormatter
+from .._runtime.workflow_logging import LOG_LEVEL_HELP
+from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
+from .._core.columns import normalize_genome_build, normalize_snp_identifier_mode
+from ..config import GlobalConfig, get_global_config
+from ..errors import LDSCInputError, LDSCUsageError
+from .calculator import LDScoreResult
+from .overlap_table import LDScoreOverlap
 from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-from ._runtime.paths import ensure_output_directory, normalize_path_token
+from .._runtime.paths import ensure_output_directory, normalize_path_token
 
 
 LOGGER = logging.getLogger("LDSC.legacy_ldscore_converter")
@@ -284,7 +284,7 @@ class LegacyLDScoreConverter:
                 "Restore missing shards or rename misnamed copies from the matching source suite."
             )
 
-        from ._genome.build_policy import GenomeBuildCheck
+        from .._genome.build_policy import GenomeBuildCheck
         build_check = GenomeBuildCheck(build_hint, context="convert-ldsc2-ldscores", logger=LOGGER)
         for role, paths in (("reference", reference_family.paths), ("weight", weight_family.paths),
                             ("annotation", annotation_family)):
@@ -1374,7 +1374,7 @@ def _resolve_output_coordinates(
     rsID output carries no coordinate build and requires no inference.
     """
     output = frame.copy()
-    from ._genome.build_policy import GenomeBuildCheck
+    from .._genome.build_policy import GenomeBuildCheck
     check = build_check or GenomeBuildCheck(build_hint, context='convert-ldsc2-ldscores', logger=LOGGER)
     if build_check is None and mode != "rsid":
         check.frames('--legacy-reference-dir', context, [output])

@@ -12,7 +12,7 @@ import pandas as pd
 from scipy import stats
 
 from ._kernel import regression as reg
-from .overlap_matrix import LDScoreOverlap
+from ._ldscore.overlap_table import LDScoreOverlap
 
 
 def overlap_aware_category_table(hsq, overlap_matrix, m_annot, m_tot, category_names) -> pd.DataFrame:

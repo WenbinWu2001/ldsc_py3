@@ -20,17 +20,19 @@ import pandas as pd
 import pytest
 from scipy import sparse
 
-from ldsc import cli, gene_ldscore_index, ldscore_calculator
-from ldsc import _gene_index_scoring
-from ldsc._gene_index_artifact import _canonical_frame_sha256, _catalog_identity_records, _write_json
+from ldsc import cli
+from ldsc._ldscore.gene_index import build as gene_ldscore_index
+from ldsc._ldscore import calculator as ldscore_calculator
+from ldsc._ldscore.gene_index import scoring as _gene_index_scoring
+from ldsc._ldscore.gene_index.artifact import _canonical_frame_sha256, _catalog_identity_records, _write_json
 from ldsc.config import GeneLDScoreIndexBuildConfig, GlobalConfig, reset_global_config, set_global_config
 from ldsc._core.plink_files import PlinkFAMFile
-from ldsc._kernel import ldscore as kernel_ldscore
+from ldsc._ldscore import compute as kernel_ldscore
 from ldsc._annotation.overlap import compute_overlap
 from ldsc._refpanel.prepared import ChromosomeAnnotations
-from ldsc._kernel.gene_ldscore_index import AtomStatistics, build_disjoint_atoms
+from ldsc._ldscore.gene_index.atoms import AtomStatistics, build_disjoint_atoms
 from ldsc.errors import LDSCInputError, LDSCUsageError
-from ldsc.gene_ldscore_index import (
+from ldsc._ldscore.gene_index.build import (
     _build_embedded_gene_catalog,
     _genetic_map_identity,
     _parse_chromosomes,
@@ -38,10 +40,10 @@ from ldsc.gene_ldscore_index import (
     build_plink_index_chromosome,
     intersect_baseline_plink_by_identifier,
 )
-from ldsc._gene_index_artifact import calculate_index_id, IndexChromosomeData
+from ldsc._ldscore.gene_index.artifact import calculate_index_id, IndexChromosomeData
 from ldsc._annotation.gene_lists import GeneCatalog, GeneCatalogValidationError
-from ldsc.ldscore_calculator import LDScoreCalculator
-from ldsc.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
+from ldsc._ldscore.calculator import LDScoreCalculator
+from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 
 
 def load_gene_ldscore_index(path):

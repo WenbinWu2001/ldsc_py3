@@ -87,7 +87,7 @@ Gene-list support follows the same boundary.
 No gene identity enters the LD-score computation in `_ldscore.compute`.
 
 Legacy compatibility follows the same boundary.
-`ldsc._ldscore.legacy_converter` alone reads selected legacy LD-score/count/annotation/frequency suites and emits a canonical `LDScoreResult` directory; it is exported as `LegacyLDScoreConverter` and `convert_ldsc2_ldscores()`.
+`ldsc._ldscore.legacy_converter` alone reads selected legacy LD-score/count/annotation/frequency suites and emits a canonical `LDScoreResult` directory; it is exported as `LegacyLDScoreConverter` and `convert_legacy_ldscores()`.
 Regression never reads those fragments.
 `ldsc._regression.runner` automatically projects legacy summary-statistics text onto the regression SNPs of the already-loaded LD-score directory and owns the resulting drop audit.
 Neither compatibility path adds a legacy reader or writer to the computation modules.

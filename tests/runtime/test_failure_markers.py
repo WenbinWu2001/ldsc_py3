@@ -73,7 +73,7 @@ def test_cli_failure_marker_uses_nested_plot_scope(tmp_path):
         ("ldscore", "--output-dir", ""),
         ("build-r2-matrix", "--output-dir", ""),
         ("build-gene-ldscore-index", "--output-dir", ""),
-        ("convert-ldsc2-ldscores", "--output-dir", ""),
+        ("convert-legacy-ldscores", "--output-dir", ""),
         ("munge-sumstats", "--output-dir", ""),
         ("query-r2-matrix", "--output-dir", ""),
     ],

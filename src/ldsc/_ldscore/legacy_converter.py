@@ -41,7 +41,7 @@ _LDSCORE_FILENAME_GUIDANCE = (
     "with one constant prefix (possibly empty) and unpadded chromosomes 1-22. "
     "Organize one complete family directly in the supplied directory; put different releases in separate directories. "
     "Restore missing shards or rename misnamed copies to the standard filenames. "
-    "See docs/user-guide/troubleshooting.md#convert-ldsc2-ldscores."
+    "See docs/user-guide/troubleshooting.md#convert-legacy-ldscores."
 )
 _WEIGHT_FILENAME_GUIDANCE = (
     "Found unsupported '.w.l2.ldscore(.gz)' filenames. Rename copies in a separate input directory, "
@@ -70,7 +70,7 @@ _METADATA_COLUMNS = {"CHR", "SNP", "BP", "POS", "CM", "MAF", "GENOME_BUILD"}
 _COUNT_CONFIG = {
     "common_reference_snp_maf_min": 0.05,
     "common_reference_snp_maf_operator": ">",
-    "common_reference_snp_semantics": "legacy_ldsc2",
+    "common_reference_snp_semantics": "legacy_ldsc",
 }
 
 
@@ -194,7 +194,7 @@ class LegacyLDScoreConverter:
         mode = normalize_snp_identifier_mode(snp_identifier)
         if mode not in {"rsid", "chr_pos"}:
             raise LDSCUsageError(
-                "convert-ldsc2-ldscores accepts only allele-unaware --snp-identifier rsid or chr_pos; "
+                "convert-legacy-ldscores accepts only allele-unaware --snp-identifier rsid or chr_pos; "
                 "legacy LD-score suites do not contain authoritative alleles."
             )
         build_hint = normalize_genome_build(genome_build)
@@ -209,12 +209,12 @@ class LegacyLDScoreConverter:
         diagnostics = output_root / "diagnostics"
         diagnostics.mkdir(parents=True, exist_ok=True)
         issue_path = diagnostics / "conversion_issues.tsv.gz"
-        log_path = diagnostics / "convert-ldsc2-ldscores.log"
+        log_path = diagnostics / "convert-legacy-ldscores.log"
         LDScoreDirectoryWriter.artifact_family(output_root).preflight(
             overwrite=overwrite, additional_paths=[issue_path, log_path],
         )
         issues: list[dict[str, object]] = []
-        with workflow_logging("convert-ldsc2-ldscores", str(log_path), log_level=log_level):
+        with workflow_logging("convert-legacy-ldscores", str(log_path), log_level=log_level):
             log_inputs(
                 legacy_reference_dir=str(reference_root),
                 legacy_weight_dir=str(weight_root),
@@ -286,7 +286,7 @@ class LegacyLDScoreConverter:
             )
 
         from .._genome.build_policy import GenomeBuildCheck
-        build_check = GenomeBuildCheck(build_hint, context="convert-ldsc2-ldscores", logger=LOGGER)
+        build_check = GenomeBuildCheck(build_hint, context="convert-legacy-ldscores", logger=LOGGER)
         for role, paths in (("reference", reference_family.paths), ("weight", weight_family.paths),
                             ("annotation", annotation_family)):
             for path in paths.values():
@@ -431,7 +431,7 @@ class LegacyLDScoreConverter:
             chromosome_results=[],
             count_config=dict(_COUNT_CONFIG),
             config_snapshot=GlobalConfig(snp_identifier=mode, genome_build=effective_build),
-            legacy_ldsc2_import=provenance,
+            legacy_ldscore_conversion=provenance,
         )
         paths = LDScoreDirectoryWriter().write(
             ldscore,
@@ -687,7 +687,7 @@ class LegacyLDScoreConverter:
             count_config=dict(_COUNT_CONFIG),
             config_snapshot=GlobalConfig(snp_identifier=mode, genome_build=effective_build),
             overlap=overlap,
-            legacy_ldsc2_import=provenance,
+            legacy_ldscore_conversion=provenance,
         )
         paths = LDScoreDirectoryWriter().write(
             ldscore,
@@ -704,7 +704,7 @@ class _DiscoveredFamily:
     paths: dict[int, Path]
 
 
-def convert_ldsc2_ldscores(
+def convert_legacy_ldscores(
     *,
     legacy_reference_dir: str | Path,
     legacy_weight_dir: str | Path,
@@ -765,8 +765,8 @@ def build_parser() -> argparse.ArgumentParser:
     argparse.ArgumentParser
         Parser containing the closed converter argument surface.
     """
-    parser = argparse.ArgumentParser(prog="ldsc convert-ldsc2-ldscores")
-    parser.prog = 'ldsc convert-ldsc2-ldscores'
+    parser = argparse.ArgumentParser(prog="ldsc convert-legacy-ldscores")
+    parser.prog = 'ldsc convert-legacy-ldscores'
     parser.formatter_class = CLIHelpFormatter
     parser.description = 'Convert complete legacy reference and regression-weight suites into one LDSC3 LD-score directory.'
     inputs = parser.add_argument_group('Inputs and output')
@@ -850,7 +850,7 @@ def main(argv: list[str] | None = None) -> LegacyLDScoreConversionResult:
         Completed conversion summary.
     """
     args = build_parser().parse_args(argv)
-    return convert_ldsc2_ldscores(
+    return convert_legacy_ldscores(
         legacy_reference_dir=args.legacy_reference_dir,
         legacy_weight_dir=args.legacy_weight_dir,
         legacy_frequency_dir=args.legacy_frequency_dir,
@@ -994,7 +994,7 @@ def _discover_frequency_family(
             "with one constant prefix (possibly empty) and unpadded chromosomes 1-22. "
             "Restore missing shards or rename misnamed copies; place one complete family directly in this "
             "directory and keep different releases in separate directories. "
-            "See docs/user-guide/troubleshooting.md#convert-ldsc2-ldscores."
+            "See docs/user-guide/troubleshooting.md#convert-legacy-ldscores."
         )
     prefix, shards = next(iter(coherent.items()))
     for discarded_prefix, discarded_shards in groups.items():
@@ -1376,7 +1376,7 @@ def _resolve_output_coordinates(
     """
     output = frame.copy()
     from .._genome.build_policy import GenomeBuildCheck
-    check = build_check or GenomeBuildCheck(build_hint, context='convert-ldsc2-ldscores', logger=LOGGER)
+    check = build_check or GenomeBuildCheck(build_hint, context='convert-legacy-ldscores', logger=LOGGER)
     if build_check is None and mode != "rsid":
         check.frames('--legacy-reference-dir', context, [output])
     if build_hint in {"hg19", "hg38"}:
@@ -1457,7 +1457,7 @@ def _build_provenance(
         "common_frequency_rule": dict(_COUNT_CONFIG),
         "coordinate_provenance": coordinate_provenance,
         "diagnostics": {
-            "log": "diagnostics/convert-ldsc2-ldscores.log",
+            "log": "diagnostics/convert-legacy-ldscores.log",
             "issues": "diagnostics/conversion_issues.tsv.gz",
         },
     }
@@ -1507,4 +1507,4 @@ def _decompressed_bytes(path: Path) -> bytes:
     return path.read_bytes()
 
 
-__all__ = ["LegacyLDScoreConverter", "LegacyLDScoreConversionResult", "convert_ldsc2_ldscores"]
+__all__ = ["LegacyLDScoreConverter", "LegacyLDScoreConversionResult", "convert_legacy_ldscores"]

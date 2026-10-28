@@ -53,7 +53,7 @@ def _convert_ldscores(h2_result, monkeypatch, **level):
     # The conversion body runs in a spawned child with its own default config,
     # so the level must already be resolved when the parent hands it over.
     _stop_with_level(monkeypatch, LegacyLDScoreConverter, "_convert", lambda self, **kwargs: kwargs["log_level"])
-    ldsc.convert_ldsc2_ldscores(legacy_reference_dir="ref", legacy_weight_dir="w", output_dir="out", **level)
+    ldsc.convert_legacy_ldscores(legacy_reference_dir="ref", legacy_weight_dir="w", output_dir="out", **level)
 
 
 def _converter_method(h2_result, monkeypatch, **level):

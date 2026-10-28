@@ -226,7 +226,7 @@ A missing output directory is created, unrelated files are kept, and a failed ov
 ## Caveats
 
 - LD-score directories written by earlier versions of LDSC3 without the `query_batches` manifest or SNP identity provenance in `metadata.json` are rejected; regenerate them.
-- To use published legacy LD scores, convert them with `ldsc convert-ldsc2-ldscores` rather than passing the legacy files to regression; see [Migrating from legacy LDSC](migrating-from-legacy-ldsc.md).
+- To use published legacy LD scores, convert them with `ldsc convert-legacy-ldscores` rather than passing the legacy files to regression; see [Migrating from legacy LDSC](migrating-from-legacy-ldsc.md).
 - The LD-score computation itself is specified in [LD-score computation from R² matrices](../../reference/methods/ld-score-computation.md).
 
 For the Python API, see [Python usage](../python-usage.md#ld-scores).

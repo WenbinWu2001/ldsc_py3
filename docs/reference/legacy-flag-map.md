@@ -90,7 +90,7 @@ Its LD scores equal legacy LDSC run with `--chunk-size 1` and use the same windo
 The two backends still differ slightly, because an R² matrix stores R² as int16 and an `--ld-wind-snps` window on an R² matrix counts R² matrix rows rather than retained SNPs.
 A cM window also differs when the R² matrix's `CM`, interpolated from a genetic map, differs from the `.bim` `CM` the PLINK run uses.
 Gene LD-score indexes built with the earlier rounded windows (`format_version` 2) are rejected and must be rebuilt.
-Published legacy LD scores remain usable unchanged through `ldsc convert-ldsc2-ldscores`.
+Published legacy LD scores remain usable unchanged through `ldsc convert-legacy-ldscores`.
 
 Measurement (2026-10-27; former kernel ported from legacy LDSC at `c67b40e` versus the exact kernel introduced with this section), on 1000G.EUR.QC chromosome 22 (489 individuals, 141,123 SNPs), `--ld-wind-cm 1`, 17,489 HapMap3 output SNPs:
 
@@ -123,7 +123,7 @@ These mappings describe current workflows and are not additional changes made by
 | `ldsc.py --h2 FILE` | `ldsc h2 --sumstats-file FILE` or `ldsc partitioned-h2 --sumstats-file FILE` | Select the intended workflow; both consume an LD-score directory. |
 | `ldsc.py --h2-cts FILE`, `--ref-ld-chr-cts` | `ldsc partitioned-h2 --sumstats-file FILE --ldscore-dir DIRECTORY` | Build query LD scores first and use the resulting LD-score directory; old cell-type manifests are not accepted as regression inputs. |
 | `ldsc.py --rg FILES` | `ldsc rg --sumstats-sources FILES` | Current default is all pairs; use `--anchor-trait` for an anchor-versus-rest run. |
-| `--ref-ld`, `--ref-ld-chr`, `--w-ld`, `--w-ld-chr` | `--ldscore-dir DIRECTORY` on regression commands | Predictors, weights, and count metadata come from one LD-score directory. Convert legacy fragments with `convert-ldsc2-ldscores` first. |
+| `--ref-ld`, `--ref-ld-chr`, `--w-ld`, `--w-ld-chr` | `--ldscore-dir DIRECTORY` on regression commands | Predictors, weights, and count metadata come from one LD-score directory. Convert legacy fragments with `convert-legacy-ldscores` first. |
 | `--two-step CUTOFF` | `--two-step-cutoff CUTOFF` | Estimator cutoff; current inclusive threshold and model/intercept restrictions still apply. |
 | `--not-M-5-50` | `--count-kind all` | Opt into all-SNP counts. Default remains `--count-kind common`. |
 | `munge_sumstats.py --no-alleles` | `--snp-identifier rsid` or `--snp-identifier chr_pos` | Choose a base mode explicitly; the default SNP identifier mode is `chr_pos_allele_aware`. |

@@ -13,7 +13,7 @@ Rules for writers and terms still under proposal follow the term tables.
 | --- | --- | --- | --- |
 | LD score regression (LDSC) | The method: regression of GWAS $\chi^2$ statistics on LD scores, used to estimate SNP heritability, genetic correlation and partitioned heritability. In prose, "LDSC" means the method only. | "LD-score regression", "LD Score Regression" | |
 | LDSC3 | This Python 3 package (distribution `ldsc`, version 2.0b0); a provisional name. | "the refactored package", "ldsc3", "the new LDSC" | import `ldsc`; command `ldsc` |
-| legacy LDSC | The original Python 2 software (bulik/ldsc) that LDSC3 replaces. Before a file or format, "legacy" means one that legacy LDSC reads or writes, as in "legacy LD-score files". | "LDSC2", "original LDSC", "upstream LDSC", "Python 2 LDSC", "the legacy codebase" | `convert-ldsc2-ldscores` |
+| legacy LDSC | The original Python 2 software (bulik/ldsc) that LDSC3 replaces. Before a file or format, "legacy" means one that legacy LDSC reads or writes, as in "legacy LD-score files". | "LDSC2", "original LDSC", "upstream LDSC", "Python 2 LDSC", "the legacy codebase" | `convert-legacy-ldscores` |
 | partitioned heritability | The analysis that decomposes SNP heritability across annotations fitted jointly with the baseline, and its results. | "partitioned LDSC", "pLDSC", "stratified LDSC", "partitioned h2" in prose | `partitioned-h2`; `RegressionRunner.estimate_partitioned_h2` |
 | stratified LD score regression (S-LDSC) | The published method that estimates partitioned heritability (Finucane et al. 2015); used only when naming that method. | "S-LDSC" before the full name | |
 | cell-type enrichment | The analysis that fits one query annotation per cell type and compares their heritability contributions. | "cell-specific LDSC" | `partitioned-h2` |
@@ -55,7 +55,7 @@ On each page that names S-LDSC, the first mention gives the full name and citati
 | unbiased R² | The sample-size-corrected squared correlation $r^2 - (1 - r^2)/(n - 2)$ (`src/ldsc/_refpanel/query.py`); it can be negative. | "adjusted R²", "bias-adjusted R²" | column `R2`; `ldsc:r2_bias="unbiased"` | $\tilde r^2$ |
 | LD window | The maximum distance between two SNPs whose R² enters an LD score, in SNPs, kb or cM. | "window size" | `--ld-wind-snps`; `--ld-wind-kb`; `--ld-wind-cm` | |
 | LD score | The sum of unbiased R² between a SNP and the reference SNPs in its LD window, weighted by annotation values. Write "LD score" as a noun and "LD-score" before another noun. | "LDscore", "L2" | `ldscore`; `ldscore.baseline.parquet` | $\ell(j, C)$ |
-| LD-score directory | The output of `ldscore` or `convert-ldsc2-ldscores`: `metadata.json` with baseline, query and overlap Parquet files; the input to regression. | "LD-score artifact", "LD-score result directory", "canonical LD-score directory" | `--ldscore-dir`; `LDScoreSource` | |
+| LD-score directory | The output of `ldscore` or `convert-legacy-ldscores`: `metadata.json` with baseline, query and overlap Parquet files; the input to regression. | "LD-score artifact", "LD-score result directory", "canonical LD-score directory" | `--ldscore-dir`; `LDScoreSource` | |
 | gene LD-score index | Precomputed data that give exact gene-list LD scores for one baseline, reference panel and gene coordinate catalog. | "gene index", "exact index" | `build-gene-ldscore-index`; `--gene-ldscore-index-dir` | |
 | HM3 map | The packaged HapMap3 SNP table with hg19 and hg38 positions; by default it defines the regression SNPs and restricts munged summary statistics, and munging uses it for quick liftover. Genome-build inference uses the separate `hm3_chr_pos_reference.tsv.gz`. | "HM3 list", "HapMap3 file" | `src/ldsc/data/hm3_curated_map.tsv.gz`; `load_hm3_curated_map()` | |
 | genetic map | A table of per-position genetic distances in cM, used for cM LD windows. | "recombination map" | `--genetic-map-hg19-sources`; `--genetic-map-hg38-sources` | |
@@ -142,7 +142,6 @@ These identifiers differ from the prose term or from each other; they are record
 - Prose "R²" corresponds to the identifiers `R2`, `r2_matrix_dir` and `build-r2-matrix`.
 - `--count-kind common|all` on the command line corresponds to `RegressionConfig.use_common_counts` in Python.
 - Prose "gene coordinate catalog" corresponds to the flag `--gene-coordinate-file`.
-- Prose "legacy LDSC" corresponds to the identifiers that contain `ldsc2`, such as `convert-ldsc2-ldscores`.
 
 ## Rules for writers
 

@@ -283,12 +283,12 @@ Embedding the matrix in `metadata.json` was rejected because it would reach tens
 | `gene_list_resolution_counts` | Aggregate submitted, rejected, and unique-resolved counts. | Reproducibility/diagnostics; ignored by regression. |
 | `query_diagnostics` | Relative paths to available query status, scope, structural input issues, and, for gene runs, the audit and source summary. | Troubleshooting/navigation; ignored by regression. |
 | `chromosome_scope` | Validated input scope and selection semantics, separately from chromosomes with retained output rows. Empty for workflows without query coverage preflight. | Scientific provenance; ignored by regression. |
-| `legacy_ldsc2_import` | Present only for explicit legacy LDSC conversion: profile, selected source directories/prefixes/files, rsID intersection counts, count origins, strict common-frequency rule, coordinate evidence, and diagnostic paths. Source-file hashes are not computed or written. | Provenance and compatibility auditing; regression still consumes the ordinary canonical fields. |
+| `legacy_ldscore_conversion` | Present only for explicit legacy LDSC conversion: profile, selected source directories/prefixes/files, rsID intersection counts, count origins, strict common-frequency rule, coordinate evidence, and diagnostic paths. Source-file hashes are not computed or written. | Provenance and compatibility auditing; regression still consumes the ordinary canonical fields. |
 
 Native LDSC3 computation records an inclusive common operator (`>=`).
 Explicit legacy LDSC conversion records the actual strict legacy operator (`>`) at threshold `0.05`; `overlap_config` must agree with `count_config`, and the loader rejects drift.
 Converted suites use the same canonical directory layout.
-Their workflow log is `diagnostics/convert-ldsc2-ldscores.log` and their always-written issue audit is `diagnostics/conversion_issues.tsv.gz`; they do not also claim a native `diagnostics/ldscore.log`.
+Their workflow log is `diagnostics/convert-legacy-ldscores.log` and their always-written issue audit is `diagnostics/conversion_issues.tsv.gz`; they do not also claim a native `diagnostics/ldscore.log`.
 
 `diagnostics/query_annotation_status.tsv` has fixed columns `query`, `source`,
 `input_type`, `status`, `reason`, `n_annotation_snps`, and `details`.

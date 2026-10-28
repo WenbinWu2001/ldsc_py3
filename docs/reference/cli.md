@@ -25,7 +25,7 @@ Task guides are in the [user guide](../user-guide/index.md).
 | [`ldscore`](#ldsc-ldscore) | Compute LD scores. |
 | [`build-r2-matrix`](#ldsc-build-r2-matrix) | Build pairwise R2 matrices from PLINK genotypes. |
 | [`build-gene-ldscore-index`](#ldsc-build-gene-ldscore-index) | Build a reusable gene LD-score index. |
-| [`convert-ldsc2-ldscores`](#ldsc-convert-ldsc2-ldscores) | Convert selected legacy LD-score suites to LDSC3 format. |
+| [`convert-legacy-ldscores`](#ldsc-convert-legacy-ldscores) | Convert selected legacy LD-score suites to LDSC3 format. |
 | [`munge-sumstats`](#ldsc-munge-sumstats) | Munge GWAS summary statistics. |
 | [`h2`](#ldsc-h2) | Estimate heritability from munged summary statistics and LD scores. |
 | [`partitioned-h2`](#ldsc-partitioned-h2) | Estimate partitioned heritability with independent query models. |
@@ -158,7 +158,7 @@ Build a reusable gene LD-score index.
 | `--overwrite` | Replace an existing complete index after the new build succeeds. Default: off; stop if the destination already exists. |
 | `--log-level` | Set detail in the workflow log. DEBUG includes troubleshooting details. INFO includes progress and summaries. WARNING includes warnings and errors. ERROR includes errors only. Each level includes more severe messages. Default: INFO. Run headers and completion status are always recorded. |
 
-## `ldsc convert-ldsc2-ldscores`
+## `ldsc convert-legacy-ldscores`
 
 Convert selected legacy LD-score suites to LDSC3 format.
 
@@ -225,7 +225,7 @@ Estimate heritability from munged summary statistics and LD scores.
 | Option | Description |
 | --- | --- |
 | `--sumstats-file` | Required. Required munged summary-statistics Parquet or legacy .sumstats(.gz) file. SNP identity must be compatible with --ldscore-dir. Accepts an exact path or a quoted '*' pattern matching exactly one file; '@' is not expanded. |
-| `--ldscore-dir` | Required. Required LD-score directory from ldscore or convert-ldsc2-ldscores, containing predictors, regression weights, and SNP counts. |
+| `--ldscore-dir` | Required. Required LD-score directory from ldscore or convert-legacy-ldscores, containing predictors, regression weights, and SNP counts. |
 | `--output-dir` | Required. Required destination for regression estimates and diagnostics. |
 | `--count-kind` | Reference SNP counts used to scale regression estimates: common uses common-SNP counts, all uses all-SNP counts. Default: common. The requested counts must be in the LD-score directory; the other kind is never substituted. |
 | `--intercept-h2` | Fix the heritability intercept to this value; use 1 for the standard fixed intercept. Cannot be combined with an explicit --two-step-cutoff. If omitted, estimate the intercept. |
@@ -246,7 +246,7 @@ Estimate partitioned heritability with independent query models.
 | Option | Description |
 | --- | --- |
 | `--sumstats-file` | Required. Required munged summary-statistics Parquet or legacy .sumstats(.gz) file. SNP identity must be compatible with --ldscore-dir. Accepts an exact path or a quoted '*' pattern matching exactly one file; '@' is not expanded. |
-| `--ldscore-dir` | Required. Required LD-score directory from ldscore or convert-ldsc2-ldscores, containing predictors, regression weights, and SNP counts. |
+| `--ldscore-dir` | Required. Required LD-score directory from ldscore or convert-legacy-ldscores, containing predictors, regression weights, and SNP counts. |
 | `--output-dir` | Required. Required destination for regression estimates and diagnostics. |
 | `--count-kind` | Reference SNP counts used to scale regression estimates: common uses common-SNP counts, all uses all-SNP counts. Default: common. The requested counts must be in the LD-score directory; the other kind is never substituted. |
 | `--intercept-h2` | Fix the heritability intercept to this value; use 1 for the standard fixed intercept. Cannot be combined with an explicit --two-step-cutoff. If omitted, estimate the intercept. |
@@ -296,7 +296,7 @@ Estimate genetic correlation.
 | Option | Description |
 | --- | --- |
 | `--sumstats-sources` | Required. Required munged summary-statistics Parquet or legacy .sumstats(.gz) files; accepts exact paths or quoted '*' patterns matching filename text and requires at least two files. SNP identity must be compatible with --ldscore-dir. '@' is not expanded. |
-| `--ldscore-dir` | Required. Required LD-score directory from ldscore or convert-ldsc2-ldscores, containing predictors, regression weights, and SNP counts. |
+| `--ldscore-dir` | Required. Required LD-score directory from ldscore or convert-legacy-ldscores, containing predictors, regression weights, and SNP counts. |
 | `--output-dir` | Required. Required destination for regression estimates and diagnostics. |
 | `--count-kind` | Reference SNP counts used to scale regression estimates: common uses common-SNP counts, all uses all-SNP counts. Default: common. The requested counts must be in the LD-score directory; the other kind is never substituted. |
 | `--intercept-h2` | Fix the heritability intercept to the same value for both traits in every pair; use 1 for the standard fixed intercept. Cannot be combined with an explicit --two-step-cutoff. If omitted, estimate the intercepts. |

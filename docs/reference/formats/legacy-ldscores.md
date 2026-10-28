@@ -16,7 +16,7 @@ For all flags, standard filename tables, working and non-working suites, and cop
 Conversion is exposed as:
 
 ```text
-ldsc convert-ldsc2-ldscores \
+ldsc convert-legacy-ldscores \
     --legacy-reference-dir REF_DIR \
     --legacy-weight-dir WEIGHT_DIR \
     --output-dir OUTPUT_DIR
@@ -194,7 +194,7 @@ warnings remain regression concerns.
 
 ## Conversion Diagnostics
 
-Filename-related failures include the relevant accepted pattern and explain how to restore missing shards, rename misnamed copies, or organize different releases into separate directories. The shared workflow failure footer records the exception and its remedy in `diagnostics/convert-ldsc2-ldscores.log`, including at `--log-level ERROR`; the issue table also records the exception as `conversion_error`. This applies after the workflow log has opened. Invalid directory arguments and output collisions detected before logging are reported to the caller and may not produce a new log. See the [troubleshooting naming table](../../user-guide/troubleshooting.md#convert-ldsc2-ldscores).
+Filename-related failures include the relevant accepted pattern and explain how to restore missing shards, rename misnamed copies, or organize different releases into separate directories. The shared workflow failure footer records the exception and its remedy in `diagnostics/convert-legacy-ldscores.log`, including at `--log-level ERROR`; the issue table also records the exception as `conversion_error`. This applies after the workflow log has opened. Invalid directory arguments and output collisions detected before logging are reported to the caller and may not produce a new log. See the [troubleshooting naming table](../../user-guide/troubleshooting.md#convert-legacy-ldscores).
 
 Conversion errors state the violated invariant, source role and file,
 chromosome or annotation when applicable, affected-SNP count, and a bounded
@@ -205,7 +205,7 @@ reconstructed values per chromosome and annotation; frequency-boundary SNPs
 are additionally reported when they could explain a common-SNP count discrepancy.
 
 The command creates the requested output directory's `diagnostics/` area while it validates the sources.
-It writes `convert-ldsc2-ldscores.log` and `conversion_issues.tsv.gz`, including a header-only issue table after a clean conversion.
+It writes `convert-legacy-ldscores.log` and `conversion_issues.tsv.gz`, including a header-only issue table after a clean conversion.
 Root `metadata.json` and parquet artifacts are written only after all validation succeeds.
 A diagnostics-only failed directory is not a consumable LD-score directory and a corrected rerun into it requires `--overwrite`.
 
@@ -213,7 +213,7 @@ A diagnostics-only failed directory is not a consumable LD-score directory and a
 
 Legacy LDSC discovery, parsing, validation, and conversion belong to a small public
 workflow-layer `LegacyLDScoreConverter`, with a convenience
-`convert_ldsc2_ldscores()` function and structured conversion result.
+`convert_legacy_ldscores()` function and structured conversion result.
 It reuses the pure overlap calculation and the LD-score directory writer.
 No legacy LD-score reader is added to regression and no legacy file parsing or emission is added to the computation modules; after conversion, the ordinary canonical `load_ldscore_from_dir()` path consumes the result.
 
@@ -223,7 +223,7 @@ Standalone annotation workflows continue to read `.annot(.gz)` and write `.annot
 
 ## Provenance
 
-The converted directory must identify itself as an imported legacy suite and record enough source and discovery provenance to make the conversion auditable. It remains a normal current `artifact_type="ldscore"` directory and adds a `legacy_ldsc2_import` metadata block containing the profile, converter version, source directories and selected prefixes, selected/ignored/missing files, intersection counts, source/effective build inference, count origins, fixed legacy common-frequency rule, coordinate disagreement summaries, and diagnostic paths. Original legacy files remain untouched.
+The converted directory must identify itself as an imported legacy suite and record enough source and discovery provenance to make the conversion auditable. It remains a normal current `artifact_type="ldscore"` directory and adds a `legacy_ldscore_conversion` metadata block containing the profile, converter version, source directories and selected prefixes, selected/ignored/missing files, intersection counts, source/effective build inference, count origins, fixed legacy common-frequency rule, coordinate disagreement summaries, and diagnostic paths. Original legacy files remain untouched.
 
 Routine source-file checksums are not computed or written. The converter records explicit source/discovery metadata and validates scientific inputs and counts; it does not verify source-byte integrity against expected hashes. The package's retained hashes are listed in the [gene LD-score index reference](../gene-ldscore-index.md#artifact-and-identity-contract).
 

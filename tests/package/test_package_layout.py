@@ -132,7 +132,7 @@ print(ldsc.__file__)
             set(subparsers_action.choices),
             {
                 "annotate", "ldscore", "build-r2-matrix", "build-gene-ldscore-index",
-                "convert-ldsc2-ldscores",
+                "convert-legacy-ldscores",
                 "munge-sumstats", "h2", "partitioned-h2", "quantile-h2", "rg", "query-r2-matrix",
                 "convert-h2-scale", "plot", "infer-genome-build",
             },

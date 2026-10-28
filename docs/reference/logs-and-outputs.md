@@ -274,7 +274,7 @@ header is written and final work before the footer is written.
 | `ldscore` | `<output_dir>/diagnostics/ldscore.log` |
 | `build-r2-matrix` | `<output_dir>/diagnostics/build-r2-matrix.log`, or `<output_dir>/diagnostics/build-r2-matrix.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
 | `build-gene-ldscore-index` | completed success: `<index_dir>/diagnostics/build-gene-ldscore-index.log`; running/failed: `<parent>/.<index-name>.build-state/build-gene-ldscore-index.log`; prior failed attempts move to hidden `history/` |
-| `convert-ldsc2-ldscores` | `<output_dir>/diagnostics/convert-ldsc2-ldscores.log` |
+| `convert-legacy-ldscores` | `<output_dir>/diagnostics/convert-legacy-ldscores.log` |
 | `h2` | `<output_dir>/diagnostics/h2.log` |
 | `partitioned-h2` | `<output_dir>/diagnostics/partitioned-h2.log` |
 | `quantile-h2` | `<output_dir>/diagnostics/quantile-h2.log` |

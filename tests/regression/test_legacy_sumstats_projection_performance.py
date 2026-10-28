@@ -59,7 +59,7 @@ def test_allele_unaware_legacy_projection_scales_without_per_row_pandas_work() -
         has_alleles=True,
         source_path="benchmark.sumstats.gz",
         trait_name="benchmark",
-        provenance={"source_format": "ldsc2_sumstats", "legacy_ldsc2": True},
+        provenance={"source_format": "legacy_sumstats", "legacy_ldsc": True},
         config_snapshot=None,
     )
 

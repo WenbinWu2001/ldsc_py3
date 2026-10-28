@@ -46,7 +46,7 @@ def _legacy(frame: pd.DataFrame, trait: str = "legacy") -> SumstatsTable:
         has_alleles={"A1", "A2"}.issubset(frame.columns),
         source_path=f"{trait}.sumstats.gz",
         trait_name=trait,
-        provenance={"source_format": "ldsc2_sumstats", "legacy_ldsc2": True},
+        provenance={"source_format": "legacy_sumstats", "legacy_ldsc": True},
         config_snapshot=None,
     )
 
@@ -58,7 +58,7 @@ def test_load_sumstats_marks_only_legacy_text_and_rejects_footerless_parquet(tmp
 
     table = load_sumstats(text_path)
 
-    assert table.provenance["legacy_ldsc2"] is True
+    assert table.provenance["legacy_ldsc"] is True
     assert table.config_snapshot is None
 
     parquet_path = tmp_path / "trait.parquet"

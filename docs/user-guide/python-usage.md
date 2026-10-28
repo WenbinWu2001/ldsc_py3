@@ -30,7 +30,7 @@ Workflow functions such as `run_ldscore` read the registered configuration and r
 Saved LD-score directories and munged summary statistics keep the SNP identity and build recorded when they were written, and regression uses those records rather than the session setting.
 The regression functions `run_h2`, `run_partitioned_h2`, `run_rg` and `run_quantile_h2` therefore take only the log level from the registered configuration.
 These four functions, `run_ldscore` and `run_build_r2_matrix` also reject, before writing anything, a keyword name the command does not have, a missing required option, a value outside the command's choices, and a non-boolean value for an on/off option.
-`plot_result`, `convert_h2_scale`, `convert_ldsc2_ldscores` and `build_gene_ldscore_index` take an explicit `log_level=` for one call; when it is omitted they use the registered log level.
+`plot_result`, `convert_h2_scale`, `convert_legacy_ldscores` and `build_gene_ldscore_index` take an explicit `log_level=` for one call; when it is omitted they use the registered log level.
 See [SNP identity and genome build](concepts/snp-identity-and-genome-build.md).
 
 **Run workflows under `if __name__ == "__main__":`.**
@@ -311,15 +311,15 @@ For a gene-list query, also pass the original gene settings; `gene_list_resoluti
 
 ## Migrating from legacy LDSC
 
-`convert_ldsc2_ldscores` is the Python form of `ldsc convert-ldsc2-ldscores` described in [migrating from legacy LDSC](workflows/migrating-from-legacy-ldsc.md).
+`convert_legacy_ldscores` is the Python form of `ldsc convert-legacy-ldscores` described in [migrating from legacy LDSC](workflows/migrating-from-legacy-ldsc.md).
 Its keyword arguments match the flags without the leading `--`, with the same defaults (`snp_identifier="rsid"`, `genome_build="auto"`, `overwrite=False`), except that an omitted `log_level` uses the registered `GlobalConfig.log_level`; like the command, it has no common-MAF threshold.
 Conversion runs in a managed worker, so call it under `if __name__ == "__main__":` (see [parallel execution](../reference/parallel-execution.md)).
 
 ```python
-from ldsc import convert_ldsc2_ldscores, load_ldscore_from_dir
+from ldsc import convert_legacy_ldscores, load_ldscore_from_dir
 
 def main():
-    result = convert_ldsc2_ldscores(
+    result = convert_legacy_ldscores(
         legacy_reference_dir="/path/to/legacy/baseline",
         legacy_weight_dir="/path/to/legacy/weights",
         legacy_frequency_dir="/path/to/legacy/frequencies",  # Omit for an unpartitioned suite.

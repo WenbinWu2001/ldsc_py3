@@ -487,7 +487,7 @@ class LDScoreDirectoryWriter:
         snp_universe_policy = getattr(result, "snp_universe_policy", None)
         if snp_universe_policy is not None:
             payload["snp_universe_policy"] = dict(snp_universe_policy)
-        legacy_import = getattr(result, "legacy_ldsc2_import", None)
+        legacy_import = getattr(result, "legacy_ldscore_conversion", None)
         if legacy_import is not None:
-            payload["legacy_ldsc2_import"] = dict(legacy_import)
+            payload["legacy_ldscore_conversion"] = dict(legacy_import)
         return payload

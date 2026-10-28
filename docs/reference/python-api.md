@@ -27,7 +27,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `compute_quantile_h2` | Project one fitted joint model onto target-defined quantiles. |
 | `compute_standardized_coefficients` | Compute paper-compatible fixed-scale standardized coefficients. |
 | `convert_h2_scale` | Convert a saved observed-scale SNP heritability estimate. |
-| `convert_ldsc2_ldscores` | Convert one selected legacy LD-score suite to a canonical LDSC3 directory. |
+| `convert_legacy_ldscores` | Convert one selected legacy LD-score suite to a canonical LDSC3 directory. |
 | `infer_chr_pos_build` | Infer the genome build and coordinate basis of a ``CHR``/``POS`` table. |
 | `infer_raw_sumstats` | Infer raw summary-statistics format and minimal parser hints. |
 | `load_fitted_partitioned_model` | Load one baseline-only or per-query LDSC3 partitioned-h2 fitted model. |

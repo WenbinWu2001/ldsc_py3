@@ -268,7 +268,7 @@ class LDScoreResult:
     chromosome_scope : dict, optional
         Validated input chromosome coverage and effective analysis scope.
         Empty for workflows that do not perform query coverage preflight.
-    legacy_ldsc2_import : dict or None, optional
+    legacy_ldscore_conversion : dict or None, optional
         Explicit converter provenance for a legacy LD-score suite. ``None``
         for natively computed LDSC3 results.
     annotation_types : dict of str to str, optional
@@ -303,7 +303,7 @@ class LDScoreResult:
     gene_list_batch: Any | None = field(default=None, repr=False)
     snp_universe_policy: dict[str, Any] | None = None
     index_provenance: dict[str, str] | None = None
-    legacy_ldsc2_import: dict[str, Any] | None = None
+    legacy_ldscore_conversion: dict[str, Any] | None = None
     identity_drops_by_chrom: dict[str, TsvDiagnostics] = field(default_factory=dict, repr=False)
     annotation_types: dict[str, str] = field(default_factory=dict)
     chromosome_scope: dict[str, Any] = field(default_factory=dict)

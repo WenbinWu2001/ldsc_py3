@@ -248,7 +248,7 @@ class LDScoreSource:
     snp_universe_policy: dict | None = None
     identity_drops_by_chrom: dict = field(default_factory=dict)
     index_provenance: dict | None = None
-    legacy_ldsc2_import: dict | None = None
+    legacy_ldscore_conversion: dict | None = None
     snp_identifier: str = "chr_pos_allele_aware"
 
     def read_queries(self, columns):
@@ -455,7 +455,7 @@ def load_ldscore_from_dir(
         snp_universe_policy=metadata.get("snp_universe_policy"),
         index_provenance=({key: metadata[key] for key in ("index_id", "index_snp_identifier", "index_genome_build")}
                           if metadata.get("index_id") is not None else None),
-        legacy_ldsc2_import=metadata.get("legacy_ldsc2_import"),
+        legacy_ldscore_conversion=metadata.get("legacy_ldscore_conversion"),
     )
     query_rows = 0 if query_table is None else len(query_table)
     LOGGER.info(

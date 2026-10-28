@@ -97,7 +97,7 @@ ldsc partitioned-h2 \
 ```
 
 The command reads the baseline, query, count and overlap files recorded in the LD-score directory's `metadata.json`; it never recomputes LD scores.
-An LD-score directory converted from legacy LDSC with [`convert-ldsc2-ldscores`](migrating-from-legacy-ldsc.md) is accepted for a baseline-only analysis.
+An LD-score directory converted from legacy LDSC with [`convert-legacy-ldscores`](migrating-from-legacy-ldsc.md) is accepted for a baseline-only analysis.
 
 Defaults used by this command:
 

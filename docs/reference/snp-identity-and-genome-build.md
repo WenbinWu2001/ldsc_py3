@@ -183,7 +183,7 @@ See the [grouped report example](../user-guide/troubleshooting.md#common-genome-
 | Direct `ldscore` | Baseline and prebuilt query annotations, PLINK BIM shards or R² matrix Parquet and sidecar declarations, the gene coordinate catalog when used, and coordinate keep lists. |
 | `build-r2-matrix` | All source BIM shards and the source-coordinate keep list, before filtering; genetic maps are selected by the resolved source/emitted build. cM map validation waits until source inference. |
 | `munge-sumstats` | Raw source coordinates and the source-coordinate keep list, before QC; explicit `--output-genome-build` remains a separate target. `--infer-only` checks the same source-build declarations and reports conflicts without creating output files. |
-| `convert-ldsc2-ldscores` | Reference declarations or per-chromosome inference establish coordinate identity; weight/annotation declarations must agree. Other unlabeled legacy coordinates remain descriptive because rsID joins transfer reference coordinates to the output. rsID output requires no build inference. |
+| `convert-legacy-ldscores` | Reference declarations or per-chromosome inference establish coordinate identity; weight/annotation declarations must agree. Other unlabeled legacy coordinates remain descriptive because rsID joins transfer reference coordinates to the output. rsID output requires no build inference. |
 | `h2`, `partitioned-h2`, `rg` | Coordinate-family saved artifacts must agree; all `rg` traits participate before fitting. No CLI build override. Footerless Parquet remains invalid; legacy text uses panel-owned coordinate projection. |
 | `quantile-h2` | Saved LD-score build and resupplied coordinate artifacts must agree; BED inherits that build. No CLI build override. |
 | `build-gene-ldscore-index` | Required explicit hg19 or hg38 must agree with the catalog and applicable input declarations; no auto or liftover. Indexed scoring later inherits the immutable index and rejects live configuration overrides. |
@@ -330,7 +330,7 @@ because they serve different user models.
 | `ldscore` | `chr_pos_allele_aware` | `None`; gene-list route treats omission as `auto` | Coordinate-family modes require a concrete/inferred build. Gene-list projection also requires a build in rsID-family modes, but shared rsID artifact metadata remains `genome_build=None`. |
 | `build-r2-matrix` | registry or `--snp-identifier` | **ignored** | Uses `--source-genome-build` (separate field); `GlobalConfig.genome_build` is never consulted. |
 | `h2`, `partitioned-h2`, `rg` | registry at construction | registry at construction | Current Parquet uses footer provenance. Legacy `.sumstats[.gz]` is treated as rsID lookup input and projected onto the LD-score directory's identity; footerless Parquet is rejected. |
-| `convert-ldsc2-ldscores` | `rsid` | `auto` evidence | Output identity is restricted to allele-unaware `rsid` or `chr_pos`. rsID output remains buildless; `chr_pos` output requires an inferred or explicit build for the reference LD-score files. |
+| `convert-legacy-ldscores` | `rsid` | `auto` evidence | Output identity is restricted to allele-unaware `rsid` or `chr_pos`. rsID output remains buildless; `chr_pos` output requires an inferred or explicit build for the reference LD-score files. |
 | Python `run_ldscore()` wrapper | registry | registry (`"auto"`) | Inherits `chr_pos_allele_aware + auto` from the registry; `auto` is resolved to `hg19`/`hg38` during inference. |
 
 ### `build-r2-matrix` isolation

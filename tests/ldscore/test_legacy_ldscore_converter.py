@@ -77,13 +77,13 @@ def _write_partitioned_suite(reference: Path, weights: Path, frequencies: Path) 
 
 
 def test_converter_is_public_and_cli_has_the_approved_minimal_arguments() -> None:
-    assert callable(ldsc.convert_ldsc2_ldscores)
+    assert callable(ldsc.convert_legacy_ldscores)
     assert ldsc.LegacyLDScoreConverter is not None
 
     parser = cli.build_parser()
     args = parser.parse_args(
         [
-            "convert-ldsc2-ldscores",
+            "convert-legacy-ldscores",
             "--legacy-reference-dir",
             "reference",
             "--legacy-weight-dir",
@@ -129,7 +129,7 @@ def test_unpartitioned_conversion_writes_reloadable_canonical_suite_with_nullabl
     with gzip.open(reference / "1.l2.ldscore.gz", "rt", encoding="utf-8") as handle:
         _write_text(reference / "1.l2.ldscore", handle.read())
 
-    result = ldsc.convert_ldsc2_ldscores(
+    result = ldsc.convert_legacy_ldscores(
         legacy_reference_dir=reference,
         legacy_weight_dir=weights,
         output_dir=output,
@@ -145,7 +145,7 @@ def test_unpartitioned_conversion_writes_reloadable_canonical_suite_with_nullabl
     assert metadata["count_config"] == {
         "common_reference_snp_maf_min": 0.05,
         "common_reference_snp_maf_operator": ">",
-        "common_reference_snp_semantics": "legacy_ldsc2",
+        "common_reference_snp_semantics": "legacy_ldsc",
     }
     assert metadata["counts"] == [
         {
@@ -155,17 +155,17 @@ def test_unpartitioned_conversion_writes_reloadable_canonical_suite_with_nullabl
             "group": "baseline",
         }
     ]
-    assert metadata["legacy_ldsc2_import"]["profile"] == "unpartitioned"
-    assert metadata["legacy_ldsc2_import"]["selected_prefixes"] == {
+    assert metadata["legacy_ldscore_conversion"]["profile"] == "unpartitioned"
+    assert metadata["legacy_ldscore_conversion"]["selected_prefixes"] == {
         "reference": "",
         "weight": "weights.",
     }
-    assert metadata["legacy_ldsc2_import"]["ignored_files"] == [str(reference / "1.l2.ldscore")]
-    assert "source_sha256" not in metadata["legacy_ldsc2_import"]
-    assert str(reference / "1.l2.ldscore.gz") in metadata["legacy_ldsc2_import"]["selected_files"]
-    assert metadata["legacy_ldsc2_import"]["intersection_counts"]["1"]["retained_rows"] == 1
+    assert metadata["legacy_ldscore_conversion"]["ignored_files"] == [str(reference / "1.l2.ldscore")]
+    assert "source_sha256" not in metadata["legacy_ldscore_conversion"]
+    assert str(reference / "1.l2.ldscore.gz") in metadata["legacy_ldscore_conversion"]["selected_files"]
+    assert metadata["legacy_ldscore_conversion"]["intersection_counts"]["1"]["retained_rows"] == 1
     assert (output / "diagnostics" / "conversion_issues.tsv.gz").exists()
-    assert (output / "diagnostics" / "convert-ldsc2-ldscores.log").exists()
+    assert (output / "diagnostics" / "convert-legacy-ldscores.log").exists()
 
     loaded = ldsc.load_ldscore_from_dir(str(output))
     assert loaded.baseline_columns == ["base"]
@@ -185,7 +185,7 @@ def test_unpartitioned_conversion_inner_joins_by_rsid_and_audits_coordinate_disa
         "CHR SNP BP L2\n1 rs1 999 3.0\n1 weight_only 1000 4.0\n",
     )
 
-    ldsc.convert_ldsc2_ldscores(
+    ldsc.convert_legacy_ldscores(
         legacy_reference_dir=reference,
         legacy_weight_dir=weights,
         output_dir=output,
@@ -204,7 +204,7 @@ def test_converter_rejects_missing_required_common_count_shard(tmp_path: Path) -
     (reference / "22.l2.M_5_50").unlink()
 
     with pytest.raises(LDSCInputError, match=r"M_5_50.*chromosome 22"):
-        ldsc.convert_ldsc2_ldscores(
+        ldsc.convert_legacy_ldscores(
             legacy_reference_dir=reference,
             legacy_weight_dir=weights,
             output_dir=tmp_path / "converted",
@@ -228,7 +228,7 @@ def test_converter_explains_unsupported_weight_filenames(tmp_path: Path, compres
         unsupported_paths.append(unsupported)
 
     with pytest.raises(LDSCInputError, match=r"unsupported.*\.w\.l2\.ldscore") as caught:
-        ldsc.convert_ldsc2_ldscores(
+        ldsc.convert_legacy_ldscores(
             legacy_reference_dir=reference,
             legacy_weight_dir=weights,
             output_dir=output,
@@ -237,7 +237,7 @@ def test_converter_explains_unsupported_weight_filenames(tmp_path: Path, compres
     assert "weights.1.l2.ldscore.gz" in str(caught.value)
     assert "separate input directory" in str(caught.value)
     assert "1.w.l2.ldscore.gz -> weights.1.l2.ldscore.gz" in str(caught.value)
-    log_text = (output / "diagnostics" / "convert-ldsc2-ldscores.log").read_text()
+    log_text = (output / "diagnostics" / "convert-legacy-ldscores.log").read_text()
     assert str(caught.value) in log_text
     issues = pd.read_csv(output / "diagnostics" / "conversion_issues.tsv.gz", sep="\t")
     filename_issues = issues.loc[issues["reason"] == "discarded_unsupported_weight_filename"]
@@ -255,7 +255,7 @@ def test_converter_audits_unused_weight_filename_without_rejecting_valid_suite(t
     unsupported = weights / "1.w.l2.ldscore.gz"
     _write_text(unsupported, "unused file must not be parsed\n")
 
-    result = ldsc.convert_ldsc2_ldscores(
+    result = ldsc.convert_legacy_ldscores(
         legacy_reference_dir=reference,
         legacy_weight_dir=weights,
         output_dir=output,
@@ -263,12 +263,12 @@ def test_converter_audits_unused_weight_filename_without_rejecting_valid_suite(t
 
     assert result.n_rows == 22
     metadata = json.loads((output / "metadata.json").read_text(encoding="utf-8"))
-    assert metadata["legacy_ldsc2_import"]["ignored_files"] == [str(unsupported)]
+    assert metadata["legacy_ldscore_conversion"]["ignored_files"] == [str(unsupported)]
     issues = pd.read_csv(output / "diagnostics" / "conversion_issues.tsv.gz", sep="\t")
     issue = issues.loc[issues["file"] == str(unsupported)].iloc[0]
     assert issue["severity"] == "warning"
     assert "weights.1.l2.ldscore.gz" in issue["details"]
-    assert "Ignoring 1 unsupported weight filename" in (output / "diagnostics" / "convert-ldsc2-ldscores.log").read_text()
+    assert "Ignoring 1 unsupported weight filename" in (output / "diagnostics" / "convert-legacy-ldscores.log").read_text()
 
 
 @pytest.mark.parametrize("defect, pattern, remedy", [
@@ -302,7 +302,7 @@ def test_converter_records_filename_remedies_in_error_log_and_issue_table(
         (reference / "baseline.22.annot.gz").rename(reference / "other.22.annot.gz")
 
     with pytest.raises(LDSCInputError) as caught:
-        ldsc.convert_ldsc2_ldscores(
+        ldsc.convert_legacy_ldscores(
             legacy_reference_dir=reference,
             legacy_weight_dir=weights,
             legacy_frequency_dir=frequencies,
@@ -313,7 +313,7 @@ def test_converter_records_filename_remedies_in_error_log_and_issue_table(
     message = str(caught.value)
     assert pattern in message
     assert remedy in message
-    assert message in (output / "diagnostics" / "convert-ldsc2-ldscores.log").read_text()
+    assert message in (output / "diagnostics" / "convert-legacy-ldscores.log").read_text()
     issues = pd.read_csv(output / "diagnostics" / "conversion_issues.tsv.gz", sep="\t")
     assert message in issues.loc[issues["reason"] == "conversion_error", "details"].tolist()
     assert not (output / "metadata.json").exists()
@@ -333,7 +333,7 @@ def test_chr_pos_conversion_uses_reference_build_inference_and_normalizes_zero_b
         lambda *_args, **_kwargs: SimpleNamespace(genome_build="hg19", coordinate_basis="0-based", inspected_snp_count=500),
     )
 
-    ldsc.convert_ldsc2_ldscores(
+    ldsc.convert_legacy_ldscores(
         legacy_reference_dir=reference,
         legacy_weight_dir=weights,
         output_dir=output,
@@ -346,7 +346,7 @@ def test_chr_pos_conversion_uses_reference_build_inference_and_normalizes_zero_b
     metadata = json.loads((output / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["snp_identifier"] == "chr_pos"
     assert metadata["genome_build"] == "hg19"
-    assert metadata["legacy_ldsc2_import"]["coordinate_provenance"] == {
+    assert metadata["legacy_ldscore_conversion"]["coordinate_provenance"] == {
         "coordinate_basis": "0-based",
         "effective_build": "hg19",
         "inference_error": None,
@@ -362,7 +362,7 @@ def test_baseline_partitioned_conversion_reconstructs_counts_and_full_overlap(tm
     output = tmp_path / "converted"
     _write_partitioned_suite(reference, weights, frequencies)
 
-    result = ldsc.convert_ldsc2_ldscores(
+    result = ldsc.convert_legacy_ldscores(
         legacy_reference_dir=reference,
         legacy_weight_dir=weights,
         legacy_frequency_dir=frequencies,
@@ -421,7 +421,7 @@ def test_baseline_partitioned_conversion_fails_on_conflicting_legacy_count(tmp_p
     _write_text(reference / "baseline.7.l2.M_5_50", "999 0\n")
 
     with pytest.raises(LDSCInputError, match=r"count conflict.*chromosome 7.*baseL2"):
-        ldsc.convert_ldsc2_ldscores(
+        ldsc.convert_legacy_ldscores(
             legacy_reference_dir=reference,
             legacy_weight_dir=weights,
             legacy_frequency_dir=frequencies,
@@ -439,7 +439,7 @@ def test_imported_unpartitioned_suite_rejects_all_count_regression_when_m_is_mis
     weights = tmp_path / "weights"
     output = tmp_path / "converted"
     _write_unpartitioned_suite(reference, weights, missing_m_chrom=22)
-    ldsc.convert_ldsc2_ldscores(
+    ldsc.convert_legacy_ldscores(
         legacy_reference_dir=reference,
         legacy_weight_dir=weights,
         output_dir=output,
@@ -469,7 +469,7 @@ def test_loader_rejects_imported_count_and_overlap_threshold_drift(tmp_path: Pat
     frequencies = tmp_path / "frequencies"
     output = tmp_path / "converted"
     _write_partitioned_suite(reference, weights, frequencies)
-    ldsc.convert_ldsc2_ldscores(
+    ldsc.convert_legacy_ldscores(
         legacy_reference_dir=reference,
         legacy_weight_dir=weights,
         legacy_frequency_dir=frequencies,

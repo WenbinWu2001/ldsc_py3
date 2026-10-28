@@ -181,13 +181,13 @@ def test_munge_preview_rejects_conflicting_source_declaration(tmp_path):
 
 def test_converter_validates_weight_build_declaration_before_conversion(tmp_path, monkeypatch):
     from tests.ldscore.test_legacy_ldscore_converter import _write_unpartitioned_suite, _write_text
-    from ldsc._ldscore.legacy_converter import convert_ldsc2_ldscores
+    from ldsc._ldscore.legacy_converter import convert_legacy_ldscores
     monkeypatch.setattr('ldsc._runtime.worker_runtime._INITIALIZED', True)
     reference, weights = tmp_path / 'reference', tmp_path / 'weights'
     _write_unpartitioned_suite(reference, weights)
     _write_text(weights / 'weights.2.l2.ldscore.gz', '# ldsc:genome_build=hg38\nCHR SNP BP L2\n2 rs2 201 2\n')
     with pytest.raises(LDSCInputError, match='Conflicting genome-build evidence') as caught:
-        convert_ldsc2_ldscores(legacy_reference_dir=reference, legacy_weight_dir=weights,
+        convert_legacy_ldscores(legacy_reference_dir=reference, legacy_weight_dir=weights,
                               output_dir=tmp_path / 'out', snp_identifier='chr_pos', genome_build='hg19')
     assert 'weights.2.l2.ldscore.gz' in str(caught.value)
     assert not (tmp_path / 'out' / 'metadata.json').exists()

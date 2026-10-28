@@ -56,7 +56,7 @@ _SUBCOMMAND_HELP = {
     "ldscore": "Compute LD scores.",
     "build-r2-matrix": "Build pairwise R2 matrices from PLINK genotypes.",
     "build-gene-ldscore-index": "Build a reusable gene LD-score index.",
-    "convert-ldsc2-ldscores": "Convert selected legacy LD-score suites to LDSC3 format.",
+    "convert-legacy-ldscores": "Convert selected legacy LD-score suites to LDSC3 format.",
     "munge-sumstats": "Munge GWAS summary statistics.",
     "h2": "Estimate heritability from munged summary statistics and LD scores.",
     "partitioned-h2": "Estimate partitioned heritability with independent query models.",
@@ -106,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     _copy_actions(gene_index_parser, gene_ldscore_index.build_parser())
 
     converter_parser = subparsers.add_parser(
-        "convert-ldsc2-ldscores", help=_SUBCOMMAND_HELP["convert-ldsc2-ldscores"]
+        "convert-legacy-ldscores", help=_SUBCOMMAND_HELP["convert-legacy-ldscores"]
     )
     legacy_ldscore_converter = _load_legacy_ldscore_converter()
     _copy_actions(converter_parser, legacy_ldscore_converter.build_parser())
@@ -199,7 +199,7 @@ def main(argv: Sequence[str] | None = None):
             return r2_matrix_builder.main(subargv)
         if command == "build-gene-ldscore-index":
             return gene_ldscore_index.main(subargv)
-        if command == "convert-ldsc2-ldscores":
+        if command == "convert-legacy-ldscores":
             legacy_ldscore_converter = _load_legacy_ldscore_converter()
             return legacy_ldscore_converter.main(subargv)
         if command == "query-r2-matrix":

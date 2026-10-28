@@ -1471,12 +1471,12 @@ def _snapshot_identity_mode(snapshot: GlobalConfig | None) -> str | None:
 
 def _is_legacy_sumstats(table: SumstatsTable) -> bool:
     """Return whether ``table`` came from a legacy munged text artifact."""
-    return bool(getattr(table, "provenance", {}).get("legacy_ldsc2", False)) and "legacy_projection" not in table.provenance
+    return bool(getattr(table, "provenance", {}).get("legacy_ldsc", False)) and "legacy_projection" not in table.provenance
 
 
 def _has_legacy_sumstats_source(table: SumstatsTable) -> bool:
     """Return whether ``table`` originated from legacy text."""
-    return bool(table.provenance.get("legacy_ldsc2", False))
+    return bool(table.provenance.get("legacy_ldsc", False))
 
 
 def _project_legacy_sumstats_to_panel(
@@ -1493,7 +1493,7 @@ def _project_legacy_sumstats_to_panel(
     Parameters
     ----------
     table : SumstatsTable
-        Legacy text table marked with ``provenance['legacy_ldsc2']``.
+        Legacy text table marked with ``provenance['legacy_ldsc']``.
     ldscore_result : LDScoreSource or LDScoreResult
         Canonical LDSC3 LD-score panel used by the pending regression.
 
@@ -3456,7 +3456,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
     inputs.add_argument(
         '--ldscore-dir', required=True, metavar='DIR',
         help=(
-            'Required LD-score directory from ldscore or convert-ldsc2-ldscores, containing '
+            'Required LD-score directory from ldscore or convert-legacy-ldscores, containing '
             'predictors, regression weights, and SNP counts.'
         ),
     )

@@ -133,10 +133,10 @@ independent optional files:
   `diagnostics/sumstats.log`
   for CLI/workflow runs
 - `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query Parquet files, optional `ldscore.overlap.parquet`, `diagnostics/ld_window_snp_counts.tsv` for R² matrix `--ld-wind-snps` runs, `diagnostics/reference_snp_funnel.tsv`, and `diagnostics/ldscore.log` for CLI/workflow runs
-- `convert-ldsc2-ldscores`: canonical `metadata.json`,
+- `convert-legacy-ldscores`: canonical `metadata.json`,
   `ldscore.baseline.parquet`, optional `ldscore.overlap.parquet`,
   `diagnostics/conversion_issues.tsv.gz`, and
-  `diagnostics/convert-ldsc2-ldscores.log`. This command deliberately accepts
+  `diagnostics/convert-legacy-ldscores.log`. This command deliberately accepts
   directory inputs and performs its own strict chromosomes 1-22 family
   discovery; that exception does not enable directory discovery elsewhere.
 - `build-r2-matrix`: `{hg19,hg38}/chr*_r2.parquet`,

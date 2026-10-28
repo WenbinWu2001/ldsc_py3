@@ -6,7 +6,7 @@ This tutorial walks through how to use the `ldsc` package for a series of LD sco
 
 ## Overview
 
-If you already have a reusable legacy LD-score suite, use the [`convert-ldsc2-ldscores` command](workflows/migrating-from-legacy-ldsc.md) for the standard filenames and conversion flags. It provides an alternative to computing unpartitioned LD scores for `h2`/`rg`, or imports a baseline-only model for `partitioned-h2`; query/cell-type scores still use the current LD-score workflow.
+If you already have a reusable legacy LD-score suite, use the [`convert-legacy-ldscores` command](workflows/migrating-from-legacy-ldsc.md) for the standard filenames and conversion flags. It provides an alternative to computing unpartitioned LD scores for `h2`/`rg`, or imports a baseline-only model for `partitioned-h2`; query/cell-type scores still use the current LD-score workflow.
 
 The analysis pipeline involves:
 
@@ -506,7 +506,7 @@ annot_processed/
 
 ## Backward compatibility with legacy LDSC
 
-Regression accepts legacy `.sumstats` and `.sumstats.gz` files containing `SNP`, `A1`, `A2`, `Z`, and `N` directly through `--sumstats-file` or `--sumstats-sources`; remunging is optional. Legacy LD-score suites must first pass through `ldsc convert-ldsc2-ldscores`. That converter accepts complete chromosome 1–22 unpartitioned or baseline-only suites with the required counts and supporting inputs. Regression then reads the converted canonical directory.
+Regression accepts legacy `.sumstats` and `.sumstats.gz` files containing `SNP`, `A1`, `A2`, `Z`, and `N` directly through `--sumstats-file` or `--sumstats-sources`; remunging is optional. Legacy LD-score suites must first pass through `ldsc convert-legacy-ldscores`. That converter accepts complete chromosome 1–22 unpartitioned or baseline-only suites with the required counts and supporting inputs. Regression then reads the converted canonical directory.
 
 See the [legacy summary statistics contract](../reference/formats/legacy-sumstats.md) and [conversion guide](workflows/migrating-from-legacy-ldsc.md).
 Dedicated [summary-statistics tests](../../tests/regression/test_legacy_sumstats_compatibility.py) and [conversion tests](../../tests/ldscore/test_legacy_ldscore_converter.py) cover these routes; this coverage does not imply equivalence for every possible dataset.

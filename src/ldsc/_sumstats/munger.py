@@ -380,7 +380,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
             has_alleles={"A1", "A2"}.issubset(df.columns),
             source_path=resolved,
             trait_name=_resolve_sumstats_trait_name(trait_name, None, resolved),
-            provenance={"source_format": "ldsc2_sumstats", "legacy_ldsc2": True},
+            provenance={"source_format": "legacy_sumstats", "legacy_ldsc": True},
             config_snapshot=None,
         )
         table.validate()

@@ -1,6 +1,6 @@
 # Migrating from legacy LDSC
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 LDSC3 implements the same method as legacy LDSC, LD score regression (LDSC), behind one `ldsc` command with subcommands and new file formats.
 Build new commands from `ldsc COMMAND --help` and the workflow pages rather than translating old ones line by line.
@@ -12,7 +12,7 @@ This page summarizes what changed, which legacy files you can reuse, and how to 
 | Topic | LDSC3 behavior |
 | --- | --- |
 | SNP identity | The default SNP identifier mode is `chr_pos_allele_aware`; `chr_pos`, `rsid` and `rsid_allele_aware` are explicit alternatives where supported. Use the same SNP identifier mode across inputs. |
-| Exceptions to the default | `build-gene-ldscore-index` requires an explicit SNP identifier mode (any of the four), hg19 or hg38, and exactly one cM, kb or SNP-count LD window; indexed LD scoring inherits the index settings. `convert-ldsc2-ldscores` defaults to `rsid` and accepts only the base modes. |
+| Exceptions to the default | `build-gene-ldscore-index` requires an explicit SNP identifier mode (any of the four), hg19 or hg38, and exactly one cM, kb or SNP-count LD window; indexed LD scoring inherits the index settings. `convert-legacy-ldscores` defaults to `rsid` and accepts only the base modes. |
 | Genome build | Build labels in the inputs must agree with an explicitly given build after alias normalization; unlabeled inputs use that build without inference or conversion. With `auto`, LDSC3 reconciles declarations and inference across inputs and chromosomes. See [SNP identity and genome build](../concepts/snp-identity-and-genome-build.md). |
 | Baseline annotations | LD scores for query annotations require explicit baseline annotations. Only ordinary unpartitioned LD scores can use the synthetic all-ones `base` annotation. Indexed scoring uses the baseline stored in the gene LD-score index. |
 | Query annotations | Supply prebuilt annotation files, BED files or gene lists as mutually exclusive routes. `ldscore` projects BED files and gene lists directly; `annotate` optionally writes reusable query annotation files. |
@@ -26,8 +26,8 @@ This page summarizes what changed, which legacy files you can reuse, and how to 
 | --- | --- |
 | Munged `.sumstats` or `.sumstats.gz` with `SNP`, `A1`, `A2`, `Z` and `N` | Pass directly to `h2`, `partitioned-h2` or `rg` with `--sumstats-file` or `--sumstats-sources`; munging again is optional. LDSC3 matches these files by rsID to the LD-score directory and checks allele orientation; see [legacy summary statistics](../../reference/formats/legacy-sumstats.md). |
 | Raw GWAS tables | Munge with [`munge-sumstats`](munge-sumstats.md). |
-| Complete one-column LD-score suite with regression weights | Convert once with `convert-ldsc2-ldscores` (below); use the result with [`h2`](heritability.md) and [`rg`](genetic-correlation.md). |
-| Complete baseline-only partitioned suite | Convert once with `convert-ldsc2-ldscores`; use the result with [`partitioned-h2`](partitioned-heritability.md) for the joint baseline model. |
+| Complete one-column LD-score suite with regression weights | Convert once with `convert-legacy-ldscores` (below); use the result with [`h2`](heritability.md) and [`rg`](genetic-correlation.md). |
+| Complete baseline-only partitioned suite | Convert once with `convert-legacy-ldscores`; use the result with [`partitioned-h2`](partitioned-heritability.md) for the joint baseline model. |
 | Cell-type or other query LD scores, thin annotations, `--ref-ld-chr-cts` manifests | Not convertible. Compute query LD scores with LDSC3 from baseline annotations; see [partitioned and cell-type analyses](#partitioned-and-cell-type-analyses). |
 
 Compatibility runs one way: LDSC3 reads these legacy files, but its own outputs are not promised to work in legacy LDSC.
@@ -35,7 +35,7 @@ The `BP` header in the `.annot.gz` files that LDSC3 writes is a narrow convenien
 
 ## Convert a legacy LD-score suite
 
-`ldsc convert-ldsc2-ldscores` imports a complete legacy reference and regression-weight suite into an LD-score directory, reusing the supplied LD scores without recomputing them.
+`ldsc convert-legacy-ldscores` imports a complete legacy reference and regression-weight suite into an LD-score directory, reusing the supplied LD scores without recomputing them.
 Regression commands then read the converted directory through `--ldscore-dir`.
 The source files are never changed.
 
@@ -81,7 +81,7 @@ Matching names do not make two resources compatible; take every family from the 
 ```
 
 ```bash
-ldsc convert-ldsc2-ldscores \
+ldsc convert-legacy-ldscores \
   --legacy-reference-dir /path/to/legacy/reference \
   --legacy-weight-dir /path/to/legacy/weights \
   --output-dir /path/to/converted/unpartitioned
@@ -115,7 +115,7 @@ If one suite supplies both the reference and the weight LD scores, pass the same
 ```
 
 ```bash
-ldsc convert-ldsc2-ldscores \
+ldsc convert-legacy-ldscores \
   --legacy-reference-dir /path/to/legacy/baseline \
   --legacy-weight-dir /path/to/legacy/weights \
   --legacy-frequency-dir /path/to/legacy/frequencies \
@@ -179,7 +179,7 @@ converted/
 ├── ldscore.baseline.parquet
 ├── ldscore.overlap.parquet          # baseline-partitioned conversion only
 └── diagnostics/
-    ├── convert-ldsc2-ldscores.log
+    ├── convert-legacy-ldscores.log
     └── conversion_issues.tsv.gz
 ```
 
@@ -190,12 +190,12 @@ Pass the whole directory to the regression command's `--ldscore-dir`.
 
 ### When conversion fails
 
-Read the error message and `diagnostics/convert-ldsc2-ldscores.log`; naming errors state the accepted pattern and a repair, and the log keeps this text even at `--log-level ERROR`.
+Read the error message and `diagnostics/convert-legacy-ldscores.log`; naming errors state the accepted pattern and a repair, and the log keeps this text even at `--log-level ERROR`.
 `diagnostics/conversion_issues.tsv.gz` records the error and any per-file or per-row issues.
 A failed directory holds only diagnostics and cannot be used for regression; after fixing the inputs, rerun with a new output directory or add `--overwrite`.
 Errors that occur before logging starts, such as a missing input directory or an output collision, appear only in the terminal.
 
-An unused `.w` file next to a complete recognized family does not block conversion: it is ignored with a warning, recorded as `discarded_unsupported_weight_filename`, and listed in `legacy_ldsc2_import.ignored_files`.
+An unused `.w` file next to a complete recognized family does not block conversion: it is ignored with a warning, recorded as `discarded_unsupported_weight_filename`, and listed in `legacy_ldscore_conversion.ignored_files`.
 
 | Problem | Example | Fix |
 | --- | --- | --- |
@@ -224,7 +224,7 @@ done
 Then pass `--legacy-weight-dir /path/to/organized/weights`.
 The same applies to plain files without `.gz`; changing an extension does not compress or decompress a file.
 When reorganizing a reference suite, rename its annotations and counts consistently and keep the original release.
-See [troubleshooting](../troubleshooting.md#convert-ldsc2-ldscores) for more repairs.
+See [troubleshooting](../troubleshooting.md#convert-legacy-ldscores) for more repairs.
 
 ## Partitioned and cell-type analyses
 
@@ -243,6 +243,6 @@ See [troubleshooting](../troubleshooting.md#convert-ldsc2-ldscores) for more rep
 - [Legacy summary statistics](../../reference/formats/legacy-sumstats.md)
 - [SNP identity and genome build](../../reference/snp-identity-and-genome-build.md)
 - [Artifact metadata](../../reference/formats/artifact-metadata.md)
-- [Troubleshooting](../troubleshooting.md#convert-ldsc2-ldscores)
+- [Troubleshooting](../troubleshooting.md#convert-legacy-ldscores)
 
 For the Python API, see [Python usage](../python-usage.md#migrating-from-legacy-ldsc).

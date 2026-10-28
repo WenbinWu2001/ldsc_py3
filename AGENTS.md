@@ -46,7 +46,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
 
 - Import supported user-facing objects from `ldsc`; `src/ldsc/__init__.py` owns exports such as `AnnotationBuilder`, `LDScoreCalculator`, `RegressionRunner`, `SumstatsMunger`, `R2MatrixBuilder`, `LDScoreSource`, configurations, writers, and convenience functions.
   The underscore-prefixed domain packages (`src/ldsc/_core/`, `src/ldsc/_ldscore/` and the others) and other underscore-prefixed modules are private implementations, even when selected objects are re-exported publicly.
-- `ldsc=ldsc.cli:run_cli` and `python -m ldsc` expose one CLI: `infer-genome-build`, `annotate`, `ldscore`, `build-r2-matrix`, `build-gene-ldscore-index`, `convert-ldsc2-ldscores`, `munge-sumstats`, `h2`, `partitioned-h2`, `quantile-h2`, `rg`, `query-r2-matrix`, `convert-h2-scale`, and `plot`.
+- `ldsc=ldsc.cli:run_cli` and `python -m ldsc` expose one CLI: `infer-genome-build`, `annotate`, `ldscore`, `build-r2-matrix`, `build-gene-ldscore-index`, `convert-legacy-ldscores`, `munge-sumstats`, `h2`, `partitioned-h2`, `quantile-h2`, `rg`, `query-r2-matrix`, `convert-h2-scale`, and `plot`.
   Keep CLI code limited to parsing/dispatch; numerical and plotting logic belongs to its workflow or kernel.
 - Dependency direction is CLI → workflows → shared helpers/private kernels; workflows call output writers, and kernels must not import workflow orchestration or writers.
   Runtime reference adapters currently live in `_refpanel/adapters.py`; `RefPanel.prepare_chromosome()` owns panel preparation and reader lifetime.
@@ -112,7 +112,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
   Gene-index publication retains its existing complete atomic transaction, with open logs in hidden sibling build-state and closed successful logs moved into published diagnostics.
 - Preserve explicit legacy LDSC interoperability: regression accepts `.sumstats(.gz)` with SNP/A1/A2/Z/N and validates allele orientation; munging may export `.sumstats.gz`.
   Annotation workflows read `.annot(.gz)` and write `.annot.gz`; omitting both alleles permits base-identity matching even in allele-aware workflows, while supplying only one allele is invalid.
-- Legacy LD-score input requires `convert-ldsc2-ldscores` with complete chromosome 1–22 reference/weight `<prefix><chrom>.l2.ldscore(.gz)` families, required `.l2.M_5_50`, and optional `.l2.M` under the documented count policy.
+- Legacy LD-score input requires `convert-legacy-ldscores` with complete chromosome 1–22 reference/weight `<prefix><chrom>.l2.ldscore(.gz)` families, required `.l2.M_5_50`, and optional `.l2.M` under the documented count policy.
   Converted identity is allele-unaware; `.w.l2.ldscore(.gz)`, query/thin conversion suites, and direct regression consumption of fragments are unsupported.
   Private kernels do not own legacy sumstats, LD-score, count, or annotation-group output files; full contracts live in `docs/reference/formats/legacy-sumstats.md` and `docs/reference/formats/legacy-ldscores.md`.
 - Avoid routine provenance hashes; prefer schemas, source labels, declared metadata, and counts.

@@ -844,9 +844,9 @@ SNP selection is checked for every chromosome before any genotypes are read, and
 
 **Developer reference:** `_refpanel.adapters.R2MatrixRefPanel` and metadata sidecar readers · **Exception:** `LDSCInputError`
 
-## `convert-ldsc2-ldscores`
+## `convert-legacy-ldscores`
 
-The [conversion user guide](workflows/migrating-from-legacy-ldsc.md) gives full layouts, table requirements, flags, and copy-and-rename commands. After logging starts, conversion exceptions and their remedies are recorded in `diagnostics/convert-ldsc2-ldscores.log` even at `--log-level ERROR`, with available issues in `diagnostics/conversion_issues.tsv.gz`. Invalid directory arguments or output collisions may fail before a log opens.
+The [conversion user guide](workflows/migrating-from-legacy-ldsc.md) gives full layouts, table requirements, flags, and copy-and-rename commands. After logging starts, conversion exceptions and their remedies are recorded in `diagnostics/convert-legacy-ldscores.log` even at `--log-level ERROR`, with available issues in `diagnostics/conversion_issues.tsv.gz`. Invalid directory arguments or output collisions may fail before a log opens.
 
 ### standard filenames and directory organization
 
@@ -866,7 +866,7 @@ Place different releases in separate directories when discovery finds multiple c
 
 **Symptom:** family discovery reports unsupported `.w.l2.ldscore(.gz)` filenames, such as `1.w.l2.ldscore.gz`.
 
-Both reference and weight suites require `<prefix><chrom>.l2.ldscore(.gz)` names across chromosomes 1–22. Rename copies in a separate input directory, for example `1.w.l2.ldscore.gz -> weights.1.l2.ldscore.gz`, and pass that directory to `--legacy-weight-dir`. Use the same correction without `.gz` for plain files. Each affected file in the inspected directory is recorded in `diagnostics/conversion_issues.tsv.gz` as `discarded_unsupported_weight_filename`. If a complete recognized family exists alongside these files, conversion uses that family and records the unused alternatives with a warning and in `legacy_ldsc2_import.ignored_files`. After a failed conversion, rerun with a new output directory or `--overwrite` to replace its diagnostics.
+Both reference and weight suites require `<prefix><chrom>.l2.ldscore(.gz)` names across chromosomes 1–22. Rename copies in a separate input directory, for example `1.w.l2.ldscore.gz -> weights.1.l2.ldscore.gz`, and pass that directory to `--legacy-weight-dir`. Use the same correction without `.gz` for plain files. Each affected file in the inspected directory is recorded in `diagnostics/conversion_issues.tsv.gz` as `discarded_unsupported_weight_filename`. If a complete recognized family exists alongside these files, conversion uses that family and records the unused alternatives with a warning and in `legacy_ldscore_conversion.ignored_files`. After a failed conversion, rerun with a new output directory or `--overwrite` to replace its diagnostics.
 
 ### conversion rejected the legacy suite
 

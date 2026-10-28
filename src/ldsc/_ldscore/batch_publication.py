@@ -49,7 +49,7 @@ class _LDScorePublication:
     index_provenance: dict | None
     annotation_types: dict[str, str]
     snp_universe_policy: dict | None
-    legacy_ldsc2_import: dict | None
+    legacy_ldscore_conversion: dict | None
     overlap: LDScoreOverlap | None
     ld_window_snp_counts: pd.DataFrame | None = None
     reference_snp_funnel: pd.DataFrame | None = None
@@ -96,7 +96,7 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
                         index_provenance=result.index_provenance,
                         annotation_types={name: result.annotation_types.get(name, "unknown") for name in result.baseline_columns},
                         snp_universe_policy=result.snp_universe_policy,
-                        legacy_ldsc2_import=None if streamed else result.legacy_ldsc2_import,
+                        legacy_ldscore_conversion=None if streamed else result.legacy_ldscore_conversion,
                         overlap=None if result.overlap is None else result.overlap.select_queries([]),
                         ld_window_snp_counts=getattr(result, "ld_window_snp_counts", None),
                         reference_snp_funnel=getattr(result, "reference_snp_funnel", None),

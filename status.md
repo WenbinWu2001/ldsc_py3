@@ -62,8 +62,7 @@ The contract is in [reference SNPs on the annotation SNP grid](docs/reference/ld
 
 ### Open
 
-1. "annotation SNP grid" and "reference-SNP funnel" await the user's approval under proposed terms in `docs/dev/DOCS_VOCABULARY.md`.
-2. **Gene-list strict error guidance is incomplete:** `_gate_a_error()` gives a total rejected count and up to ten examples, but no per-source rejected/submitted counts, omitted-example count, audit filter, or overwrite guidance.
+1. **Gene-list strict error guidance is incomplete:** `_gate_a_error()` gives a total rejected count and up to ten examples, but no per-source rejected/submitted counts, omitted-example count, audit filter, or overwrite guidance.
    This is a localized message change.
 
 ## Reading map

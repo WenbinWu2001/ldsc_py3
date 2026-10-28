@@ -721,19 +721,6 @@ def _try_normalize_liftover_chromosome(value: object) -> str | None:
         return None
 
 
-def _reject_duplicate_hm3_coordinates(frame: pd.DataFrame, *, build: str) -> None:
-    """Raise when a curated HM3 map contains duplicate coordinates for one build."""
-    pos_column = f"{build}_POS"
-    duplicated = frame.duplicated(subset=["CHR", pos_column], keep=False)
-    if duplicated.any():
-        examples = frame.loc[duplicated, ["CHR", pos_column, "SNP"]].head(5).to_dict("records")
-        raise LDSCInputError(
-            f"Cannot use HM3 curated liftover map: duplicate {build} coordinates were found: {examples}. "
-            "Most likely the map file is malformed or not the packaged dual-build HM3 map. "
-            "Use the packaged HM3 map or regenerate the map with unique CHR/POS rows."
-        )
-
-
 def _require_supported_pair(source_build: str, target_build: str | None) -> None:
     """Raise for unsupported build pairs before applying a method."""
     if source_build not in SUPPORTED_LIFTOVER_BUILDS or target_build not in SUPPORTED_LIFTOVER_BUILDS:

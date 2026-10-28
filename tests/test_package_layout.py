@@ -230,33 +230,6 @@ print(ldsc.__file__)
         self.assertIs(result, mock.sentinel.bundle)
         patched.assert_called_once_with(subargv)
 
-    def test_annotate_parsed_dispatch_calls_workflow_from_args(self):
-        from ldsc._annotation import builder as annotation_builder
-        from ldsc import cli
-
-        parser = cli.build_parser()
-        args = parser.parse_args(
-            [
-                "annotate",
-                "--query-annot-bed-sources",
-                "beds/query.bed",
-                "--ref-snp-annot-sources",
-                "baseline.1.annot.gz",
-                "--output-dir",
-                "out/annot",
-            ]
-        )
-
-        with mock.patch.object(
-            annotation_builder,
-            "run_annotate_from_args",
-            return_value=mock.sentinel.bundle,
-        ) as patched:
-            result = cli._run_annotate(args)
-
-        self.assertIs(result, mock.sentinel.bundle)
-        patched.assert_called_once_with(args)
-
     def test_ldscore_subcommand_accepts_unified_path_flags(self):
         from ldsc import cli
 

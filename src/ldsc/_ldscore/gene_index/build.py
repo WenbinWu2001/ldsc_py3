@@ -412,42 +412,6 @@ def build_gene_ldscore_index(
     )
 
 
-def _parse_chromosomes(value: str | Sequence[str]) -> tuple[str, ...]:
-    """Parse a canonical autosome subset such as ``1-3,22``."""
-    tokens = [str(item).strip() for item in (value if not isinstance(value, str) else value.split(","))]
-    selected: set[int] = set()
-    for token in tokens:
-        if not token:
-            continue
-        if "-" in token:
-            parts = token.split("-", 1)
-            try:
-                start, end = (int(part) for part in parts)
-            except ValueError as exc:
-                raise LDSCInputError(
-                    f"Invalid chromosome range {token!r}."
-                    " Select autosomal chromosome numbers 1 through 22 with valid ranges; production gene "
-                    "LD-score indexes require all 22 autosomes."
-                ) from exc
-            selected.update(range(start, end + 1))
-        else:
-            try:
-                selected.add(int(token))
-            except ValueError as exc:
-                raise LDSCInputError(
-                    f"Invalid chromosome token {token!r}."
-                    " Select autosomal chromosome numbers 1 through 22 with valid ranges; production gene "
-                    "LD-score indexes require all 22 autosomes."
-                ) from exc
-    if not selected or min(selected) < 1 or max(selected) > 22:
-        raise LDSCInputError(
-            "Gene LD-score index chromosomes must be autosomes 1 through 22."
-            " Select autosomal chromosome numbers 1 through 22 with valid ranges; production gene LD-score "
-            "indexes require all 22 autosomes."
-        )
-    return tuple(str(chrom) for chrom in sorted(selected))
-
-
 def _build_embedded_gene_catalog(
     catalog: GeneCatalog,
     *,

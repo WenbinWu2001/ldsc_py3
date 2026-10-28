@@ -381,11 +381,6 @@ def _log_internal_error(exc: BaseException, *, workflow_advice: bool = True) -> 
     )
 
 
-def _run_annotate(args: argparse.Namespace):
-    """Dispatch the ``annotate`` subcommand."""
-    return annotation_builder.run_annotate_from_args(args)
-
-
 def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentParser) -> None:
     """Clone options and their help groups without changing parsing rules.
 

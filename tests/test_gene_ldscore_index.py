@@ -35,7 +35,6 @@ from ldsc.errors import LDSCInputError, LDSCUsageError
 from ldsc._ldscore.gene_index.build import (
     _build_embedded_gene_catalog,
     _genetic_map_identity,
-    _parse_chromosomes,
     _selected_individual_ids,
     build_plink_index_chromosome,
     intersect_baseline_plink_by_identifier,
@@ -306,12 +305,6 @@ def _configure_two_chromosome_builder(tmp_path, monkeypatch):
         log_level="INFO",
     )
     return chromosome, output, args
-
-
-def test_builder_chromosome_selection_is_canonical_and_unique():
-    assert _parse_chromosomes("22,1-3,2") == ("1", "2", "3", "22")
-    with pytest.raises(LDSCInputError, match="1 through 22"):
-        _parse_chromosomes("23")
 
 
 def test_selected_individual_identity_uses_fam_row_order():

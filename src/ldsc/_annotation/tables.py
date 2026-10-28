@@ -19,15 +19,6 @@ from ..errors import LDSCInputError
 _ANNOTATION_VALUES_DOC = "docs/user-guide/troubleshooting.md#ldscore-annotation-values-are-malformed"
 
 
-def _read_text_table(path: str) -> pd.DataFrame:
-    """Read a whitespace-delimited annotation table with optional gzip compression."""
-    compression = "gzip" if str(path).endswith(".gz") else None
-    try:
-        return pd.read_csv(path, sep=r"\s+", compression=compression)
-    except (pd.errors.ParserError, UnicodeDecodeError, ValueError) as exc:
-        raise LDSCInputError(_annotation_parse_error_message(path, details=str(exc))) from exc
-
-
 def _validate_annotation_values(
     frame: pd.DataFrame,
     annotation_columns: Sequence[str],

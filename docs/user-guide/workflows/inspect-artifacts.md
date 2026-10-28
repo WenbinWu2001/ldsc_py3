@@ -67,7 +67,7 @@ pairs["r2_decoded"] = pairs["R2"].astype("float32") / scale
 meta = pd.read_csv("chr22_meta.tsv.gz", sep="\t", comment="#")
 ```
 
-Use the exact sidecar next to the selected Parquet: each index points to a zero-based row in that table. `SIGN_R=True` means Pearson r is nonnegative in panel allele orientation. For results harmonized to query alleles, use [`query-r2-matrix`](r2-matrices.md), whose output field is nullable `sign_r` (+1/-1). Source: [current R² storage contract](../../reference/formats/r2-matrices.md).
+Use the exact sidecar next to the selected Parquet: each index points to a zero-based row in that table. `SIGN_R=True` means Pearson r is nonnegative in R² matrix allele orientation. For results harmonized to query alleles, use [`query-r2-matrix`](r2-matrices.md), whose output field is nullable `sign_r` (+1/-1). Source: [current R² storage contract](../../reference/formats/r2-matrices.md).
 
 ## NPZ
 

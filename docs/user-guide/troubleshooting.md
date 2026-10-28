@@ -687,7 +687,7 @@ A chromosome emptied by `--ref-panel-snps-file` or genotype QC is skipped with a
 | 4 | The R² matrix directory mixes chromosomes or builds from different reference-panel runs | List files in the R² matrix directory and compare recorded `genome_build` metadata |
 | 5 | Duplicate or conflicting pair rows survived in the R² matrix | Regenerate from a deduplicated reference-panel source and current `ldsc build-r2-matrix` |
 | 6 | The R² matrix was built with a positive `--r2-min`, so it omits low-R² pairs | The error names `ldsc:r2_min`; rebuild the R² matrix without `--r2-min` for `ldscore`, and keep the truncated R² matrix only for `ldsc query-r2-matrix` |
-| 7 | The LD window is in a different unit from the R² matrix's build window, or wider than it (`windows in different units cannot be checked for coverage` / `is wider than the input R2 matrix window`) | The error names both windows; rerun with the R² matrix's unit and a value no wider, or rebuild the panel with the requested window. See [LD windows for R² matrices](../reference/formats/r2-matrices.md#37-ld-windows-and-sidecar-values-in-ldscore) |
+| 7 | The LD window is in a different unit from the R² matrix's build window, or wider than it (`windows in different units cannot be checked for coverage` / `is wider than the input R2 matrix window`) | The error names both windows; rerun with the R² matrix's unit and a value no wider, or rebuild the R² matrix with the requested window. See [LD windows for R² matrices](../reference/formats/r2-matrices.md#37-ld-windows-and-sidecar-values-in-ldscore) |
 
 **Remedies:**
 

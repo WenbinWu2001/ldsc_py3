@@ -128,7 +128,7 @@ sumstats_processed/
 Before the regressions in any of the analyses below, we first specify the path to the reference panel:
 
 ```bash
-# LD reference panel from 1000 Genomes Phase 3. Use either R2 parquet files or PLINK files.
+# LD reference panel from 1000 Genomes Phase 3. Use either an R2 matrix or PLINK files.
 R2_MATRIX_DIR="${INPUT_ROOT}/resources/ldref/ldref_r2_1kgph3_1cM"
 PLINK_PREFIX="${INPUT_ROOT}/resources/1000G_EUR_Phase3_plink/1000G.EUR.QC."  # hg19
 ```

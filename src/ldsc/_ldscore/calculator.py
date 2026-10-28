@@ -2423,7 +2423,7 @@ def _check_parquet_reference(ref_panel, chromosomes, ldscore_config: LDScoreConf
 
 
 def _warn_ld_window_snp_subset(counts: pd.DataFrame | None, where: str) -> None:
-    """Warn once per run when a parquet ``--ld-wind-snps`` window spans dropped panel SNPs."""
+    """Warn once per run when a parquet ``--ld-wind-snps`` window spans dropped R2 matrix SNPs."""
     if counts is None:
         return
     subset = counts.loc[counts["kept_snps"] < counts["panel_snps"]]

@@ -36,7 +36,7 @@ ldsc ldscore \
 ```
 
 With no baseline and no query annotations, LDSC3 creates one all-ones baseline annotation named `base` over the retained reference SNPs, so the output has the ordinary layout with `base` as its only LD-score column.
-An R² matrix stores only the SNP pairs inside the LD window it was built with, so the requested LD window must use the same unit as the R² matrix's LD window and be no wider; this command needs a panel built with an LD window of at least 1 cM.
+An R² matrix stores only the SNP pairs inside the LD window it was built with, so the requested LD window must use the same unit as the R² matrix's LD window and be no wider; this command needs an R² matrix built with an LD window of at least 1 cM.
 
 To compute from PLINK genotypes instead, replace `--r2-matrix-dir` with `--plink-prefix`:
 

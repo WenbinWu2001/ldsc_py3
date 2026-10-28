@@ -671,7 +671,7 @@ def apply_sumstats_liftover(
 
 
 def _default_chain_flag_hint(source_build: str, target_build: str) -> str:
-    """Return the reference-panel chain flag for a build pair."""
+    """Return the ``build-r2-matrix`` chain flag for a build pair, the default hint."""
     return f"--liftover-chain-{source_build}-to-{target_build}-file"
 
 

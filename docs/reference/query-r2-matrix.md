@@ -1,4 +1,4 @@
-# Reference-Panel R² Pair Query
+# R² Matrix Pair Query
 
 Last updated on: 2026-10-28
 

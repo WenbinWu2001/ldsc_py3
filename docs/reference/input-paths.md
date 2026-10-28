@@ -442,7 +442,7 @@ Output:
 - Regression commands consume this directory via `--ldscore-dir`; users do not
   pass count vectors, weight files, or annotation manifests.
 
-### Reference-panel building
+### R² matrix building
 
 Relevant APIs:
 

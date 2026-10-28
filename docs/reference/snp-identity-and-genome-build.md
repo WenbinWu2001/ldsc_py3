@@ -112,7 +112,7 @@ Evidence collected per input type before a workflow build is resolved (`GenomeBu
 | Ordinary BED files and rsID-only keep lists | No SNP coordinate inference: BED files inherit the workflow build, and rsID filtering needs no coordinate check. |
 
 An R² matrix directory name is not evidence of its build; use a build-specific R² matrix directory when a workflow needs one build.
-R² matrices declare their build in the required `ldsc:sorted_by_build` metadata ([R² matrix format](formats/r2-matrices.md)), read from the Parquet footer without row data; a panel whose build differs from the run's genome build is an error.
+R² matrices declare their build in the required `ldsc:sorted_by_build` metadata ([R² matrix format](formats/r2-matrices.md)), read from the Parquet footer without row data; an R² matrix whose build differs from the run's genome build is an error.
 Munging resolves the source build before any requested liftover and records only the final output build in the Parquet identity footer of the munged summary statistics; source-build evidence is never reported as the output build.
 When inference succeeds, the workflow log records the selected build, the coordinate basis and the support for all four hypotheses.
 
@@ -187,7 +187,7 @@ See the [grouped report example](../user-guide/troubleshooting.md#common-genome-
 | `h2`, `partitioned-h2`, `rg` | Coordinate-family saved artifacts must agree; all `rg` traits participate before fitting. No CLI build override. Footerless Parquet remains invalid; legacy text uses panel-owned coordinate projection. |
 | `quantile-h2` | Saved LD-score build and resupplied coordinate artifacts must agree; BED inherits that build. No CLI build override. |
 | `build-gene-ldscore-index` | Required explicit hg19 or hg38 must agree with the catalog and applicable input declarations; no auto or liftover. Indexed scoring later inherits the immutable index and rejects live configuration overrides. |
-| `query-r2-matrix` | Existing concrete build selects/interprets an R² matrix; otherwise R² matrix shard metadata must agree. Pair endpoints are lookup requests interpreted in the selected panel's build, with no separate pair-build inference. |
+| `query-r2-matrix` | Existing concrete build selects/interprets an R² matrix; otherwise R² matrix shard metadata must agree. Pair endpoints are lookup requests interpreted in the selected R² matrix's build, with no separate pair-build inference. |
 | `convert-h2-scale`, `plot` | Saved-result consumers; no coordinate-build inference. |
 
 Build metadata describes emitted coordinates.
@@ -273,7 +273,7 @@ Artifact duplicates are handled by computing the effective merge key for the act
 
 Multi-allelic base-key clusters are dropped because allele-aware modes exist for safer merging, not for retaining multi-allelic sites.
 Computing LD scores over retained same-position clusters would need its own design for same-position pair semantics, LD-window traversal, and R² endpoint indexing.
-That design must also revisit the R² matrix `--ld-wind-snps` ordering of same-position SNPs, which relies on this drop; see [`--ld-wind-snps` counts panel rows](formats/r2-matrices.md#37-ld-windows-and-sidecar-values-in-ldscore).
+That design must also revisit the R² matrix `--ld-wind-snps` ordering of same-position SNPs, which relies on this drop; see [`--ld-wind-snps` counts R² matrix rows](formats/r2-matrices.md#37-ld-windows-and-sidecar-values-in-ldscore).
 
 ### Validity table
 

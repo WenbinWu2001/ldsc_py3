@@ -75,7 +75,7 @@ def test_derived_workflows_reject_invalid_declared_inputs_before_writing(tmp_pat
     import json
     from ldsc.errors import LDSCInputError
     from ldsc._regression.h2_scale import convert_h2_scale
-    from ldsc.plotting import plot_result
+    from ldsc._plotting.dispatch import plot_result
 
     outside = tmp_path / "outside.tsv"
     outside.write_text("immutable input\n")

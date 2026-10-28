@@ -477,6 +477,6 @@ def _load_h2_scale():
 
 def _load_plotting():
     """Import the plotting workflow lazily."""
-    from . import plotting
+    from ._plotting import dispatch as plotting
 
     return plotting

@@ -118,8 +118,8 @@ _LAZY_EXPORTS = {
     "run_quantile_h2": ("._regression.quantile_h2", "run_quantile_h2"),
     "H2ScaleConversionArtifact": ("._regression.h2_scale", "H2ScaleConversionArtifact"),
     "convert_h2_scale": ("._regression.h2_scale", "convert_h2_scale"),
-    "PlotArtifact": (".plotting", "PlotArtifact"),
-    "plot_result": (".plotting", "plot_result"),
+    "PlotArtifact": ("._plotting.dispatch", "PlotArtifact"),
+    "plot_result": ("._plotting.dispatch", "plot_result"),
 }
 
 

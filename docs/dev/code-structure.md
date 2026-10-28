@@ -62,7 +62,7 @@ ldsc_py3_restructured/
 - public workflow modules -> private `_kernel` modules
 - `ldsc._regression.outputs` is called from the workflow layer, not from `_kernel`
 - regression reloads written LD-score directories; it does not depend on annotation or reference-panel kernels directly
-- `ldsc.plotting` and `ldsc._regression.h2_scale` consume canonical result directories; only the private plotting builders and prevalence-range conversion path lazily import required Matplotlib
+- `ldsc._plotting.dispatch` and `ldsc._regression.h2_scale` consume canonical result directories; only the private plotting builders and prevalence-range conversion path lazily import required Matplotlib
 
 ## Module Map
 
@@ -117,8 +117,8 @@ ldsc_py3_restructured/
 | `ldsc._regression.quantile_h2` | post-fit continuous-target quantile assignment, reconstruction and verification of the fitted sources and common reference SNPs, vectorized coefficient/delete-value projection, standardized `tau_star`, CLI orchestration, and diagnostics |
 | `ldsc._regression.prevalence` | parse and validate binary-trait prevalence inputs (scalar `--samp-prev`/`--pop-prev` for `h2`/`partitioned-h2`; comma-separated lists or a `--prevalence-manifest` TSV for `rg`) into a normalized per-trait `(samp_prev, pop_prev)` structure for observed-to-liability conversion |
 | `ldsc._regression.h2_scale` | strict post-fit observed-to-liability conversion from a canonical `h2` result, including exact and prevalence-range modes and the fixed nested derived-result family |
-| `ldsc.plotting` | sole public metadata-driven plotting dispatcher, lazy plotting-runtime boundary, fixed plot-family output, and live `PlotArtifact` return object |
-| `ldsc.plotting._builders` | private Matplotlib-only headless builders for the approved `h2`, `rg`, `partitioned-h2`, and `quantile-h2` plots |
+| `ldsc._plotting.dispatch` | sole public metadata-driven plotting dispatcher, lazy plotting-runtime boundary, fixed plot-family output, and live `PlotArtifact` return object |
+| `ldsc._plotting.builders` | private Matplotlib-only headless builders for the approved `h2`, `rg`, `partitioned-h2`, and `quantile-h2` plots |
 | `ldsc._ldscore.overlap_table` | public-layer overlap container (`LDScoreOverlap`), long-form parquet (de)serialization, per-model overlap assembly, the overlap-aware annotation table (ported `_overlap_output` + augmentation), and the collinearity hard-error check (`model_collinearity_error`) |
 | `ldsc._regression.outputs` | per-writer `artifact_family()` declarations shared by workflow preflight, final writes, metadata file entries, and cleanup; artifact naming, LD-score parquet and query-diagnostic layout, `partitioned-h2` per-query layout, `rg` result-family layout, metadata JSON payloads, and serialization |
 | `ldsc._annotation.overlap` | low-level annotation overlap-block computation (`OverlapContribution`, `compute_overlap`, `sum_overlap_contributions`) |
@@ -163,7 +163,7 @@ ldsc_py3_restructured/
 | change LDSC estimators | `src/ldsc/_regression/estimators.py` |
 | change binary-trait prevalence parsing or observed-to-liability conversion | `src/ldsc/_regression/prevalence.py` (input parsing/validation), then `src/ldsc/_regression/runner.py` (summary/metadata wiring) and `src/ldsc/_regression/estimators.py` (`liability_conversion_factor`) |
 | change post-fit heritability scale conversion or sensitivity output | `src/ldsc/_regression/h2_scale.py`, then `src/ldsc/_regression/estimators.py` only if the shared numerical primitive itself changes |
-| change plot dispatch, supported result contracts, or visual semantics | `src/ldsc/plotting/__init__.py`, `src/ldsc/plotting/_builders.py`, then `docs/dev/design/plotting.md` and `docs/user-guide/workflows/plotting.md` |
+| change plot dispatch, supported result contracts, or visual semantics | `src/ldsc/_plotting/dispatch.py`, `src/ldsc/_plotting/builders.py`, then `docs/dev/design/plotting.md` and `docs/user-guide/workflows/plotting.md` |
 | change owned artifact declarations or LD-score directory files, parquet row-group layout, `partitioned-h2` per-query layout, `rg` result-family layout, or metadata JSON payloads | `src/ldsc/_regression/outputs.py` |
 
 ## Architectural Rules That Matter In Practice
@@ -206,7 +206,7 @@ ldsc_py3_restructured/
   gene LD-score index builder uses hidden sibling `.<index-name>.build-state/` and moves
   only the closed successful log into the published diagnostics.
 - Keep regression file-driven: it should be able to rebuild state from written artifacts without recomputing LD scores.
-- Keep plotting metadata-driven and post-fit: plot builders consume declared canonical tables and never refit. Matplotlib is required at installation but lazily imported through `ldsc.plotting._builders`.
+- Keep plotting metadata-driven and post-fit: plot builders consume declared canonical tables and never refit. Matplotlib is required at installation but lazily imported through `ldsc._plotting.builders`.
 - Prefer extending shared helpers or the workflow-owned writer over duplicating local parsing or writing logic.
 
 ## Test Map

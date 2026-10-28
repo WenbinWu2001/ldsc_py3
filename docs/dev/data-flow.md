@@ -15,7 +15,7 @@ This document summarizes the user-visible file streams for each public workflow.
 | Workflow | yes | feature modules under `src/ldsc/` | build aligned in-memory tables |
 | Kernel | no | `ldsc._kernel.*` | low-level readers and numerical work |
 | Artifact access | yes | `ldsc._ldscore.source` | open LD-score directories, validate schemas/identities, and read selected query columns |
-| Postprocessing | yes | `ldsc._regression.outputs`, `ldsc.plotting`, `ldsc._regression.h2_scale`, pandas writers in `ldsc._regression.runner`, `ldsc._runtime.workflow_logging` | preflight fixed output paths, emit core/derived results, and write workflow audit logs/failure markers |
+| Postprocessing | yes | `ldsc._regression.outputs`, `ldsc._plotting.dispatch`, `ldsc._regression.h2_scale`, pandas writers in `ldsc._regression.runner`, `ldsc._runtime.workflow_logging` | preflight fixed output paths, emit core/derived results, and write workflow audit logs/failure markers |
 
 ## Package Overview
 
@@ -659,7 +659,7 @@ flowchart LR
   M[diagnostics/metadata.json]
   T[Declared numerical TSV]
   A[rg only: declared single-trait heritability TSV]
-  D[ldsc.plotting contract dispatch]
+  D[ldsc._plotting.dispatch contract dispatch]
   F[plots/fixed-name.png + diagnostics]
   H[Canonical h2 result]
   S[h2.tsv observed estimate + SE]

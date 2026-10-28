@@ -4,7 +4,9 @@ The package is split into private domain packages arranged in tiers. A module
 may import from its own package and from lower tiers only, and the peer domains
 in one tier may not import each other. The check reads every import inside the
 package, including imports inside functions and under ``TYPE_CHECKING``, so a
-function-level import cannot hide an upward dependency.
+function-level import cannot hide an upward dependency. Every module outside
+the root shell (``__init__``, ``__main__``, ``cli``, ``config`` and ``errors``)
+belongs to a tiered package.
 """
 
 import ast
@@ -103,10 +105,28 @@ def find_violations(package_root):
     return violations
 
 
+def find_misplaced_modules(package_root):
+    """Return modules and packages at the package root outside the shell and the tiered packages."""
+    package_root = Path(package_root)
+    shell = {name.rpartition(".")[2] for name in SHELL_TIERS if name != "ldsc"} | {"__init__"}
+    packages = {name.rpartition(".")[2] for name in PACKAGE_TIERS}
+    misplaced = []
+    for path in sorted(package_root.iterdir()):
+        if path.suffix == ".py" and path.stem not in shell:
+            misplaced.append(path.name)
+        elif path.is_dir() and path.name not in packages and any(path.rglob("*.py")):
+            misplaced.append(path.name + "/")
+    return misplaced
+
+
 class LayeringTest(unittest.TestCase):
     def test_imports_point_to_lower_tiers_only(self):
         violations = find_violations(Path(ldsc.__file__).parent)
         self.assertEqual(violations, [], "\n" + "\n".join(violations))
+
+    def test_package_root_holds_only_the_shell(self):
+        misplaced = find_misplaced_modules(Path(ldsc.__file__).parent)
+        self.assertEqual(misplaced, [], "Move these into a tiered package: " + ", ".join(misplaced))
 
 
 if __name__ == "__main__":

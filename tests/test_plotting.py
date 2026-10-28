@@ -17,7 +17,7 @@ def _write_result(tmp_path, *, name, metadata, filename, rows):
 
 
 def test_h2_dispatch_plots_saved_bins_without_refitting(tmp_path):
-    from ldsc.plotting import plot_result
+    from ldsc._plotting.dispatch import plot_result
 
     result_dir = _write_result(
         tmp_path,
@@ -73,7 +73,7 @@ def test_h2_dispatch_plots_saved_bins_without_refitting(tmp_path):
 
 def test_old_h2_result_without_bins_hard_fails_with_rerun_guidance(tmp_path):
     from ldsc.errors import LDSCInputError
-    from ldsc.plotting import plot_result
+    from ldsc._plotting.dispatch import plot_result
 
     result_dir = tmp_path / "old-h2"
     (result_dir / "diagnostics").mkdir(parents=True)
@@ -96,7 +96,7 @@ def test_old_h2_result_without_bins_hard_fails_with_rerun_guidance(tmp_path):
 def test_rg_dispatch_selects_pair_kind_and_never_adds_heatmap_colorbar(
     tmp_path, pair_kind, filename, kind
 ):
-    from ldsc.plotting import plot_result
+    from ldsc._plotting.dispatch import plot_result
 
     rows = [
         {"trait_1": "Anchor", "trait_2": "Trait B", "rg": 0.42, "rg_se": 0.08},
@@ -160,7 +160,7 @@ def _write_rg_with_h2(tmp_path, *, pair_kind="all_pairs"):
 def test_rg_diagonal_uses_observed_single_trait_h2_in_metadata_order(tmp_path):
     from matplotlib import pyplot as plt
     from matplotlib.colors import to_rgba
-    from ldsc.plotting import plot_result
+    from ldsc._plotting.dispatch import plot_result
 
     result_dir = _write_rg_with_h2(tmp_path)
     artifact = plot_result(result_dir)
@@ -195,7 +195,7 @@ def test_rg_diagonal_uses_observed_single_trait_h2_in_metadata_order(tmp_path):
 
 def test_anchor_h2_column_and_subtitle_preserve_correlations(tmp_path):
     from matplotlib import pyplot as plt
-    from ldsc.plotting import plot_result
+    from ldsc._plotting.dispatch import plot_result
 
     result_dir = _write_rg_with_h2(tmp_path, pair_kind="anchor")
     artifact = plot_result(result_dir)
@@ -226,7 +226,7 @@ def test_anchor_h2_column_and_subtitle_preserve_correlations(tmp_path):
 @pytest.mark.parametrize("missing", ["declaration", "file", "rows"])
 def test_rg_missing_heritabilities_are_failed(tmp_path, pair_kind, missing):
     from matplotlib import pyplot as plt
-    from ldsc.plotting import plot_result
+    from ldsc._plotting.dispatch import plot_result
 
     result_dir = _write_rg_with_h2(tmp_path, pair_kind=pair_kind)
     h2_path = result_dir / "heritabilities.tsv"
@@ -257,7 +257,7 @@ def test_rg_missing_heritabilities_are_failed(tmp_path, pair_kind, missing):
 
 def test_anchor_failed_last_row_stays_above_axis_spine(tmp_path):
     from matplotlib import pyplot as plt
-    from ldsc.plotting import plot_result
+    from ldsc._plotting.dispatch import plot_result
 
     result_dir = _write_rg_with_h2(tmp_path, pair_kind="anchor")
     path = result_dir / "rg.tsv"
@@ -277,7 +277,7 @@ def test_anchor_failed_last_row_stays_above_axis_spine(tmp_path):
 @pytest.mark.parametrize("pair_kind", ["all_pairs", "anchor"])
 def test_rg_unusable_h2_pairs_are_failed_without_losing_valid_traits(tmp_path, pair_kind):
     from matplotlib import pyplot as plt
-    from ldsc.plotting import plot_result
+    from ldsc._plotting.dispatch import plot_result
 
     result_dir = _write_rg_with_h2(tmp_path, pair_kind=pair_kind)
     invalid = [(None, 0.1), (float("inf"), 0.1), ("bad", 0.1), (0.2, None),
@@ -314,7 +314,7 @@ def test_rg_unusable_h2_pairs_are_failed_without_losing_valid_traits(tmp_path, p
 @pytest.mark.parametrize("problem", ["columns", "duplicate", "empty", "parser", "extra_field", "encoding", "directory"])
 def test_rg_rejects_malformed_heritability_sources_before_saving(tmp_path, pair_kind, problem):
     from ldsc.errors import LDSCInputError
-    from ldsc.plotting import plot_result
+    from ldsc._plotting.dispatch import plot_result
 
     result_dir = _write_rg_with_h2(tmp_path, pair_kind=pair_kind)
     path = result_dir / "heritabilities.tsv"
@@ -342,7 +342,7 @@ def test_rg_rejects_malformed_heritability_sources_before_saving(tmp_path, pair_
 @pytest.mark.parametrize("path_kind", ["absolute", "traversal", "symlink", "invalid"])
 def test_rg_rejects_unsafe_h2_declarations_even_if_target_is_missing(tmp_path, path_kind):
     from ldsc.errors import LDSCInputError
-    from ldsc.plotting import plot_result
+    from ldsc._plotting.dispatch import plot_result
 
     result_dir = _write_rg_with_h2(tmp_path)
     if path_kind == "absolute":
@@ -364,7 +364,7 @@ def test_rg_rejects_unsafe_h2_declarations_even_if_target_is_missing(tmp_path, p
 
 
 def test_functional_and_quantile_enrichment_use_horizontal_bars_with_null_behind(tmp_path):
-    from ldsc.plotting import plot_result
+    from ldsc._plotting.dispatch import plot_result
 
     functional = _write_result(
         tmp_path,
@@ -424,7 +424,7 @@ def test_functional_and_quantile_enrichment_use_horizontal_bars_with_null_behind
 
 
 def test_cell_type_summary_is_horizontal_nominal_pvalue_scatter(tmp_path):
-    from ldsc.plotting import plot_result
+    from ldsc._plotting.dispatch import plot_result
 
     result_dir = _write_result(
         tmp_path,

@@ -390,7 +390,7 @@ def _select_contract(metadata: dict[str, Any]) -> _PlotContract:
 
 def _load_builders():
     try:
-        from . import _builders
+        from . import builders as _builders
     except ImportError as exc:
         if exc.name == "matplotlib" or (exc.name and exc.name.startswith("matplotlib.")):
             raise LDSCDependencyError(

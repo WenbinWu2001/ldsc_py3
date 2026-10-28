@@ -17,7 +17,7 @@ Core workflows never generate plots automatically. Matplotlib is a required pack
 
 ```mermaid
 flowchart LR
-    CLI[ldsc.cli] --> PLOT[ldsc.plotting]
+    CLI[ldsc.cli] --> PLOT[ldsc._plotting.dispatch]
     CLI --> CONVERT[ldsc._regression.h2_scale]
     CORE[regression_runner] --> WRITERS[ldsc._regression.outputs]
     CORE --> KERNEL[ldsc._regression.estimators]
@@ -32,8 +32,8 @@ flowchart LR
 | Module | Responsibility |
 | --- | --- |
 | `ldsc.cli` | Parse and dispatch the two commands; define no plotting or conversion math. |
-| `ldsc.plotting` | Validate canonical metadata, select one plot contract, manage plot-family output, and expose `PlotArtifact`. |
-| `ldsc.plotting._builders` | Private Matplotlib-only builders and visual validation. Imports Matplotlib and selects the noninteractive `Agg` backend. |
+| `ldsc._plotting.dispatch` | Validate canonical metadata, select one plot contract, manage plot-family output, and expose `PlotArtifact`. |
+| `ldsc._plotting.builders` | Private Matplotlib-only builders and visual validation. Imports Matplotlib and selects the noninteractive `Agg` backend. |
 | `ldsc._regression.h2_scale` | Load a canonical `h2` result, call the kernel conversion factor, write the derived table/metadata/log, and build the range plot when requested. |
 | `ldsc._regression.runner` | Compute the exact `h2` regression-bin diagnostic from the final fitted SNP population. |
 | `ldsc._regression.outputs` | Validate and write the `h2` bin table and define core ownership of nested derived roots. |

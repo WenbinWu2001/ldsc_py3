@@ -1,12 +1,14 @@
-# Continuous annotations in partitioned LDSC
+# Continuous annotations in partitioned heritability
 
 Last updated on: 2026-10-27
 
-This page starts after the partitioned-LDSC steps in the [guided tutorial](../guided-tutorial.md). The regression itself does not use quantile bins: fit the continuous annotation directly, then use `ldsc quantile-h2` to summarize how the complete fitted joint model distributes heritability from low to high target values.
+This page starts after the partitioned-heritability steps in the [guided tutorial](../guided-tutorial.md).
+The regression itself does not use quantile bins: fit the continuous annotation directly, then use `ldsc quantile-h2` to summarize how the complete fitted joint model distributes heritability from low to high target values.
 
 ## What to interpret
 
-For a quantitative annotation, interpret its conditional coefficient `tau`, SE, and coefficient p-value. The numerical `prop_snps`, `prop_h2`, and `enrichment` fields remain in `partitioned_h2.tsv` for compatibility, but they are weighted summaries and do not have the ordinary binary-category meaning.
+For a continuous annotation, interpret its coefficient (`tau`), SE, and coefficient p-value.
+The proportion of SNPs (`prop_snps`), proportion of heritability (`prop_h2`), and enrichment (`enrichment`) fields remain in `partitioned_h2.tsv` for compatibility, but they are weighted summaries and do not have their meaning for a binary annotation.
 
 The post-fit command adds two complementary views:
 
@@ -42,10 +44,10 @@ If regression used `--continue-on-query-error`, failed queries appear only in `d
 
 You need every annotation source used to fit the selected model, one target source, and reference metadata. LDSC3 stores regression delete values and annotation aggregate statistics. You must resupply the annotation matrices. The workflow checks alignment, counts, annotation sums, and available overlap cross-products; passing these checks does not establish the original annotation value at every SNP.
 
-- Parquet-R2 users can supply the existing `chr*_meta.tsv.gz` sidecars.
+- R² panel users can supply the existing `chr*_meta.tsv.gz` sidecars.
 - PLINK users should first run `ldsc ldscore --export-ref-metadata`; use the resulting `ref_metadata/chr@_meta.tsv.gz` files.
 
-Annotation names must be unique across all baseline and query sources in one LD-score artifact.
+Annotation names must be unique across all baseline and query sources in one LD-score directory.
 
 ## 3. Run the post-fit projection
 
@@ -95,9 +97,12 @@ Rows in `quantile_h2.tsv` run from the lowest to the highest target values.
 | `enrichment`, `enrichment_se` | Heritability share divided by eligible-SNP share. |
 | `enrichment_p` | Two-sided inside-versus-complement test of average per-SNP heritability. |
 
-`standardized_coefficients.tsv` has one row per fitted annotation. `tau_star` uses the complete common reference-SNP universe, including SNPs excluded only because the target value was missing. If total fitted-model heritability on that universe is nonpositive, raw `tau` remains available and `tau_star` is reported as `NaN`.
+`standardized_coefficients.tsv` has one row per fitted annotation.
+`tau_star` uses all common reference SNPs, including SNPs excluded only because the target value was missing.
+If total fitted-model heritability on those SNPs is nonpositive, raw `tau` remains available and `tau_star` is reported as `NaN`.
 
-The diagnostics directory contains the run log, full provenance, and a compressed table of excluded or problematic SNP identities. If you need coefficients for separate binary quantile categories rather than a post-fit projection, construct binary bins, recompute their LD scores, and fit those bins as annotations.
+The diagnostics directory contains the run log, full provenance, and a compressed table of excluded or problematic SNP identities.
+If you need coefficients for separate binary quantile annotations rather than a post-fit projection, construct binary bins, recompute their LD scores, and fit those bins as annotations.
 
 ## Quantitative-count precision
 
@@ -105,4 +110,8 @@ An earlier memory completion review identified batch-dependent float32 annotatio
 
 ## Memory during exact quantile analysis
 
-`quantile-h2` keeps the original exact global boundaries and tie/missing-target rules. It first validates the common SNP universe and computes boundaries from eligible float64 targets, then accumulates annotation statistics chromosome by chromosome using those same boundaries. It retains neither whole-genome fitted annotation matrices nor dense SNP-by-quantile indicators. Full-common standardization still includes target-excluded SNPs; complete alignment diagnostics are streamed. See [the quantile memory design](../../dev/design/memory-and-cpu.md#exact-global-quantiles).
+`quantile-h2` keeps the original exact global boundaries and tie/missing-target rules.
+It first validates the common reference SNPs and computes boundaries from eligible float64 targets, then accumulates annotation statistics chromosome by chromosome using those same boundaries.
+It retains neither whole-genome fitted annotation matrices nor dense SNP-by-quantile indicators.
+Full-common standardization still includes target-excluded SNPs; complete alignment diagnostics are streamed.
+See [the quantile memory design](../../dev/design/memory-and-cpu.md#exact-global-quantiles).

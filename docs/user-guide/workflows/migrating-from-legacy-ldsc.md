@@ -168,7 +168,7 @@ Coordinate identity requires a resolved build and unique coordinates; an explici
 Conversion never lifts over coordinates or infers alleles, so the converted LD scores are allele-unaware in both modes.
 
 Munge new summary statistics with a SNP identifier mode of the same family: `rsid` against an `rsid` conversion, `chr_pos` against a `chr_pos` conversion.
-Allele-aware munged summary statistics need `--allow-identity-downgrade` at regression, and rsID and coordinate modes never mix; see [regression provenance and downgrade](../../reference/snp-identity-and-genome-build.md#regression-provenance-hierarchy-and-downgrade).
+Allele-aware munged summary statistics need `--allow-identity-downgrade` at regression, and rsID-family and coordinate-family modes never mix; see [regression provenance and downgrade](../../reference/snp-identity-and-genome-build.md#regression-provenance-hierarchy-and-downgrade).
 Legacy `.sumstats(.gz)` files are matched by rsID automatically.
 
 ### Outputs

@@ -1,8 +1,8 @@
-# Conventional Versus Partitioned LDSC Heritability
+# SNP Heritability from LDSC Versus Partitioned Heritability
 
-Last updated on: 2026-08-24
+Last updated on: 2026-10-27
 
-Conventional one-column LDSC and multi-annotation partitioned LDSC target the
+Conventional one-column LDSC and multi-annotation partitioned heritability target the
 same genome-wide SNP heritability, but they do not generally produce identical
 numerical estimates.
 The two approaches make different assumptions about how heritability is
@@ -28,9 +28,9 @@ This does not mean that every realized SNP effect has the same magnitude.
 Rather, the working model assigns every SNP the same expected contribution to
 heritability and uses one LD-score coefficient to summarize the genome.
 
-### Multi-annotation partitioned LDSC
+### Multi-annotation partitioned heritability
 
-Partitioned LDSC fits
+The partitioned heritability analysis fits
 
 ```text
 E[chi_j^2] = intercept + N_j * sum_c tau_c * l(j, c),
@@ -49,8 +49,8 @@ where `a(k, c)` records SNP `k`'s value for annotation `c`.
 **The partitioned model allows per-SNP heritability to vary according to the
 SNP's modeled importance, as defined by the included annotations.**
 For example, SNPs in coding regions, promoters, enhancers, conserved regions,
-or other functional categories can have different expected per-SNP
-heritability from SNPs outside those categories.
+or other functional annotations can have different expected per-SNP
+heritability from SNPs outside those annotations.
 The distribution is therefore not uniform in general.
 The model can represent only the forms of importance encoded by the supplied
 annotations, so annotation selection determines which departures from
@@ -69,7 +69,7 @@ This total aggregates the annotation-specific fitted contributions.
 
 ### 2.1 The one-column model is a constrained model
 
-Suppose two annotations divide the genome into categories `A` and `B`.
+Suppose two binary annotations divide the genome into SNP sets `A` and `B`.
 The conventional model effectively imposes a common per-SNP contribution,
 
 ```text
@@ -82,7 +82,7 @@ The partitioned model allows
 tau_A != tau_B.
 ```
 
-Even when the total LD score is the sum of the category-specific LD scores, the
+Even when the total LD score is the sum of the annotation-specific LD scores, the
 slope from a regression on that sum does not generally equal the total formed
 from several freely estimated slopes.
 The conventional estimate comes from a constrained regression, whereas the
@@ -93,7 +93,7 @@ projection and can change the estimated total.
 
 The estimates should become similar when the uniform model is adequate, or when
 the annotation-specific coefficients happen to be similar.
-They can differ when functional categories have meaningfully different
+They can differ when functional annotations have meaningfully different
 expected per-SNP contributions.
 
 ### 2.2 The one-column model can average over annotation-specific architecture
@@ -104,7 +104,7 @@ Its single coefficient becomes a weighted genome-wide average of the different
 annotation-specific effects.
 
 The partitioned model can assign different conditional contributions to the
-included categories.
+included annotations.
 Adding these regressors changes how the model attributes variation in the GWAS
 chi-square statistics, which can change both the individual coefficients and
 their aggregate total.
@@ -178,9 +178,9 @@ The conventional and partitioned estimates should generally be reasonably
 close when:
 
 - both analyses use the same GWAS summary statistics and regression SNPs;
-- both use the same reference-SNP universe and `M` definition;
+- both use the same reference SNPs and `M` definition;
 - chi-square filtering and intercept settings are harmonized;
-- the annotations describe the same overall reference-SNP universe;
+- the annotations describe the same overall set of reference SNPs;
 - the multi-annotation design is well-conditioned;
 - sample size is large; and
 - both the uniform and annotation-informed working models approximate the

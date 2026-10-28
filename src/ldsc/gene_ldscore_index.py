@@ -1952,7 +1952,7 @@ def _load_gene_ldscore_index(
             "Gene LD-score index root has the wrong artifact_type."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
-            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
     index_identity = root.get("index_identity")
     index_id = root.get("index_id")
@@ -1961,7 +1961,7 @@ def _load_gene_ldscore_index(
             "Gene LD-score index semantic identity is invalid."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
-            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
     try:
         snp_identifier = normalize_snp_identifier_mode(str(index_identity.get("snp_identifier")))
@@ -1970,7 +1970,7 @@ def _load_gene_ldscore_index(
             "Gene LD-score index SNP identity metadata is invalid."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
-            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         ) from exc
     genome_build = index_identity.get("genome_build")
     if genome_build not in {"hg19", "hg38"}:
@@ -1978,14 +1978,14 @@ def _load_gene_ldscore_index(
             "Gene LD-score index genome-build metadata must be explicit hg19 or hg38."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
-            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
     if root.get("snp_identifier") != snp_identifier or root.get("genome_build") != genome_build:
         raise LDSCInputError(
             "Gene LD-score index root identity metadata disagrees with index_identity."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
-            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
     chromosomes = tuple(str(chrom) for chrom in root.get("chromosomes", ()))
     expected_coverage = tuple(str(chrom) for chrom in index_identity.get("chromosomes", ()))
@@ -1994,7 +1994,7 @@ def _load_gene_ldscore_index(
             "Gene LD-score index chromosome coverage is invalid."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
-            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
     full_coverage = tuple(str(value) for value in range(1, 23))
     if not _allow_partial_for_tests and chromosomes != full_coverage:
@@ -2002,7 +2002,7 @@ def _load_gene_ldscore_index(
             "Gene LD-score index must cover autosomes 1 through 22; partial production indexes are unsupported."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
-            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
     from ._input_preflight import inspect_index_paths
     advance(0, total=len(chromosomes))
@@ -2018,7 +2018,7 @@ def _load_gene_ldscore_index(
             "Gene LD-score index catalog schema is invalid."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
-            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
     expected_gene_indices = np.arange(len(catalog), dtype=np.int64)
     if not np.array_equal(catalog["gene_index"].to_numpy(), expected_gene_indices):
@@ -2026,7 +2026,7 @@ def _load_gene_ldscore_index(
             "Gene LD-score index catalog gene_index ordering is invalid."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
-            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
     catalog_authority = GeneCatalog.from_embedded_frame(catalog)
     if index_identity.get("catalog") != _catalog_identity_records(catalog):
@@ -2034,14 +2034,14 @@ def _load_gene_ldscore_index(
             "Gene LD-score index embedded catalog disagrees with its semantic identity."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
-            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
     if catalog["included"].dtype != np.bool_:
         raise LDSCInputError(
             "Gene LD-score index catalog included flags must use Boolean dtype."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
-            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
     source_values = catalog["source"].fillna("").astype(str)
     if (
@@ -2053,7 +2053,7 @@ def _load_gene_ldscore_index(
             "Gene LD-score index catalog source must be one nonempty source basename."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
-            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
     gene_policy = index_identity.get("gene_exclude_regions")
     if gene_policy not in {"none", "mhc"}:
@@ -2061,7 +2061,7 @@ def _load_gene_ldscore_index(
             "Gene LD-score index gene-exclusion policy is invalid."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
-            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
     eligible = select_index_eligible_gene_indices(
         catalog_authority,
@@ -2074,14 +2074,14 @@ def _load_gene_ldscore_index(
             "Gene LD-score index catalog inclusion policy disagrees with its coordinates and metadata."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
-            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
     if not np.array_equal(catalog["exclusion_reason"].fillna("").astype(str), expected_reasons):
         raise LDSCInputError(
             "Gene LD-score index catalog exclusion reasons disagree with its inclusion policy."
             " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
             "build-gene-ldscore-index. See "
-            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+            "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
     chromosome_paths = {}
     baseline_columns = None
@@ -2100,7 +2100,7 @@ def _load_gene_ldscore_index(
                     f"Gene LD-score index catalog chromosome_gene_row ordering is invalid for chromosome {chrom}."
                     " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
                     "build-gene-ldscore-index. See "
-                    "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+                    "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
                 )
             record = _load_index_chromosome(
                 index_path,
@@ -2116,7 +2116,7 @@ def _load_gene_ldscore_index(
                     "Gene LD-score index baseline columns disagree across chromosomes."
                     " Restore the complete saved index from one compatible build, or regenerate it with ldsc "
                     "build-gene-ldscore-index. See "
-                    "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-index-is-missing-corrupt-or-incompatible."
+                    "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
                 )
             baseline_columns = columns
             counts = record.atom_model.gene_to_atom.astype(np.int64) @ record.atom_statistics.atom_count_all

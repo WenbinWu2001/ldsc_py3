@@ -146,7 +146,7 @@ class IdentityMetadataValidationTest(unittest.TestCase):
         self.assertIn("Most likely", message)
         self.assertIn("Regenerate the artifact with the current LDSC package", message)
         self.assertIn(
-            "docs/user-guide/troubleshooting.md#common-ldsc-artifact-schema-or-provenance-is-incompatible",
+            "docs/user-guide/troubleshooting.md#common-ldsc3-artifact-schema-or-provenance-is-incompatible",
             message,
         )
 

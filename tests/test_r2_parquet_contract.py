@@ -23,7 +23,7 @@ from ldsc._kernel.ref_panel import ParquetR2RefPanel
 from ldsc._kernel.snp_identity import sidecar_identity_sha256
 from ldsc.r2_query import R2Panel
 
-ANCHOR = "docs/user-guide/troubleshooting.md#ldscore-parquet-r2-input-is-incompatible"
+ANCHOR = "docs/user-guide/troubleshooting.md#ldscore-r2-panel-is-incompatible"
 
 
 def _write_panel(root: Path, chrom: str = "1", *, snp_identifier: str = "chr_pos_allele_aware") -> Path:

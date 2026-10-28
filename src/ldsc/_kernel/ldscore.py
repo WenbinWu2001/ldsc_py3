@@ -97,7 +97,7 @@ LOGGER = logging.getLogger("LDSC.ldscore")
 _LDSCORE_INTERSECTION_DOC = (
     "docs/user-guide/troubleshooting.md#ldscore-no-annotation-snps-remain-after-reference-panel-intersection"
 )
-_LDSCORE_PARQUET_DOC = "docs/user-guide/troubleshooting.md#ldscore-parquet-r2-input-is-incompatible"
+_LDSCORE_PARQUET_DOC = "docs/user-guide/troubleshooting.md#ldscore-r2-panel-is-incompatible"
 # K bounds buffered pairs; CSR construction and projection add working arrays.
 _CSR_CHUNK_PAIRS = 16_000_000
 REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP")

@@ -2,14 +2,14 @@
 
 Last updated on: 2026-10-27
 
-For post-fit exact conversion or a prevalence-sensitivity curve from a saved h2 result, see the [plotting results manual](plotting.md#explore-liability-scale-h2-over-population-prevalence).
+For post-fit exact conversion or a prevalence-sensitivity curve from a saved `h2` result, see the [plotting results manual](plotting.md#explore-liability-scale-snp-heritability-over-population-prevalence).
 
-LDSC estimates heritability and genetic covariance on the **observed scale** by
+LD score regression estimates SNP heritability and genetic covariance on the **observed scale** by
 default. For binary (case-control) traits, the observed-scale value depends on
 the case fraction in your sample, so it is not comparable across studies. The
 **liability scale** removes that dependence and is the standard scale to report.
 
-You enable the conversion by giving LDSC two prevalences per binary trait:
+You enable the conversion by giving LDSC3 two prevalences per binary trait:
 
 - `--samp-prev` (P): the **case fraction in the GWAS sample** (e.g. 0.5 for a
   balanced case-control study).
@@ -24,7 +24,7 @@ scale -- so conversion changes only heritability and genetic covariance. Output
 tables always report both scales side by side (`*_obs` and `*_liab` columns) plus
 the prevalences applied; `*_liab` columns are `NaN` when no prevalence is given.
 
-## h2: one binary trait
+## `h2`: one binary trait
 
 ```bash
 ldsc h2 \
@@ -39,7 +39,7 @@ ldsc h2 \
 factor), with `samp_prev` / `pop_prev` columns. Omit both flags for observed
 scale only (`total_h2_liab` is then `NaN`).
 
-## partitioned-h2: one binary trait
+## `partitioned-h2`: one binary trait
 
 ```bash
 ldsc partitioned-h2 \
@@ -51,10 +51,10 @@ ldsc partitioned-h2 \
 ```
 
 `partitioned_h2.tsv` reports `category_h2_obs` and `category_h2_liab` per
-category, plus the whole-model `total_h2_obs`/`total_h2_liab`. Proportions,
+annotation, plus the whole-model `total_h2_obs`/`total_h2_liab`. Proportions,
 enrichment, and coefficients are scale-invariant.
 
-## rg: two binary traits (ordered list)
+## `rg`: two binary traits (ordered list)
 
 Give a comma-separated value per trait, in the same order as
 `--sumstats-sources`. The population prevalence of schizophrenia and bipolar
@@ -72,7 +72,7 @@ ldsc rg \
 `rg_full.tsv` reports `h2_1_liab`, `h2_2_liab`, and `gencov_liab`; `rg` is
 unchanged. The run log echoes the prevalence applied to each trait.
 
-## rg: one binary trait and one quantitative trait
+## `rg`: one binary trait and one quantitative trait
 
 Mark the quantitative trait with `nan` in both lists (its heritability has no
 liability scale, but the genetic covariance is still partially rescaled):
@@ -86,7 +86,7 @@ ldsc rg \
   --pop-prev 0.01,nan
 ```
 
-## rg: many traits via a prevalence manifest
+## `rg`: many traits via a prevalence manifest
 
 For multi-trait runs (especially with glob inputs where the resolved order is
 not obvious), provide a manifest looked up by **trait name** instead of position:
@@ -122,5 +122,5 @@ Manifest notes:
 - `--prevalence-manifest` and `--samp-prev`/`--pop-prev` are mutually exclusive.
 
 If two inputs share the same munged trait name, the manifest cannot tell them
-apart; LDSC aborts and asks you to use the ordered list, or re-munge with
+apart; LDSC3 aborts and asks you to use the ordered list, or re-munge with
 distinct trait names.

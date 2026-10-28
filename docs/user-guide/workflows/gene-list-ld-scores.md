@@ -37,7 +37,7 @@ The coordinates above are fictional.
 Build the gene coordinate catalog from one authoritative gene annotation release in one genome build: LDSC3 cannot detect rows that silently mix genome builds.
 It defines the entire set of genes a gene list can name, and no gene coordinate catalog is packaged with LDSC3.
 Direct mode reads it from `--gene-coordinate-file`; a gene LD-score index embeds it when the index is built.
-The full contract is in [coordinate catalog](../../reference/formats/gene-lists.md#coordinate-catalog).
+The full contract is in [gene coordinate catalog](../../reference/formats/gene-lists.md#coordinate-catalog).
 
 ### Gene lists
 

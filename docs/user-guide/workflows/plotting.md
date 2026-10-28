@@ -1,12 +1,13 @@
-# Plotting LDSC Results
+# Plotting LDSC3 Results
 
 Last updated on: 2026-10-27
 
-The plotting command turns a completed LDSC result directory into one concise exploratory figure. It chooses the plot from the result metadata, so you provide the result root rather than a table or plot type.
+The plotting command turns a completed LDSC3 result directory into one concise exploratory figure.
+It chooses the plot from the result metadata, so you provide the result root rather than a table or plot type.
 
 ## Installation
 
-Matplotlib is included in the default LDSC installation; no plotting extra is needed:
+Matplotlib is included in the default LDSC3 installation; no plotting extra is needed:
 
 ```bash
 python -m pip install ldsc
@@ -42,10 +43,10 @@ The plot command never modifies `h2.tsv`, `rg.tsv`, `partitioned_h2.tsv`, `quant
 
 | Analysis you ran | Pass this directory to `--result-dir` | Figure | Scientific question |
 | --- | --- | --- | --- |
-| `ldsc h2` | Root directory containing `h2.tsv` | Binned LD Score regression diagnostic | Do observed mean chi-square statistics increase with LD Score in the pattern fitted by LDSC? |
+| `ldsc h2` | Root directory containing `h2.tsv` | Binned LD score regression diagnostic | Do observed mean chi-square statistics increase with LD score in the pattern fitted by LD score regression? |
 | `ldsc rg`, all pairs | Root directory containing `rg.tsv` | Lower-triangular genetic-correlation heatmap | Which trait pairs share positive or negative genetic effects, and how uncertain is each estimate? |
 | `ldsc rg --anchor-trait ...` | Root directory containing `rg.tsv` | Anchor-trait forest plot | How strongly is each partner trait genetically correlated with one focal trait? |
-| Baseline-only functional `ldsc partitioned-h2` | Root directory containing `partitioned_h2.tsv` | Functional heritability-enrichment bars | Which functional categories carry more or less heritability than expected from their SNP share? |
+| Baseline-only functional `ldsc partitioned-h2` | Root directory containing `partitioned_h2.tsv` | Functional heritability-enrichment bars | Which functional annotations carry more or less heritability than expected from their SNP share? |
 | Query/cell-type `ldsc partitioned-h2` | Aggregate root containing the query summary `partitioned_h2.tsv` | Query-annotation evidence scatter plot | Which separately fitted queries show stronger nominal evidence after conditioning on the same baseline annotations? |
 | `ldsc quantile-h2` | Root directory containing `quantile_h2.tsv` | Continuous-annotation quantile-enrichment bars | Does heritability enrichment change across increasing values of the target annotation? |
 
@@ -53,23 +54,30 @@ Do not pass a cell-type result's internal `diagnostics/query_annotations/<query>
 
 ## Reading the plots
 
-### Binned LD Score regression diagnostic
+### Binned LD score regression diagnostic
 
-Each point is one rank bin of SNPs. The horizontal coordinate is mean LD Score and the vertical coordinate is mean chi-square statistic. The line connects the LDSC fitted expectation saved during the original h2 fit; it is not a new trend fit. Darker point colors indicate greater relative regression weight.
+Each point is one rank bin of SNPs.
+The horizontal coordinate is mean LD score and the vertical coordinate is mean chi-square statistic.
+The line connects the fitted expectation saved during the original `h2` fit; it is not a new trend fit.
+Darker point colors indicate greater relative regression weight.
 
-Use this figure to inspect whether the binned observed pattern broadly follows the fitted LDSC relationship and whether deviations concentrate in particular LD Score ranges. It is a diagnostic, not an additional h2 estimate. Current h2 runs always save the exact bin table needed by the plot. Older runs without `diagnostics/ld_score_regression_bins.tsv` must be rerun; the plot command will not reconstruct or approximate the bins.
+Use this figure to inspect whether the binned observed pattern broadly follows the fitted LD score regression relationship and whether deviations concentrate in particular LD score ranges.
+It is a diagnostic, not an additional SNP heritability estimate.
+Current `h2` runs always save the exact bin table needed by the plot.
+Older runs without `diagnostics/ld_score_regression_bins.tsv` must be rerun; the plot command will not reconstruct or approximate the bins.
 
 ### Functional heritability enrichment
 
 Each dark-grey horizontal bar is an annotation's heritability enrichment. The error bar is one block-jackknife standard error. The dashed grey line at enrichment 1 is the null expectation that an annotation's share of heritability equals its share of SNPs.
 
-Values above 1 indicate enrichment; values below 1 indicate depletion. Overlapping annotations and correlated LD Scores mean bars are not independent. The plot intentionally does not display functional coefficients or p-values.
+Values above 1 indicate enrichment; values below 1 indicate depletion. Overlapping annotations and correlated LD scores mean bars are not independent. The plot intentionally does not display functional coefficients or p-values.
 
 ### Query/cell-type annotation evidence
 
 Each point is nominal one-sided \(-\log_{10}(P)\) evidence for one query annotation's positive conditional coefficient. Each query comes from a separate fit that includes the same baseline annotations. A point farther to the right has a smaller nominal p-value.
 
-The plot is an exploratory summary, not a ranking of comparable effect sizes. It shows no multiple-testing correction, threshold, enrichment, or raw coefficient. Apply any study-specific multiplicity procedure outside this plotting utility.
+The plot is an exploratory summary, not a ranking of comparable coefficients.
+It shows no multiple-testing correction, threshold, enrichment, or raw coefficient. Apply any study-specific multiplicity procedure outside this plotting utility.
 
 ### Continuous-annotation quantile enrichment
 
@@ -91,11 +99,14 @@ The figure displays estimates and uncertainty only; it does not add p-values, sy
 
 Each point is \(r_g\) between the anchor trait and one partner trait, and each horizontal error bar spans one block-jackknife SE. The dashed grey line marks zero genetic correlation. This view is more readable than a sparse matrix when every comparison shares one anchor.
 
-An aligned `Observed h² (SE)` text column between the partner names and correlation axis shows each partner's saved single-trait heritability. The subtitle shows the anchor's observed h2 and jackknife SE. Both use the same source, two-decimal formatting, and `failed` convention as the heatmap diagonal. The h2 column contains annotations, so its values do not share the correlation axis.
+An aligned `Observed h² (SE)` text column between the partner names and correlation axis shows each partner's saved single-trait SNP heritability.
+The subtitle shows the anchor's observed-scale SNP heritability and block-jackknife SE.
+Both use the same source, two-decimal formatting, and `failed` convention as the heatmap diagonal.
+The heritability column holds text labels, so its values do not share the correlation axis.
 
-## Explore liability-scale h2 over population prevalence
+## Explore liability-scale SNP heritability over population prevalence
 
-If a case-control trait's population prevalence \(K\) is uncertain, convert an existing observed-scale h2 result over a fine grid without rerunning regression:
+If a case-control trait's population prevalence $K$ is uncertain, convert an existing observed-scale `h2` result over a fine grid without rerunning regression:
 
 ```bash
 ldsc convert-h2-scale \
@@ -115,7 +126,9 @@ tutorial_outputs/trait_h2/postprocessing/liability-scale/
     convert-h2-scale.log
 ```
 
-The curve shows liability-scale h2 across assumed population prevalence, with a ribbon of one block-jackknife SE. The prevalence values are assumptions, not estimates, and their uncertainty is not propagated. The plot therefore describes sensitivity to \(K\); it does not correct or measure uncertainty in \(K\).
+The curve shows liability-scale SNP heritability across assumed population prevalence, with a ribbon of one block-jackknife SE.
+The prevalence values are assumptions, not estimates, and their uncertainty is not propagated.
+The plot therefore describes sensitivity to $K$; it does not correct or measure uncertainty in $K$.
 
 For one known population prevalence, exact mode does not import Matplotlib and writes only a one-row table:
 
@@ -126,7 +139,10 @@ ldsc convert-h2-scale \
   --pop-prev 0.10
 ```
 
-This post-processing route complements the exact shortcut on regression commands. Use `--samp-prev` and `--pop-prev` directly with `h2` or `partitioned-h2` when you already know \(K\) at fit time. For `rg`, supply one prevalence pair per input trait using its existing ordered lists or prevalence manifest. Changing \(K\) later does not require refitting; run `convert-h2-scale` on the saved h2 result.
+This post-processing route complements the exact shortcut on regression commands.
+Use `--samp-prev` and `--pop-prev` directly with `h2` or `partitioned-h2` when you already know $K$ at fit time.
+For `rg`, supply one prevalence pair per input trait using its existing ordered lists or prevalence manifest.
+Changing $K$ later does not require refitting; run `convert-h2-scale` on the saved `h2` result.
 
 An exact conversion with `--overwrite` removes a stale sensitivity figure from an earlier range conversion, because exact mode has no sensitivity plot.
 

@@ -109,7 +109,7 @@ _QUERY_REQUIRES_BASELINE_MESSAGE = (
 _LDSCORE_INTERSECTION_DOC = (
     "docs/user-guide/troubleshooting.md#ldscore-no-annotation-snps-remain-after-reference-panel-intersection"
 )
-_LDSCORE_PARQUET_DOC = "docs/user-guide/troubleshooting.md#ldscore-parquet-r2-input-is-incompatible"
+_LDSCORE_PARQUET_DOC = "docs/user-guide/troubleshooting.md#ldscore-r2-panel-is-incompatible"
 
 
 

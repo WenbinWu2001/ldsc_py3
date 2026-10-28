@@ -2,7 +2,8 @@
 
 Last updated on: 2026-10-27
 
-`ldsc munge-sumstats` converts a raw GWAS table into LDSC3-ready summary statistics. See the current [munge-sumstats guide](../../reference/munge-sumstats.md) for the full workflow and output contract.
+`ldsc munge-sumstats` converts raw summary statistics into munged summary statistics for LDSC3.
+See the [`munge-sumstats` reference](../../reference/munge-sumstats.md) for the full workflow and output contract.
 
 
 Source `auto` checks raw coordinates and any coordinate-based SNP keep list before QC and filtering.
@@ -10,7 +11,7 @@ A selected raw column such as `--pos hg19_POS` declares its build without coordi
 A small generic `CHR/POS` keep list without sufficient HM3 evidence causes an error that names `--sumstats-snps-file` and suggests `--source-genome-build hg19` or `hg38`.
 In keep lists, matching build-specific columns are preferred over generic `POS`; rsID filters require no build check.
 A concrete source build must agree with input declarations and supplies the build for unlabeled coordinates without fresh inference.
-`--output-genome-build` remains the separate requested target of any coordinate conversion.
+`--output-genome-build` remains the separate requested target of any liftover.
 See the [shared policy and grouped diagnostics](../concepts/snp-identity-and-genome-build.md#genome-build-inference-checking-and-overrides).
 
 ## Recommended workflow
@@ -153,20 +154,24 @@ For an ordinary headered, whitespace-delimited raw GWAS table, supply the fields
 
 | Field | When needed | Meaning and alternatives |
 | --- | --- | --- |
-| `SNP` | Required by the current raw-input reader in every identity mode. | A variant label. In rsID modes it supplies the matching identifier; coordinate modes still require this column even though matching uses coordinates. |
-| `CHR`, `POS` | Required for `chr_pos` and `chr_pos_allele_aware`. | Chromosome and positive, one-based base-pair position in the source build. Optional for rsID modes. Choose the output build separately with `--output-genome-build`. |
+| `SNP` | Required by the current raw-input reader in every SNP identifier mode. | A variant label. In rsID-family modes it supplies the matching identifier; coordinate-family modes still require this column even though matching uses coordinates. |
+| `CHR`, `POS` | Required for `chr_pos` and `chr_pos_allele_aware`. | Chromosome and positive, one-based base-pair position in the source build. Optional for rsID-family modes. Choose the output build separately with `--output-genome-build`. |
 | `A1`, `A2` | Required for allele-aware modes, including the default `chr_pos_allele_aware`. | `A1` is the allele relative to which the signed statistic is defined; `A2` is the other allele. Base `chr_pos` and `rsid` modes can munge without allele columns. |
-| `P` | Required, including when input `Z` is available. | Association p-value in `(0, 1]`. LDSC derives the output Z magnitude from P; it does not compute P from a supplied effect or Z column. |
+| `P` | Required, including when input `Z` is available. | Association p-value in `(0, 1]`. LDSC3 derives the output Z magnitude from P; it does not compute P from a supplied effect or Z column. |
 | One signed statistic: `Z`, `BETA`, `LOG_ODDS`, or `OR` | Required unless `--a1-inc` is explicitly used. | Supplies the direction relative to A1. The null is `0` for Z/beta/log odds and `1` for OR. Choose one explicitly with `--signed-sumstats COLUMN,NULL` if several are present. `--a1-inc` asserts that A1 is always the increasing allele and produces positive Z; use it only when that assertion is justified. |
 | `N`, or both `N_CAS` and `N_CON` | Required unless sample size is supplied as a constant. | Use per-variant N or a case/control pair as described in [Sample-size columns](#sample-size-columns). Alternatively, use `--N VALUE` or both `--N-cas VALUE --N-con VALUE`. Input sample-size columns take precedence over these fallback constants. |
 
-For the default allele-aware coordinate mode with per-variant N, a minimal header is:
+For the default `chr_pos_allele_aware` mode with per-variant N, a minimal header is:
 
 ```text
 SNP CHR POS A1 A2 P BETA N
 ```
 
-For explicit `--snp-identifier rsid`, a minimal header is `SNP P BETA N`; allele-aware rsID mode additionally needs A1/A2. `INFO`, `FRQ`, and `NSTUDY` are optional. Standard errors are not required because this workflow derives Z from P and the selected direction statistic. Already-munged legacy `SNP A1 A2 Z N` files can be passed directly to regression; the raw munging route still requires P. See [legacy summary-statistics compatibility](../../reference/formats/legacy-sumstats.md).
+For explicit `--snp-identifier rsid`, a minimal header is `SNP P BETA N`; `rsid_allele_aware` additionally needs A1/A2.
+`INFO`, `FRQ`, and `NSTUDY` are optional.
+Standard errors are not required because this workflow derives Z from P and the selected direction statistic.
+Legacy munged `SNP A1 A2 Z N` files can be passed directly to regression; the raw munging route still requires P.
+See [legacy summary-statistics compatibility](../../reference/formats/legacy-sumstats.md).
 
 Sources: `prepare_munge_input` in [_sumstats_input.py](../../../src/ldsc/_sumstats_input.py) validates required fields and sample-size choices; `munge_sumstats` in [_kernel/sumstats_munger.py](../../../src/ldsc/_kernel/sumstats_munger.py) converts P to signed Z.
 
@@ -174,7 +179,9 @@ Sources: `prepare_munge_input` in [_sumstats_input.py](../../../src/ldsc/_sumsta
 
 *<u>[Clean up this section.]</u>*
 
-The table lists the raw-sumstats registry, including canonical spellings. Matching is case-insensitive; leading/trailing whitespace is stripped, and periods and hyphens are converted to underscores. For example, `p.value` matches `P_VALUE`. This reader uses cleaned exact aliases, not arbitrary substring or suffix matching. If multiple columns map to one field, choose the intended column explicitly or exclude the extra columns with `--ignore`.
+The table lists the column-name registry for raw summary statistics, including canonical spellings.
+Matching is case-insensitive; leading/trailing whitespace is stripped, and periods and hyphens are converted to underscores.
+For example, `p.value` matches `P_VALUE`. This reader uses cleaned exact aliases, not arbitrary substring or suffix matching. If multiple columns map to one field, choose the intended column explicitly or exclude the extra columns with `--ignore`.
 
 | Canonical field | Recognized headers | Explicit override / role |
 | --- | --- | --- |
@@ -219,7 +226,9 @@ Source: `RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS`, `RAW_SUMSTATS_SIGNED_STAT_SPE
 | Case count, alternative to N | `--N-cas-col COLUMN` | `--N-cas-col cases` |
 | Control count, paired with cases | `--N-con-col COLUMN` | `--N-con-col controls` |
 
-Field requirements depend on identity mode and sample-size strategy; see [Minimal raw input fields](#minimal-raw-input-fields). For signed statistics, use null `0` for BETA, Z, or log odds; `1` for OR. For per-variant sample sizes, supply either `--N-col` or both case/control column flags.
+Field requirements depend on the SNP identifier mode and sample-size strategy; see [Minimal raw input fields](#minimal-raw-input-fields).
+For signed statistics, use null `0` for BETA, Z, or log odds; `1` for OR.
+For per-variant sample sizes, supply either `--N-col` or both case/control column flags.
 
 **Constant sample sizes:** these flags take numbers instead of column names and supply the same sample size for every retained variant when per-variant sample-size columns are absent.
 

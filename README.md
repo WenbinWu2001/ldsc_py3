@@ -78,7 +78,7 @@ Also cite the scientific methods used in your analysis:
 
 | Analysis | Method reference |
 | --- | --- |
-| LDSC, SNP heritability, or regression intercept | [Bulik-Sullivan et al. (2015), basic LD Score regression](https://doi.org/10.1038/ng.3211) |
+| LDSC, SNP heritability, or regression intercept | [Bulik-Sullivan et al. (2015), LD score regression](https://doi.org/10.1038/ng.3211) |
 | Genetic correlation | [Bulik-Sullivan et al. (2015), genetic correlations](https://doi.org/10.1038/ng.3406) |
 | Partitioned heritability | [Finucane et al. (2015), functional annotations](https://doi.org/10.1038/ng.3404) |
 | Continuous annotations | [Gazal et al. (2017), LD-dependent architecture](https://doi.org/10.1038/ng.3954) |

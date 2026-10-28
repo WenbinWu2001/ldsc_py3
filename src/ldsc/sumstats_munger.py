@@ -107,7 +107,7 @@ _REQUIRED_COLUMN_TROUBLESHOOTING = (
     "docs/user-guide/troubleshooting.md#munge-sumstats-could-not-map-a-required-column"
 )
 _CURATED_ARTIFACT_TROUBLESHOOTING = (
-    "docs/user-guide/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated"
+    "docs/user-guide/troubleshooting.md#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated"
 )
 
 

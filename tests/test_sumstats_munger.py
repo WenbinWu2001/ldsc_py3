@@ -745,7 +745,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 ldsc.LDSCInputError,
                 "Cannot load curated sumstats at .*snp_identifier='rsid_allele_aware' requires A1/A2 columns.*"
                 "Re-run munge-sumstats from the raw GWAS file.*"
-                "docs/user-guide/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
+                "docs/user-guide/troubleshooting.md#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
             ):
                 ldsc.load_sumstats(sumstats_file)
 
@@ -773,7 +773,7 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 ldsc.LDSCInputError,
                 "missing or invalid SNP identity rows.*"
-                "docs/user-guide/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
+                "docs/user-guide/troubleshooting.md#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
             ):
                 ldsc.load_sumstats(sumstats_file)
 
@@ -1812,7 +1812,7 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 ldsc.LDSCInputError,
                 "duplicate or invalid SNP identity rows.*duplicate_identity.*"
-                "docs/user-guide/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
+                "docs/user-guide/troubleshooting.md#munge-sumstats-munged-summary-statistics-are-malformed-or-outdated",
             ):
                 ldsc.load_sumstats(sumstats_file)
 

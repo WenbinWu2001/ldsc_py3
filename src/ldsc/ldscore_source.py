@@ -31,7 +31,7 @@ from .path_resolution import normalize_path_token
 
 
 LOGGER = logging.getLogger("LDSC.ldscore_source")
-_LDSCORE_SCHEMA_DOC = "docs/user-guide/troubleshooting.md#common-ldsc-artifact-schema-or-provenance-is-incompatible"
+_LDSCORE_SCHEMA_DOC = "docs/user-guide/troubleshooting.md#common-ldsc3-artifact-schema-or-provenance-is-incompatible"
 
 
 def load_query_manifest(root, metadata, baseline_columns, baseline_schema):

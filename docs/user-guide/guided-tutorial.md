@@ -6,11 +6,11 @@ This tutorial walks through how to use the `ldsc` package for a series of LD sco
 
 ## Overview
 
-If you already have a reusable legacy LD-score suite, use the [convert-ldsc2-ldscores utility](workflows/migrating-from-legacy-ldsc.md) for the standard filenames and conversion flags. It provides an alternative to computing unpartitioned LD scores for `h2`/`rg`, or imports a baseline-only model for `partitioned-h2`; query/cell-type scores still use the current LD-score workflow.
+If you already have a reusable legacy LD-score suite, use the [`convert-ldsc2-ldscores` command](workflows/migrating-from-legacy-ldsc.md) for the standard filenames and conversion flags. It provides an alternative to computing unpartitioned LD scores for `h2`/`rg`, or imports a baseline-only model for `partitioned-h2`; query/cell-type scores still use the current LD-score workflow.
 
 The analysis pipeline involves:
 
-- **Before any analysis:** curate a standardized sumstats file with `ldsc munge-sumstats`.
+- **Before any analysis:** produce munged summary statistics with `ldsc munge-sumstats`.
 - **Analysis 1:** estimate the heritability of a trait.
   - Step 1: compute (unpartitioned) LD scores with `ldsc ldscore`.
   - Step 2: estimate trait heritability with `ldsc h2`.
@@ -18,21 +18,21 @@ The analysis pipeline involves:
   - Step 1: compute (unpartitioned) LD scores with `ldsc ldscore` (same as in Analysis 1).
   - Step 2: estimate cross-trait genetic correlation with `ldsc rg`.
   - Step 3: plot correlations and single-trait observed heritabilities with `ldsc plot`.
-- **Analysis 3:** partition heritability with functional annotations (known as cell-type-specific regression).
+- **Analysis 3:** partition heritability with functional annotations (cell-type enrichment).
   - Step 1: compute partitioned LD scores with `ldsc ldscore`, supplying query annotations.
   - Step 2: estimate the heritability contribution of each query annotation with `ldsc partitioned-h2`.
 
 The files you will need are:
 
-- raw GWAS summary statistics files for the traits of interest (or munged sumstats from the legacy ldsc python2 codebase);
-- a reference panel for LD score calculation (either R2 parquets or the PLINK suite);
+- raw GWAS summary statistics files for the traits of interest (or legacy munged `.sumstats.gz` files);
+- a reference panel for LD-score calculation (either an R² panel or PLINK files);
 - a set of baseline annotations;
-- raw BED files or one-column gene lists for the pathways / cell types whose h2 contribution you want to test (the "query annotations").
+- raw BED files or one-column gene lists for the pathways / cell types whose SNP heritability contribution you want to test (the "query annotations").
 
 
 As a motivating example, we study the `mdd2025` trait, using 1000 Genomes Phase 3 as the reference panel and `1000G_EUR_Phase3_baseline` as the baseline annotations, with `Hippocampus_PP1.bed`, `Cerebellum_PC16.bed`, `Cerebellum_PP3.bed`, and `Cerebellum_PP1.bed` as the pathways whose heritability contribution we test after controlling for the baseline annotations.
 
-All of these resources can be found under `ldsc3_test_bundle/resources/`, except for the raw GWAS sumstats files.
+All of these resources can be found under `ldsc3_test_bundle/resources/`, except for the raw summary statistics.
 
 These commands target the current `restructure` development branch. Follow the [development installation](installation.md#development-version), then run `conda activate ldsc3-dev`. The default installation includes Matplotlib and exposes `ldsc plot`; there is no separate plotting extra. Run the Bash examples below in one Bash session.
 
@@ -45,8 +45,13 @@ OUTPUT_ROOT="${INPUT_ROOT}/tutorial_output"
 
 ### Remarks
 
-1. By default, `ldsc ldscore` writes regression rows from the bundled HapMap3 set, after applying its default MHC-and-centromere exclusion. `h2`, `rg`, and `partitioned-h2` consume those rows and have no HapMap3 flag. `munge-sumstats` also restricts to packaged HapMap3 by default; use `--sumstats-snps-file FILE` to replace its keep-list or `--no-snp-restriction` to disable it while retaining ordinary QC.
-2. Quote input patterns so LDSC receives them intact. Baseline and prebuilt annotation sources support `*` and complete-autosomal `@` suites; BED, gene-list, and rg sumstats sources support globs but not `@`. Genetic-map sources for `ldscore` and `build-gene-ldscore-index` accept comma-separated exact paths only. See the [command-specific path rules](../reference/input-paths.md#pattern-support-in-command-help).
+1. By default, `ldsc ldscore` writes LD scores for the regression SNPs from the HM3 map, after applying its default MHC-and-centromere exclusion.
+   `h2`, `rg`, and `partitioned-h2` consume those SNPs and have no HapMap3 flag.
+   `munge-sumstats` also restricts to the HM3 map by default; use `--sumstats-snps-file FILE` to replace its keep-list or `--no-snp-restriction` to disable it while retaining ordinary QC.
+2. Quote path tokens so the shell passes them to LDSC3 intact.
+   Baseline and prebuilt annotation sources support `*` and complete-autosomal `@` chromosome suites; BED, gene-list, and `rg` summary-statistics sources support globs but not `@`.
+   Genetic-map sources for `ldscore` and `build-gene-ldscore-index` accept comma-separated exact paths only.
+   See the [command-specific path rules](../reference/input-paths.md#pattern-support-in-command-help).
 3. Output directories are created automatically. Use `--overwrite` to allow overwriting existing output files.
 4. `ldsc ldscore` excludes the extended MHC and centromere regions by default.
 5. Auto build resolution checks every relevant coordinate input and shard using declarations or bounded samples.
@@ -66,13 +71,13 @@ OUTPUT_ROOT="${INPUT_ROOT}/tutorial_output"
 
 - `snp_identifier=chr_pos`: use `chr` + `pos` as the unique identifier for a SNP.
 - Use `hg19` consistently for the coordinate-based examples below. Choose the output build explicitly during munging and provide matching baseline, BED, and reference-panel coordinates.
-- These examples explicitly select base `chr_pos`; the general package default is `chr_pos_allele_aware`. Use the same identity mode across materialized inputs. See [global configuration](concepts/snp-identity-and-genome-build.md).
+- These examples explicitly select base `chr_pos`; the general package default is `chr_pos_allele_aware`. Use the same SNP identifier mode across materialized inputs. See [global configuration](concepts/snp-identity-and-genome-build.md).
 
-## Munge-sumstats
+## Munge summary statistics
 
 This section illustrates the `ldsc munge-sumstats` command.
 
-**Goal:** convert raw summary statistics files into a standardized format for use in downstream ldsc regression.
+**Goal:** convert raw summary statistics files into munged summary statistics for downstream LD score regression.
 
 **Minimal command:**
 
@@ -91,7 +96,9 @@ ldsc munge-sumstats \
   --overwrite
 ```
 
-1. The package auto-infers the genome build, the raw sumstats file format, and common column names, and automatically strips any comment lines starting with `#` from the file header. You can still pass legacy flags such as `--snp` to specify a column name if your sumstats file uses non-standard column names. For the table of column aliases the package recognizes, see the detailed `munge-sumstats` wiki.
+1. The package infers the genome build, the format of the raw summary statistics, and common column names, and strips any comment lines starting with `#` from the file header.
+   You can still pass column flags such as `--snp` if your file uses non-standard column names.
+   For the table of column aliases the package recognizes, see the [`munge-sumstats` workflow page](workflows/munge-sumstats.md).
 2. Before running the command for real, we strongly recommend using `--infer-only` to preview the inferred columns and suggested flags without writing any output. This is especially helpful if you are unsure which flags to use or about the genome build of your input file: the program will suggest the correct command to run. See the `munge-sumstats` wiki for details.
    ```bash
    ldsc munge-sumstats \
@@ -128,12 +135,12 @@ PLINK_PREFIX="${INPUT_ROOT}/resources/1000G_EUR_Phase3_plink/1000G.EUR.QC."  # h
 
 Two reference-panel sources are supported (choose one):
 
-- per-chromosome R2 parquets computed from the PLINK files;
+- an R² panel computed from the PLINK files;
 - the PLINK suite itself.
 
 ## Analysis 1: estimate the heritability of a trait
 
-**Goal:** compute LD scores from a genomic reference panel, then estimate the trait's heritability using the munged sumstats file.
+**Goal:** compute LD scores from a genomic reference panel, then estimate the trait's SNP heritability using the munged summary statistics.
 
 ### Step 1: compute (unpartitioned) LD scores with `ldsc ldscore`
 
@@ -197,15 +204,17 @@ h2/mdd2025/
         h2.log
 ```
 
-For a binary trait, `ldsc convert-h2-scale` converts a saved h2 result using supplied sample and population prevalences and writes below `<h2-result-dir>/postprocessing/liability-scale/`. It does not refit regression. See [heritability scale conversion](workflows/heritability.md#liability-scale-for-binary-traits).
+For a binary trait, `ldsc convert-h2-scale` converts a saved `h2` result using supplied sample and population prevalences and writes below `<h2-result-dir>/postprocessing/liability-scale/`.
+It does not refit regression. See [heritability scale conversion](workflows/heritability.md#liability-scale-for-binary-traits).
 
-The bin table records the exact fitted-data summary used by the binned LD Score regression diagnostic. Matplotlib is included in the default package installation; run `ldsc plot --result-dir "${H2_OUTPUT_DIR}"` to create the figure explicitly.
+The bin table records the exact fitted-data summary used by the binned LD score regression diagnostic.
+Matplotlib is included in the default package installation; run `ldsc plot --result-dir "${H2_OUTPUT_DIR}"` to create the figure explicitly.
 
 ## Analysis 2: estimate cross-trait genetic correlation between multiple traits
 
-**Goal:** estimate the genetic correlation between traits using the GWAS sumstats and LD scores.
+**Goal:** estimate the genetic correlation between traits using their munged summary statistics and LD scores.
 
-### Munge two additional sumstats
+### Munge two more sets of summary statistics
 
 ```bash
 # Munge two other traits.
@@ -234,11 +243,11 @@ done
 
 ### Step 1: compute (unpartitioned) LD scores with `ldsc ldscore` (same as in Analysis 1)
 
-Reuse the unpartitioned LD scores from the h2 section.
+Reuse the unpartitioned LD scores from the SNP heritability section.
 
 ### Step 2: estimate cross-trait genetic correlation with `ldsc rg`
 
-This command computes the cross-trait genetic correlation for *all* pairs of the input sumstats.
+This command computes the cross-trait genetic correlation for *all* pairs of the input summary statistics.
 
 ```bash
 # Step 2: Regress all trait pairs on unpartitioned LD scores.
@@ -274,23 +283,31 @@ rg/mdd2025_scz2022_adhd2019/
 ldsc plot --result-dir "${RG_OUTPUT_DIR}"
 ```
 
-This writes `plots/rg_heatmap.png` below the rg result directory, with plot metadata and a log under `plots/diagnostics/`. Lower-triangle cells show genetic correlation with jackknife SE in parentheses. Light-gray diagonal cells show each trait's observed-scale heritability with its jackknife SE underneath, using two decimal places. Add `--overwrite` when regenerating an existing figure.
+This writes `plots/rg_heatmap.png` below the `rg` result directory, with plot metadata and a log under `plots/diagnostics/`.
+Lower-triangle cells show genetic correlation with block-jackknife SE in parentheses.
+Light-gray diagonal cells show each trait's observed-scale SNP heritability with its block-jackknife SE underneath, using two decimal places.
+Add `--overwrite` when regenerating an existing figure.
 
-The diagonal uses the saved single-trait estimates in `h2_per_trait.tsv`, matched by trait name. It retains finite estimates outside 0–1; missing or unusable estimate–SE pairs display `failed`. Liability columns do not change the displayed h2 scale. Plotting reads the saved results without rerunning regression.
+The diagonal uses the saved single-trait estimates in `h2_per_trait.tsv`, matched by trait name.
+It retains finite estimates outside 0–1; missing or unusable estimate–SE pairs display `failed`.
+Liability columns do not change the displayed heritability scale.
+Plotting reads the saved results without rerunning regression.
 
-For a result produced with `ldsc rg --anchor-trait ...`, the same plot command instead writes `plots/rg_anchor_forest.png`: correlations have points and one-SE bars, partner h2 estimates appear in a separate text column, and the anchor's h2 appears in the subtitle. See [the rg wiki page](workflows/genetic-correlation.md) and [the plotting manual](workflows/plotting.md) for interpretation and malformed-input behavior.
+For a result produced with `ldsc rg --anchor-trait ...`, the same plot command instead writes `plots/rg_anchor_forest.png`: correlations have points and one-SE bars, partner SNP heritability estimates appear in a separate text column, and the anchor's SNP heritability appears in the subtitle.
+See [the genetic correlation page](workflows/genetic-correlation.md) and [the plotting manual](workflows/plotting.md) for interpretation and malformed-input behavior.
 
-## Analysis 3: partition heritability with functional annotations (known as cell-type-specific regression)
+## Analysis 3: partition heritability with functional annotations (cell-type enrichment)
 
 **Goal:** partition a trait's heritability into the contributions of a set of pathways / cell types, testing whether each query annotation contributes to heritability after controlling for the baseline annotations.
 
-Many hypotheses in this analysis are gene sets: genes differentially expressed
+Many hypotheses in this analysis are gene lists: genes differentially expressed
 in a tissue or cell type, genes prioritized by proteomics, or genes sharing a
-GO or SynGO term. LDSC-SEG demonstrated that S-LDSC can test whether
+GO or SynGO term. LDSC-SEG demonstrated that stratified LD score regression
+(S-LDSC; Finucane et al. 2015) can test whether
 heritability is enriched near specifically expressed genes conditional on both
 the baseline model and an all-genes annotation
 ([Finucane et al., 2018](https://doi.org/10.1038/s41588-018-0081-4)). For a
-large collection of gene sets, an exact gene LD-score index computes the fixed
+large collection of gene lists, a gene LD-score index computes the fixed
 PLINK/reference work once and reuses it without changing the downstream model.
 The dedicated [LDSC-SEG tutorial for protein-coding gene
 lists](workflows/cell-type-enrichment.md) does not add a control-gene annotation and
@@ -306,7 +323,10 @@ RAW_QUERY_BED_SOURCES="$INPUT_ROOT/resources/example_raw_annot/*.bed"  # put all
 BASELINE_ANNOT_SOURCES="${INPUT_ROOT}/resources/1000G_EUR_Phase3_baseline/baseline.@.annot.gz"
 ```
 
-Place your raw query files in the same directory and use a quoted glob to select them together. Direct LDSC prepares, computes, writes, and releases one query batch before starting the next, repeating reference work across batches. The saved baseline artifact is shared. Chromosome concurrency is controlled separately by `--workers`, which defaults to 1 and is capped at the chromosome count in both direct and indexed calculation. See [LD-score memory controls](workflows/ld-scores.md#many-query-annotations-and-workers) for the implementation sources and tradeoffs.
+Place your raw query files in the same directory and use a quoted glob to select them together.
+Direct LD-score calculation prepares, computes, writes, and releases one query batch before starting the next, repeating reference work across batches.
+The saved baseline LD scores are shared.
+Chromosome concurrency is controlled separately by `--workers`, which defaults to 1 and is capped at the chromosome count in both direct and indexed calculation. See [LD-score memory controls](workflows/ld-scores.md#many-query-annotations-and-workers) for the implementation sources and tradeoffs.
 
 ```bash
 PARTITIONED_LDSCORE_OUTPUT_DIR="${OUTPUT_ROOT}/partitioned_ldscore"
@@ -326,7 +346,8 @@ ldsc ldscore \
 **Remarks:**
 
 - For PLINK input, replace `--r2-dir ...` with `--plink-prefix "${PLINK_PREFIX}"`.
-- For partitioned h2 analysis, `ldsc ldscore` accepts BED files directly, so you do not need to build the annotations yourself to run this analysis. If you do want to generate annotations for other purposes, follow the *Make annotations* section below.
+- For partitioned heritability, `ldsc ldscore` accepts BED files directly, so you do not need to build the annotations yourself to run this analysis.
+  If you do want to generate annotations for other purposes, follow the *Make annotations* section below.
 - Alternatively, pass one-column plain/gzip lists through
   `--query-annot-gene-list-sources`; direct mode also requires a one-based
   build-aware `--gene-coordinate-file` and an explicit `--padding-bp`. Exact
@@ -338,7 +359,7 @@ ldsc ldscore \
   start with `diagnostics/gene_list_resolution_summary.tsv` and then filter
   `diagnostics/gene_list_audit.tsv.gz`. See the detailed
   [diagnostics and repair guide](../reference/results/gene-list-diagnostics.md).
-- For a prebuilt exact gene index, use
+- For a prebuilt gene LD-score index, use
   `--gene-ldscore-index-dir <index-dir>` with
   `--query-annot-gene-list-sources` and omit live baseline, PLINK/R²,
   genome-build, window, padding, and region arguments. Remove `--padding-bp`
@@ -389,11 +410,11 @@ ldsc partitioned-h2 \
 
 **Remarks:**
 
-1. `partitioned-h2` reports the total h2 implied by the partitioned model; this is not necessarily identical to the standalone unpartitioned h2 estimate above.
+1. `partitioned-h2` reports the total SNP heritability implied by the partitioned model; this is not necessarily identical to the standalone unpartitioned estimate above.
 2. Query-annotation runs automatically save each successful query's complete baseline-plus-query fit under `diagnostics/query_annotations/`; `--write-per-query-results` has been removed and must be omitted.
 3. Error handling is strict by default: any query error prevents publication of new scientific results. Add `--continue-on-query-error` to skip failed query fits and publish successful ones. Check `diagnostics/query_status.tsv` for every attempted query and `diagnostics/partitioned-h2.log` for tracebacks and available block diagnostics. Shared input/output failures, interrupts, and all-query-failed scans still stop. See [query error handling](workflows/partitioned-heritability.md#when-a-query-fails), implemented by `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../src/ldsc/regression_runner.py).
 
-4. The command above uses one managed child with 1 BLAS thread.
+4. The command above uses one worker with 1 BLAS thread.
    With four CPUs available and allocated, add `--workers 4` to fit four complete query-plus-baseline models concurrently.
    `--query-batch-size 100` bounds loaded query columns and caps concurrency.
    Current regression reduces model-array copying automatically for both direct and indexed LD-score inputs; each active fit still needs its complete retained SNP set and private estimator workspace.
@@ -423,16 +444,19 @@ partitioned-h2/mdd2025/
 Here:
 
 - `partitioned_h2.tsv` is a summary over all query annotations, sorted by the p-value of the query annotation's coefficient (`coefficient-p`), from most to least significant. Its `query_result_dir` column gives each query's exact folder relative to the output directory, even after you re-sort the table; `category` keeps the original name.
-- `query_annotations/` holds the per-query results, which also include the coefficients and h2 share of the baseline annotations. `manifest.tsv` records each original query annotation name, its results folder name, and the paths to the relevant results files.
+- `query_annotations/` holds the per-query results, which also include the coefficients and proportions of heritability of the baseline annotations.
+  `manifest.tsv` records each original query annotation name, its results folder name, and the paths to the relevant results files.
 
 Copy all of `${PARTITIONED_H2_OUTPUT_DIR}` when moving or sharing fitted queries.
 Run-wide provenance is stored once in `diagnostics/metadata.json`; each query's metadata links to it with `"global_metadata": "../../metadata.json"`.
 The current model reader follows that reference, so keep the enclosing result tree when selecting a query for `quantile-h2`.
 See [keeping fitted results together](workflows/partitioned-heritability.md#reading-the-outputs).
 
-For a continuous annotation, continue with [Continuous annotations in partitioned LDSC](workflows/continuous-annotations.md). That post-fit workflow uses one complete fitted model and its saved jackknife coefficient values; it does not combine different per-query regressions.
+For a continuous annotation, continue with [Continuous annotations in partitioned heritability](workflows/continuous-annotations.md).
+That post-fit workflow uses one complete fitted model and its saved jackknife coefficient values; it does not combine different per-query regressions.
 
-For concise exploratory figures from h2, rg, functional partitioning, cell-type/query, or continuous-annotation quantile results, follow the [plotting results manual](workflows/plotting.md). The cell-type summary plot uses the aggregate partitioned-h2 root because each point is the nominal one-sided p-value from a separate baseline-conditional query fit.
+For concise exploratory figures from `h2`, `rg`, functional partitioning, cell-type/query, or continuous-annotation quantile results, follow the [plotting results manual](workflows/plotting.md).
+The cell-type summary plot uses the aggregate `partitioned-h2` result directory because each point is the nominal one-sided p-value from a separate baseline-conditional query fit.
 
 ## Make annotations
 
@@ -480,11 +504,12 @@ annot_processed/
 ```
 
 
-## Backward compatibility with the legacy ldsc python2 codebase
+## Backward compatibility with legacy LDSC
 
 Regression accepts legacy `.sumstats` and `.sumstats.gz` files containing `SNP`, `A1`, `A2`, `Z`, and `N` directly through `--sumstats-file` or `--sumstats-sources`; remunging is optional. Legacy LD-score suites must first pass through `ldsc convert-ldsc2-ldscores`. That converter accepts complete chromosome 1–22 unpartitioned or baseline-only suites with the required counts and supporting inputs. Regression then reads the converted canonical directory.
 
-See the [sumstats compatibility contract](../reference/formats/legacy-sumstats.md) and [conversion guide](workflows/migrating-from-legacy-ldsc.md). Dedicated [sumstats tests](../../tests/test_legacy_sumstats_compatibility.py) and [conversion tests](../../tests/test_legacy_ldscore_converter.py) cover these routes; this coverage does not imply equivalence for every possible dataset.
+See the [legacy summary statistics contract](../reference/formats/legacy-sumstats.md) and [conversion guide](workflows/migrating-from-legacy-ldsc.md).
+Dedicated [summary-statistics tests](../../tests/test_legacy_sumstats_compatibility.py) and [conversion tests](../../tests/test_legacy_ldscore_converter.py) cover these routes; this coverage does not imply equivalence for every possible dataset.
 
 ## Further workflow references
 

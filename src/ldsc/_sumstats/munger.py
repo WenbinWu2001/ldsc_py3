@@ -1095,65 +1095,25 @@ def build_parser() -> argparse.ArgumentParser:
     public = argparse.ArgumentParser(allow_abbrev=False)
     public.prog = 'ldsc munge-sumstats'
     public.formatter_class = CLIHelpFormatter
-    public.description = 'Prepare GWAS summary statistics for LDSC, restricting to packaged HapMap3 SNPs by default and preserving input frequency as FRQ when available.'
-    inputs = public.add_argument_group('Inputs and output')
-    identity = public.add_argument_group('SNP identity and genome build')
-    sample = public.add_argument_group('Sample size', description='Input sample-size columns take precedence over constant fallbacks.')
-    filters = public.add_argument_group('SNP selection and quality filters')
-    columns = public.add_argument_group('Column overrides', description='Columns are detected automatically. Supply overrides for unrecognized or ambiguous headers.')
-    formats = public.add_argument_group('Input format and allele direction')
-    runtime = public.add_argument_group('Performance and logging')
+    public.description = (
+        'Prepare GWAS summary statistics for LDSC, restricting to packaged HapMap3 SNPs by default and preserving '
+        'input frequency as FRQ when available. Run with --infer-only first to preview the detected columns and '
+        'a suggested command without writing files.'
+    )
+    public.usage = (
+        '%(prog)s [--snp-identifier MODE] [--source-genome-build BUILD]\n'
+        '    --output-genome-build BUILD --raw-sumstats-file FILE [--trait-name TRAIT_NAME]\n'
+        '    --output-dir DIR [options]'
+    )
+    identity = public.add_argument_group('Step 1: SNP identity and genome build')
+    raw = public.add_argument_group('Step 2: Raw summary statistics')
+    sample = public.add_argument_group('Step 3: Sample size (only if not detected from the file)', description='Input sample-size columns take precedence over constant fallbacks.')
+    output = public.add_argument_group('Step 4: Output')
+    filters = public.add_argument_group('Optional: SNP selection and quality filters')
+    columns = public.add_argument_group('Optional: column overrides', description='Columns are detected automatically. Supply overrides for unrecognized or ambiguous headers.')
+    computing = public.add_argument_group('Computing resources')
+    logs = public.add_argument_group('Logging')
 
-    inputs.add_argument(
-        '--raw-sumstats-file', required=True, metavar='FILE',
-        help=(
-            'Required nonempty raw GWAS summary-statistics file path, including with --infer-only. Columns are detected from their headers unless '
-            'overridden. '
-            + SCALAR_PATH_HELP
-        ),
-    )
-    inputs.add_argument(
-        '--output-dir', required=True, metavar='DIR',
-        help=(
-            'Required destination for munged summary statistics and diagnostics. Still required with '
-            '--infer-only, which creates no files or directories.'
-        ),
-    )
-    inputs.add_argument(
-        '--trait-name', default=None,
-        help=(
-            (
-            'Trait label stored in Parquet metadata and used for data filenames after replacing unsafe '
-            'characters with underscores. Default: no explicit label; use sumstats.parquet or sumstats.gz.'
-        )
-        ),
-    )
-    inputs.add_argument(
-        '--output-format', choices=sorted(_SUMSTATS_OUTPUT_FORMATS), default='parquet',
-        help=(
-            'Write <trait>.parquet, <trait>.sumstats.gz, or both; without --trait-name, use '
-            'sumstats.parquet or sumstats.gz. Default: parquet; output choice does not '
-            'change SNP filtering or frequency preservation.'
-        ),
-    )
-    inputs.add_argument(
-        '--infer-only', action='store_true', default=False,
-        help=(
-            'Inspect headers and check selected columns for all-missing values in bounded chunks, then print a suggested command without '
-            'writing files. Requires --raw-sumstats-file and --output-dir. Default: off; perform the full '
-            'conversion.'
-        ),
-    )
-
-    identity.add_argument(
-        '--output-genome-build', default=None, choices=('hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
-        help=(
-            'Required output build for chr_pos and chr_pos_allele_aware identity. If different from the '
-            'source, packaged HM3 uses automatic quick liftover; custom or unrestricted SNPs require '
-            '--liftover-chain-file, which overrides quick liftover when supplied. Matching builds need no '
-            'liftover. Cannot be used with rsid or rsid_allele_aware identity; no default.'
-        ),
-    )
     identity.add_argument(
         '--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
         help=(
@@ -1172,6 +1132,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     identity.add_argument(
+        '--output-genome-build', default=None, choices=('hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
+        help=(
+            'Required output build for chr_pos and chr_pos_allele_aware identity. If different from the '
+            'source, packaged HM3 uses automatic quick liftover; custom or unrestricted SNPs require '
+            '--liftover-chain-file, which overrides quick liftover when supplied. Matching builds need no '
+            'liftover. Cannot be used with rsid or rsid_allele_aware identity; no default.'
+        ),
+    )
+    identity.add_argument(
         '--liftover-chain-file', default=None, metavar='FILE',
         help=(
             'Chain file in the source-to-output direction for liftover to --output-genome-build. '
@@ -1180,10 +1149,59 @@ def build_parser() -> argparse.ArgumentParser:
             'package-bundled reference HM3 metadata when builds differ; supply this flag to disable quick '
             'liftover and use the chain instead. Required when builds differ with --sumstats-snps-file or '
             '--no-snp-restriction; ignored when builds match. '
-            "Same exact-one '*' pattern rules as --raw-sumstats-file; '@' is not expanded."
+            + SCALAR_PATH_HELP
         ),
     )
 
+    raw.add_argument(
+        '--raw-sumstats-file', required=True, metavar='FILE',
+        help=(
+            'Required nonempty raw GWAS summary-statistics file path, including with --infer-only. Columns are detected from their headers unless '
+            'overridden. '
+            + SCALAR_PATH_HELP
+        ),
+    )
+    raw.add_argument(
+        '--trait-name', default=None,
+        help=(
+            (
+            'Trait label stored in Parquet metadata and used for data filenames after replacing unsafe '
+            'characters with underscores. Default: no explicit label; use sumstats.parquet or sumstats.gz.'
+        )
+        ),
+    )
+    raw.add_argument(
+        '--input-format', dest='sumstats_format', choices=sorted(_RAW_SUMSTATS_FORMATS), default='auto',
+        help=(
+            'Input layout: plain reads ordinary tables, daner-old reads counts from frequency headers, and '
+            'daner-new reads case/control count columns. Default: auto, detect the layout from headers.'
+        ),
+    )
+
+    sample.add_argument(
+        '--N-col', default=None, type=str, metavar='COLUMN',
+        help=(
+            'Input per-SNP sample-size column; matched case-insensitively. Overrides inferred case/control '
+            'columns; cannot be combined with --N-cas-col or --N-con-col. If omitted, detect sample-size '
+            'columns from headers.'
+        ),
+    )
+    sample.add_argument(
+        '--N-cas-col', default=None, type=str, metavar='COLUMN',
+        help=(
+            'Input per-SNP case-count column; matched case-insensitively. Requires --N-con-col and cannot '
+            'be combined with --N-col. The pair overrides inferred N; if omitted, detect sample-size '
+            'columns from headers.'
+        ),
+    )
+    sample.add_argument(
+        '--N-con-col', default=None, type=str, metavar='COLUMN',
+        help=(
+            'Input per-SNP control-count column; matched case-insensitively. Requires --N-cas-col and '
+            'cannot be combined with --N-col. The pair overrides inferred N; if omitted, detect sample-size '
+            'columns from headers.'
+        ),
+    )
     sample.add_argument(
         '--N', default=None, type=float, metavar='VALUE',
         help=(
@@ -1204,6 +1222,37 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             'Constant control-count fallback. Requires --N-cas when used; the constants are added only when '
             'input sample-size columns and --N are absent. Default: no control-count constant.'
+        ),
+    )
+
+    output.add_argument(
+        '--output-dir', required=True, metavar='DIR',
+        help=(
+            'Required destination for munged summary statistics and diagnostics. Still required with '
+            '--infer-only, which creates no files or directories.'
+        ),
+    )
+    output.add_argument(
+        '--overwrite', action='store_true', default=False,
+        help=(
+            "Replace this command's existing output files and remove obsolete outputs from an earlier run. "
+            'Default: off; stop if output files already exist. Has no effect with --infer-only.'
+        ),
+    )
+    output.add_argument(
+        '--output-format', choices=sorted(_SUMSTATS_OUTPUT_FORMATS), default='parquet',
+        help=(
+            'Write <trait>.parquet, <trait>.sumstats.gz, or both; without --trait-name, use '
+            'sumstats.parquet or sumstats.gz. Default: parquet; output choice does not '
+            'change SNP filtering or frequency preservation.'
+        ),
+    )
+    output.add_argument(
+        '--infer-only', action='store_true', default=False,
+        help=(
+            'Inspect headers and check selected columns for all-missing values in bounded chunks, then print a suggested command without '
+            'writing files. Requires --raw-sumstats-file and --output-dir. Default: off; perform the full '
+            'conversion.'
         ),
     )
 
@@ -1308,27 +1357,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     columns.add_argument(
-        '--N-col', default=None, type=str, metavar='COLUMN',
+        '--a1-inc', default=False, action='store_true',
         help=(
-            'Input per-SNP sample-size column; matched case-insensitively. Overrides inferred case/control '
-            'columns; cannot be combined with --N-cas-col or --N-con-col. If omitted, detect sample-size '
-            'columns from headers.'
-        ),
-    )
-    columns.add_argument(
-        '--N-cas-col', default=None, type=str, metavar='COLUMN',
-        help=(
-            'Input per-SNP case-count column; matched case-insensitively. Requires --N-con-col and cannot '
-            'be combined with --N-col. The pair overrides inferred N; if omitted, detect sample-size '
-            'columns from headers.'
-        ),
-    )
-    columns.add_argument(
-        '--N-con-col', default=None, type=str, metavar='COLUMN',
-        help=(
-            'Input per-SNP control-count column; matched case-insensitively. Requires --N-cas-col and '
-            'cannot be combined with --N-col. The pair overrides inferred N; if omitted, detect sample-size '
-            'columns from headers.'
+            'Assert that A1 increases the trait for every SNP and derive positive Z from p-values, '
+            'bypassing signed statistics. Default: off; use the detected or --signed-sumstats column to '
+            'determine direction.'
         ),
     )
     columns.add_argument(
@@ -1375,36 +1408,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    formats.add_argument(
-        '--input-format', dest='sumstats_format', choices=sorted(_RAW_SUMSTATS_FORMATS), default='auto',
-        help=(
-            'Input layout: plain reads ordinary tables, daner-old reads counts from frequency headers, and '
-            'daner-new reads case/control count columns. Default: auto, detect the layout from headers.'
-        ),
-    )
-    formats.add_argument(
-        '--a1-inc', default=False, action='store_true',
-        help=(
-            'Assert that A1 increases the trait for every SNP and derive positive Z from p-values, '
-            'bypassing signed statistics. Default: off; use the detected or --signed-sumstats column to '
-            'determine direction.'
-        ),
-    )
-
-    runtime.add_argument(
+    computing.add_argument(
         '--chunksize', default=1000000, type=int, metavar='N',
         help=(
             'Read this many input rows per chunk. Larger chunks use more memory. Default: 1,000,000.'
         ),
     )
-    runtime.add_argument(
-        '--overwrite', action='store_true', default=False,
-        help=(
-            "Replace this command's existing output files and remove obsolete outputs from an earlier run. "
-            'Default: off; stop if output files already exist. Has no effect with --infer-only.'
-        ),
-    )
-    runtime.add_argument(
+
+    logs.add_argument(
         '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
         help=(LOG_LEVEL_HELP + ' The selected liftover method and mapping/drop summary are always recorded '
               'in diagnostics/sumstats.log and printed to stdout after a successful run.'),

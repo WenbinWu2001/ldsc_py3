@@ -1,10 +1,84 @@
-"""User-facing help must explain every option and prioritize common inputs."""
+"""User-facing help must explain every option and list flags in guided step order."""
 
 import argparse
+import importlib
+import re
 
 import pytest
 
 from ldsc import cli
+
+
+# Small commands keep plain section headings instead of numbered steps.
+UNNUMBERED_COMMANDS = {"infer-genome-build", "convert-h2-scale", "plot"}
+
+LDSCORE_SECTIONS = [
+    ("Step 1: SNP identity and genome build", ["--snp-identifier", "--genome-build"]),
+    ("Step 2: Baseline annotations", ["--baseline-annot-sources"]),
+    ("Step 3: Query annotations (optional; choose at most one source type)", [
+        "--query-annot-bed-sources", "--query-annot-gene-list-sources", "--query-annot-sources",
+        "--padding-bp", "--gene-coordinate-file", "--control-gene-list-file",
+        "--gene-exclude-regions", "--allow-unresolved-genes",
+    ]),
+    ("Step 4: Reference panel (choose one: R2 matrix or PLINK)", ["--r2-matrix-dir", "--plink-prefix"]),
+    ("Step 4 continued: PLINK reference panel only (optional)", [
+        "--keep-indivs-file", "--genetic-map-hg19-sources", "--genetic-map-hg38-sources",
+        "--export-ref-metadata",
+    ]),
+    ("Step 5: LD window (choose one)", ["--ld-wind-cm", "--ld-wind-kb", "--ld-wind-snps", "--yes-really"]),
+    ("Step 6: Output", ["--output-dir", "--overwrite"]),
+    ("Optional: regression SNPs and reference SNPs", [
+        "--regr-snps-file", "--regr-snps-exclude-regions", "--ref-panel-snps-file", "--maf-min",
+        "--common-maf-min",
+    ]),
+    ("Alternative: gene LD-score index", ["--gene-ldscore-index-dir"]),
+    ("Computing resources", ["--workers", "--query-batch-size", "--snp-batch-size"]),
+    ("Logging", ["--log-level"]),
+]
+
+MUNGE_SECTIONS = [
+    ("Step 1: SNP identity and genome build", [
+        "--snp-identifier", "--source-genome-build", "--output-genome-build", "--liftover-chain-file",
+    ]),
+    ("Step 2: Raw summary statistics", ["--raw-sumstats-file", "--trait-name", "--input-format"]),
+    ("Step 3: Sample size (only if not detected from the file)", [
+        "--N-col", "--N-cas-col", "--N-con-col", "--N", "--N-cas", "--N-con",
+    ]),
+    ("Step 4: Output", ["--output-dir", "--overwrite", "--output-format", "--infer-only"]),
+    ("Optional: SNP selection and quality filters", [
+        "--sumstats-snps-file", "--no-snp-restriction", "--N-min", "--nstudy-min", "--info-min", "--maf-min",
+    ]),
+    ("Optional: column overrides", [
+        "--snp", "--chr", "--pos", "--a1", "--a2", "--p", "--signed-sumstats", "--a1-inc", "--frq",
+        "--info", "--info-list", "--nstudy", "--ignore",
+    ]),
+    ("Computing resources", ["--chunksize"]),
+    ("Logging", ["--log-level"]),
+]
+
+
+def _help_sections(parser):
+    """Return rendered help sections as (title, flags) pairs in display order."""
+    lines = parser.format_help().splitlines()
+    sections = []
+    for line, following in zip(lines, [*lines[1:], ""]):
+        # A heading starts at column 0, ends with a colon, and is followed by
+        # indented section content; wrapped command-description text is not.
+        if (line.endswith(":") and not line[:1].isspace() and not line.startswith("usage:")
+                and following.startswith("  ")):
+            sections.append((line[:-1], []))
+        elif sections:
+            sections[-1][1].append(line)
+    result = []
+    for title, content in sections:
+        paragraphs = [text for text in "\n".join(content).split("\n\n") if text.strip()]
+        # A group description is its own paragraph before the options, and a
+        # wrapped description line may itself start with a flag name.
+        options = paragraphs[1:] if len(paragraphs) > 1 else paragraphs
+        flags = [match.group(1) for text in options for match in re.finditer(r"^  (-[-\w]+)", text, re.M)]
+        if title not in ("options", "positional arguments"):
+            result.append((title, flags))
+    return result
 
 
 def test_old_build_ref_panel_command_is_rejected(capsys):
@@ -61,20 +135,80 @@ def test_every_visible_option_has_help_and_logging_levels(commands):
             assert meaning in log_help, (name, meaning)
 
 
-@pytest.mark.parametrize("command, primary", [
-    ("munge-sumstats", "--raw-sumstats-file"),
-    ("h2", "--sumstats-file"),
-    ("partitioned-h2", "--sumstats-file"),
-    ("rg", "--sumstats-sources"),
+@pytest.mark.parametrize("command, expected", [
+    ("ldscore", LDSCORE_SECTIONS),
+    ("munge-sumstats", MUNGE_SECTIONS),
 ])
-def test_essential_inputs_precede_advanced_controls(commands, command, primary):
-    help_text = commands[command].format_help()
-    assert "Inputs and output:" in help_text
-    body = help_text.split("Inputs and output:", 1)[1]
-    assert body.index(primary) < body.index("--log-level")
-    if command == "munge-sumstats":
-        assert body.index("--snp-identifier") < body.index("--chunksize")
-        assert "Column overrides:" in body
+def test_help_lists_flags_in_guided_step_order(commands, command, expected):
+    assert _help_sections(commands[command]) == expected
+
+
+def test_help_puts_numbered_steps_first_and_logging_last(commands):
+    for name, parser in commands.items():
+        if name == "infer-genome-build":
+            continue
+        sections = _help_sections(parser)
+        titles = [title for title, _ in sections]
+        section_of = {flag: title for title, flags in sections for flag in flags}
+        assert sections[-1] == ("Logging", ["--log-level"]), name
+        if "Computing resources" in titles:
+            assert titles[-2] == "Computing resources", name
+        output_section = section_of.get("--output-dir", "Output")
+        assert section_of["--overwrite"] == output_section, name
+        if name in UNNUMBERED_COMMANDS:
+            continue
+        steps = [title for title in titles if title.startswith("Step ")]
+        assert titles[:len(steps)] == steps, (name, titles)
+        numbers = [int(re.match(r"Step (\d+)", title).group(1)) for title in steps]
+        assert numbers == sorted(numbers), (name, steps)
+        first_titles = [n for title, n in zip(steps, numbers) if " continued: " not in title]
+        assert first_titles == list(range(1, len(first_titles) + 1)), (name, steps)
+        for title in titles[len(steps):]:
+            assert title.startswith(("Optional: ", "Alternative: ")) or title in (
+                "Computing resources", "Logging",
+            ), (name, title)
+        for action in parser._actions:
+            if action.required and action.option_strings:
+                assert section_of[action.option_strings[0]].startswith("Step "), (name, action.option_strings)
+
+
+@pytest.mark.parametrize("command", ["ldscore", "munge-sumstats", "annotate", "build-gene-ldscore-index"])
+def test_usage_shows_the_typical_command(commands, command):
+    parser = commands[command]
+    usage = parser.format_usage()
+    assert usage.startswith(f"usage: ldsc {command} ")
+    assert usage.rstrip().endswith("[options]")
+    named = set(re.findall(r"--[A-Za-z][\w-]*", usage))
+    assert named <= set(parser._option_string_actions), named - set(parser._option_string_actions)
+    required = {action.option_strings[0] for action in parser._actions
+                if action.required and action.option_strings}
+    assert required <= named, required - named
+    if command == "ldscore":
+        assert "or: ldsc ldscore --gene-ldscore-index-dir DIR --query-annot-gene-list-sources" in usage
+
+
+@pytest.mark.parametrize("command, module_name", [
+    ("ldscore", "ldsc._ldscore.calculator"),
+    ("build-r2-matrix", "ldsc._refpanel.builder"),
+    ("build-gene-ldscore-index", "ldsc._ldscore.gene_index.build"),
+    ("convert-legacy-ldscores", "ldsc._ldscore.legacy_converter"),
+    ("query-r2-matrix", "ldsc._refpanel.query"),
+])
+def test_unified_help_matches_workflow_parser(commands, command, module_name):
+    workflow_parser = importlib.import_module(module_name).build_parser()
+    assert commands[command].format_help() == workflow_parser.format_help()
+
+
+def test_help_cross_references_point_to_earlier_flags(commands):
+    for name, parser in commands.items():
+        order = [flag for _, flags in _help_sections(parser) for flag in flags]
+        for action in parser._actions:
+            if not action.option_strings or not action.help:
+                continue
+            for target in re.findall(r"(?:see|rules as) (--[\w-]+)", action.help):
+                assert order.index(target) < order.index(action.option_strings[0]), (
+                    name, action.option_strings[0], target,
+                )
 
 
 def test_munge_companion_flags_and_window_alternatives_are_explained(commands):
@@ -92,9 +226,7 @@ def test_munge_companion_flags_and_window_alternatives_are_explained(commands):
 
 def test_wrapped_help_keeps_companion_flag_names_intact(commands):
     help_text = commands["ldscore"].format_help()
-    r2_description = help_text.split("  --r2-matrix-dir DIR", 1)[1].split(
-        "\n  --gene-ldscore-index-dir", 1
-    )[0]
+    r2_description = help_text.split("  --r2-matrix-dir DIR", 1)[1].split("\n  --", 1)[0]
     assert "--gene-ldscore-index-dir" in r2_description
 
 
@@ -113,7 +245,7 @@ def test_regression_rejects_removed_no_intercept(commands, command, capsys):
 
 def test_path_help_distinguishes_suites_globs_and_single_files(commands):
     for command, flag in (
-        ("annotate", "--ref-snp-annot-sources"), ("ldscore", "--plink-prefix"),
+        ("annotate", "--ref-snp-annot-sources"), ("ldscore", "--baseline-annot-sources"),
         ("build-r2-matrix", "--plink-prefix"), ("build-gene-ldscore-index", "--baseline-annot-sources"),
         ("quantile-h2", "--target-annot-sources"),
     ):

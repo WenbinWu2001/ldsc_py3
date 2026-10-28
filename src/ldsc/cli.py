@@ -382,12 +382,13 @@ def _log_internal_error(exc: BaseException, *, workflow_advice: bool = True) -> 
 
 
 def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentParser) -> None:
-    """Clone options and their help groups without changing parsing rules.
+    """Clone the usage line, options, and their help groups without changing parsing rules.
 
     This keeps the unified CLI aligned with the feature parsers defined in the
     workflow modules without duplicating every flag definition in two places.
     """
     target.description = source.description
+    target.usage = source.usage
     groups = {}
     for group in source._action_groups:
         if group in (source._positionals, source._optionals):

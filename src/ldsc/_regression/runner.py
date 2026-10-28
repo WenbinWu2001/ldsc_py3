@@ -60,6 +60,7 @@ import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from typing import Any, Sequence
 
 import numpy as np
@@ -2822,24 +2823,18 @@ def add_h2_arguments(parser) -> None:
     """Register grouped h2 command-line options."""
     parser.prog = "ldsc h2"
     parser.formatter_class = CLIHelpFormatter
-    inputs, model, scale, advanced = _add_common_regression_arguments(parser, include_h2_intercept=True)
-    inputs.add_argument(
+    sections = _add_regression_sections(parser, include_h2_intercept=True)
+    sections.inputs.add_argument(
         '--trait-name', default=None,
         help=(
             'Trait label used in summaries. If omitted, use the stored trait name or derive one from the '
             'input filename.'
         ),
     )
-    _add_scalar_prevalence_arguments(scale)
-    runtime = parser.add_argument_group("Output, performance, and logging")
-    runtime.add_argument(
-        '--overwrite', action='store_true', default=False,
-        help=(
-            "Replace this command's existing output files and remove obsolete outputs from an earlier run. "
-            'Default: off; stop if output files already exist.'
-        ),
-    )
-    runtime.add_argument(
+    _add_regression_output_arguments(sections.output)
+    _add_scalar_prevalence_arguments(sections.scale)
+    _add_regression_model_arguments(sections, include_h2_intercept=True)
+    sections.logs.add_argument(
         '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
         help=LOG_LEVEL_HELP,
     )
@@ -2849,36 +2844,16 @@ def add_partitioned_h2_arguments(parser) -> None:
     """Register grouped partitioned-h2 command-line options."""
     parser.prog = "ldsc partitioned-h2"
     parser.formatter_class = CLIHelpFormatter
-    inputs, model, scale, advanced = _add_common_regression_arguments(parser, include_h2_intercept=True)
-    inputs.add_argument(
+    sections = _add_regression_sections(parser, include_h2_intercept=True)
+    sections.inputs.add_argument(
         '--trait-name', default=None,
         help=(
             'Trait label used in summaries. If omitted, use the stored trait name or derive one from the '
             'input filename.'
         ),
     )
-    _add_scalar_prevalence_arguments(scale)
-    model.add_argument(
-        '--summary-sort-by', default='auto', choices=('auto', *PARTITIONED_H2_SUMMARY_SORT_COLUMNS),
-        help=(
-            'Order partitioned_h2.tsv by the selected column. Default: auto, coefficient-p for per-query '
-            'fits and category for baseline-only fits. P-values sort ascending; other numeric values sort '
-            'descending.'
-        ),
-    )
-    runtime = parser.add_argument_group("Output, performance, and logging")
-    runtime.add_argument(
-        '--workers', type=parse_workers, default=1, metavar='N',
-        help='Maximum complete query-plus-baseline models running simultaneously; also capped by query batch size. ' + WORKERS_HELP,
-    )
-    runtime.add_argument(
-        '--query-batch-size', type=int, default=100, metavar='N',
-        help=(
-            'Maximum number of query annotations loaded at once; each query is fitted separately with the '
-            'shared baseline. Default: 100; a smaller positive value reduces memory and caps active query workers.'
-        ),
-    )
-    runtime.add_argument(
+    _add_regression_output_arguments(sections.output)
+    sections.output.add_argument(
         '--continue-on-query-error', action='store_true', default=False,
         help=(
             'Skip and record queries whose model preparation, regression, or result calculation fails; '
@@ -2887,14 +2862,28 @@ def add_partitioned_h2_arguments(parser) -> None:
             'with no successful queries still fail.'
         ),
     )
-    runtime.add_argument(
-        '--overwrite', action='store_true', default=False,
+    sections.output.add_argument(
+        '--summary-sort-by', default='auto', choices=('auto', *PARTITIONED_H2_SUMMARY_SORT_COLUMNS),
         help=(
-            "Replace this command's existing output files and remove obsolete outputs from an earlier run. "
-            'Default: off; stop if output files already exist.'
+            'Order partitioned_h2.tsv by the selected column. Default: auto, coefficient-p for per-query '
+            'fits and category for baseline-only fits. P-values sort ascending; other numeric values sort '
+            'descending.'
         ),
     )
-    runtime.add_argument(
+    _add_scalar_prevalence_arguments(sections.scale)
+    _add_regression_model_arguments(sections, include_h2_intercept=True)
+    sections.computing.add_argument(
+        '--workers', type=parse_workers, default=1, metavar='N',
+        help='Maximum complete query-plus-baseline models running simultaneously; also capped by query batch size. ' + WORKERS_HELP,
+    )
+    sections.computing.add_argument(
+        '--query-batch-size', type=int, default=100, metavar='N',
+        help=(
+            'Maximum number of query annotations loaded at once; each query is fitted separately with the '
+            'shared baseline. Default: 100; a smaller positive value reduces memory and caps active query workers.'
+        ),
+    )
+    sections.logs.add_argument(
         '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
         help=LOG_LEVEL_HELP,
     )
@@ -2904,15 +2893,23 @@ def add_rg_arguments(parser) -> None:
     """Register grouped rg command-line options."""
     parser.prog = "ldsc rg"
     parser.formatter_class = CLIHelpFormatter
-    inputs, model, scale, advanced = _add_common_regression_arguments(parser, include_h2_intercept=False)
-    model.add_argument(
+    sections = _add_regression_sections(parser, include_h2_intercept=False)
+    sections.inputs.add_argument(
         '--anchor-trait', default=None,
         help=(
             'Trait name or input file path to compare against every other trait. Must identify one of '
             '--sumstats-sources. If omitted, estimate every unique trait pair.'
         ),
     )
-    scale.add_argument(
+    _add_regression_output_arguments(sections.output)
+    sections.output.add_argument(
+        '--write-per-pair-detail', action='store_true', default=False,
+        help=(
+            'Also write detailed results for each tested pair under diagnostics/pairs/. Default: off; write '
+            'aggregate pair and trait tables only.'
+        ),
+    )
+    sections.scale.add_argument(
         '--samp-prev', default=None,
         help=(
             'Comma-separated sample case fractions in resolved --sumstats-sources order, one per trait; '
@@ -2920,7 +2917,7 @@ def add_rg_arguments(parser) -> None:
             '--prevalence-manifest. If neither form is supplied, report observed-scale estimates only.'
         ),
     )
-    scale.add_argument(
+    sections.scale.add_argument(
         '--pop-prev', default=None,
         help=(
             'Comma-separated population case fractions in resolved --sumstats-sources order, one per trait; '
@@ -2928,7 +2925,7 @@ def add_rg_arguments(parser) -> None:
             'neither form is supplied, report observed-scale estimates only.'
         ),
     )
-    scale.add_argument(
+    sections.scale.add_argument(
         '--prevalence-manifest', default=None,
         help=(
             'TSV with trait_name, samp_prev, and pop_prev columns, matched to exact input trait names. '
@@ -2936,22 +2933,8 @@ def add_rg_arguments(parser) -> None:
             'when supplied; otherwise report observed-scale estimates only.'
         ),
     )
-    runtime = parser.add_argument_group("Output, performance, and logging")
-    runtime.add_argument(
-        '--write-per-pair-detail', action='store_true', default=False,
-        help=(
-            'Also write detailed results for each tested pair under diagnostics/pairs/. Default: off; write '
-            'aggregate pair and trait tables only.'
-        ),
-    )
-    runtime.add_argument(
-        '--overwrite', action='store_true', default=False,
-        help=(
-            "Replace this command's existing output files and remove obsolete outputs from an earlier run. "
-            'Default: off; stop if output files already exist.'
-        ),
-    )
-    runtime.add_argument(
+    _add_regression_model_arguments(sections, include_h2_intercept=False)
+    sections.logs.add_argument(
         '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
         help=LOG_LEVEL_HELP,
     )
@@ -3428,15 +3411,25 @@ def run_rg(**kwargs) -> RgResultFamily:
     )
 
 
-def _add_common_regression_arguments(parser, include_h2_intercept: bool):
-    """Add shared regression groups and return them for command-specific options."""
+def _add_regression_sections(parser, include_h2_intercept: bool) -> SimpleNamespace:
+    """Create the regression help sections in display order and add the shared inputs.
+
+    Callers add the remaining options section by section, in display order,
+    so the usage line follows the help sections. Sections that receive no
+    options are omitted from the help.
+    """
     parser.allow_abbrev = False
-    inputs = parser.add_argument_group("Inputs and output")
-    model = parser.add_argument_group("Model settings")
-    scale = parser.add_argument_group("Liability scale (optional)")
-    advanced = parser.add_argument_group("Advanced estimation and SNP matching")
+    sections = SimpleNamespace(
+        inputs=parser.add_argument_group("Step 1: Munged summary statistics and LD scores"),
+        output=parser.add_argument_group("Step 2: Output"),
+        scale=parser.add_argument_group("Optional: liability scale"),
+        model=parser.add_argument_group("Optional: model settings"),
+        advanced=parser.add_argument_group("Optional: advanced estimation and SNP matching"),
+        computing=parser.add_argument_group("Computing resources"),
+        logs=parser.add_argument_group("Logging"),
+    )
     if include_h2_intercept:
-        inputs.add_argument(
+        sections.inputs.add_argument(
             '--sumstats-file', required=True, metavar='FILE',
             help=(
             'Required munged summary-statistics Parquet or legacy .sumstats(.gz) file. SNP identity must be '
@@ -3445,7 +3438,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
         ),
         )
     else:
-        inputs.add_argument(
+        sections.inputs.add_argument(
             '--sumstats-sources', nargs='+', required=True, metavar='SOURCES',
             help=(
             "Required munged summary-statistics Parquet or legacy .sumstats(.gz) files; accepts exact paths or quoted '*' patterns "
@@ -3453,20 +3446,36 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
             "--ldscore-dir. '@' is not expanded."
         ),
         )
-    inputs.add_argument(
+    sections.inputs.add_argument(
         '--ldscore-dir', required=True, metavar='DIR',
         help=(
             'Required LD-score directory from ldscore or convert-legacy-ldscores, containing '
             'predictors, regression weights, and SNP counts.'
         ),
     )
-    inputs.add_argument(
+    return sections
+
+
+def _add_regression_output_arguments(output) -> None:
+    """Add the regression output directory and overwrite policy."""
+    output.add_argument(
         '--output-dir', required=True, metavar='DIR',
         help=(
             'Required destination for regression estimates and diagnostics.'
         ),
     )
-    model.add_argument(
+    output.add_argument(
+        '--overwrite', action='store_true', default=False,
+        help=(
+            "Replace this command's existing output files and remove obsolete outputs from an earlier run. "
+            'Default: off; stop if output files already exist.'
+        ),
+    )
+
+
+def _add_regression_model_arguments(sections: SimpleNamespace, include_h2_intercept: bool) -> None:
+    """Add SNP-count, intercept, chi-square, jackknife, and SNP-matching settings."""
+    sections.model.add_argument(
         '--count-kind', choices=('common', 'all'), default='common',
         help=(
             'Reference SNP counts used to scale regression estimates: common uses common-SNP counts, '
@@ -3475,7 +3484,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
         ),
     )
     if include_h2_intercept:
-        advanced.add_argument(
+        sections.advanced.add_argument(
             '--intercept-h2', type=float, default=None, metavar='VALUE',
             help=(
                 'Fix the heritability intercept to this value; use 1 for the standard fixed intercept. '
@@ -3483,7 +3492,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
             ),
         )
     else:
-        advanced.add_argument(
+        sections.advanced.add_argument(
             '--intercept-h2', type=float, default=None, metavar='VALUE',
             help=(
                 'Fix the heritability intercept to the same value for both traits in every pair; use 1 for '
@@ -3491,7 +3500,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
                 'If omitted, estimate the intercepts.'
             ),
         )
-        advanced.add_argument(
+        sections.advanced.add_argument(
             '--intercept-gencov', type=float, default=None, metavar='VALUE',
             help=(
                 'Fix the genetic-covariance intercept to the same value for every trait pair; use 0 for '
@@ -3501,7 +3510,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
             ),
         )
     if include_h2_intercept:
-        advanced.add_argument(
+        sections.advanced.add_argument(
             '--two-step-cutoff', type=float, default=None, metavar='VALUE',
             help=(
                 'First-step chi-square cutoff, including the boundary. Requires a single-annotation model with '
@@ -3509,7 +3518,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
                 'for such models; otherwise disable two-step estimation.'
             ),
         )
-        advanced.add_argument(
+        sections.advanced.add_argument(
             '--chisq-max', type=float, default=None, metavar='VALUE',
             help=(
                 'Keep SNPs with chi-square at or below this value. If omitted, use max(0.001 * maximum N, 80) '
@@ -3517,7 +3526,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
             ),
         )
     else:
-        advanced.add_argument(
+        sections.advanced.add_argument(
             '--two-step-cutoff', type=float, default=None, metavar='VALUE',
             help=(
                 'First-step chi-square cutoff, including the boundary. Requires a single-annotation model with '
@@ -3526,21 +3535,21 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
                 'otherwise disable it.'
             ),
         )
-        advanced.add_argument(
+        sections.advanced.add_argument(
             '--chisq-max', type=float, default=None, metavar='VALUE',
             help=(
                 'Keep SNPs satisfying Z1^2 * Z2^2 <= VALUE^2 for each trait pair. If omitted, apply no '
                 'chi-square product cap. This differs from the single-trait chi-square filter.'
             ),
         )
-    advanced.add_argument(
+    sections.advanced.add_argument(
         '--num-blocks', type=int, default=200, metavar='N',
         help=(
             'Number of SNP blocks for jackknife standard errors; must be at least 2. Default: 200, capped '
             'at the number of retained SNPs.'
         ),
     )
-    advanced.add_argument(
+    sections.advanced.add_argument(
         '--allow-identity-downgrade', action='store_true', default=False,
         help=(
             'Allow allele-aware and allele-unaware inputs of the same mode family by matching without '
@@ -3548,7 +3557,6 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
             'compatible SNP identifier modes.'
         ),
     )
-    return inputs, model, scale, advanced
 
 
 def _preflight_regression_outputs(

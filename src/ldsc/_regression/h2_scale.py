@@ -267,7 +267,8 @@ def add_convert_h2_scale_arguments(parser: argparse.ArgumentParser) -> None:
     parser.formatter_class = CLIHelpFormatter
     inputs = parser.add_argument_group('Input result')
     scale = parser.add_argument_group('Case prevalences')
-    runtime = parser.add_argument_group('Output and logging')
+    output = parser.add_argument_group('Output')
+    logs = parser.add_argument_group('Logging')
 
     inputs.add_argument(
         '--h2-result-dir', required=True, metavar='DIR',
@@ -310,14 +311,15 @@ def add_convert_h2_scale_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
 
-    runtime.add_argument(
+    output.add_argument(
         '--overwrite', action='store_true',
         help=(
             'Replace existing liability-scale conversion files below the input result directory. Default: '
             'off; stop if these output files exist.'
         ),
     )
-    runtime.add_argument(
+
+    logs.add_argument(
         '--log-level', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'), default='INFO',
         help=LOG_LEVEL_HELP,
     )

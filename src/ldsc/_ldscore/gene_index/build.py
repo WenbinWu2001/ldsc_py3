@@ -136,41 +136,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.prog = 'ldsc build-gene-ldscore-index'
     parser.formatter_class = CLIHelpFormatter
     parser.description = 'Build a reusable gene LD-score index from hg19 or hg38 PLINK genotypes and baseline annotations.'
-    inputs = parser.add_argument_group('Inputs and output')
-    identity = parser.add_argument_group('SNP identity and genome build')
-    genes = parser.add_argument_group('Gene intervals and LD window')
-    filters = parser.add_argument_group('SNP and individual selection')
-    maps = parser.add_argument_group('Genetic map')
-    runtime = parser.add_argument_group('Performance and logging')
-
-    inputs.add_argument(
-        '--baseline-annot-sources', required=True, metavar='SOURCES',
-        help=(
-            'Required baseline annotation tables covering chromosomes 1-22. Accepts exact paths; this command '
-            'requires full autosomal coverage even when using a glob. '
-            + CHROMOSOME_PATH_HELP
-        ),
+    parser.usage = (
+        '%(prog)s --snp-identifier MODE --genome-build BUILD\n'
+        '    --baseline-annot-sources SOURCES --gene-coordinate-file FILE [--padding-bp BP]\n'
+        '    --plink-prefix PREFIX (--ld-wind-cm CM | --ld-wind-kb KB | --ld-wind-snps N)\n'
+        '    --output-dir DIR [options]'
     )
-    inputs.add_argument(
-        '--plink-prefix', required=True, metavar='PREFIX',
-        help=(
-            'Required PLINK .bed/.bim/.fam filename prefix or chromosome suite covering 1-22. Accepts suite '
-            "stems, '*' and '@' patterns; see --baseline-annot-sources for pattern rules."
-        ),
-    )
-    inputs.add_argument(
-        '--gene-coordinate-file', required=True, metavar='FILE',
-        help=(
-            'Required headered TSV/TSV.GZ gene coordinate catalog in the declared build, with one-based inclusive intervals. '
-            'Defines the full gene set stored in the index. Supply an exact file path; patterns are not expanded.'
-        ),
-    )
-    inputs.add_argument(
-        '--output-dir', required=True, metavar='DIR',
-        help=(
-            'Required destination for the complete reusable gene LD-score index and diagnostics.'
-        ),
-    )
+    identity = parser.add_argument_group('Step 1: SNP identity and genome build')
+    baseline = parser.add_argument_group('Step 2: Baseline annotations')
+    genes = parser.add_argument_group('Step 3: Gene coordinate catalog')
+    panel = parser.add_argument_group('Step 4: PLINK reference panel')
+    windows = parser.add_argument_group('Step 5: LD window (choose one)')
+    output = parser.add_argument_group('Step 6: Output')
+    snps = parser.add_argument_group('Optional: regression SNPs and reference SNPs', description='By default, the regression SNPs are the HM3 map SNPs outside MHC and centromeres.')
+    computing = parser.add_argument_group('Computing resources')
+    logs = parser.add_argument_group('Logging')
 
     identity.add_argument(
         '--snp-identifier', choices=('rsid', 'chr_pos', 'rsid_allele_aware', 'chr_pos_allele_aware'), required=True,
@@ -187,6 +167,22 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    baseline.add_argument(
+        '--baseline-annot-sources', required=True, metavar='SOURCES',
+        help=(
+            'Required baseline annotation tables covering chromosomes 1-22. Accepts exact paths; this command '
+            'requires full autosomal coverage even when using a glob. '
+            + CHROMOSOME_PATH_HELP
+        ),
+    )
+
+    genes.add_argument(
+        '--gene-coordinate-file', required=True, metavar='FILE',
+        help=(
+            'Required headered TSV/TSV.GZ gene coordinate catalog in the declared build, with one-based inclusive intervals. '
+            'Defines the full gene set stored in the index. Supply an exact file path; patterns are not expanded.'
+        ),
+    )
     genes.add_argument(
         '--padding-bp', type=int, default=0, metavar='BP',
         help=(
@@ -201,7 +197,34 @@ def build_parser() -> argparse.ArgumentParser:
             'choice is fixed in the index.'
         ),
     )
-    window = genes.add_mutually_exclusive_group(required=True)
+
+    panel.add_argument(
+        '--plink-prefix', required=True, metavar='PREFIX',
+        help=(
+            'Required PLINK .bed/.bim/.fam filename prefix or chromosome suite covering 1-22. Accepts suite '
+            "stems, '*' and '@' patterns; see --baseline-annot-sources for pattern rules."
+        ),
+    )
+    panel.add_argument(
+        '--keep-indivs-file', default=None, metavar='FILE',
+        help=(
+            'File listing one individual ID (IID) per row to retain from PLINK genotypes. If omitted, retain all '
+            'individuals. Supply an exact file path; patterns are not expanded.'
+        ),
+    )
+    panel.add_argument(
+        '--genetic-map-hg19-sources', default=None, metavar='SOURCES',
+        help=(
+            'hg19 genetic-map files for deriving SNP centiMorgan coordinates. Accepts comma-separated exact file '
+            "paths; '*' and '@' are not expanded. If omitted, use informative PLINK CM values; one usable "
+            'coordinate source is required.'
+        ),
+    )
+    panel.add_argument('--genetic-map-hg38-sources', default=None, metavar='SOURCES',
+                      help='hg38 genetic-map files for --ld-wind-cm with --genome-build hg38. '
+                           'Same path rules as --genetic-map-hg19-sources.')
+
+    window = windows.add_mutually_exclusive_group(required=True)
     window.add_argument(
         '--ld-wind-cm', type=float, default=None, metavar='CM',
         help=(
@@ -215,7 +238,21 @@ def build_parser() -> argparse.ArgumentParser:
                         help='Maximum LD-window distance in retained SNPs after identity and genotype filtering. '
                              'No default; specify exactly one LD window. Whole-chromosome windows are rejected.')
 
-    filters.add_argument(
+    output.add_argument(
+        '--output-dir', required=True, metavar='DIR',
+        help=(
+            'Required destination for the complete reusable gene LD-score index and diagnostics.'
+        ),
+    )
+    output.add_argument(
+        '--overwrite', action='store_true', default=False,
+        help=(
+            'Replace an existing complete index after the new build succeeds. Default: off; stop if the '
+            'destination already exists.'
+        ),
+    )
+
+    snps.add_argument(
         '--regr-snps-file', default=None, metavar='FILE',
         help=(
             'Headered SNP identity table selecting the regression SNPs: stored output rows and regression weights. If '
@@ -223,28 +260,21 @@ def build_parser() -> argparse.ArgumentParser:
             'path; patterns are not expanded.'
         ),
     )
-    filters.add_argument(
-        '--keep-indivs-file', default=None, metavar='FILE',
-        help=(
-            'File listing one individual ID (IID) per row to retain from PLINK genotypes. If omitted, retain all '
-            'individuals. Supply an exact file path; patterns are not expanded.'
-        ),
-    )
-    filters.add_argument(
-        '--maf-min', type=float, default=None, metavar='VALUE',
-        help=(
-            'Keep reference SNPs with MAF at or above this value, in [0, 0.5]. If omitted, apply no '
-            'additional MAF threshold.'
-        ),
-    )
-    filters.add_argument(
+    snps.add_argument(
         '--regr-snps-exclude-regions', choices=kernel_regions.REGR_SNPS_EXCLUDE_REGIONS_CHOICES, default='mhc-and-centromeres',
         help=(
             'Exclude MHC, centromeres, both, or neither from --regr-snps-file or HapMap3 output SNPs. '
             'Default: mhc-and-centromeres. Reference SNPs and annotation counts are unchanged.'
         ),
     )
-    filters.add_argument(
+    snps.add_argument(
+        '--maf-min', type=float, default=None, metavar='VALUE',
+        help=(
+            'Keep reference SNPs with MAF at or above this value, in [0, 0.5]. If omitted, apply no '
+            'additional MAF threshold.'
+        ),
+    )
+    snps.add_argument(
         '--common-maf-min', type=float, default=0.05, metavar='VALUE',
         help=(
             'Minimum MAF for common-SNP annotation counts, including the boundary. Default: 0.05; does not '
@@ -252,44 +282,26 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    maps.add_argument(
-        '--genetic-map-hg19-sources', default=None, metavar='SOURCES',
-        help=(
-            'hg19 genetic-map files for deriving SNP centiMorgan coordinates. Accepts comma-separated exact file '
-            "paths; '*' and '@' are not expanded. If omitted, use informative PLINK CM values; one usable "
-            'coordinate source is required.'
-        ),
-    )
-    maps.add_argument('--genetic-map-hg38-sources', default=None, metavar='SOURCES',
-                      help='hg38 genetic-map files for --ld-wind-cm with --genome-build hg38. '
-                           'Same path rules as --genetic-map-hg19-sources.')
-
-    runtime.add_argument(
+    computing.add_argument(
         '--workers', type=parse_workers, default=1, metavar='N',
         help='Maximum simultaneous chromosome builds. ' + WORKERS_HELP,
     )
-    runtime.add_argument(
+    computing.add_argument(
         '--snp-batch-size', type=int, default=DEFAULT_SNP_BATCH_SIZE, metavar='N',
         help=(
             f'Number of reference SNPs processed per PLINK genotype batch. Default: {DEFAULT_SNP_BATCH_SIZE}; '
             'larger batches use more memory. LD scores do not depend on it.'
         ),
     )
-    runtime.add_argument(
+    computing.add_argument(
         '--atom-batch-size', type=int, default=64, metavar='N',
         help=(
             'Number of disjoint gene-overlap regions processed together during index construction. Default: '
             '64; a smaller positive value reduces memory use.'
         ),
     )
-    runtime.add_argument(
-        '--overwrite', action='store_true', default=False,
-        help=(
-            'Replace an existing complete index after the new build succeeds. Default: off; stop if the '
-            'destination already exists.'
-        ),
-    )
-    runtime.add_argument(
+
+    logs.add_argument(
         '--log-level', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'), default='INFO',
         help=LOG_LEVEL_HELP,
     )

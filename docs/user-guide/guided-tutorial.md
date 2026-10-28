@@ -152,8 +152,8 @@ ldsc ldscore \
   --snp-identifier chr_pos \
   --genome-build hg19 \
   --r2-matrix-dir "${R2_MATRIX_DIR}/hg19" \
-  --output-dir "${LDSCORE_OUTPUT_DIR}" \
   --ld-wind-cm 1.0 \
+  --output-dir "${LDSCORE_OUTPUT_DIR}" \
   --overwrite
 ```
 
@@ -335,11 +335,11 @@ PARTITIONED_LDSCORE_OUTPUT_DIR="${OUTPUT_ROOT}/partitioned_ldscore"
 ldsc ldscore \
   --snp-identifier chr_pos \
   --genome-build "hg19" \
-  --query-annot-bed-sources "${RAW_QUERY_BED_SOURCES}" \
   --baseline-annot-sources "${BASELINE_ANNOT_SOURCES}" \
+  --query-annot-bed-sources "${RAW_QUERY_BED_SOURCES}" \
   --r2-matrix-dir "${R2_MATRIX_DIR}/hg19" \
-  --output-dir "${PARTITIONED_LDSCORE_OUTPUT_DIR}" \
   --ld-wind-cm 1.0 \
+  --output-dir "${PARTITIONED_LDSCORE_OUTPUT_DIR}" \
   --overwrite
 ```
 
@@ -470,8 +470,8 @@ ANNOT_OUT_DIR="${OUTPUT_ROOT}/annot_processed"
 ldsc annotate \
     --snp-identifier chr_pos \
     --genome-build hg19 \
-    --query-annot-bed-sources "$RAW_QUERY_BED_SOURCES" \
     --ref-snp-annot-sources "$BASELINE_ANNOT_SOURCES" \
+    --query-annot-bed-sources "$RAW_QUERY_BED_SOURCES" \
     --output-dir "$ANNOT_OUT_DIR" \
     --overwrite
 ```

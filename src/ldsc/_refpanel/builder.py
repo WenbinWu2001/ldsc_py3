@@ -1459,26 +1459,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.prog = 'ldsc build-r2-matrix'
     parser.formatter_class = CLIHelpFormatter
     parser.description = 'Build an R2 matrix of pairwise R2 values and SNP metadata from PLINK genotypes.'
-    inputs = parser.add_argument_group('Inputs and output')
-    identity = parser.add_argument_group('SNP identity and source genome build')
-    window = parser.add_argument_group('LD window')
-    filters = parser.add_argument_group('SNP and individual selection')
-    maps = parser.add_argument_group('Genetic maps and liftover')
-    runtime = parser.add_argument_group('Storage, performance, and logging')
-
-    inputs.add_argument(
-        '--plink-prefix', required=True, metavar='PREFIX',
-        help=(
-            'Required PLINK .bed/.bim/.fam filename prefix; chromosome suite stems are also accepted. '
-            + CHROMOSOME_PATH_HELP
-        ),
-    )
-    inputs.add_argument(
-        '--output-dir', required=True, metavar='DIR',
-        help=(
-            'Required destination for R2 Parquet files, chromosome SNP metadata, and diagnostics.'
-        ),
-    )
+    identity = parser.add_argument_group('Step 1: SNP identity and source genome build')
+    panel = parser.add_argument_group('Step 2: PLINK reference panel')
+    window = parser.add_argument_group('Step 3: LD window (choose one)')
+    maps = parser.add_argument_group('Step 4: Genetic maps and liftover (optional)')
+    output = parser.add_argument_group('Step 5: Output')
+    storage = parser.add_argument_group('Optional: R2 storage threshold')
+    computing = parser.add_argument_group('Computing resources')
+    logs = parser.add_argument_group('Logging')
 
     identity.add_argument(
         '--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
@@ -1493,6 +1481,38 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             'Genome build of input PLINK coordinates. Default: auto, check every BIM shard and coordinate '
             'keep list before filtering. Concrete builds must agree with input declarations; cM maps follow the resolved build.'
+        ),
+    )
+
+    panel.add_argument(
+        '--plink-prefix', required=True, metavar='PREFIX',
+        help=(
+            'Required PLINK .bed/.bim/.fam filename prefix; chromosome suite stems are also accepted. '
+            + CHROMOSOME_PATH_HELP
+        ),
+    )
+    panel.add_argument(
+        '--keep-indivs-file', default=None, metavar='FILE',
+        help=(
+            'File listing one individual ID (IID) per row to retain from PLINK genotypes. If omitted, retain all '
+            'individuals. '
+            + SCALAR_PATH_HELP
+        ),
+    )
+    panel.add_argument(
+        '--ref-panel-snps-file', default=None, metavar='FILE',
+        help=(
+            'Headered SNP identity table restricting reference SNPs. Coordinate identities must use the PLINK '
+            'source build; duplicate keys collapse and extra columns are ignored. If omitted, use all otherwise '
+            'eligible SNPs. '
+            + SCALAR_PATH_HELP
+        ),
+    )
+    panel.add_argument(
+        '--maf-min', default=None, type=float, metavar='VALUE',
+        help=(
+            'Keep reference SNPs with MAF at or above this value, in [0, 0.5]. If omitted, apply no '
+            'additional MAF threshold.'
         ),
     )
 
@@ -1516,31 +1536,6 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             'Maximum pair distance on either side of each SNP, counted in retained reference-panel SNP '
             'positions. No default; specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm.'
-        ),
-    )
-
-    filters.add_argument(
-        '--ref-panel-snps-file', default=None, metavar='FILE',
-        help=(
-            'Headered SNP identity table restricting reference SNPs. Coordinate identities must use the PLINK '
-            'source build; duplicate keys collapse and extra columns are ignored. If omitted, use all otherwise '
-            'eligible SNPs. '
-            + SCALAR_PATH_HELP
-        ),
-    )
-    filters.add_argument(
-        '--keep-indivs-file', default=None, metavar='FILE',
-        help=(
-            'File listing one individual ID (IID) per row to retain from PLINK genotypes. If omitted, retain all '
-            'individuals. '
-            + SCALAR_PATH_HELP
-        ),
-    )
-    filters.add_argument(
-        '--maf-min', default=None, type=float, metavar='VALUE',
-        help=(
-            'Keep reference SNPs with MAF at or above this value, in [0, 0.5]. If omitted, apply no '
-            'additional MAF threshold.'
         ),
     )
 
@@ -1577,22 +1572,13 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    runtime.add_argument(
-        '--r2-min', dest='r2_min', default=0.0, type=float, metavar='VALUE',
+    output.add_argument(
+        '--output-dir', required=True, metavar='DIR',
         help=(
-            'Minimum unbiased R2 to store. Default: 0; zero or negative values keep every pair within the '
-            'window. A positive value discards smaller R2 values; ldscore then rejects the R2 matrix, and '
-            'query-r2-matrix reports discarded pairs as NaN with status=absent.'
+            'Required destination for R2 Parquet files, chromosome SNP metadata, and diagnostics.'
         ),
     )
-    runtime.add_argument(
-        '--snp-batch-size', dest='snp_batch_size', default=DEFAULT_SNP_BATCH_SIZE, type=int, metavar='N',
-        help=(
-            f'Number of reference SNPs processed per genotype batch. Default: {DEFAULT_SNP_BATCH_SIZE}; larger '
-            'batches may improve speed but use more memory. Stored pairs do not depend on it.'
-        ),
-    )
-    runtime.add_argument(
+    output.add_argument(
         '--overwrite', action='store_true', default=False,
         help=(
             "Replace this command's existing R2 matrix files and remove obsolete outputs after success. A "
@@ -1600,7 +1586,25 @@ def build_parser() -> argparse.ArgumentParser:
             'Default: off; stop if output files exist.'
         ),
     )
-    runtime.add_argument(
+
+    storage.add_argument(
+        '--r2-min', dest='r2_min', default=0.0, type=float, metavar='VALUE',
+        help=(
+            'Minimum unbiased R2 to store. Default: 0; zero or negative values keep every pair within the '
+            'window. A positive value discards smaller R2 values; ldscore then rejects the R2 matrix, and '
+            'query-r2-matrix reports discarded pairs as NaN with status=absent.'
+        ),
+    )
+
+    computing.add_argument(
+        '--snp-batch-size', dest='snp_batch_size', default=DEFAULT_SNP_BATCH_SIZE, type=int, metavar='N',
+        help=(
+            f'Number of reference SNPs processed per genotype batch. Default: {DEFAULT_SNP_BATCH_SIZE}; larger '
+            'batches may improve speed but use more memory. Stored pairs do not depend on it.'
+        ),
+    )
+
+    logs.add_argument(
         '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
         help=LOG_LEVEL_HELP,
     )

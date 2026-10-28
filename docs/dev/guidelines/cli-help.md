@@ -33,9 +33,10 @@ Required inputs should say “Required,” including the applicable mode when th
 6. **Keep the text concise and complete.** Usually use two to four short sentences. This is a target, not a limit that permits omitting dependencies or scientific consequences. Logging and options with several conditional cases may need more. Put detailed algorithms and full schemas in documentation, while keeping information needed to choose a valid value in help.
 7. **Verify wording against behavior.** Check the parser, configuration, and workflow before stating defaults, file destinations, scope, or precedence. Use consistent wording for shared meanings, while preserving command-specific differences. A wording cleanup must not silently change validation, numerical behavior, accepted inputs, flag names, or defaults. Record behavior disagreements separately when they require a decision.
 8. **Explain supported path-token syntax once per command, with precise cross-references.**
-   At the first flag supporting chromosome suites, explain that quoted `*` patterns match filename text and `@` substitutes chromosome numbers 1-22 by default.
+   At the first flag in help order that supports chromosome suites, explain that quoted `*` patterns match filename text and `@` substitutes chromosome numbers 1-22 by default.
    Say “Use `*` to select available files for a chromosome subset where allowed.”
    Later compatible flags may say “Supports `*` and `@`; see `--first-flag` for pattern rules.”
+   A cross-reference names only a flag shown earlier in the help, so reordering the help can move the full explanation to a different flag.
    Keep exact-one match requirements, unsupported `@`, and command-specific coverage requirements in each affected description.
    Check the actual reader: a `sources` suffix alone does not establish pattern support.
    Directory paths do not acquire glob support from file flags.
@@ -56,27 +57,72 @@ For example, `--N-cas-col` must name its required `--N-con-col` companion and it
 
 ## Ordering rules
 
-Apply these priorities in order:
+Order `--help` as the steps a typical user follows to write the command, matching the [guided tutorial](../../user-guide/guided-tutorial.md).
+The help then doubles as a guide to which flags to set.
+Important and required flags and sections come first; optional and less essential ones come later.
 
-1. **Group by task, mode, or use case.** Use visible, descriptive headings. Keep BED inputs, gene-list inputs, direct computation, and indexed computation recognizable as applicable. Shared inputs should have a clear common group.
-2. **Order groups by practical necessity and importance.** Put essential inputs and output destinations first, common analysis settings next, specialized workflows afterward, and advanced overrides, performance controls, and logging near the end. Do not let the order of helper functions determine the help order.
-3. **Within each group, put required inputs first, then commonly adjusted options.** Conditional requirements belong with the mode that needs them. Preserve the relationship between a primary option and its companion flags.
-4. **Use default status as a tie-breaker.** Among similarly important options in the same group, put options needing an explicit value before those with usable defaults. A parser value of `None` can still represent automatic behavior; classify the effective user behavior, not the Python value.
-5. **Keep alternatives and dependencies adjacent.** Do not separate paired case/control settings or the three LD-window alternatives merely to sort defaults. An uncommon override stays in its advanced group even if it has no fixed default.
+Each command uses these section headings, in this order:
 
-There is no global “all no-default flags first” rule. Grouping and practical importance take precedence. Small commands need only the groups that help users; they do not need empty or artificial sections.
-
-The following sequences are starting points for organizing the two largest relevant workflows, subject to keeping actual dependencies together:
-
-| Command | Group sequence |
+| Heading | Contents |
 | --- | --- |
-| `infer-genome-build` | One positional exact path and help only; describe read-only reporting, successful unknown results, and no output or logging options. |
-| `munge-sumstats` | Essential inputs/output; SNP identity and genome build; sample size; filtering; format-specific and column overrides; performance and logging. |
-| `ldscore` | Essential inputs/output; direct computation; annotation sources with related BED/gene options together; indexed computation; advanced and resource controls. |
+| `Step N: <decision>` | The decisions a typical run needs, numbered from 1 in tutorial order. Add `(choose one)`, `(choose at most one source type)` or `(optional)` when it applies. |
+| `Step N continued: <mode> only` | Settings that apply to only one alternative of step N, placed directly after it. |
+| `Optional: <topic>` | Refinements with usable defaults, most commonly adjusted first. |
+| `Alternative: <mode>` | A different way to run the command; its description names the steps it replaces and the flags it still needs. |
+| `Computing resources` | Workers, batch sizes, chunk sizes and other memory or speed controls. |
+| `Logging` | `--log-level`, always the last section. |
 
-Within these sequences, required identity/build settings and mode-selecting inputs must remain easy to find. An essential selector can appear in the common input group while its less common tuning options stay with the corresponding mode.
+Apply these rules within that structure:
 
-Use readable argument placeholders such as `FILE`, `DIR`, `COLUMN`, `BP`, or `N`. Show the actual user-facing command in the usage line. Equivalent entry points must preserve the same groups and descriptions; verify the rendered help rather than assuming that copying parser actions preserves their groups. See [`cli.build_parser`, `cli.main`, and `cli._copy_actions`](../../../src/ldsc/cli.py).
+1. **Start with SNP identity and genome build when the user chooses them.**
+   List `--snp-identifier` before the genome-build flags, as in the tutorial's shared configuration.
+   A command whose essential inputs come with an identity that has a usable default, such as `convert-legacy-ldscores`, starts with its inputs instead.
+2. **Make output the last step.**
+   It starts with `--output-dir` and `--overwrite`, followed by options that change what is written, such as `--output-format` or `--continue-on-query-error`.
+   Commands without `--output-dir` put `--overwrite` in a section titled `Output`.
+3. **Within a section, put required inputs first, then commonly adjusted options.**
+   Conditional requirements belong with the mode that needs them.
+   Preserve the relationship between a primary option and its companion flags.
+4. **Use default status as a tie-breaker.**
+   Among similarly important options in the same section, put options needing an explicit value before those with usable defaults.
+   A parser value of `None` can still represent automatic behavior; classify the effective user behavior, not the Python value.
+5. **Keep alternatives and dependencies adjacent.**
+   Do not separate paired case/control settings or the three LD-window alternatives merely to sort defaults.
+6. **Show each flag once.**
+   An argparse option belongs to one section, so an alternative mode that reuses a flag from a step names that flag and its step in the section description.
+
+`infer-genome-build` has one positional exact path and help only; describe read-only reporting, successful unknown results, and the absence of output and logging options.
+`plot` and `convert-h2-scale` have one or two inputs and keep plain headings (`Input result`, `Case prevalences`, `Output`, `Logging`) without step numbers.
+Small commands need only the sections that help users; they do not need empty or artificial sections.
+
+The current sequences are:
+
+| Command | Numbered steps | Later sections |
+| --- | --- | --- |
+| `munge-sumstats` | 1 SNP identity and genome build; 2 raw summary statistics; 3 sample size; 4 output | SNP selection and quality filters; column overrides; computing resources; logging |
+| `annotate` | 1 SNP identity and genome build; 2 annotation SNP grid; 3 query annotations; 4 output | logging |
+| `ldscore` | 1 SNP identity and genome build; 2 baseline annotations; 3 query annotations; 4 reference panel, then PLINK-only settings; 5 LD window; 6 output | regression and reference SNPs; gene LD-score index alternative; computing resources; logging |
+| `build-gene-ldscore-index` | 1 SNP identity and genome build; 2 baseline annotations; 3 gene coordinate catalog; 4 PLINK reference panel; 5 LD window; 6 output | regression and reference SNPs; computing resources; logging |
+| `build-r2-matrix` | 1 SNP identity and source genome build; 2 PLINK reference panel; 3 LD window; 4 genetic maps and liftover; 5 output | R2 storage threshold; computing resources; logging |
+| `h2`, `partitioned-h2`, `rg` | 1 munged summary statistics and LD scores; 2 output | liability scale; model settings; advanced estimation and SNP matching; computing resources (`partitioned-h2` only); logging |
+| `quantile-h2` | 1 fitted model; 2 target annotation and quantiles; 3 original fitted-model inputs, then original BED and gene-list settings; 4 output | logging |
+| `query-r2-matrix` | 1 R2 matrix; 2 SNP pairs; 3 output | logging |
+| `convert-legacy-ldscores` | 1 legacy LD-score files; 2 output SNP identity and genome build; 3 output | logging |
+
+The example commands in the guided tutorial and the option tables in the [command-line reference](../../reference/cli.md) follow the same order.
+Section titles, the step order, and the structural rules above are checked by `tests/package/test_cli_help.py`.
+
+## Usage lines
+
+Use readable argument placeholders such as `FILE`, `DIR`, `COLUMN`, `BP`, or `N`.
+Show the actual user-facing command in the usage line.
+`annotate`, `ldscore`, `build-gene-ldscore-index` and `munge-sumstats` set a hand-written `usage` that shows the typical command in step order.
+It brackets optional flags, groups alternatives as `(A | B)`, lists another mode on an `or:` line, and ends with `[options]`.
+Every flag it names must exist and every required flag must appear; the help tests check both.
+Other commands use the usage line that argparse generates from the order in which flags are added, so add flags in display order.
+Equivalent entry points must preserve the same usage, groups, and descriptions; verify the rendered help rather than assuming that copying parser actions preserves them.
+See [`cli.build_parser`, `cli.main`, and `cli._copy_actions`](../../../src/ldsc/cli.py).
+Do not add an examples section to `--help`; worked commands belong in the user guide.
 
 ## Common mistakes and better descriptions
 
@@ -96,7 +142,7 @@ The poor descriptions below are existing text or representative paraphrases. Imp
 | Fallback incorrectly called an override | `--N`: “Override sample size.” | “Constant sample-size fallback when per-variant N or paired case/control columns are absent. Input columns take precedence; this value takes precedence over `--N-cas`/`--N-con`.” |
 | Unqualified mode-dependent default | `--padding-bp`: “Default: 0.” | “For BED inputs, omission means 0. Direct gene-list input requires an explicit value, including 0 to use gene bodies.” Include the flag's purpose and other applicable mode restrictions. |
 | Unclear opt-in behavior | `--allow-unresolved-genes`: “Gene identifier policy.” | “Omit rejected gene identifiers and continue with the usable subset, recording omissions in diagnostics. Default: off (strict resolution; rejected identifiers stop the run). Requires gene-list input.” |
-| Incorrect ordering | Logging, batch sizes, or advanced overrides before the main input file. | Start with essential inputs and output destinations, then apply the group and ordering priorities above. |
+| Incorrect ordering | Logging, batch sizes, or advanced overrides before the main input file; sections grouped by category instead of by the steps a user follows. | Follow the step sequence above: numbered steps in tutorial order with output last, then optional and alternative sections, computing resources, and logging. |
 
 For a workflow that writes a log, the logging description can read:
 
@@ -130,8 +176,9 @@ Naming decisions to keep:
 - Every visible option has a description with its purpose, relevant input details, effective default or omission behavior, and all dependencies.
 - Conditional requirements, paired flags, mutual exclusion, and precedence agree with validation and workflow behavior.
 - Default claims and output locations agree with the implementation; shared flag wording reflects any command-specific differences.
-- Groups follow user tasks and importance, with required inputs prominent and uncommon controls near the end.
+- Sections use the step headings and order above: numbered steps with output last, then optional and alternative sections, computing resources, and logging.
+- Pattern cross-references and hand-written usage lines name only existing flags, and cross-references point to flags shown earlier in the help.
 - Rendered `ldsc COMMAND --help` and `python -m ldsc COMMAND --help` remain readable, show the correct command, and preserve the intended grouping and ordering.
 - Help-only changes preserve accepted flags, parser destinations, defaults, choices, dependencies, and scientific behavior. Relevant parser/CLI checks establish this; prose edits alone do not require numerical test suites.
 
-The description contents and ordering precedence are approved. All public command parsers use explicit help groups and descriptions, with shared wrapping in [`CLIHelpFormatter`](../../../src/ldsc/_runtime/cli_help.py) and consistent log-level wording in [`LOG_LEVEL_HELP`](../../../src/ldsc/_runtime/workflow_logging.py). No guidance decisions remain open.
+The description contents and the step-ordered layout are approved; the layout replaced the earlier inputs-and-outputs-first ordering on 2026-10-28. All public command parsers use explicit help groups and descriptions, with shared wrapping in [`CLIHelpFormatter`](../../../src/ldsc/_runtime/cli_help.py) and consistent log-level wording in [`LOG_LEVEL_HELP`](../../../src/ldsc/_runtime/workflow_logging.py). No guidance decisions remain open.

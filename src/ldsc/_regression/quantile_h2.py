@@ -492,13 +492,14 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
     parser.prog = 'ldsc quantile-h2'
     parser.formatter_class = CLIHelpFormatter
     parser.description = 'Summarize an existing fitted model across SNP quantiles of a target annotation, without refitting LDSC.'
-    inputs = parser.add_argument_group('Inputs and output')
-    original = parser.add_argument_group('Original fitted-model inputs', description='Resupply the same annotations and reference SNP metadata used for the saved model.')
-    quantiles = parser.add_argument_group('Target quantiles')
-    genes = parser.add_argument_group('Original BED and gene-list settings')
-    runtime = parser.add_argument_group('Output and logging')
+    model = parser.add_argument_group('Step 1: Fitted model')
+    target = parser.add_argument_group('Step 2: Target annotation and quantiles')
+    original = parser.add_argument_group('Step 3: Original fitted-model inputs', description='Resupply the same annotations and reference SNP metadata used for the saved model.')
+    genes = parser.add_argument_group('Step 3 continued: original BED and gene-list settings')
+    output = parser.add_argument_group('Step 4: Output')
+    logs = parser.add_argument_group('Logging')
 
-    inputs.add_argument(
+    model.add_argument(
         '--partitioned-h2-result-dir', required=True, metavar='DIR',
         help=(
             'Required saved joint model: a baseline-only partitioned-h2 result or one '
@@ -506,7 +507,8 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
             'a single model.'
         ),
     )
-    inputs.add_argument(
+
+    target.add_argument(
         '--target-annot-sources', nargs='+', required=True, metavar='SOURCES',
         help=(
             'Required annotation files containing --target-annot-column, used to divide SNPs into quantiles. '
@@ -514,16 +516,25 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
             + CHROMOSOME_PATH_HELP
         ),
     )
-    inputs.add_argument(
+    target.add_argument(
         '--target-annot-column', required=True,
         help=(
             'Required unique column name in --target-annot-sources whose values define the quantiles.'
         ),
     )
-    inputs.add_argument(
-        '--output-dir', required=True, metavar='DIR',
+    target.add_argument(
+        '--num-quantiles', type=int, default=5, metavar='N',
         help=(
-            'Required destination for quantile heritability, standardized coefficients, and diagnostics.'
+            'Number of low-to-high target quantiles; must be at least 2. Default: 5. Ties stay in the lower '
+            'quantile; an empty quantile causes an error.'
+        ),
+    )
+    target.add_argument(
+        '--target-missing-value', default=None,
+        help=(
+            'One target-value token to exclude before forming quantiles, for example NaN or -999. Default: '
+            'exclude no value; unselected nonnumeric or nonfinite values cause an error. Zero remains a '
+            'valid score unless explicitly selected.'
         ),
     )
 
@@ -545,15 +556,6 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
     )
     query_group = original.add_mutually_exclusive_group()
     query_group.add_argument(
-        '--query-annot-sources', nargs='+', metavar='SOURCES',
-        help=(
-            "Original query annotation tables for the selected per-query fit; accepts paths, '*' and '@' patterns "
-            '(see --target-annot-sources). Cannot be combined with --query-annot-bed-sources or '
-            '--query-annot-gene-list-sources. Omit for baseline-only fits; per-query fits require their matching '
-            'source.'
-        ),
-    )
-    query_group.add_argument(
         '--query-annot-bed-sources', nargs='+', metavar='SOURCES',
         help=(
             "Original BED query files for the selected per-query fit; accepts paths or '*' patterns. Cannot be "
@@ -571,23 +573,24 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
             'is not expanded.'
         ),
     )
-
-    quantiles.add_argument(
-        '--target-missing-value', default=None,
+    query_group.add_argument(
+        '--query-annot-sources', nargs='+', metavar='SOURCES',
         help=(
-            'One target-value token to exclude before forming quantiles, for example NaN or -999. Default: '
-            'exclude no value; unselected nonnumeric or nonfinite values cause an error. Zero remains a '
-            'valid score unless explicitly selected.'
-        ),
-    )
-    quantiles.add_argument(
-        '--num-quantiles', type=int, default=5, metavar='N',
-        help=(
-            'Number of low-to-high target quantiles; must be at least 2. Default: 5. Ties stay in the lower '
-            'quantile; an empty quantile causes an error.'
+            "Original query annotation tables for the selected per-query fit; accepts paths, '*' and '@' patterns "
+            '(see --target-annot-sources). Cannot be combined with --query-annot-bed-sources or '
+            '--query-annot-gene-list-sources. Omit for baseline-only fits; per-query fits require their matching '
+            'source.'
         ),
     )
 
+    genes.add_argument(
+        '--padding-bp', type=int, default=0, metavar='BP',
+        help=(
+            'Extend BED intervals or gene boundaries by this many base pairs at both ends before finding covered '
+            'SNPs. Default: 0. Use the original LD-score setting; not applicable to prebuilt annotation tables. '
+            'Use 0 for BED files that already include the padding used in the fitted model; avoid double padding.'
+        ),
+    )
     genes.add_argument(
         '--gene-coordinate-file', default=None, metavar='FILE',
         help=(
@@ -605,11 +608,13 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
     genes.add_argument(
-        '--padding-bp', type=int, default=0, metavar='BP',
+        '--gene-exclude-regions', choices=('none', 'mhc'), default='none',
         help=(
-            'Extend BED intervals or gene boundaries by this many base pairs at both ends before finding covered '
-            'SNPs. Default: 0. Use the original LD-score setting; not applicable to prebuilt annotation tables. '
-            'Use 0 for BED files that already include the padding used in the fitted model; avoid double padding.'
+            (
+            'Exclude MHC-overlapping genes before padding, or none to exclude no genes. Default: none. '
+            'Selecting mhc requires --query-annot-gene-list-sources; reproduce the original LD-score '
+            'setting.'
+        )
         ),
     )
     genes.add_argument(
@@ -622,25 +627,22 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
             'Reproduce the original LD-score policy.'
         ),
     )
-    genes.add_argument(
-        '--gene-exclude-regions', choices=('none', 'mhc'), default='none',
+
+    output.add_argument(
+        '--output-dir', required=True, metavar='DIR',
         help=(
-            (
-            'Exclude MHC-overlapping genes before padding, or none to exclude no genes. Default: none. '
-            'Selecting mhc requires --query-annot-gene-list-sources; reproduce the original LD-score '
-            'setting.'
-        )
+            'Required destination for quantile heritability, standardized coefficients, and diagnostics.'
         ),
     )
-
-    runtime.add_argument(
+    output.add_argument(
         '--overwrite', action='store_true', default=False,
         help=(
             "Replace this command's existing output files and remove obsolete outputs from an earlier run. "
             'Default: off; stop if output files already exist.'
         ),
     )
-    runtime.add_argument(
+
+    logs.add_argument(
         '--log-level', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'), default='INFO',
         help=LOG_LEVEL_HELP,
     )

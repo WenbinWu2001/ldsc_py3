@@ -769,12 +769,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.prog = 'ldsc convert-legacy-ldscores'
     parser.formatter_class = CLIHelpFormatter
     parser.description = 'Convert complete legacy reference and regression-weight suites into one LDSC3 LD-score directory.'
-    inputs = parser.add_argument_group('Inputs and output')
-    partitioned = parser.add_argument_group('Baseline partitioned suites')
-    identity = parser.add_argument_group('Output SNP identity')
-    runtime = parser.add_argument_group('Output and logging')
+    legacy = parser.add_argument_group('Step 1: Legacy LD-score files')
+    identity = parser.add_argument_group('Step 2: Output SNP identity and genome build')
+    output = parser.add_argument_group('Step 3: Output')
+    logs = parser.add_argument_group('Logging')
 
-    inputs.add_argument(
+    legacy.add_argument(
         '--legacy-reference-dir', required=True, metavar='DIR',
         help=(
             'Required directory containing a complete chromosome 1-22 legacy reference LD-score suite and '
@@ -782,22 +782,14 @@ def build_parser() -> argparse.ArgumentParser:
             '--legacy-frequency-dir.'
         ),
     )
-    inputs.add_argument(
+    legacy.add_argument(
         '--legacy-weight-dir', required=True, metavar='DIR',
         help=(
             'Required directory containing chromosome 1-22 single-column regression-weight LD scores. May '
             'equal --legacy-reference-dir for an unpartitioned suite.'
         ),
     )
-    inputs.add_argument(
-        '--output-dir', required=True, metavar='DIR',
-        help=(
-            'Required destination for the converted LD-score tables, counts, and diagnostics. Source files '
-            'are not changed.'
-        ),
-    )
-
-    partitioned.add_argument(
+    legacy.add_argument(
         '--legacy-frequency-dir', metavar='DIR',
         help=(
             'Directory containing chromosome frequency files used to reconstruct common-SNP counts and '
@@ -822,14 +814,22 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    runtime.add_argument(
+    output.add_argument(
+        '--output-dir', required=True, metavar='DIR',
+        help=(
+            'Required destination for the converted LD-score tables, counts, and diagnostics. Source files '
+            'are not changed.'
+        ),
+    )
+    output.add_argument(
         '--overwrite', action='store_true',
         help=(
             "Replace this command's existing output files and remove obsolete outputs from an earlier run. "
             'Default: off; stop if output files already exist.'
         ),
     )
-    runtime.add_argument(
+
+    logs.add_argument(
         '--log-level', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'), default='INFO',
         help=LOG_LEVEL_HELP,
     )

@@ -565,33 +565,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.prog = 'ldsc query-r2-matrix'
     parser.formatter_class = CLIHelpFormatter
-    inputs = parser.add_argument_group('Inputs and output')
-    identity = parser.add_argument_group('R2 matrix and SNP matching')
-    runtime = parser.add_argument_group('Output and logging')
+    matrix = parser.add_argument_group('Step 1: R2 matrix')
+    pairs = parser.add_argument_group('Step 2: SNP pairs')
+    output = parser.add_argument_group('Step 3: Output')
+    logs = parser.add_argument_group('Logging')
 
-    inputs.add_argument(
+    matrix.add_argument(
         '--r2-matrix-dir', required=True, metavar='DIR',
         help=(
             'Required R2 matrix directory produced by build-r2-matrix, or its root containing '
             'genome-build subdirectories. Use --genome-build to select a subdirectory when needed.'
         ),
     )
-    inputs.add_argument(
-        '--pairs-file', required=True, metavar='FILE',
-        help=(
-            'Required TSV/CSV of SNP pairs; use - to read standard input. Endpoint columns use _1/_2 '
-            'suffixes and must match --snp-identifier, including allele columns for allele-aware matching.'
-        ),
-    )
-    inputs.add_argument(
-        '--output-dir', required=True, metavar='DIR',
-        help=(
-            'Required destination for query_r2_matrix.tsv (r2, sign_r, r, status plus input columns) '
-            'and diagnostics. sign_r and r use query allele orientation.'
-        ),
-    )
-
-    identity.add_argument(
+    matrix.add_argument(
         '--genome-build', choices=['hg19', 'hg38'], default=None,
         help=(
             'Select the hg19 or hg38 subdirectory under --r2-matrix-dir. If omitted, use the supplied '
@@ -599,7 +585,15 @@ def build_parser() -> argparse.ArgumentParser:
             'selection.'
         ),
     )
-    identity.add_argument(
+
+    pairs.add_argument(
+        '--pairs-file', required=True, metavar='FILE',
+        help=(
+            'Required TSV/CSV of SNP pairs; use - to read standard input. Endpoint columns use _1/_2 '
+            'suffixes and must match --snp-identifier, including allele columns for allele-aware matching.'
+        ),
+    )
+    pairs.add_argument(
         '--snp-identifier', default=None,
         help=(
             'SNP matching rule for pair endpoints: the mode recorded by the R2 matrix (the default) or the '
@@ -608,14 +602,22 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    runtime.add_argument(
+    output.add_argument(
+        '--output-dir', required=True, metavar='DIR',
+        help=(
+            'Required destination for query_r2_matrix.tsv (r2, sign_r, r, status plus input columns) '
+            'and diagnostics. sign_r and r use query allele orientation.'
+        ),
+    )
+    output.add_argument(
         '--overwrite', action='store_true', default=False,
         help=(
             "Replace this command's existing output files and remove obsolete outputs from an earlier run. "
             'Default: off; stop if output files already exist.'
         ),
     )
-    runtime.add_argument(
+
+    logs.add_argument(
         '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
         help=LOG_LEVEL_HELP,
     )

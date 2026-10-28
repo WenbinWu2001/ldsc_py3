@@ -1143,49 +1143,40 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.prog = 'ldsc ldscore'
     parser.formatter_class = CLIHelpFormatter
-    parser.description = 'Compute LD scores from a reference panel, or assemble gene-list LD scores from a prebuilt gene LD-score index.'
-    inputs = parser.add_argument_group('Inputs and output', description='Choose direct computation with PLINK or an R2 matrix, or indexed computation with gene lists.')
-    identity = parser.add_argument_group('Direct mode: SNP identity and genome build')
-    window = parser.add_argument_group('Direct mode: LD window', description='Specify exactly one window; it must fit within the window of any R2 matrix.')
-    annotations = parser.add_argument_group('Annotation sources', description='Choose at most one query source type; direct queries need explicit baseline annotations.')
-    genes = parser.add_argument_group('BED and gene-list annotations')
-    filters = parser.add_argument_group('Direct mode: SNP and individual selection')
-    advanced = parser.add_argument_group('Direct mode: reference metadata and advanced settings')
-    runtime = parser.add_argument_group('Performance and logging')
+    parser.description = (
+        'Compute LD scores from a reference panel by following Steps 1-6, or assemble gene-list LD scores from a '
+        "prebuilt gene LD-score index (see 'Alternative: gene LD-score index')."
+    )
+    parser.usage = (
+        '%(prog)s [--snp-identifier MODE] --genome-build BUILD\n'
+        '    [--baseline-annot-sources SOURCES\n'
+        '      [--query-annot-bed-sources SOURCES | --query-annot-gene-list-sources SOURCES]]\n'
+        '    (--r2-matrix-dir DIR | --plink-prefix PREFIX)\n'
+        '    (--ld-wind-cm CM | --ld-wind-kb KB | --ld-wind-snps N)\n'
+        '    --output-dir DIR [options]\n'
+        '   or: %(prog)s --gene-ldscore-index-dir DIR --query-annot-gene-list-sources SOURCES\n'
+        '    --output-dir DIR [options]'
+    )
+    identity =parser.add_argument_group('Step 1: SNP identity and genome build')
+    baseline = parser.add_argument_group('Step 2: Baseline annotations', description='Required when Step 3 adds query annotations. Omit Steps 2 and 3 to compute unpartitioned LD scores.')
+    queries = parser.add_argument_group('Step 3: Query annotations (optional; choose at most one source type)')
+    panel = parser.add_argument_group('Step 4: Reference panel (choose one: R2 matrix or PLINK)')
+    plink = parser.add_argument_group('Step 4 continued: PLINK reference panel only (optional)')
+    window = parser.add_argument_group('Step 5: LD window (choose one)', description='Specify exactly one window; it must fit within the window of any R2 matrix.')
+    output = parser.add_argument_group('Step 6: Output')
+    snps = parser.add_argument_group('Optional: regression SNPs and reference SNPs', description='By default, the regression SNPs are the HM3 map SNPs outside MHC and centromeres.')
+    indexed = parser.add_argument_group('Alternative: gene LD-score index', description='Use instead of Steps 1, 2, 4, and 5 and the optional SNP settings, which the index stores. Supply --query-annot-gene-list-sources (Step 3) and --output-dir (Step 6); omit --padding-bp, --gene-coordinate-file, and --gene-exclude-regions.')
+    computing = parser.add_argument_group('Computing resources')
+    logs = parser.add_argument_group('Logging')
 
-    inputs.add_argument(
-        '--plink-prefix', default=None, metavar='PREFIX',
+    identity.add_argument(
+        '--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
         help=(
-            'PLINK .bed/.bim/.fam filename prefix or chromosome suite stem. Direct mode requires exactly one of '
-            '--plink-prefix or --r2-matrix-dir. Cannot be combined with --gene-ldscore-index-dir; no default. '
-            'Direct query runs require every declared chromosome member. '
-            + CHROMOSOME_PATH_HELP
+            'Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use '
+            'A1/A2. Default: chr_pos_allele_aware; usable alleles are required. With '
+            '--gene-ldscore-index-dir, inherit the stored identity and omit this flag.'
         ),
     )
-    inputs.add_argument(
-        '--r2-matrix-dir', dest='r2_matrix_dir', default=None, metavar='DIR',
-        help=(
-            'R2 matrix directory written by build-r2-matrix, containing chrN_r2.parquet and required chrN_meta.tsv.gz '
-            'files. The LD window must use the unit the R2 matrix was built with and be no wider. Direct mode '
-            'requires exactly one of --r2-matrix-dir or --plink-prefix. Cannot be combined with '
-            '--gene-ldscore-index-dir; no default.'
-        ),
-    )
-    inputs.add_argument(
-        '--gene-ldscore-index-dir', default=None, metavar='DIR',
-        help=(
-            'Use a complete prebuilt gene LD-score index instead of a live reference panel. Requires '
-            '--query-annot-gene-list-sources; cannot be combined with direct-input or direct-computation '
-            'flags. If omitted, compute LD scores directly.'
-        ),
-    )
-    inputs.add_argument(
-        '--output-dir', required=True, metavar='DIR',
-        help=(
-            'Required destination for LD-score tables, SNP counts, and diagnostics.'
-        ),
-    )
-
     identity.add_argument(
         '--genome-build', choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'), default=None,
         help=(
@@ -1196,12 +1187,138 @@ def build_parser() -> argparse.ArgumentParser:
             '--gene-ldscore-index-dir, inherit its build and omit this flag.'
         ),
     )
-    identity.add_argument(
-        '--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
+
+    baseline.add_argument(
+        '--baseline-annot-sources', default=None, metavar='SOURCES',
         help=(
-            'Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use '
-            'A1/A2. Default: chr_pos_allele_aware; usable alleles are required. With '
-            '--gene-ldscore-index-dir, inherit the stored identity and omit this flag.'
+            "Baseline annotation tables: comma-separated paths, '*' or '@' patterns. Required with direct query "
+            'inputs. If omitted without queries, use a single all-SNP baseline. Cannot be combined with '
+            '--gene-ldscore-index-dir. '
+            + CHROMOSOME_PATH_HELP
+        ),
+    )
+
+    query_group = queries.add_mutually_exclusive_group()
+    query_group.add_argument(
+        '--query-annot-bed-sources', default=None, metavar='SOURCES',
+        help=(
+            "BED files whose intervals define query SNPs; accepts comma-separated paths or '*' patterns. Requires "
+            '--baseline-annot-sources; cannot be combined with --query-annot-sources, '
+            "--query-annot-gene-list-sources, or --gene-ldscore-index-dir. If omitted, add no BED queries. '@' is "
+            'not expanded; see --baseline-annot-sources for wildcard and quoting rules.'
+        ),
+    )
+    query_group.add_argument(
+        '--query-annot-gene-list-sources', default=None, metavar='SOURCES',
+        help=(
+            'One-column gene-list files, separated by commas. Direct mode requires --baseline-annot-sources, '
+            '--gene-coordinate-file, and --padding-bp; indexed mode requires --gene-ldscore-index-dir. Cannot be '
+            'combined with --query-annot-sources or --query-annot-bed-sources. If omitted, add no gene-list '
+            "queries. Accepts '*' patterns (see --baseline-annot-sources); '@' is not expanded."
+        ),
+    )
+    query_group.add_argument(
+        '--query-annot-sources', default=None, metavar='SOURCES',
+        help=(
+            "Query annotation tables: comma-separated paths, '*' or '@' patterns (see --baseline-annot-sources for "
+            'pattern rules). Requires --baseline-annot-sources; cannot be combined with --query-annot-bed-sources, '
+            '--query-annot-gene-list-sources, or --gene-ldscore-index-dir. If omitted, add no table-based '
+            'queries.'
+        ),
+    )
+    queries.add_argument(
+        '--padding-bp', type=int, default=None, metavar='BP',
+        help=(
+            'Extend BED intervals or gene boundaries by this many base pairs at both ends, then find covered '
+            'SNPs. Omission means 0 for BED input; direct gene-list input requires an explicit value, including '
+            '0. Cannot be used with prebuilt annotations, no query, or --gene-ldscore-index-dir. Set to 0 if your '
+            'BED intervals are already padded to avoid double padding.'
+        ),
+    )
+    queries.add_argument(
+        '--gene-coordinate-file', default=None, metavar='FILE',
+        help=(
+            'Headered TSV/TSV.GZ of gene coordinates, using one-based inclusive intervals. Required with direct '
+            '--query-annot-gene-list-sources; indexed runs use their stored catalog and reject this flag. If '
+            'omitted outside gene-list mode, no catalog is used. Supply an exact file path; patterns are not '
+            'expanded.'
+        ),
+    )
+    queries.add_argument(
+        '--control-gene-list-file', default=None, metavar='FILE',
+        help=(
+            'One-column gene list added as a fixed control alongside each gene-list query. Requires '
+            '--query-annot-gene-list-sources. If omitted, add no gene control. Supply an exact file path; '
+            'patterns are not expanded.'
+        ),
+    )
+    queries.add_argument(
+        '--gene-exclude-regions', choices=('none', 'mhc'), default='none',
+        help=(
+            'Exclude genes overlapping MHC before extending their intervals; none excludes no genes. '
+            'Default: none for direct gene-list input. With --gene-ldscore-index-dir, use the stored policy '
+            'and omit this flag.'
+        ),
+    )
+    queries.add_argument(
+        '--allow-unresolved-genes', action='store_const', const='resolved-only',
+        dest='gene_list_resolution_policy', default='strict',
+        help=(
+            'Omit rejected gene identifiers and continue with the usable subset, recording omissions '
+            'in diagnostics. Default: off (strict resolution; rejected identifiers stop the run). '
+            'Requires --query-annot-gene-list-sources. Other validation errors remain fatal.'
+        ),
+    )
+
+    panel.add_argument(
+        '--r2-matrix-dir', dest='r2_matrix_dir', default=None, metavar='DIR',
+        help=(
+            'R2 matrix directory written by build-r2-matrix, containing chrN_r2.parquet and required chrN_meta.tsv.gz '
+            'files. The LD window must use the unit the R2 matrix was built with and be no wider. Direct mode '
+            'requires exactly one of --r2-matrix-dir or --plink-prefix. Cannot be combined with '
+            '--gene-ldscore-index-dir; no default.'
+        ),
+    )
+    panel.add_argument(
+        '--plink-prefix', default=None, metavar='PREFIX',
+        help=(
+            'PLINK .bed/.bim/.fam filename prefix or chromosome suite stem. Direct mode requires exactly one of '
+            '--plink-prefix or --r2-matrix-dir. Cannot be combined with --gene-ldscore-index-dir; no default. '
+            "Direct query runs require every declared chromosome member. Accepts '*' and '@' patterns; see "
+            '--baseline-annot-sources for pattern rules.'
+        ),
+    )
+
+    plink.add_argument(
+        '--keep-indivs-file', default=None, metavar='FILE',
+        help=(
+            'File listing one individual ID (IID) per row to retain from PLINK genotypes. Requires '
+            '--plink-prefix; cannot be used with --r2-matrix-dir or --gene-ldscore-index-dir. If omitted, retain all '
+            'individuals. Supply an exact file path; patterns are not expanded.'
+        ),
+    )
+    plink.add_argument(
+        '--genetic-map-hg19-sources', default=None, metavar='SOURCES',
+        help=(
+            'hg19 genetic-map files used to derive centiMorgan coordinates for PLINK SNPs. Accepts '
+            "comma-separated exact file paths; '*' and '@' are not expanded. If omitted, use informative PLINK CM "
+            'values; cM windows require one of these sources. Direct PLINK mode only.'
+        ),
+    )
+    plink.add_argument(
+        '--genetic-map-hg38-sources', default=None, metavar='SOURCES',
+        help=(
+            'hg38 genetic-map files used to derive centiMorgan coordinates for PLINK SNPs. Accepts '
+            "comma-separated exact file paths; '*' and '@' are not expanded. If omitted, use informative PLINK CM "
+            'values; cM windows require one of these sources. Direct PLINK mode only.'
+        ),
+    )
+    plink.add_argument(
+        '--export-ref-metadata', default=False, action='store_true',
+        help=(
+            'Write reference-panel SNP metadata to ref_metadata/chrN_meta.tsv.gz under --output-dir. '
+            'Applies to PLINK input only; rejected with --gene-ldscore-index-dir. Default: off; these '
+            'additional files are not written.'
         ),
     )
 
@@ -1228,98 +1345,29 @@ def build_parser() -> argparse.ArgumentParser:
             '--ld-wind-snps, --ld-wind-kb, or --ld-wind-cm. Direct mode only.'
         ),
     )
-
-    annotations.add_argument(
-        '--baseline-annot-sources', default=None, metavar='SOURCES',
+    window.add_argument(
+        '--yes-really', default=False, action='store_true',
         help=(
-            "Baseline annotation tables: comma-separated paths, '*' or '@' patterns (see --plink-prefix for "
-            'pattern rules). Required with direct query inputs. If omitted without queries, use a single all-SNP '
-            'baseline. Cannot be combined with --gene-ldscore-index-dir.'
-        ),
-    )
-    query_group = annotations.add_mutually_exclusive_group()
-    query_group.add_argument(
-        '--query-annot-sources', default=None, metavar='SOURCES',
-        help=(
-            "Query annotation tables: comma-separated paths, '*' or '@' patterns (see --plink-prefix for pattern "
-            'rules). Requires --baseline-annot-sources; cannot be combined with --query-annot-bed-sources, '
-            '--query-annot-gene-list-sources, or --gene-ldscore-index-dir. If omitted, add no table-based '
-            'queries.'
-        ),
-    )
-    query_group.add_argument(
-        '--query-annot-bed-sources', default=None, metavar='SOURCES',
-        help=(
-            "BED files whose intervals define query SNPs; accepts comma-separated paths or '*' patterns. Requires "
-            '--baseline-annot-sources; cannot be combined with --query-annot-sources, '
-            "--query-annot-gene-list-sources, or --gene-ldscore-index-dir. If omitted, add no BED queries. '@' is "
-            'not expanded; see --plink-prefix for wildcard and quoting rules.'
-        ),
-    )
-    query_group.add_argument(
-        '--query-annot-gene-list-sources', default=None, metavar='SOURCES',
-        help=(
-            'One-column gene-list files, separated by commas. Direct mode requires --baseline-annot-sources, '
-            '--gene-coordinate-file, and --padding-bp; indexed mode requires --gene-ldscore-index-dir. Cannot be '
-            'combined with --query-annot-sources or --query-annot-bed-sources. If omitted, add no gene-list '
-            "queries. Accepts '*' patterns (see --plink-prefix); '@' is not expanded."
+            'Allow an LD window covering an entire chromosome, bypassing the usual guard. Default: off; '
+            'reject whole-chromosome windows. Direct mode only.'
         ),
     )
 
-    genes.add_argument(
-        '--gene-coordinate-file', default=None, metavar='FILE',
+    output.add_argument(
+        '--output-dir', required=True, metavar='DIR',
         help=(
-            'Headered TSV/TSV.GZ of gene coordinates, using one-based inclusive intervals. Required with direct '
-            '--query-annot-gene-list-sources; indexed runs use their stored catalog and reject this flag. If '
-            'omitted outside gene-list mode, no catalog is used. Supply an exact file path; patterns are not '
-            'expanded.'
+            'Required destination for LD-score tables, SNP counts, and diagnostics.'
         ),
     )
-    genes.add_argument(
-        '--padding-bp', type=int, default=None, metavar='BP',
+    output.add_argument(
+        '--overwrite', action='store_true', default=False,
         help=(
-            'Extend BED intervals or gene boundaries by this many base pairs at both ends, then find covered '
-            'SNPs. Omission means 0 for BED input; direct gene-list input requires an explicit value, including '
-            '0. Cannot be used with prebuilt annotations, no query, or --gene-ldscore-index-dir. Set to 0 if your '
-            'BED intervals are already padded to avoid double padding.'
-        ),
-    )
-    genes.add_argument(
-        '--control-gene-list-file', default=None, metavar='FILE',
-        help=(
-            'One-column gene list added as a fixed control alongside each gene-list query. Requires '
-            '--query-annot-gene-list-sources. If omitted, add no gene control. Supply an exact file path; '
-            'patterns are not expanded.'
-        ),
-    )
-    genes.add_argument(
-        '--allow-unresolved-genes', action='store_const', const='resolved-only',
-        dest='gene_list_resolution_policy', default='strict',
-        help=(
-            'Omit rejected gene identifiers and continue with the usable subset, recording omissions '
-            'in diagnostics. Default: off (strict resolution; rejected identifiers stop the run). '
-            'Requires --query-annot-gene-list-sources. Other validation errors remain fatal.'
-        ),
-    )
-    genes.add_argument(
-        '--gene-exclude-regions', choices=('none', 'mhc'), default='none',
-        help=(
-            'Exclude genes overlapping MHC before extending their intervals; none excludes no genes. '
-            'Default: none for direct gene-list input. With --gene-ldscore-index-dir, use the stored policy '
-            'and omit this flag.'
+            "Replace this command's existing output files and remove obsolete outputs from an earlier run. "
+            'Default: off; stop if output files already exist.'
         ),
     )
 
-    filters.add_argument(
-        '--ref-panel-snps-file', default=None, metavar='FILE',
-        help=(
-            'Headered SNP identity table restricting the reference SNPs contributing to LD scores. If omitted, '
-            'use all otherwise eligible reference SNPs. Extra columns are ignored and duplicate keys collapse. '
-            'Direct mode only; rejected with --gene-ldscore-index-dir. Supply an exact file path; patterns are '
-            'not expanded.'
-        ),
-    )
-    filters.add_argument(
+    snps.add_argument(
         '--regr-snps-file', default=None, metavar='FILE',
         help=(
             'Headered SNP identity table selecting the regression SNPs: stored output rows and regression weights. If '
@@ -1328,22 +1376,7 @@ def build_parser() -> argparse.ArgumentParser:
             + SCALAR_PATH_HELP
         ),
     )
-    filters.add_argument(
-        '--keep-indivs-file', default=None, metavar='FILE',
-        help=(
-            'File listing one individual ID (IID) per row to retain from PLINK genotypes. Requires '
-            '--plink-prefix; cannot be used with --r2-matrix-dir or --gene-ldscore-index-dir. If omitted, retain all '
-            'individuals. Supply an exact file path; patterns are not expanded.'
-        ),
-    )
-    filters.add_argument(
-        '--maf-min', default=None, type=float, metavar='VALUE',
-        help=(
-            'Keep reference SNPs with MAF at or above this value, in [0, 0.5]. If omitted, apply no '
-            'additional MAF threshold. Direct mode only; indexed runs inherit their reference selection.'
-        ),
-    )
-    filters.add_argument(
+    snps.add_argument(
         '--regr-snps-exclude-regions', choices=REGR_SNPS_EXCLUDE_REGIONS_CHOICES, default='mhc-and-centromeres',
         help=(
             'Exclude MHC, centromeres, both, or neither from regression SNPs after --regr-snps-file '
@@ -1351,7 +1384,23 @@ def build_parser() -> argparse.ArgumentParser:
             'counts are unchanged. Direct mode only; indexed runs inherit this setting.'
         ),
     )
-    filters.add_argument(
+    snps.add_argument(
+        '--ref-panel-snps-file', default=None, metavar='FILE',
+        help=(
+            'Headered SNP identity table restricting the reference SNPs contributing to LD scores. If omitted, '
+            'use all otherwise eligible reference SNPs. Extra columns are ignored and duplicate keys collapse. '
+            'Direct mode only; rejected with --gene-ldscore-index-dir. Supply an exact file path; patterns are '
+            'not expanded.'
+        ),
+    )
+    snps.add_argument(
+        '--maf-min', default=None, type=float, metavar='VALUE',
+        help=(
+            'Keep reference SNPs with MAF at or above this value, in [0, 0.5]. If omitted, apply no '
+            'additional MAF threshold. Direct mode only; indexed runs inherit their reference selection.'
+        ),
+    )
+    snps.add_argument(
         '--common-maf-min', default=0.05, type=float, metavar='VALUE',
         help=(
             'Minimum MAF for common-SNP annotation counts, including the boundary. Default: 0.05; does not '
@@ -1359,50 +1408,27 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    advanced.add_argument(
-        '--genetic-map-hg19-sources', default=None, metavar='SOURCES',
+    indexed.add_argument(
+        '--gene-ldscore-index-dir', default=None, metavar='DIR',
         help=(
-            'hg19 genetic-map files used to derive centiMorgan coordinates for PLINK SNPs. Accepts '
-            "comma-separated exact file paths; '*' and '@' are not expanded. If omitted, use informative PLINK CM "
-            'values; cM windows require one of these sources. Direct PLINK mode only.'
-        ),
-    )
-    advanced.add_argument(
-        '--genetic-map-hg38-sources', default=None, metavar='SOURCES',
-        help=(
-            'hg38 genetic-map files used to derive centiMorgan coordinates for PLINK SNPs. Accepts '
-            "comma-separated exact file paths; '*' and '@' are not expanded. If omitted, use informative PLINK CM "
-            'values; cM windows require one of these sources. Direct PLINK mode only.'
-        ),
-    )
-    advanced.add_argument(
-        '--export-ref-metadata', default=False, action='store_true',
-        help=(
-            'Write reference-panel SNP metadata to ref_metadata/chrN_meta.tsv.gz under --output-dir. '
-            'Applies to PLINK input only; rejected with --gene-ldscore-index-dir. Default: off; these '
-            'additional files are not written.'
-        ),
-    )
-    advanced.add_argument(
-        '--yes-really', default=False, action='store_true',
-        help=(
-            'Allow an LD window covering an entire chromosome, bypassing the usual guard. Default: off; '
-            'reject whole-chromosome windows. Direct mode only.'
+            'Use a complete prebuilt gene LD-score index instead of a live reference panel. Requires '
+            '--query-annot-gene-list-sources; cannot be combined with direct-input or direct-computation '
+            'flags. If omitted, compute LD scores directly.'
         ),
     )
 
-    runtime.add_argument(
+    computing.add_argument(
         '--workers', default=1, type=parse_workers, metavar='N',
         help='Maximum simultaneous chromosomes in direct or indexed mode. ' + WORKERS_HELP,
     )
-    runtime.add_argument(
+    computing.add_argument(
         '--query-batch-size', default=100, type=int, metavar='N',
         help=(
             'Maximum number of query annotations processed at once. Default: 100; use a smaller positive '
             'value to reduce memory. Each completed batch has its own query file; direct mode repeats reference traversal.'
         ),
     )
-    runtime.add_argument(
+    computing.add_argument(
         '--snp-batch-size', default=DEFAULT_SNP_BATCH_SIZE, type=int, metavar='N',
         help=(
             f'Number of reference SNPs processed per PLINK genotype batch. Default: {DEFAULT_SNP_BATCH_SIZE}; '
@@ -1410,14 +1436,8 @@ def build_parser() -> argparse.ArgumentParser:
             'rejected with --gene-ldscore-index-dir.'
         ),
     )
-    runtime.add_argument(
-        '--overwrite', action='store_true', default=False,
-        help=(
-            "Replace this command's existing output files and remove obsolete outputs from an earlier run. "
-            'Default: off; stop if output files already exist.'
-        ),
-    )
-    runtime.add_argument(
+
+    logs.add_argument(
         '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
         help=LOG_LEVEL_HELP,
     )

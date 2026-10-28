@@ -103,13 +103,36 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
     parser.prog = 'ldsc annotate'
     parser.formatter_class = CLIHelpFormatter
     parser.description = 'Create SNP annotations by finding SNPs covered by BED intervals or gene boundaries.'
-    inputs = parser.add_argument_group('Inputs and output')
-    queries_help = parser.add_argument_group('Annotation sources', description='Choose exactly one query source type.')
-    identity = parser.add_argument_group('SNP identity and genome build')
-    genes = parser.add_argument_group('BED and gene-list settings')
-    runtime = parser.add_argument_group('Output and logging')
+    parser.usage = (
+        '%(prog)s [--snp-identifier MODE] --genome-build BUILD\n'
+        '    (--ref-snp-annot-sources SOURCES | --ref-snp-bim-sources SOURCES)\n'
+        '    (--query-annot-bed-sources SOURCES | --query-annot-gene-list-sources SOURCES)\n'
+        '    --output-dir DIR [options]'
+    )
+    identity = parser.add_argument_group('Step 1: SNP identity and genome build')
+    grid_sources = parser.add_argument_group('Step 2: Annotation SNP grid (choose one)')
+    query_sources = parser.add_argument_group('Step 3: Query annotations (choose one source type)')
+    output = parser.add_argument_group('Step 4: Output')
+    logs = parser.add_argument_group('Logging')
 
-    grid = inputs.add_mutually_exclusive_group(required=True)
+    identity.add_argument(
+        '--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
+        help=(
+            'Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use '
+            'A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Coordinate-family modes require '
+            '--genome-build.'
+        ),
+    )
+    identity.add_argument(
+        '--genome-build', default=None, choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
+        help=(
+            'Genome build for coordinate-based SNP matching. Required with chr_pos or chr_pos_allele_aware; '
+            'auto checks every grid shard and the gene coordinate catalog using declarations or bounded inference. '
+            'Concrete builds must agree with input declarations; BED inherits the resolved build. No fixed default.'
+        ),
+    )
+
+    grid = grid_sources.add_mutually_exclusive_group(required=True)
     grid.add_argument(
         '--ref-snp-annot-sources', nargs='+', metavar='SOURCES',
         help=(
@@ -128,14 +151,8 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
             + CHROMOSOME_PATH_HELP
         ),
     )
-    inputs.add_argument(
-        '--output-dir', required=True, metavar='DIR',
-        help=(
-            'Required destination for chromosome .annot.gz files and diagnostics.'
-        ),
-    )
 
-    queries = queries_help.add_mutually_exclusive_group(required=True)
+    queries = query_sources.add_mutually_exclusive_group(required=True)
     queries.add_argument(
         '--query-annot-bed-sources', nargs='+', metavar='SOURCES',
         help=(
@@ -152,33 +169,7 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
             "Accepts '*' patterns (see --ref-snp-annot-sources); '@' is not expanded."
         ),
     )
-
-    identity.add_argument(
-        '--genome-build', default=None, choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
-        help=(
-            'Genome build for coordinate-based SNP matching. Required with chr_pos or chr_pos_allele_aware; '
-            'auto checks every grid shard and the gene coordinate catalog using declarations or bounded inference. '
-            'Concrete builds must agree with input declarations; BED inherits the resolved build. No fixed default.'
-        ),
-    )
-    identity.add_argument(
-        '--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
-        help=(
-            'Match SNPs by rsID (rsid) or chromosome and position (chr_pos); allele-aware variants also use '
-            'A1/A2. Default: chr_pos_allele_aware; usable alleles are required. Coordinate-family modes require '
-            '--genome-build.'
-        ),
-    )
-
-    genes.add_argument(
-        '--gene-coordinate-file', metavar='FILE',
-        help=(
-            'Headered TSV/TSV.GZ of one-based inclusive gene coordinates. Required with '
-            '--query-annot-gene-list-sources; cannot be used with BED-only input. If omitted in BED mode, no gene '
-            'coordinate catalog is used. Supply an exact file path; patterns are not expanded.'
-        ),
-    )
-    genes.add_argument(
+    query_sources.add_argument(
         '--padding-bp', type=int, default=None, metavar='BP',
         help=(
             'Extend each BED interval or gene boundary by this many base pairs at both ends, then find covered '
@@ -187,7 +178,22 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
             'padding.'
         ),
     )
-    genes.add_argument(
+    query_sources.add_argument(
+        '--gene-coordinate-file', metavar='FILE',
+        help=(
+            'Headered TSV/TSV.GZ of one-based inclusive gene coordinates. Required with '
+            '--query-annot-gene-list-sources; cannot be used with BED-only input. If omitted in BED mode, no gene '
+            'coordinate catalog is used. Supply an exact file path; patterns are not expanded.'
+        ),
+    )
+    query_sources.add_argument(
+        '--gene-exclude-regions', choices=('none', 'mhc'), default=None,
+        help=(
+            'Exclude MHC-overlapping genes before padding, or none to exclude no genes. Default: none. '
+            'Requires --query-annot-gene-list-sources when explicitly supplied.'
+        ),
+    )
+    query_sources.add_argument(
         '--allow-unresolved-genes', action='store_const', const='resolved-only',
         dest='gene_list_resolution_policy', default=None,
         help=(
@@ -196,22 +202,22 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
             'Requires --query-annot-gene-list-sources. Other validation errors remain fatal.'
         ),
     )
-    genes.add_argument(
-        '--gene-exclude-regions', choices=('none', 'mhc'), default=None,
+
+    output.add_argument(
+        '--output-dir', required=True, metavar='DIR',
         help=(
-            'Exclude MHC-overlapping genes before padding, or none to exclude no genes. Default: none. '
-            'Requires --query-annot-gene-list-sources when explicitly supplied.'
+            'Required destination for chromosome .annot.gz files and diagnostics.'
         ),
     )
-
-    runtime.add_argument(
+    output.add_argument(
         '--overwrite', action='store_true', default=False,
         help=(
             "Replace this command's existing output files and remove obsolete outputs from an earlier run. "
             'Default: off; stop if output files already exist.'
         ),
     )
-    runtime.add_argument(
+
+    logs.add_argument(
         '--log-level', default='INFO', choices=('DEBUG', 'INFO', 'WARNING', 'ERROR'),
         help=LOG_LEVEL_HELP,
     )

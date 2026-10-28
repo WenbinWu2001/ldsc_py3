@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc._annotation_storage import AnnotationWorkspace, ColumnStore
+from ldsc._annotation.storage import AnnotationWorkspace, ColumnStore
 
 
 def test_selected_reads_preserve_row_order_and_column_values(tmp_path):
@@ -114,7 +114,7 @@ def test_column_store_empty_selection_and_out_of_bounds(tmp_path):
 
 
 def test_frame_spool_keeps_one_file_and_replays_exact_frames(tmp_path):
-    from ldsc._annotation_storage import FrameSpool
+    from ldsc._annotation.storage import FrameSpool
 
     spool = FrameSpool(tmp_path / "spool")
     frames = [pd.DataFrame({"position": pd.Series([i], dtype="Int64"),
@@ -133,7 +133,7 @@ def test_frame_spool_keeps_one_file_and_replays_exact_frames(tmp_path):
 
 @pytest.mark.parametrize("mode, expected", [("rsid", ["unique"]), ("chr_pos", ["dup", "unique", "dup"])])
 def test_disk_identity_cleanup_is_global_across_chunks_and_chromosomes(tmp_path, mode, expected):
-    from ldsc._annotation_identity import DiskIdentityIndex
+    from ldsc._annotation.identity_cleanup import DiskIdentityIndex
 
     chunks = [pd.DataFrame({"CHR": [1, 1], "POS": [10, 20], "SNP": ["dup", "unique"]}),
               pd.DataFrame({"CHR": [2], "POS": [30], "SNP": ["dup"]})]
@@ -153,7 +153,7 @@ def test_disk_identity_cleanup_is_global_across_chunks_and_chromosomes(tmp_path,
 
 
 def test_disk_identity_allele_policy_excludes_invalid_before_global_clusters(tmp_path):
-    from ldsc._annotation_identity import DiskIdentityIndex
+    from ldsc._annotation.identity_cleanup import DiskIdentityIndex
 
     frame = pd.DataFrame({"CHR": [1] * 7, "POS": list(range(1, 8)),
                           "SNP": ["multi", "dup", "valid", "bad", "multi", "dup", "valid"],
@@ -171,7 +171,7 @@ def test_disk_identity_allele_policy_excludes_invalid_before_global_clusters(tmp
 
 
 def test_identity_lookup_batches_respect_sqlite_limits_and_global_counts(tmp_path):
-    from ldsc._annotation_identity import DiskIdentityIndex
+    from ldsc._annotation.identity_cleanup import DiskIdentityIndex
     import sqlite3
 
     frame = pd.DataFrame({"CHR": ["1"] * 1100, "POS": np.arange(1100) + 1,
@@ -191,7 +191,7 @@ def test_identity_lookup_batches_respect_sqlite_limits_and_global_counts(tmp_pat
 
 
 def test_identity_add_batches_transactions_and_finishes_before_selection(tmp_path):
-    from ldsc._annotation_identity import DiskIdentityIndex
+    from ldsc._annotation.identity_cleanup import DiskIdentityIndex
 
     frame = pd.DataFrame({"CHR": ["1"], "POS": [1], "SNP": ["rs1"]})
     with DiskIdentityIndex(tmp_path / "identity.sqlite", "rsid") as index:
@@ -205,7 +205,7 @@ def test_identity_add_batches_transactions_and_finishes_before_selection(tmp_pat
 
 
 def test_identity_transaction_limit_spans_chunks_without_losing_duplicates(tmp_path, monkeypatch):
-    from ldsc import _annotation_identity as identity
+    from ldsc._annotation import identity_cleanup as identity
 
     monkeypatch.setattr(identity, "_TRANSACTION_ROWS", 8)
     frame = pd.DataFrame({"CHR": ["1"] * 11, "POS": np.arange(11) + 1,
@@ -224,7 +224,7 @@ def test_identity_transaction_limit_spans_chunks_without_losing_duplicates(tmp_p
 
 
 def test_mixed_shards_preserve_omitted_alleles_and_global_duplicate_cleanup(tmp_path):
-    from ldsc._annotation_sources import prepare_annotation_sources
+    from ldsc._annotation.sources import prepare_annotation_sources
 
     first = tmp_path / "first.annot"
     second = tmp_path / "second.annot"
@@ -243,7 +243,7 @@ def test_mixed_shards_preserve_omitted_alleles_and_global_duplicate_cleanup(tmp_
 
 @pytest.mark.parametrize("sharded", [False, True])
 def test_source_preparation_aligns_columns_then_cleans_global_duplicates(tmp_path, sharded):
-    from ldsc._annotation_sources import prepare_annotation_sources
+    from ldsc._annotation.sources import prepare_annotation_sources
 
     meta = pd.DataFrame({"CHR": [1, 1, 2, 2], "SNP": ["repeat", "rs2", "repeat", "rs4"], "POS": [10, 20, 30, 40]})
     baseline = meta.assign(base=1, extra=[11, 12, 13, 14])
@@ -270,7 +270,7 @@ def test_source_preparation_aligns_columns_then_cleans_global_duplicates(tmp_pat
 
 
 def test_aligned_whole_genome_column_sources_are_not_duplicate_observations(tmp_path):
-    from ldsc._annotation_sources import prepare_annotation_sources
+    from ldsc._annotation.sources import prepare_annotation_sources
 
     meta = pd.DataFrame({"CHR": [1, 2], "SNP": ["rs1", "rs2"], "POS": [10, 20]})
     paths = []
@@ -287,8 +287,8 @@ def test_aligned_whole_genome_column_sources_are_not_duplicate_observations(tmp_
 def test_bundle_does_not_cache_chromosome_arrays_and_close_invalidates_reads(tmp_path):
     import gc
     import weakref
-    from ldsc._annotation_bundle import AnnotationBundle
-    from ldsc._annotation_storage import AnnotationShard
+    from ldsc._annotation.bundle import AnnotationBundle
+    from ldsc._annotation.storage import AnnotationShard
 
     workspace = AnnotationWorkspace(tmp_path)
     metadata_path = workspace.path / "rows.parquet"

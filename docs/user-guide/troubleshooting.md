@@ -442,7 +442,7 @@ An authorized overwrite can leave `RUN_FAILED.txt` after failure. Inspect diagno
    See [annotation column requirements](../reference/formats/column-schema.md); reference-panel CM/MAF, rather than supplied annotation CM/MAF, governs LD-score calculation.
 3. Match `--snp-identifier` and `--genome-build` to the annotation identity columns, then rerun.
 
-**Developer reference:** `annotation_builder.AnnotationBuilder._run_single_universe()`, `annotation_builder.AnnotationBuilder._run_sharded_inputs()`, and `annotation_builder.AnnotationBuilder._apply_identity_cleanup()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_annotation.builder.AnnotationBuilder._run_single_universe()`, `_annotation.builder.AnnotationBuilder._run_sharded_inputs()`, and `_annotation.builder.AnnotationBuilder._apply_identity_cleanup()` · **Exception:** `LDSCInputError`
 
 ## `build-gene-ldscore-index`
 
@@ -617,7 +617,7 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
 2. Use `NA` for missing metadata such as `CM`, never an empty field or a numeric sentinel.
 3. Supply numeric, non-missing values in every annotation column, then rerun.
 
-**Developer reference:** `_kernel.annotation._validate_annotation_values()` through the annotation and LD-score loaders · **Exception:** `LDSCInputError`
+**Developer reference:** `_annotation.tables._validate_annotation_values()` through the annotation and LD-score loaders · **Exception:** `LDSCInputError`
 
 ### `ldscore`: no annotation SNPs remain after reference-panel intersection
 

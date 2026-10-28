@@ -23,7 +23,7 @@ from ._runtime.serial_calculation import serial_calculation
 from ._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
 from ._runtime.workflow_logging import LOG_LEVEL_HELP
 from .errors import LDSCInputError
-from ._annotation_storage import AnnotationWorkspace
+from ._annotation.storage import AnnotationWorkspace
 from ._quantile_inputs import prepare_quantile_statistics
 from ._quantile_storage import AlignmentDiagnostics
 from .outputs import (

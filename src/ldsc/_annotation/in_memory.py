@@ -6,12 +6,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .annotation_semantics import require_unique_annotation_names
-from ._core.chromosomes import normalize_chromosome
-from .config import get_global_config
-from .errors import LDSCInputError
-from ._annotation_storage import BINARY_BITORDER
-from ._core.snp_identity import clean_identity_artifact_table, identity_base_mode, identity_mode_family
+from .semantics import require_unique_annotation_names
+from .._core.chromosomes import normalize_chromosome
+from ..config import get_global_config
+from ..errors import LDSCInputError
+from .storage import BINARY_BITORDER
+from .._core.snp_identity import clean_identity_artifact_table, identity_base_mode, identity_mode_family
 
 
 @dataclass(frozen=True)

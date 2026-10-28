@@ -11,15 +11,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ._annotation_identity import DiskIdentityIndex, IdentityDropSpool
-from ._annotation_preflight import AUTOSOMES, resolve_annotation_inputs
-from ._annotation_sources import (
+from .identity_cleanup import DiskIdentityIndex, IdentityDropSpool
+from .preflight import AUTOSOMES, resolve_annotation_inputs
+from .sources import (
     PreparedAnnotationSources, _Source, _metadata_chunks, _select_rows, _snp_row_counts,
 )
-from ._annotation_storage import AnnotationShard, FrameSpool
-from ._runtime.preflight import InputGate
-from ._core.chromosomes import chrom_sort_key, normalize_chromosome
-from .errors import LDSCInputError
+from .storage import AnnotationShard, FrameSpool
+from .._runtime.preflight import InputGate
+from .._core.chromosomes import chrom_sort_key, normalize_chromosome
+from ..errors import LDSCInputError
 
 
 def resolve_bim_grid_inputs(tokens):

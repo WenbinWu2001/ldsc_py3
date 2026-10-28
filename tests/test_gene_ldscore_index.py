@@ -35,7 +35,7 @@ from ldsc.gene_ldscore_index import (
     IndexChromosomeData,
     intersect_baseline_plink_by_identifier,
 )
-from ldsc.gene_list_resolver import GeneCatalog, GeneCatalogValidationError
+from ldsc._annotation.gene_lists import GeneCatalog, GeneCatalogValidationError
 from ldsc.ldscore_calculator import LDScoreCalculator
 from ldsc.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 

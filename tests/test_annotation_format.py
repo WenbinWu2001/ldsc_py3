@@ -7,8 +7,8 @@ import pandas as pd
 import pytest
 
 from ldsc import AnnotationBundle
-from ldsc._annotation_sources import prepare_annotation_sources
-from ldsc._annotation_storage import AnnotationWorkspace
+from ldsc._annotation.sources import prepare_annotation_sources
+from ldsc._annotation.storage import AnnotationWorkspace
 
 
 @pytest.mark.parametrize("sharded", [False, True])
@@ -107,7 +107,7 @@ def _write(path, text):
 
 
 def _normalize(path, mode="rsid"):
-    from ldsc._annotation_parsing import normalize_annotation_chunk
+    from ldsc._annotation.parsing import normalize_annotation_chunk
 
     return normalize_annotation_chunk(pd.read_csv(path, sep=r"\s+"), path, mode)
 

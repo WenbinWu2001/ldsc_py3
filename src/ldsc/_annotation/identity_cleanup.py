@@ -10,8 +10,8 @@ import sqlite3
 
 import pandas as pd
 
-from ._annotation_storage import FrameSpool
-from ._core.snp_identity import (
+from .storage import FrameSpool
+from .._core.snp_identity import (
     IDENTITY_DROP_REASONS,
     _identity_drop_rows,
     allele_set_series,

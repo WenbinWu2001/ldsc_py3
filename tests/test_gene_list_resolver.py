@@ -1,6 +1,6 @@
 from __future__ import annotations
 from tests.annotation_fixtures import resolve_gene_fixture, fixture_gene_audit
-from ldsc import _gene_query_storage
+from ldsc._annotation import gene_query_storage as _gene_query_storage
 
 import gzip
 from pathlib import Path
@@ -8,9 +8,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from ldsc import gene_list_resolver
+from ldsc._annotation import gene_lists as gene_list_resolver
 from ldsc.errors import LDSCInputError
-from ldsc.gene_list_resolver import (
+from ldsc._annotation.gene_lists import (
     AUDIT_COLUMNS,
     CATALOG_ISSUE_COLUMNS,
     SUMMARY_COLUMNS,
@@ -337,7 +337,7 @@ def test_resolved_only_does_not_relax_outside_index_coverage(tmp_path):
         resolution_policy="resolved-only",
      output_dir=tmp_path)
 
-    from ldsc.query_annotations import assess_gene_coverage
+    from ldsc._annotation.query_outcomes import assess_gene_coverage
 
     result, errors = assess_gene_coverage(result, ("22",))
     assert fixture_gene_audit(result).loc[0, "coverage_status"] == "uncovered"

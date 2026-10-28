@@ -485,7 +485,7 @@ ldsc annotate \
 - To use BIM SNP metadata instead, replace `--ref-snp-annot-sources` with `--ref-snp-bim-sources 'panel/reference.@.bim'`.
   These options are mutually exclusive; BIM mode writes only query files and requires no BED/FAM companions.
 - Do not create one chromosome-sharded annotation suite per query. In sharded annotation-input mode, `ldscore` expects one query annotation file per chromosome and reads the separate queries from its columns. This input rule is distinct from the numbered genome-wide query LD-score output files described above.
-- The generated annotation header includes `CM` for compatibility, with values written as `NA`. Input annotation CM values are discarded; LD scoring uses reference-panel CM. See [`_annotation_parsing.normalize_annotation_chunk`](../../src/ldsc/_annotation_parsing.py).
+- The generated annotation header includes `CM` for compatibility, with values written as `NA`. Input annotation CM values are discarded; LD scoring uses reference-panel CM. See [`_annotation.parsing.normalize_annotation_chunk`](../../src/ldsc/_annotation/parsing.py).
 - See the `annotate` wiki for more on this functionality.
 
 **Outputs:**

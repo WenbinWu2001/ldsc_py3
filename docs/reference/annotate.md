@@ -4,7 +4,7 @@ Last updated on: 2026-10-27
 
 `ldsc annotate` projects BED intervals or gene lists onto a SNP grid and writes reusable query annotation files.
 This page is the exact contract; the task guide is [Create reusable SNP annotations](../user-guide/workflows/annotations.md), and every option is listed by `ldsc annotate --help`.
-The Python entry point is `run_annotate()` (`src/ldsc/annotate_workflow.py`).
+The Python entry point is `run_annotate()` (`src/ldsc/_annotation/annotate.py`).
 
 ## Inputs
 
@@ -41,7 +41,7 @@ A query annotation is the binary union of its intervals over the grid rows that 
 Gene identifiers match exactly and case-sensitively, as described in the [gene-list format](formats/gene-lists.md).
 
 A query name that equals a baseline column or a reserved name stops the run; queries are never renamed.
-The reserved names are `gene_control`, `CHR`, `POS`, `BP`, `SNP`, `CM`, `A1`, `A2` and `MAF` (`src/ldsc/annotate_workflow.py`).
+The reserved names are `gene_control`, `CHR`, `POS`, `BP`, `SNP`, `CM`, `A1`, `A2` and `MAF` (`src/ldsc/_annotation/annotate.py`).
 
 ## Validation and outcomes
 
@@ -82,7 +82,7 @@ Gate B measures support on the grid rows that survive SNP identity cleanup; unkn
 | Every query is skipped | Fails after diagnostics are written; no new query annotation files are published. |
 | An annotation is 1 on every grid row | Kept; annotation generation has no variance or regression-design check. |
 
-Precedence follows `gene_query_statuses()` in `src/ldsc/query_annotations.py`: incomplete coverage stops the run before support is assessed, a query with zero support is skipped, and `partial_gene_resolution` stays the primary warning when partial support also occurs.
+Precedence follows `gene_query_statuses()` in `src/ldsc/_annotation/query_outcomes.py`: incomplete coverage stops the run before support is assessed, a query with zero support is skipped, and `partial_gene_resolution` stays the primary warning when partial support also occurs.
 
 ### Command-line notices
 

@@ -12,7 +12,8 @@ import ldsc
 from ldsc import GlobalConfig, set_global_config, reset_global_config
 from ldsc.config import ConfigMismatchError, validate_config_compatibility
 from ldsc.errors import LDSCUsageError
-from ldsc import annotation_builder, ldscore_calculator, ref_panel_builder, regression_runner
+from ldsc._annotation import builder as annotation_builder
+from ldsc import ldscore_calculator, ref_panel_builder, regression_runner
 from ldsc.ldscore_calculator import LDScoreResult
 from ldsc.ref_panel_builder import ReferencePanelBuildConfig, ReferencePanelBuilder
 from ldsc.regression_runner import RegressionRunner

@@ -8,8 +8,8 @@ import pandas as pd
 import pytest
 
 from ldsc import GlobalConfig, run_annotate
-from ldsc._annotation_sources import prepare_annotation_sources
-from ldsc._annotation_storage import AnnotationWorkspace
+from ldsc._annotation.sources import prepare_annotation_sources
+from ldsc._annotation.storage import AnnotationWorkspace
 from ldsc.errors import LDSCInputError
 
 
@@ -147,7 +147,7 @@ def test_bim_auto_build_uses_packaged_evidence(tmp_path):
 
 
 def test_cli_switch_to_bim_cleans_stale_baselines_and_preserves_unrelated_file(tmp_path):
-    from ldsc.annotation_builder import main
+    from ldsc._annotation.builder import main
     baseline, bim, bed = tmp_path / 'grid.annot', tmp_path / 'grid.bim', tmp_path / 'focal.bed'
     baseline.write_text('CHR SNP BP base\n1 rs1 100 1\n')
     bim.write_text('1 rs1 0 100 A C\n')
@@ -201,7 +201,7 @@ def test_aligned_column_sources_count_logical_rows_once(tmp_path):
 
 
 def test_bim_suite_requires_all_declared_chromosomes_and_matching_content(tmp_path):
-    from ldsc._annotation_bim import prepare_bim_grid, resolve_bim_grid_inputs
+    from ldsc._annotation.bim_grid import prepare_bim_grid, resolve_bim_grid_inputs
     token = str(tmp_path / 'grid.@.bim')
     with pytest.raises(LDSCInputError, match='missing'):
         resolve_bim_grid_inputs([token])
@@ -215,7 +215,7 @@ def test_bim_suite_requires_all_declared_chromosomes_and_matching_content(tmp_pa
 
 
 def test_cli_grid_selection_rejects_both_and_retired_flag():
-    from ldsc.annotation_builder import parse_annotate_args
+    from ldsc._annotation.builder import parse_annotate_args
     common = ['--query-annot-bed-sources', 'focal.bed', '--output-dir', 'out']
     for sources in [[], ['--ref-snp-bim-sources', 'grid.bim', '--ref-snp-annot-sources', 'grid.annot'],
                     ['--baseline-annot-sources', 'grid.annot']]:

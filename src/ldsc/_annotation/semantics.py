@@ -12,7 +12,7 @@ from collections.abc import Sequence
 import numpy as np
 import pandas as pd
 
-from .errors import LDSCInputError
+from ..errors import LDSCInputError
 
 
 def require_unique_annotation_names(

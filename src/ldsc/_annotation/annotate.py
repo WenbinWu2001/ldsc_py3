@@ -10,23 +10,23 @@ import logging
 from dataclasses import replace
 from pathlib import Path
 
-from ._annotation_bundle import AnnotationBundle
-from ._annotation_bim import resolve_bim_grid_inputs, prepare_bim_grid
-from ._annotation_queries import prepare_bed_queries, build_query_shards, require_readable_bed_sources
-from ._annotation_sources import prepare_annotation_sources
-from ._annotation_storage import AnnotationWorkspace
-from ._gene_query_storage import resolve_gene_lists_staged
-from ._core.snp_identity import identity_mode_family
-from ._runtime.workflow_logging import workflow_logging, materializing_overwrite_guard, log_inputs, log_outputs
-from .annotation_semantics import require_unique_annotation_names
-from ._core.columns import normalize_genome_build
-from .config import AnnotationBuildConfig, GlobalConfig, get_global_config, print_global_config_banner
-from .errors import LDSCInputError
-from .gene_list_resolver import GeneCatalog, GeneCatalogValidationError
-from ._genome.build_policy import GenomeBuildCheck
+from .bundle import AnnotationBundle
+from .bim_grid import resolve_bim_grid_inputs, prepare_bim_grid
+from .interval_queries import prepare_bed_queries, build_query_shards, require_readable_bed_sources
+from .sources import prepare_annotation_sources
+from .storage import AnnotationWorkspace
+from .gene_query_storage import resolve_gene_lists_staged
+from .._core.snp_identity import identity_mode_family
+from .._runtime.workflow_logging import workflow_logging, materializing_overwrite_guard, log_inputs, log_outputs
+from .semantics import require_unique_annotation_names
+from .._core.columns import normalize_genome_build
+from ..config import AnnotationBuildConfig, GlobalConfig, get_global_config, print_global_config_banner
+from ..errors import LDSCInputError
+from .gene_lists import GeneCatalog, GeneCatalogValidationError
+from .._genome.build_policy import GenomeBuildCheck
 from .outputs import AnnotationDirectoryWriter
-from ._runtime.paths import ensure_output_directory, resolve_file_group, split_cli_path_tokens
-from .query_annotations import (
+from .._runtime.paths import ensure_output_directory, resolve_file_group, split_cli_path_tokens
+from .query_outcomes import (
     gene_query_statuses, gene_viability_errors, _all_query_annotations_skipped_message,
     _emit_bed_query_notice, _emit_gene_gate_b_notice, _emit_resolved_only_notice,
 )
@@ -160,7 +160,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
             log_inputs(grid_kind='bim' if bim else 'annotation', grid_sources=f"{len(bim or baseline)} input declarations",
                        query_sources=f"{len(genes or bed)} input declarations; see diagnostics/metadata.json for source provenance",
                        padding_bp=spec.padding_bp, output_dir=str(output))
-            from ._annotation_preflight import inspect_annotation_inputs
+            from .preflight import inspect_annotation_inputs
             declared_inputs = inspect_annotation_inputs(baseline=baseline,
                 files=[('BED', bed), ('gene lists', genes)], scalar_files=[('gene catalog', spec.gene_coordinate_file)],
                 mode=config.snp_identifier, strict_annotations=bool(genes),
@@ -195,7 +195,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                     summary.loc[invalid_names, 'source_reasons'] = summary.loc[invalid_names, 'source_reasons'].fillna('').map(lambda text: ';'.join(filter(None, (text, 'annotation_name_collision'))))
                     batch = replace(batch, summary=summary, has_fatal_gate_a_issues=True)
                 writer.write_diagnostics(output, batch=batch, catalog_issues=catalog.issues)
-                from .query_annotations import _log_gene_catalog_issues, _log_gene_list_rejections
+                from .query_outcomes import _log_gene_catalog_issues, _log_gene_list_rejections
                 _log_gene_catalog_issues(catalog.issues)
                 _log_gene_list_rejections(batch)
                 if batch.has_fatal_gate_a_issues:
@@ -253,7 +253,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
             bundle.source_summary = provenance
             writer.write(bundle, output, overwrite=overwrite, provenance=provenance, scope=scope,
                          catalog_issues=None if catalog is None else catalog.issues, preflighted=True)
-            from .query_annotations import _log_gene_list_snp_support, _log_query_annotation_statuses
+            from .query_outcomes import _log_gene_list_snp_support, _log_query_annotation_statuses
             if bundle.gene_list_batch is not None:
                 _log_gene_list_snp_support(bundle.gene_list_batch)
             _log_query_annotation_statuses(bundle.query_statuses)
@@ -269,7 +269,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                 LOGGER.info("For downstream ldscore, use the exported baseline files with --baseline-annot-sources "
                             "and the exported query files with --query-annot-sources; do not use the original baseline inputs. "
                             "Exported paths are listed above.")
-            from ._annotation_outputs import persistent_annotation_bundle
+            from .saved_results import persistent_annotation_bundle
             return persistent_annotation_bundle(bundle, output)
     except BaseException as exc:
         try:

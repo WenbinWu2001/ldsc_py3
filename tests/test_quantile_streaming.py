@@ -84,7 +84,7 @@ def test_high_offset_annotation_variance_is_stable(workflow):
 def _observe_quantile_reads(args):
     from unittest.mock import patch
     from ldsc import _quantile_storage
-    from ldsc._annotation_bundle import AnnotationBundle
+    from ldsc._annotation.bundle import AnnotationBundle
 
     original = AnnotationBundle.read
     previous, calls = [], []

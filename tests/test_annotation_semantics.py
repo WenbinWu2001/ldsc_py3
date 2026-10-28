@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from ldsc.annotation_semantics import (
+from ldsc._annotation.semantics import (
     classify_annotation_values,
     require_unique_annotation_names,
 )

@@ -1,10 +1,10 @@
 """Build a complete source-backed annotation dataset in a borrowed workspace."""
 
-from ._annotation_bundle import AnnotationBundle
-from ._annotation_queries import build_query_shards, prepare_bed_queries, require_readable_bed_sources
-from ._annotation_sources import prepare_annotation_sources
-from ._gene_query_storage import resolve_gene_lists_staged
-from .errors import LDSCInputError
+from .bundle import AnnotationBundle
+from .interval_queries import build_query_shards, prepare_bed_queries, require_readable_bed_sources
+from .sources import prepare_annotation_sources
+from .gene_query_storage import resolve_gene_lists_staged
+from ..errors import LDSCInputError
 
 
 def build_annotation_shards(spec, config, workspace, *, projection_genome_build=None):
@@ -15,16 +15,16 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
     annotate and direct LD-score workflows own their additional validation
     gates and publication policies.
     """
-    from ._annotation_preflight import inspect_annotation_inputs
+    from .preflight import inspect_annotation_inputs
     declared = inspect_annotation_inputs(baseline=spec.baseline_annot_sources, query=spec.query_annot_sources,
         files=[('BED', spec.query_annot_bed_sources), ('gene lists', spec.query_annot_gene_list_sources)],
         scalar_files=[('gene catalog', spec.gene_coordinate_file), ('control genes', spec.control_gene_list_file)],
         mode=config.snp_identifier, strict_annotations=False)
     baseline, query = declared.baseline, declared.query
     from dataclasses import replace
-    from .annotate_workflow import _projection_build
-    from ._core.snp_identity import identity_mode_family
-    from .gene_list_resolver import GeneCatalog
+    from .annotate import _projection_build
+    from .._core.snp_identity import identity_mode_family
+    from .gene_lists import GeneCatalog
 
     catalog = GeneCatalog.load(spec.gene_coordinate_file) if spec.query_annot_gene_list_sources else None
     requested = projection_genome_build or config.genome_build
@@ -33,7 +33,7 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
     if identity_mode_family(config.snp_identifier) == "chr_pos":
         config = replace(config, genome_build=projection_build)
     if spec.query_annot_gene_list_sources:
-        from .annotate_workflow import _gate_a_error
+        from .annotate import _gate_a_error
 
         batch = resolve_gene_lists_staged(spec.query_annot_gene_list_sources, catalog, workspace,
                                          control_path=spec.control_gene_list_file,

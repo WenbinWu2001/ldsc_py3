@@ -108,7 +108,7 @@ from .outputs import (
     RgDirectoryWriter,
     RgOutputConfig,
 )
-from ._annotation_storage import AnnotationWorkspace
+from ._annotation.storage import AnnotationWorkspace
 from .sumstats_munger import SumstatsTable, load_sumstats
 from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
 

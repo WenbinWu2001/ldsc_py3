@@ -34,7 +34,7 @@ True
 
 from importlib import import_module
 
-from .annotation_builder import (
+from ._annotation.builder import (
     AnnotationBuilder,
     AnnotationBundle,
     run_annotate,

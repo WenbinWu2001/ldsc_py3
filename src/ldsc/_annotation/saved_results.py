@@ -3,9 +3,9 @@
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from ._annotation_sources import prepare_annotation_sources
-from ._annotation_storage import AnnotationWorkspace, TsvDiagnostics
-from ._gene_query_storage import persistent_gene_diagnostics
+from .sources import prepare_annotation_sources
+from .storage import AnnotationWorkspace, TsvDiagnostics
+from .gene_query_storage import persistent_gene_diagnostics
 
 
 @dataclass(frozen=True)

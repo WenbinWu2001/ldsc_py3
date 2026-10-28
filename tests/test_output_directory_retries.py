@@ -5,8 +5,8 @@ import pytest
 
 from ldsc import cli
 from ldsc._runtime.workflow_logging import overwrite_failure_marker
+from ldsc._annotation.outputs import AnnotationDirectoryWriter
 from ldsc.outputs import (
-    AnnotationDirectoryWriter,
     H2DirectoryWriter,
     H2OutputConfig,
     LDScoreDirectoryWriter,

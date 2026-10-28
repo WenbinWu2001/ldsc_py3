@@ -81,24 +81,24 @@ See [the pair-query reference](../../reference/query-r2.md) and [`test_r2_query.
 
 ## Ownership and lifetime
 
-[`AnnotationBundle`](../../../src/ldsc/_annotation_bundle.py) represents one complete dataset through shared metadata and chromosome descriptors.
+[`AnnotationBundle`](../../../src/ldsc/_annotation/bundle.py) represents one complete dataset through shared metadata and chromosome descriptors.
 It has ordered baseline/query names, source provenance, configuration, scope, and paths needed for access.
 File-backed shard dictionaries contain descriptors.
 The explicit small-input `AnnotationBundle.from_frames(metadata, baseline_annotations, query_annotations, config_snapshot=...)` route instead owns packed binary arrays, dense float32 continuous arrays, and complete diagnostics in memory, with no staging directory.
 `bundle.read(chrom, rows=..., columns=...)` returns detached float32 values owned by the caller; `metadata_for_chromosome(chrom)` reads that chromosome's metadata without caching it.
 No property implicitly concatenates every chromosome.
 
-[`AnnotationWorkspace`](../../../src/ldsc/_annotation_storage.py) owns a unique `.ldsc-annotation-*` directory immediately below the supplied output directory.
+[`AnnotationWorkspace`](../../../src/ldsc/_annotation/storage.py) owns a unique `.ldsc-annotation-*` directory immediately below the supplied output directory.
 Source-backed Python preparation requires `AnnotationBuilder.run(..., output_dir=...)`.
 Use its returned bundle as a context manager or call `close()` after the last borrower finishes.
 The calculator borrows a bundle and does not close it.
 Closure is idempotent, deletes only owned private staging, and invalidates subsequent reads.
 Original inputs must remain available and unchanged while a source-backed result depends on them.
 
-Standalone `run_annotate()` uses [`_annotation_outputs.py`](../../../src/ldsc/_annotation_outputs.py) to return saved sources.
+Standalone `run_annotate()` uses [`_annotation/saved_results.py`](../../../src/ldsc/_annotation/saved_results.py) to return saved sources.
 It writes persistent `query.<chrom>.annot.gz` files and, in annotation-grid mode, aligned `baseline.<chrom>.annot.gz` files incrementally.
 Returned descriptors refer only to exported files; original baseline/BIM inputs are not dependencies.
-BIM grids are scanned in bounded metadata chunks by [`_annotation_bim.py`](../../../src/ldsc/_annotation_bim.py), then use the shared disk identity index and retained-metadata writer.
+BIM grids are scanned in bounded metadata chunks by [`_annotation/bim_grid.py`](../../../src/ldsc/_annotation/bim_grid.py), then use the shared disk identity index and retained-metadata writer.
 They require no genotype data or placeholder baseline value stores.
 Generated queries use packed binary stores; exported baselines retain the existing exact classification and float32 continuous-value contract.
 The writer reads row tiles sized for the selected family width, preserving a bounded numeric working set.
@@ -116,7 +116,7 @@ The existing gene LD-score index construction transaction is the explicit except
 
 ## Bounded source preparation
 
-[`prepare_annotation_sources()`](../../../src/ldsc/_annotation_sources.py) makes two content passes over each supplied text/gzip source, in addition to header preflight.
+[`prepare_annotation_sources()`](../../../src/ldsc/_annotation/sources.py) makes two content passes over each supplied text/gzip source, in addition to header preflight.
 The first validates and classifies numeric columns before float32 conversion, and stages only row metadata.
 Discovery and preflight use contents, so selecting a chromosome never requires first loading an entire annotation matrix.
 Each file is scanned independently with an automatic tile targeting 16 MiB of parsed cells, estimated at eight bytes per header column, and at most 65,536 rows.
@@ -128,7 +128,7 @@ The target sizes numeric tiles; it is not a total process RSS limit and does not
 
 Aligned baseline/query column files are checked positionally before chromosome partitioning.
 Corresponding rows describe one logical SNP observation.
-Both identity passes read only metadata: [`DiskIdentityIndex`](../../../src/ldsc/_annotation_identity.py) applies drop-all duplicate cleanup across the complete logical dataset, including cross-chromosome rsID collisions.
+Both identity passes read only metadata: [`DiskIdentityIndex`](../../../src/ldsc/_annotation/identity_cleanup.py) applies drop-all duplicate cleanup across the complete logical dataset, including cross-chromosome rsID collisions.
 Its SQLite table stores narrow identity/count state with an 8 MiB page cache.
 Parameterized lookups use at most 512 keys, reduced to the connection's variable limit when necessary; lookup dictionaries cover only the current bounded tile.
 Upserts commit after at most 262,144 valid rows, with the final partial transaction committed before selection.
@@ -139,12 +139,12 @@ A chromosome shard omitting both allele columns keeps the existing base-identity
 
 After global indexing, selection writes retained metadata directly to its final Parquet file and records bounded source-row/chromosome locators in one append stream per aligned group.
 The retained counts size the final NumPy stores.
-[`_write_values()`](../../../src/ldsc/_annotation_sources.py) rereads the original input at the aligned group's tile width and writes retained values directly into their final binary/continuous stores.
+[`_write_values()`](../../../src/ldsc/_annotation/sources.py) rereads the original input at the aligned group's tile width and writes retained values directly into their final binary/continuous stores.
 There is no numeric `values.bin` spool, replacement numeric staging file, or conversion copy on disk.
 The repeated parsing/decompression is the accepted trade-off for this simpler preparation path.
 Inputs must remain unchanged between passes.
 Source metadata staging is removed after each source finishes; group selection locators are then removed.
-[`FrameSpool`](../../../src/ldsc/_annotation_storage.py) uses one file of independently serialized frames per spool, including diagnostic spools; descriptors keep no open handles.
+[`FrameSpool`](../../../src/ldsc/_annotation/storage.py) uses one file of independently serialized frames per spool, including diagnostic spools; descriptors keep no open handles.
 Selection preserves source order within each chromosome and applies requested chromosome filtering only after global identity cleanup.
 Preparation remains serial before the gene LD-score index builder starts chromosome workers.
 
@@ -177,7 +177,7 @@ Existing advisory classification of fitted annotations still describes the value
 
 ### Encoding, identities, and order
 
-[`ColumnStore`](../../../src/ldsc/_annotation_storage.py) uses private NPY v2 files in column-major order, with separate Parquet row metadata.
+[`ColumnStore`](../../../src/ldsc/_annotation/storage.py) uses private NPY v2 files in column-major order, with separate Parquet row metadata.
 For a shard with $S$ logical SNP rows, $B$ binary columns and $C$ continuous columns:
 
 - The binary file has physical shape `(ceil(S / 8), B)` and dtype `uint8`.
@@ -196,7 +196,7 @@ For a shard with $S$ logical SNP rows, $B$ binary columns and $C$ continuous col
 
 Logical order remains baseline columns followed by queries, each in resolved input order.
 Gene queries keep declaration order; filtering preserves surviving queries' relative order.
-[`AnnotationBundle.read()`](../../../src/ldsc/_annotation_bundle.py) supplies that default list.
+[`AnnotationBundle.read()`](../../../src/ldsc/_annotation/bundle.py) supplies that default list.
 Private multi-store `AnnotationShard.read()` requires explicit ordered columns and reuses the name-to-store/position lookup to restore the requested order.
 There is no additional shard-level logical-order list.
 Physical binary/continuous grouping therefore cannot reorder default public reads, generated `.annot.gz` columns, or LD-score output columns.
@@ -256,14 +256,14 @@ The historical packing change left score accumulators and aggregation alone; lat
 
 ## BED and gene queries
 
-[`_annotation_queries.py`](../../../src/ldsc/_annotation_queries.py) and [`_gene_query_storage.py`](../../../src/ldsc/_gene_query_storage.py) prepare query sources separately from baseline artifacts.
+[`_annotation/interval_queries.py`](../../../src/ldsc/_annotation/interval_queries.py) and [`_annotation/gene_query_storage.py`](../../../src/ldsc/_annotation/gene_query_storage.py) prepare query sources separately from baseline artifacts.
 BED intervals are normalized with bounded buffers.
 Gene identifiers resolve once against shared gene-coordinate-catalog lookup state; selected gene-coordinate-catalog indices and complete row audits are staged per source.
 Direct BED/gene projection prepares only the active execution batch, builds each query on each chromosome, and closes that private batch owner before advancing.
 Global source resolution, duplicate cleanup, coverage/support gates, and the shared baseline/control remain outside that loop.
 A fixed gene control, when requested by direct/indexed LD scoring, belongs to the shared baseline group.
 
-Standalone [`annotate_workflow.py`](../../../src/ldsc/annotate_workflow.py) accepts exactly one BED or gene-list route.
+Standalone [`_annotation/annotate.py`](../../../src/ldsc/_annotation/annotate.py) accepts exactly one BED or gene-list route.
 Gene mode requires explicit nonnegative padding, uses gene-coordinate-catalog build and coverage gates, and evaluates support on the cleaned baseline annotation grid.
 It skips empty or globally unsupported query gene lists while retaining usable siblings, all-one queries, and zero-valued chromosome shards for queries supported elsewhere.
 It fails when all query gene lists are skipped.
@@ -377,7 +377,7 @@ See the [mathematical specification](../../reference/methods/ld-score-computatio
 
 ### Compact count and overlap statistics
 
-[`annotation_statistics()`](../../../src/ldsc/_kernel/overlap.py) computes sums and products on bounded annotation tiles over all retained reference SNPs.
+[`annotation_statistics()`](../../../src/ldsc/_annotation/overlap.py) computes sums and products on bounded annotation tiles over all retained reference SNPs.
 For $B$ baseline annotations and $Q$ independently tested queries, it retains a $B\times(B+Q)$ baseline-by-all block and $Q$ query diagonals, for both all and common SNPs.
 No query-query off-diagonal products are needed for the separate query-plus-baseline regressions.
 This changes retained overlap storage from quadratic in all query columns to the sufficient statistics those models actually consume.

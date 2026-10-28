@@ -2,11 +2,11 @@
 
 from dataclasses import dataclass, field
 import numpy as np
-from ._annotation_storage import AnnotationShard, AnnotationWorkspace, FrameSpool, TsvDiagnostics
-from .annotation_semantics import require_unique_annotation_names
-from ._core.chromosomes import normalize_chromosome
-from .config import GlobalConfig
-from .errors import LDSCInternalError
+from .storage import AnnotationShard, AnnotationWorkspace, FrameSpool, TsvDiagnostics
+from .semantics import require_unique_annotation_names
+from .._core.chromosomes import normalize_chromosome
+from ..config import GlobalConfig
+from ..errors import LDSCInternalError
 
 
 @dataclass
@@ -95,7 +95,7 @@ class AnnotationBundle:
             Coordinates or annotation values cannot be converted to their
             numeric types.
         """
-        from ._annotation_memory import bundle_from_frames
+        from .in_memory import bundle_from_frames
         return bundle_from_frames(cls, metadata, baseline_annotations, query_annotations, config_snapshot)
 
     def _require_open(self):

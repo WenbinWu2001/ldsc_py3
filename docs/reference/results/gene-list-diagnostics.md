@@ -246,7 +246,7 @@ Public indexes require a canonical catalog and complete autosomal coverage. Cons
 
 Repeated rows that resolve to the same canonical gene are deduplicated within each source under all four combinations. Genes removed by an explicitly selected gene-region exclusion are recorded as `excluded`, not `rejected`. Neither condition alone triggers strict rejection; subsequent query/control viability checks still apply.
 
-Implementation references: [`gene_list_resolver.py`](../../../src/ldsc/gene_list_resolver.py), `RESOLVED_ONLY_REASONS`, `_resolve_rows()`, and `GeneCatalog.from_embedded_frame()`; [`gene_ldscore_index.py`](../../../src/ldsc/gene_ldscore_index.py), `_load_gene_ldscore_index()`; [`_gene_query_storage.py`](../../../src/ldsc/_gene_query_storage.py), `resolve_gene_lists_staged()` and `StagedGeneListBatch.audit_frames()`.
+Implementation references: [`_annotation/gene_lists.py`](../../../src/ldsc/_annotation/gene_lists.py), `RESOLVED_ONLY_REASONS`, `_resolve_rows()`, and `GeneCatalog.from_embedded_frame()`; [`gene_ldscore_index.py`](../../../src/ldsc/gene_ldscore_index.py), `_load_gene_ldscore_index()`; [`_annotation/gene_query_storage.py`](../../../src/ldsc/_annotation/gene_query_storage.py), `resolve_gene_lists_staged()` and `StagedGeneListBatch.audit_frames()`.
 
 ### Viability checks after resolution
 
@@ -268,7 +268,7 @@ Indexed mode obtains support from the stored gene-to-atom membership and atom SN
 Support is measured on the reference SNPs, whereas LD-score variation is checked on the regression SNPs.
 Agreement between modes requires matching catalogs, projection settings, and retained reference SNPs; a matching gene-list filename alone does not establish equivalence.
 
-Implementation references: [`query_annotations.py`](../../../src/ldsc/query_annotations.py), `assess_gene_coverage()`, `gene_query_statuses()`, `gene_viability_errors()`, and `finalize_query_statuses()` own shared policy and aligned pruning. [`_ldscore_preflight.py`](../../../src/ldsc/_ldscore_preflight.py), `inspect_direct_inputs()` validates scope; [`ldscore_calculator.py`](../../../src/ldsc/ldscore_calculator.py), `_apply_direct_gene_gate_b()` measures direct support; [`gene_ldscore_index.py`](../../../src/ldsc/gene_ldscore_index.py), `_indexed_gene_support()` measures indexed support.
+Implementation references: [`_annotation/query_outcomes.py`](../../../src/ldsc/_annotation/query_outcomes.py), `assess_gene_coverage()`, `gene_query_statuses()`, `gene_viability_errors()`, and `finalize_query_statuses()` own shared policy and aligned pruning. [`_ldscore_preflight.py`](../../../src/ldsc/_ldscore_preflight.py), `inspect_direct_inputs()` validates scope; [`ldscore_calculator.py`](../../../src/ldsc/ldscore_calculator.py), `_apply_direct_gene_gate_b()` measures direct support; [`gene_ldscore_index.py`](../../../src/ldsc/gene_ldscore_index.py), `_indexed_gene_support()` measures indexed support.
 
 ## Recommended list-first repair workflow
 

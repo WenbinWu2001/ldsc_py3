@@ -16,7 +16,7 @@ from typing import Any
 import pandas as pd
 import pyarrow.parquet as pq
 
-from .annotation_semantics import require_unique_annotation_names
+from ._annotation.semantics import require_unique_annotation_names
 from .config import ConfigMismatchError, GlobalConfig
 from ._core.columns import normalize_snp_identifier_mode
 from .errors import LDSCInputError, LDSCInternalError

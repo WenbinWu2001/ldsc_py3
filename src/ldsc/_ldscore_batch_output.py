@@ -15,20 +15,20 @@ import os
 
 import pandas as pd
 
-from ._annotation_storage import TsvDiagnostics
-from .annotation_semantics import require_unique_annotation_names
+from ._annotation.storage import TsvDiagnostics
+from ._annotation.semantics import require_unique_annotation_names
 from .errors import LDSCInputError
 from .ldscore_source import validate_ldscore_baseline_table, validate_ldscore_query_table
 from ._runtime.artifacts import _to_serializable
 from .outputs import _write_chromosome_aligned_parquet
 from ._runtime.paths import ensure_output_directory, remove_output_artifacts
-from .query_annotations import gene_viability_errors
+from ._annotation.query_outcomes import gene_viability_errors
 
 if TYPE_CHECKING:
     from .config import GlobalConfig
-    from ._gene_query_storage import StagedGeneListBatch
+    from ._annotation.gene_query_storage import StagedGeneListBatch
     from .overlap_matrix import LDScoreOverlap
-    from .query_annotations import QueryAnnotationStatus
+    from ._annotation.query_outcomes import QueryAnnotationStatus
 
 
 @dataclass(slots=True)
@@ -178,7 +178,7 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
             if close is not None:
                 close()
     from .ldscore_source import load_ldscore_from_dir
-    from ._gene_query_storage import persistent_gene_diagnostics
+    from ._annotation.gene_query_storage import persistent_gene_diagnostics
     source = load_ldscore_from_dir(str(root))
     paths = {key: str(value) for key, value in family.paths.items()}
     return replace(source, output_paths=paths, query_statuses=shared.query_statuses,

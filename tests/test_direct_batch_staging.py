@@ -85,7 +85,7 @@ def test_direct_workers_return_fragments_and_reuse_pool_across_batches(tmp_path,
 @pytest.mark.parametrize("width", [1, 2, 10])
 @pytest.mark.parametrize("empty_first_chromosome", [False, True])
 def test_direct_global_filtering_matches_materialized_output(tmp_path, width, empty_first_chromosome):
-    from ldsc.query_annotations import QueryAnnotationStatus
+    from ldsc._annotation.query_outcomes import QueryAnnotationStatus
     from tests.test_ldscore_parallelism import _PANEL_CHROMS, _write_index_panel
 
     metadata, baseline, _, config, panel, numerical = prepared_case(tmp_path)

@@ -196,7 +196,7 @@ annotate/
 ```
 
 `diagnostics/metadata.json` is provenance only; no downstream workflow reads it.
-Fields come from `AnnotationDirectoryWriter.write()` in `src/ldsc/outputs.py` and the provenance built by `run_annotate()` in `src/ldsc/annotate_workflow.py`.
+Fields come from `AnnotationDirectoryWriter.write()` in `src/ldsc/outputs.py` and the provenance built by `run_annotate()` in `src/ldsc/_annotation/annotate.py`.
 
 | Field | Explanation |
 | --- | --- |

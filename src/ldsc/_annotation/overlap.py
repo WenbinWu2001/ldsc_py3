@@ -99,7 +99,7 @@ def annotation_statistics(metadata, annotations, n_baseline, *, query_batch_size
     different query annotations are never crossed. All rows are reference SNPs,
     independently of which SNPs receive output LD scores.
     """
-    from ..annotation_semantics import classify_annotation_values
+    from .semantics import classify_annotation_values
 
     n_rows, n_columns = annotations.shape
     n_query = n_columns-n_baseline

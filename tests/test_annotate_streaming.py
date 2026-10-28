@@ -29,7 +29,7 @@ def inputs(tmp_path, sharded=False):
 
 @pytest.mark.parametrize('sharded', [False, True])
 def test_gene_and_bed_membership_boundaries_reload_and_lifetime(tmp_path, sharded):
-    from ldsc.annotation_builder import run_annotate
+    from ldsc._annotation.builder import run_annotate
 
     baseline, genes, bed, catalog = inputs(tmp_path, sharded)
     config=GlobalConfig(snp_identifier='rsid')
@@ -56,7 +56,7 @@ def test_gene_and_bed_membership_boundaries_reload_and_lifetime(tmp_path, sharde
 
 
 def test_gene_input_requires_explicit_padding(tmp_path):
-    from ldsc.annotation_builder import run_annotate
+    from ldsc._annotation.builder import run_annotate
 
     baseline, genes, _, catalog=inputs(tmp_path)
     with pytest.raises(LDSCInputError, match='padding-bp'):
@@ -126,7 +126,7 @@ def test_returned_annotation_uses_persistent_outputs_after_build_scratch_is_rele
 
 @pytest.mark.parametrize('policy', ['strict', 'resolved-only'])
 def test_empty_and_unsupported_sources_are_skipped_but_supported_query_survives(tmp_path, policy):
-    from ldsc.annotation_builder import run_annotate
+    from ldsc._annotation.builder import run_annotate
 
     baseline, genes, _, catalog = inputs(tmp_path)
     empty, unsupported = tmp_path/'empty.txt', tmp_path/'unsupported.txt'
@@ -145,7 +145,7 @@ def test_empty_and_unsupported_sources_are_skipped_but_supported_query_survives(
 
 
 def test_all_focal_skipped_writes_diagnostics_and_no_scientific_family(tmp_path):
-    from ldsc.annotation_builder import run_annotate
+    from ldsc._annotation.builder import run_annotate
 
     baseline, genes, _, catalog = inputs(tmp_path)
     genes.write_text('')
@@ -160,7 +160,7 @@ def test_all_focal_skipped_writes_diagnostics_and_no_scientific_family(tmp_path)
 
 @pytest.mark.parametrize('policy', ['strict', 'resolved-only'])
 def test_coverage_failure_is_not_treated_as_zero_support(tmp_path, policy):
-    from ldsc.annotation_builder import run_annotate
+    from ldsc._annotation.builder import run_annotate
 
     baseline, genes, _, catalog = inputs(tmp_path, True)
     genes.write_text('G2\n')
@@ -176,7 +176,7 @@ def test_coverage_failure_is_not_treated_as_zero_support(tmp_path, policy):
 
 
 def test_gate_a_collects_independent_sources_and_omits_later_statuses(tmp_path):
-    from ldsc.annotation_builder import run_annotate
+    from ldsc._annotation.builder import run_annotate
 
     baseline, genes, _, catalog = inputs(tmp_path)
     genes.write_text('UNKNOWN\nG1\textra\n')
@@ -196,7 +196,7 @@ def test_gate_a_collects_independent_sources_and_omits_later_statuses(tmp_path):
 
 
 def test_explicit_suite_collects_missing_autosomes_and_bad_members(tmp_path):
-    from ldsc.annotation_builder import run_annotate
+    from ldsc._annotation.builder import run_annotate
 
     baseline, genes, _, catalog = inputs(tmp_path, True)
     (tmp_path/'baseline.3.annot.gz').write_bytes(b'not gzip')
@@ -210,7 +210,7 @@ def test_explicit_suite_collects_missing_autosomes_and_bad_members(tmp_path):
 
 
 def test_overwrite_failure_marker_and_persistent_family(tmp_path):
-    from ldsc.annotation_builder import run_annotate
+    from ldsc._annotation.builder import run_annotate
 
     baseline, genes, _, catalog=inputs(tmp_path)
     output=tmp_path/'out'

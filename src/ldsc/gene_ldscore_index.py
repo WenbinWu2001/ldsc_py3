@@ -78,14 +78,14 @@ from ._runtime.workflow_logging import (
     set_workflow_log_path,
     workflow_logging,
 )
-from ._annotation_storage import AnnotationWorkspace, FrameSpool
-from ._annotation_sources import prepare_annotation_sources
+from ._annotation.storage import AnnotationWorkspace, FrameSpool
+from ._annotation.sources import prepare_annotation_sources
 from ._core.chromosomes import normalize_chromosome, normalize_chromosome_series
 from ._core.coordinates import positive_int_position_series
 from ._core.columns import normalize_genome_build
 from .config import DEFAULT_SNP_BATCH_SIZE, GeneLDScoreIndexBuildConfig, GlobalConfig, get_global_config
 from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError
-from .gene_list_resolver import (
+from ._annotation.gene_lists import (
     GeneCatalog,
     GeneCatalogValidationError,
     GeneSourceSelection,
@@ -562,7 +562,7 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 process_id=os.getpid(),
                 hostname=socket.gethostname(),
             )
-            from ._annotation_preflight import inspect_annotation_inputs
+            from ._annotation.preflight import inspect_annotation_inputs
             from ._ref_panel_preflight import GENETIC_MAP_HEADER_CHECKS
             declared_inputs = inspect_annotation_inputs(
                 header_checks=GENETIC_MAP_HEADER_CHECKS,
@@ -2273,8 +2273,8 @@ def _run_indexed_ldscore_in_workspace(
     workspace, _allow_partial_for_tests,
 ):
     """Own staged gene selections until the canonical result has been written."""
-    from ._gene_query_storage import resolve_gene_lists_staged
-    from .query_annotations import assess_gene_coverage, gene_query_statuses, gene_control_errors, gene_viability_errors
+    from ._annotation.gene_query_storage import resolve_gene_lists_staged
+    from ._annotation.query_outcomes import assess_gene_coverage, gene_query_statuses, gene_control_errors, gene_viability_errors
     from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 
     try:
@@ -2305,7 +2305,7 @@ def _run_indexed_ldscore_in_workspace(
         resolution_policy=gene_list_resolution_policy,
         gene_exclude_regions=gene_policy,
     )
-    from .query_annotations import (
+    from ._annotation.query_outcomes import (
         _gene_list_gate_a_message,
         _log_gene_list_rejections,
         _log_gene_list_snp_support,

@@ -18,9 +18,9 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from ._core.regions import load_preset_intervals
-from .errors import LDSCInputError
-from ._runtime.paths import normalize_path_token
+from .._core.regions import load_preset_intervals
+from ..errors import LDSCInputError
+from .._runtime.paths import normalize_path_token
 
 
 CATALOG_REQUIRED_COLUMNS = ("gene_id", "gene_name", "chrom", "start", "end", "genome_build")

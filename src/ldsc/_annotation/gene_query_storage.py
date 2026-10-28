@@ -15,16 +15,16 @@ import zlib
 import numpy as np
 import pandas as pd
 
-from ._runtime.progress import report_phase, advance
+from .._runtime.progress import report_phase, advance
 
-from ._annotation_storage import FrameSpool
-from .gene_list_resolver import (
+from .storage import FrameSpool
+from .gene_lists import (
     AUDIT_COLUMNS, SUMMARY_COLUMNS, RESOLVED_ONLY_REASONS, GeneSourceSelection,
     _expand_focal_gene_list_sources, _resolve_rows, _summarize_sources,
     gene_list_query_name,
 )
-from .errors import LDSCInputError
-from ._runtime.paths import normalize_path_token
+from ..errors import LDSCInputError
+from .._runtime.paths import normalize_path_token
 
 
 @dataclass(frozen=True)

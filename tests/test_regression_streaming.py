@@ -18,7 +18,7 @@ from tests import test_regression_workflow as fixtures
 from tests.test_regression_fit_outcomes import h2_dataset
 from ldsc.ldscore_calculator import LDScoreResult
 from ldsc.overlap_matrix import LDScoreOverlap
-from ldsc._kernel.overlap import OverlapContribution
+from ldsc._annotation.overlap import OverlapContribution
 
 
 def ld_directory(tmp_path):

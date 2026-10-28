@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc._annotation_sources import prepare_annotation_sources
-from ldsc._annotation_storage import AnnotationWorkspace
+from ldsc._annotation.sources import prepare_annotation_sources
+from ldsc._annotation.storage import AnnotationWorkspace
 from ldsc._runtime.workflow_logging import workflow_logging
 from ldsc.errors import LDSCInputError
 
@@ -90,7 +90,7 @@ def test_sharded_scan_budget_does_not_shrink_with_chromosome_count(tmp_path, mon
 
 
 def test_identity_preparation_uses_only_metadata_and_never_stages_numeric_values(tmp_path, monkeypatch):
-    from ldsc._annotation_identity import DiskIdentityIndex
+    from ldsc._annotation.identity_cleanup import DiskIdentityIndex
 
     path = tmp_path / "base.annot"
     path.write_text("CHR SNP POS base\n1 rs1 1 1\n2 rs2 2 -0.25\n")

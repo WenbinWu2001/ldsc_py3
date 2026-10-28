@@ -14,7 +14,7 @@ import pandas as pd
 from scipy import stats
 
 from ._kernel import regression as reg
-from ._kernel.overlap import OverlapContribution
+from ._annotation.overlap import OverlapContribution
 
 
 @dataclass(frozen=True)

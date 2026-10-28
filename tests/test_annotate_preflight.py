@@ -109,7 +109,7 @@ def test_cli_preflight_message_and_artifacts(tmp_path, kind, name, rows):
 @pytest.mark.parametrize("kind", ["annot", "bim"])
 @pytest.mark.parametrize("issue", ["identifier", "naming", "both"])
 def test_gene_gate_stops_before_grid_preparation(tmp_path, monkeypatch, kind, issue):
-    from ldsc import annotate_workflow
+    from ldsc._annotation import annotate as annotate_workflow
 
     grid, catalog = grid_inputs(tmp_path, kind)
     name = "focal" if issue == "identifier" else ("base" if kind == "annot" else "SNP")
@@ -206,7 +206,7 @@ def test_valid_and_resolved_only_outputs_keep_membership_and_precision(tmp_path,
 
 
 def test_invalid_headers_stop_before_dependent_gene_checks(tmp_path, monkeypatch):
-    from ldsc import annotate_workflow
+    from ldsc._annotation import annotate as annotate_workflow
 
     grid, catalog = grid_inputs(tmp_path, "annot")
     pd.DataFrame({"unusable": [1]}).to_csv(grid["ref_snp_annot_sources"][0], sep="\t", index=False)

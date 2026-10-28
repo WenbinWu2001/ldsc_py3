@@ -125,7 +125,7 @@ def test_missing_sumstats_cli_keeps_concise_error_and_chained_file_log(tmp_path,
 
 
 def test_direct_reports_late_reference_and_annotation_defects_before_staging(tmp_path, monkeypatch):
-    from ldsc import _annotation_sources
+    from ldsc._annotation import sources as _annotation_sources
     write_inputs(tmp_path)
     (tmp_path / "1000G.EUR.QC.22.bed").unlink()
     bad = tmp_path / "bad.annot"
@@ -156,7 +156,7 @@ def test_index_missing_late_component_precedes_any_operator_load(tmp_path, monke
 
 
 def test_builder_reports_all_declared_inputs_before_staging(tmp_path, monkeypatch):
-    from ldsc import _annotation_sources
+    from ldsc._annotation import sources as _annotation_sources
     write_inputs(tmp_path)
     (tmp_path / "1000G.EUR.QC.22.fam").unlink()
     args = index_args(tmp_path, str(tmp_path / "1000G.EUR.QC.*"), tmp_path / "index")
@@ -170,7 +170,8 @@ def test_builder_reports_all_declared_inputs_before_staging(tmp_path, monkeypatc
 
 
 def test_annotate_reports_baseline_and_bed_paths_before_staging(tmp_path, monkeypatch):
-    from ldsc import run_annotate, GlobalConfig, _annotation_sources
+    from ldsc import run_annotate, GlobalConfig
+    from ldsc._annotation import sources as _annotation_sources
     monkeypatch.setattr(_annotation_sources, "_scan", forbid_work)
     with pytest.raises(LDSCInputError) as failure:
         run_annotate(ref_snp_annot_sources=[tmp_path / "missing.annot"],
@@ -198,8 +199,8 @@ def test_progress_has_phase_boundaries_and_periodic_counts(caplog, monkeypatch):
 
 
 def test_header_gate_checks_all_sources_without_scanning(tmp_path, monkeypatch):
-    from ldsc import _annotation_sources
-    from ldsc._annotation_storage import AnnotationWorkspace
+    from ldsc._annotation import sources as _annotation_sources
+    from ldsc._annotation.storage import AnnotationWorkspace
     first, last = tmp_path/'first.annot', tmp_path/'last.annot'
     first.write_text('CHR SNP POS value\n21 rs1 100 1\n')
     last.write_text('CHR SNP wrong value\n22 rs2 200 1\n')
@@ -240,7 +241,7 @@ def test_index_late_metadata_and_early_header_errors_precede_operator_loading(tm
 
 
 def test_builder_aggregates_reference_and_restriction_content_errors(tmp_path, monkeypatch):
-    from ldsc import _annotation_sources
+    from ldsc._annotation import sources as _annotation_sources
     write_inputs(tmp_path)
     (tmp_path/'1000G.EUR.QC.22.bed').write_bytes(b'bad')
     (tmp_path/'regression.tsv').write_text('nonsense\nvalue\n')
@@ -253,7 +254,8 @@ def test_builder_aggregates_reference_and_restriction_content_errors(tmp_path, m
 
 @pytest.mark.parametrize('overwrite', [False, True])
 def test_early_failure_preserves_science_and_output_contract(tmp_path, monkeypatch, overwrite):
-    from ldsc import GlobalConfig, set_global_config, _annotation_sources
+    from ldsc import GlobalConfig, set_global_config
+    from ldsc._annotation import sources as _annotation_sources
     from ldsc.errors import LDSCUserError
     output = tmp_path/'out'
     output.mkdir()
@@ -318,8 +320,8 @@ def test_r2_builder_aggregates_map_header_and_late_companion(tmp_path, monkeypat
 
 
 def test_empty_annotation_header_stops_before_other_source_scans(tmp_path, monkeypatch):
-    from ldsc import _annotation_sources
-    from ldsc._annotation_storage import AnnotationWorkspace
+    from ldsc._annotation import sources as _annotation_sources
+    from ldsc._annotation.storage import AnnotationWorkspace
     good, empty = tmp_path/'good.annot', tmp_path/'empty.annot'
     good.write_text('CHR SNP POS base\n1 rs1 100 1\n')
     empty.write_text('CHR SNP POS extra\n')
@@ -330,8 +332,8 @@ def test_empty_annotation_header_stops_before_other_source_scans(tmp_path, monke
 
 
 def test_declared_header_chromosome_and_columns_fail_before_scans(tmp_path, monkeypatch):
-    from ldsc import _annotation_sources
-    from ldsc._annotation_preflight import inspect_annotation_inputs
+    from ldsc._annotation import sources as _annotation_sources
+    from ldsc._annotation.preflight import inspect_annotation_inputs
     for chrom in range(1, 23):
         column = 'wrong' if chrom == 21 else 'base'
         member = 1 if chrom == 22 else chrom

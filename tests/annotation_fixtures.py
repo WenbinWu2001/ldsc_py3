@@ -12,9 +12,9 @@ import weakref
 import numpy as np
 import pandas as pd
 
-from ldsc._annotation_bundle import AnnotationBundle
-from ldsc._annotation_storage import AnnotationShard, AnnotationWorkspace, ColumnStore
-from ldsc._annotation_parsing import normalize_annotation_chunk
+from ldsc._annotation.bundle import AnnotationBundle
+from ldsc._annotation.storage import AnnotationShard, AnnotationWorkspace, ColumnStore
+from ldsc._annotation.parsing import normalize_annotation_chunk
 from ldsc._core.snp_identity import effective_merge_key_series, identity_base_mode, is_allele_aware_mode
 
 
@@ -96,11 +96,11 @@ def replace_fixture_queries(bundle, *, query_annotations, query_columns=None):
 
 def resolve_gene_fixture(focal_paths, catalog, *, output_dir, **kwargs):
     """Stage gene fixtures under the test framework's owned output parent."""
-    from ldsc._gene_query_storage import resolve_gene_lists_staged
+    from ldsc._annotation.gene_query_storage import resolve_gene_lists_staged
     return resolve_gene_lists_staged(focal_paths, catalog, AnnotationWorkspace(output_dir), **kwargs)
 
 
 def fixture_gene_audit(batch):
     """Explicitly inspect the complete small audit used by an independent test."""
-    from ldsc.gene_list_resolver import AUDIT_COLUMNS
+    from ldsc._annotation.gene_lists import AUDIT_COLUMNS
     return pd.concat(batch.audit_frames(), ignore_index=True) if any(spool.n_rows for spool in batch.audit_spools) else pd.DataFrame(columns=AUDIT_COLUMNS)

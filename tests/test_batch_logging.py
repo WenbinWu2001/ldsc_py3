@@ -85,7 +85,7 @@ def test_constant_gene_query_notice_explains_skips_without_claiming_zero_snp_sup
 ):
     from types import SimpleNamespace
     from ldsc._runtime.workflow_logging import workflow_logging
-    from ldsc.query_annotations import QueryAnnotationStatus, _emit_gene_gate_b_notice
+    from ldsc._annotation.query_outcomes import QueryAnnotationStatus, _emit_gene_gate_b_notice
 
     batch = SimpleNamespace(audit_frames=lambda: iter([
         pd.DataFrame({"disposition": ["selected"]})
@@ -116,9 +116,9 @@ def test_constant_gene_query_notice_explains_skips_without_claiming_zero_snp_sup
 
 
 def test_many_annotation_and_bed_sources_have_collection_progress(tmp_path, caplog):
-    from ldsc._annotation_sources import prepare_annotation_sources
-    from ldsc._annotation_queries import prepare_bed_queries
-    from ldsc._annotation_storage import AnnotationWorkspace
+    from ldsc._annotation.sources import prepare_annotation_sources
+    from ldsc._annotation.interval_queries import prepare_bed_queries
+    from ldsc._annotation.storage import AnnotationWorkspace
 
     paths = [tmp_path / f"source-{index}.annot" for index in range(40)]
     beds = [tmp_path / f"source-{index}.bed" for index in range(40)]

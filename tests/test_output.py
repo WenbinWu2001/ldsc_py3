@@ -147,8 +147,8 @@ def make_multi_chrom_result(chromosomes: list[str] | None = None) -> LDScoreResu
 
 class LDScoreDirectoryWriterTest(unittest.TestCase):
     def test_ldscore_writer_emits_query_status_gene_audit_and_concise_provenance(self):
-        from ldsc.gene_list_resolver import GeneCatalog
-        from ldsc.query_annotations import QueryAnnotationStatus
+        from ldsc._annotation.gene_lists import GeneCatalog
+        from ldsc._annotation.query_outcomes import QueryAnnotationStatus
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
@@ -198,7 +198,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             self.assertNotIn(str(Path(tmpdir)), json.dumps(metadata))
 
     def test_ldscore_writer_can_commit_diagnostics_only_for_all_skipped_batch(self):
-        from ldsc.query_annotations import QueryAnnotationStatus
+        from ldsc._annotation.query_outcomes import QueryAnnotationStatus
 
         result = dataclass_replace(
             make_split_ldscore_result(query=False),
@@ -243,7 +243,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
 
     def _overlap(self):
         import numpy as np
-        from ldsc._kernel.overlap import OverlapContribution
+        from ldsc._annotation.overlap import OverlapContribution
         from ldsc.overlap_matrix import LDScoreOverlap
 
         contribution = OverlapContribution(

@@ -7,7 +7,7 @@ import pytest
 
 
 def test_compute_overlap_blocks_binary_and_continuous():
-    from ldsc._kernel.overlap import compute_overlap
+    from ldsc._annotation.overlap import compute_overlap
     # 4 SNPs, baseline = [base(all ones), catA], query = [q, cont]
     annotations = pd.DataFrame({
         "base": [1.0, 1.0, 1.0, 1.0],
@@ -32,7 +32,7 @@ def test_compute_overlap_blocks_binary_and_continuous():
 
 
 def test_compute_overlap_without_maf_has_no_common_universe():
-    from ldsc._kernel.overlap import compute_overlap
+    from ldsc._annotation.overlap import compute_overlap
     annotations = pd.DataFrame({"base": [1.0, 1.0], "q": [1.0, 0.0]})
     metadata = pd.DataFrame({"CHR": ["1", "1"]})  # no MAF
     contribution = compute_overlap(metadata, annotations, n_baseline=1, common_maf_min=0.05)
@@ -42,7 +42,7 @@ def test_compute_overlap_without_maf_has_no_common_universe():
 
 
 def test_sum_overlap_contributions_adds_blocks_and_sizes():
-    from ldsc._kernel.overlap import OverlapContribution, sum_overlap_contributions
+    from ldsc._annotation.overlap import OverlapContribution, sum_overlap_contributions
     a = OverlapContribution(np.ones((1, 2)), np.ones((1, 2)), np.array([2.0]), np.array([1.0]), 5, 3)
     b = OverlapContribution(np.full((1, 2), 3.0), np.full((1, 2), 2.0), np.array([4.0]), np.array([2.0]), 7, 4)
     total = sum_overlap_contributions([a, b])
@@ -54,7 +54,7 @@ def test_sum_overlap_contributions_adds_blocks_and_sizes():
 
 
 def test_sum_overlap_contributions_drops_common_if_any_chrom_lacks_it():
-    from ldsc._kernel.overlap import OverlapContribution, sum_overlap_contributions
+    from ldsc._annotation.overlap import OverlapContribution, sum_overlap_contributions
     a = OverlapContribution(np.ones((1, 1)), np.ones((1, 1)), np.array([1.0]), np.array([1.0]), 3, 2)
     b = OverlapContribution(np.ones((1, 1)), None, np.array([1.0]), None, 2, None)
     total = sum_overlap_contributions([a, b])
@@ -62,7 +62,7 @@ def test_sum_overlap_contributions_drops_common_if_any_chrom_lacks_it():
 
 
 def test_overlap_long_frame_round_trip():
-    from ldsc._kernel.overlap import OverlapContribution
+    from ldsc._annotation.overlap import OverlapContribution
     from ldsc.overlap_matrix import (
         LDScoreOverlap, overlap_to_long_frame, overlap_from_long_frame,
     )
@@ -174,7 +174,7 @@ def test_overlap_aware_hand_example_disjoint_plus_base():
 
 
 def test_assemble_model_overlap_reconstructs_submatrix():
-    from ldsc._kernel.overlap import OverlapContribution
+    from ldsc._annotation.overlap import OverlapContribution
     from ldsc.overlap_matrix import LDScoreOverlap, assemble_model_overlap
     # Full A: baseline=[base, catA], query=[q1, q2]
     A = np.array([

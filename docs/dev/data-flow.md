@@ -132,7 +132,7 @@ Output preflight covers both `query.*.annot.gz` and `baseline.*.annot.gz` plus o
 
 ### Modules used
 
-- Public parser/dispatch: `ldsc.annotation_builder`; orchestration: `ldsc.annotate_workflow`.
+- Public parser/dispatch: `ldsc._annotation.builder`; orchestration: `ldsc._annotation.annotate`.
 - Grid preparation: `_annotation_sources`, `_annotation_bim`, `_annotation_identity`, and `_annotation_storage`.
 - Projection: `_annotation_queries`, `_annotation_projection`, and `_gene_query_storage`.
 - Publication and reload: `outputs.AnnotationDirectoryWriter` and `_annotation_outputs`.

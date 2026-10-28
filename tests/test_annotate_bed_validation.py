@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from ldsc import cli
-from ldsc.annotation_builder import run_annotate
+from ldsc._annotation.builder import run_annotate
 from ldsc.config import GlobalConfig
 from ldsc.errors import LDSCInputError
 from tests.test_annotate_streaming import inputs
@@ -17,7 +17,7 @@ PLINK = Path(__file__).parent / 'fixtures/minimal_external_resources/plink/hm3_c
 
 
 def test_annotate_reports_every_unusable_bed_before_reading_the_grid(tmp_path, monkeypatch):
-    from ldsc import annotate_workflow
+    from ldsc._annotation import annotate as annotate_workflow
 
     baseline, _, bed, _ = inputs(tmp_path)
     bad_start = tmp_path / 'bad_start.bed'

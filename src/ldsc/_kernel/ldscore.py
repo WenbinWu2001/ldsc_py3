@@ -10,7 +10,7 @@ annotation alignment, LD-window validation, and reader lifetime. This module's
 ``compute_chromosome`` consumes that ``PreparedChromosome`` state and projects
 baseline/query annotations and regression weights in one traversal. It also
 provides annotation parsing, window geometry, and count primitives used by the
-workflow adapters. BED-to-SNP projection belongs to ``ldsc.annotation_builder``.
+workflow adapters. BED-to-SNP projection belongs to ``ldsc._annotation.builder``.
 
 Scientific contracts
 --------------------
@@ -64,7 +64,7 @@ from .._core.chromosomes import chrom_sort_key, normalize_chromosome
 from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .._core import plink_files as legacy_parse
 from .._core.identifiers import build_snp_id_series
-from .overlap import OverlapContribution, compute_overlap, annotation_statistics
+from .._annotation.overlap import OverlapContribution, compute_overlap, annotation_statistics
 from .plink_bed import PlinkBEDFile  # Re-exported for the reference-panel adapters.
 from .ldscore_projection import ArrayAnnotations, ProjectionAccumulator
 from .._core.snp_identity import (

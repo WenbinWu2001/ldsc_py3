@@ -3,14 +3,14 @@
 import pandas as pd
 import pytest
 
-from ldsc._annotation_storage import AnnotationWorkspace
-from ldsc.gene_list_resolver import GeneCatalog
+from ldsc._annotation.storage import AnnotationWorkspace
+from ldsc._annotation.gene_lists import GeneCatalog
 
 
 @pytest.mark.parametrize("chunk_rows", [1, 3])
 def test_exclusion_log_summarizes_roles_across_sources_and_audit_chunks(tmp_path, caplog, chunk_rows):
-    from ldsc._gene_query_storage import resolve_gene_lists_staged
-    from ldsc.query_annotations import _log_gene_list_rejections
+    from ldsc._annotation.gene_query_storage import resolve_gene_lists_staged
+    from ldsc._annotation.query_outcomes import _log_gene_list_rejections
 
     catalog_path = tmp_path / "catalog.tsv"
     catalog_path.write_text("gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
@@ -42,7 +42,7 @@ def test_exclusion_log_summarizes_roles_across_sources_and_audit_chunks(tmp_path
 
 
 def test_streamed_resolution_deduplicates_aliases_across_chunks(tmp_path):
-    from ldsc._gene_query_storage import resolve_gene_lists_staged
+    from ldsc._annotation.gene_query_storage import resolve_gene_lists_staged
 
     catalog_path = tmp_path / "catalog.tsv"
     pd.DataFrame([['G1', 'ONE', '1', 101, 110, 'hg19'], ['G2', 'TWO', '2', 201, 210, 'hg19']],

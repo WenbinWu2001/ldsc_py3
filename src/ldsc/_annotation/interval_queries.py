@@ -9,15 +9,15 @@ import numpy as np
 import pandas as pd
 
 import logging
-from ._runtime.progress import report_phase, advance
+from .._runtime.progress import report_phase, advance
 
-from ._annotation_projection import ChromosomeProjector
-from ._annotation_storage import AnnotationWorkspace, ColumnStore, FrameSpool
-from ._core.regions import iter_bed_rows
-from ._core.chromosomes import normalize_chromosome
-from .annotation_semantics import require_unique_annotation_names
-from .query_annotations import QueryAnnotationStatus, gene_query_statuses
-from .errors import LDSCInputError
+from .interval_projection import ChromosomeProjector
+from .storage import AnnotationWorkspace, ColumnStore, FrameSpool
+from .._core.regions import iter_bed_rows
+from .._core.chromosomes import normalize_chromosome
+from .semantics import require_unique_annotation_names
+from .query_outcomes import QueryAnnotationStatus, gene_query_statuses
+from ..errors import LDSCInputError
 
 
 @dataclass
@@ -88,7 +88,7 @@ def require_readable_bed_sources(bed_sources, issues_path=None):
     without intervals is not a failure here; it stays a skipped
     ``empty_input`` query.
     """
-    from ._runtime.preflight import InputGate, input_issue
+    from .._runtime.preflight import InputGate, input_issue
 
     issues = []
     for source in bed_sources:

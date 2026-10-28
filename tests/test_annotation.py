@@ -12,14 +12,14 @@ import numpy as np
 import pandas as pd
 
 
-from ldsc._kernel import annotation as kernel_annotation
-from ldsc._annotation_sources import prepare_annotation_sources
-from ldsc._annotation_storage import AnnotationWorkspace
-from ldsc import annotation_builder
-from ldsc.annotation_builder import AnnotationBuilder, AnnotationBundle, run_annotate
+from ldsc._annotation import tables as kernel_annotation
+from ldsc._annotation.sources import prepare_annotation_sources
+from ldsc._annotation.storage import AnnotationWorkspace
+from ldsc._annotation import builder as annotation_builder
+from ldsc._annotation.builder import AnnotationBuilder, AnnotationBundle, run_annotate
 from ldsc.config import AnnotationBuildConfig, GlobalConfig
 from ldsc.errors import LDSCInputError
-from ldsc.outputs import AnnotationDirectoryWriter
+from ldsc._annotation.outputs import AnnotationDirectoryWriter
 
 
 ANNOT_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "annotation" / "test.annot"
@@ -468,7 +468,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             "parse_annotate_args",
             "main_bed_to_annot",
         ):
-            self.assertFalse(hasattr(kernel_annotation, name), f"{name} should live in ldsc.annotation_builder")
+            self.assertFalse(hasattr(kernel_annotation, name), f"{name} should live in ldsc._annotation.builder")
 
     def test_run_builds_bundle(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())

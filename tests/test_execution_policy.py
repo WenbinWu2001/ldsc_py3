@@ -166,7 +166,8 @@ def test_direct_waits_for_running_worker_before_query_batch_cleanup(tmp_path, mo
     from contextlib import contextmanager
     from dataclasses import replace
     from threading import Event
-    from ldsc import AnnotationBundle, LDScoreCalculator, _annotation_queries
+    from ldsc import AnnotationBundle, LDScoreCalculator
+    from ldsc._annotation import interval_queries as _annotation_queries
     from ldsc import ldscore_calculator as direct
     from ldsc.outputs import LDScoreOutputConfig
     from tests.test_ldscore_query_batches import prepared_case

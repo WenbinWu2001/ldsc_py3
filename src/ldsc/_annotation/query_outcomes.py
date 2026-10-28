@@ -18,8 +18,8 @@ import numpy as np
 
 import pandas as pd
 
-from ._kernel.overlap import OverlapContribution
-from .errors import LDSCInternalError
+from .overlap import OverlapContribution
+from ..errors import LDSCInternalError
 
 LOGGER = logging.getLogger("LDSC.query_annotations")
 MAX_CONSOLE_GENE_ISSUES = 10

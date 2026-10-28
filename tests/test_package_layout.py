@@ -197,7 +197,7 @@ print(ldsc.__file__)
         )
 
     def test_annotation_builder_owns_public_workflow_entrypoints(self):
-        from ldsc import annotation_builder
+        from ldsc._annotation import builder as annotation_builder
 
         for name in (
             "AnnotationBuilder",
@@ -213,7 +213,8 @@ print(ldsc.__file__)
         self.assertFalse(hasattr(annotation_builder, "main_bed_to_annot"))
 
     def test_annotate_direct_dispatch_calls_annotation_main_without_reparse(self):
-        from ldsc import annotation_builder, cli
+        from ldsc._annotation import builder as annotation_builder
+        from ldsc import cli
 
         subargv = [
             "--query-annot-bed-sources",
@@ -230,7 +231,8 @@ print(ldsc.__file__)
         patched.assert_called_once_with(subargv)
 
     def test_annotate_parsed_dispatch_calls_workflow_from_args(self):
-        from ldsc import annotation_builder, cli
+        from ldsc._annotation import builder as annotation_builder
+        from ldsc import cli
 
         parser = cli.build_parser()
         args = parser.parse_args(

@@ -24,7 +24,7 @@ import pytest
 
 from ldsc.config import ConfigMismatchError, GlobalConfig
 from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
-from ldsc.query_annotations import QueryAnnotationStatus, _emit_gene_gate_b_notice
+from ldsc._annotation.query_outcomes import QueryAnnotationStatus, _emit_gene_gate_b_notice
 
 try:
     from ldsc import (
@@ -558,7 +558,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(chrom_result.query_table["query"].tolist(), [2.0])
 
     def test_wrap_legacy_chrom_result_carries_overlap(self):
-        from ldsc._kernel.overlap import OverlapContribution
+        from ldsc._annotation.overlap import OverlapContribution
 
         contribution = OverlapContribution(np.array([[2.0]]), None, np.array([]), None, 2, None)
         legacy_result = kernel_ldscore.ChromComputationResult(
@@ -581,7 +581,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertIs(result.overlap, contribution)
 
     def test_aggregate_chromosome_results_sums_overlap_blocks(self):
-        from ldsc._kernel.overlap import OverlapContribution
+        from ldsc._annotation.overlap import OverlapContribution
 
         cfg = GlobalConfig(snp_identifier="rsid")
 
@@ -617,7 +617,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(list(result.overlap.baseline_block_all.columns), ["base", "query"])
 
     def test_aggregate_chromosome_results_skips_overlap_for_base_only(self):
-        from ldsc._kernel.overlap import OverlapContribution
+        from ldsc._annotation.overlap import OverlapContribution
 
         cfg = GlobalConfig(snp_identifier="rsid")
 
@@ -1473,7 +1473,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
 
             with mock.patch(
-                "ldsc.annotation_builder.AnnotationBuilder.run",
+                "ldsc._annotation.builder.AnnotationBuilder.run",
                 autospec=True,
                 return_value=annotation_bundle,
             ), mock.patch(
@@ -1944,7 +1944,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         from tests.worker_fixtures import calculation_body, local_task_pool
         self.enterContext(calculation_body())
         self.enterContext(mock.patch.object(ldscore_workflow, "ProcessPoolExecutor", local_task_pool))
-        from ldsc._kernel.overlap import OverlapContribution
+        from ldsc._annotation.overlap import OverlapContribution
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "ldscore_result"
@@ -1991,7 +1991,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ref_panel = self.make_ref_panel_stub(backend="plink")
 
             with mock.patch(
-                "ldsc.annotation_builder.AnnotationBuilder.run",
+                "ldsc._annotation.builder.AnnotationBuilder.run",
                 autospec=True,
                 return_value=annotation_bundle,
             ), mock.patch(

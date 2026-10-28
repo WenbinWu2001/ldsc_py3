@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from ldsc._kernel.ldscore_projection import ArrayAnnotations
-from ldsc._kernel.overlap import annotation_statistics
+from ldsc._annotation.overlap import annotation_statistics
 from ldsc.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from ldsc import load_ldscore_from_dir
 from tests.test_output import make_split_ldscore_result
@@ -105,7 +105,7 @@ def test_prepared_inputs_preserve_global_duplicates_and_allele_contract():
 
 def test_direct_bed_preparation_releases_each_execution_batch(tmp_path, monkeypatch):
     from ldsc import run_ldscore, get_global_config, set_global_config
-    from ldsc._annotation_storage import ColumnStore
+    from ldsc._annotation.storage import ColumnStore
     metadata, baseline, _, config, _, _ = prepared_case(tmp_path)
     baseline_path = tmp_path / "baseline.annot"
     pd.concat([metadata, baseline], axis=1).to_csv(baseline_path, sep="\t", index=False)

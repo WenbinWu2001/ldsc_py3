@@ -13,7 +13,7 @@ from tests.test_ldscore_chromosome_scope import write_r2_inputs
 
 @pytest.mark.parametrize('batch_size', [1,2,1000])
 def test_direct_file_queries_use_shards_and_leave_only_persistent_outputs(tmp_path,monkeypatch,batch_size):
-    from ldsc.annotation_builder import AnnotationBuilder
+    from ldsc._annotation.builder import AnnotationBuilder
     from ldsc import ldscore_calculator
     from ldsc import config
     monkeypatch.setattr(config, "_GLOBAL_CONFIG", config.GlobalConfig(snp_identifier="rsid"))

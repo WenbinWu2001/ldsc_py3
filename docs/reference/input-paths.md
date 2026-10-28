@@ -94,7 +94,7 @@ The first suite-capable flag in each command explains this syntax. Later flags r
 | Gene coordinate catalogs, fixed control gene lists, `ldscore` reference-SNP/individual lists, gene LD-score index regression-SNP/individual lists, and `build-r2-panel` liftover-chain files | Exact file paths. Pattern expansion is not implemented by these readers. |
 | Input/output directories and `query-r2 --pairs` | Literal paths; no pattern expansion. `--pairs -` retains its standard-input meaning. |
 
-Sources: [`_runtime.paths.resolve_scalar_path`, `resolve_file_group`, and PLINK resolvers](../../src/ldsc/_runtime/paths.py); [`_annotation_preflight.resolve_annotation_inputs`](../../src/ldsc/_annotation_preflight.py); [`_direct_annotation.prepare_direct_annotations`](../../src/ldsc/_direct_annotation.py); [`_quantile_inputs.prepare_quantile_statistics`](../../src/ldsc/_quantile_inputs.py); [`gene_list_resolver._expand_focal_gene_list_sources`](../../src/ldsc/gene_list_resolver.py); [`ref_panel_builder.ReferencePanelBuilder._prepare_build_state`](../../src/ldsc/ref_panel_builder.py); [`_kernel.ref_panel._resolve_genetic_map`](../../src/ldsc/_kernel/ref_panel.py); [`gene_ldscore_index._load_builder_genetic_map`](../../src/ldsc/gene_ldscore_index.py).
+Sources: [`_runtime.paths.resolve_scalar_path`, `resolve_file_group`, and PLINK resolvers](../../src/ldsc/_runtime/paths.py); [`_annotation.preflight.resolve_annotation_inputs`](../../src/ldsc/_annotation/preflight.py); [`_direct_annotation.prepare_direct_annotations`](../../src/ldsc/_direct_annotation.py); [`_quantile_inputs.prepare_quantile_statistics`](../../src/ldsc/_quantile_inputs.py); [`_annotation.gene_lists._expand_focal_gene_list_sources`](../../src/ldsc/_annotation/gene_lists.py); [`ref_panel_builder.ReferencePanelBuilder._prepare_build_state`](../../src/ldsc/ref_panel_builder.py); [`_kernel.ref_panel._resolve_genetic_map`](../../src/ldsc/_kernel/ref_panel.py); [`gene_ldscore_index._load_builder_genetic_map`](../../src/ldsc/gene_ldscore_index.py).
 
 ### Direct LD-score query scope
 
@@ -301,7 +301,7 @@ AnnotationBuildConfig(
 
 Relevant APIs:
 
-- `annotation_builder.main(argv)`
+- `_annotation.builder.main(argv)`
 - `run_annotate_from_args(args)`
 - `run_annotate(...)`
 - `parse_annotate_args(argv)`

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ._annotation_parsing import normalize_annotation_chunk
+from ._annotation.parsing import normalize_annotation_chunk
 from ._core.chromosomes import normalize_chromosome
 from .config import RefPanelConfig
 from .errors import LDSCInputError, LDSCUserError
@@ -238,7 +238,7 @@ def validate_direct_scope(args, global_config, batch, output_config, **prepared_
     from types import SimpleNamespace
 
     from .outputs import LDScoreDirectoryWriter
-    from .query_annotations import assess_gene_coverage, gene_query_statuses, gene_control_errors
+    from ._annotation.query_outcomes import assess_gene_coverage, gene_query_statuses, gene_control_errors
 
     logger = logging.getLogger("LDSC.ldscore_calculator")
     evidence = inspect_direct_inputs(args, global_config, **prepared_inputs)

@@ -50,7 +50,7 @@ from ._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PA
 from ._runtime.workflow_logging import LOG_LEVEL_HELP
 from ._runtime.parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _run_chromosome_tasks, _validate_workers
 from ._runtime.progress import report_phase, PhaseProgress
-from ._annotation_storage import TsvDiagnostics
+from ._annotation.storage import TsvDiagnostics
 from .ldscore_source import LDScoreSource
 from ._core.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, identity_mode_family, is_allele_aware_mode
 from ._core.columns import normalize_genome_build, normalize_snp_identifier_mode
@@ -80,14 +80,14 @@ from ._runtime.paths import (
 from ._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ._kernel import ldscore as kernel_ldscore
 from ._core import regions as kernel_regions
-from ._kernel.overlap import OverlapContribution, sum_overlap_contributions
+from ._annotation.overlap import OverlapContribution, sum_overlap_contributions
 from ._core.regions import REGR_SNPS_EXCLUDE_REGIONS_CHOICES, regr_snps_exclude_regions_choice_to_presets
 from ._kernel.ref_panel_builder import SIDECAR_FLOAT_FORMAT
 from ._core.identifiers import build_snp_id_series, read_snp_restriction_keys
 from ._core.snp_identity import RestrictionIdentityKeys
 from ._core.row_alignment import assert_same_snp_rows, sort_frame_by_genomic_position
 from .errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
-from .query_annotations import (
+from ._annotation.query_outcomes import (
     QueryAnnotationStatus, finalize_query_statuses, finalize_query_measurements, gene_query_statuses, gene_viability_errors,
     _log_gene_list_rejections, _log_gene_list_snp_support,
     _log_query_annotation_statuses, _all_query_annotations_skipped_message,
@@ -496,7 +496,7 @@ class LDScoreCalculator:
             names = list(annotation_bundle.query_columns)
             groups = [names[start:start + width] for start in range(0, len(names), width)] or [[]]
             def results():
-                from ._annotation_queries import execution_query_bundle
+                from ._annotation.interval_queries import execution_query_bundle
                 for ordinal, columns in enumerate(groups):
                     with PhaseProgress(LOGGER, "batch", f"LD-score calculation {ordinal + 1}/{len(groups)}", len(columns)) as progress:
                         selected = set(columns)
@@ -1422,9 +1422,9 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     if getattr(args, "gene_ldscore_index_dir", None) is not None:
         return _run_explicit_indexed_ldscore(args)
 
-    from .gene_list_resolver import GeneCatalog
-    from ._gene_query_storage import resolve_gene_lists_staged, persistent_gene_diagnostics
-    from ._annotation_storage import AnnotationWorkspace
+    from ._annotation.gene_lists import GeneCatalog
+    from ._annotation.gene_query_storage import resolve_gene_lists_staged, persistent_gene_diagnostics
+    from ._annotation.storage import AnnotationWorkspace
     from ._direct_annotation import prepare_direct_annotations, prepare_synthetic_base, validate_gene_query_names
 
     has_queries = any(_has_cli_tokens(getattr(args, name, None)) for name in (
@@ -1445,7 +1445,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with AnnotationWorkspace(output_dir) as workspace:
         with workflow_logging("ldscore", log_path, log_level=getattr(args,"log_level","INFO")):
-            from ._annotation_preflight import inspect_annotation_inputs
+            from ._annotation.preflight import inspect_annotation_inputs
             from ._runtime.preflight import InputGate
             from ._ref_panel_preflight import inspect_r2_headers
             from ._ldscore_preflight import inspect_reference_inputs
@@ -1471,7 +1471,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 batch = validate_gene_query_names(batch, {column for path in declared_inputs.baseline
                     for column in declared_inputs.columns[path]})
                 if batch.has_fatal_gate_a_issues:
-                    from .query_annotations import _gene_list_gate_a_message
+                    from ._annotation.query_outcomes import _gene_list_gate_a_message
                     LDScoreDirectoryWriter().write_gene_list_preflight(batch, output_config)
                     _log_gene_list_rejections(batch)
                     raise LDSCInputError(_gene_list_gate_a_message(batch))
@@ -2425,7 +2425,7 @@ def _partition_annotation_drops(bundle):
     if bundle.identity_drops is None:
         return artifacts
     if bundle.diagnostics_in_memory or bundle.workspace is None:
-        from ._annotation_memory import MemoryDiagnostics
+        from ._annotation.in_memory import MemoryDiagnostics
         frames = list(bundle.identity_drops.frames())
         if frames:
             for chrom, rows in pd.concat(frames, ignore_index=True).groupby("CHR", sort=False):
@@ -2448,7 +2448,7 @@ def _stage_chromosome_drops(bundle, chrom, reference_drops):
     from uuid import uuid4
 
     if bundle.diagnostics_in_memory or bundle.workspace is None:
-        from ._annotation_memory import MemoryDiagnostics
+        from ._annotation.in_memory import MemoryDiagnostics
         frames = [frame.loc[frame.CHR.astype(str).eq(str(chrom))] for frame in bundle.identity_drops.frames()] if bundle.identity_drops is not None else []
         frames.append(coerce_identity_drop_frame(reference_drops))
         return MemoryDiagnostics(coerce_identity_drop_frame(pd.concat(frames, ignore_index=True)))

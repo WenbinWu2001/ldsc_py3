@@ -212,7 +212,7 @@ def test_available_cpu_count_prefers_affinity(monkeypatch):
 
 def _chrom1_inputs(build_dir: Path):
     """Build (chrom, bundle, spec, ldscore_config, global_config, regression) for chr1."""
-    from ldsc.annotation_builder import AnnotationBundle
+    from ldsc._annotation.builder import AnnotationBundle
     from ldsc.config import GlobalConfig, LDScoreConfig, RefPanelConfig
 
     panel, _pairs = _PANEL_CHROMS["1"]
@@ -545,7 +545,7 @@ def _run_with_one_empty_chrom(build_dir: Path, out_dir: Path, workers: int) -> P
     import warnings as _warnings
 
     from ldsc._kernel.ref_panel import RefPanelLoader
-    from ldsc.annotation_builder import AnnotationBundle
+    from ldsc._annotation.builder import AnnotationBundle
     from ldsc.config import GlobalConfig, LDScoreConfig, RefPanelConfig
     from ldsc.ldscore_calculator import LDScoreCalculator
     from ldsc.outputs import LDScoreOutputConfig

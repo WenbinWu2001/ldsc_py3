@@ -136,7 +136,7 @@ def indexed_results(index, batch, declarations, control, width, root, workers, s
     from .ldscore_calculator import _init_worker
     from ._ldscore_fragments import StagedLDScoreBatch
     from .overlap_matrix import LDScoreOverlap
-    from .query_annotations import finalize_query_measurements
+    from ._annotation.query_outcomes import finalize_query_measurements
 
     root = Path(root) / "indexed-batches"
     root.mkdir()

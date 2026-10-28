@@ -18,19 +18,19 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ._runtime.progress import report_phase, advance, PhaseProgress
+from .._runtime.progress import report_phase, advance, PhaseProgress
 
-from ._annotation_identity import DiskIdentityIndex, IdentityDropSpool
-from ._annotation_parsing import normalize_annotation_chunk
-from ._annotation_preflight import AUTOSOMES
-from ._runtime.preflight import INPUT_ISSUE_COLUMNS, input_issue
-from ._annotation_storage import AnnotationShard, ColumnStore, FrameSpool
-from ._kernel.annotation import _annotation_parse_error_message, _validate_annotation_values
-from ._core.snp_identity import identity_base_mode, is_allele_aware_mode
-from ._core.row_alignment import assert_same_snp_rows
-from .annotation_semantics import require_unique_annotation_names
-from ._core.chromosomes import chrom_sort_key, normalize_chromosome
-from .errors import LDSCInputError, LDSCUserError
+from .identity_cleanup import DiskIdentityIndex, IdentityDropSpool
+from .parsing import normalize_annotation_chunk
+from .preflight import AUTOSOMES
+from .._runtime.preflight import INPUT_ISSUE_COLUMNS, input_issue
+from .storage import AnnotationShard, ColumnStore, FrameSpool
+from .tables import _annotation_parse_error_message, _validate_annotation_values
+from .._core.snp_identity import identity_base_mode, is_allele_aware_mode
+from .._core.row_alignment import assert_same_snp_rows
+from .semantics import require_unique_annotation_names
+from .._core.chromosomes import chrom_sort_key, normalize_chromosome
+from ..errors import LDSCInputError, LDSCUserError
 
 LOGGER = logging.getLogger("LDSC.annotation")
 
@@ -259,7 +259,7 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
             "for the requested SNP set."
         )
     if header_widths is None:
-        from ._annotation_preflight import inspect_annotation_inputs
+        from .preflight import inspect_annotation_inputs
         declared_inputs = inspect_annotation_inputs(baseline=baseline_files, query=query_files,
             mode=mode, initial_issues=input_issues)
         header_widths = declared_inputs.widths

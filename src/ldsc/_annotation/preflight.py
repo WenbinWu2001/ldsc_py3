@@ -2,12 +2,12 @@
 
 import pandas as pd
 
-from ._annotation_parsing import normalize_annotation_chunk
-from ._runtime.preflight import input_issue, inspect_declared_inputs
-from ._runtime.paths import (
+from .parsing import normalize_annotation_chunk
+from .._runtime.preflight import input_issue, inspect_declared_inputs
+from .._runtime.paths import (
     ANNOTATION_SUFFIXES, normalize_path_token, normalize_path_tokens, resolve_file_group, split_cli_path_tokens,
 )
-from .errors import LDSCInputError, LDSCUserError
+from ..errors import LDSCInputError, LDSCUserError
 
 AUTOSOMES = tuple(map(str, range(1, 23)))
 

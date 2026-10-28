@@ -4,8 +4,8 @@ from tests.annotation_fixtures import resolve_gene_fixture, fixture_gene_audit
 import pandas as pd
 import pytest
 
-from ldsc.gene_list_resolver import GeneCatalog
-from ldsc.query_annotations import assess_gene_coverage, gene_query_statuses
+from ldsc._annotation.gene_lists import GeneCatalog
+from ldsc._annotation.query_outcomes import assess_gene_coverage, gene_query_statuses
 
 
 @pytest.mark.parametrize("policy", ["strict", "resolved-only"])

@@ -491,7 +491,8 @@ def test_prepared_plink_chromosome_is_reused_by_direct_ldscore():
         prepared.metadata["POS"].to_numpy(dtype=np.float64),
     )
     prepared.reader._currentSNP = 0
-    reused_scores = prepared.reader.ldScoreVarBlocks(
+    reused_scores = kernel_ldscore.ld_scores_from_genotypes(
+        prepared.reader,
         prepared.block_left,
         args.snp_batch_size,
         annot=prepared.annotations.read(),
@@ -536,27 +537,28 @@ def test_direct_plink_projects_annotations_and_regression_weights_in_one_travers
         prepared.metadata, regression_keys, args.snp_identifier
     )
     prepared.reader._currentSNP = 0
-    expected_ld_scores = prepared.reader.ldScoreVarBlocks(
+    expected_ld_scores = kernel_ldscore.ld_scores_from_genotypes(
+        prepared.reader,
         prepared.block_left, args.snp_batch_size, annot=prepared.annotations.read()
     )
     assert prepared.reader._currentSNP == prepared.reader.m
     prepared.reader._currentSNP = 0
-    expected_w_ld = prepared.reader.ldScoreVarBlocks(
+    expected_w_ld = kernel_ldscore.ld_scores_from_genotypes(
+        prepared.reader,
         prepared.block_left, args.snp_batch_size, annot=regression_mask.reshape(-1, 1)
     )
     assert prepared.reader._currentSNP == prepared.reader.m
 
     calls = []
-    geno_type = type(prepared.reader)
-    original = geno_type.ldScoreVarBlocks
+    original = kernel_ldscore.ld_scores_from_genotypes
 
-    def traced_ldscore(self, block_left, batch_size, annot=None, **options):
-        start_cursor = self._currentSNP
-        scores = original(self, block_left, batch_size, annot=annot, **options)
-        calls.append((start_cursor, self._currentSNP, np.column_stack([annot.read(), options["weight_mask"]])))
+    def traced_ldscore(reader, block_left, batch_size, annot=None, **options):
+        start_cursor = reader._currentSNP
+        scores = original(reader, block_left, batch_size, annot=annot, **options)
+        calls.append((start_cursor, reader._currentSNP, np.column_stack([annot.read(), options["weight_mask"]])))
         return scores
 
-    monkeypatch.setattr(geno_type, "ldScoreVarBlocks", traced_ldscore)
+    monkeypatch.setattr(kernel_ldscore, "ld_scores_from_genotypes", traced_ldscore)
     result = compute_plink(
         "1", bundle, args, regression_keys
     )
@@ -812,28 +814,29 @@ def test_plink_index_fuses_baseline_and_regression_weights_but_keeps_atom_batche
     ).astype(bool)
     baseline64 = np.asarray(prepared.annotations.read(), dtype=np.float64)
     prepared.reader._currentSNP = 0
-    expected_baseline = prepared.reader.ldScoreVarBlocks(
+    expected_baseline = kernel_ldscore.ld_scores_from_genotypes(
+        prepared.reader,
         prepared.block_left, args.snp_batch_size, annot=baseline64
     )
     prepared.reader._currentSNP = 0
-    expected_weights = prepared.reader.ldScoreVarBlocks(
+    expected_weights = kernel_ldscore.ld_scores_from_genotypes(
+        prepared.reader,
         prepared.block_left, args.snp_batch_size, annot=persisted.reshape(-1, 1)
     ).reshape(-1)
 
     calls = []
     options = []
-    geno_type = type(prepared.reader)
-    original = geno_type.ldScoreVarBlocks
+    original = kernel_ldscore.ld_scores_from_genotypes
 
-    def traced_ldscore(self, block_left, batch_size, annot=None, **kwargs):
-        start_cursor = self._currentSNP
-        scores = original(self, block_left, batch_size, annot=annot, **kwargs)
+    def traced_ldscore(reader, block_left, batch_size, annot=None, **kwargs):
+        start_cursor = reader._currentSNP
+        scores = original(reader, block_left, batch_size, annot=annot, **kwargs)
         options.append(kwargs)
         assert len(scores) == int(persisted.sum())
-        calls.append((start_cursor, self._currentSNP, np.asarray(annot).copy()))
+        calls.append((start_cursor, reader._currentSNP, np.asarray(annot).copy()))
         return scores
 
-    monkeypatch.setattr(geno_type, "ldScoreVarBlocks", traced_ldscore)
+    monkeypatch.setattr(kernel_ldscore, "ld_scores_from_genotypes", traced_ldscore)
     result = build_plink_index_chromosome(
         "1",
         bundle,

@@ -61,6 +61,7 @@ def test_accessor_reads_only_query_batches_and_bounded_contributor_tiles():
 @pytest.mark.parametrize('batch_size', [1, 2, 1000])
 def test_plink_projection_reuses_genotype_traversal(batch_size):
     from ldsc._kernel.plink_bed import __GenotypeArrayInMemory__
+    from ldsc._kernel.ldscore import ld_scores_from_genotypes
     from ldsc._kernel.ldscore_projection import ArrayAnnotations
 
     genotypes = np.array([[0,1,2,0], [1,2,0,1], [2,0,1,0], [0,0,2,2], [1,1,0,2]], dtype=float)
@@ -74,7 +75,7 @@ def test_plink_projection_reuses_genotype_traversal(batch_size):
         seen.append(count)
         return genotypes[:, start:start+count]
     reader.nextSNPs = next_snps
-    scores = reader.ldScoreVarBlocks(np.array([0,0,0,1]), 1,
+    scores = ld_scores_from_genotypes(reader, np.array([0,0,0,1]), 1,
         annot=ArrayAnnotations(annotations, ('base','q1','q2','q3')),
         output_rows=[2,0], n_baseline=1, query_batch_size=batch_size,
         weight_mask=np.array([1,0,1,0], dtype=np.float32))
@@ -107,7 +108,7 @@ def test_plink_ld_scores_use_the_exact_window_for_every_chunk_size(window, chunk
     prime, so batches 2-7 end with a partial chunk; batch 50 exceeds m and
     exercises the single initial block. ``gap`` reaches the empty-left-block path.
     """
-    from ldsc._kernel.ldscore import get_block_lefts
+    from ldsc._kernel.ldscore import get_block_lefts, ld_scores_from_genotypes
     from ldsc._kernel.ldscore_projection import ArrayAnnotations
     from ldsc._kernel.plink_bed import __GenotypeArrayInMemory__
 
@@ -129,7 +130,7 @@ def test_plink_ld_scores_use_the_exact_window_for_every_chunk_size(window, chunk
         cursor[0] += count
         return genotypes[:, start:start + count]
     reader.nextSNPs = next_snps
-    scores = reader.ldScoreVarBlocks(block_left, chunk,
+    scores = ld_scores_from_genotypes(reader, block_left, chunk,
         annot=ArrayAnnotations(annotations, ('base', 'q1', 'q2')),
         output_rows=output_rows, n_baseline=1, query_batch_size=2, weight_mask=weights)
 

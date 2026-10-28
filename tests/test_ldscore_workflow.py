@@ -765,7 +765,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(int)
         metadata["MAF"] = pd.to_numeric(metadata["MAF"], errors="coerce")
         block_left = kernel_ldscore.get_block_lefts(np.arange(bed.m), 10)
-        ld_scores = bed.ldScoreVarBlocks(block_left, 50, annot=np.ones((bed.m, 1), dtype=np.float32))
+        ld_scores = kernel_ldscore.ld_scores_from_genotypes(bed, block_left, 50, annot=np.ones((bed.m, 1), dtype=np.float32))
         return metadata.reset_index(drop=True), np.ravel(ld_scores)
 
     def test_aggregate_chromosome_results(self):

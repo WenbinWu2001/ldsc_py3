@@ -1,6 +1,7 @@
 # Includes primitives derived from legacy LDSC ldscore/ldscore.py.
 # GPLv3 (LICENSE); upstream authors and Python 3 port credit are in NOTICE.
-# Modified 2026 for prepared reference panels, streaming R2, and projection.
+# Modified 2026 for prepared reference panels, streaming R2, and projection;
+# the PLINK LD-score block sums moved here from the genotype reader.
 # See NOTICE for attribution and dated modifications.
 
 """LD-score projection primitives and streaming R2 panel reader.
@@ -956,6 +957,136 @@ def ld_score_streaming_from_r2_reader(
     return np.asarray(accumulator.values, dtype=np.float32)
 
 
+def ld_scores_from_genotypes(reader, block_left, chunk_size, annot=None, *, output_rows=None,
+                             n_baseline=None, query_batch_size=100, weight_mask=None):
+    """Project shared and batched annotations in one traversal of PLINK genotypes.
+
+    ``reader`` is a PLINK genotype reader positioned at its first SNP; its
+    ``nextSNPs`` supplies standardized genotypes for the ``m`` retained SNPs
+    and ``n`` individuals. ``annot`` is a selected-read source or a
+    caller-owned numerical array. Only ``output_rows`` receive float64 score
+    buffers; all aligned reference SNPs still contribute. The optional weight
+    mask selects its own SNP set. LD-score sums use exactly the pairs inside
+    ``block_left``; unlike legacy LDSC, the chunk size does not widen the
+    window. Legacy LDSC computes the same sums in the genotype reader's
+    ``ldScoreVarBlocks`` method (``ldscore/ldscore.py``).
+    """
+    n = reader.n
+    return _cor_sum_var_blocks(reader.m, n, block_left, chunk_size, lambda x: _l2_unbiased(x, n),
+        reader.nextSNPs, annot, output_rows=output_rows, n_baseline=n_baseline,
+        query_batch_size=query_batch_size, weight_mask=weight_mask)
+
+
+def _l2_unbiased(x, n):
+    """Convert correlation values to the unbiased LD-score contribution."""
+    denom = n - 2 if n > 2 else n
+    sq = np.square(x)
+    return sq - (1 - sq) / denom
+
+
+def _cor_sum_var_blocks(m, n, block_left, c, func, snp_getter, annot=None, *,
+                        output_rows=None, n_baseline=None, query_batch_size=100,
+                        weight_mask=None):
+    """Accumulate transformed correlation sums over the exact LD window.
+
+    The legacy LDSC traversal below rounds each block up to a multiple of ``c``
+    and shares the chunk start's block across the chunk, so it computes a
+    superset of the window pairs, each exactly once. Pairs outside the
+    window are zeroed before accumulation, which makes the result
+    independent of ``c``.
+    """
+    window_left = np.asarray(block_left, dtype=np.int64)
+    block_sizes = np.array(np.arange(m) - block_left)
+    block_sizes = np.ceil(block_sizes / c) * c
+    if annot is None:
+        annot = np.ones((m, 1))
+    else:
+        annot_m = annot.shape[0]
+        if annot_m != m:
+            raise LDSCInternalError(
+                "PLINK LD-score calculation received an annotation matrix with the "
+                f"wrong SNP count ({annot_m} rows for {m} retained SNPs). Most "
+                "likely annotation/reference alignment desynchronized before PLINK "
+                "computation. Re-run with DEBUG logging and report the traceback."
+            )
+
+    if isinstance(annot, np.ndarray):
+        annot = ArrayAnnotations(annot, tuple(str(i) for i in range(annot.shape[1])))
+    accumulator = ProjectionAccumulator(annot,
+        n_baseline=annot.shape[1] if n_baseline is None else n_baseline,
+        output_rows=output_rows, query_batch_size=query_batch_size, weight_mask=weight_mask)
+    b = np.nonzero(block_left > 0)
+    if np.any(b):
+        b = b[0][0]
+    else:
+        b = m
+    b = int(np.ceil(b / c) * c)
+    if b > m:
+        c = 1
+        b = m
+    l_A = 0
+    A = snp_getter(b)
+    rfuncAB = np.zeros((b, c))
+    rfuncBB = np.zeros((c, c))
+    for l_B in range(0, b, c):
+        B = A[:, l_B:l_B + c]
+        np.dot(A.T, B / n, out=rfuncAB)
+        rfuncAB = func(rfuncAB)
+        _zero_pairs_outside_window(rfuncAB, l_A, l_B, window_left)
+        accumulator.add_dense(np.arange(l_A, l_A+b), np.arange(l_B, l_B+c), rfuncAB)
+    b0 = b
+    md = int(c * np.floor(m / c))
+    end = md + 1 if md != m else md
+    for l_B in range(b0, end, c):
+        old_b = b
+        b = int(block_sizes[l_B])
+        if l_B > b0 and b > 0:
+            A = np.hstack((A[:, old_b - b + c:old_b], B))
+            l_A += old_b - b + c
+        elif l_B == b0 and b > 0:
+            A = A[:, b0 - b:b0]
+            l_A = b0 - b
+        elif b == 0:
+            A = np.array(()).reshape((n, 0))
+            l_A = l_B
+        if l_B == md:
+            c = m - md
+            rfuncAB = np.zeros((b, c))
+            rfuncBB = np.zeros((c, c))
+        if b != old_b:
+            rfuncAB = np.zeros((b, c))
+        B = snp_getter(c)
+        np.dot(A.T, B / n, out=rfuncAB)
+        rfuncAB = func(rfuncAB)
+        _zero_pairs_outside_window(rfuncAB, l_A, l_B, window_left)
+        accumulator.add_dense(np.arange(l_A, l_A+b), np.arange(l_B, l_B+c), rfuncAB)
+        accumulator.add_dense(np.arange(l_B, l_B+c), np.arange(l_A, l_A+b), rfuncAB.T)
+        np.dot(B.T, B / n, out=rfuncBB)
+        rfuncBB = func(rfuncBB)
+        _zero_pairs_outside_window(rfuncBB, l_B, l_B, window_left)
+        accumulator.add_dense(np.arange(l_B, l_B+c), np.arange(l_B, l_B+c), rfuncBB)
+    return accumulator.values
+
+
+def _zero_pairs_outside_window(values, row_start, col_start, block_left):
+    """Zero, in place, the entries of one dense block outside the exact LD window.
+
+    ``values[p, q]`` is the pair ``(row_start + p, col_start + q)``, which lies
+    in the window iff ``min(i, j) >= block_left[max(i, j)]``. Because
+    ``block_left`` is non-decreasing, each column keeps one contiguous row
+    range, so only per-column bounds are computed (no block-sized mask).
+    """
+    n_rows, n_cols = values.shape
+    if n_rows == 0 or n_cols == 0:
+        return
+    cols = np.arange(col_start, col_start + n_cols)
+    first = block_left[cols] - row_start
+    stop = np.searchsorted(block_left, cols, side="right") - row_start
+    for q in np.flatnonzero((first > 0) | (stop < n_rows)):
+        values[:max(first[q], 0), q] = 0.0
+        values[max(stop[q], 0):, q] = 0.0
+
+
 def compute_counts(
     metadata: pd.DataFrame,
     annotations: pd.DataFrame,
@@ -1034,8 +1165,8 @@ def compute_chromosome(
                    query_batch_size=query_batch_size, weight_mask=regression_mask)
     if prepared.backend == "plink":
         prepared.reader._currentSNP = 0
-        combined_scores = np.asarray(prepared.reader.ldScoreVarBlocks(
-            prepared.block_left, snp_batch_size, annot=prepared.annotations, **options,
+        combined_scores = np.asarray(ld_scores_from_genotypes(
+            prepared.reader, prepared.block_left, snp_batch_size, annot=prepared.annotations, **options,
         ), dtype=np.float32)
     else:
         combined_scores = ld_score_streaming_from_r2_reader(

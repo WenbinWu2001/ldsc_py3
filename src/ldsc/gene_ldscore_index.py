@@ -2462,7 +2462,8 @@ def build_plink_index_chromosome(
         output_rows = np.flatnonzero(persisted)
         geno._currentSNP = 0
         combined_scores = np.asarray(
-            geno.ldScoreVarBlocks(
+            kernel_ldscore.ld_scores_from_genotypes(
+                geno,
                 prepared.block_left,
                 args.snp_batch_size,
                 annot=baseline,
@@ -2507,7 +2508,8 @@ def build_plink_index_chromosome(
         ):
             geno._currentSNP = 0
             block_scores = np.asarray(
-                geno.ldScoreVarBlocks(
+                kernel_ldscore.ld_scores_from_genotypes(
+                    geno,
                     prepared.block_left,
                     args.snp_batch_size,
                     annot=atom_block,

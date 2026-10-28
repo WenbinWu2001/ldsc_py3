@@ -58,11 +58,11 @@ Baseline-only example:
 ```bash
 ldsc quantile-h2 \
   --partitioned-h2-result-dir "${PARTITIONED_H2_DIR}" \
-  --baseline-annot-sources "${BASELINE_ANNOT_DIR}/baseline.@.annot.gz" \
   --target-annot-sources "${TARGET_ANNOT_DIR}/target.@.annot.gz" \
   --target-annot-column "continuous_score" \
-  --ref-metadata-sources "${R2_MATRIX_DIR}/chr@_meta.tsv.gz" \
   --num-quantiles 5 \
+  --baseline-annot-sources "${BASELINE_ANNOT_DIR}/baseline.@.annot.gz" \
+  --ref-metadata-sources "${R2_MATRIX_DIR}/chr@_meta.tsv.gz" \
   --output-dir "${OUTPUT_ROOT}/continuous-score-quantiles" \
   --overwrite
 ```
@@ -72,11 +72,11 @@ For one cell-type-specific model, point `--partitioned-h2-result-dir` to its per
 ```bash
 ldsc quantile-h2 \
   --partitioned-h2-result-dir "${PARTITIONED_H2_DIR}/diagnostics/query_annotations/0001_my_query" \
-  --baseline-annot-sources "${BASELINE_ANNOT_DIR}/baseline.@.annot.gz" \
-  --query-annot-sources "${QUERY_ANNOT_DIR}/my_query.@.annot.gz" \
   --target-annot-sources "${TARGET_ANNOT_DIR}/external_score.@.annot.gz" \
   --target-annot-column "external_score" \
+  --baseline-annot-sources "${BASELINE_ANNOT_DIR}/baseline.@.annot.gz" \
   --ref-metadata-sources "${R2_MATRIX_DIR}/chr@_meta.tsv.gz" \
+  --query-annot-sources "${QUERY_ANNOT_DIR}/my_query.@.annot.gz" \
   --output-dir "${OUTPUT_ROOT}/external-score-quantiles"
 ```
 

@@ -98,11 +98,11 @@ If `--infer-only` does not identify the required columns correctly, use the lega
 
 ```bash
 ldsc munge-sumstats \
+  --N-cas-col N_case \
+  --N-con-col N_ctrl \
   --snp MarkerID \
   --a1 Allele2 \
   --a2 Allele1 \
-  --N-cas-col N_case \
-  --N-con-col N_ctrl \
   ...
 ```
 

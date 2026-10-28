@@ -30,11 +30,11 @@ Compute baseline-plus-cell-type LD scores, projecting the BED files directly:
 
 ```bash
 ldsc ldscore \
+  --snp-identifier chr_pos_allele_aware \
+  --genome-build hg19 \
   --baseline-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
   --query-annot-bed-sources "/path/to/cell_type_beds/*.bed" \
   --r2-matrix-dir /path/to/r2-matrix/hg19 \
-  --snp-identifier chr_pos_allele_aware \
-  --genome-build hg19 \
   --ld-wind-cm 1.0 \
   --output-dir /path/to/results/cell_type_ldscores
 ```
@@ -85,15 +85,15 @@ GENE_COORDINATE_FILE="/path/to/resources/gene-coordinates.hg19.tsv.gz"
 LDSCORE_DIR="${RESULT_ROOT}/direct_mode/ldscore"
 
 ldsc ldscore \
-  --query-annot-gene-list-sources "${GENE_LIST_SOURCES}" \
-  --baseline-annot-sources "${BASELINE_ANNOT_SOURCES}" \
-  --plink-prefix "${PLINK_PREFIX}" \
-  --gene-coordinate-file "${GENE_COORDINATE_FILE}" \
   --snp-identifier rsid \
   --genome-build hg19 \
-  --ld-wind-cm 1.0 \
+  --baseline-annot-sources "${BASELINE_ANNOT_SOURCES}" \
+  --query-annot-gene-list-sources "${GENE_LIST_SOURCES}" \
   --padding-bp 100000 \
+  --gene-coordinate-file "${GENE_COORDINATE_FILE}" \
   --gene-exclude-regions mhc \
+  --plink-prefix "${PLINK_PREFIX}" \
+  --ld-wind-cm 1.0 \
   --output-dir "${LDSCORE_DIR}"
 ```
 
@@ -127,8 +127,8 @@ LDSCORE_DIR="${RESULT_ROOT}/indexed_mode/ldscore"
 
 ldsc ldscore \
   --query-annot-gene-list-sources "${GENE_LIST_SOURCES}" \
-  --gene-ldscore-index-dir "${GENE_LDSCORE_INDEX_DIR}" \
-  --output-dir "${LDSCORE_DIR}"
+  --output-dir "${LDSCORE_DIR}" \
+  --gene-ldscore-index-dir "${GENE_LDSCORE_INDEX_DIR}"
 ```
 
 The index fixes the baseline annotations, reference SNPs, SNP identifier mode, genome build (hg19 or hg38), LD window, gene padding, gene exclusion, regression SNPs, region exclusion, MAF rules, annotation counts and regression weights; its metadata is the record of these settings.

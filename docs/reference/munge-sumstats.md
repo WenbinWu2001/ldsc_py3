@@ -247,9 +247,9 @@ Example:
 
 ```bash
 ldsc munge-sumstats \
-  --raw-sumstats-file data/trait.tsv.gz \
   --snp-identifier chr_pos_allele_aware \
   --output-genome-build hg38 \
+  --raw-sumstats-file data/trait.tsv.gz \
   --output-dir results/trait \
   --infer-only
 ```
@@ -355,8 +355,8 @@ Diagnose first:
 
 ```bash
 ldsc munge-sumstats \
-  --raw-sumstats-file data/trait.tsv.gz \
   --output-genome-build hg38 \
+  --raw-sumstats-file data/trait.tsv.gz \
   --output-dir outputs/trait_hg38 \
   --infer-only
 ```
@@ -365,9 +365,9 @@ Run with inferred source build and no liftover if the raw file is already hg38:
 
 ```bash
 ldsc munge-sumstats \
-  --raw-sumstats-file data/trait.tsv.gz \
   --source-genome-build auto \
   --output-genome-build hg38 \
+  --raw-sumstats-file data/trait.tsv.gz \
   --output-dir outputs/trait_hg38
 ```
 
@@ -375,9 +375,9 @@ Run HM3-filtered quick liftover:
 
 ```bash
 ldsc munge-sumstats \
-  --raw-sumstats-file data/trait.tsv.gz \
   --source-genome-build auto \
   --output-genome-build hg38 \
+  --raw-sumstats-file data/trait.tsv.gz \
   --output-dir outputs/trait_hg38
 ```
 
@@ -385,10 +385,10 @@ Run chain-file liftover:
 
 ```bash
 ldsc munge-sumstats \
-  --raw-sumstats-file data/trait.tsv.gz \
   --source-genome-build hg19 \
   --output-genome-build hg38 \
   --liftover-chain-file resources/liftover/hg19ToHg38.over.chain \
+  --raw-sumstats-file data/trait.tsv.gz \
   --output-dir outputs/trait_hg38
 ```
 
@@ -396,8 +396,8 @@ Run rsID identity:
 
 ```bash
 ldsc munge-sumstats \
-  --raw-sumstats-file data/trait.tsv.gz \
   --snp-identifier rsid \
+  --raw-sumstats-file data/trait.tsv.gz \
   --output-dir outputs/trait_rsid
 ```
 

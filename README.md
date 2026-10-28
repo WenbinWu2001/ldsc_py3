@@ -26,8 +26,8 @@ The development branch, updates and optional extras are covered in [installation
 Munge raw summary statistics, compute LD scores from a PLINK reference panel, and estimate SNP heritability:
 
 ```bash
-ldsc munge-sumstats --raw-sumstats-file /path/to/trait.tsv.gz --output-genome-build hg19 --output-dir results/munged
-ldsc ldscore --plink-prefix /path/to/1000G_EUR_hg19/1000G.EUR.@ --snp-identifier chr_pos_allele_aware --genome-build hg19 --ld-wind-cm 1 --output-dir results/ldscores
+ldsc munge-sumstats --output-genome-build hg19 --raw-sumstats-file /path/to/trait.tsv.gz --output-dir results/munged
+ldsc ldscore --snp-identifier chr_pos_allele_aware --genome-build hg19 --plink-prefix /path/to/1000G_EUR_hg19/1000G.EUR.@ --ld-wind-cm 1 --output-dir results/ldscores
 ldsc h2 --sumstats-file results/munged/sumstats.parquet --ldscore-dir results/ldscores --output-dir results/h2
 ```
 

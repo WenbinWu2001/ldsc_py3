@@ -28,9 +28,9 @@ This command computes LD scores for SNP heritability and genetic correlation fro
 
 ```bash
 ldsc ldscore \
-  --r2-matrix-dir /path/to/r2-matrix/hg38 \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg38 \
+  --r2-matrix-dir /path/to/r2-matrix/hg38 \
   --ld-wind-cm 1.0 \
   --output-dir results/ldscores/unpartitioned
 ```
@@ -42,9 +42,9 @@ To compute from PLINK genotypes instead, replace `--r2-matrix-dir` with `--plink
 
 ```bash
 ldsc ldscore \
-  --plink-prefix /path/to/plink/1000G.EUR.QC. \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg19 \
+  --plink-prefix /path/to/plink/1000G.EUR.QC. \
   --ld-wind-cm 1.0 \
   --output-dir results/ldscores/unpartitioned
 ```
@@ -76,10 +76,10 @@ Pass prebuilt annotation tables (`.annot` or `.annot.gz`) with `--baseline-annot
 
 ```bash
 ldsc ldscore \
-  --baseline-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
-  --r2-matrix-dir /path/to/r2-matrix/hg38 \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg38 \
+  --baseline-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
+  --r2-matrix-dir /path/to/r2-matrix/hg38 \
   --ld-wind-cm 1.0 \
   --output-dir results/ldscores/baseline
 ```
@@ -105,11 +105,11 @@ BED queries are projected in memory, without writing intermediate annotation fil
 
 ```bash
 ldsc ldscore \
+  --snp-identifier chr_pos_allele_aware \
+  --genome-build hg38 \
   --baseline-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
   --query-annot-bed-sources "beds/*.bed" \
   --r2-matrix-dir /path/to/r2-matrix/hg38 \
-  --snp-identifier chr_pos_allele_aware \
-  --genome-build hg38 \
   --ld-wind-cm 1.0 \
   --output-dir results/ldscores/bed_queries
 ```
@@ -123,10 +123,10 @@ For prebuilt query files written by `ldsc annotate`, pass the exported baseline 
 
 ```bash
 ldsc ldscore \
+  --snp-identifier rsid \
   --baseline-annot-sources "annotations/pathways/baseline.@.annot.gz" \
   --query-annot-sources "annotations/pathways/query.@.annot.gz" \
   --plink-prefix /path/to/plink/1000G.EUR.QC. \
-  --snp-identifier rsid \
   --ld-wind-cm 1.0 \
   --output-dir results/ldscores/pathways
 ```

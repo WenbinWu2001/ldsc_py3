@@ -62,14 +62,14 @@ The full parsing rules are in [gene-list source format](../../reference/formats/
 
 ```bash
 ldsc ldscore \
-  --baseline-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
-  --plink-prefix /path/to/plink/1000G.EUR.QC. \
-  --query-annot-gene-list-sources "/path/to/gene-lists/*.txt" \
-  --gene-coordinate-file /path/to/genes/gene-coordinates.hg19.tsv.gz \
-  --padding-bp 100000 \
-  --gene-exclude-regions mhc \
   --snp-identifier rsid \
   --genome-build hg19 \
+  --baseline-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
+  --query-annot-gene-list-sources "/path/to/gene-lists/*.txt" \
+  --padding-bp 100000 \
+  --gene-coordinate-file /path/to/genes/gene-coordinates.hg19.tsv.gz \
+  --gene-exclude-regions mhc \
+  --plink-prefix /path/to/plink/1000G.EUR.QC. \
   --ld-wind-cm 1.0 \
   --output-dir results/ldscores/gene-lists
 ```
@@ -90,16 +90,16 @@ Later gene-list runs assemble exact LD scores from the stored index without the 
 
 ```bash
 ldsc build-gene-ldscore-index \
-  --baseline-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
-  --plink-prefix /path/to/plink/1000G.EUR.QC. \
-  --gene-coordinate-file /path/to/genes/gene-coordinates.hg19.tsv.gz \
-  --genome-build hg19 \
   --snp-identifier rsid \
-  --ld-wind-cm 1.0 \
+  --genome-build hg19 \
+  --baseline-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
+  --gene-coordinate-file /path/to/genes/gene-coordinates.hg19.tsv.gz \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
-  --regr-snps-exclude-regions mhc-and-centromeres \
-  --output-dir /path/to/indexes/baseline_100kb
+  --plink-prefix /path/to/plink/1000G.EUR.QC. \
+  --ld-wind-cm 1.0 \
+  --output-dir /path/to/indexes/baseline_100kb \
+  --regr-snps-exclude-regions mhc-and-centromeres
 ```
 
 The build requires:
@@ -156,9 +156,9 @@ The directory layout, `index_id` and replacement rules are in [artifact and iden
 
 ```bash
 ldsc ldscore \
-  --gene-ldscore-index-dir /path/to/indexes/baseline_100kb \
   --query-annot-gene-list-sources "/path/to/gene-lists/*.txt" \
-  --output-dir results/ldscores/gene-lists
+  --output-dir results/ldscores/gene-lists \
+  --gene-ldscore-index-dir /path/to/indexes/baseline_100kb
 ```
 
 The index supplies the gene coordinate catalog, baseline, reference panel, genome build, SNP identifier mode, LD window, padding, gene exclusion and regression SNPs.
@@ -175,10 +175,10 @@ When your gene lists were selected from a specific set of genes, such as the gen
 
 ```bash
 ldsc ldscore \
-  --gene-ldscore-index-dir /path/to/indexes/baseline_100kb \
   --query-annot-gene-list-sources "/path/to/gene-lists/*.txt" \
   --control-gene-list-file /path/to/gene-lists/control-genes.txt \
-  --output-dir results/ldscores/gene-lists-with-control
+  --output-dir results/ldscores/gene-lists-with-control \
+  --gene-ldscore-index-dir /path/to/indexes/baseline_100kb
 ```
 
 The control gene list uses the gene-list file format but must be one exact file, not a pattern.

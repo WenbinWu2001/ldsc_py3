@@ -25,16 +25,16 @@ From raw summary statistics and an [R² matrix](r2-matrices.md), the full analys
 
 ```bash
 ldsc munge-sumstats \
-  --raw-sumstats-file "data/trait*.tsv.gz" \
-  --trait-name trait \
   --snp-identifier chr_pos_allele_aware \
   --source-genome-build auto \
   --output-genome-build hg38 \
+  --raw-sumstats-file "data/trait*.tsv.gz" \
+  --trait-name trait \
   --output-dir results/trait_sumstats
 
 ldsc ldscore \
-  --r2-matrix-dir /path/to/resources/r2_matrix/hg38 \
   --snp-identifier chr_pos_allele_aware \
+  --r2-matrix-dir /path/to/resources/r2_matrix/hg38 \
   --ld-wind-cm 1.0 \
   --output-dir results/unpartitioned_ldscores
 

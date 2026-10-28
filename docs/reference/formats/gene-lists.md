@@ -151,17 +151,17 @@ The log names the chromosomes resolved and entering analysis. `diagnostics/chrom
 
 ```bash
 ldsc ldscore \
-  --output-dir results/gene-list-ldscores \
+  --snp-identifier chr_pos_allele_aware \
+  --genome-build auto \
   --baseline-annot-sources "annotations/baseline.@.annot.gz" \
   --query-annot-gene-list-sources "gene-lists/*.txt.gz" \
-  --gene-coordinate-file annotations/gene-coordinates.hg38.tsv.gz \
   --padding-bp 100000 \
+  --gene-coordinate-file annotations/gene-coordinates.hg38.tsv.gz \
   --control-gene-list-file gene-lists/assay-background.txt \
   --gene-exclude-regions mhc \
   --r2-matrix-dir ref-panel/hg38 \
-  --snp-identifier chr_pos_allele_aware \
-  --genome-build auto \
-  --ld-wind-cm 1.0
+  --ld-wind-cm 1.0 \
+  --output-dir results/gene-list-ldscores
 ```
 
 The gene coordinate catalog controls both query and control resolution.
@@ -171,10 +171,10 @@ Only the genes in the catalog can be resolved; no other gene source is added.
 
 ```bash
 ldsc ldscore \
-  --output-dir results/gene-list-ldscores \
-  --gene-ldscore-index-dir indexes/1000G-EUR-baseline \
   --query-annot-gene-list-sources "gene-lists/*.txt.gz" \
-  --control-gene-list-file gene-lists/assay-background.txt
+  --control-gene-list-file gene-lists/assay-background.txt \
+  --output-dir results/gene-list-ldscores \
+  --gene-ldscore-index-dir indexes/1000G-EUR-baseline
 ```
 
 Do not pass a live catalog, padding, exclusion, baseline/reference, identity,

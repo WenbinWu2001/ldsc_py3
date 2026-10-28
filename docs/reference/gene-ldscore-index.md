@@ -19,15 +19,15 @@ A [focused transport probe](../dev/validation/performance.md#gene-ld-score-index
 
 ```bash
 ldsc build-gene-ldscore-index \
-  --baseline-annot-sources annotations/baseline.@.annot.gz \
-  --plink-prefix reference/1000G.EUR.QC. \
-  --output-dir indexes/1000G_EUR_Phase3_baseline_100kb \
-  --gene-coordinate-file annotations/gene-coordinates.hg19.tsv.gz \
-  --genome-build hg19 \
   --snp-identifier rsid \
-  --ld-wind-cm 1.0 \
+  --genome-build hg19 \
+  --baseline-annot-sources annotations/baseline.@.annot.gz \
+  --gene-coordinate-file annotations/gene-coordinates.hg19.tsv.gz \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
+  --plink-prefix reference/1000G.EUR.QC. \
+  --ld-wind-cm 1.0 \
+  --output-dir indexes/1000G_EUR_Phase3_baseline_100kb \
   --regr-snps-exclude-regions mhc-and-centromeres
 ```
 
@@ -278,9 +278,9 @@ evidence fails rather than guessing.
 
 ```bash
 ldsc ldscore \
-  --gene-ldscore-index-dir indexes/1000G_EUR_Phase3_baseline_100kb \
   --query-annot-gene-list-sources 'gene_lists/*.txt' \
-  --output-dir results/gene_ldscores
+  --output-dir results/gene_ldscores \
+  --gene-ldscore-index-dir indexes/1000G_EUR_Phase3_baseline_100kb
 ```
 
 The index directory must be explicit.

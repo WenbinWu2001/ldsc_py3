@@ -225,10 +225,10 @@ on its own continuation line where possible:
 ```text
 Call:
 ldsc munge-sumstats \
-  --raw-sumstats-file /path/raw.tsv \
-  --output-dir /path/sumstats \
   --source-genome-build auto \
-  --output-genome-build hg38
+  --output-genome-build hg38 \
+  --raw-sumstats-file /path/raw.tsv \
+  --output-dir /path/sumstats
 ```
 
 Arguments are shell-quoted where necessary, and negative numeric option values remain paired with their option.

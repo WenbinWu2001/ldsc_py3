@@ -411,19 +411,19 @@ Examples:
 
 ```bash
 ldsc ldscore \
-  --output-dir out/trait_ldscores \
   --r2-matrix-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --common-maf-min 0.05 \
-  --ld-wind-cm 1.0
+  --ld-wind-cm 1.0 \
+  --output-dir out/trait_ldscores \
+  --common-maf-min 0.05
 ```
 
 ```bash
 ldsc ldscore \
-  --output-dir out/trait_ldscores \
   --baseline-annot-sources "annotations/baseline_joint*.annot.gz" \
   --plink-prefix "resources/example_1kg_30x/genomes_30x_chr" \
-  --common-maf-min 0.05 \
-  --ld-wind-kb 100
+  --ld-wind-kb 100 \
+  --output-dir out/trait_ldscores \
+  --common-maf-min 0.05
 ```
 
 Output:
@@ -485,12 +485,12 @@ Example:
 
 ```bash
 ldsc build-r2-matrix \
-  --plink-prefix data/reference/genomes_30x_chr \
   --source-genome-build hg38 \
+  --plink-prefix data/reference/genomes_30x_chr \
+  --ld-wind-cm 1.0 \
   --genetic-map-hg19-sources maps/hg19.txt \
   --genetic-map-hg38-sources maps/hg38.txt \
   --liftover-chain-hg38-to-hg19-file chains/hg38ToHg19.over.chain \
-  --ld-wind-cm 1.0 \
   --output-dir out/ref_panel
 ```
 

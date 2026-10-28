@@ -56,13 +56,13 @@ The full format is in [BED input format](../../reference/formats/bed-intervals.m
 
 ```bash
 ldsc annotate \
-  --ref-snp-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
-  --query-annot-gene-list-sources "pathways/*.txt" \
-  --gene-coordinate-file /path/to/genes/gene-coordinates.hg19.tsv.gz \
-  --padding-bp 100000 \
-  --gene-exclude-regions none \
   --snp-identifier rsid \
   --genome-build hg19 \
+  --ref-snp-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
+  --query-annot-gene-list-sources "pathways/*.txt" \
+  --padding-bp 100000 \
+  --gene-coordinate-file /path/to/genes/gene-coordinates.hg19.tsv.gz \
+  --gene-exclude-regions none \
   --output-dir annotations/pathways
 ```
 
@@ -78,10 +78,10 @@ For BED input, replace the gene-list, gene coordinate catalog and exclusion opti
 
 ```bash
 ldsc annotate \
-  --ref-snp-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
-  --query-annot-bed-sources "beds/*.bed" \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg38 \
+  --ref-snp-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
+  --query-annot-bed-sources "beds/*.bed" \
   --output-dir annotations/beds
 ```
 
@@ -104,10 +104,10 @@ Pass the exported pair together to `ldscore`:
 
 ```bash
 ldsc ldscore \
+  --snp-identifier rsid \
   --baseline-annot-sources "annotations/pathways/baseline.@.annot.gz" \
   --query-annot-sources "annotations/pathways/query.@.annot.gz" \
   --plink-prefix "/path/to/plink/1000G.EUR.QC.@" \
-  --snp-identifier rsid \
   --ld-wind-kb 1000 \
   --output-dir results/ldscores/pathways
 ```
@@ -156,11 +156,11 @@ The BED coordinates must use the reference panel's genome build.
 
 ```bash
 ldsc annotate \
+  --snp-identifier chr_pos_allele_aware \
+  --genome-build hg19 \
   --ref-snp-bim-sources "panel/reference.@.bim" \
   --query-annot-bed-sources "baseline_beds/*.bed" \
   --padding-bp 0 \
-  --snp-identifier chr_pos_allele_aware \
-  --genome-build hg19 \
   --output-dir annotations/projected_baseline
 ```
 
@@ -194,10 +194,10 @@ For a deliberately chromosome-limited run, use the same chromosome set in the lo
 
 ```bash
 ldsc ldscore \
-  --plink-prefix "panel/reference.@" \
-  --baseline-annot-sources "annotations/custom_baseline/baseline.@.annot.gz" \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg19 \
+  --baseline-annot-sources "annotations/custom_baseline/baseline.@.annot.gz" \
+  --plink-prefix "panel/reference.@" \
   --ld-wind-kb 1000 \
   --output-dir results/ldscores/custom_baseline
 ```

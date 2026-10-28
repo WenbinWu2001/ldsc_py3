@@ -21,8 +21,8 @@ Run this from the repository root:
 
 ```bash
 ldsc build-r2-matrix \
-  --plink-prefix tests/fixtures/minimal_external_resources/plink/hm3_chr22_subset \
   --source-genome-build hg38 \
+  --plink-prefix tests/fixtures/minimal_external_resources/plink/hm3_chr22_subset \
   --ld-wind-snps 10 \
   --output-dir tutorial_outputs/r2_matrix_chr22
 ```
@@ -37,12 +37,12 @@ A genome-wide R² matrix with a 1 cM LD window, written in both genome builds, l
 
 ```bash
 ldsc build-r2-matrix \
-  --plink-prefix "/path/to/resources/1000G_EUR/chr@" \
   --source-genome-build hg38 \
-  --genetic-map-hg38-sources "/path/to/resources/genetic_maps/hg38/chr@.txt" \
-  --genetic-map-hg19-sources "/path/to/resources/genetic_maps/hg19/chr@.txt" \
-  --liftover-chain-hg38-to-hg19-file /path/to/resources/liftover/hg38ToHg19.over.chain \
+  --plink-prefix "/path/to/resources/1000G_EUR/chr@" \
   --ld-wind-cm 1.0 \
+  --genetic-map-hg19-sources "/path/to/resources/genetic_maps/hg19/chr@.txt" \
+  --genetic-map-hg38-sources "/path/to/resources/genetic_maps/hg38/chr@.txt" \
+  --liftover-chain-hg38-to-hg19-file /path/to/resources/liftover/hg38ToHg19.over.chain \
   --output-dir results/r2_matrix
 ```
 
@@ -213,9 +213,9 @@ Pass the build folder to `ldsc ldscore --r2-matrix-dir` with the R² matrix's SN
 
 ```bash
 ldsc ldscore \
-  --r2-matrix-dir tutorial_outputs/r2_matrix_chr22/hg38 \
-  --genome-build hg38 \
   --snp-identifier chr_pos_allele_aware \
+  --genome-build hg38 \
+  --r2-matrix-dir tutorial_outputs/r2_matrix_chr22/hg38 \
   --ld-wind-snps 10 \
   --output-dir tutorial_outputs/ldscores_chr22
 ```

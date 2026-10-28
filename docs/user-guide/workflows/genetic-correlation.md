@@ -28,15 +28,15 @@ Munge each trait, then pass all of them to `rg`:
 
 ```bash
 ldsc munge-sumstats \
+  --output-genome-build hg38 \
   --raw-sumstats-file data/trait_1.tsv.gz \
   --trait-name trait_1 \
-  --output-genome-build hg38 \
   --output-dir results/traits/trait_1
 
 ldsc munge-sumstats \
+  --output-genome-build hg38 \
   --raw-sumstats-file data/trait_2.tsv.gz \
   --trait-name trait_2 \
-  --output-genome-build hg38 \
   --output-dir results/traits/trait_2
 
 ldsc rg \
@@ -61,8 +61,8 @@ ldsc plot --result-dir results/panel_rg
 ```bash
 ldsc rg \
   --sumstats-sources "results/traits/*/*.parquet" \
-  --anchor-trait trait_1 \
   --ldscore-dir results/unpartitioned_ldscores \
+  --anchor-trait trait_1 \
   --output-dir results/trait_1_anchor_rg
 
 ldsc plot --result-dir results/trait_1_anchor_rg

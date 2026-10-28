@@ -31,11 +31,11 @@ This example projects BED files directly onto the baseline annotation rows, with
 
 ```bash
 ldsc ldscore \
+  --snp-identifier chr_pos_allele_aware \
+  --genome-build hg19 \
   --baseline-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
   --query-annot-bed-sources "/path/to/beds/*.bed" \
   --r2-matrix-dir /path/to/r2-matrix/hg19 \
-  --snp-identifier chr_pos_allele_aware \
-  --genome-build hg19 \
   --ld-wind-cm 1.0 \
   --output-dir /path/to/results/partitioned_ldscores
 ```
@@ -64,10 +64,10 @@ To keep query annotations as files, project them once with `ldsc annotate` on th
 
 ```bash
 ldsc annotate \
-  --ref-snp-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
-  --query-annot-bed-sources "/path/to/beds/*.bed" \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg19 \
+  --ref-snp-annot-sources "/path/to/baseline/baseline.@.annot.gz" \
+  --query-annot-bed-sources "/path/to/beds/*.bed" \
   --output-dir /path/to/annotations/query_from_beds
 ```
 
@@ -76,11 +76,11 @@ Pass both families together to `ldscore`:
 
 ```bash
 ldsc ldscore \
+  --snp-identifier chr_pos_allele_aware \
+  --genome-build hg19 \
   --baseline-annot-sources "/path/to/annotations/query_from_beds/baseline.@.annot.gz" \
   --query-annot-sources "/path/to/annotations/query_from_beds/query.@.annot.gz" \
   --r2-matrix-dir /path/to/r2-matrix/hg19 \
-  --snp-identifier chr_pos_allele_aware \
-  --genome-build hg19 \
   --ld-wind-cm 1.0 \
   --output-dir /path/to/results/partitioned_ldscores
 ```
@@ -173,9 +173,9 @@ With several allocated CPUs, `--workers` fits several complete baseline-plus-que
 ldsc partitioned-h2 \
   --sumstats-file /path/to/results/trait/trait.parquet \
   --ldscore-dir /path/to/results/partitioned_ldscores \
+  --output-dir /path/to/results/partitioned_h2 \
   --workers 4 \
-  --query-batch-size 100 \
-  --output-dir /path/to/results/partitioned_h2
+  --query-batch-size 100
 ```
 
 This loads at most 100 query annotations at a time and runs up to four fits together.

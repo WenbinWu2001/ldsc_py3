@@ -6,8 +6,9 @@ import numpy as np
 import pandas as pd
 
 from ._coordinates import positive_int_position_series
+from .chromosome_inference import chrom_sort_key
 from ._kernel.snp_identity import effective_merge_key_series, identity_mode_family, is_allele_aware_mode
-from .column_inference import normalize_snp_identifier_mode
+from .column_inference import POS_COLUMN_SPEC, normalize_snp_identifier_mode, resolve_optional_column
 from .errors import LDSCInputError
 
 
@@ -125,3 +126,17 @@ def _assert_close_numeric_metadata(
             "Most likely paired LDSC3 artifacts have inconsistent metadata sidecars. "
             "Regenerate the paired artifacts together."
         )
+
+
+def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
+    """Sort by chromosome/position and use a present SNP label as a stable tie-breaker."""
+    pos_col = resolve_optional_column(df.columns, POS_COLUMN_SPEC)
+    if pos_col is None:
+        raise KeyError("No POS-like column available for genomic sorting.")
+    sort_df = df.copy()
+    sort_df["_chrom_key"] = sort_df["CHR"].map(chrom_sort_key)
+    sort_columns = ["_chrom_key", pos_col]
+    if "SNP" in sort_df.columns:
+        sort_columns.append("SNP")
+    sort_df = sort_df.sort_values(by=sort_columns, kind="mergesort")
+    return sort_df.drop(columns="_chrom_key").reset_index(drop=True)

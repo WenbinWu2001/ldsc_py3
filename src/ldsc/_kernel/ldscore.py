@@ -45,7 +45,7 @@ import argparse
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -54,16 +54,7 @@ from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ..column_inference import (
     A1_COLUMN_SPEC,
     A2_COLUMN_SPEC,
-    CHR_COLUMN_ALIASES,
-    CHR_COLUMN_SPEC,
-    CM_COLUMN_ALIASES,
-    CM_COLUMN_SPEC,
-    MAF_COLUMN_SPEC,
-    POS_COLUMN_ALIASES,
-    POS_COLUMN_SPEC,
     REFERENCE_METADATA_SPEC_MAP,
-    SNP_COLUMN_ALIASES,
-    SNP_COLUMN_SPEC,
     normalize_genome_build,
     normalize_snp_identifier_mode,
     resolve_optional_column,
@@ -95,11 +86,6 @@ _LDSCORE_INTERSECTION_DOC = (
 _LDSCORE_PARQUET_DOC = "docs/user-guide/troubleshooting.md#ldscore-r2-panel-is-incompatible"
 # K bounds buffered pairs; CSR construction and projection add working arrays.
 _CSR_CHUNK_PAIRS = 16_000_000
-CHROM_ALIASES = CHR_COLUMN_ALIASES
-POS_ALIASES = POS_COLUMN_ALIASES
-SNP_ALIASES = SNP_COLUMN_ALIASES
-CM_ALIASES = CM_COLUMN_ALIASES
-MAF_ALIASES = ("MAF", "FRQ", "FREQ", "FREQUENCY")
 
 
 @dataclass
@@ -183,20 +169,6 @@ class PreparedChromosome:
 
 
 # Shared computational helpers.
-
-
-def find_column(columns: Iterable[str], aliases: Sequence[str]) -> str | None:
-    """Return the first column whose normalized name matches one of ``aliases``."""
-    spec = {
-        tuple(CHROM_ALIASES): CHR_COLUMN_SPEC,
-        tuple(POS_ALIASES): POS_COLUMN_SPEC,
-        tuple(SNP_ALIASES): SNP_COLUMN_SPEC,
-        tuple(CM_ALIASES): CM_COLUMN_SPEC,
-        tuple(MAF_ALIASES): MAF_COLUMN_SPEC,
-    }.get(tuple(aliases))
-    if spec is not None:
-        return resolve_optional_column(columns, spec)
-    return None
 
 
 def get_block_lefts(coords: np.ndarray, max_dist: float) -> np.ndarray:
@@ -309,20 +281,6 @@ def build_index_remap(
     retained_build_idx = np.empty(m, dtype=np.int64)
     retained_build_idx[valid_targets] = np.nonzero(valid)[0]
     return remap, retained_build_idx
-
-
-def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
-    """Sort by chromosome/position and use a present SNP label as a stable tie-breaker."""
-    pos_col = find_column(df.columns, POS_ALIASES)
-    if pos_col is None:
-        raise KeyError("No POS-like column available for genomic sorting.")
-    sort_df = df.copy()
-    sort_df["_chrom_key"] = sort_df["CHR"].map(chrom_sort_key)
-    sort_columns = ["_chrom_key", pos_col]
-    if "SNP" in sort_df.columns:
-        sort_columns.append("SNP")
-    sort_df = sort_df.sort_values(by=sort_columns, kind="mergesort")
-    return sort_df.drop(columns="_chrom_key").reset_index(drop=True)
 
 
 def _panel_sidecar_path_for_r2(r2_path: str) -> Path:

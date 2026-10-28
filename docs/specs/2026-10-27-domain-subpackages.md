@@ -71,13 +71,13 @@ src/ldsc/
 ├── __init__.py  __main__.py  cli.py  config.py  errors.py  data/   (stay; imports updated)
 │
 ├── _core/
-│   ├── chromosomes.py        ← chromosome_inference.py (+ sort_frame_by_genomic_position)
+│   ├── chromosomes.py        ← chromosome_inference.py
 │   ├── columns.py            ← column_inference.py
 │   ├── coordinates.py        ← _coordinates.py
 │   ├── identifiers.py        ← _kernel/identifiers.py
 │   ├── plink_files.py        ← _kernel/formats.py (PLINK BIM/FAM and keep-list readers)
 │   ├── regions.py            ← _kernel/regions.py
-│   ├── row_alignment.py      ← _row_alignment.py
+│   ├── row_alignment.py      ← _row_alignment.py (+ sort_frame_by_genomic_position)
 │   └── snp_identity.py       ← _kernel/snp_identity.py (+ VALID_SNPS)
 │
 ├── _runtime/
@@ -220,7 +220,7 @@ Each change keeps behavior identical; the decision that requires it is in parent
 9. **`config` above `_runtime` (Q4).**
    `run_from_kwargs()` receives the default log level from its caller instead of calling `get_global_config()` ([`_workflow_kwargs.py:102`](../../src/ldsc/_workflow_kwargs.py)).
 10. **Small relocations (Q5).**
-    `VALID_SNPS` moves from `_kernel/regression.py` to `_core/snp_identity.py`; `input_issue` and `INPUT_ISSUE_COLUMNS` from `_annotation_preflight.py` to `_runtime/preflight.py`; `sort_frame_by_genomic_position` to `_core/chromosomes.py`; `_LDSCORE_INTERSECTION_DOC` to `_refpanel`; `_direct_annotation.py` to `_ldscore`.
+    `VALID_SNPS` moves from `_kernel/regression.py` to `_core/snp_identity.py`; `input_issue` and `INPUT_ISSUE_COLUMNS` from `_annotation_preflight.py` to `_runtime/preflight.py`; `sort_frame_by_genomic_position` to `_core/row_alignment.py`, because placing it in `_core/chromosomes.py` would create the import cycle `chromosomes -> columns -> snp_identity -> coordinates -> chromosomes`; `_LDSCORE_INTERSECTION_DOC` to `_refpanel`; `_direct_annotation.py` to `_ldscore`.
 11. **Gene LD-score index split (Q6).**
     `gene_ldscore_index.py` (3,298 lines) splits into index building, the on-disk index format and indexed scoring; no other workflow module is split.
 12. **Dead code (Q8, 1d, D1).**

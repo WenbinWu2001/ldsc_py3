@@ -56,6 +56,11 @@ IDENTITY_DROP_REASONS = (
 )
 COMPLEMENT = str.maketrans({"A": "T", "T": "A", "C": "G", "G": "C"})
 _VALID_ALLELES = frozenset({"A", "C", "G", "T"})
+# Two-letter allele pairs of distinct bases that are not strand-ambiguous
+# (a base paired with its own complement, such as A/T, is ambiguous).
+_BASE_COMPLEMENT = {"A": "T", "T": "A", "C": "G", "G": "C"}
+VALID_SNPS = {first + second for first in _BASE_COMPLEMENT for second in _BASE_COMPLEMENT
+              if first != second and _BASE_COMPLEMENT[first] != second}
 _INTERNAL_COLUMNS = ["_ldsc_base_key", "_ldsc_allele_set", "_ldsc_identity_key"]
 
 

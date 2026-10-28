@@ -43,7 +43,7 @@ No commit.
 ### 2. `refactor(core): move shared helpers down`
 
 - Move `VALID_SNPS` from `_kernel/regression.py` to `_kernel/snp_identity.py`.
-- Move `sort_frame_by_genomic_position()` from `_kernel/ldscore.py` to `chromosome_inference.py`.
+- Move `sort_frame_by_genomic_position()` from `_kernel/ldscore.py` to `_row_alignment.py` and remove `find_column()`, its only helper.
 
 ### 3. `refactor(core): move primitives into _core`
 

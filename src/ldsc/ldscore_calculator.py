@@ -85,7 +85,7 @@ from ._kernel.regions import REGR_SNPS_EXCLUDE_REGIONS_CHOICES, regr_snps_exclud
 from ._kernel.ref_panel_builder import SIDECAR_FLOAT_FORMAT
 from ._kernel.identifiers import build_snp_id_series, read_snp_restriction_keys
 from ._kernel.snp_identity import RestrictionIdentityKeys
-from ._row_alignment import assert_same_snp_rows
+from ._row_alignment import assert_same_snp_rows, sort_frame_by_genomic_position
 from .errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .query_annotations import (
     QueryAnnotationStatus, finalize_query_statuses, finalize_query_measurements, gene_query_statuses, gene_viability_errors,
@@ -766,7 +766,7 @@ class LDScoreCalculator:
             ],
             axis=1,
         )
-        ldscore_table = kernel_ldscore.sort_frame_by_genomic_position(ldscore_table)
+        ldscore_table = sort_frame_by_genomic_position(ldscore_table)
         count_map = {
             "all_reference_snp_counts": np.asarray(legacy_result.M, dtype=np.float64),
             "common_reference_snp_counts": np.asarray(legacy_result.M_5_50, dtype=np.float64),
@@ -883,7 +883,7 @@ class LDScoreCalculator:
             annotation_types=annotation_types,
         )
         if isinstance(chromosome_results[0], DirectChromosomeFragment):
-            baseline_table = kernel_ldscore.sort_frame_by_genomic_position(pd.concat(
+            baseline_table = sort_frame_by_genomic_position(pd.concat(
                 [result.baseline_table for result in chromosome_results], ignore_index=True))
             _assert_canonical_maf(baseline_table)
             ordered = sorted(chromosome_results, key=lambda result: chrom_sort_key(result.chrom))
@@ -905,7 +905,7 @@ class LDScoreCalculator:
             axis=0,
             ignore_index=True,
         )
-        merged_table = kernel_ldscore.sort_frame_by_genomic_position(merged_table)
+        merged_table = sort_frame_by_genomic_position(merged_table)
         _assert_canonical_maf(merged_table)
         baseline_table, query_table = _split_ldscore_table(
             merged_table,

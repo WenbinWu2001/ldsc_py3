@@ -19,6 +19,7 @@ from scipy.stats import norm, chi2
 from ..errors import LDSCConfigError, LDSCInternalError, LDSCUsageError
 from . import _jackknife as jk
 from ._irwls import IRWLS
+from .snp_identity import VALID_SNPS
 from scipy.stats import t as tdist
 from collections import namedtuple
 
@@ -29,12 +30,6 @@ _TwoStepJackknife = namedtuple("_TwoStepJackknife", [
 
 # Allele-matching helpers reused by the public regression and munging workflows.
 COMPLEMENT = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
-BASES = COMPLEMENT.keys()
-STRAND_AMBIGUOUS = {''.join(x): x[0] == COMPLEMENT[x[1]]
-                    for x in it.product(BASES, BASES)
-                    if x[0] != x[1]}
-VALID_SNPS = {x for x in list(map(lambda y: ''.join(y), it.product(BASES, BASES)))
-              if x[0] != x[1] and not STRAND_AMBIGUOUS[x]}
 MATCH_ALLELES = {x for x in list(map(lambda y: ''.join(y), it.product(VALID_SNPS, VALID_SNPS)))
                  if ((x[0] == x[2]) and (x[1] == x[3])) or
                  ((x[0] == COMPLEMENT[x[2]]) and (x[1] == COMPLEMENT[x[3]])) or

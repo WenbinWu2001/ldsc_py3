@@ -34,7 +34,6 @@ from .._coordinates import (
 )
 from ..errors import LDSCInputError, LDSCInternalError
 from .._progress import report_phase, advance
-from . import regression as sumstats
 from .identifiers import (
     build_packed_chr_pos_series,
     read_global_chr_pos_restriction_key_set,
@@ -44,6 +43,7 @@ from .identifiers import (
 )
 from .liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
 from .snp_identity import (
+    VALID_SNPS,
     RestrictionIdentityKeys,
     allele_set_series,
     base_key_series,
@@ -231,7 +231,7 @@ def filter_frq(frq, qc: MungeQC, *, warning_counts=None):
 
 def filter_alleles(a):
     '''Remove alleles that do not describe strand-unambiguous SNPs'''
-    return a.isin(sumstats.VALID_SNPS)
+    return a.isin(VALID_SNPS)
 
 
 def _looks_missing_info_token(value):

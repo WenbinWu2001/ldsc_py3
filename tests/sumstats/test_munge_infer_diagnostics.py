@@ -1,4 +1,5 @@
 """Regression coverage for no-write munging diagnostics."""
+import re
 import shlex
 
 import pytest
@@ -31,6 +32,21 @@ def test_suggested_command_preserves_overrides(tmp_path, capsys):
         '--snp-identifier', 'rsid', *options])
     assert vars(replay) == {**vars(expected), 'sumstats_format': 'plain'}
     assert not (tmp_path / 'out').exists()
+
+
+def test_suggested_command_lists_flags_in_help_order(tmp_path, capsys):
+    raw = tmp_path / 'raw.tsv'
+    raw.write_text('SNP A1 A2 P effect\nrs1 A G 0.05 0.2\n')
+    # One option from each help section, passed in reverse help order.
+    workflow.main(['--log-level', 'ERROR', '--chunksize', '1', '--signed-sumstats', 'effect,0',
+                   '--no-snp-restriction', '--output-format', 'both', '--output-dir', str(tmp_path / 'out'),
+                   '--N', '1000', '--trait-name', 'trait', '--raw-sumstats-file', str(raw),
+                   '--snp-identifier', 'rsid', '--infer-only'])
+    command = capsys.readouterr().out.split('Suggested command:\n')[1]
+    flags = [token for token in shlex.split(command.replace('\\\n', '')) if token.startswith('--')]
+    help_flags = re.findall(r'^  (--[\w-]+)', workflow.build_parser().format_help(), re.M)
+    assert flags == sorted(flags, key=help_flags.index)
+    assert flags[0] == '--snp-identifier' and flags[-1] == '--log-level'
 
 
 def test_infer_only_reports_explicit_qc_threshold_without_column(tmp_path, capsys):

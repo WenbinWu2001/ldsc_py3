@@ -274,6 +274,7 @@ values such as `--input-format plain` and `--source-genome-build hg19`, and the 
 directory is copied from the required `--output-dir` argument. This keeps `auto`
 as the user-friendly input default while making diagnostic output explicit and
 reproducible.
+Options are listed in the order `ldsc munge-sumstats --help` shows them, so column overrides come after the output and filter options.
 
 Example report shape:
 
@@ -290,12 +291,12 @@ Next step:
   Missing fields: none
   Suggested command:
     ldsc munge-sumstats \
-      --raw-sumstats-file data/trait.tsv.gz \
-      --output-dir results/trait \
-      --input-format plain \
       --snp-identifier chr_pos_allele_aware \
+      --source-genome-build hg19 \
       --output-genome-build hg38 \
-      --source-genome-build hg19
+      --raw-sumstats-file data/trait.tsv.gz \
+      --input-format plain \
+      --output-dir results/trait
 ```
 
 If source-build inference or declaration consistency fails, the report is non-runnable and identifies the affected source.

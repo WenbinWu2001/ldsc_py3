@@ -1809,14 +1809,29 @@ def _render_inference_report(
         lines.append(f"Liftover required: {'yes' if inference.liftover_required else 'no'} (method: {method})")
     if inference.notes:
         lines.extend(f"Note: {note}" for note in inference.notes)
-    command = ["ldsc", "munge-sumstats", "--raw-sumstats-file", raw_sumstats_file, "--output-dir", str(output_dir)]
-    command.extend(inference.suggested_args)
+    command = ["ldsc", "munge-sumstats", *_in_help_order(
+        ["--raw-sumstats-file", raw_sumstats_file, "--output-dir", str(output_dir), *inference.suggested_args])]
     lines.append("Next step:")
     lines.append(f"  Runnable: {'yes' if inference.runnable else 'no'}")
     lines.append("  Missing fields: " + (", ".join(inference.missing_fields) if inference.missing_fields else "none"))
     lines.append("  Suggested command:")
     lines.append(_format_shell_command(command, base_indent="    ", option_indent="      "))
     return "\n".join(lines)
+
+
+def _in_help_order(args: list[str]) -> list[str]:
+    """Reorder option and value tokens to the order ``munge-sumstats --help`` lists them."""
+    parser = build_parser()
+    help_actions = [action for group in parser._action_groups for action in group._group_actions]
+    actions = {flag: action for action in help_actions for flag in action.option_strings}
+    options = []
+    idx = 0
+    while idx < len(args):
+        width = 1 if actions[args[idx]].nargs == 0 else 2
+        options.append(args[idx:idx + width])
+        idx += width
+    options.sort(key=lambda option: help_actions.index(actions[option[0]]))
+    return [token for option in options for token in option]
 
 
 def _format_shell_command(command: list[str], *, base_indent: str = "  ", option_indent: str = "    ") -> str:

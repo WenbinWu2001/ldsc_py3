@@ -6,6 +6,13 @@ Status: high-level design confirmed by the user; CLI details and any optional in
 This handoff records the next design task, not an implemented feature or a completed specification.
 The current request authorizes this handoff and a continuation prompt, not implementation.
 
+## Also in flight: domain subpackage reorganization of `src/ldsc`
+
+- The design is recorded in the [specification](docs/specs/2026-10-27-domain-subpackages.md) and its commit sequence in the [implementation plan](docs/plans/2026-10-27-domain-subpackages.md).
+- The maintainer confirmed the complete design, including the dead-code policy D1, on 2026-10-27; implementation is not yet authorized.
+- The reorganization moves almost every module, including the implementation seams listed in this handoff, so the two efforts must not run concurrently on `restructure`.
+- When the reorganization lands, its final commit updates this handoff's module paths.
+
 ## Workspace and checkpoint
 
 - Work locally in `ldsc_py3_restructured` on branch `restructure`.

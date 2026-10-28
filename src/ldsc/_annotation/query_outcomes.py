@@ -348,11 +348,12 @@ def gene_list_gate_a_message(batch: Any) -> str:
         if pd.notna(row.nonblank_input_rows)
     )
     sample = "; ".join(
-        f"line {row.line}, {row.input_gene!r}, {row.reason}"
+        f"{row.source} line {row.line}, {row.input_gene!r}, {row.reason}"
         for row in rejected.head(MAX_CONSOLE_GENE_ISSUES).itertuples(index=False)
     )
     omitted = max(0, n_rejected - MAX_CONSOLE_GENE_ISSUES)
-    omitted_text = f"; {omitted} more rejected row(s) are in the audit" if omitted else ""
+    if omitted:
+        sample += f"; {omitted} more rejected row(s) are in the audit"
     source_errors = batch.summary[batch.summary["source_status"].eq("error")]
     def source_reason_text(reason: str, source: str, role: str) -> str:
         if any(token in source for token in ("*", "?", "[", "]")):
@@ -396,7 +397,7 @@ def gene_list_gate_a_message(batch: Any) -> str:
         source_filter = "disposition == 'rejected'"
     return (
         f"Gene-list catalog preflight rejected {n_rejected} of {submitted} submitted row(s)"
-        f"{f' ({breakdown})' if breakdown else ''}. First issues: {issue_text}{omitted_text}. "
+        f"{f' ({breakdown})' if breakdown else ''}. First issues: {issue_text}. "
         "Complete diagnostics: diagnostics/gene_list_audit.tsv.gz and "
         "diagnostics/gene_list_resolution_summary.tsv. "
         f"Suggested audit filter: {source_filter}. Repair the listed gene-list rows first, then rerun "

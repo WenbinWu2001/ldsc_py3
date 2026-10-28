@@ -84,9 +84,32 @@ def test_strict_rejection_message_counts_sources_and_guides_repair(tmp_path):
     assert "rejected 13 of 14 submitted row(s)" in message
     assert "many.txt: 12/12 rejected; few.txt: 1/2 rejected" in message
     assert "3 more rejected row(s) are in the audit" in message
+    assert message.index("3 more rejected row(s)") < message.index("has zero usable genes")
     assert "Suggested audit filter: source == 'many.txt' & disposition == 'rejected'" in message
     assert "--overwrite" in message
     assert "docs/user-guide/troubleshooting.md#annotate-gene-list-preflight" in message
+
+
+def test_strict_rejection_examples_name_their_source(tmp_path):
+    baseline, _, _, catalog = inputs(tmp_path)
+    first, second = tmp_path / "first.txt", tmp_path / "second.txt"
+    first.write_text("G1\nBAD1\n")
+    second.write_text("G2\nBAD2\n")
+
+    with pytest.raises(LDSCInputError) as failure:
+        run_annotate(
+            ref_snp_annot_sources=baseline,
+            query_annot_gene_list_sources=[first, second],
+            gene_coordinate_file=catalog,
+            padding_bp=0,
+            genome_build="hg19",
+            global_config=GlobalConfig(snp_identifier="rsid"),
+            output_dir=tmp_path / "out",
+        )
+
+    message = str(failure.value)
+    assert "first.txt line 2, 'BAD1', unmatched_identifier" in message
+    assert "second.txt line 2, 'BAD2', unmatched_identifier" in message
 
 
 @pytest.mark.parametrize("kind,name,rows", [

@@ -23,7 +23,7 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
     baseline, query = declared.baseline, declared.query
     from dataclasses import replace
     from .annotate_workflow import _projection_build
-    from ._kernel.snp_identity import identity_mode_family
+    from ._core.snp_identity import identity_mode_family
     from .gene_list_resolver import GeneCatalog
 
     catalog = GeneCatalog.load(spec.gene_coordinate_file) if spec.query_annot_gene_list_sources else None

@@ -16,11 +16,11 @@ from pathlib import Path
 import pandas as pd
 
 from ._annotation_parsing import normalize_annotation_chunk
-from .chromosome_inference import normalize_chromosome
+from ._core.chromosomes import normalize_chromosome
 from .config import RefPanelConfig
 from .errors import LDSCInputError, LDSCUserError
 from .path_resolution import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
-from ._kernel import regions
+from ._core import regions
 from ._kernel.ref_panel import RefPanelLoader, _read_metadata_table, _resolve_r2_build_dir
 
 

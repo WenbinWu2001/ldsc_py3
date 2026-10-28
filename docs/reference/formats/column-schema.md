@@ -12,7 +12,7 @@ kernel output routines, and any doc or test that asserts column layout.
 
 Written artifacts always use the canonical name.
 Aliases are accepted only when reading input headers and are never written.
-The alias registry is `src/ldsc/column_inference.py`; the tables below list its contents.
+The alias registry is `src/ldsc/_core/columns.py`; the tables below list its contents.
 
 Headers are compared after lowercasing and removing punctuation, so `p-value`, `P_VALUE` and `pvalue` are the same header.
 Matches are ranked: the canonical name, then an alias, then a header ending in the canonical name, then a header ending in an alias.
@@ -378,8 +378,8 @@ The following locations must be kept consistent with this document.
 
 | Location | What to keep in sync |
 |----------|---------------------|
-| `src/ldsc/column_inference.py` — `INTERNAL_SUMSTATS_ARTIFACT_SPECS` | Tuple order: `CHR, POS, SNP, ...` |
-| `src/ldsc/column_inference.py` — `INTERNAL_LDSCORE_ARTIFACT_SPECS` | Strict reload specs still include optional metadata fields used by internal/legacy readers: `CHR, POS, SNP, CM, MAF` |
+| `src/ldsc/_core/columns.py` — `INTERNAL_SUMSTATS_ARTIFACT_SPECS` | Tuple order: `CHR, POS, SNP, ...` |
+| `src/ldsc/_core/columns.py` — `INTERNAL_LDSCORE_ARTIFACT_SPECS` | Strict reload specs still include optional metadata fields used by internal/legacy readers: `CHR, POS, SNP, CM, MAF` |
 | `src/ldsc/ldscore_calculator.py` — `_split_ldscore_table` | Public output order: baseline `CHR, SNP, POS, regression_ld_scores, ...`; query `CHR, SNP, POS, ...` |
 | `src/ldsc/outputs.py` — `_write_chromosome_aligned_parquet` | One row group per `CHR` in `ldscore.baseline.parquet` and each query batch file |
 | `src/ldsc/outputs.py` — `required_baseline` / `required_query` validation lists | Baseline requires `CHR`, `POS`, `SNP`, `regression_ld_scores`, and baseline columns; query requires `CHR`, `POS`, `SNP`, and query columns |

@@ -27,14 +27,14 @@ from dataclasses import dataclass, replace
 import numpy as np
 import pandas as pd
 from scipy.stats import chi2
-from .._coordinates import (
+from .._core.coordinates import (
     coordinate_missing_mask,
     normalize_chr_pos_frame,
     positive_int_position_series,
 )
 from ..errors import LDSCInputError, LDSCInternalError
 from .._progress import report_phase, advance
-from .identifiers import (
+from .._core.identifiers import (
     build_packed_chr_pos_series,
     read_global_chr_pos_restriction_key_set,
     read_global_snp_restriction,
@@ -42,7 +42,7 @@ from .identifiers import (
     restriction_file_has_allele_columns,
 )
 from .liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
-from .snp_identity import (
+from .._core.snp_identity import (
     VALID_SNPS,
     RestrictionIdentityKeys,
     allele_set_series,

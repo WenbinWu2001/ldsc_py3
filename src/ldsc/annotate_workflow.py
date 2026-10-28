@@ -16,10 +16,10 @@ from ._annotation_queries import prepare_bed_queries, build_query_shards, requir
 from ._annotation_sources import prepare_annotation_sources
 from ._annotation_storage import AnnotationWorkspace
 from ._gene_query_storage import resolve_gene_lists_staged
-from ._kernel.snp_identity import identity_mode_family
+from ._core.snp_identity import identity_mode_family
 from ._logging import workflow_logging, materializing_overwrite_guard, log_inputs, log_outputs
 from .annotation_semantics import require_unique_annotation_names
-from .column_inference import normalize_genome_build
+from ._core.columns import normalize_genome_build
 from .config import AnnotationBuildConfig, GlobalConfig, get_global_config, print_global_config_banner
 from .errors import LDSCInputError
 from .gene_list_resolver import GeneCatalog, GeneCatalogValidationError

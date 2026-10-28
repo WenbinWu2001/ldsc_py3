@@ -67,7 +67,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ._kernel.snp_identity import identity_artifact_metadata
+from ._core.snp_identity import identity_artifact_metadata
 from .config import _normalize_required_path
 from .ldscore_source import validate_ldscore_baseline_table, validate_ldscore_query_table
 from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError
@@ -344,7 +344,7 @@ class AnnotationDirectoryWriter:
 
     def write_diagnostics(self, output_dir, *, batch=None, statuses=None, drops=None, catalog_issues=None, input_issues=None, scope=None):
         """Persist every available gate result without inventing later-stage data."""
-        from ._kernel.snp_identity import IDENTITY_DROP_COLUMNS
+        from ._core.snp_identity import IDENTITY_DROP_COLUMNS
 
         root = Path(output_dir) / 'diagnostics'
         root.mkdir(parents=True, exist_ok=True)

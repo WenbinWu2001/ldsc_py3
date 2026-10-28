@@ -17,7 +17,7 @@ import pytest
 _HAS_BA = importlib.util.find_spec("bitarray") is not None
 pytestmark = pytest.mark.skipif(not _HAS_BA, reason="bitarray required")
 
-from ldsc._kernel import formats as legacy_parse
+from ldsc._core import plink_files as legacy_parse
 from ldsc._kernel.plink_bed import PlinkBEDFile
 
 FIX = Path("tests/fixtures/plink/plink")

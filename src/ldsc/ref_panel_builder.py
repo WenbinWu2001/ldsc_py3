@@ -48,11 +48,11 @@ import pandas as pd
 from ._serial_calculation import serial_calculation
 from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
-from .column_inference import (
+from ._core.columns import (
     normalize_genome_build,
     normalize_snp_identifier_mode,
 )
-from ._kernel.snp_identity import (
+from ._core.snp_identity import (
     IDENTITY_DROP_COLUMNS,
     RestrictionIdentityKeys,
     clean_identity_artifact_table,
@@ -63,7 +63,7 @@ from ._kernel.snp_identity import (
 from .config import (
     DEFAULT_SNP_BATCH_SIZE, GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner,
 )
-from ._coordinates import normalize_chr_pos_frame
+from ._core.coordinates import normalize_chr_pos_frame
 from ._progress import report_phase
 from .path_resolution import ensure_output_directory, preflight_output_artifact_family, remove_output_artifacts, resolve_file_group, inspect_plink_inputs, resolve_scalar_path
 from ._logging import (
@@ -74,8 +74,8 @@ from ._logging import (
     workflow_logging,
 )
 from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
-from ._kernel import formats as legacy_parse
-from ._kernel import identifiers as kernel_identifiers
+from ._core import plink_files as legacy_parse
+from ._core import identifiers as kernel_identifiers
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel import ref_panel_builder as kernel_builder
 from ._kernel.liftover import (

@@ -13,8 +13,8 @@ from ._progress import report_phase, advance
 
 from ._annotation_projection import ChromosomeProjector
 from ._annotation_storage import AnnotationWorkspace, ColumnStore, FrameSpool
-from ._kernel.regions import iter_bed_rows
-from .chromosome_inference import normalize_chromosome
+from ._core.regions import iter_bed_rows
+from ._core.chromosomes import normalize_chromosome
 from .annotation_semantics import require_unique_annotation_names
 from .query_annotations import QueryAnnotationStatus, gene_query_statuses
 from .errors import LDSCInputError

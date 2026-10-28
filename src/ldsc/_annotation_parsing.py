@@ -5,9 +5,9 @@ import numpy as np
 import pandas as pd
 
 from ._kernel import annotation as kernel_annotation
-from ._kernel.snp_identity import identity_mode_family
-from .chromosome_inference import normalize_chromosome
-from .column_inference import (
+from ._core.snp_identity import identity_mode_family
+from ._core.chromosomes import normalize_chromosome
+from ._core.columns import (
     A1_COLUMN_SPEC, A2_COLUMN_SPEC, ANNOTATION_METADATA_SPEC_MAP,
     ColumnSpec, CHR_COLUMN_SPEC, CM_COLUMN_SPEC, POS_COLUMN_SPEC,
     SNP_COLUMN_SPEC, resolve_optional_column, resolve_required_column,

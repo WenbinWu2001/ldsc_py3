@@ -10,7 +10,7 @@ from ldsc import AnnotationBundle, GlobalConfig, LDScoreCalculator, LDScoreConfi
 from ldsc._kernel import ldscore
 from ldsc._kernel.ref_panel import ParquetR2RefPanel
 from ldsc._kernel.ref_panel_builder import write_r2_parquet, write_runtime_metadata_sidecar
-from ldsc._kernel.snp_identity import sidecar_identity_sha256
+from ldsc._core.snp_identity import sidecar_identity_sha256
 from ldsc.errors import LDSCInputError
 
 

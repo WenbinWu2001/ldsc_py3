@@ -57,9 +57,9 @@ from ._kernel.gene_ldscore_index import (
     assemble_selected_atom_statistics,
     validate_ldscore_operator,
 )
-from ._kernel.regions import RegionIntervals
-from ._kernel.identifiers import read_snp_restriction_keys
-from ._kernel.snp_identity import (
+from ._core.regions import RegionIntervals
+from ._core.identifiers import read_snp_restriction_keys
+from ._core.snp_identity import (
     RestrictionIdentityKeys,
     allele_set_series,
     base_key_series,
@@ -70,7 +70,7 @@ from ._kernel.snp_identity import (
     identity_mode_family,
     is_allele_aware_mode,
 )
-from ._kernel import regions as kernel_regions
+from ._core import regions as kernel_regions
 from ._logging import (
     log_inputs,
     log_outputs,
@@ -80,9 +80,9 @@ from ._logging import (
 )
 from ._annotation_storage import AnnotationWorkspace, FrameSpool
 from ._annotation_sources import prepare_annotation_sources
-from .chromosome_inference import normalize_chromosome, normalize_chromosome_series
-from ._coordinates import positive_int_position_series
-from .column_inference import normalize_genome_build
+from ._core.chromosomes import normalize_chromosome, normalize_chromosome_series
+from ._core.coordinates import positive_int_position_series
+from ._core.columns import normalize_genome_build
 from .config import DEFAULT_SNP_BATCH_SIZE, GeneLDScoreIndexBuildConfig, GlobalConfig, get_global_config
 from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 from .gene_list_resolver import (

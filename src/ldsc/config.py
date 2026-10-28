@@ -31,8 +31,8 @@ from os import PathLike
 from typing import Literal
 import warnings
 
-from ._kernel.snp_identity import identity_mode_family, normalize_snp_identifier_mode
-from .column_inference import normalize_genome_build
+from ._core.snp_identity import identity_mode_family, normalize_snp_identifier_mode
+from ._core.columns import normalize_genome_build
 from .errors import LDSCConfigError
 from ._parallelism import _validate_workers
 from .path_resolution import normalize_optional_path_token, normalize_path_token, normalize_path_tokens
@@ -474,7 +474,7 @@ class RefPanelConfig:
         object.__setattr__(self, "genetic_map_hg19_sources", _normalize_optional_path(self.genetic_map_hg19_sources))
         object.__setattr__(self, "genetic_map_hg38_sources", _normalize_optional_path(self.genetic_map_hg38_sources))
         if self.chromosomes is not None:
-            from .chromosome_inference import normalize_chromosome
+            from ._core.chromosomes import normalize_chromosome
 
             object.__setattr__(self, "chromosomes", tuple(normalize_chromosome(chrom) for chrom in self.chromosomes))
 

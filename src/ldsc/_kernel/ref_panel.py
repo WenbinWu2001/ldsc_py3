@@ -21,9 +21,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
-from ..chromosome_inference import chrom_sort_key, normalize_chromosome
-from ..column_inference import (
+from .._core.coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
+from .._core.chromosomes import chrom_sort_key, normalize_chromosome
+from .._core.columns import (
     A1_COLUMN_SPEC,
     A2_COLUMN_SPEC,
     REFERENCE_METADATA_SPEC_MAP,
@@ -35,16 +35,16 @@ from ..config import GlobalConfig, LDScoreConfig, RefPanelConfig, validate_confi
 from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCUsageError
 from ..genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from ..path_resolution import inspect_plink_inputs, split_cli_path_tokens
-from . import formats as legacy_parse
+from .._core import plink_files as legacy_parse
 from . import ldscore as kernel_ldscore
 from .ldscore_projection import MappedAnnotations
-from .identifiers import (
+from .._core.identifiers import (
     build_snp_id_series,
     normalize_snp_identifier_mode,
     read_snp_restriction_keys,
     validate_unique_snp_ids,
 )
-from .snp_identity import (
+from .._core.snp_identity import (
     clean_identity_artifact_table,
     empty_identity_drop_frame,
     identity_base_mode,

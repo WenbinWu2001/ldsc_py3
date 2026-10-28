@@ -9,7 +9,7 @@ Overview
 --------
 This module owns low-level restriction-file parsing, delimiter handling, and
 header resolution. Exact SNP identity policy lives in
-``ldsc._kernel.snp_identity``: four public modes, base/effective keys,
+``ldsc._core.snp_identity``: four public modes, base/effective keys,
 allele-aware cleanup, and restriction key collapse semantics. Callers pass
 tables or file paths in, and receive normalized identifier series or
 restriction sets back.
@@ -49,9 +49,9 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame, normalize_chr_pos_frame, positive_int_position_series
-from ..chromosome_inference import normalize_chromosome, normalize_chromosome_series
-from ..column_inference import (
+from .coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame, normalize_chr_pos_frame, positive_int_position_series
+from .chromosomes import normalize_chromosome, normalize_chromosome_series
+from .columns import (
     A1_COLUMN_SPEC,
     A2_COLUMN_SPEC,
     infer_chr_pos_columns,

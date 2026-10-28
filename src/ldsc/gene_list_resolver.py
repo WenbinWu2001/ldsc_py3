@@ -18,7 +18,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from ._kernel.regions import load_preset_intervals
+from ._core.regions import load_preset_intervals
 from .errors import LDSCInputError
 from .path_resolution import normalize_path_token
 

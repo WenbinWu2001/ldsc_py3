@@ -8,7 +8,7 @@ import re
 
 import pandas as pd
 
-from .errors import LDSCInputError
+from ..errors import LDSCInputError
 
 
 LOGGER = logging.getLogger("LDSC.chromosomes")

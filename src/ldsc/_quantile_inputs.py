@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from ._annotation_loading import build_annotation_shards
-from ._kernel.snp_identity import effective_merge_key_series, identity_base_mode, is_allele_aware_mode
+from ._core.snp_identity import effective_merge_key_series, identity_base_mode, is_allele_aware_mode
 from ._quantile_storage import QuantileIdentityStore, reference_chunks, target_chunks
 from .config import AnnotationBuildConfig, GlobalConfig
 from .errors import LDSCInputError

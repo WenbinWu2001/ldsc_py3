@@ -8,8 +8,8 @@ from typing import Literal, Sequence
 
 import pandas as pd
 
-from .chromosome_inference import normalize_chromosome, normalize_chromosome_series
-from .errors import LDSCConfigError, LDSCInputError
+from .chromosomes import normalize_chromosome, normalize_chromosome_series
+from ..errors import LDSCConfigError, LDSCInputError
 
 CHR_POS_KEY_COLUMN = "_ldsc_chr_pos_key"
 NA_COORDINATE_TOKENS = frozenset({"", ".", "na", "nan", "none", "null"})

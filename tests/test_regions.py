@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc._kernel import regions
+from ldsc._core import regions
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCUsageError
 
 

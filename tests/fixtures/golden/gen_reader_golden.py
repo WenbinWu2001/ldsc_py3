@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ldsc._kernel import formats as legacy_parse
+from ldsc._core import plink_files as legacy_parse
 from ldsc._kernel.plink_bed import PlinkBEDFile
 
 FIX = Path("tests/fixtures/plink/plink")

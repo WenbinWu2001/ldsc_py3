@@ -5,7 +5,7 @@ import numpy as np
 from numpy.testing import assert_array_equal
 
 
-from ldsc._kernel import formats as ps
+from ldsc._core import plink_files as ps
 from ldsc.errors import LDSCInputError
 
 

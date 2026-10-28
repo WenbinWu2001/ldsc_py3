@@ -15,7 +15,7 @@ import pandas as pd
 from ldsc._annotation_bundle import AnnotationBundle
 from ldsc._annotation_storage import AnnotationShard, AnnotationWorkspace, ColumnStore
 from ldsc._annotation_parsing import normalize_annotation_chunk
-from ldsc._kernel.snp_identity import effective_merge_key_series, identity_base_mode, is_allele_aware_mode
+from ldsc._core.snp_identity import effective_merge_key_series, identity_base_mode, is_allele_aware_mode
 
 
 def _own(bundle, temporary):

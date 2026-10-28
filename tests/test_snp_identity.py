@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 
-from ldsc._kernel import snp_identity as si
+from ldsc._core import snp_identity as si
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCUsageError
 
 

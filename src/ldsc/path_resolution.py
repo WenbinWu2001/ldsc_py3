@@ -35,7 +35,7 @@ from os import PathLike
 from pathlib import Path
 from typing import Optional, Union
 
-from .chromosome_inference import STANDARD_CHROMOSOMES, chrom_sort_key, normalize_chromosome
+from ._core.chromosomes import STANDARD_CHROMOSOMES, chrom_sort_key, normalize_chromosome
 from .errors import LDSCInputError
 
 InputPathToken = Union[str, PathLike[str]]
@@ -489,7 +489,7 @@ def inspect_plink_inputs(
         and autosome-only policies.
     """
     import pandas as pd
-    from ._kernel import formats as parse
+    from ._core import plink_files as parse
 
     if discovered_members is None:
         members, issues = _discover_plink_members(

@@ -27,9 +27,9 @@ from typing import Iterable
 
 import pandas as pd
 
-from ._coordinates import CoordinateDropReport, CoordinatePolicy, normalize_chr_pos_frame
-from ._kernel.snp_identity import identity_mode_family, normalize_snp_identifier_mode
-from .column_inference import normalize_genome_build
+from ._core.coordinates import CoordinateDropReport, CoordinatePolicy, normalize_chr_pos_frame
+from ._core.snp_identity import identity_mode_family, normalize_snp_identifier_mode
+from ._core.columns import normalize_genome_build
 from .errors import LDSCInputError, LDSCUsageError
 
 

@@ -7,7 +7,7 @@ import unittest
 import pandas as pd
 
 
-from ldsc._coordinates import (
+from ldsc._core.coordinates import (
     build_chr_pos_key_frame,
     coordinate_missing_mask,
     normalize_chr_pos_frame,

@@ -49,12 +49,12 @@ import pandas as pd
 
 from ._cli_help import CLIHelpFormatter, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
-from .chromosome_inference import chrom_sort_key, normalize_chromosome_series
-from ._coordinates import (
+from ._core.chromosomes import chrom_sort_key, normalize_chromosome_series
+from ._core.coordinates import (
     coordinate_missing_mask,
     positive_int_position_series,
 )
-from .column_inference import (
+from ._core.columns import (
     INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP,
     normalize_genome_build,
     normalize_snp_identifier_mode,
@@ -77,7 +77,7 @@ from .path_resolution import (
     resolve_scalar_path,
 )
 from ._logging import log_inputs, log_outputs, log_summary, materializing_overwrite_guard, workflow_logging
-from ._kernel.snp_identity import (
+from ._core.snp_identity import (
     IDENTITY_DROP_COLUMNS,
     clean_identity_artifact_table,
     coerce_identity_drop_frame,

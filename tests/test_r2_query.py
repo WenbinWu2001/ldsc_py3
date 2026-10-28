@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 import ldsc._kernel.ref_panel_builder as kernel_builder
-from ldsc._kernel.snp_identity import sidecar_identity_sha256
+from ldsc._core.snp_identity import sidecar_identity_sha256
 from ldsc.r2_query import unbiased_r2_to_pearson_r
 
 pytest.importorskip("pyarrow")

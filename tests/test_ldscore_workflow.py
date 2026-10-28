@@ -41,9 +41,9 @@ try:
         _normalize_run_args,
         _resolve_regression_region_build,
     )
-    from ldsc._kernel import formats as kernel_formats
+    from ldsc._core import plink_files as kernel_formats
     from ldsc._kernel import ldscore as kernel_ldscore
-    from ldsc._kernel.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
+    from ldsc._core.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
 except ImportError:
     AnnotationBuildConfig = None
     AnnotationBuilder = None
@@ -2466,7 +2466,7 @@ class IndexBindingTest(unittest.TestCase):
 
     def test_validate_binding_raises_on_hash_mismatch(self):
         from ldsc._kernel import ldscore as ls
-        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        from ldsc._core.snp_identity import sidecar_identity_sha256
         with tempfile.TemporaryDirectory() as tmp:
             meta, df = self._sidecar(tmp)
             good = sidecar_identity_sha256(df)
@@ -2506,7 +2506,7 @@ class IndexRemapTest(unittest.TestCase):
 class IndexReaderDecodeTest(unittest.TestCase):
     def _make_panel(self, tmp):
         from ldsc._kernel import ref_panel_builder as kb
-        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        from ldsc._core.snp_identity import sidecar_identity_sha256
 
         full = pd.DataFrame({"CHR": ["1"] * 4, "POS": [10, 20, 30, 40],
                              "SNP": ["a", "b", "c", "d"], "A1": list("ACGT"),
@@ -2552,7 +2552,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_ldscore_accepts_equal_recorded_r2_panel_window(self):
         from ldsc._kernel import ref_panel_builder as kb
-        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        from ldsc._core.snp_identity import sidecar_identity_sha256
 
         panel = pd.DataFrame(
             {
@@ -2598,7 +2598,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_ldscore_rejects_window_wider_than_recorded_r2_panel_window(self):
         from ldsc._kernel import ref_panel_builder as kb
-        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        from ldsc._core.snp_identity import sidecar_identity_sha256
 
         panel = pd.DataFrame(
             {
@@ -2646,7 +2646,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_ldscore_rejects_any_strictly_larger_same_mode_window(self):
         from ldsc._kernel import ref_panel_builder as kb
-        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        from ldsc._core.snp_identity import sidecar_identity_sha256
 
         panel = pd.DataFrame(
             {
@@ -2692,7 +2692,7 @@ class R2PanelWindowValidationTest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_ldscore_rejects_requested_window_mode_differing_from_r2_panel_mode(self):
         from ldsc._kernel import ref_panel_builder as kb
-        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        from ldsc._core.snp_identity import sidecar_identity_sha256
 
         panel = pd.DataFrame(
             {
@@ -2748,7 +2748,7 @@ class IndexCrossModeParityTest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_ld_scores_identical_across_modes_from_one_index_parquet(self):
         from ldsc._kernel import ref_panel_builder as kb
-        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        from ldsc._core.snp_identity import sidecar_identity_sha256
 
         panel = pd.DataFrame({
             "CHR": ["1"] * 4, "POS": [100, 120, 140, 160], "SNP": ["rs1", "rs2", "rs3", "rs4"],
@@ -2816,7 +2816,7 @@ class R2DequantizationTest(unittest.TestCase):
     def test_reader_dequantizes_int16_panel_to_float32(self):
         from ldsc._kernel import ref_panel_builder as kb
         from ldsc._kernel import ldscore as kernel_ldscore
-        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        from ldsc._core.snp_identity import sidecar_identity_sha256
         panel = pd.DataFrame({"CHR": ["1"] * 3, "POS": [100, 120, 140],
                               "SNP": ["rs1", "rs2", "rs3"], "A1": ["A"] * 3, "A2": ["C"] * 3,
                               "CM": [0.0] * 3, "MAF": [0.3] * 3})
@@ -2905,7 +2905,7 @@ def _chr22_available() -> bool:
 
 
 def test_regression_region_mask_leaves_reference_counts_and_ld_contributors_intact():
-    from ldsc._kernel import regions
+    from ldsc._core import regions
 
     metadata = pd.DataFrame(
         {
@@ -2966,7 +2966,7 @@ def test_regression_region_mask_leaves_reference_counts_and_ld_contributors_inta
 
 
 def test_gene_list_mhc_query_keeps_reference_counts_but_not_regression_row(tmp_path):
-    from ldsc._kernel import regions
+    from ldsc._core import regions
 
     baseline = tmp_path / "baseline.annot"
     genes = tmp_path / "hla.txt"

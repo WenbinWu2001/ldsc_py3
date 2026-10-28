@@ -730,7 +730,7 @@ def test_plink_atom_operator_matches_direct_union_in_atom_batches(tmp_path, snp_
         if snp_identifier.startswith("rsid")
         else set(metadata["CHR"].astype(str) + ":" + metadata["POS"].astype(str))
     )
-    from ldsc._kernel.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
+    from ldsc._core.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
     regression_keys = RestrictionIdentityKeys(regression_keys, "base", empty_identity_drop_frame(), len(metadata), len(regression_keys))
     gene_intervals = np.array([[0, 4], [2, 7], [3, 5]], dtype=np.int64)
 

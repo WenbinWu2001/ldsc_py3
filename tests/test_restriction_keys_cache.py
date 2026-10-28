@@ -7,8 +7,8 @@ still returning equal keys. The cache must invalidate when the file content,
 identifier mode, or genome build changes.
 """
 
-import ldsc._kernel.identifiers as identifiers
-from ldsc._kernel.identifiers import (
+import ldsc._core.identifiers as identifiers
+from ldsc._core.identifiers import (
     clear_snp_restriction_keys_cache,
     read_snp_restriction_keys,
 )

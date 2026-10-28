@@ -22,7 +22,7 @@ try:
     from ldsc import sumstats_munger as sumstats_workflow
     from ldsc._kernel import sumstats_munger as kernel_munge
     from ldsc import _sumstats_input as munge_input
-    from ldsc._kernel.snp_identity import IDENTITY_DROP_COLUMNS
+    from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS
     from ldsc.sumstats_munger import SumstatsMunger
 except ImportError:
     ldsc = None

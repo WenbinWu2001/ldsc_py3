@@ -50,8 +50,8 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
-from ..column_inference import (
+from .._core.coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
+from .._core.columns import (
     A1_COLUMN_SPEC,
     A2_COLUMN_SPEC,
     REFERENCE_METADATA_SPEC_MAP,
@@ -60,14 +60,14 @@ from ..column_inference import (
     resolve_optional_column,
     resolve_required_column,
 )
-from ..chromosome_inference import chrom_sort_key, normalize_chromosome
+from .._core.chromosomes import chrom_sort_key, normalize_chromosome
 from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
-from . import formats as legacy_parse
-from .identifiers import build_snp_id_series
+from .._core import plink_files as legacy_parse
+from .._core.identifiers import build_snp_id_series
 from .overlap import OverlapContribution, compute_overlap, annotation_statistics
 from .plink_bed import PlinkBEDFile  # Re-exported for the reference-panel adapters.
 from .ldscore_projection import ArrayAnnotations, ProjectionAccumulator
-from .snp_identity import (
+from .._core.snp_identity import (
     RestrictionIdentityKeys,
     empty_identity_drop_frame,
     effective_merge_key_series,
@@ -76,7 +76,7 @@ from .snp_identity import (
     restriction_membership_mask,
     sidecar_identity_sha256,
 )
-from .regions import RegionIntervals, region_exclusion_keep_mask
+from .._core.regions import RegionIntervals, region_exclusion_keep_mask
 
 
 LOGGER = logging.getLogger("LDSC.ldscore")

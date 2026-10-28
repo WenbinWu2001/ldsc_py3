@@ -14,9 +14,9 @@ from typing import Iterable, Iterator, Sequence
 import numpy as np
 import pandas as pd
 
-from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
-from ..chromosome_inference import chrom_sort_key, normalize_chromosome
-from ..column_inference import (
+from .._core.coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
+from .._core.chromosomes import chrom_sort_key, normalize_chromosome
+from .._core.columns import (
     CHR_COLUMN_SPEC,
     POS_COLUMN_SPEC,
     ColumnSpec,
@@ -26,7 +26,7 @@ from ..column_inference import (
 )
 from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError
 from .liftover import LiftOverMappingResult, LiftOverTranslator
-from .snp_identity import (
+from .._core.snp_identity import (
     RestrictionIdentityKeys,
     allele_set_series,
     base_key_series,

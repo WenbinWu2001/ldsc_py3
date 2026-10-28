@@ -12,7 +12,7 @@ import random
 import numpy as np
 import pandas as pd
 
-import ldsc._kernel.snp_identity as si
+import ldsc._core.snp_identity as si
 
 
 def _scalar_reference(frame: pd.DataFrame) -> tuple[pd.Series, pd.Series]:

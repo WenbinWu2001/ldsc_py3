@@ -51,7 +51,7 @@ CHR, hg19_POS, hg38_POS
 A placement is accepted when it lies on an autosome's assembled molecule and
 one of its single-base REF/ALT pairs reduces to the same allele-set token as
 the w_hm3 A1/A2 pair. The token is the package's allele identity
-(``ldsc._kernel.snp_identity``): unordered, with a strand flip treated as the
+(``ldsc._core.snp_identity``): unordered, with a strand flip treated as the
 same pair, so a dbSNP T/C placement matches a w_hm3 A/G SNP.
 
 Skipped SNPs are written to the drop report with one reason each.
@@ -69,7 +69,7 @@ import re
 
 import pandas as pd
 
-from ldsc._kernel.snp_identity import allele_set_series, normalize_allele_set
+from ldsc._core.snp_identity import allele_set_series, normalize_allele_set
 from ldsc.errors import LDSCInputError
 
 AUTOSOMES = tuple(str(chrom) for chrom in range(1, 23))

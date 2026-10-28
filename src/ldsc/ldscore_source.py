@@ -18,11 +18,11 @@ import pyarrow.parquet as pq
 
 from .annotation_semantics import require_unique_annotation_names
 from .config import ConfigMismatchError, GlobalConfig
-from .column_inference import normalize_snp_identifier_mode
+from ._core.columns import normalize_snp_identifier_mode
 from .errors import LDSCInputError, LDSCInternalError
-from ._row_alignment import assert_same_snp_rows
-from ._kernel.identifiers import build_snp_id_series
-from ._kernel.snp_identity import (
+from ._core.row_alignment import assert_same_snp_rows
+from ._core.identifiers import build_snp_id_series
+from ._core.snp_identity import (
     effective_merge_key_series,
     is_allele_aware_mode,
     validate_identity_artifact_metadata,

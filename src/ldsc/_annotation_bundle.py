@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from ._annotation_storage import AnnotationShard, AnnotationWorkspace, FrameSpool, TsvDiagnostics
 from .annotation_semantics import require_unique_annotation_names
-from .chromosome_inference import normalize_chromosome
+from ._core.chromosomes import normalize_chromosome
 from .config import GlobalConfig
 from .errors import LDSCInternalError
 

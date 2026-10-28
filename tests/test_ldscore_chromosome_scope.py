@@ -84,7 +84,7 @@ def write_r2_inputs(tmp_path):
     import numpy as np
     import pandas as pd
     from ldsc._kernel.ref_panel_builder import write_runtime_metadata_sidecar, write_r2_parquet
-    from ldsc._kernel.snp_identity import sidecar_identity_sha256
+    from ldsc._core.snp_identity import sidecar_identity_sha256
 
     args = write_inputs(tmp_path)
     directory = tmp_path / "r2"

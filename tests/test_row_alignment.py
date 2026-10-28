@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 
-from ldsc._row_alignment import assert_same_snp_rows
+from ldsc._core.row_alignment import assert_same_snp_rows
 from ldsc.errors import LDSCInputError
 
 

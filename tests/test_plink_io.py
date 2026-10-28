@@ -10,7 +10,7 @@ from numpy.testing import assert_array_almost_equal, assert_array_equal
 import pandas as pd
 
 
-from ldsc._kernel import formats as ps
+from ldsc._core import plink_files as ps
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError
 
 try:
@@ -178,7 +178,7 @@ class IndexParquetRuntimeTest(unittest.TestCase):
 
     def _write_index_panel(self, tmpdir, panel_meta, pairs, *, genome_build="hg19", row_group_size=2):
         from ldsc._kernel import ref_panel_builder as kb
-        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        from ldsc._core.snp_identity import sidecar_identity_sha256
 
         r2 = Path(tmpdir) / "chr1_r2.parquet"
         meta = Path(tmpdir) / "chr1_meta.tsv.gz"

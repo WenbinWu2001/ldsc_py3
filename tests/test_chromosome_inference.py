@@ -5,7 +5,7 @@ import warnings
 
 import pandas as pd
 
-from ldsc.chromosome_inference import (
+from ldsc._core.chromosomes import (
     STANDARD_CHROMOSOMES,
     chrom_sort_key,
     normalize_chromosome,

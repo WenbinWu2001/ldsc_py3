@@ -13,10 +13,10 @@ import pandas as pd
 from pyarrow import ArrowNotImplementedError
 import pyarrow.parquet as pq
 
-from ._coordinates import normalize_chr_pos_frame
+from ._core.coordinates import normalize_chr_pos_frame
 from ._genome_build_policy import _SAMPLE_ROWS, _table_frames, _text_options
 from ._result_files import declared_result_file
-from .column_inference import (
+from ._core.columns import (
     RESTRICTION_CHRPOS_SPEC_MAP, RESTRICTION_HG19_POS_SPEC, RESTRICTION_HG38_POS_SPEC,
     normalize_genome_build, resolve_optional_column,
 )

@@ -16,8 +16,8 @@ from ._logging import LOG_LEVEL_HELP
 from ._annotation_bundle import AnnotationBundle
 from ._annotation_loading import build_annotation_shards
 from ._annotation_storage import AnnotationWorkspace
-from ._kernel.identifiers import normalize_snp_identifier_mode
-from ._kernel.snp_identity import identity_mode_family
+from ._core.identifiers import normalize_snp_identifier_mode
+from ._core.snp_identity import identity_mode_family
 from ._logging import materializing_overwrite_guard
 from .annotate_workflow import run_annotate
 from .config import AnnotationBuildConfig, GlobalConfig

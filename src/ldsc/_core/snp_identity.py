@@ -24,7 +24,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
+from .coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 
 SNPIdentifierMode = Literal["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"]

@@ -65,8 +65,8 @@ A near-limit Slurm/cgroup peak alone establishes neither a Python leak nor a min
 
 ## Identity and pair-query reuse
 
-[`_kernel/snp_identity.py`](../../../src/ldsc/_kernel/snp_identity.py) normalizes allele sets with vectorized lookups while preserving identity and rejection reasons.
-[`read_snp_restriction_keys()`](../../../src/ldsc/_kernel/identifiers.py) parses and collapses a restriction map once per process and file-identity/mode/build key, so shared reference and regression restrictions can reuse it.
+[`_core/snp_identity.py`](../../../src/ldsc/_core/snp_identity.py) normalizes allele sets with vectorized lookups while preserving identity and rejection reasons.
+[`read_snp_restriction_keys()`](../../../src/ldsc/_core/identifiers.py) parses and collapses a restriction map once per process and file-identity/mode/build key, so shared reference and regression restrictions can reuse it.
 The key includes resolved path, modification time, and size; this is a reuse key, not a content-integrity guarantee.
 The cache retains full filters, has no automatic eviction, and can be reset with `clear_snp_restriction_keys_cache()` in long-lived callers.
 Inputs are expected to remain unchanged during a workflow.

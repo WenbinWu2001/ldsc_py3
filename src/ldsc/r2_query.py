@@ -21,7 +21,7 @@ import pandas as pd
 
 from ._cli_help import CLIHelpFormatter
 from ._logging import LOG_LEVEL_HELP
-from ._kernel.identifiers import build_snp_id_series
+from ._core.identifiers import build_snp_id_series
 from ._kernel.ldscore import _load_full_panel_sidecar, _validate_index_binding, read_r2_parquet_contracts
 from ._kernel.r2_query import lookup_pairs_in_parquet
 from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
@@ -31,7 +31,7 @@ from ._kernel.ref_panel import (
     _r2_dir_metadata_paths,
     _r2_dir_r2_paths,
 )
-from ._kernel.snp_identity import (
+from ._core.snp_identity import (
     COMPLEMENT,
     allele_set_series,
     base_key_series,
@@ -40,8 +40,8 @@ from ._kernel.snp_identity import (
     is_allele_aware_mode,
     normalize_snp_identifier_mode,
 )
-from .chromosome_inference import normalize_chromosome
-from .column_inference import (
+from ._core.chromosomes import normalize_chromosome
+from ._core.columns import (
     A1_COLUMN_SPEC,
     A2_COLUMN_SPEC,
     CHR_COLUMN_SPEC,

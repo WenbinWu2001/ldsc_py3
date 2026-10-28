@@ -16,7 +16,7 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from ..chromosome_inference import normalize_chromosome
+from .chromosomes import normalize_chromosome
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 
 # Active CLI presets: ``mhc`` (broad chr6:25-35Mb window) and ``centromeres``

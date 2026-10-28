@@ -68,7 +68,7 @@ import pandas as pd
 from ._serial_calculation import serial_calculation
 from ._cli_help import CLIHelpFormatter, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
-from ._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
+from ._core.coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from .config import (
     GlobalConfig,
     RegressionConfig,
@@ -80,7 +80,7 @@ from .path_resolution import ensure_output_directory, normalize_path_token
 from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ._kernel import regression as reg
 from ._kernel._jackknife import JackknifeIdentifiabilityError
-from ._kernel.snp_identity import (
+from ._core.snp_identity import (
     clean_identity_artifact_table,
     effective_merge_key_series,
     identity_base_mode,
@@ -88,9 +88,9 @@ from ._kernel.snp_identity import (
     is_allele_aware_mode,
     resolve_regression_identity_mode,
 )
-from ._row_alignment import assert_same_snp_rows
+from ._core.row_alignment import assert_same_snp_rows
 from ._parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _validate_workers
-from .column_inference import infer_chr_pos_columns, normalize_snp_identifier_mode
+from ._core.columns import infer_chr_pos_columns, normalize_snp_identifier_mode
 from .ldscore_calculator import LDScoreResult
 from .ldscore_source import LDScoreSource, load_ldscore_from_dir
 from .outputs import (

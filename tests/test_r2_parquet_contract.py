@@ -20,7 +20,7 @@ from ldsc.errors import LDSCInputError
 from ldsc._input_preflight import inspect_r2_headers
 from ldsc._kernel import ref_panel_builder as kb
 from ldsc._kernel.ref_panel import ParquetR2RefPanel
-from ldsc._kernel.snp_identity import sidecar_identity_sha256
+from ldsc._core.snp_identity import sidecar_identity_sha256
 from ldsc.r2_query import R2Panel
 
 ANCHOR = "docs/user-guide/troubleshooting.md#ldscore-r2-panel-is-incompatible"

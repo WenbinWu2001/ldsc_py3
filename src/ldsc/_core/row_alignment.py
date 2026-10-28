@@ -5,11 +5,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ._coordinates import positive_int_position_series
-from .chromosome_inference import chrom_sort_key
-from ._kernel.snp_identity import effective_merge_key_series, identity_mode_family, is_allele_aware_mode
-from .column_inference import POS_COLUMN_SPEC, normalize_snp_identifier_mode, resolve_optional_column
-from .errors import LDSCInputError
+from .coordinates import positive_int_position_series
+from .chromosomes import chrom_sort_key
+from .snp_identity import effective_merge_key_series, identity_mode_family, is_allele_aware_mode
+from .columns import POS_COLUMN_SPEC, normalize_snp_identifier_mode, resolve_optional_column
+from ..errors import LDSCInputError
 
 
 NUMERIC_METADATA_COLUMNS = ("CM", "MAF")

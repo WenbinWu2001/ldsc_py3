@@ -23,7 +23,7 @@ from ._serial_calculation import serial_calculation
 from ._cli_help import CLIHelpFormatter
 from ._logging import LOG_LEVEL_HELP
 from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
-from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
+from ._core.columns import normalize_genome_build, normalize_snp_identifier_mode
 from .config import GlobalConfig, get_global_config
 from .errors import LDSCInputError, LDSCUsageError
 from .ldscore_calculator import LDScoreResult

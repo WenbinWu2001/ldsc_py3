@@ -18,7 +18,7 @@ import warnings
 
 import pandas as pd
 
-from .column_inference import (
+from ._core.columns import (
     RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS,
     RAW_SUMSTATS_SIGNED_STAT_SPECS,
     build_cleaned_alias_lookup,
@@ -27,7 +27,7 @@ from .column_inference import (
 from .config import GlobalConfig, MungeConfig
 from .errors import LDSCInputError, LDSCUsageError
 from ._kernel.liftover import SumstatsLiftoverRequest
-from ._kernel.snp_identity import identity_base_mode, identity_mode_family, is_allele_aware_mode
+from ._core.snp_identity import identity_base_mode, identity_mode_family, is_allele_aware_mode
 from ._kernel.sumstats_munger import MungeQC, ResolvedMungeInput, prepare_sumstats_restriction
 
 LOGGER = logging.getLogger('LDSC.sumstats_munger')

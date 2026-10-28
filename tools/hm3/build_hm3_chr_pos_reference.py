@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ldsc._kernel.snp_identity import allele_set_series
+from ldsc._core.snp_identity import allele_set_series
 from ldsc.errors import LDSCUsageError
 from ldsc.hm3 import _load_hm3_curated_map_from_path, packaged_hm3_curated_map_path
 

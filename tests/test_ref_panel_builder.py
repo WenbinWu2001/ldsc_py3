@@ -18,7 +18,7 @@ import pandas as pd
 
 
 from ldsc._kernel import ref_panel_builder as kernel_builder
-from ldsc._kernel.snp_identity import IDENTITY_DROP_COLUMNS, RestrictionIdentityKeys, empty_identity_drop_frame
+from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS, RestrictionIdentityKeys, empty_identity_drop_frame
 from ldsc.config import GlobalConfig, ReferencePanelBuildConfig
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from ldsc import ldscore_calculator, ref_panel_builder, reset_global_config, set_global_config
@@ -2796,7 +2796,7 @@ class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):
 
     def test_built_parquet_records_binding_hash_matching_its_sidecar(self):
         import pyarrow.parquet as pq
-        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        from ldsc._core.snp_identity import sidecar_identity_sha256
 
         prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
         if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
@@ -3207,7 +3207,7 @@ class IndexArrowTableTest(unittest.TestCase):
 
 class SidecarIdentityHashTest(unittest.TestCase):
     def test_hash_is_stable_and_order_sensitive(self):
-        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        from ldsc._core.snp_identity import sidecar_identity_sha256
 
         df = pd.DataFrame(
             {"CHR": ["1", "1", "1"], "POS": [10, 20, 30],
@@ -3222,7 +3222,7 @@ class SidecarIdentityHashTest(unittest.TestCase):
         self.assertNotEqual(sidecar_identity_sha256(reordered), h1)
 
     def test_hash_ignores_snp_cm_maf_but_not_alleles(self):
-        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        from ldsc._core.snp_identity import sidecar_identity_sha256
 
         base = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rsA"], "A1": ["A"], "A2": ["G"]})
         changed_snp = base.assign(SNP=["rs999"])

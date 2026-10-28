@@ -18,7 +18,7 @@ from ._annotation_sources import (
 )
 from ._annotation_storage import AnnotationShard, FrameSpool
 from ._input_preflight import InputGate
-from .chromosome_inference import chrom_sort_key, normalize_chromosome
+from ._core.chromosomes import chrom_sort_key, normalize_chromosome
 from .errors import LDSCInputError
 
 

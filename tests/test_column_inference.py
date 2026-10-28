@@ -3,8 +3,8 @@ import unittest
 import warnings
 
 
-from ldsc import column_inference as ci
-from ldsc.column_inference import (
+from ldsc._core import columns as ci
+from ldsc._core.columns import (
     POS_COLUMN_SPEC,
     resolve_restriction_chr_pos_columns,
     resolve_restriction_rsid_column,

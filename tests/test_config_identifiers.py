@@ -21,8 +21,8 @@ from ldsc.config import (
     normalize_genome_build,
 )
 from ldsc.genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
-from ldsc.column_inference import clean_header
-from ldsc._kernel.identifiers import (
+from ldsc._core.columns import clean_header
+from ldsc._core.identifiers import (
     build_chr_pos_snp_id,
     build_snp_id_series,
     infer_chr_pos_columns,
@@ -33,8 +33,8 @@ from ldsc._kernel.identifiers import (
     read_snp_restriction_keys,
     validate_unique_snp_ids,
 )
-from ldsc.column_inference import A1_COLUMN_SPEC, A2_COLUMN_SPEC, RESTRICTION_ALLELE_SPECS
-from ldsc._row_alignment import assert_same_snp_rows
+from ldsc._core.columns import A1_COLUMN_SPEC, A2_COLUMN_SPEC, RESTRICTION_ALLELE_SPECS
+from ldsc._core.row_alignment import assert_same_snp_rows
 
 
 class GlobalConfigTest(unittest.TestCase):

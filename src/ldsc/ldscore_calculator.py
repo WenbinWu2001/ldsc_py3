@@ -45,15 +45,15 @@ from ._ldscore_diagnostics import ldscore_logs, chromosome_log, report_chromosom
 from ._direct_ldscore_batches import DirectChromosomeFragment, stage_direct_chromosome
 from ._ldscore_fragments import StagedLDScoreBatch
 from ._query_variation import combine_variation
-from .chromosome_inference import chrom_sort_key
+from ._core.chromosomes import chrom_sort_key
 from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from ._logging import LOG_LEVEL_HELP
 from ._parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _run_chromosome_tasks, _validate_workers
 from ._progress import report_phase, PhaseProgress
 from ._annotation_storage import TsvDiagnostics
 from .ldscore_source import LDScoreSource
-from ._kernel.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, identity_mode_family, is_allele_aware_mode
-from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
+from ._core.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, identity_mode_family, is_allele_aware_mode
+from ._core.columns import normalize_genome_build, normalize_snp_identifier_mode
 from .config import (
     DEFAULT_SNP_BATCH_SIZE,
     GlobalConfig,
@@ -79,13 +79,13 @@ from .path_resolution import (
 )
 from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ._kernel import ldscore as kernel_ldscore
-from ._kernel import regions as kernel_regions
+from ._core import regions as kernel_regions
 from ._kernel.overlap import OverlapContribution, sum_overlap_contributions
-from ._kernel.regions import REGR_SNPS_EXCLUDE_REGIONS_CHOICES, regr_snps_exclude_regions_choice_to_presets
+from ._core.regions import REGR_SNPS_EXCLUDE_REGIONS_CHOICES, regr_snps_exclude_regions_choice_to_presets
 from ._kernel.ref_panel_builder import SIDECAR_FLOAT_FORMAT
-from ._kernel.identifiers import build_snp_id_series, read_snp_restriction_keys
-from ._kernel.snp_identity import RestrictionIdentityKeys
-from ._row_alignment import assert_same_snp_rows, sort_frame_by_genomic_position
+from ._core.identifiers import build_snp_id_series, read_snp_restriction_keys
+from ._core.snp_identity import RestrictionIdentityKeys
+from ._core.row_alignment import assert_same_snp_rows, sort_frame_by_genomic_position
 from .errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .query_annotations import (
     QueryAnnotationStatus, finalize_query_statuses, finalize_query_measurements, gene_query_statuses, gene_viability_errors,

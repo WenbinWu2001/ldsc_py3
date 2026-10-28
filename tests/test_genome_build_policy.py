@@ -71,7 +71,7 @@ def test_annotate_checks_every_bim_before_publication(tmp_path):
 
 
 def test_restriction_prefers_matching_build_column(tmp_path):
-    from ldsc._kernel.identifiers import read_snp_restriction_keys
+    from ldsc._core.identifiers import read_snp_restriction_keys
     path = tmp_path / 'keep.tsv'
     pd.DataFrame({'CHR': [1], 'POS': [999], 'hg19_POS': [123], 'hg38_POS': [456]}).to_csv(path, sep='\t', index=False)
     keys = read_snp_restriction_keys(path, 'chr_pos', genome_build='hg19')

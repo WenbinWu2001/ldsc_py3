@@ -8,10 +8,10 @@ from os import PathLike
 
 import pandas as pd
 
-from .chromosome_inference import normalize_chromosome
-from .column_inference import A1_COLUMN_SPEC, A2_COLUMN_SPEC, CHR_COLUMN_SPEC, SNP_COLUMN_SPEC, ColumnSpec, resolve_required_column
+from ._core.chromosomes import normalize_chromosome
+from ._core.columns import A1_COLUMN_SPEC, A2_COLUMN_SPEC, CHR_COLUMN_SPEC, SNP_COLUMN_SPEC, ColumnSpec, resolve_required_column
 from .errors import LDSCInputError
-from ._coordinates import positive_int_position_series
+from ._core.coordinates import positive_int_position_series
 
 
 HM3_HG19_POS_SPEC = ColumnSpec(

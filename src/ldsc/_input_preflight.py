@@ -111,7 +111,7 @@ def _inspect_file_header(role, path):
     """Inspect bounded generic headers using the existing schema vocabulary."""
     _readable(path)
     if role in {'genetic_map_hg19_sources', 'genetic_map_hg38_sources'}:
-        from .column_inference import resolve_required_column, CHR_COLUMN_SPEC, POS_COLUMN_SPEC
+        from ._core.columns import resolve_required_column, CHR_COLUMN_SPEC, POS_COLUMN_SPEC
         from ._kernel.ref_panel_builder import GENETIC_MAP_CM_SPEC
         columns = pd.read_csv(path, sep=r'\s+', nrows=0).columns
         for spec in (CHR_COLUMN_SPEC, POS_COLUMN_SPEC, GENETIC_MAP_CM_SPEC):

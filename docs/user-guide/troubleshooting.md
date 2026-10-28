@@ -248,7 +248,7 @@ Inference uses bounded samples from every relevant file/chromosome and retains t
 2. Keep LDSC-generated data files and their sidecars together; do not hand-edit them.
 3. If you need a different `snp_identifier` or `genome_build`, regenerate from the upstream input.
 
-**Developer reference:** `_kernel.snp_identity.validate_identity_artifact_metadata()` and artifact reload guards · **Exception:** `LDSCInputError`
+**Developer reference:** `_core.snp_identity.validate_identity_artifact_metadata()` and artifact reload guards · **Exception:** `LDSCInputError`
 
 ## `munge-sumstats`
 
@@ -792,7 +792,7 @@ SNP selection is checked for every chromosome before any genotypes are read, and
    A concrete `--source-genome-build` bypasses fresh inference and must agree with declarations; it does not convert positions.
 3. Fix ragged rows or delimiter/header issues before rerunning.
 
-**Developer reference:** `ref_panel_builder.ReferencePanelBuilder._resolve_source_genome_build()`, `_genome_build_policy.GenomeBuildCheck`, and `column_inference.resolve_restriction_chr_pos_columns()` · **Exception:** `LDSCInputError`
+**Developer reference:** `ref_panel_builder.ReferencePanelBuilder._resolve_source_genome_build()`, `_genome_build_policy.GenomeBuildCheck`, and `_core.columns.resolve_restriction_chr_pos_columns()` · **Exception:** `LDSCInputError`
 
 ### `build-r2-panel`: reference-panel artifact is incompatible
 

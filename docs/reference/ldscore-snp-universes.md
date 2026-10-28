@@ -59,14 +59,14 @@ changes the reference/causal universe and the numerical LD scores.
 The `w_ld` exception is deliberate: it is an overcounting weight calculated
 within regression SNPs, so it follows the filtered regression-SNP universe.
 
-The original LDSC paper removes long-range-LD and pericentromeric variants
+The first LD score regression paper removes long-range-LD and pericentromeric variants
 from LD-score regression while retaining the former in LD-score estimation.
 The stratified-LDSC supplement separately defines HapMap3 regression SNPs and
 a broad 1000 Genomes reference/causal universe. See:
 
 - [Bulik-Sullivan et al. 2015](https://pmc.ncbi.nlm.nih.gov/articles/PMC4495769/)
 - [Finucane et al. 2015](https://www.nature.com/articles/ng.3404)
-- [official LDSC partitioned-heritability documentation](https://github.com/bulik/ldsc/wiki/Partitioned-Heritability)
+- [legacy LDSC partitioned-heritability wiki](https://github.com/bulik/ldsc/wiki/Partitioned-Heritability)
 
 The legacy implementation confirms the mechanism: it computes LD scores over
 the full genotype/annotation matrix, applies `--print-snps` only when writing

@@ -332,7 +332,7 @@ writes the explicit missing token **`NA`** for `CM` and **no** `MAF` column, so
 every row has the same field count as its header while the artifacts stay
 population-agnostic. Readers normalize `NA` back to a missing `CM`; annotation
 value columns must be numeric and non-missing. This `BP` spelling is a narrow text-interoperability
-choice, not a promise that LDSC3 output is supported as LDSC2 input. LDSC3
+choice, not a promise that LDSC3 output is supported as legacy input. LDSC3
 normalizes `BP` back to canonical internal `POS` when reading annotations.
 
 Annotation `A1` and `A2` must either both be present or both be omitted. Omitting them is supported in every SNP identifier mode: annotations then match by base SNP identity, and allele-aware LD-score calculation obtains alleles from the reference panel. Supplying only one allele column is a structural error; removing both does not require switching the workflow to a base identifier mode.

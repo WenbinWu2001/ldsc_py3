@@ -252,7 +252,7 @@ class LDScoreResult:
         Validated input chromosome coverage and effective analysis scope.
         Empty for workflows that do not perform query coverage preflight.
     legacy_ldsc2_import : dict or None, optional
-        Explicit converter provenance for an LDSC2 LD-score suite. ``None``
+        Explicit converter provenance for a legacy LD-score suite. ``None``
         for natively computed LDSC3 results.
     annotation_types : dict of str to str, optional
         Per-column semantic classification used for interpretation only.

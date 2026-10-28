@@ -1,11 +1,11 @@
-# Migrating from LDSC2
+# Migrating from legacy LDSC
 
 Last updated on: 2026-10-27
 
-LDSC3 implements the same method as LDSC2, LD score regression (LDSC), behind one `ldsc` command with subcommands and new file formats.
+LDSC3 implements the same method as legacy LDSC, LD score regression (LDSC), behind one `ldsc` command with subcommands and new file formats.
 Build new commands from `ldsc COMMAND --help` and the workflow pages rather than translating old ones line by line.
-The [LDSC2 flag map](../../reference/ldsc2-flag-map.md) lists the replacement for each changed LDSC2 flag, the removed flags, and the behaviors that changed on purpose, such as exact PLINK LD windows.
-This page summarizes what changed, which LDSC2 files you can reuse, and how to convert an LDSC2 LD-score suite.
+The [legacy LDSC flag map](../../reference/legacy-flag-map.md) lists the replacement for each changed legacy LDSC flag, the removed flags, and the behaviors that changed on purpose, such as exact PLINK LD windows.
+This page summarizes what changed, which legacy files you can reuse, and how to convert a legacy LD-score suite.
 
 ## What changed
 
@@ -20,9 +20,9 @@ This page summarizes what changed, which LDSC2 files you can reuse, and how to c
 | Regression SNPs | New LD scores default to the packaged HM3 map as regression SNPs, followed by MHC and centromere exclusion. This does not restrict the reference SNPs or the annotation counts. Munging separately restricts summary statistics to the HM3 map by default. |
 | Per-query results | `partitioned-h2` always writes one complete baseline-plus-query result per query; the removed `--write-per-query-results` flag is rejected. |
 
-## Reuse LDSC2 files
+## Reuse legacy files
 
-| LDSC2 file | Use in LDSC3 |
+| Legacy file | Use in LDSC3 |
 | --- | --- |
 | Munged `.sumstats` or `.sumstats.gz` with `SNP`, `A1`, `A2`, `Z` and `N` | Pass directly to `h2`, `partitioned-h2` or `rg` with `--sumstats-file` or `--sumstats-sources`; munging again is optional. LDSC3 matches these files by rsID to the LD-score directory and checks allele orientation; see [legacy summary statistics](../../reference/formats/legacy-sumstats.md). |
 | Raw GWAS tables | Munge with [`munge-sumstats`](munge-sumstats.md). |
@@ -30,12 +30,12 @@ This page summarizes what changed, which LDSC2 files you can reuse, and how to c
 | Complete baseline-only partitioned suite | Convert once with `convert-ldsc2-ldscores`; use the result with [`partitioned-h2`](partitioned-heritability.md) for the joint baseline model. |
 | Cell-type or other query LD scores, thin annotations, `--ref-ld-chr-cts` manifests | Not convertible. Compute query LD scores with LDSC3 from baseline annotations; see [partitioned and cell-type analyses](#partitioned-and-cell-type-analyses). |
 
-Compatibility runs one way: LDSC3 reads these LDSC2 files, but its own outputs are not promised to work in LDSC2.
+Compatibility runs one way: LDSC3 reads these legacy files, but its own outputs are not promised to work in legacy LDSC.
 The `BP` header in the `.annot.gz` files that LDSC3 writes is a narrow convenience, and LDSC3 accepts either `BP` or `POS` when reading annotation files.
 
-## Convert an LDSC2 LD-score suite
+## Convert a legacy LD-score suite
 
-`ldsc convert-ldsc2-ldscores` imports a complete LDSC2 reference and regression-weight suite into an LD-score directory, reusing the supplied LD scores without recomputing them.
+`ldsc convert-ldsc2-ldscores` imports a complete legacy reference and regression-weight suite into an LD-score directory, reusing the supplied LD scores without recomputing them.
 Regression commands then read the converted directory through `--ldscore-dir`.
 The source files are never changed.
 
@@ -44,7 +44,7 @@ The converter detects the suite type from the files, with no type flag:
 - **Unpartitioned**: reference LD scores with one value column and no annotation files; the converted directory has one baseline column named `base`, for `h2` and `rg`.
 - **Baseline partitioned**: reference LD scores with several columns plus complete full annotation files; the converted directory keeps the baseline columns, for the baseline-only form of `partitioned-h2`.
 
-Query and cell-type LD scores, thin annotations and LDSC2 summary statistics are not inputs to this command.
+Query and cell-type LD scores, thin annotations and legacy summary statistics are not inputs to this command.
 
 ### Arrange the input files
 
@@ -134,7 +134,7 @@ Frequency:       SNP MAF
 ```
 
 Frequency files need `SNP` and exactly one usable `MAF` or `FRQ` column, and every annotation SNP needs one usable frequency match by rsID.
-The converter rebuilds the annotation counts and overlaps from the annotations and frequencies, using LDSC2's strict common-SNP rule (`MAF > 0.05`, or `0.05 < FRQ < 0.95`), not the inclusive threshold of new LDSC3 LD scores.
+The converter rebuilds the annotation counts and overlaps from the annotations and frequencies, using legacy LDSC's strict common-SNP rule (`MAF > 0.05`, or `0.05 < FRQ < 0.95`), not the inclusive threshold of new LDSC3 LD scores.
 Supplied count files are checked against this reconstruction: a missing `.l2.M` is reconstructed, a missing `.l2.M_5_50` is an error, and a conflicting count is an error.
 The count policies are detailed in [legacy LD-score conversion](../../reference/formats/legacy-ldscores.md#counts).
 
@@ -169,7 +169,7 @@ Conversion never lifts over coordinates or infers alleles, so the converted LD s
 
 Munge new summary statistics with a SNP identifier mode of the same family: `rsid` against an `rsid` conversion, `chr_pos` against a `chr_pos` conversion.
 Allele-aware munged summary statistics need `--allow-identity-downgrade` at regression, and rsID and coordinate modes never mix; see [regression provenance and downgrade](../../reference/snp-identity-and-genome-build.md#regression-provenance-hierarchy-and-downgrade).
-LDSC2 `.sumstats(.gz)` files are matched by rsID automatically.
+Legacy `.sumstats(.gz)` files are matched by rsID automatically.
 
 ### Outputs
 
@@ -228,21 +228,21 @@ See [troubleshooting](../troubleshooting.md#convert-ldsc2-ldscores) for more rep
 
 ## Partitioned and cell-type analyses
 
-- LDSC2 computes new LD scores only for a query annotation and reuses precomputed baseline LD scores, annotations, frequency files and regression weights.
+- Legacy LDSC computes new LD scores only for a query annotation and reuses precomputed baseline LD scores, annotations, frequency files and regression weights.
   LDSC3 direct mode computes LD scores for the baseline and query annotations in the same run and derives the counts and weights from the reference panel; indexed mode takes the fixed baseline from a gene LD-score index and assembles the query LD scores from precomputed parts.
 - Precomputed baseline LD scores do not replace the baseline annotations: new query LD scores need the baseline annotation files, and a converted baseline directory cannot be extended with queries.
-- LDSC2 `--h2-cts` with `--ref-ld-chr-cts` becomes `ldscore` with query annotations followed by `partitioned-h2`; old cell-type manifests are not accepted.
+- Legacy LDSC `--h2-cts` with `--ref-ld-chr-cts` becomes `ldscore` with query annotations followed by `partitioned-h2`; old cell-type manifests are not accepted.
   See [partitioned heritability](partitioned-heritability.md) and [cell-type enrichment](cell-type-enrichment.md).
 - LDSC3 starts from the packaged HM3 map as regression SNPs and removes MHC and centromere SNPs from them by default.
-  LDSC2 uses the regression SNPs you supply, such as `w_hm3.print_snps`, and has no built-in MHC or centromere exclusion step.
+  Legacy LDSC uses the regression SNPs you supply, such as `w_hm3.print_snps`, and has no built-in MHC or centromere exclusion step.
 
 ## Reference
 
-- [LDSC2 flag map](../../reference/ldsc2-flag-map.md)
+- [legacy LDSC flag map](../../reference/legacy-flag-map.md)
 - [Legacy LD-score conversion](../../reference/formats/legacy-ldscores.md)
 - [Legacy summary statistics](../../reference/formats/legacy-sumstats.md)
 - [SNP identity and genome build](../../reference/snp-identity-and-genome-build.md)
 - [Artifact metadata](../../reference/formats/artifact-metadata.md)
 - [Troubleshooting](../troubleshooting.md#convert-ldsc2-ldscores)
 
-For the Python API, see [Python usage](../python-usage.md#migrating-from-ldsc2).
+For the Python API, see [Python usage](../python-usage.md#migrating-from-legacy-ldsc).

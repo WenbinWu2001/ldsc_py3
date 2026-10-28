@@ -590,8 +590,8 @@ def _require_columns(table: pd.DataFrame, required: set[str], *, label: str) -> 
     if missing:
         raise LDSCInputError(
             f"{label} is missing required plotting columns: {', '.join(missing)}."
-            " Restore the complete saved result table from the same run, or regenerate its upstream LDSC "
-            "result; do not add placeholder scientific columns."
+            " Restore the complete saved result table from the same run, or regenerate the result with the "
+            "command that wrote it; do not add placeholder scientific columns."
         )
 
 

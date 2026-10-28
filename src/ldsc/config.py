@@ -914,13 +914,13 @@ class MungeConfig:
         columns take precedence. Otherwise ``N`` is used when supplied, or
         ``N_cas + N_con`` when both counts are supplied. Defaults are ``None``.
     info_min : float or None, optional
-        Minimum INFO score. Default is ``None``: apply the LDSC2 threshold
+        Minimum INFO score. Default is ``None``: apply the legacy LDSC threshold
         ``0.9`` when an INFO column is selected and skip INFO filtering
         otherwise. An explicit value requires an INFO column; without one the
         run fails before reading rows.
     maf_min : float or None, optional
         Minimum folded minor-allele frequency. Default is ``None``: apply the
-        LDSC2 threshold ``0.01`` when a frequency column is selected and skip
+        legacy LDSC threshold ``0.01`` when a frequency column is selected and skip
         MAF filtering otherwise. An explicit value requires a frequency column.
         The input frequency is preserved as ``FRQ`` without folding whenever
         present; ``FRQ`` is omitted when no frequency column is selected.
@@ -930,7 +930,7 @@ class MungeConfig:
         1.5. Constant N is assigned after filtering and is not filtered by
         ``n_min``. Study-count filtering applies only without per-variant N;
         an omitted or zero ``nstudy_min`` uses the maximum study count.
-        Defaults are ``None``, preserving LDSC2 behavior.
+        Defaults are ``None``, preserving legacy LDSC behavior.
     chunk_size : int, optional
         Number of input rows processed per chunk. Default is ``1_000_000``.
     output_format : {"parquet", "tsv.gz", "both"}, optional

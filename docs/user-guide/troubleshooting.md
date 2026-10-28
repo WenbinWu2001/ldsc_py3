@@ -343,7 +343,7 @@ Concrete source/output build options do not apply to rsID-family munging.
 | # | Likely cause | How to check |
 |---|--------------|--------------|
 | 1 | Artifact predates the current self-describing parquet schema | Inspect the parquet footer for `ldsc:artifact_type`, `ldsc:snp_identifier`, and `ldsc:genome_build` |
-| 2 | The artifact is footerless Parquet | Re-munge from the raw GWAS input to produce self-describing `sumstats.parquet`; footerless Parquet is not an LDSC2 compatibility format |
+| 2 | The artifact is footerless Parquet | Re-munge from the raw GWAS input to produce self-describing `sumstats.parquet`; footerless Parquet is not a legacy compatibility format |
 | 3 | Identity provenance in the parquet footer is invalid/corrupt | Inspect the footer identity fields against the current contract |
 | 4 | An allele-aware `snp_identifier` artifact lacks A1/A2 columns | `python3 -c "import pandas; print(pandas.read_parquet('<f>').columns)"` |
 | 5 | Duplicate/invalid SNP-identity rows survived in the artifact | Re-munge from raw input; the loader reports the dropped-row reasons |
@@ -352,7 +352,7 @@ Concrete source/output build options do not apply to rsID-family munging.
 
 1. Re-run `ldsc munge-sumstats` from the **raw** GWAS file to regenerate the
    artifact with the current schema.
-2. A genuine LDSC2 `.sumstats` or `.sumstats.gz` text artifact is accepted
+2. A genuine legacy `.sumstats` or `.sumstats.gz` text artifact is accepted
    directly by regression when it contains `SNP`, `A1`, `A2`, `Z`, and `N`;
    see `docs/reference/formats/legacy-sumstats.md`.
 3. Do not hand-edit curated `.sumstats`/`.parquet` artifacts; treat them as outputs.
@@ -817,7 +817,7 @@ SNP selection is checked for every chromosome before any genotypes are read, and
 
 ## convert-ldsc2-ldscores
 
-The [conversion user guide](workflows/migrating-from-ldsc2.md) gives full layouts, table requirements, flags, and copy-and-rename commands. After logging starts, conversion exceptions and their remedies are recorded in `diagnostics/convert-ldsc2-ldscores.log` even at `--log-level ERROR`, with available issues in `diagnostics/conversion_issues.tsv.gz`. Invalid directory arguments or output collisions may fail before a log opens.
+The [conversion user guide](workflows/migrating-from-legacy-ldsc.md) gives full layouts, table requirements, flags, and copy-and-rename commands. After logging starts, conversion exceptions and their remedies are recorded in `diagnostics/convert-ldsc2-ldscores.log` even at `--log-level ERROR`, with available issues in `diagnostics/conversion_issues.tsv.gz`. Invalid directory arguments or output collisions may fail before a log opens.
 
 ### standard filenames and directory organization
 
@@ -1021,7 +1021,7 @@ Restore or correct the source table before retrying; changing its filename does 
 By default, every target value must be numeric and finite.
 If exactly one token denotes missingness, pass it with `--target-missing-value`; zero is retained unless explicitly selected.
 If boundary ties produce an empty quantile, reduce `--num-quantiles` or use a less discrete target, recognizing that this changes the requested grouping.
-Ties are intentionally kept in the lower-valued quantile for LDSC2 compatibility.
+Ties are intentionally kept in the lower-valued quantile for legacy compatibility.
 
 **Developer reference:** `quantile_h2._read_target_annotation()` / `quantile_h2.assign_legacy_quantiles()` · **Exception:** `LDSCInputError`
 

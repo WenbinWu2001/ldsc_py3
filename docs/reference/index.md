@@ -15,7 +15,7 @@ Task guides are in the [user guide](../user-guide/index.md), and the package int
 | Query R² for SNP pairs | `ldsc query-r2` | `query_r2()`, `R2Panel` | An R² panel directory and a SNP pair table | `query_r2.tsv` ([query-r2](query-r2.md)) |
 | Build a gene LD-score index | `ldsc build-gene-ldscore-index` | `build_gene_ldscore_index()`, `load_gene_ldscore_index()`, `GeneLDScoreIndexBuildConfig` | Baseline annotations, PLINK files, a gene coordinate catalog | A complete index directory with diagnostics ([gene LD-score index](gene-ldscore-index.md)) |
 | Compute LD scores | `ldsc ldscore` | `run_ldscore()`, `LDScoreCalculator`, `load_ldscore_from_dir()` returning `LDScoreSource` | A reference panel; optional baseline annotations; query annotations, BED files, gene lists or a gene LD-score index | An LD-score directory ([artifact metadata](formats/artifact-metadata.md#ldscore)) |
-| Convert LDSC2 LD scores | `ldsc convert-ldsc2-ldscores` | `convert_ldsc2_ldscores()`, `LegacyLDScoreConverter` | Complete chromosome 1 to 22 LDSC2 reference and weight suites | An LD-score directory and `diagnostics/conversion_issues.tsv.gz` ([legacy LD scores](formats/legacy-ldscores.md)) |
+| Convert legacy LD scores | `ldsc convert-ldsc2-ldscores` | `convert_ldsc2_ldscores()`, `LegacyLDScoreConverter` | Complete chromosome 1 to 22 legacy reference and weight suites | An LD-score directory and `diagnostics/conversion_issues.tsv.gz` ([legacy LD scores](formats/legacy-ldscores.md)) |
 | Munge summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `infer_raw_sumstats()`, `load_sumstats()` | Raw summary statistics | Munged summary statistics as Parquet, optionally also `.sumstats.gz` ([munge-sumstats](munge-sumstats.md)) |
 | Estimate SNP heritability | `ldsc h2` | `run_h2()`, `RegressionRunner.estimate_h2()` | Munged summary statistics and an LD-score directory | `h2.tsv` ([regression options](regression-options.md)) |
 | Estimate partitioned heritability | `ldsc partitioned-h2` | `run_partitioned_h2()`, `RegressionRunner.estimate_partitioned_h2()`, `RegressionRunner.estimate_partitioned_h2_batch()` | Munged summary statistics and an LD-score directory with its overlap file | `partitioned_h2.tsv` and `partitioned_h2_full.tsv` ([result columns](results/partitioned-h2.md)) |
@@ -37,7 +37,7 @@ Task guides are in the [user guide](../user-guide/index.md), and the package int
 | [Regression options](regression-options.md) | Estimator options and defaults for `h2`, `partitioned-h2` and `rg`. |
 | [Parallel execution](parallel-execution.md) | Workers and CPU budgets. |
 | [Logs and outputs](logs-and-outputs.md) | Logs, console notices, output preflight and failure markers. |
-| [LDSC2 flag map](ldsc2-flag-map.md) | LDSC2 options and their LDSC3 equivalents. |
-| [Formats](formats/) | Column schema, artifact metadata, R² panels, BED and gene-list inputs, region presets, LDSC2 files. |
+| [legacy LDSC flag map](legacy-flag-map.md) | Legacy LDSC options and their LDSC3 equivalents. |
+| [Formats](formats/) | Column schema, artifact metadata, R² panels, BED and gene-list inputs, region presets, legacy files. |
 | [Results](results/) | Partitioned-h2, quantile-h2 and gene-list diagnostic columns. |
 | [Methods](methods/) | LD-score computation and the gene LD-score index mathematics. |

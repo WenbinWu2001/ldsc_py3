@@ -6,7 +6,7 @@ This document defines the public compatibility boundary for munged summary stati
 
 ## Scope
 
-The compatibility input is a legacy whitespace-delimited `.sumstats` or `.sumstats.gz` artifact with no LDSC3 identity metadata. The no-label munging output `sumstats.gz` uses this same compatibility pathway. Footerless Parquet is not part of the LDSC2 compatibility contract.
+The compatibility input is a legacy whitespace-delimited `.sumstats` or `.sumstats.gz` artifact with no LDSC3 identity metadata. The no-label munging output `sumstats.gz` uses this same compatibility pathway. Footerless Parquet is not part of the legacy compatibility contract.
 
 Legacy munged sumstats are treated as rsID-based source inputs. Their `SNP` values are compatibility lookup keys, not assertions of the canonical LDSC3 regression identity. The canonical LDSC3 LD-score panel remains authoritative for its recorded SNP identifier mode and for panel-owned identity metadata.
 
@@ -50,7 +50,7 @@ Because every regression CLI requires an output directory, a run with at least o
 
 ## Workflow and API Behavior
 
-Compatibility projection is automatic in both the public CLI regression workflows and the public Python regression workflow. `load_sumstats()` identifies `.sumstats` and `.sumstats.gz` as legacy LDSC2 inputs; users do not call a separate converter. `RegressionRunner` projects a marked legacy table onto the supplied canonical LD-score panel before ordinary dataset assembly.
+Compatibility projection is automatic in both the public CLI regression workflows and the public Python regression workflow. `load_sumstats()` identifies `.sumstats` and `.sumstats.gz` as legacy inputs; users do not call a separate converter. `RegressionRunner` projects a marked legacy table onto the supplied canonical LD-score panel before ordinary dataset assembly.
 
 An `rg` invocation may mix current self-describing Parquet sumstats and legacy text sumstats. Each legacy input is independently projected onto the panel identity. Current Parquet inputs retain their recorded provenance and are never reinterpreted by the compatibility layer. After projection, all inputs pass through the same ordinary compatibility checks against the canonical panel.
 

@@ -53,7 +53,7 @@ _SUBCOMMAND_HELP = {
     "ldscore": "Compute LD scores.",
     "build-r2-panel": "Build pairwise R2 panels from PLINK genotypes.",
     "build-gene-ldscore-index": "Build a reusable gene LD-score index.",
-    "convert-ldsc2-ldscores": "Convert selected LDSC2 LD-score suites to LDSC3 format.",
+    "convert-ldsc2-ldscores": "Convert selected legacy LD-score suites to LDSC3 format.",
     "munge-sumstats": "Munge GWAS summary statistics.",
     "h2": "Estimate heritability from munged sumstats and LD scores.",
     "partitioned-h2": "Estimate partitioned heritability with independent query models.",

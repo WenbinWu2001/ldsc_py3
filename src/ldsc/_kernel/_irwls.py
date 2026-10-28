@@ -1,4 +1,4 @@
-# Derived from upstream LDSC ldscore/irwls.py; licensed under GPLv3 (LICENSE).
+# Derived from legacy LDSC ldscore/irwls.py; licensed under GPLv3 (LICENSE).
 # Modified 2024 for Python 3; 2026 for package imports and error reporting.
 # See NOTICE for attribution and dated modifications.
 

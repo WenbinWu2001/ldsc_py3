@@ -5,7 +5,7 @@ Last updated on: 2026-10-27
 LDSC3 is a Python 3 implementation of LD score regression (LDSC).
 It estimates SNP heritability, genetic correlation and partitioned heritability from GWAS summary statistics, computes LD scores from PLINK files or package-built R² panels, and builds annotations from BED files or gene lists.
 It provides one command, `ldsc`, and a Python package of the same name (distribution `ldsc`, version 2.0b0).
-LDSC2, the original Python 2 software, is described with its differences in [migrating from LDSC2](docs/user-guide/workflows/migrating-from-ldsc2.md).
+Legacy LDSC, the original Python 2 software, is described with its differences in [migrating from legacy LDSC](docs/user-guide/workflows/migrating-from-legacy-ldsc.md).
 
 ## Install
 
@@ -50,12 +50,12 @@ Authors: **Wenbin Wu, Anthony Abrantes, Brendan Bulik-Sullivan, and Hilary Finuc
 Maintainer: **Wenbin Wu** ([drkwu999@gmail.com](mailto:drkwu999@gmail.com)).
 Report package issues in the [issue tracker](https://github.com/WenbinWu2001/ldsc_py3/issues).
 
-Brendan Bulik-Sullivan and Hilary Finucane developed upstream LDSC; Anthony Abrantes contributed the Python 3 port and performance work; Wenbin Wu develops and maintains this refactored package.
+Brendan Bulik-Sullivan and Hilary Finucane developed legacy LDSC; Anthony Abrantes contributed the Python 3 port and performance work; Wenbin Wu develops and maintains LDSC3.
 See [NOTICE](NOTICE) for preserved upstream attribution and dated modifications.
 
 ## License
 
-This project continues to use the **GNU General Public License version 3 (GPLv3)**, consistent with upstream LDSC.
+This project continues to use the **GNU General Public License version 3 (GPLv3)**, consistent with legacy LDSC.
 The complete license is in [LICENSE](LICENSE), which is included in source distributions and wheels together with [NOTICE](NOTICE).
 Upstream copyright notices remain applicable to derived code; current maintainer information does not replace them.
 

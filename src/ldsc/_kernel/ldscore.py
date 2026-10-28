@@ -1,4 +1,4 @@
-# Includes primitives derived from upstream LDSC ldscore/ldscore.py.
+# Includes primitives derived from legacy LDSC ldscore/ldscore.py.
 # GPLv3 (LICENSE); upstream authors and Python 3 port credit are in NOTICE.
 # Modified 2026 for prepared reference panels, streaming R2, and projection.
 # See NOTICE for attribution and dated modifications.

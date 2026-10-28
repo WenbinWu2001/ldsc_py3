@@ -29,7 +29,7 @@ Exact option lists, file formats and result columns are in the [reference](../re
 | Report binary traits on the liability scale | [Liability scale](workflows/liability-scale.md) |
 | Plot a saved result | [Plotting](workflows/plotting.md) |
 | Inspect Parquet and NPZ files | [Inspect artifacts](workflows/inspect-artifacts.md) |
-| Move from LDSC2 | [Migrating from LDSC2](workflows/migrating-from-ldsc2.md) |
+| Move from legacy LDSC | [Migrating from legacy LDSC](workflows/migrating-from-legacy-ldsc.md) |
 
 All Python API usage is collected in [Python usage](python-usage.md); the workflow pages show the command line.
 

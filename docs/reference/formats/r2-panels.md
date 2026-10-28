@@ -346,7 +346,7 @@ Code: `validate_ldscore_window_within_r2_panel_window` in `src/ldsc/_kernel/ldsc
 **`--ld-wind-snps` counts panel rows.**
 For an R² panel, `--ld-wind-snps K` spans `K` sidecar rows on each side, whatever SNPs the run keeps.
 When the run keeps fewer SNPs than the panel (`--maf-min`, `--ref-panel-snps-file`, or annotations that cover part of the panel), its SNPs have fewer than `K` contributors on each side.
-The PLINK backend counts the SNPs the run keeps, as LDSC2 did, so the two backends then differ for the same options.
+The PLINK backend counts the SNPs the run keeps, as legacy LDSC did, so the two backends then differ for the same options.
 Each such run logs one warning with the number of affected chromosomes, one example with its kept and panel SNP counts, and the location of the per-chromosome counts.
 Every R² panel `--ld-wind-snps` run writes `diagnostics/ld_window_snp_counts.tsv` with `CHR`, `panel_snps`, `kept_snps`, `ld_wind_snps` and `counting_basis` (`panel_rows`), listed in the `files` entry of `metadata.json`.
 SNPs that share a position are computed in sidecar row order and written sorted by `CHR`, `POS`, then `SNP`.

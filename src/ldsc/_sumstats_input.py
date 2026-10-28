@@ -228,7 +228,7 @@ def _resolve_sample_size_column_strategy(columns, cname_translation, source_path
         )
 
 
-# LDSC2 QC defaults; each applies only when its column is selected.
+# Legacy LDSC QC defaults; each applies only when its column is selected.
 DEFAULT_INFO_MIN = 0.9
 DEFAULT_MAF_MIN = 0.01
 _QC_THRESHOLDS = (
@@ -242,7 +242,7 @@ _QC_THRESHOLDS = (
 def resolve_qc_thresholds(config, mapped_fields):
     """Resolve effective INFO/FRQ thresholds against the selected columns.
 
-    A ``None`` threshold applies the LDSC2 default only when its column is
+    A ``None`` threshold applies the legacy LDSC default only when its column is
     mapped; an explicit threshold requires the column. Returns the effective
     thresholds keyed by canonical field (``None`` for a filter that will not
     run) and ``(flag, message)`` conflicts for explicit thresholds whose column

@@ -13,7 +13,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | --- | --- |
 | `AnnotationBuilder` | Prepare chromosome-backed annotations under explicit resource ownership. |
 | `LDScoreCalculator` | Orchestrate chromosome-wise LD-score calculation. |
-| `LegacyLDScoreConverter` | Convert a reusable LDSC2 reference/weight suite into LDSC3 format. |
+| `LegacyLDScoreConverter` | Convert a reusable legacy LDSC reference/weight suite into LDSC3 format. |
 | `ReferencePanelBuilder` | Build standard parquet reference-panel artifacts from PLINK input. |
 | `RegressionRunner` | Assemble regression datasets and fit in children with 1 BLAS thread each. |
 | `SumstatsMunger` | Run legacy-compatible munging through a typed workflow interface. |
@@ -22,12 +22,12 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 
 | Name | Summary |
 | --- | --- |
-| `assign_legacy_quantiles` | Assign finite target values with the LDSC2 continuous-annotation rule. |
+| `assign_legacy_quantiles` | Assign finite target values with the legacy LDSC continuous-annotation rule. |
 | `build_gene_ldscore_index` | Build and transactionally publish one complete gene LD-score index. |
 | `compute_quantile_h2` | Project one fitted joint model onto target-defined quantiles. |
 | `compute_standardized_coefficients` | Compute paper-compatible fixed-scale standardized coefficients. |
 | `convert_h2_scale` | Convert a saved observed-scale SNP-heritability estimate. |
-| `convert_ldsc2_ldscores` | Convert one selected LDSC2 LD-score suite to a canonical LDSC3 directory. |
+| `convert_ldsc2_ldscores` | Convert one selected legacy LD-score suite to a canonical LDSC3 directory. |
 | `infer_chr_pos_build` | Infer the genome build and coordinate basis of a ``CHR``/``POS`` table. |
 | `infer_raw_sumstats` | Infer raw summary-statistics format and minimal parser hints. |
 | `load_fitted_partitioned_model` | Load one baseline-only or per-query LDSC3 partitioned-h2 fitted model. |
@@ -85,7 +85,7 @@ Task-oriented examples are in [Python usage](../user-guide/python-usage.md), and
 | `H2ScaleConversionArtifact` | Files written by one liability-scale conversion. |
 | `LDScoreResult` | Materialized LD scores for one cross-chromosome calculation batch. |
 | `LDScoreSource` | Saved LD scores with resident baseline values and selective query reads. |
-| `LegacyLDScoreConversionResult` | Summary of one successful LDSC2 LD-score conversion. |
+| `LegacyLDScoreConversionResult` | Summary of one successful legacy LDSC LD-score conversion. |
 | `MungeRunSummary` | Compact summary of one munging run. |
 | `PartitionedH2BatchResult` | Compact batch summary and valid persistent artifacts for every fitted model. |
 | `PlotArtifact` | One saved LDSC figure and its live Matplotlib objects. |

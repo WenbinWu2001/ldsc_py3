@@ -1,5 +1,5 @@
 # (c) 2014 Brendan Bulik-Sullivan and Hilary Finucane
-# Derived from upstream LDSC ldscore/parse.py; GPLv3 (LICENSE).
+# Derived from legacy LDSC ldscore/parse.py; GPLv3 (LICENSE).
 # Modified 2024 for Python 3; 2026-04 for package extraction and docstrings,
 # and 2026-08 for the reduced parser surface. Notice restored 2026-09-10.
 # See NOTICE for attribution and dated modifications.
@@ -18,7 +18,7 @@ sumstats and LD-score suite parsing belongs to public workflow modules.
 
 Design Notes
 ------------
-- Public regression never imports LDSC2 LD-score/count/annotation fragments.
+- Public regression never imports legacy LD-score/count/annotation fragments.
 - The explicit converter owns those compatibility formats outside ``_kernel``.
 """
 

@@ -1,4 +1,4 @@
-"""Explicitly convert selected LDSC2 LD-score suites to LDSC3 directories.
+"""Explicitly convert selected legacy LD-score suites to LDSC3 directories.
 
 The converter is the public import boundary for legacy LD-score suites:
 reference and weight ``.l2.ldscore(.gz)`` families, counts, and, for baseline
@@ -75,7 +75,7 @@ _COUNT_CONFIG = {
 
 @dataclass(frozen=True)
 class LegacyLDScoreConversionResult:
-    """Summary of one successful LDSC2 LD-score conversion.
+    """Summary of one successful legacy LDSC LD-score conversion.
 
     Parameters
     ----------
@@ -96,7 +96,7 @@ class LegacyLDScoreConversionResult:
 
 
 class LegacyLDScoreConverter:
-    """Convert a reusable LDSC2 reference/weight suite into LDSC3 format.
+    """Convert a reusable legacy LDSC reference/weight suite into LDSC3 format.
 
     Source directories are treated as immutable. Matching across legacy
     families uses rsID; output coordinates come from the reference LD-score
@@ -303,7 +303,7 @@ class LegacyLDScoreConverter:
             profile = "baseline_partitioned"
             if frequency_root is None:
                 raise LDSCInputError(
-                    "Baseline partitioned LDSC2 conversion requires --legacy-frequency-dir so common counts and "
+                    "Baseline partitioned legacy LDSC conversion requires --legacy-frequency-dir so common counts and "
                     "overlap can be reconstructed with the fixed legacy 0.05 threshold. "
                     "Pass a directory containing '<prefix><chrom>.frq(.gz)' for chromosomes 1-22."
                 )
@@ -324,7 +324,7 @@ class LegacyLDScoreConverter:
             )
         if len(reference_columns) != 1:
             raise LDSCInputError(
-                "Unpartitioned LDSC2 reference suite must have exactly one scientific LD-score column when no "
+                "Unpartitioned legacy reference suite must have exactly one scientific LD-score column when no "
                 f"complete annotation family is present; found {reference_columns}."
             )
         profile = "unpartitioned"
@@ -714,7 +714,7 @@ def convert_ldsc2_ldscores(
     overwrite: bool = False,
     log_level: str | None = None,
 ) -> LegacyLDScoreConversionResult:
-    """Convert one selected LDSC2 LD-score suite to a canonical LDSC3 directory.
+    """Convert one selected legacy LD-score suite to a canonical LDSC3 directory.
 
     Parameters
     ----------
@@ -767,7 +767,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ldsc convert-ldsc2-ldscores")
     parser.prog = 'ldsc convert-ldsc2-ldscores'
     parser.formatter_class = CLIHelpFormatter
-    parser.description = 'Convert complete LDSC2 reference and regression-weight suites into one LDSC3 LD-score directory.'
+    parser.description = 'Convert complete legacy reference and regression-weight suites into one LDSC3 LD-score directory.'
     inputs = parser.add_argument_group('Inputs and output')
     partitioned = parser.add_argument_group('Baseline partitioned suites')
     identity = parser.add_argument_group('Output SNP identity')
@@ -776,7 +776,7 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument(
         '--legacy-reference-dir', required=True, metavar='DIR',
         help=(
-            'Required directory containing a complete chromosome 1-22 LDSC2 reference LD-score suite and '
+            'Required directory containing a complete chromosome 1-22 legacy reference LD-score suite and '
             '.l2.M_5_50 counts. Baseline partitioned suites also require full annotations and '
             '--legacy-frequency-dir.'
         ),
@@ -1041,7 +1041,7 @@ def _read_ldscore_table(path: Path, role: str, chrom: int) -> pd.DataFrame:
         raise LDSCInputError(
             f"Could not parse legacy {role} LD-score table '{path}' for chromosome {chrom}: {exc}. "
             "Check the named file's readability, compression integrity, and whitespace-delimited header; "
-            "restore the original table from the selected LDSC2 suite. "
+            "restore the original table from the selected legacy suite. "
             "See docs/user-guide/troubleshooting.md#conversion-rejected-the-legacy-suite."
         ) from exc
 
@@ -1053,7 +1053,7 @@ def _read_whitespace_table(path: Path, role: str, chrom: int) -> pd.DataFrame:
         raise LDSCInputError(
             f"Could not parse legacy {role} table '{path}' for chromosome {chrom}: {exc}. "
             "Check the named file's readability, compression integrity, and whitespace-delimited header; "
-            "restore the original table from the selected LDSC2 suite. "
+            "restore the original table from the selected legacy suite. "
             "See docs/user-guide/troubleshooting.md#conversion-rejected-the-legacy-suite."
         ) from exc
 
@@ -1067,7 +1067,7 @@ def _require_columns(frame: pd.DataFrame, required: set[str], role: str, path: P
     if missing:
         raise LDSCInputError(
             f"Legacy {role} table '{path}' on chromosome {chrom} is missing required columns {missing}. "
-            "Restore the original table with its header from the selected LDSC2 suite, or export it again "
+            "Restore the original table with its header from the selected legacy suite, or export it again "
             "from the source dataset; do not add placeholder scientific columns."
         )
 
@@ -1084,7 +1084,7 @@ def _validate_ldscore_rows(
         sample = frame.loc[duplicate, "SNP"].astype(str).head(10).tolist()
         raise LDSCInputError(
             f"Legacy {role} table '{path}' on chromosome {chrom} has duplicate rsIDs; example SNPs: {sample}. "
-            "Use the original table with unique rsIDs from the selected LDSC2 suite; check whether rows "
+            "Use the original table with unique rsIDs from the selected legacy suite; check whether rows "
             "from different releases or chromosomes were combined."
         )
     for column in scientific:
@@ -1095,7 +1095,7 @@ def _validate_ldscore_rows(
             raise LDSCInputError(
                 f"Legacy {role} table '{path}' on chromosome {chrom} has non-finite values in '{column}'; "
                 f"example SNPs: {sample}. Restore the original finite LD-score values from the selected "
-                "LDSC2 suite, or regenerate the source scores; do not replace missing values with zero."
+                "legacy suite, or regenerate the source scores; do not replace missing values with zero."
             )
         frame[column] = values.astype(float)
     frame["BP"] = pd.to_numeric(frame["BP"], errors="coerce")

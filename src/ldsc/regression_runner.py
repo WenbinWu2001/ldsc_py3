@@ -14,7 +14,7 @@ weight, count, and annotation-manifest files. Directory opening and artifact
 validation belong to ``ldscore_source.load_ldscore_from_dir``; this module
 owns selected-value validation, trait alignment, and model construction.
 
-Legacy LDSC2 ``.sumstats`` and ``.sumstats.gz`` inputs are accepted at this
+Legacy ``.sumstats`` and ``.sumstats.gz`` inputs are accepted at this
 boundary. Their rsIDs are lookup keys: each trait is projected onto the
 canonical LD-score panel, allele orientation is validated and harmonized, and
 rejected rows are recorded in a stable diagnostic audit. Legacy LD-score
@@ -171,7 +171,7 @@ class RegressionDataset:
     """Merged regression-ready dataset built from sumstats and LD-score tables.
 
     ``legacy_sumstats_drops`` carries stable row-level projection diagnostics
-    when the source was LDSC2 text; it is empty for native LDSC3 inputs.
+    when the source was legacy text; it is empty for native LDSC3 inputs.
     """
     merged: pd.DataFrame
     ref_ld_columns: list[str]
@@ -1469,12 +1469,12 @@ def _snapshot_identity_mode(snapshot: GlobalConfig | None) -> str | None:
 
 
 def _is_legacy_sumstats(table: SumstatsTable) -> bool:
-    """Return whether ``table`` came from an LDSC2 munged text artifact."""
+    """Return whether ``table`` came from a legacy munged text artifact."""
     return bool(getattr(table, "provenance", {}).get("legacy_ldsc2", False)) and "legacy_projection" not in table.provenance
 
 
 def _has_legacy_sumstats_source(table: SumstatsTable) -> bool:
-    """Return whether ``table`` originated from legacy LDSC2 text."""
+    """Return whether ``table`` originated from legacy text."""
     return bool(table.provenance.get("legacy_ldsc2", False))
 
 
@@ -1482,7 +1482,7 @@ def _project_legacy_sumstats_to_panel(
     table: SumstatsTable,
     ldscore_result: LDScoreSource | LDScoreResult,
 ) -> tuple[SumstatsTable, pd.DataFrame]:
-    """Project one LDSC2 munged-sumstats table onto canonical panel identity.
+    """Project one legacy munged-sumstats table onto canonical panel identity.
 
     Legacy ``SNP`` values are treated only as rsID lookup keys. The supplied
     LD-score panel owns output coordinates and identifier mode. Allele-aware
@@ -1514,7 +1514,7 @@ def _project_legacy_sumstats_to_panel(
     missing = sorted(required - set(table.data.columns))
     if missing:
         raise LDSCInputError(
-            f"Cannot use legacy LDSC2 sumstats '{table.source_path or table.trait_name or 'sumstats'}': "
+            f"Cannot use legacy sumstats '{table.source_path or table.trait_name or 'sumstats'}': "
             f"required columns are missing: {missing}. Legacy regression compatibility requires SNP, A1, A2, Z, "
             "and N; allele-less legacy inputs are unsupported for h2, partitioned-h2, and rg."
         )
@@ -1522,20 +1522,20 @@ def _project_legacy_sumstats_to_panel(
     panel_mode = _snapshot_identity_mode(panel_snapshot)
     if panel_snapshot is None or panel_mode is None:
         raise LDSCInputError(
-            "Legacy LDSC2 sumstats projection requires a canonical LD-score panel with recorded "
+            "Legacy sumstats projection requires a canonical LD-score panel with recorded "
             "snp_identifier metadata. Regenerate or explicitly convert the LD-score directory first."
         )
     panel_source = ldscore_result.baseline_table
     missing_panel = sorted({"CHR", "POS", "SNP"} - set(panel_source.columns))
     if missing_panel:
         raise LDSCInputError(
-            f"Legacy LDSC2 sumstats projection cannot use the LD-score panel because it is missing {missing_panel}. "
+            f"Legacy sumstats projection cannot use the LD-score panel because it is missing {missing_panel}. "
             "Regenerate the canonical LD-score directory."
         )
     allele_aware = is_allele_aware_mode(panel_mode)
     if allele_aware and not {"A1", "A2"}.issubset(panel_source.columns):
         raise LDSCInputError(
-            f"Legacy LDSC2 sumstats projection requires panel A1/A2 for snp_identifier='{panel_mode}', "
+            f"Legacy sumstats projection requires panel A1/A2 for snp_identifier='{panel_mode}', "
             "but the canonical LD-score table does not contain both allele columns."
         )
 
@@ -1649,7 +1649,7 @@ def _project_legacy_sumstats_to_panel(
     if accepted_rows.empty:
         counts = reasons.dropna().value_counts().to_dict()
         raise LDSCInputError(
-            f"Legacy LDSC2 sumstats '{table.source_path or table.trait_name or 'sumstats'}' retained no SNPs "
+            f"Legacy sumstats '{table.source_path or table.trait_name or 'sumstats'}' retained no SNPs "
             f"after projection to the canonical LD-score panel (drop counts: {counts})."
         )
     projected_frame = source.loc[accepted_rows].copy()
@@ -1862,7 +1862,7 @@ def _select_count_key(
         return ALL_COUNT_KEY
     raise LDSCInputError(
         "Regression requested all-SNP counts, but all-SNP counts are unavailable for LD-score column(s) "
-        f"{list(columns)}. This is expected for an imported unpartitioned LDSC2 suite when one or more "
+        f"{list(columns)}. This is expected for an imported unpartitioned legacy suite when one or more "
         "chromosome .M files were missing. Use the default common counts or convert a suite with complete .M files."
     )
 
@@ -3431,7 +3431,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
         inputs.add_argument(
             '--sumstats-file', required=True, metavar='FILE',
             help=(
-            'Required cleaned summary-statistics Parquet or LDSC2 .sumstats(.gz) file. SNP identity must be '
+            'Required cleaned summary-statistics Parquet or legacy .sumstats(.gz) file. SNP identity must be '
             'compatible with --ldscore-dir. '
             + SCALAR_PATH_HELP
         ),
@@ -3440,7 +3440,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
         inputs.add_argument(
             '--sumstats-sources', nargs='+', required=True, metavar='SOURCES',
             help=(
-            "Required cleaned Parquet or LDSC2 .sumstats(.gz) files; accepts exact paths or quoted '*' patterns "
+            "Required cleaned Parquet or legacy .sumstats(.gz) files; accepts exact paths or quoted '*' patterns "
             'matching filename text and requires at least two files. SNP identity must be compatible with '
             "--ldscore-dir. '@' is not expanded."
         ),

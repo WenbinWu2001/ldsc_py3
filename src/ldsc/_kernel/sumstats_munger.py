@@ -1,5 +1,5 @@
 # (C) 2014-2019 Brendan Bulik-Sullivan and Hilary Finucane
-# Derived from upstream LDSC munge_sumstats.py; GPLv3 (LICENSE).
+# Derived from legacy LDSC munge_sumstats.py; GPLv3 (LICENSE).
 # Performance enhancement and python3 adaption by Anthony Abrantes 2024.
 # Modified 2026-05 for workflow/kernel separation and 2026-09 for resolved
 # inputs and QC results. Removed banner attribution restored 2026-09-10.

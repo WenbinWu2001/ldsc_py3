@@ -169,7 +169,7 @@ class SumstatsTable:
     config_snapshot : GlobalConfig or None, optional
         Shared configuration captured when the table was produced in-process or
         recovered from the ``sumstats.parquet`` footer. It is ``None`` for a
-        legacy LDSC2 ``.sumstats`` or ``.sumstats.gz`` input, whose rsIDs are
+        legacy ``.sumstats`` or ``.sumstats.gz`` input, whose rsIDs are
         projected onto the canonical LD-score panel downstream. Footerless
         Parquet is rejected. Coordinate-family munged artifacts store the final output
         genome build here; rsID-family artifacts store ``genome_build=None``
@@ -344,7 +344,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     Identity metadata is read from the parquet footer (discrete ``ldsc:*``
     keys). No ``metadata.json`` sidecar is consulted. Legacy ``.sumstats`` and
     ``.sumstats.gz`` inputs load with ``config_snapshot=None`` and explicit
-    LDSC2 provenance. A Parquet artifact without the required footer is rejected.
+    legacy LDSC provenance. A Parquet artifact without the required footer is rejected.
     """
     resolved = resolve_scalar_path(path, label="munged sumstats")
     df = _read_curated_sumstats_artifact(resolved)
@@ -367,12 +367,12 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
                 _curated_sumstats_artifact_message(
                     resolved,
                     "the parquet file is missing required LDSC3 identity footer metadata",
-                    "Footerless parquet is not an LDSC2 compatibility artifact. Re-run `ldsc munge-sumstats` "
+                    "Footerless parquet is not a legacy compatibility artifact. Re-run `ldsc munge-sumstats` "
                     "from the raw GWAS input to create a self-describing sumstats.parquet file.",
                 )
             )
         LOGGER.info(
-            f"Recognized legacy LDSC2 munged sumstats '{resolved}'. SNP values will be used as rsID "
+            f"Recognized legacy munged sumstats '{resolved}'. SNP values will be used as rsID "
             "lookup keys and projected onto the canonical LD-score panel during regression."
         )
         table = SumstatsTable(

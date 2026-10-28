@@ -41,7 +41,7 @@ Source-build inference reads only `CHR`/`POS` in bounded chunks and stops when s
 
 For Python users, `munger.build_run_summary()` reports parsed `n_input_rows`, final `n_retained_rows`, and `drop_counts`. Headers, leading `##` metadata, and blank lines are excluded. Every drop belongs to the first stage that removes that row, so `sum(drop_counts.values()) == n_input_rows - n_retained_rows`.
 `qc_thresholds` records the effective `INFO` and `FRQ` thresholds; `None` means that filter did not run because no such column was selected, which the log summary also states.
-`--info-min` and `--maf-min` default to `None`: the LDSC2 defaults (0.9 and 0.01) apply only when the corresponding column is selected, and an explicit threshold without its column fails while the header is resolved.
+`--info-min` and `--maf-min` default to `None`: the legacy LDSC defaults (0.9 and 0.01) apply only when the corresponding column is selected, and an explicit threshold without its column fails while the header is resolved.
 
 | Count key | Exclusive removal stage |
 | --- | --- |
@@ -68,7 +68,7 @@ kernel runs. It does not change the curated output schema. Supported values are
 | `daner-old` | The file uses old DANER case/control counts encoded in frequency headers. | Header contains at least one `FRQ_A_*` column and at least one `FRQ_U_*` column. | Reads case/control sample sizes from the `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` header names. Select with `--input-format daner-old`. |
 | `daner-new` | The file carries per-SNP case/control count columns. | Header contains `Nca`/`Nco` aliases after header normalization: either `NCA` and `NCO`, or `NCAS` and `NCON`. | Computes per-row sample size from case/control counts. If an old-style `FRQ_U_*` column is also present, inference can use it as the frequency column. Select with `--input-format daner-new`. |
 
-Automatic and explicit profile selection share column aliases, optional-field handling, validation, and the raw reader. In particular, `daner-new` does not require a `FRQ_U_*` column or exact-case `Nca/Nco` headers. The old generic `--format` flag is removed; use `--input-format`. See the [legacy CLI flag map](ldsc2-flag-map.md).
+Automatic and explicit profile selection share column aliases, optional-field handling, validation, and the raw reader. In particular, `daner-new` does not require a `FRQ_U_*` column or exact-case `Nca/Nco` headers. The old generic `--format` flag is removed; use `--input-format`. See the [legacy CLI flag map](legacy-flag-map.md).
 
 ## Sample-Size Column Selection
 
@@ -87,7 +87,7 @@ Per-variant sample size has two alternative column strategies: one direct
   explicitly; LDSC3 does not silently overwrite one inferred value with the
   other.
 
-The paired strategy preserves LDSC2's legacy case/control normalization. For
+The paired strategy preserves legacy LDSC's legacy case/control normalization. For
 variant `i`, define `T_i = N_CAS_i + N_CON_i` and `p_i = N_CAS_i / T_i`. If
 `p_ref` is the mean `p_i` among variants with the maximum `T_i`, the munger
 uses `N_i = T_i * p_i / p_ref`. This is not the harmonic effective-N formula
@@ -99,8 +99,7 @@ Use `--N-col NEFF` when the data producer documents `NEFF` as the effective
 sample size corresponding to the association statistic and those exact values
 are intended for LDSC—for example, when it reflects imbalance, per-variant
 missingness, meta-analysis participation, or analysis weights. Use the paired
-case/control flags when the counts are the trusted inputs and LDSC2-compatible
-legacy normalization is intended. Because `NEFF` definitions are
+case/control flags when the counts are the trusted inputs and legacy normalization is intended. Because `NEFF` definitions are
 producer-specific, consult the study documentation and compare the candidate
 values rather than treating the strategies as interchangeable.
 
@@ -111,7 +110,7 @@ file with `N`, `NCAS`, and `NCON` must choose either `--N-col N` or
 case/control pair, or only a nonstandard direct column selected with `--N-col`
 retain their existing behavior.
 
-Constant `--N`, `--N-cas`, and `--N-con` remain fallbacks: per-variant N or case/control columns take precedence. Otherwise use `--N`, or the sum of both case/control constants. For per-variant N, the default `--n-min` is the 90th percentile divided by 1.5; zero also selects this default. Constant N is assigned after filtering and bypasses `--n-min`. These rules preserve LDSC2 `process_n` behavior; see the [legacy source comparison](ldsc2-flag-map.md#legacy-behavior-explicitly-retained). The existing `--chunksize` spelling and current 1,000,000-row default are retained.
+Constant `--N`, `--N-cas`, and `--N-con` remain fallbacks: per-variant N or case/control columns take precedence. Otherwise use `--N`, or the sum of both case/control constants. For per-variant N, the default `--n-min` is the 90th percentile divided by 1.5; zero also selects this default. Constant N is assigned after filtering and bypasses `--n-min`. These rules preserve legacy LDSC `process_n` behavior; see the [legacy source comparison](legacy-flag-map.md#legacy-behavior-explicitly-retained). The existing `--chunksize` spelling and current 1,000,000-row default are retained.
 
 ## Genome-Build Contract
 

@@ -1,4 +1,4 @@
-# Genotype readers derive from upstream LDSC ldscore/ldscore.py; GPLv3 (LICENSE).
+# Genotype readers derive from legacy LDSC ldscore/ldscore.py; GPLv3 (LICENSE).
 # Upstream authors and Python 3 port credit are in NOTICE. Modified 2026-06:
 # extracted readers and added selective streaming; 2026-09: reader lifetime;
 # 2026-10: exact LD windows independent of the chunk size.
@@ -9,7 +9,7 @@
 Selective reads apply sample and SNP filters before genotype normalization.
 In-memory readers close the BED file after loading retained genotypes;
 streaming readers keep it open until their owner calls ``close()``.
-LD-score sums use exactly the pairs inside ``block_left``; unlike LDSC2, the
+LD-score sums use exactly the pairs inside ``block_left``; unlike legacy LDSC, the
 chunk size ``c`` does not widen the window.
 """
 from __future__ import annotations
@@ -119,7 +119,7 @@ class __GenotypeArrayInMemory__(object):
                             weight_mask=None):
         """Accumulate transformed correlation sums over the exact LD window.
 
-        The LDSC2 traversal below rounds each block up to a multiple of ``c``
+        The legacy LDSC traversal below rounds each block up to a multiple of ``c``
         and shares the chunk start's block across the chunk, so it computes a
         superset of the window pairs, each exactly once. Pairs outside the
         window are zeroed before accumulation, which makes the result

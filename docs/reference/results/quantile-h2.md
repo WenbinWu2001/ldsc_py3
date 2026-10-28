@@ -30,7 +30,7 @@ where `SD(a_c)` uses `ddof=0`, and both `h2_g` and `M` use the complete common r
 - a baseline-only `partitioned-h2` output root; or
 - one `diagnostics/query_annotations/<query>/` directory containing a baseline-plus-one-query fit.
 
-An aggregate cell-type root is rejected because its rows came from separate regressions. Raw LDSC2 prefixes are not accepted. Current `partitioned-h2` writes float64 delete-one-block coefficients to `diagnostics/coefficient_delete_values.parquet` for a baseline-only model and to `coefficient_delete_values.parquet` inside each per-query directory.
+An aggregate cell-type root is rejected because its rows came from separate regressions. Raw legacy prefixes are not accepted. Current `partitioned-h2` writes float64 delete-one-block coefficients to `diagnostics/coefficient_delete_values.parquet` for a baseline-only model and to `coefficient_delete_values.parquet` inside each per-query directory.
 
 Per-query metadata uses `global_metadata: "../../metadata.json"` to reference the enclosing result's shared provenance.
 The fitted-model loader combines it with model-specific metadata before reconstructing annotations and counts; model-specific fields take precedence.
@@ -72,7 +72,7 @@ Rows outside an otherwise valid intersection are recorded as exclusions. Duplica
 
 ## Quantiles and jackknife calculations
 
-The default is five quantiles. Boundaries use the LDSC2 rule `floor(i * (n - 1) / Q + 0.5)` on sorted eligible target values. Intervals are low-to-high; ties at an internal boundary remain in the lower quantile. An empty realized quantile is a fatal error.
+The default is five quantiles. Boundaries use the legacy LDSC rule `floor(i * (n - 1) / Q + 0.5)` on sorted eligible target values. Intervals are low-to-high; ties at an internal boundary remain in the lower quantile. An empty realized quantile is a fatal error.
 
 Within-quantile fitted-annotation sums are computed once. Matrix multiplication produces whole-data and all delete-one-block quantile totals. Ratio metrics are recomputed from every delete vector so denominator uncertainty is included. `enrichment_p` is the two-sided normal test of the inside-versus-complement per-SNP contrast; it is not `enrichment / enrichment_se` and does not test the target's coefficient.
 
@@ -101,4 +101,4 @@ The implementation validates the global common SNP universe using bounded annota
 ## References
 
 - Scientific method: Gazal S, et al. Linkage disequilibrium–dependent architecture of human complex traits shows action of negative selection. *Nature Genetics* 49, 1421–1427 (2017), and its supplementary note.
-- Legacy operational behavior: `ContinuousAnnotations/quantile_M.pl` and `ContinuousAnnotations/quantile_h2g.r` in the LDSC2 repository.
+- Legacy operational behavior: `ContinuousAnnotations/quantile_M.pl` and `ContinuousAnnotations/quantile_h2g.r` in the legacy LDSC repository.

@@ -91,7 +91,7 @@ class QuantileAssignment:
 
 
 def assign_legacy_quantiles(values: Sequence[float] | np.ndarray, n_quantiles: int = 5) -> QuantileAssignment:
-    """Assign finite target values with the LDSC2 continuous-annotation rule.
+    """Assign finite target values with the legacy LDSC continuous-annotation rule.
 
     Boundary index ``i`` is ``floor(i * (n - 1) / Q + 0.5)``. The first
     interval includes both bounds; subsequent intervals exclude the lower and
@@ -393,7 +393,7 @@ def load_fitted_partitioned_model(result_dir: str | Path) -> FittedPartitionedMo
         raise LDSCInputError(
             f"quantile-h2 could not load fitted model directory '{root}': no LDSC3 partitioned-h2 metadata was found. "
             "Pass a baseline-only partitioned-h2 output root or one diagnostics/query_annotations/<query> directory. "
-            "Raw LDSC2 regression prefixes are not accepted."
+            "Raw legacy regression prefixes are not accepted."
         )
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     if "global_metadata" in metadata:

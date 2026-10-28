@@ -1355,7 +1355,7 @@ def test_plink_operator_matches_independent_dense_adjusted_r2_reference(snp_batc
     assert indexed.operator.toarray()[0, 2] < 0
     assert indexed.operator.toarray()[0, 0] == pytest.approx(1.0)  # non-regression rs_4 still contributes
     assert indexed.operator.toarray()[0, 3] == 0.0  # outside the one-SNP window
-    # A batch wider than the window must not widen it, as LDSC2 chunk rounding did.
+    # A batch wider than the window must not widen it, as legacy LDSC chunk rounding did.
     np.testing.assert_allclose(indexed.baseline_rows["base"], dense_r[persisted].sum(axis=1), rtol=0, atol=1e-12)
 
 

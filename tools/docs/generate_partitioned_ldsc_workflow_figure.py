@@ -104,7 +104,7 @@ def render():
     ], BLUE)
     box(ax, 520, 280, 430, 145, "Munge or load GWAS sumstats", [
         "SumstatsMunger / load_sumstats()",
-        "Curated Parquet or LDSC2 .sumstats(.gz)",
+        "Curated Parquet or legacy .sumstats(.gz)",
         "Canonical identities, Z, N and allele metadata",
         "Validated SumstatsTable for trait alignment",
     ], BLUE)

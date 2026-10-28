@@ -1,4 +1,4 @@
-# Legacy LDSC2 LD-Score Suite Conversion
+# Legacy LD-Score Suite Conversion
 
 Last updated on: 2026-10-27
 
@@ -6,10 +6,10 @@ Conversion runs serially in one managed child with **1 BLAS thread**, including 
 See [parallel execution](../parallel-execution.md) for native-limit verification and Python process startup.
 
 This document defines the interoperability boundary for explicitly converting
-selected reusable LDSC2 LD-score suites into the canonical LDSC3 LD-score
+selected reusable legacy LD-score suites into the canonical LDSC3 LD-score
 result-directory contract.
 
-For all flags, standard filename tables, working and non-working suites, and copy-and-rename examples, see the [user guide](../../user-guide/workflows/migrating-from-ldsc2.md). The [utility wiki](../../user-guide/workflows/migrating-from-ldsc2.md) provides a concise naming and command reference.
+For all flags, standard filename tables, working and non-working suites, and copy-and-rename examples, see the [user guide](../../user-guide/workflows/migrating-from-legacy-ldsc.md). The [utility wiki](../../user-guide/workflows/migrating-from-legacy-ldsc.md) provides a concise naming and command reference.
 
 ## Command
 
@@ -51,7 +51,7 @@ non-partitioned regression.
 
 Two reference-suite profiles are supported:
 
-1. An ordinary one-column LDSC2 suite such as `eur_w_ld_chr`. It consists of
+1. An ordinary one-column legacy suite such as `eur_w_ld_chr`. It consists of
    chromosome-sharded `.l2.ldscore` or `.l2.ldscore.gz` tables and count files.
    The converted directory has one baseline LD-score column named `base` and
    is consumed by `h2` and `rg`.
@@ -85,7 +85,7 @@ boundary:
 - annotation overlap artifacts; and
 - automatic, implicit conversion during a regression command.
 
-Conversion never accepts query annotations. It does not turn the LDSC2 input
+Conversion never accepts query annotations. It does not turn the legacy input
 directory into a general LDSC3 annotation source or permit later query
 extension of the imported suite.
 
@@ -123,7 +123,7 @@ annotation/frequency universe, and there is no mismatch override. This
 reconstruction and validation are unavailable for unpartitioned suites, whose
 available legacy count files remain authoritative.
 
-Reconstruction uses LDSC2 common-variant semantics: `MAF > 0.05` for a minor
+Reconstruction uses legacy LDSC common-variant semantics: `MAF > 0.05` for a minor
 allele frequency column, or `0.05 < FRQ < 0.95` for an allele-frequency column.
 The imported metadata records this legacy operator rather than describing the
 counts as LDSC3-native `MAF >= 0.05` counts. The compatibility threshold is
@@ -227,7 +227,7 @@ consumable LD-score result and a corrected rerun into it requires
 
 ## Module Boundary
 
-LDSC2 discovery, parsing, validation, and conversion belong to a small public
+Legacy LDSC discovery, parsing, validation, and conversion belong to a small public
 workflow-layer `LegacyLDScoreConverter`, with a convenience
 `convert_ldsc2_ldscores()` function and structured conversion result. It reuses
 the pure overlap calculation and canonical LD-score directory writer. No
@@ -239,7 +239,7 @@ The former private LD-score, regression-weight, count, and `.annotation_groups.t
 
 ## Provenance
 
-The converted directory must identify itself as an imported LDSC2 suite and record enough source and discovery provenance to make the conversion auditable. It remains a normal current `artifact_type="ldscore"` directory and adds a `legacy_ldsc2_import` metadata block containing the profile, converter version, source directories and selected prefixes, selected/ignored/missing files, intersection counts, source/effective build inference, count origins, fixed legacy common-frequency rule, coordinate disagreement summaries, and diagnostic paths. Original legacy files remain untouched.
+The converted directory must identify itself as an imported legacy suite and record enough source and discovery provenance to make the conversion auditable. It remains a normal current `artifact_type="ldscore"` directory and adds a `legacy_ldsc2_import` metadata block containing the profile, converter version, source directories and selected prefixes, selected/ignored/missing files, intersection counts, source/effective build inference, count origins, fixed legacy common-frequency rule, coordinate disagreement summaries, and diagnostic paths. Original legacy files remain untouched.
 
 Routine source-file checksums are not computed or written. The converter records explicit source/discovery metadata and validates scientific inputs and counts; it does not verify source-byte integrity against expected hashes. The package's retained hashes are listed in the [gene LD-score index reference](../gene-ldscore-index.md#artifact-and-identity-contract).
 

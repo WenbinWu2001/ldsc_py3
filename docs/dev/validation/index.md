@@ -15,7 +15,7 @@ Each evidence page states its date, revision and limits; raw logs and probe scri
 
 ## Not yet validated
 
-- **Numerical equivalence with LDSC2.** No document records a comparison of LDSC3 LD scores, SNP heritability, genetic correlation or partitioned heritability with LDSC2 on the same inputs; [migrating from LDSC2](../../user-guide/workflows/migrating-from-ldsc2.md) describes the intended differences.
+- **Numerical equivalence with legacy LDSC.** No document records a comparison of LDSC3 LD scores, SNP heritability, genetic correlation or partitioned heritability with legacy LDSC on the same inputs; [migrating from legacy LDSC](../../user-guide/workflows/migrating-from-legacy-ldsc.md) describes the intended differences.
 - **Region-exclusion presets.** The bundled coordinates have not yet been independently checked against their sources ([region-exclusion presets](../../reference/formats/region-exclusion-presets.md)).
 - **Production-scale resources.** Genome-wide memory needs, LD-score scaling across chromosomes and input and output performance on HPC storage have not been measured ([performance](performance.md#limits)).
 

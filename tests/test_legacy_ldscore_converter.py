@@ -1,4 +1,4 @@
-"""Behavioral tests for explicit LDSC2 LD-score suite conversion."""
+"""Behavioral tests for explicit legacy LD-score suite conversion."""
 
 from __future__ import annotations
 

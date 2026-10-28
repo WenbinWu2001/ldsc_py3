@@ -9,7 +9,7 @@ Use it to ask which traits share genetic effects, and in which direction.
 ## What you need
 
 - **Munged summary statistics for two or more traits**, written by [`ldsc munge-sumstats`](munge-sumstats.md) as `<trait>.parquet`.
-  LDSC2 `.sumstats` or `.sumstats.gz` files with `SNP`, `A1`, `A2`, `Z` and `N` are also accepted and can be mixed with Parquet files; see [legacy summary statistics](../../reference/formats/legacy-sumstats.md).
+  Legacy `.sumstats` or `.sumstats.gz` files with `SNP`, `A1`, `A2`, `Z` and `N` are also accepted and can be mixed with Parquet files; see [legacy summary statistics](../../reference/formats/legacy-sumstats.md).
   Every trait needs `A1` and `A2`: `rg` aligns the second trait's signed statistics to the first trait's alleles and drops strand-ambiguous or mismatched SNPs.
   Munged summary statistics written in a base mode from raw summary statistics without allele columns lack them, and `rg` stops before fitting and names those inputs; munge them again with allele columns.
 - **One unpartitioned LD-score directory**, usually the one you use for [SNP heritability](heritability.md).
@@ -18,7 +18,7 @@ Use it to ask which traits share genetic effects, and in which direction.
 All traits and the LD scores must share the SNP identifier mode and, in coordinate-family modes, the genome build.
 `rg` checks the genome build of every trait and the LD scores together before fitting anything, and reports all conflicting or unresolved inputs in one error.
 It has no option to override the build; supply matching inputs, as described in the [genome-build policy](../../reference/snp-identity-and-genome-build.md#genome-build-policy).
-LDSC2 text files are matched to the LD scores by rsID instead.
+Legacy text files are matched to the LD scores by rsID instead.
 
 Give each trait a distinct `--trait-name` when you munge it; that label names the trait in every output.
 
@@ -129,7 +129,7 @@ If a trait name contains `@` and equals one of the generated labels, `rg` stops 
 | --- | --- |
 | `--anchor-trait` | Fit only the pairs that include this trait; default: all pairs |
 | `--count-kind` | `common` (default) or `all` SNP counts, as for [SNP heritability](heritability.md#options-you-may-change) |
-| `--intercept-h2`, `--intercept-gencov` | Intercepts are estimated by default; `--intercept-h2 1 --intercept-gencov 0` requests the standard fixed intercepts, replacing the LDSC2 `--no-intercept` |
+| `--intercept-h2`, `--intercept-gencov` | Intercepts are estimated by default; `--intercept-h2 1 --intercept-gencov 0` requests the standard fixed intercepts, replacing the legacy LDSC `--no-intercept` |
 | `--two-step-cutoff` | 30 by default for single-annotation fits with free intercepts; cannot be combined with fixed intercepts |
 | `--chisq-max` | No cap by default; when set, keeps SNPs with $Z_1^2 Z_2^2 \le$ value$^2$ in each pair |
 | `--n-blocks` | 200 block-jackknife blocks, capped at the number of SNPs |

@@ -370,7 +370,7 @@ flowchart LR
 - Kernel: `ldsc._kernel.ldscore`
 - Postprocessing: `ldsc.outputs`
 
-## 4A. `convert-ldsc2-ldscores`: Selected LDSC2 Suites To Canonical LDSC3
+## 4A. `convert-ldsc2-ldscores`: Selected legacy LDSC Suites To Canonical LDSC3
 
 This explicit migration boundary accepts complete chromosomes 1-22 reference
 and regression-weight directories. A complete baseline partitioned suite also
@@ -555,14 +555,14 @@ merge. rsID-family and coordinate-family modes never mix.
 
 | File | Example | Notes |
 | --- | --- | --- |
-| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; current Parquet recovers footer provenance. Legacy LDSC2 `.sumstats[.gz]` requires `SNP/A1/A2/Z/N` and is projected by rsID onto the panel. |
+| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; current Parquet recovers footer provenance. Legacy `.sumstats[.gz]` requires `SNP/A1/A2/Z/N` and is projected by rsID onto the panel. |
 | LD-score directory | `metadata.json`, `ldscore.baseline.parquet`, optional single or numbered query batch files, optional `ldscore.overlap.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; the overlap sidecar is written only for runs with >=2 annotation columns; `partitioned-h2` requires `ldscore.overlap.parquet` (baseline-only = functional regime, query columns = cell-type regime) and rejects directories that lack it; current parquet files have chromosome-aligned row groups; package-written directories without current metadata identity provenance are rejected and must be regenerated |
 
 ### Flow
 
 ```mermaid
 flowchart LR
-  I1[Current Parquet or legacy LDSC2 sumstats text]
+  I1[Current Parquet or legacy sumstats text]
   I2[LD-score artifacts]
 
   subgraph P5[Preprocessing (public)<br/>path_resolution + column_inference]

@@ -160,7 +160,7 @@ def test_complete_autosomal_index_build_and_reload(tmp_path, build, mode, unit, 
             assert len(dropped) == 1 and dropped.iloc[0].SNP == f'invalid_{chrom}'
     root = json.loads((path / 'metadata.json').read_text())
     assert root['format_version'] == 3
-    # Version 2 indexes were built with LDSC2 chunk-rounded PLINK windows.
+    # Version 2 indexes were built with legacy LDSC chunk-rounded PLINK windows.
     root['format_version'] = 2
     (path / 'metadata.json').write_text(json.dumps(root))
     with pytest.raises(LDSCInputError, match='Rebuild the complete index') as rejected:

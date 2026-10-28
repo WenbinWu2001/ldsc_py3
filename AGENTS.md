@@ -60,7 +60,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
 ## Design, implementation, and change discipline
 
 - Default against backward compatibility unless explicitly requested: remove obsolete interfaces and update callers, tests, examples, and documentation to the confirmed contract.
-  Do not add hypothetical aliases, adapters, migrations, fallback paths, or redundant validation; the established LDSC2 artifact exceptions below are deliberate requirements.
+  Do not add hypothetical aliases, adapters, migrations, fallback paths, or redundant validation; the established legacy artifact exceptions below are deliberate requirements.
 - Choose the simplest readable, maintainable, modular implementation; avoid speculative abstractions, configuration, and indirection unless significant computational gains or technical necessity justify them.
   Retain checks for scientific identity, alignment, convergence, and method assumptions; document non-obvious logic without restating code.
   Build capabilities incrementally on working end-to-end behavior, make durable architectural choices, and avoid disposable stopgaps.
@@ -89,7 +89,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
   Preserve one-based canonical SNP positions, zero-based half-open BED intervals, allele orientation, duplicate-key policies, and hg19/hg38 inference boundaries.
   Annotation rows/columns must align to retained reference identities; `A1` is the signed-statistic allele, not necessarily the genome reference allele.
 - Preserve reference-derived CM/MAF, the broad LD-contributor/count/overlap universe, and the separate filtered regression-row/weight universe.
-  Native common counts use the inclusive `common_maf_min` threshold (default 0.05); legacy conversion retains strict LDSC2 common-count semantics.
+  Native common counts use the inclusive `common_maf_min` threshold (default 0.05); legacy conversion retains strict legacy LDSC common-count semantics.
   Regression defaults to common-SNP counts when available; do not silently substitute unavailable requested counts.
 - Public annotation reads and LD-score Parquet values are float32; numerical LD accumulation, annotation sums, and overlap products use float64.
   Preserve Boolean interval unions, negative unbiased adjusted-r² values, one diagonal contribution, genomic ordering, and physical BIM/BED row mapping.
@@ -110,7 +110,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
   Markers add no rollback, quarantine, restoration, or action-order changes and do not enter metadata.
   Help and `munge-sumstats --infer-only` create no directories/logs/artifacts/markers; infer-only still requires `--output-dir`.
   Gene-index publication retains its existing complete atomic transaction, with open logs in hidden sibling build-state and closed successful logs moved into published diagnostics.
-- Preserve explicit LDSC2 interoperability: regression accepts `.sumstats(.gz)` with SNP/A1/A2/Z/N and validates allele orientation; munging may export `.sumstats.gz`.
+- Preserve explicit legacy LDSC interoperability: regression accepts `.sumstats(.gz)` with SNP/A1/A2/Z/N and validates allele orientation; munging may export `.sumstats.gz`.
   Annotation workflows read `.annot(.gz)` and write `.annot.gz`; omitting both alleles permits base-identity matching even in allele-aware workflows, while supplying only one allele is invalid.
 - Legacy LD-score input requires `convert-ldsc2-ldscores` with complete chromosome 1–22 reference/weight `<prefix><chrom>.l2.ldscore(.gz)` families, required `.l2.M_5_50`, and optional `.l2.M` under the documented count policy.
   Converted identity is allele-unaware; `.w.l2.ldscore(.gz)`, query/thin conversion suites, and direct regression consumption of fragments are unsupported.
@@ -192,8 +192,8 @@ These rules apply only when a review is requested; they do not require an extra 
 - `docs/dev/design/memory-and-cpu.md`, `docs/reference/gene-ldscore-index.md`, `docs/reference/methods/gene-ldscore-index-math.md`, `docs/reference/results/partitioned-h2.md`, and `docs/reference/results/quantile-h2.md`: memory ownership, exact indexes, result interpretation, and post-fit quantiles.
 - `docs/reference/parallel-execution.md`: managed task workers, joblib CPU budgets, one BLAS thread per worker, and chromosome diagnostics.
 - `docs/reference/input-paths.md`, `docs/reference/logs-and-outputs.md`, and `docs/dev/guidelines/cli-help.md`: resolution, output/diagnostic lifecycle, and task-oriented CLI help.
-- `docs/user-guide/guided-tutorial.md` and the workflow pages in `docs/user-guide/workflows/` (for example `ld-scores.md`, `partitioned-heritability.md`, `cell-type-enrichment.md`, and `migrating-from-ldsc2.md`): main worked workflows; Python API usage is collected in `docs/user-guide/python-usage.md`.
-- `docs/reference/ldsc2-flag-map.md`: LDSC2 interface mapping, including options without a current equivalent; no document yet records numerical equivalence with LDSC2. `docs/dev/release.md`: maintainer release runbook, not authorization to release.
+- `docs/user-guide/guided-tutorial.md` and the workflow pages in `docs/user-guide/workflows/` (for example `ld-scores.md`, `partitioned-heritability.md`, `cell-type-enrichment.md`, and `migrating-from-legacy-ldsc.md`): main worked workflows; Python API usage is collected in `docs/user-guide/python-usage.md`.
+- `docs/reference/legacy-flag-map.md`: legacy LDSC interface mapping, including options without a current equivalent; no document yet records numerical equivalence with legacy LDSC. `docs/dev/release.md`: maintainer release runbook, not authorization to release.
   `LICENSE`, `NOTICE`, and `CITATION.cff` preserve licensing, attribution, and citation metadata; retain notices during refactors and packaged resource attribution.
 - `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik`: legacy numerical/format reference.
 - `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/docs/ldsc_papers`: LDSC papers and supplements.

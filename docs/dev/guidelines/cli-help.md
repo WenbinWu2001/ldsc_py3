@@ -4,7 +4,7 @@ Last updated on: 2026-10-27
 
 These are the agreed rules for writing flag descriptions and organizing `--help` across all public `ldsc` commands. A user should be able to identify the inputs they need, understand what an option changes, and choose a valid combination without knowing the package implementation.
 
-The [IO argument inventory](../../reference/cli.md) describes the current options, and the [legacy flag map](../../reference/ldsc2-flag-map.md) records approved spelling and behavior decisions. These rules have been applied across the public command parsers.
+The [IO argument inventory](../../reference/cli.md) describes the current options, and the [legacy flag map](../../reference/legacy-flag-map.md) records approved spelling and behavior decisions. These rules have been applied across the public command parsers.
 
 ## Required description content
 

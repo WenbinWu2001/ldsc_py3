@@ -13,7 +13,7 @@ Testing one query annotation per cell type is [cell-type enrichment](cell-type-e
 
 ## Inputs you need
 
-- **Munged summary statistics** for one trait: the Parquet file written by [`munge-sumstats`](munge-sumstats.md), or an LDSC2 `.sumstats(.gz)` file with `SNP`, `A1`, `A2`, `Z` and `N` (see [legacy summary statistics](../../reference/formats/legacy-sumstats.md)).
+- **Munged summary statistics** for one trait: the Parquet file written by [`munge-sumstats`](munge-sumstats.md), or a legacy `.sumstats(.gz)` file with `SNP`, `A1`, `A2`, `Z` and `N` (see [legacy summary statistics](../../reference/formats/legacy-sumstats.md)).
 - **Baseline annotations**: a chromosome suite of `.annot(.gz)` files, for example a baseline-LD release.
   No baseline annotations are packaged with LDSC3; see [reference data](../reference-data.md).
 - **A reference panel**: an [R² panel](r2-panels.md) built by `build-r2-panel` (`--r2-dir`), or PLINK files (`--plink-prefix`).
@@ -97,12 +97,12 @@ ldsc partitioned-h2 \
 ```
 
 The command reads the baseline, query, count and overlap files recorded in the LD-score directory's `metadata.json`; it never recomputes LD scores.
-An LD-score directory converted from LDSC2 with [`convert-ldsc2-ldscores`](migrating-from-ldsc2.md) is accepted for a baseline-only analysis.
+An LD-score directory converted from legacy LDSC with [`convert-ldsc2-ldscores`](migrating-from-legacy-ldsc.md) is accepted for a baseline-only analysis.
 
 Defaults used by this command:
 
 - `--count-kind common` scales estimates by common-SNP counts and `--count-kind all` by all-SNP counts; the run stops before fitting if the LD-score directory lacks the requested counts for a baseline annotation, or for a query annotation unless `--continue-on-query-error` records that query as failed; the other kind is never substituted.
-- The intercept is estimated; add `--intercept-h2 1` to fix it at 1 (the replacement for LDSC2 `--no-intercept`; see the [flag map](../../reference/ldsc2-flag-map.md#regression-intercept-consolidation)).
+- The intercept is estimated; add `--intercept-h2 1` to fix it at 1 (the replacement for legacy LDSC `--no-intercept`; see the [flag map](../../reference/legacy-flag-map.md#regression-intercept-consolidation)).
 - `--n-blocks 200` sets the block jackknife.
 - Results are on the observed scale; for a binary trait, add `--samp-prev` and `--pop-prev` as described in [liability scale](liability-scale.md).
 - `--summary-sort-by auto` sorts query rows by ascending `coefficient_p` and baseline-only rows in annotation order.

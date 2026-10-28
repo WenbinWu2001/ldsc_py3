@@ -4,7 +4,7 @@ Last updated on: 2026-10-27
 
 This document describes the tunable configuration of the regression module
 (`ldsc h2`, `ldsc rg`, `ldsc partitioned-h2`). **You do not need any of this for
-a standard run.** The defaults reproduce the original LDSC behavior, and the
+a standard run.** The defaults reproduce legacy LDSC behavior, and the
 common workflow is simply to point each command at a munged `.sumstats` file and
 a canonical LD-score directory. The parameters below are opt-in controls for
 advanced users who need to constrain the intercept, exclude outliers, tune the
@@ -123,7 +123,7 @@ The shared factor is `liability_conversion_factor` in [`_kernel/regression.py`](
 
 ### 1.5 Requesting fixed intercepts
 
-The removed LDSC2 `--no-intercept` shortcut is replaced by explicit values:
+The removed legacy LDSC `--no-intercept` shortcut is replaced by explicit values:
 
 | Command | Standard fixed-intercept request |
 | --- | --- |
@@ -131,7 +131,7 @@ The removed LDSC2 `--no-intercept` shortcut is replaced by explicit values:
 | `partitioned-h2` | `--intercept-h2 1` |
 | `rg` | `--intercept-h2 1 --intercept-gencov 0` |
 
-These disable intercept estimation by fixing h2 intercepts to 1 and covariance intercepts to 0. In `rg`, one h2 value is shared by both traits in every pair, and one covariance value is shared by every pair. Omitting the flags estimates the intercepts with the existing defaults. Fixed values must reflect the intended analysis assumptions; they are not the default policy. See the [LDSC2 flag map](ldsc2-flag-map.md#regression-intercept-consolidation).
+These disable intercept estimation by fixing h2 intercepts to 1 and covariance intercepts to 0. In `rg`, one h2 value is shared by both traits in every pair, and one covariance value is shared by every pair. Omitting the flags estimates the intercepts with the existing defaults. Fixed values must reflect the intended analysis assumptions; they are not the default policy. See the [legacy LDSC flag map](legacy-flag-map.md#regression-intercept-consolidation).
 
 A single-annotation `rg --intercept-gencov 0` run with a free h2 intercept deliberately remains invalid: automatic two-step estimation selects cutoff 30, which conflicts with the fixed covariance intercept. There is no new option to turn this automatic step off. Explicit `--two-step-cutoff` also remains incompatible with fixed intercepts and multi-annotation models.
 

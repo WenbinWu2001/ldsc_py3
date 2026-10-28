@@ -118,7 +118,7 @@ The case and control flags are a required pair, and they cannot be combined with
 
 ### How the case/control pair becomes N
 
-LDSC3 preserves the LDSC2 legacy case/control normalization. For variant `i`, let `T_i = NCAS_i + NCON_i` and `p_i = NCAS_i / T_i`. Let `p_ref` be the mean `p_i` among variants having the maximum `T_i`. The munger calculates:
+LDSC3 preserves the legacy case/control normalization. For variant `i`, let `T_i = NCAS_i + NCON_i` and `p_i = NCAS_i / T_i`. Let `p_ref` be the mean `p_i` among variants having the maximum `T_i`. The munger calculates:
 
 ```text
 N_i = T_i * p_i / p_ref
@@ -129,7 +129,7 @@ This is **not** the commonly used harmonic effective sample size `4 / (1/NCAS_i 
 Choose the strategy according to the scientific meaning of the source fields:
 
 - Use `--N-col NEFF` when the data producer documents `NEFF` as the effective sample size corresponding to the reported association statistic—for example, after accounting for case/control imbalance, per-variant missingness, meta-analysis participation, or analysis weights—and those exact values are intended for LDSC.
-- Use `--N-cas-col NCAS --N-con-col NCON` when the per-variant counts are the trusted inputs and LDSC2-compatible legacy case/control normalization is the intended rule.
+- Use `--N-cas-col NCAS --N-con-col NCON` when the per-variant counts are the trusted inputs and legacy case/control normalization is the intended rule.
 
 `NEFF` definitions vary between producers. Check the study documentation and compare `NEFF` with the count-derived values rather than assuming the two strategies are interchangeable.
 

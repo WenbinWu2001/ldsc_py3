@@ -265,7 +265,7 @@ z
    </g>
    <g id="text_16">
     <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(466.56 850.580859)">SumstatsMunger / load_sumstats()</text>
-    <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(466.56 869.715781)">Curated Parquet or LDSC2 .sumstats(.gz)</text>
+    <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(466.56 869.715781)">Curated Parquet or legacy .sumstats(.gz)</text>
     <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(466.56 889.218164)">Canonical identities, Z, N and allele metadata</text>
     <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; fill: #172c3c" transform="translate(466.56 907.665781)">Validated SumstatsTable for trait alignment</text>
    </g>

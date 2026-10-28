@@ -76,7 +76,7 @@ The downstream-required identity metadata is embedded in the `sumstats.parquet`
 **footer** as discrete `ldsc:*` keys; no `metadata.json` is written. `.sumstats.gz`
 carries no embedded metadata. Legacy `.sumstats` and `.sumstats.gz` inputs are
 marked for rsID-to-panel projection. Footerless Parquet is rejected because it
-is neither a self-describing LDSC3 artifact nor an LDSC2 compatibility format.
+is neither a self-describing LDSC3 artifact nor a legacy compatibility format.
 
 | Footer key | Explanation | Downstream usage |
 | --- | --- | --- |
@@ -111,7 +111,7 @@ only the final downstream compatibility build.
 
 ### Regression legacy-sumstats audit
 
-When any regression input is legacy LDSC2 text and an output directory is
+When any regression input is legacy text and an output directory is
 supplied, `h2`, `partitioned-h2`, and `rg` write
 `diagnostics/dropped_snps/legacy_sumstats.tsv.gz`, including a header-only file
 for a clean projection. Its fixed fields are `trait_name`, `source_path`,
@@ -271,7 +271,7 @@ Embedding the matrix in `metadata.json` was rejected because it would reach tens
 | `baseline_columns` | Ordered baseline annotation LD-score columns. | Required to assemble regression covariates. |
 | `query_columns` | Ordered query annotation LD-score columns. | Required for partitioned h2 query selection. |
 | `counts` | Per-annotation count records, keyed by name: `group`, `column`, `all_reference_snp_count` and, when common-SNP counts are available, `common_reference_snp_count`. Regression uses the all-SNP count when the common count is absent. | Required for regression count vectors. |
-| `count_config` | Common-SNP count settings `common_reference_snp_maf_min` (default 0.05) and `common_reference_snp_maf_operator`, the actual threshold operator (`>=` for native LDSC3 computation; strict `>` for LDSC2 conversion). | Required to interpret count universes and checked against overlap metadata. |
+| `count_config` | Common-SNP count settings `common_reference_snp_maf_min` (default 0.05) and `common_reference_snp_maf_operator`, the actual threshold operator (`>=` for native LDSC3 computation; strict `>` for legacy LDSC conversion). | Required to interpret count universes and checked against overlap metadata. |
 | `overlap_config` | Overlap-matrix provenance: `total_all_reference_snps`, `total_common_reference_snps`, `common_maf_min`, `common_maf_operator`, `stored_block`. `null` for single-annotation runs that write no overlap matrix. | Provides `M_tot` and the universe definition for overlap-aware partitioned-h2. |
 | `snp_universe_policy` | `ld_reference_universe` (how the reference SNPs were selected and how many were kept) and `regression_rows_and_weights` (regression-SNP selection, region exclusions, and counts before and after exclusion). | Scientific provenance; ignored by regression. |
 | `annotation_types` | Per-column `binary` or `quantitative` classification. | Interpretation and logging only; never changes fitting. |
@@ -285,10 +285,10 @@ Embedding the matrix in `metadata.json` was rejected because it would reach tens
 | `gene_list_resolution_counts` | Aggregate submitted, rejected, and unique-resolved counts. | Reproducibility/diagnostics; ignored by regression. |
 | `query_diagnostics` | Relative paths to available query status, scope, structural input issues, and, for gene runs, the audit and source summary. | Troubleshooting/navigation; ignored by regression. |
 | `chromosome_scope` | Validated input scope and selection semantics, separately from chromosomes with retained output rows. Empty for workflows without query coverage preflight. | Scientific provenance; ignored by regression. |
-| `legacy_ldsc2_import` | Present only for explicit LDSC2 conversion: profile, selected source directories/prefixes/files, rsID intersection counts, count origins, strict common-frequency rule, coordinate evidence, and diagnostic paths. Source-file hashes are not computed or written. | Provenance and compatibility auditing; regression still consumes the ordinary canonical fields. |
+| `legacy_ldsc2_import` | Present only for explicit legacy LDSC conversion: profile, selected source directories/prefixes/files, rsID intersection counts, count origins, strict common-frequency rule, coordinate evidence, and diagnostic paths. Source-file hashes are not computed or written. | Provenance and compatibility auditing; regression still consumes the ordinary canonical fields. |
 
 Native LDSC3 computation records an inclusive common operator (`>=`). Explicit
-LDSC2 conversion records the actual strict legacy operator (`>`) at threshold
+Legacy LDSC conversion records the actual strict legacy operator (`>`) at threshold
 `0.05`; `overlap_config` must agree with `count_config`, and the loader rejects
 drift. Converted suites use the same canonical directory layout. Their workflow
 log is `diagnostics/convert-ldsc2-ldscores.log` and their always-written issue

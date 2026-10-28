@@ -3,7 +3,7 @@
 Fixture: the deterministic 32-SNP chromosome-22 1KG-30x subset (3202 samples,
 hg38 positions; see ``tests/fixtures/minimal_external_resources/README.md``).
 Its SNPs are 30-900 kb apart, so ``--ld-wind-snps 3`` and ``--ld-wind-kb 200``
-cover only a few neighbours, while LDSC2 chunk rounding at a batch of 128
+cover only a few neighbours, while legacy LDSC chunk rounding at a batch of 128
 would have widened every window to the whole chromosome.
 """
 from pathlib import Path

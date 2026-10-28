@@ -14,7 +14,7 @@ This is the query form of [partitioned heritability](partitioned-heritability.md
 
 ## Inputs you need
 
-- **Munged summary statistics** for the trait: a Parquet file from [`munge-sumstats`](munge-sumstats.md), or an LDSC2 `.sumstats(.gz)` file.
+- **Munged summary statistics** for the trait: a Parquet file from [`munge-sumstats`](munge-sumstats.md), or a legacy `.sumstats(.gz)` file.
 - **Baseline annotations**, kept in every model.
 - **One query per cell type**, from one of three routes:
   - one BED file per cell type (Route A below);
@@ -196,7 +196,7 @@ It does not compare raw coefficients, show enrichment or correct for multiple te
   A failed query is not a null association.
 - Query annotations require explicit baseline annotations; the synthetic all-ones `base` annotation applies only to ordinary unpartitioned LD scores.
 - A baseline-only LD-score directory gives the joint baseline model, not cell-type tests.
-- For how this workflow differs from LDSC2's cell-type analysis, see [migrating from LDSC2](migrating-from-ldsc2.md#partitioned-and-cell-type-analyses).
+- For how this workflow differs from legacy LDSC's cell-type analysis, see [migrating from legacy LDSC](migrating-from-legacy-ldsc.md#partitioned-and-cell-type-analyses).
 
 ## Reference
 

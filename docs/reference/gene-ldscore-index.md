@@ -227,7 +227,7 @@ The input fingerprints behind `index_id` (normalized baseline content, whole PLI
 Identical inputs and settings must produce identical fingerprints and the same `index_id`; changing what a fingerprint covers changes the identity of every index.
 
 Root and chromosome metadata record `format_version: 3` and repeat the immutable identity mode and hg19/hg38 build.
-Version 3 marks exact PLINK LD windows; version 2 operators used LDSC2's batch-rounded windows, so the loader rejects them and asks for a rebuild.
+Version 3 marks exact PLINK LD windows; version 2 operators used legacy LDSC's batch-rounded windows, so the loader rejects them and asks for a rebuild.
 Each chromosome records `published_row_metadata_sha256` over ordered `CHR SNP POS A1 A2` metadata for regression rows only.
 Both allele columns are required.
 This one digest covers the effective SNP key in all four identity modes; the redundant `effective_identity_sha256` field is no longer written or required.

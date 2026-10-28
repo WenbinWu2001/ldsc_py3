@@ -9,9 +9,9 @@ To divide SNP heritability among annotations, use [partitioned heritability](par
 ## What you need
 
 - **Munged summary statistics** for the trait, written by [`ldsc munge-sumstats`](munge-sumstats.md): `<trait>.parquet` when munged with `--trait-name`, otherwise `sumstats.parquet`.
-  LDSC2 `.sumstats` or `.sumstats.gz` files are also accepted; they are matched to the LD scores by rsID, as described in [legacy summary statistics](../../reference/formats/legacy-sumstats.md).
+  Legacy `.sumstats` or `.sumstats.gz` files are also accepted; they are matched to the LD scores by rsID, as described in [legacy summary statistics](../../reference/formats/legacy-sumstats.md).
   Parquet files without LDSC3 metadata are rejected and must be munged again.
-- **An unpartitioned LD-score directory**, written by [`ldsc ldscore`](ld-scores.md) without annotations, or converted from LDSC2 files with `convert-ldsc2-ldscores` (see [migrating from LDSC2](migrating-from-ldsc2.md)).
+- **An unpartitioned LD-score directory**, written by [`ldsc ldscore`](ld-scores.md) without annotations, or converted from legacy files with `convert-ldsc2-ldscores` (see [migrating from legacy LDSC](migrating-from-legacy-ldsc.md)).
   Without annotations, `ldscore` computes LD scores for one all-ones annotation named `base`.
 
 Both inputs must use the same SNP identifier mode and, for coordinate-family modes, the same genome build.
@@ -107,7 +107,7 @@ The defaults follow the published LDSC settings; change them only for a specific
 | Option | Default and purpose |
 | --- | --- |
 | `--count-kind` | `common` (default) scales by common-SNP counts and `all` by all-SNP counts; the requested counts must be in the LD-score directory, and the other kind is never substituted |
-| `--intercept-h2` | Estimated by default; `--intercept-h2 1` fixes the intercept at the standard value (this replaces the LDSC2 `--no-intercept`) |
+| `--intercept-h2` | Estimated by default; `--intercept-h2 1` fixes the intercept at the standard value (this replaces the legacy LDSC `--no-intercept`) |
 | `--two-step-cutoff` | 30 by default for a single-annotation model with a free intercept; cannot be combined with `--intercept-h2` |
 | `--chisq-max` | No cap for a single-annotation model; with several annotations, $\max(0.001 \cdot \max N, 80)$ |
 | `--n-blocks` | 200 block-jackknife blocks, capped at the number of SNPs |

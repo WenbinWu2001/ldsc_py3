@@ -63,7 +63,7 @@ The plain stem `1000G.EUR.QC.` finds the complete per-chromosome trios `1000G.EU
 
 The rows of the baseline and query files are the regression SNPs, by default the HM3 map after MHC and centromere exclusion.
 Each of these files covers all computed chromosomes, with one Parquet row group per chromosome.
-`regression_ld_scores` is the LD score computed over the regression SNPs only, which LDSC2 wrote as the separate `.w.l2.ldscore` weight file.
+`regression_ld_scores` is the LD score computed over the regression SNPs only, which legacy LDSC wrote as the separate `.w.l2.ldscore` weight file.
 Annotation counts are stored in `metadata.json` rather than as `.M` and `.M_5_50` files.
 Pass the whole directory to the regression commands with `--ldscore-dir`; you never pass count vectors or weight files separately.
 Every metadata field is listed in [artifact metadata](../../reference/formats/artifact-metadata.md#ldscore).
@@ -166,9 +166,9 @@ Give exactly one of `--ld-wind-cm`, `--ld-wind-kb` or `--ld-wind-snps`; each is 
 - `--ld-wind-snps` counts retained SNPs with PLINK input but panel rows with an R² panel, so the two differ when a run keeps only part of the panel; every R² panel run with `--ld-wind-snps` writes the per-chromosome counts to `diagnostics/ld_window_snp_counts.tsv`.
 - `--yes-really` allows an LD window that covers a whole chromosome, which is otherwise rejected.
 
-LDSC3 sums exactly the SNP pairs inside the requested LD window for both PLINK and R² panel input, so PLINK LD scores do not depend on `--snp-batch-size` and equal LDSC2 run with `--chunk-size 1`.
+LDSC3 sums exactly the SNP pairs inside the requested LD window for both PLINK and R² panel input, so PLINK LD scores do not depend on `--snp-batch-size` and equal legacy LDSC run with `--chunk-size 1`.
 PLINK and R² panel LD scores still differ slightly, because the R² panel stores R² at reduced precision and may use a different `CM` source.
-The measured difference from published LDSC2 LD scores is in the [LDSC2 flag map](../../reference/ldsc2-flag-map.md#exact-plink-ld-windows), and the R² panel window rules are in the [R² panel format](../../reference/formats/r2-panels.md#37-ld-windows-and-sidecar-values-in-ldscore).
+The measured difference from published legacy LD scores is in the [legacy LDSC flag map](../../reference/legacy-flag-map.md#exact-plink-ld-windows), and the R² panel window rules are in the [R² panel format](../../reference/formats/r2-panels.md#37-ld-windows-and-sidecar-values-in-ldscore).
 
 ## PLINK input
 
@@ -226,7 +226,7 @@ A missing output directory is created, unrelated files are kept, and a failed ov
 ## Caveats
 
 - LD-score directories written by earlier versions of LDSC3 without the `query_batches` manifest or SNP identity provenance in `metadata.json` are rejected; regenerate them.
-- To use published LDSC2 LD scores, convert them with `ldsc convert-ldsc2-ldscores` rather than passing the LDSC2 files to regression; see [Migrating from LDSC2](migrating-from-ldsc2.md).
+- To use published legacy LD scores, convert them with `ldsc convert-ldsc2-ldscores` rather than passing the legacy files to regression; see [Migrating from legacy LDSC](migrating-from-legacy-ldsc.md).
 - The LD-score computation itself is specified in [LD-score computation from R² panels](../../reference/methods/ld-score-computation.md).
 
 For the Python API, see [Python usage](../python-usage.md#ld-scores).

@@ -120,7 +120,7 @@ result = runner.estimate_partitioned_h2_batch(
 print(result.per_query_artifacts)  # Persistent per-query table, delete-value and metadata paths.
 ```
 
-`load_sumstats` reads munged summary statistics and recovers their SNP identity and genome build from the Parquet footer; it also accepts LDSC2 `.sumstats(.gz)` files.
+`load_sumstats` reads munged summary statistics and recovers their SNP identity and genome build from the Parquet footer; it also accepts legacy `.sumstats(.gz)` files.
 `RegressionConfig` holds the regression settings, for example `RegressionConfig(intercept_h2=1.0)` or `use_common_counts=False` (CLI `--count-kind all`).
 `estimate_partitioned_h2_batch` also takes `query_columns` to fit a subset of queries, or an empty list to fit the baseline annotations as one joint model, as well as `summary_sort_by` and `overwrite`.
 It writes no workflow log and records only the `metadata` it is given.
@@ -309,9 +309,9 @@ Pass the annotation sources used for the fitted model; for one query model, poin
 For a gene-list query, also pass the original gene settings; `gene_list_resolution_policy="resolved-only"` corresponds to `--allow-unresolved-genes`.
 `run_quantile_h2` returns a `QuantileH2Result` with `quantile_h2`, `standardized_coefficients`, `metadata` and `output_paths`.
 
-## Migrating from LDSC2
+## Migrating from legacy LDSC
 
-`convert_ldsc2_ldscores` is the Python form of `ldsc convert-ldsc2-ldscores` described in [migrating from LDSC2](workflows/migrating-from-ldsc2.md).
+`convert_ldsc2_ldscores` is the Python form of `ldsc convert-ldsc2-ldscores` described in [migrating from legacy LDSC](workflows/migrating-from-legacy-ldsc.md).
 Its keyword arguments match the flags without the leading `--`, with the same defaults (`snp_identifier="rsid"`, `genome_build="auto"`, `overwrite=False`), except that an omitted `log_level` uses the registered `GlobalConfig.log_level`; like the command, it has no common-MAF threshold.
 Conversion runs in a managed worker, so call it under `if __name__ == "__main__":` (see [parallel execution](../reference/parallel-execution.md)).
 
@@ -336,7 +336,7 @@ if __name__ == "__main__":
 
 The returned `LegacyLDScoreConversionResult` reports the detected suite type (`profile`), the number of retained rows, the baseline columns and the output paths, including the issue table and log.
 `load_ldscore_from_dir` opens the converted directory as an `LDScoreSource` for `RegressionRunner`; see [Partitioned heritability](#partitioned-heritability).
-LDSC2 `.sumstats(.gz)` files need no conversion: `load_sumstats` recognizes them, and `RegressionRunner` matches them to the LD-score directory automatically.
+Legacy `.sumstats(.gz)` files need no conversion: `load_sumstats` recognizes them, and `RegressionRunner` matches them to the LD-score directory automatically.
 
 ## Munge summary statistics
 
@@ -846,10 +846,10 @@ print(float(h2.tot), float(h2.tot_se), float(h2.intercept))
 Munged Parquet files store the `GlobalConfig` used to make them in their footer, together with the trait label; `load_sumstats()` restores both as `SumstatsTable.config_snapshot` and `trait_name`.
 `build_dataset()` checks that the summary statistics and the LD scores agree on settings such as `snp_identifier` and `genome_build`, and raises an error instead of merging incompatible inputs.
 Inspect `sumstats.config_snapshot` and `dataset.config_snapshot` to see the settings used.
-An LDSC2 `.sumstats.gz` file has no stored settings and is matched to the LD scores by rsID; a Parquet file without the footer is rejected.
+A legacy `.sumstats.gz` file has no stored settings and is matched to the LD scores by rsID; a Parquet file without the footer is rejected.
 
 **Weights.**
-The LD-score table includes a `regression_ld_scores` column (LDSC2's `w_ld`); the final regression weights are computed from it during fitting.
+The LD-score table includes a `regression_ld_scores` column (legacy LDSC's `w_ld`); the final regression weights are computed from it during fitting.
 
 **Saved results.**
 `estimate_h2()` returns the kernel estimator and writes nothing.
@@ -920,6 +920,6 @@ Tables that share a trait label are relabeled from their `source_path`; tables l
 Exporting the tables with `to_csv()` does not create a plotting input; `plot_result()` needs the directory and metadata written by `RgDirectoryWriter` or `run_rg`.
 `SumstatsMunger().run(MungeConfig(...))` returns a `SumstatsTable` that can be passed to `estimate_rg_pairs()` directly; see [Munge summary statistics](#munge-summary-statistics).
 Tables made by the munger, and Parquet files read by `load_sumstats()`, carry the `GlobalConfig` used to make them; their settings are checked against the LD scores before fitting.
-An LDSC2 `.sumstats.gz` file is matched to the LD scores by rsID; a Parquet file without the footer is rejected.
+A legacy `.sumstats.gz` file is matched to the LD scores by rsID; a Parquet file without the footer is rejected.
 
 `RegressionRunner.estimate_rg()` fits one pair and returns the low-level estimator object; prefer `estimate_rg_pairs()` or `run_rg`, which return the same tables as the command.

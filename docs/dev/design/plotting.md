@@ -84,7 +84,7 @@ A core overwrite can remove only the package-owned default nested roots; it cann
 
 The cell-type input is the aggregate `partitioned-h2` root. A per-query `diagnostics/query_annotations/<query>/` directory is rejected because it represents one baseline-plus-query fit rather than the suite-level comparison.
 
-Each builder validates its required table columns and value domains. Missing or failed rg/query values remain explicit in the figure. The dispatcher rejects raw LDSC2 outputs, loose tables, unsupported analysis regimes, absolute or escaping metadata paths, duplicate rg pairs, and incomplete artifacts.
+Each builder validates its required table columns and value domains. Missing or failed rg/query values remain explicit in the figure. The dispatcher rejects raw legacy outputs, loose tables, unsupported analysis regimes, absolute or escaping metadata paths, duplicate rg pairs, and incomplete artifacts.
 
 ### Heritability annotations in rg plots
 

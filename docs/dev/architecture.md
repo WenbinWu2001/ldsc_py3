@@ -294,7 +294,8 @@ The workflow keeps raw-input parsing flexible, skips leading `##` raw metadata l
 In `chr_pos`-family modes, chunk filtering uses source-build coordinates and compact packed coordinate keys.
 HM3 quick liftover requires the packaged HM3 restriction flag.
 Liftover preserves `SNP` labels, drops missing or invalid coordinates before mapping, drops duplicate source-coordinate groups before mapping, drops unmapped/cross-chromosome rows, and removes duplicate target-coordinate groups after mapping.
-The `sumstats.parquet` footer persists only `ldsc:artifact_type`, `ldsc:snp_identifier`, final output `ldsc:genome_build`, and optional `ldsc:trait_name`; rsID-family summary statistics store an empty `genome_build`.
+The `sumstats.parquet` footer persists `ldsc:artifact_type`, `ldsc:snp_identifier`, final output `ldsc:genome_build`, and optional `ldsc:trait_name`; rsID-family summary statistics store an empty `genome_build`.
+When the run's QC thresholds are known, the footer also records `ldsc:qc_info_min` and `ldsc:qc_maf_min` as provenance that readers ignore (see `docs/reference/formats/artifact-metadata.md`).
 Row-level identity and liftover drops are audited in `diagnostics/dropped_snps/dropped.tsv.gz`; detailed coordinate provenance, liftover reports, HM3 provenance, output files, and row-group layout are readable audit log entries in `diagnostics/sumstats.log`.
 DANER-specific schema handling can be inferred or requested explicitly: old DANER reads case/control sample sizes from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers, while new DANER reads per-SNP case/control counts from `Nca` and `Nco` columns.
 `MungeRunSummary.output_paths` lists munged data files and the dropped-SNP audit sidecar, not `diagnostics/sumstats.log`.

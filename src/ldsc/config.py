@@ -34,8 +34,8 @@ import warnings
 from ._core.snp_identity import identity_mode_family, normalize_snp_identifier_mode
 from ._core.columns import normalize_genome_build
 from .errors import LDSCConfigError
-from ._parallelism import _validate_workers
-from .path_resolution import normalize_optional_path_token, normalize_path_token, normalize_path_tokens
+from ._runtime.parallelism import _validate_workers
+from ._runtime.paths import normalize_optional_path_token, normalize_path_token, normalize_path_tokens
 
 LOGGER = logging.getLogger("LDSC.config")
 _GENOME_BUILD_UNSET = object()

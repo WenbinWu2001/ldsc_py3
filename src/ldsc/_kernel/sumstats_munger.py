@@ -33,7 +33,7 @@ from .._core.coordinates import (
     positive_int_position_series,
 )
 from ..errors import LDSCInputError, LDSCInternalError
-from .._progress import report_phase, advance
+from .._runtime.progress import report_phase, advance
 from .._core.identifiers import (
     build_packed_chr_pos_series,
     read_global_chr_pos_restriction_key_set,

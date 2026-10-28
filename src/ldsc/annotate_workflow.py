@@ -17,7 +17,7 @@ from ._annotation_sources import prepare_annotation_sources
 from ._annotation_storage import AnnotationWorkspace
 from ._gene_query_storage import resolve_gene_lists_staged
 from ._core.snp_identity import identity_mode_family
-from ._logging import workflow_logging, materializing_overwrite_guard, log_inputs, log_outputs
+from ._runtime.workflow_logging import workflow_logging, materializing_overwrite_guard, log_inputs, log_outputs
 from .annotation_semantics import require_unique_annotation_names
 from ._core.columns import normalize_genome_build
 from .config import AnnotationBuildConfig, GlobalConfig, get_global_config, print_global_config_banner
@@ -25,7 +25,7 @@ from .errors import LDSCInputError
 from .gene_list_resolver import GeneCatalog, GeneCatalogValidationError
 from ._genome_build_policy import GenomeBuildCheck
 from .outputs import AnnotationDirectoryWriter
-from .path_resolution import ensure_output_directory, resolve_file_group, split_cli_path_tokens
+from ._runtime.paths import ensure_output_directory, resolve_file_group, split_cli_path_tokens
 from .query_annotations import (
     gene_query_statuses, gene_viability_errors, _all_query_annotations_skipped_message,
     _emit_bed_query_notice, _emit_gene_gate_b_notice, _emit_resolved_only_notice,

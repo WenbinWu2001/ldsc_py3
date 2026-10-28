@@ -3,8 +3,8 @@
 import pandas as pd
 
 from ._annotation_parsing import normalize_annotation_chunk
-from ._input_preflight import input_issue, inspect_declared_inputs
-from .path_resolution import (
+from ._runtime.preflight import input_issue, inspect_declared_inputs
+from ._runtime.paths import (
     ANNOTATION_SUFFIXES, normalize_path_token, normalize_path_tokens, resolve_file_group, split_cli_path_tokens,
 )
 from .errors import LDSCInputError, LDSCUserError

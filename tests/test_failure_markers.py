@@ -7,7 +7,7 @@ from unittest import mock
 import pytest
 
 from ldsc import cli
-from ldsc._logging import overwrite_failure_marker
+from ldsc._runtime.workflow_logging import overwrite_failure_marker
 from ldsc import ref_panel_builder
 from ldsc.errors import LDSCInputError
 

@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 
 from .errors import LDSCInternalError
-from ._worker_runtime import initialize_worker, log_native_thread_state
+from ._runtime.worker_runtime import initialize_worker, log_native_thread_state
 
 
 @dataclass(frozen=True)

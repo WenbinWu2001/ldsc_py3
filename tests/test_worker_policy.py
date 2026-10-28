@@ -112,7 +112,7 @@ def test_workflows_share_detected_budget_and_managed_processes(tmp_path, monkeyp
 
 @pytest.mark.parametrize("cpu_count,expected", [(4, 3), (1, 1)])
 def test_worker_cpu_discovery_delegates_to_joblib(monkeypatch, cpu_count, expected):
-    from ldsc import _parallelism as policy
+    from ldsc._runtime import parallelism as policy
     monkeypatch.setattr(policy.joblib, "cpu_count", lambda: cpu_count)
     monkeypatch.setenv("SLURM_CPUS_PER_TASK", "1")
     assert policy._resolve_worker_count(-1, 3) == expected

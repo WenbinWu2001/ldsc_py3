@@ -17,7 +17,7 @@ from ._core.snp_identity import effective_merge_key_series, identity_base_mode, 
 from ._quantile_storage import QuantileIdentityStore, reference_chunks, target_chunks
 from .config import AnnotationBuildConfig, GlobalConfig
 from .errors import LDSCInputError
-from .path_resolution import ANNOTATION_SUFFIXES, resolve_file_group, split_cli_path_tokens
+from ._runtime.paths import ANNOTATION_SUFFIXES, resolve_file_group, split_cli_path_tokens
 
 
 @dataclass(frozen=True)

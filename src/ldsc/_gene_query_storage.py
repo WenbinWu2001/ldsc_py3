@@ -15,7 +15,7 @@ import zlib
 import numpy as np
 import pandas as pd
 
-from ._progress import report_phase, advance
+from ._runtime.progress import report_phase, advance
 
 from ._annotation_storage import FrameSpool
 from .gene_list_resolver import (
@@ -24,7 +24,7 @@ from .gene_list_resolver import (
     gene_list_query_name,
 )
 from .errors import LDSCInputError
-from .path_resolution import normalize_path_token
+from ._runtime.paths import normalize_path_token
 
 
 @dataclass(frozen=True)

@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from ldsc import RegressionRunner, RegressionConfig, cli
-from ldsc import _parallelism as policy
+from ldsc._runtime import parallelism as policy
 from ldsc import _partitioned_h2_parallel as parallel
 from ldsc.errors import LDSCInternalError
 from tests.test_regression_streaming import batch_inputs, cli_inputs

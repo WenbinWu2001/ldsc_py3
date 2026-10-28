@@ -63,7 +63,7 @@ Failed declaration-validation phases report the number of distinct inputs with i
 
 Output collisions are a separate error: passing `--overwrite` authorizes owned output replacement but never bypasses input validation. Early input failures preserve existing scientific files and retain the established authorized-overwrite `RUN_FAILED.txt` contract. INFO phase records distinguish validation, staging, computation, and publication; periodic progress occurs when bounded chunks return, not during a blocking third-party call.
 
-**Developer reference:** `_input_preflight.InputGate` and workflow content gates.
+**Developer reference:** `_runtime.preflight.InputGate` and workflow content gates.
 
 ## Common
 
@@ -99,9 +99,9 @@ Markers, logs, audits, and scientific outputs use the same expanded destination.
 2. Narrow broad globs so they match exactly the intended file.
 3. For annotation chromosome suites, use an explicit `@` token such as `baseline.@.annot.gz` or a quoted glob with the full file suffix.
 
-**PLINK resolution (`ldscore`, `build-gene-ldscore-index`, `build-r2-panel`):** A plain stem such as `1000G.EUR.QC.` is supported and preserves numeric suffixes such as `.22`. These commands share `path_resolution.inspect_plink_inputs()`. If `Could not resolve PLINK inputs` appears, read every listed issue: restore each missing BED/BIM/FAM member, replace malformed or truncated trios, verify BIM chromosome contents against any explicit `@` declaration, and narrow inputs when multiple trios contain the same chromosome. Renaming a file does not change its chromosome assignment. Gene-index construction requires chromosomes 1-22 even without `@`; direct query LD-score full-suite declarations also retain their coverage checks. Direct LD-score issues appear in its input diagnostics; gene-index issues are retained in `.<output-name>.build-state/plink_input_issues.tsv`; R²-builder issues appear in `diagnostics/plink_input_issues.tsv`. See the [shared resolution contract](../reference/input-paths.md#plink-prefix-resolution).
+**PLINK resolution (`ldscore`, `build-gene-ldscore-index`, `build-r2-panel`):** A plain stem such as `1000G.EUR.QC.` is supported and preserves numeric suffixes such as `.22`. These commands share `_runtime.paths.inspect_plink_inputs()`. If `Could not resolve PLINK inputs` appears, read every listed issue: restore each missing BED/BIM/FAM member, replace malformed or truncated trios, verify BIM chromosome contents against any explicit `@` declaration, and narrow inputs when multiple trios contain the same chromosome. Renaming a file does not change its chromosome assignment. Gene-index construction requires chromosomes 1-22 even without `@`; direct query LD-score full-suite declarations also retain their coverage checks. Direct LD-score issues appear in its input diagnostics; gene-index issues are retained in `.<output-name>.build-state/plink_input_issues.tsv`; R²-builder issues appear in `diagnostics/plink_input_issues.tsv`. See the [shared resolution contract](../reference/input-paths.md#plink-prefix-resolution).
 
-**Developer reference:** `path_resolution.resolve_scalar_path()` and group/path-prefix resolvers · **Exception:** `LDSCInputError`
+**Developer reference:** `_runtime.paths.resolve_scalar_path()` and group/path-prefix resolvers · **Exception:** `LDSCInputError`
 
 ### Common: output artifact already exists
 
@@ -124,7 +124,7 @@ Markers, logs, audits, and scientific outputs use the same expanded destination.
 3. Do not share one output directory across concurrent runs unless the workflow
    explicitly supports chromosome-sharded output ownership.
 
-**Developer reference:** `path_resolution.ensure_output_paths_available()` and `path_resolution.preflight_output_artifact_family()` · **Exception:** `FileExistsError`
+**Developer reference:** `_runtime.paths.ensure_output_paths_available()` and `_runtime.paths.preflight_output_artifact_family()` · **Exception:** `FileExistsError`
 
 ### Common: genome build could not be inferred
 

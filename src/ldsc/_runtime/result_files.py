@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import tempfile
 
-from .errors import LDSCInputError
+from ..errors import LDSCInputError
 
 
 def declared_result_file(

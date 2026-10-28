@@ -40,16 +40,16 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from ._serial_calculation import serial_calculation
+from ._runtime.serial_calculation import serial_calculation
 from ._ldscore_diagnostics import ldscore_logs, chromosome_log, report_chromosome_failure
 from ._direct_ldscore_batches import DirectChromosomeFragment, stage_direct_chromosome
 from ._ldscore_fragments import StagedLDScoreBatch
 from ._query_variation import combine_variation
 from ._core.chromosomes import chrom_sort_key
-from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
-from ._logging import LOG_LEVEL_HELP
-from ._parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _run_chromosome_tasks, _validate_workers
-from ._progress import report_phase, PhaseProgress
+from ._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
+from ._runtime.workflow_logging import LOG_LEVEL_HELP
+from ._runtime.parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _run_chromosome_tasks, _validate_workers
+from ._runtime.progress import report_phase, PhaseProgress
 from ._annotation_storage import TsvDiagnostics
 from .ldscore_source import LDScoreSource
 from ._core.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, identity_mode_family, is_allele_aware_mode
@@ -70,14 +70,14 @@ from .outputs import (
     LDScoreOutputConfig,
     REGRESSION_LD_SCORE_COLUMN,
 )
-from .path_resolution import (
+from ._runtime.paths import (
     ensure_output_directory,
     normalize_optional_path_token,
     normalize_path_token,
     resolve_scalar_path,
     split_cli_path_tokens,
 )
-from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
+from ._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ._kernel import ldscore as kernel_ldscore
 from ._core import regions as kernel_regions
 from ._kernel.overlap import OverlapContribution, sum_overlap_contributions
@@ -1446,10 +1446,10 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     with AnnotationWorkspace(output_dir) as workspace:
         with workflow_logging("ldscore", log_path, log_level=getattr(args,"log_level","INFO")):
             from ._annotation_preflight import inspect_annotation_inputs
-            from ._input_preflight import InputGate
+            from ._runtime.preflight import InputGate
             from ._ref_panel_preflight import inspect_r2_headers
             from ._ldscore_preflight import inspect_reference_inputs
-            from ._progress import PhaseProgress
+            from ._runtime.progress import PhaseProgress
             declared_inputs = inspect_annotation_inputs(
                 baseline=getattr(args, 'baseline_annot_sources', None), query=getattr(args, 'query_annot_sources', None),
                 files=[(name, getattr(args, name, None)) for name in (
@@ -1976,7 +1976,7 @@ def run_ldscore(**kwargs) -> "LDScoreSource":
         command's choices, a flag is not a bool, or ``snp_identifier``,
         ``genome_build`` or ``log_level`` is passed.
     """
-    from ._workflow_kwargs import GLOBAL_CONFIG_RUNTIME_OPTIONS, namespace_from_kwargs
+    from ._runtime.workflow_kwargs import GLOBAL_CONFIG_RUNTIME_OPTIONS, namespace_from_kwargs
 
     args = namespace_from_kwargs(
         "run_ldscore", build_parser(), kwargs, rejected=GLOBAL_CONFIG_RUNTIME_OPTIONS,
@@ -2344,7 +2344,7 @@ def _check_parquet_reference(ref_panel, chromosomes, ldscore_config: LDScoreConf
     """
     if getattr(getattr(ref_panel, "spec", None), "backend", None) != "parquet_r2":
         return
-    from ._input_preflight import InputGate
+    from ._runtime.preflight import InputGate
     from ._ref_panel_preflight import inspect_r2_headers
     from ._ldscore_preflight import read_r2_sidecar_for_chromosome
 
@@ -2551,7 +2551,7 @@ def _compute_one_chromosome(
 
 def _init_worker(regression_snps, regression_regions=None, log_level: str = "INFO") -> None:
     """Initialize shared keys and fixed, worker-owned native thread limits."""
-    from ._worker_runtime import initialize_worker
+    from ._runtime.worker_runtime import initialize_worker
     _WORKER_STATE["regression_snps"] = regression_snps
     _WORKER_STATE["regression_regions"] = regression_regions
     initialize_worker(log_level)

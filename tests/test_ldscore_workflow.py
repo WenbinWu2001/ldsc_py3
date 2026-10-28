@@ -1,5 +1,5 @@
 from __future__ import annotations
-from ldsc._serial_calculation import serial_calculation
+from ldsc._runtime.serial_calculation import serial_calculation
 from tests.annotation_fixtures import build_annotation_fixture, make_annotation_bundle, fixture_metadata, fixture_values, fixture_ids, replace_fixture_queries
 
 from tests.ref_panel_helpers import compute_plink, write_tiny_plink

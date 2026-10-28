@@ -6,7 +6,7 @@ import multiprocessing as mp
 
 import pytest
 
-from ldsc import _parallelism as policy
+from ldsc._runtime import parallelism as policy
 
 
 @pytest.mark.parametrize("requested,tasks,expected", [(1,22,1),(4,2,2),(-1,22,8),(-2,22,7),(-20,22,1)])
@@ -25,7 +25,7 @@ def test_explicit_over_budget_request_is_rejected_before_task_cap(monkeypatch):
 
 
 def test_unverified_native_limits_are_recorded_without_failing(monkeypatch, caplog):
-    from ldsc import _worker_runtime as runtime
+    from ldsc._runtime import worker_runtime as runtime
     monkeypatch.setattr("threadpoolctl.threadpool_info", lambda: [])
     monkeypatch.setattr(runtime, "_ACCELERATE", None)
     monkeypatch.setattr(runtime, "_BUILD_BACKENDS", {"numpy": "unsupported", "scipy": "unsupported"})
@@ -37,7 +37,7 @@ def test_unverified_native_limits_are_recorded_without_failing(monkeypatch, capl
 
 
 def _inspect_child():
-    from ldsc._worker_runtime import initialize_worker, native_thread_state
+    from ldsc._runtime.worker_runtime import initialize_worker, native_thread_state
     initialize_worker()
     return os.getpid(), native_thread_state()
 
@@ -337,7 +337,8 @@ def test_real_index_worker_failure_removes_completed_shards(tmp_path, monkeypatc
 
 
 def test_baseline_only_model_uses_one_child_for_fit_and_summary(tmp_path, monkeypatch):
-    from ldsc import RegressionRunner, RegressionConfig, _serial_calculation
+    from ldsc import RegressionRunner, RegressionConfig
+    from ldsc._runtime import serial_calculation as _serial_calculation
     from tests.test_regression_streaming import batch_inputs
     table, source = batch_inputs(tmp_path / "inputs")
     original, calls = _serial_calculation.ProcessPoolExecutor, []

@@ -47,8 +47,8 @@ from typing import Any
 
 import pandas as pd
 
-from ._cli_help import CLIHelpFormatter, SCALAR_PATH_HELP
-from ._logging import LOG_LEVEL_HELP
+from ._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP
+from ._runtime.workflow_logging import LOG_LEVEL_HELP
 from ._core.chromosomes import chrom_sort_key, normalize_chromosome_series
 from ._core.coordinates import (
     coordinate_missing_mask,
@@ -70,13 +70,13 @@ from .errors import (
     LDSCUserError,
 )
 from .hm3 import packaged_hm3_curated_map_path
-from .path_resolution import (
+from ._runtime.paths import (
     ensure_output_directory,
     preflight_output_artifact_family,
     remove_output_artifacts,
     resolve_scalar_path,
 )
-from ._logging import log_inputs, log_outputs, log_summary, materializing_overwrite_guard, workflow_logging
+from ._runtime.workflow_logging import log_inputs, log_outputs, log_summary, materializing_overwrite_guard, workflow_logging
 from ._core.snp_identity import (
     IDENTITY_DROP_COLUMNS,
     clean_identity_artifact_table,
@@ -557,7 +557,7 @@ class SumstatsMunger:
             log_path,
             dropped_snps_path,
         ]
-        # See path_resolution.preflight_output_artifact_family for the
+        # See _runtime.paths.preflight_output_artifact_family for the
         # owned_paths/produced_paths split. The dropped-SNP sidecar is in both
         # lists because it is always written, including clean header-only runs.
         stale_paths = preflight_output_artifact_family(
@@ -568,7 +568,7 @@ class SumstatsMunger:
         )
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         with workflow_logging("munge-sumstats", log_path, log_level=config_snapshot.log_level):
-            from ._input_preflight import inspect_declared_inputs
+            from ._runtime.preflight import inspect_declared_inputs
             inspect_declared_inputs(files=[('raw summary statistics', raw_sumstats_config.raw_sumstats_file),
                 ('SNP restriction', sumstats_snps_path), ('liftover chain', liftover_request.liftover_chain_file)],
                 issues_path=diagnostics_dir/'input_issues.tsv')

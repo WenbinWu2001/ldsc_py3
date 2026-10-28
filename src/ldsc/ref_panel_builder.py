@@ -45,9 +45,9 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from ._serial_calculation import serial_calculation
-from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
-from ._logging import LOG_LEVEL_HELP
+from ._runtime.serial_calculation import serial_calculation
+from ._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
+from ._runtime.workflow_logging import LOG_LEVEL_HELP
 from ._core.columns import (
     normalize_genome_build,
     normalize_snp_identifier_mode,
@@ -64,9 +64,9 @@ from .config import (
     DEFAULT_SNP_BATCH_SIZE, GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner,
 )
 from ._core.coordinates import normalize_chr_pos_frame
-from ._progress import report_phase
-from .path_resolution import ensure_output_directory, preflight_output_artifact_family, remove_output_artifacts, resolve_file_group, inspect_plink_inputs, resolve_scalar_path
-from ._logging import (
+from ._runtime.progress import report_phase
+from ._runtime.paths import ensure_output_directory, preflight_output_artifact_family, remove_output_artifacts, resolve_file_group, inspect_plink_inputs, resolve_scalar_path
+from ._runtime.workflow_logging import (
     configure_package_logging,
     log_inputs,
     log_outputs,
@@ -435,7 +435,7 @@ class ReferencePanelBuilder:
         print_global_config_banner(type(self).__name__, self.global_config)
         self._configure_logging()
         output_dir = ensure_output_directory(config.output_dir, label="output directory")
-        from ._input_preflight import inspect_declared_inputs
+        from ._runtime.preflight import inspect_declared_inputs
         from ._ref_panel_preflight import GENETIC_MAP_HEADER_CHECKS
         declared_inputs = inspect_declared_inputs(plink=config.plink_prefix, header_checks=GENETIC_MAP_HEADER_CHECKS,
             files=[(name, getattr(config, name, None)) for name in (
@@ -728,8 +728,8 @@ class ReferencePanelBuilder:
         chromosomes left without SNPs are skipped with a warning. Returns the
         ``(prefix, chrom)`` pairs that keep SNPs.
         """
-        from ._input_preflight import InputGate, input_issue
-        from ._progress import PhaseProgress
+        from ._runtime.preflight import InputGate, input_issue
+        from ._runtime.progress import PhaseProgress
 
         issues, buildable = [], []
         with PhaseProgress(LOGGER, 'validation', 'reference-panel SNP selection', len(chrom_sources)) as progress:
@@ -1705,7 +1705,7 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
         command's choices, a flag is not a bool, or ``snp_identifier``,
         ``genome_build`` or ``log_level`` is passed.
     """
-    from ._workflow_kwargs import GLOBAL_CONFIG_RUNTIME_OPTIONS, namespace_from_kwargs
+    from ._runtime.workflow_kwargs import GLOBAL_CONFIG_RUNTIME_OPTIONS, namespace_from_kwargs
 
     rejected = {
         **GLOBAL_CONFIG_RUNTIME_OPTIONS,

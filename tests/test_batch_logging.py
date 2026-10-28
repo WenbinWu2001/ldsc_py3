@@ -29,7 +29,7 @@ def test_partitioned_log_has_numbered_batches_and_aggregate_outcomes(tmp_path, w
 
 
 def test_progress_counts_outcomes_and_retains_object_only_at_debug(caplog, monkeypatch):
-    from ldsc import _progress
+    from ldsc._runtime import progress as _progress
 
     now = [0.0]
     monkeypatch.setattr(_progress, "perf_counter", lambda: now[0])
@@ -49,7 +49,7 @@ def test_progress_counts_outcomes_and_retains_object_only_at_debug(caplog, monke
 
 @pytest.mark.parametrize("indexed", [False, True])
 def test_ldscore_batches_log_boundaries_and_one_global_status(tmp_path, inputs, indexed):
-    from ldsc._logging import workflow_logging
+    from ldsc._runtime.workflow_logging import workflow_logging
     from ldsc.ldscore_calculator import run_ldscore_from_args
     from ldsc.gene_ldscore_index import run_indexed_ldscore
 
@@ -84,7 +84,7 @@ def test_constant_gene_query_notice_explains_skips_without_claiming_zero_snp_sup
     tmp_path, capsys, n_queries
 ):
     from types import SimpleNamespace
-    from ldsc._logging import workflow_logging
+    from ldsc._runtime.workflow_logging import workflow_logging
     from ldsc.query_annotations import QueryAnnotationStatus, _emit_gene_gate_b_notice
 
     batch = SimpleNamespace(audit_frames=lambda: iter([
@@ -224,7 +224,7 @@ def test_unused_catalog_defects_are_saved_with_one_warning(tmp_path, inputs, inv
 
 
 def test_output_audit_summarizes_query_files_with_manifest_pointer(tmp_path):
-    from ldsc._logging import workflow_logging, log_outputs
+    from ldsc._runtime.workflow_logging import workflow_logging, log_outputs
 
     logfile = tmp_path / "run.log"
     paths = {f"query_batch{i:05d}": str(tmp_path / f"ldscore.query.batch{i:05d}.parquet") for i in range(1, 101)}

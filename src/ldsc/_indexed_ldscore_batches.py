@@ -19,8 +19,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ._progress import PhaseProgress
-from ._parallelism import _resolve_worker_count, _run_chromosome_tasks
+from ._runtime.progress import PhaseProgress
+from ._runtime.parallelism import _resolve_worker_count, _run_chromosome_tasks
 from ._ldscore_diagnostics import chromosome_log, report_chromosome_failure
 from ._query_variation import ScoreVariation, summarize_variation, combine_variation
 

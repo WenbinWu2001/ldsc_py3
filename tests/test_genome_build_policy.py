@@ -182,7 +182,7 @@ def test_munge_preview_rejects_conflicting_source_declaration(tmp_path):
 def test_converter_validates_weight_build_declaration_before_conversion(tmp_path, monkeypatch):
     from tests.test_legacy_ldscore_converter import _write_unpartitioned_suite, _write_text
     from ldsc.legacy_ldscore_converter import convert_ldsc2_ldscores
-    monkeypatch.setattr('ldsc._worker_runtime._INITIALIZED', True)
+    monkeypatch.setattr('ldsc._runtime.worker_runtime._INITIALIZED', True)
     reference, weights = tmp_path / 'reference', tmp_path / 'weights'
     _write_unpartitioned_suite(reference, weights)
     _write_text(weights / 'weights.2.l2.ldscore.gz', '# ldsc:genome_build=hg38\nCHR SNP BP L2\n2 rs2 201 2\n')
@@ -244,7 +244,7 @@ def test_metadata_and_alternative_columns_are_trusted_without_inference(tmp_path
 
 def test_panel_auto_failure_is_written_to_workflow_log(tmp_path, monkeypatch):
     from ldsc import ref_panel_builder
-    monkeypatch.setattr('ldsc._worker_runtime._INITIALIZED', True)
+    monkeypatch.setattr('ldsc._runtime.worker_runtime._INITIALIZED', True)
     prefix = tmp_path / 'panel'
     frame = coordinates(1, 'hg19').assign(SNP=lambda f: 'rs' + f.POS.astype(str), CM=0, A1='A', A2='C')
     frame[['CHR', 'SNP', 'CM', 'POS', 'A1', 'A2']].to_csv(str(prefix)+'.bim', sep='\t', header=False, index=False)

@@ -39,11 +39,11 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
-from ._worker_runtime import initialize_worker, native_thread_state
-from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
-from ._logging import LOG_LEVEL_HELP
-from ._parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _run_chromosome_tasks, _validate_workers
-from ._progress import report_phase, advance
+from ._runtime.worker_runtime import initialize_worker, native_thread_state
+from ._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
+from ._runtime.workflow_logging import LOG_LEVEL_HELP
+from ._runtime.parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _run_chromosome_tasks, _validate_workers
+from ._runtime.progress import report_phase, advance
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel.gene_ldscore_index import (
     AtomStatistics,
@@ -71,7 +71,7 @@ from ._core.snp_identity import (
     is_allele_aware_mode,
 )
 from ._core import regions as kernel_regions
-from ._logging import (
+from ._runtime.workflow_logging import (
     log_inputs,
     log_outputs,
     materializing_overwrite_guard,
@@ -92,7 +92,7 @@ from .gene_list_resolver import (
     select_index_eligible_gene_indices,
 )
 from .hm3 import packaged_hm3_curated_map_path
-from .path_resolution import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
+from ._runtime.paths import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
 
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
@@ -792,8 +792,8 @@ def _run_gene_ldscore_index_build(
         else GlobalConfig(snp_identifier=config.snp_identifier, genome_build=config.genome_build)
     )
     regression_path = Path(config.regr_snps_file or packaged_hm3_curated_map_path())
-    from ._input_preflight import InputGate
-    from ._progress import PhaseProgress
+    from ._runtime.preflight import InputGate
+    from ._runtime.progress import PhaseProgress
     state_dir = _gene_index_build_state_dir(Path(config.output_dir))
     gate = InputGate('Reference/control content validation', state_dir/'input_issues.tsv')
     with PhaseProgress(LOGGER, 'validation', 'PLINK, regression restriction, and genetic map content'):
@@ -2241,7 +2241,7 @@ def run_indexed_ldscore(
         raise ValueError("query_batch_size must be a positive integer.")
     _validate_workers(workers)
     output_dir = normalize_path_token(output_dir)
-    from ._input_preflight import inspect_declared_inputs
+    from ._runtime.preflight import inspect_declared_inputs
     from .outputs import LDScoreDirectoryWriter
     LDScoreDirectoryWriter.artifact_family(output_dir).preflight(overwrite=overwrite)
     try:
@@ -3045,7 +3045,7 @@ def _write_index_artifact(
 
 def inspect_index_paths(directory, *, metadata=None):
     """Inspect root declarations and all component paths without loading arrays."""
-    from ._input_preflight import InputGate, _readable, input_issue
+    from ._runtime.preflight import InputGate, _readable, input_issue
 
     root = Path(directory)
     if metadata is None:

@@ -8,7 +8,7 @@ import pytest
 
 
 
-from ldsc.path_resolution import (
+from ldsc._runtime.paths import (
     ensure_output_paths_available,
     ensure_output_directory,
     normalize_path_token,
@@ -298,7 +298,7 @@ class PathResolutionTest(unittest.TestCase):
 
 
 def test_plain_plink_prefix_uses_bim_chromosomes(tmp_path):
-    from ldsc.path_resolution import resolve_plink_prefix
+    from ldsc._runtime.paths import resolve_plink_prefix
 
     # The filename suggests chr1, but the data contain chr22.
     prefix = tmp_path / "1000G.EUR.QC.1"
@@ -317,7 +317,7 @@ def _write_plink_trio(prefix, chroms):
 @pytest.mark.parametrize("style", ["1000G.EUR.QC.{chrom}", "panel_chr{chrom}"])
 @pytest.mark.parametrize("form", ["plain", "glob", "at", "exact", "bed", "bim", "fam"])
 def test_plink_forms_resolve_identical_chromosome_sources(tmp_path, style, form):
-    from ldsc.path_resolution import inspect_plink_inputs
+    from ldsc._runtime.paths import inspect_plink_inputs
 
     expected = {}
     for chrom in map(str, range(1, 23)):
@@ -336,7 +336,7 @@ def test_plink_forms_resolve_identical_chromosome_sources(tmp_path, style, form)
 
 
 def test_plink_exact_prefix_precedes_stem_discovery(tmp_path):
-    from ldsc.path_resolution import inspect_plink_inputs
+    from ldsc._runtime.paths import inspect_plink_inputs
     _write_plink_trio(tmp_path / "panel", ["22"])
     _write_plink_trio(tmp_path / "panel.extra", ["22"])
     result = inspect_plink_inputs(tmp_path / "panel")
@@ -345,7 +345,7 @@ def test_plink_exact_prefix_precedes_stem_discovery(tmp_path):
 
 
 def test_plink_joint_file_and_wrong_requested_chromosome(tmp_path):
-    from ldsc.path_resolution import inspect_plink_inputs
+    from ldsc._runtime.paths import inspect_plink_inputs
     prefix = tmp_path / "arbitrary.17"
     _write_plink_trio(prefix, ["chr1", "22"])
     result = inspect_plink_inputs(prefix)
@@ -356,7 +356,7 @@ def test_plink_joint_file_and_wrong_requested_chromosome(tmp_path):
 
 
 def test_plink_reports_all_incomplete_and_conflicting_sources(tmp_path):
-    from ldsc.path_resolution import inspect_plink_inputs
+    from ldsc._runtime.paths import inspect_plink_inputs
     for name in ("panel.a", "panel.b", "panel.c", "panel.d"):
         _write_plink_trio(tmp_path / name, ["22"])
     (tmp_path / "panel.c.bed").unlink()
@@ -371,7 +371,7 @@ def test_plink_reports_all_incomplete_and_conflicting_sources(tmp_path):
 
 
 def test_plink_at_declares_content_and_workflow_completeness(tmp_path):
-    from ldsc.path_resolution import inspect_plink_inputs
+    from ldsc._runtime.paths import inspect_plink_inputs
     _write_plink_trio(tmp_path / "panel.22", ["22"])
     token = tmp_path / "panel.@"
     inspect_plink_inputs(token).require_valid()

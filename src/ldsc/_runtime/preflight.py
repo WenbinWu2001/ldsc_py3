@@ -13,9 +13,9 @@ import logging
 
 import pandas as pd
 
-from .errors import LDSCInputError, LDSCUserError
-from .path_resolution import _discover_plink_members, resolve_file_group, split_cli_path_tokens, normalize_path_tokens, resolve_exact_file, resolve_scalar_path
-from ._progress import PhaseProgress
+from ..errors import LDSCInputError, LDSCUserError
+from .paths import _discover_plink_members, resolve_file_group, split_cli_path_tokens, normalize_path_tokens, resolve_exact_file, resolve_scalar_path
+from .progress import PhaseProgress
 
 LOGGER = logging.getLogger('LDSC.preflight')
 INPUT_ERRORS = (OSError, EOFError, ValueError, UnicodeError, LDSCUserError)

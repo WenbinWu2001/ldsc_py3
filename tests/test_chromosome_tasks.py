@@ -5,7 +5,7 @@ from concurrent.futures.process import BrokenProcessPool
 
 import pytest
 
-from ldsc import _parallelism
+from ldsc._runtime import parallelism as _parallelism
 
 
 @pytest.mark.parametrize("workers", [1, 2, 4])

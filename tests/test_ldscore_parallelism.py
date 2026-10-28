@@ -181,7 +181,7 @@ def test_threads_negative_and_positive_allowed():
 
 
 def test_resolve_worker_count_positive_and_caps():
-    from ldsc._parallelism import _resolve_worker_count
+    from ldsc._runtime.parallelism import _resolve_worker_count
 
     assert _resolve_worker_count(1, task_count=22) == 1
     assert _resolve_worker_count(8, task_count=3) == 3
@@ -191,7 +191,7 @@ def test_resolve_worker_count_positive_and_caps():
 
 
 def test_resolve_worker_count_negative_uses_affinity(monkeypatch):
-    import ldsc._parallelism as mod
+    import ldsc._runtime.parallelism as mod
 
     monkeypatch.setattr(mod, "_available_cpu_count", lambda: 8)
     # -1 = all cores, -2 = all but one (then capped at chromosome count).
@@ -201,7 +201,7 @@ def test_resolve_worker_count_negative_uses_affinity(monkeypatch):
 
 
 def test_available_cpu_count_prefers_affinity(monkeypatch):
-    import ldsc._parallelism as mod
+    import ldsc._runtime.parallelism as mod
 
     monkeypatch.setattr(mod.joblib, "cpu_count", lambda: 3)
     assert mod._available_cpu_count() == 3
@@ -292,7 +292,7 @@ def test_worker_skips_typed_empty_reference_independent_of_message(two_chrom_pan
 
 def _inspect_ld_worker():
     from ldsc.ldscore_calculator import _WORKER_STATE
-    from ldsc._worker_runtime import native_thread_state
+    from ldsc._runtime.worker_runtime import native_thread_state
     return _WORKER_STATE, native_thread_state(), dict((key, os.environ[key]) for key in
                                                    ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"))
 

@@ -23,7 +23,7 @@ from ._core.columns import (
 )
 from .errors import LDSCInputError, LDSCUserError
 from .genome_build_inference import infer_chr_pos_build
-from .path_resolution import resolve_file_group, resolve_plink_prefix_group, split_cli_path_tokens
+from ._runtime.paths import resolve_file_group, resolve_plink_prefix_group, split_cli_path_tokens
 
 _INPUT_ERRORS = (OSError, ValueError, KeyError, EOFError, LDSCUserError)
 _BUILDS = frozenset(("hg19", "hg38"))

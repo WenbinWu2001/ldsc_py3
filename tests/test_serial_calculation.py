@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from ldsc._logging import workflow_logging
-from ldsc._serial_calculation import serial_calculation
+from ldsc._runtime.workflow_logging import workflow_logging
+from ldsc._runtime.serial_calculation import serial_calculation
 from ldsc.cli import run_cli
 from ldsc.errors import LDSCInputError
 

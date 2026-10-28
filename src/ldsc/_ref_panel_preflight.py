@@ -10,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from ._core.columns import CHR_COLUMN_SPEC, POS_COLUMN_SPEC, resolve_required_column
-from ._input_preflight import InputGate, _readable, input_issue
+from ._runtime.preflight import InputGate, _readable, input_issue
 from ._kernel.ref_panel_builder import GENETIC_MAP_CM_SPEC
 
 

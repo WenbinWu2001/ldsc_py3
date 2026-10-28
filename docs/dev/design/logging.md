@@ -143,7 +143,7 @@ A check that needs expensive evidence, such as MAF computed from genotypes, fail
 
 Collect every safely discoverable issue before aborting.
 At each validation stage, check all independent inputs (files, chromosomes, queries, and focal/control lists) and raise one error that summarizes every issue found, instead of stopping at the first.
-Use `_input_preflight.InputGate`, write the complete repair table to `diagnostics/input_issues.tsv`, and show at most 10 representative issues in the primary message.
+Use `_runtime.preflight.InputGate`, write the complete repair table to `diagnostics/input_issues.tsv`, and show at most 10 representative issues in the primary message.
 An unreadable structural contract may stop its own stage immediately; issues in other independent inputs at that stage are still collected.
 
 ## API Boundary

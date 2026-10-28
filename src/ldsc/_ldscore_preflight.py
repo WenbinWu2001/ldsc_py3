@@ -19,7 +19,7 @@ from ._annotation_parsing import normalize_annotation_chunk
 from ._core.chromosomes import normalize_chromosome
 from .config import RefPanelConfig
 from .errors import LDSCInputError, LDSCUserError
-from .path_resolution import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
+from ._runtime.paths import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
 from ._core import regions
 from ._kernel.ref_panel import RefPanelLoader, _read_metadata_table, _resolve_r2_build_dir
 
@@ -70,7 +70,7 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
     PLINK integrity reads BIM/FAM and BED header/size, without correlations.
     The returned evidence is reused by the later content-dependent scope gate.
     """
-    from ._progress import PhaseProgress
+    from ._runtime.progress import PhaseProgress
     issues, declarations = [], []
     sets = {"reference": set()}
     reference_prefixes = {}

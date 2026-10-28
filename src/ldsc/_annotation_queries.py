@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 import logging
-from ._progress import report_phase, advance
+from ._runtime.progress import report_phase, advance
 
 from ._annotation_projection import ChromosomeProjector
 from ._annotation_storage import AnnotationWorkspace, ColumnStore, FrameSpool
@@ -88,7 +88,7 @@ def require_readable_bed_sources(bed_sources, issues_path=None):
     without intervals is not a failure here; it stays a skipped
     ``empty_input`` query.
     """
-    from ._input_preflight import InputGate, input_issue
+    from ._runtime.preflight import InputGate, input_issue
 
     issues = []
     for source in bed_sources:

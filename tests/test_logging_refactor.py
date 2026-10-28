@@ -10,7 +10,7 @@ from unittest import mock
 
 class LoggingRefactorTest(unittest.TestCase):
     def test_workflow_logging_captures_ldsc_child_records_and_restores_state(self):
-        from ldsc._logging import log_inputs, log_outputs, workflow_logging
+        from ldsc._runtime.workflow_logging import log_inputs, log_outputs, workflow_logging
 
         ldsc_logger = logging.getLogger("LDSC")
         original_level = ldsc_logger.level
@@ -36,7 +36,7 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertIn("Elapsed time:", text)
 
     def test_workflow_logging_formats_call_over_multiple_lines(self):
-        from ldsc._logging import workflow_logging
+        from ldsc._runtime.workflow_logging import workflow_logging
 
         argv = [
             "./munge_sumstats.py",
@@ -66,7 +66,7 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertNotIn("Invocation:", text)
 
     def test_workflow_logging_keeps_negative_values_with_options(self):
-        from ldsc._logging import workflow_logging
+        from ldsc._runtime.workflow_logging import workflow_logging
 
         for value in ("-0.5", "-1e-3"):
             with self.subTest(value=value), tempfile.TemporaryDirectory() as tmpdir:
@@ -83,7 +83,7 @@ class LoggingRefactorTest(unittest.TestCase):
                 self.assertNotIn("--overwrite --log-level", text)
 
     def test_workflow_logging_leaves_blank_line_before_outputs(self):
-        from ldsc._logging import log_outputs, workflow_logging
+        from ldsc._runtime.workflow_logging import log_outputs, workflow_logging
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = Path(tmpdir) / "workflow.log"
@@ -97,11 +97,11 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertIn("Mean chi^2 = 2.009\n\nOutputs:", text)
 
     def test_workflow_logging_preserves_subsecond_elapsed_time_on_failure(self):
-        from ldsc._logging import workflow_logging
+        from ldsc._runtime.workflow_logging import workflow_logging
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = Path(tmpdir) / "workflow.log"
-            with mock.patch("ldsc._logging.time.monotonic", side_effect=[100.0, 100.16]):
+            with mock.patch("ldsc._runtime.workflow_logging.time.monotonic", side_effect=[100.0, 100.16]):
                 with self.assertRaisesRegex(RuntimeError, "synthetic failure"):
                     with workflow_logging("unit", log_path, log_level="INFO"):
                         raise RuntimeError("synthetic failure")
@@ -110,11 +110,11 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertIn("RuntimeError: synthetic failure", text)
 
     def test_workflow_logging_formats_elapsed_time_with_units(self):
-        from ldsc._logging import workflow_logging
+        from ldsc._runtime.workflow_logging import workflow_logging
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = Path(tmpdir) / "workflow.log"
-            with mock.patch("ldsc._logging.time.monotonic", side_effect=[100.0, 232.4]):
+            with mock.patch("ldsc._runtime.workflow_logging.time.monotonic", side_effect=[100.0, 232.4]):
                 with workflow_logging("unit", log_path, log_level="INFO"):
                     pass
 
@@ -124,7 +124,7 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertNotIn("Elapsed: 2:12", text)
 
     def test_workflow_logging_pairs_wall_timepoints_with_elapsed_timer(self):
-        from ldsc._logging import workflow_logging
+        from ldsc._runtime.workflow_logging import workflow_logging
 
         wall_start = datetime(2026, 1, 2, 3, 4, 5)
         clock = {"offset": 0.0, "monotonic_calls": 0}
@@ -146,9 +146,9 @@ class LoggingRefactorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = Path(tmpdir) / "workflow.log"
             with (
-                mock.patch("ldsc._logging.datetime") as datetime_mock,
-                mock.patch("ldsc._logging.time.monotonic", side_effect=fake_monotonic),
-                mock.patch("ldsc._logging.Path.mkdir", autospec=True, side_effect=slow_mkdir),
+                mock.patch("ldsc._runtime.workflow_logging.datetime") as datetime_mock,
+                mock.patch("ldsc._runtime.workflow_logging.time.monotonic", side_effect=fake_monotonic),
+                mock.patch("ldsc._runtime.workflow_logging.Path.mkdir", autospec=True, side_effect=slow_mkdir),
             ):
                 datetime_mock.now.side_effect = fake_datetime_now
                 with workflow_logging("unit", log_path, log_level="INFO"):
@@ -161,7 +161,7 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertIn("Elapsed time: 1.0min:15s", text)
 
     def test_workflow_logging_keeps_audit_lines_at_error_level(self):
-        from ldsc._logging import workflow_logging
+        from ldsc._runtime.workflow_logging import workflow_logging
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = Path(tmpdir) / "workflow.log"
@@ -178,7 +178,7 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertIn("Elapsed time:", text)
 
     def test_workflow_logging_failed_footer_records_traceback(self):
-        from ldsc._logging import workflow_logging
+        from ldsc._runtime.workflow_logging import workflow_logging
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = Path(tmpdir) / "workflow.log"
@@ -194,7 +194,7 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertIn("RuntimeError: boom", text)
 
     def test_cli_console_handler_install_remove_is_clean(self):
-        from ldsc import _logging
+        from ldsc._runtime import workflow_logging as _logging
 
         ldsc_logger = logging.getLogger("LDSC")
         original = list(ldsc_logger.handlers)
@@ -209,8 +209,8 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertIsNone(_logging.cli_console_handler())
 
     def test_console_level_lowered_to_info_when_no_log_path(self):
-        from ldsc import _logging
-        from ldsc._logging import workflow_logging
+        from ldsc._runtime import workflow_logging as _logging
+        from ldsc._runtime.workflow_logging import workflow_logging
 
         handler = _logging.install_cli_console_handler()
         try:
@@ -222,8 +222,8 @@ class LoggingRefactorTest(unittest.TestCase):
             _logging.remove_cli_console_handler()
 
     def test_console_level_stays_error_when_log_path_present(self):
-        from ldsc import _logging
-        from ldsc._logging import workflow_logging
+        from ldsc._runtime import workflow_logging as _logging
+        from ldsc._runtime.workflow_logging import workflow_logging
 
         handler = _logging.install_cli_console_handler()
         try:
@@ -235,8 +235,8 @@ class LoggingRefactorTest(unittest.TestCase):
             _logging.remove_cli_console_handler()
 
     def test_last_workflow_log_path_tracks_active_run(self):
-        from ldsc import _logging
-        from ldsc._logging import workflow_logging
+        from ldsc._runtime import workflow_logging as _logging
+        from ldsc._runtime.workflow_logging import workflow_logging
 
         _logging.reset_workflow_log_path()
         self.assertIsNone(_logging.last_workflow_log_path())

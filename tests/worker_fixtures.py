@@ -13,7 +13,7 @@ import pandas as pd
 @contextmanager
 def calculation_body():
     """Exercise the body as a worker would, without changing native settings."""
-    with patch("ldsc._worker_runtime._INITIALIZED", True):
+    with patch("ldsc._runtime.worker_runtime._INITIALIZED", True):
         yield
 
 

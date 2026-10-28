@@ -57,7 +57,7 @@ Output paths are different:
 
 ### PLINK prefix resolution
 
-PLINK is an exception to the file-token rule against bare prefixes. `ldscore`, `build-gene-ldscore-index`, `build-r2-panel`, and direct Python PLINK panels use the shared `path_resolution.inspect_plink_inputs()` implementation.
+PLINK is an exception to the file-token rule against bare prefixes. `ldscore`, `build-gene-ldscore-index`, `build-r2-panel`, and direct Python PLINK panels use the shared `_runtime.paths.inspect_plink_inputs()` implementation.
 
 - Accept an exact prefix (`panel.22`), a member path (`panel.22.bim`), a plain stem (`1000G.EUR.QC.`), a glob (`"panel.*"`), or an explicit `@` pattern (`"panel.@"`). Only `.bed`, `.bim`, and `.fam` are stripped as PLINK member extensions; `.22` remains part of a prefix.
 - An exact selected prefix takes precedence over broader stem discovery. Otherwise a plain stem discovers matching PLINK members; a glob selects its actual matches. Every selected prefix must have a complete BED/BIM/FAM trio. Partially present trios are reported rather than silently omitted.
@@ -68,7 +68,7 @@ PLINK is an exception to the file-token rule against bare prefixes. `ldscore`, `
   Gene LD-score index construction always requires autosomes 1-22.
   Generic group expansion and `build-r2-panel` retain existing `@` members, while rejecting incomplete selected trios.
 
-[`inspect_plink_inputs()`](../../src/ldsc/path_resolution.py) returns prefixes, chromosome assignments, and issue records.
+[`inspect_plink_inputs()`](../../src/ldsc/_runtime/paths.py) returns prefixes, chromosome assignments, and issue records.
 `require_valid()` raises a combined error, optionally including missing required chromosomes.
 `resolve_plink_prefix_group()` retains the path-only group interface when no chromosome is requested; per-chromosome resolution uses the shared content validation.
 The direct workflow combines these issues with its annotation diagnostics.
@@ -94,7 +94,7 @@ The first suite-capable flag in each command explains this syntax. Later flags r
 | Gene coordinate catalogs, fixed control gene lists, `ldscore` reference-SNP/individual lists, gene LD-score index regression-SNP/individual lists, and `build-r2-panel` liftover-chain files | Exact file paths. Pattern expansion is not implemented by these readers. |
 | Input/output directories and `query-r2 --pairs` | Literal paths; no pattern expansion. `--pairs -` retains its standard-input meaning. |
 
-Sources: [`path_resolution.resolve_scalar_path`, `resolve_file_group`, and PLINK resolvers](../../src/ldsc/path_resolution.py); [`_annotation_preflight.resolve_annotation_inputs`](../../src/ldsc/_annotation_preflight.py); [`_direct_annotation.prepare_direct_annotations`](../../src/ldsc/_direct_annotation.py); [`_quantile_inputs.prepare_quantile_statistics`](../../src/ldsc/_quantile_inputs.py); [`gene_list_resolver._expand_focal_gene_list_sources`](../../src/ldsc/gene_list_resolver.py); [`ref_panel_builder.ReferencePanelBuilder._prepare_build_state`](../../src/ldsc/ref_panel_builder.py); [`_kernel.ref_panel._resolve_genetic_map`](../../src/ldsc/_kernel/ref_panel.py); [`gene_ldscore_index._load_builder_genetic_map`](../../src/ldsc/gene_ldscore_index.py).
+Sources: [`_runtime.paths.resolve_scalar_path`, `resolve_file_group`, and PLINK resolvers](../../src/ldsc/_runtime/paths.py); [`_annotation_preflight.resolve_annotation_inputs`](../../src/ldsc/_annotation_preflight.py); [`_direct_annotation.prepare_direct_annotations`](../../src/ldsc/_direct_annotation.py); [`_quantile_inputs.prepare_quantile_statistics`](../../src/ldsc/_quantile_inputs.py); [`gene_list_resolver._expand_focal_gene_list_sources`](../../src/ldsc/gene_list_resolver.py); [`ref_panel_builder.ReferencePanelBuilder._prepare_build_state`](../../src/ldsc/ref_panel_builder.py); [`_kernel.ref_panel._resolve_genetic_map`](../../src/ldsc/_kernel/ref_panel.py); [`gene_ldscore_index._load_builder_genetic_map`](../../src/ldsc/gene_ldscore_index.py).
 
 ### Direct LD-score query scope
 

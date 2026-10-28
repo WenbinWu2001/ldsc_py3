@@ -19,9 +19,9 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from ._serial_calculation import serial_calculation
-from ._cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
-from ._logging import LOG_LEVEL_HELP
+from ._runtime.serial_calculation import serial_calculation
+from ._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
+from ._runtime.workflow_logging import LOG_LEVEL_HELP
 from .errors import LDSCInputError
 from ._annotation_storage import AnnotationWorkspace
 from ._quantile_inputs import prepare_quantile_statistics
@@ -30,10 +30,10 @@ from .outputs import (
     QuantileH2DirectoryWriter,
     QuantileH2OutputConfig,
 )
-from .path_resolution import (
+from ._runtime.paths import (
     ensure_output_directory,
 )
-from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
+from ._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 
 
 LOGGER = logging.getLogger("LDSC.quantile_h2")
@@ -712,7 +712,7 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     issues_path = diagnostics_dir / "snp_alignment_issues.tsv.gz"
     with workflow_logging("quantile-h2", log_path, log_level=args.log_level):
-        from ._input_preflight import inspect_declared_inputs, inspect_artifact_paths
+        from ._runtime.preflight import inspect_declared_inputs, inspect_artifact_paths
         fitted_dir = Path(args.partitioned_h2_result_dir).resolve()
         query_metadata = fitted_dir / "metadata.json"
         # Per-query manifests keep file paths relative to the aggregate result root.
@@ -876,7 +876,7 @@ def run_quantile_h2(**kwargs) -> QuantileH2Result:
     ``overwrite=True``; a failed authorized overwrite leaves
     ``RUN_FAILED.txt`` naming this call.
     """
-    from ._workflow_kwargs import run_from_kwargs
+    from ._runtime.workflow_kwargs import run_from_kwargs
     from .config import get_global_config
 
     return run_from_kwargs(

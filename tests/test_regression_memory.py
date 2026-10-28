@@ -9,7 +9,7 @@ import pytest
 from ldsc import regression_runner as workflow
 from ldsc._kernel import regression
 from ldsc._partitioned_h2_parallel import _stage_frame
-from ldsc._serial_calculation import serial_calculation
+from ldsc._runtime.serial_calculation import serial_calculation
 from tests.test_regression_streaming import batch_inputs
 
 

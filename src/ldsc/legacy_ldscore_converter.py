@@ -19,17 +19,17 @@ import re
 import numpy as np
 import pandas as pd
 
-from ._serial_calculation import serial_calculation
-from ._cli_help import CLIHelpFormatter
-from ._logging import LOG_LEVEL_HELP
-from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
+from ._runtime.serial_calculation import serial_calculation
+from ._runtime.cli_help import CLIHelpFormatter
+from ._runtime.workflow_logging import LOG_LEVEL_HELP
+from ._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ._core.columns import normalize_genome_build, normalize_snp_identifier_mode
 from .config import GlobalConfig, get_global_config
 from .errors import LDSCInputError, LDSCUsageError
 from .ldscore_calculator import LDScoreResult
 from .overlap_matrix import LDScoreOverlap
 from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
-from .path_resolution import ensure_output_directory, normalize_path_token
+from ._runtime.paths import ensure_output_directory, normalize_path_token
 
 
 LOGGER = logging.getLogger("LDSC.legacy_ldscore_converter")

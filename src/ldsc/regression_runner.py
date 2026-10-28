@@ -65,9 +65,9 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from ._serial_calculation import serial_calculation
-from ._cli_help import CLIHelpFormatter, SCALAR_PATH_HELP
-from ._logging import LOG_LEVEL_HELP
+from ._runtime.serial_calculation import serial_calculation
+from ._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP
+from ._runtime.workflow_logging import LOG_LEVEL_HELP
 from ._core.coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from .config import (
     GlobalConfig,
@@ -76,8 +76,8 @@ from .config import (
     print_global_config_banner,
     suppress_global_config_banner,
 )
-from .path_resolution import ensure_output_directory, normalize_path_token
-from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
+from ._runtime.paths import ensure_output_directory, normalize_path_token
+from ._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from ._kernel import regression as reg
 from ._kernel._jackknife import JackknifeIdentifiabilityError
 from ._core.snp_identity import (
@@ -89,7 +89,7 @@ from ._core.snp_identity import (
     resolve_regression_identity_mode,
 )
 from ._core.row_alignment import assert_same_snp_rows
-from ._parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _validate_workers
+from ._runtime.parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _validate_workers
 from ._core.columns import infer_chr_pos_columns, normalize_snp_identifier_mode
 from .ldscore_calculator import LDScoreResult
 from .ldscore_source import LDScoreSource, load_ldscore_from_dir
@@ -1167,7 +1167,7 @@ class RegressionRunner:
             from ._partitioned_h2_parallel import _QueryWorkers, _stage_query_batch
             with _log_phase_timing("query worker preparation"):
                 worker_pool = _QueryWorkers(workspace.path, models, self, config, worker_count)
-            from ._progress import PhaseProgress
+            from ._runtime.progress import PhaseProgress
             total_batches = (len(queries) + query_batch_size - 1) // query_batch_size
             del models
             with worker_pool as pool, pool.snapshot.open() as shared_frame, PhaseProgress(
@@ -1364,7 +1364,7 @@ class RegressionRunner:
         prev = list(prevalences) if prevalences is not None else [(None, None)] * len(tables)
 
         h2_rows = []
-        from ._progress import PhaseProgress
+        from ._runtime.progress import PhaseProgress
         with suppress_global_config_banner(), PhaseProgress(LOGGER, "computation", "per-trait h2", len(tables)) as progress:
             for table, (samp_prev, pop_prev) in zip(tables, prev):
                 h2_dataset = self.build_dataset(table, ldscore_result, config=config)
@@ -2974,7 +2974,7 @@ def run_h2_from_args(args):
     """
     output_dir, log_path = _preflight_regression_outputs(args, "h2", H2DirectoryWriter)
     with workflow_logging("h2", log_path, log_level=getattr(args, "log_level", "INFO")):
-        from ._input_preflight import inspect_declared_inputs, inspect_artifact_paths
+        from ._runtime.preflight import inspect_declared_inputs, inspect_artifact_paths
         inspect_declared_inputs(
             files=[('sumstats', getattr(args, 'sumstats_file', None) or getattr(args, 'sumstats_sources', None)),
                    ('prevalence manifest', getattr(args, 'prevalence_manifest', None))],
@@ -3071,7 +3071,7 @@ def run_partitioned_h2_from_args(args):
         raise ValueError("query_batch_size must be a positive integer.")
     output_dir, log_path = _preflight_regression_outputs(args, "partitioned-h2", PartitionedH2DirectoryWriter)
     with workflow_logging("partitioned-h2", log_path, log_level=getattr(args, "log_level", "INFO")):
-        from ._input_preflight import inspect_declared_inputs, inspect_artifact_paths
+        from ._runtime.preflight import inspect_declared_inputs, inspect_artifact_paths
         inspect_declared_inputs(
             files=[('sumstats', getattr(args, 'sumstats_file', None) or getattr(args, 'sumstats_sources', None)),
                    ('prevalence manifest', getattr(args, 'prevalence_manifest', None))],
@@ -3167,7 +3167,7 @@ def run_rg_from_args(args):
 
     output_dir, log_path = _preflight_regression_outputs(args, "rg", RgDirectoryWriter)
     with workflow_logging("rg", log_path, log_level=getattr(args, "log_level", "INFO")):
-        from ._input_preflight import inspect_declared_inputs, inspect_artifact_paths
+        from ._runtime.preflight import inspect_declared_inputs, inspect_artifact_paths
         declared_inputs = inspect_declared_inputs(
             files=[('sumstats', getattr(args, 'sumstats_file', None) or getattr(args, 'sumstats_sources', None)),
                    ('prevalence manifest', getattr(args, 'prevalence_manifest', None))],
@@ -3191,8 +3191,8 @@ def run_rg_from_args(args):
             f"Starting rg regression for {len(sumstats_paths)} summary-statistics files "
             f"using LD-score directory '{args.ldscore_dir}'."
         )
-        from ._input_preflight import InputGate
-        from ._progress import PhaseProgress
+        from ._runtime.preflight import InputGate
+        from ._runtime.progress import PhaseProgress
         gate = InputGate('Summary-statistic content validation', Path(output_dir)/'diagnostics/input_issues.tsv')
         sumstats_tables = []
         with PhaseProgress(LOGGER, 'validation', 'summary-statistic content', len(sumstats_paths)) as progress:
@@ -3307,7 +3307,7 @@ def run_h2(**kwargs) -> pd.DataFrame:
     Existing outputs stop the run unless ``overwrite=True``; a failed
     authorized overwrite leaves ``RUN_FAILED.txt`` naming this call.
     """
-    from ._workflow_kwargs import command_parser, run_from_kwargs
+    from ._runtime.workflow_kwargs import command_parser, run_from_kwargs
 
     return run_from_kwargs(
         "run_h2", command_parser(add_h2_arguments), run_h2_from_args, kwargs,
@@ -3357,7 +3357,7 @@ def run_partitioned_h2(**kwargs) -> PartitionedH2BatchResult:
     Existing outputs stop the run unless ``overwrite=True``; a failed
     authorized overwrite leaves ``RUN_FAILED.txt`` naming this call.
     """
-    from ._workflow_kwargs import command_parser, run_from_kwargs
+    from ._runtime.workflow_kwargs import command_parser, run_from_kwargs
 
     return run_from_kwargs(
         "run_partitioned_h2", command_parser(add_partitioned_h2_arguments), run_partitioned_h2_from_args, kwargs,
@@ -3410,7 +3410,7 @@ def run_rg(**kwargs) -> RgResultFamily:
     ``overwrite=True``; a failed authorized overwrite leaves
     ``RUN_FAILED.txt`` naming this call.
     """
-    from ._workflow_kwargs import command_parser, run_from_kwargs
+    from ._runtime.workflow_kwargs import command_parser, run_from_kwargs
 
     for name in ("samp_prev", "pop_prev"):
         value = kwargs.get(name)

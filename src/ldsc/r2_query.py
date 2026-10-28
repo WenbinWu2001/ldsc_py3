@@ -19,14 +19,14 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from ._cli_help import CLIHelpFormatter
-from ._logging import LOG_LEVEL_HELP
+from ._runtime.cli_help import CLIHelpFormatter
+from ._runtime.workflow_logging import LOG_LEVEL_HELP
 from ._core.identifiers import build_snp_id_series
 from ._kernel.ldscore import _load_full_panel_sidecar, _validate_index_binding, read_r2_parquet_contracts
 from ._kernel.r2_query import lookup_pairs_in_parquet
-from ._logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
+from ._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
 from .outputs import QueryR2DirectoryWriter, QueryR2OutputConfig
-from .path_resolution import ensure_output_directory
+from ._runtime.paths import ensure_output_directory
 from ._kernel.ref_panel import (
     _r2_dir_metadata_paths,
     _r2_dir_r2_paths,
@@ -650,9 +650,9 @@ def _write_query_r2_directory(args: argparse.Namespace, pairs: pd.DataFrame | No
     )
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     with workflow_logging("query-r2", log_path, log_level=args.log_level):
-        from ._input_preflight import inspect_declared_inputs
+        from ._runtime.preflight import inspect_declared_inputs
         from ._ref_panel_preflight import inspect_r2_headers
-        from ._progress import PhaseProgress
+        from ._runtime.progress import PhaseProgress
         inspect_declared_inputs(files=[] if args.pairs == '-' else [('pairs', args.pairs)],
             checks=[('reference', args.panel_dir, lambda: inspect_r2_headers(args.panel_dir, args.genome_build))],
             issues_path=diagnostics_dir/'input_issues.tsv')

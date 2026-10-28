@@ -338,7 +338,7 @@ The CLI checks every selected chromosome file in its header preflight, before pa
 `ParquetR2RefPanel.prepare_chromosome` repeats the check for each chromosome it prepares, for example through `LDScoreCalculator.compute_chromosome`.
 Because `build-r2-panel` chooses the stored pairs from the `CM` values as written to the sidecar (section 2.7), a window no wider than the panel's never needs a pair the panel did not store, in any unit.
 A PLINK `--ld-wind-cm` run matches an R² panel cM run only when both use the same `CM` values: `.bim` column 3, or the genetic map the panel was built with.
-Code: `validate_ldscore_window_within_r2_panel_window` in `src/ldsc/_kernel/ldscore.py` and `inspect_r2_headers` in `src/ldsc/_input_preflight.py`.
+Code: `validate_ldscore_window_within_r2_panel_window` in `src/ldsc/_kernel/ldscore.py` and `inspect_r2_headers` in `src/ldsc/_runtime/preflight.py`.
 
 **`--ld-wind-snps` counts panel rows.**
 For an R² panel, `--ld-wind-snps K` spans `K` sidecar rows on each side, whatever SNPs the run keeps.

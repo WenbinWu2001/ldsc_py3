@@ -69,12 +69,12 @@ ldsc_py3_restructured/
 | Module | Responsibility |
 | --- | --- |
 | `ldsc.cli` | unified `ldsc` command and subcommand dispatch |
-| `ldsc._cli_help` | shared `CLIHelpFormatter` keeps flag names and paths intact when help descriptions wrap; `CHROMOSOME_PATH_HELP` and `SCALAR_PATH_HELP` supply verified path syntax; workflow parsers own their descriptions and argument groups |
+| `ldsc._runtime.cli_help` | shared `CLIHelpFormatter` keeps flag names and paths intact when help descriptions wrap; `CHROMOSOME_PATH_HELP` and `SCALAR_PATH_HELP` supply verified path syntax; workflow parsers own their descriptions and argument groups |
 | `ldsc.config` | frozen public config dataclasses and basic validation |
-| `ldsc.path_resolution` | normalize path tokens, resolve concrete input files, create output directories, preflight fixed output paths, and enforce coherent output artifact families |
-| `ldsc._input_preflight` | aggregate declaration, companion, bounded-header, and saved-manifest checks; retain concrete paths and six-column repair diagnostics; leave scientific content validators with their owners |
-| `ldsc._progress` | phase boundaries and time-throttled progress through existing logger routes; bounded counters, current objects, and elapsed time |
-| `ldsc._logging` | shared workflow logging context, `LDSC` logger level handling, lifecycle audit lines, CLI console-handler routing (file-authoritative, console error-only) with run-aborting traceback capture, durable authorized-overwrite failure markers without rollback, and log-only formatting helpers |
+| `ldsc._runtime.paths` | normalize path tokens, resolve concrete input files, create output directories, preflight fixed output paths, and enforce coherent output artifact families |
+| `ldsc._runtime.preflight` | aggregate declaration, companion, bounded-header, and saved-manifest checks; retain concrete paths and six-column repair diagnostics; leave scientific content validators with their owners |
+| `ldsc._runtime.progress` | phase boundaries and time-throttled progress through existing logger routes; bounded counters, current objects, and elapsed time |
+| `ldsc._runtime.workflow_logging` | shared workflow logging context, `LDSC` logger level handling, lifecycle audit lines, CLI console-handler routing (file-authoritative, console error-only) with run-aborting traceback capture, durable authorized-overwrite failure markers without rollback, and log-only formatting helpers |
 | `ldsc._core.columns` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc._core.chromosomes` | canonical chromosome normalization and ordering |
 | `ldsc.genome_build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
@@ -96,9 +96,9 @@ ldsc_py3_restructured/
 | `ldsc._annotation_memory` | small prepared annotations and diagnostics without filesystem writes |
 | `ldsc._ldscore_batch_output` | consume/release materialized or staged query batches, retain explicit shared publication state, and publish complete LD-score directories |
 | `ldsc._ldscore_fragments` | describe producer-owned chromosome fragments and validate/write one query frame at a time against the shared baseline |
-| `ldsc._workflow_kwargs` | validate Python keyword arguments for `run_ldscore`, `run_build_ref_panel`, `run_h2`, `run_partitioned_h2`, `run_rg`, and `run_quantile_h2` against the command parser before any write; run the regression and post-fit workflows under a failure marker naming the Python function |
-| `ldsc._parallelism` | shared `workers` validation, joblib detected CPU budgets, task caps, and execution summaries |
-| `ldsc._worker_runtime`, `ldsc._serial_calculation` | fixed one-BLAS-thread worker policy, runtime verification, independent Arrow limits, and controlled standalone numerical calls |
+| `ldsc._runtime.workflow_kwargs` | validate Python keyword arguments for `run_ldscore`, `run_build_ref_panel`, `run_h2`, `run_partitioned_h2`, `run_rg`, and `run_quantile_h2` against the command parser before any write; run the regression and post-fit workflows under a failure marker naming the Python function |
+| `ldsc._runtime.parallelism` | shared `workers` validation, joblib detected CPU budgets, task caps, and execution summaries |
+| `ldsc._runtime.worker_runtime`, `ldsc._runtime.serial_calculation` | fixed one-BLAS-thread worker policy, runtime verification, independent Arrow limits, and controlled standalone numerical calls |
 | `ldsc._ldscore_diagnostics` | chromosome logs, batch context, and accurate task/pool failure reporting |
 | `ldsc._indexed_ldscore_batches` | bounded chromosome workers holding one operator each and deterministic batch-fragment assembly |
 | `ldsc._quantile_inputs`, `ldsc._quantile_storage` | bounded reconstruction of the common reference SNPs, exact global boundaries, sufficient statistics, and streamed alignment diagnostics |
@@ -113,7 +113,7 @@ ldsc_py3_restructured/
 | `ldsc._kernel.sumstats_munger` | chunk QC and restriction, whole-table N and sign conversion, resolved liftover and global identity cleanup; returns `MungeResult` with counts and provenance |
 | `ldsc.ldscore_source` | canonical directory loading, manifest/schema and table/identity validation shared with writers, resident baseline/count/overlap metadata, and uncached selected-query reads |
 | `ldsc.regression_runner` | file-driven regression dataset assembly, automatic legacy summary-statistics rsID-to-panel projection and allele harmonization, active effective identity-key merging (`SNP`, `SNP:<allele_set>`, `CHR:POS`, or `CHR:POS:<allele_set>`), `h2`/`partitioned-h2`/`rg` estimator dispatch (including the two overlap-aware `partitioned-h2` regimes), observed/liability-scale summary columns, exact final-fit `h2` regression-bin diagnostics, and `rg` result-family writing |
-| `ldsc._partitioned_h2_parallel`, `ldsc._parallelism` | private read-only regression maps, bounded spawned whole-query workers, worker termination/log forwarding, and shared worker-count resolution; statistical calculations remain in `RegressionRunner._fit_partitioned_query()` |
+| `ldsc._partitioned_h2_parallel`, `ldsc._runtime.parallelism` | private read-only regression maps, bounded spawned whole-query workers, worker termination/log forwarding, and shared worker-count resolution; statistical calculations remain in `RegressionRunner._fit_partitioned_query()` |
 | `ldsc.quantile_h2` | post-fit continuous-target quantile assignment, reconstruction and verification of the fitted sources and common reference SNPs, vectorized coefficient/delete-value projection, standardized `tau_star`, CLI orchestration, and diagnostics |
 | `ldsc.prevalence` | parse and validate binary-trait prevalence inputs (scalar `--samp-prev`/`--pop-prev` for `h2`/`partitioned-h2`; comma-separated lists or a `--prevalence-manifest` TSV for `rg`) into a normalized per-trait `(samp_prev, pop_prev)` structure for observed-to-liability conversion |
 | `ldsc.h2_scale` | strict post-fit observed-to-liability conversion from a canonical `h2` result, including exact and prevalence-range modes and the fixed nested derived-result family |
@@ -137,11 +137,11 @@ ldsc_py3_restructured/
 | Goal | Start here |
 | --- | --- |
 | change CLI flags or subcommand wiring | workflow `build_parser` / `add_*_arguments` functions, then `src/ldsc/cli.py` for dispatch and copied help groups; follow [CLI help guidelines](guidelines/cli-help.md) |
-| change help wrapping or shared log-level wording | `src/ldsc/_cli_help.py:CLIHelpFormatter`, `src/ldsc/_logging.py:LOG_LEVEL_HELP`; verify `tests/test_cli_help.py` |
-| change path-token behavior | `src/ldsc/path_resolution.py` |
-| change output collision policy | `src/ldsc/path_resolution.py`, then the workflow writer that owns the artifact |
-| change a keyword-argument Python workflow (`run_ldscore`, `run_build_ref_panel`, `run_h2`, `run_partitioned_h2`, `run_rg`, `run_quantile_h2`) | the function in its workflow module, keyword checks in `src/ldsc/_workflow_kwargs.py`; verify `tests/test_workflow_keyword_checks.py` and `tests/test_python_regression_workflows.py` |
-| change workflow log files, lifecycle lines, or log-level handling | `src/ldsc/_logging.py`, then the workflow orchestration function that owns the output directory |
+| change help wrapping or shared log-level wording | `src/ldsc/_runtime/cli_help.py:CLIHelpFormatter`, `src/ldsc/_runtime/workflow_logging.py:LOG_LEVEL_HELP`; verify `tests/test_cli_help.py` |
+| change path-token behavior | `src/ldsc/_runtime/paths.py` |
+| change output collision policy | `src/ldsc/_runtime/paths.py`, then the workflow writer that owns the artifact |
+| change a keyword-argument Python workflow (`run_ldscore`, `run_build_ref_panel`, `run_h2`, `run_partitioned_h2`, `run_rg`, `run_quantile_h2`) | the function in its workflow module, keyword checks in `src/ldsc/_runtime/workflow_kwargs.py`; verify `tests/test_workflow_keyword_checks.py` and `tests/test_python_regression_workflows.py` |
+| change workflow log files, lifecycle lines, or log-level handling | `src/ldsc/_runtime/workflow_logging.py`, then the workflow orchestration function that owns the output directory |
 | change header aliases or identifier/build normalization | `src/ldsc/_core/columns.py` |
 | change read-only artifact build inspection | `src/ldsc/_genome_build_inspection.py`, with CLI dispatch in `src/ldsc/cli.py` and coverage in `tests/test_genome_build_inspection.py` |
 | change automatic `chr_pos` genome-build inference | `src/ldsc/genome_build_inference.py` |
@@ -226,7 +226,7 @@ ldsc_py3_restructured/
 
 `AnnotationBundle.validate()` validates row alignment and annotation names; identity cleanup occurs during builder construction. It no longer accepts an ignored identifier argument. Column-name inference uses `infer_chr_pos_columns`; numerical window construction uses `get_block_lefts`. Their former forwarding spellings are removed without changing accepted input column aliases or legacy formats.
 
-`ldsc._result_files` owns contained declared-result input paths and atomic JSON publication for `h2_scale` and `plotting`. Each workflow retains its metadata interpretation, table loading and scientific dispatch. `outputs` keeps its separate JSON serialization of NumPy/dataclass payloads.
+`ldsc._runtime.result_files` owns contained declared-result input paths and atomic JSON publication for `h2_scale` and `plotting`. Each workflow retains its metadata interpretation, table loading and scientific dispatch. `outputs` keeps its separate JSON serialization of NumPy/dataclass payloads.
 
 ## Domain contracts and decision history
 

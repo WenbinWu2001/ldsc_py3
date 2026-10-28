@@ -15,8 +15,8 @@ def forbid_work(*args, **kwargs):
 
 
 def test_missing_sumstats_reports_path_check_repair_and_original_cause(tmp_path):
-    from ldsc._input_preflight import inspect_declared_inputs
-    from ldsc._input_preflight import INPUT_ISSUE_COLUMNS
+    from ldsc._runtime.preflight import inspect_declared_inputs
+    from ldsc._runtime.preflight import INPUT_ISSUE_COLUMNS
 
     missing = tmp_path / "missing.tsv.gz"
     diagnostics = tmp_path / "diagnostics/input_issues.tsv"
@@ -39,7 +39,7 @@ def test_missing_sumstats_reports_path_check_repair_and_original_cause(tmp_path)
 
 
 def test_multiple_input_failures_keep_each_original_cause(tmp_path):
-    from ldsc._input_preflight import inspect_declared_inputs
+    from ldsc._runtime.preflight import inspect_declared_inputs
 
     with pytest.raises(LDSCInputError) as failure:
         inspect_declared_inputs(files=[("raw summary statistics", tmp_path / "missing.tsv"),
@@ -53,7 +53,7 @@ def test_multiple_input_failures_keep_each_original_cause(tmp_path):
 
 
 def test_permission_failure_reports_errno_and_preserves_exception(tmp_path):
-    from ldsc._input_preflight import InputGate
+    from ldsc._runtime.preflight import InputGate
 
     path = tmp_path / "synthetic.tsv"
     denied = PermissionError(13, "Permission denied", str(path))
@@ -72,7 +72,7 @@ def test_permission_failure_reports_errno_and_preserves_exception(tmp_path):
 
 
 def test_missing_file_during_open_is_not_mislabeled_as_path_resolution(tmp_path):
-    from ldsc._input_preflight import InputGate
+    from ldsc._runtime.preflight import InputGate
 
     missing = tmp_path / "missing.snps"
     gate = InputGate("Input validation")
@@ -86,7 +86,7 @@ def test_missing_file_during_open_is_not_mislabeled_as_path_resolution(tmp_path)
 
 def test_failed_input_phase_reports_failures_without_unknown_total(tmp_path, caplog):
     import logging
-    from ldsc._input_preflight import inspect_declared_inputs
+    from ldsc._runtime.preflight import inspect_declared_inputs
 
     restriction = tmp_path / "synthetic.snps"
     restriction.write_text("SNP\nsynthetic\n")
@@ -181,7 +181,7 @@ def test_annotate_reports_baseline_and_bed_paths_before_staging(tmp_path, monkey
 
 def test_progress_has_phase_boundaries_and_periodic_counts(caplog, monkeypatch):
     import logging
-    from ldsc import _progress
+    from ldsc._runtime import progress as _progress
     time = [0.0]
     monkeypatch.setattr(_progress, 'perf_counter', lambda: time[0])
     with caplog.at_level(logging.INFO, logger='LDSC'):
@@ -278,12 +278,13 @@ def test_direct_reuses_discovery_and_reference_validation_with_phase_records(tmp
     import logging
     from unittest.mock import Mock
     import numpy as np
-    from ldsc import GlobalConfig, set_global_config, path_resolution, _ldscore_preflight
+    from ldsc import GlobalConfig, set_global_config, _ldscore_preflight
+    from ldsc._runtime import paths as path_resolution
     write_inputs(tmp_path)
     discover = Mock(wraps=path_resolution._discover_plink_members)
     inspect = Mock(wraps=_ldscore_preflight.inspect_plink_inputs)
     # The declaration owner imports discovery once; the content owner receives its result.
-    from ldsc import _input_preflight
+    from ldsc._runtime import preflight as _input_preflight
     monkeypatch.setattr(_input_preflight, '_discover_plink_members', discover)
     monkeypatch.setattr(path_resolution, '_discover_plink_members', discover)
     monkeypatch.setattr(_ldscore_preflight, 'inspect_plink_inputs', inspect)
@@ -343,7 +344,7 @@ def test_declared_header_chromosome_and_columns_fail_before_scans(tmp_path, monk
 
 @pytest.mark.parametrize('manifest', ['[]', '{"files": []}'])
 def test_malformed_manifest_aggregates_with_other_missing_inputs(tmp_path, manifest):
-    from ldsc._input_preflight import inspect_declared_inputs, inspect_artifact_paths
+    from ldsc._runtime.preflight import inspect_declared_inputs, inspect_artifact_paths
     model = tmp_path/'model'
     model.mkdir()
     (model/'metadata.json').write_text(manifest)

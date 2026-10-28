@@ -9,7 +9,7 @@ from ldsc.errors import LDSCInputError
 
 
 def test_saved_input_table_bounds_primary_error_without_losing_causes(tmp_path):
-    from ldsc._input_preflight import InputGate
+    from ldsc._runtime.preflight import InputGate
 
     table = tmp_path / "diagnostics/input_issues.tsv"
     gate = InputGate("Input validation", table)
@@ -33,7 +33,7 @@ def test_saved_input_table_bounds_primary_error_without_losing_causes(tmp_path):
 
 
 def test_without_written_input_table_primary_error_keeps_each_input(tmp_path):
-    from ldsc._input_preflight import InputGate
+    from ldsc._runtime.preflight import InputGate
 
     gate = InputGate("Input validation")
     inputs = [tmp_path / f"missing-{i:03d}.tsv" for i in range(21)]
@@ -46,7 +46,7 @@ def test_without_written_input_table_primary_error_keeps_each_input(tmp_path):
 
 
 def test_missing_saved_result_file_identifies_artifact_and_repair(tmp_path):
-    from ldsc._result_files import declared_result_file
+    from ldsc._runtime.result_files import declared_result_file
 
     with pytest.raises(LDSCInputError) as failure:
         declared_result_file(tmp_path, {"files": {"summary": "h2.tsv"}},

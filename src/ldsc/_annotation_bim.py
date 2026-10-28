@@ -17,7 +17,7 @@ from ._annotation_sources import (
     PreparedAnnotationSources, _Source, _metadata_chunks, _select_rows, _snp_row_counts,
 )
 from ._annotation_storage import AnnotationShard, FrameSpool
-from ._input_preflight import InputGate
+from ._runtime.preflight import InputGate
 from ._core.chromosomes import chrom_sort_key, normalize_chromosome
 from .errors import LDSCInputError
 

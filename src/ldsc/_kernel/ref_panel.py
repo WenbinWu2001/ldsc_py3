@@ -34,7 +34,7 @@ from .._core.columns import (
 from ..config import GlobalConfig, LDScoreConfig, RefPanelConfig, validate_config_compatibility
 from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCUsageError
 from ..genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
-from ..path_resolution import inspect_plink_inputs, split_cli_path_tokens
+from .._runtime.paths import inspect_plink_inputs, split_cli_path_tokens
 from .._core import plink_files as legacy_parse
 from . import ldscore as kernel_ldscore
 from .ldscore_projection import MappedAnnotations

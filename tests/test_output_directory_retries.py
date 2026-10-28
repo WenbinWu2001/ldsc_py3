@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from ldsc import cli
-from ldsc._logging import overwrite_failure_marker
+from ldsc._runtime.workflow_logging import overwrite_failure_marker
 from ldsc.outputs import (
     AnnotationDirectoryWriter,
     H2DirectoryWriter,
@@ -15,7 +15,7 @@ from ldsc.outputs import (
     QueryR2DirectoryWriter,
     RgDirectoryWriter,
 )
-from ldsc.path_resolution import ensure_output_directory, remove_output_artifacts
+from ldsc._runtime.paths import ensure_output_directory, remove_output_artifacts
 from ldsc.errors import LDSCInputError
 
 

@@ -41,7 +41,7 @@ The owning context restores the previous logger level and removes its own handle
 
 ## Console vs File Routing
 
-All command help pages reuse `LOG_LEVEL_HELP` from [`ldsc._logging`](../../src/ldsc/_logging.py).
+All command help pages reuse `LOG_LEVEL_HELP` from [`ldsc._runtime.workflow_logging`](../../src/ldsc/_runtime/workflow_logging.py).
 The default is `INFO`: progress and summaries.
 This help wording describes the workflow log; it does not promise terminal progress at `INFO` or `DEBUG`.
 
@@ -97,7 +97,7 @@ APIs apply the same rule to their data artifacts. Standalone `run_annotate()` ow
 The six directory writers in `ldsc.outputs` each expose `artifact_family()`, returning an `ArtifactFamily` with selected output paths and the complete owned scope.
 `h2`, `partitioned-h2`, `rg`, `quantile-h2`, `query-r2`, and LD-score workflow preflights consult their writer's declaration and add workflow-owned logs or audits.
 The legacy LDSC converter and indexed LD-score CLI also consult the LD-score writer.
-Declarations only describe paths; the existing `path_resolution.preflight_output_artifact_family()` still performs collision checks.
+Declarations only describe paths; the existing `_runtime.paths.preflight_output_artifact_family()` still performs collision checks.
 
 Early checks discard the returned stale list because the final scientific and diagnostic outputs are not yet known. Each writer derives its final declaration from the result or write options, uses those same selected paths for output and metadata file entries, and removes stale owned siblings after its existing publication step. LD-score diagnostics-only writes use this same declaration; existing `diagnostics/dropped_snps/chr*_dropped.tsv.gz` reports are included in early collision checks and final reconciliation. There is no second workflow cleanup based on an earlier prediction.
 
@@ -114,7 +114,7 @@ Existing artifact-family checks authorize logs/diagnostics and prevent replaceme
 Input gates do not authorize scientific output replacement, remove stale science files, or imply that publication succeeded.
 R² panel builds derive their chromosome-specific output family from validated PLINK contents; their early discovery repair table can therefore precede the full output-family check, as the previous PLINK repair table did.
 
-[`_input_preflight.InputGate`](../../src/ldsc/_input_preflight.py) collects independent input errors across objects at a stage and retains `input_issues` on the exception.
+[`_runtime.preflight.InputGate`](../../src/ldsc/_runtime/preflight.py) collects independent input errors across objects at a stage and retains `input_issues` on the exception.
 Writing workflows persist the existing six-column `input_issues.tsv` repair table under diagnostics; gene LD-score index builds use the sibling `.<index>.build-state/` directory.
 Existing PLINK and gene-specific audits remain available.
 The table is a diagnostic, not a new scientific artifact or resumable checkpoint.
@@ -158,7 +158,7 @@ These are file sizes, not peak RSS. Completion appears only after usable annotat
 Aligned baseline/query files describe the same logical rows and do not double the SNP count.
 For the gene LD-score index builder these messages precede `Starting chromosome N`; preparation remains serial.
 
-These milestones accompany structured phase records from `_progress.PhaseProgress`: start, complete, failed, and time-throttled progress at bounded chunk/object checkpoints after at least 30 seconds. INFO reports the phase, completed units, known totals, and elapsed time. Individual source/query names remain in structured records and appear in text at DEBUG. Annotation scans share one INFO phase across the source collection; individual scans have DEBUG phases. File totals count completed sources, while row totals in staging phases count scanned/staged rows, not unique genome-wide SNPs. A blocking call cannot emit an intermediate record until control returns.
+These milestones accompany structured phase records from `_runtime.progress.PhaseProgress`: start, complete, failed, and time-throttled progress at bounded chunk/object checkpoints after at least 30 seconds. INFO reports the phase, completed units, known totals, and elapsed time. Individual source/query names remain in structured records and appear in text at DEBUG. Annotation scans share one INFO phase across the source collection; individual scans have DEBUG phases. File totals count completed sources, while row totals in staging phases count scanned/staged rows, not unique genome-wide SNPs. A blocking call cannot emit an intermediate record until control returns.
 
 One collection-level notice explains that supplied annotation CM/MAF fields are ignored because the reference panel is authoritative; DEBUG retains file-specific notices and inferred column mappings. BED source preparation has time-throttled collection progress. Chromosome milestones remain at INFO. Preparation completion means usable annotation shards are ready; computation and publication can still fail later. WARNING/ERROR levels suppress INFO progress through the existing policy.
 
@@ -179,7 +179,7 @@ Direct query validation logs the validated baseline/reference chromosome sets, e
 
 Every public materializing CLI workflow and corresponding high-level Python
 workflow wraps its existing action order with the marker helper in
-`ldsc._logging`. If an attempt authorized with `--overwrite` or
+`ldsc._runtime.workflow_logging`. If an attempt authorized with `--overwrite` or
 `overwrite=True` fails, the helper writes a durable marker after the exception
 escapes:
 
@@ -200,7 +200,7 @@ the failure, it remains with the usual `Failed` footer and traceback. A
 successful materializing retry removes its applicable marker after normal
 success. No-overwrite failures create no marker.
 
-The marker helper uses `path_resolution.normalize_path_token`, matching output preflight and publication.
+The marker helper uses `_runtime.paths.normalize_path_token`, matching output preflight and publication.
 CLI marker scope follows the last occurrence of a destination option, as argparse does.
 Marker-only directories do not collide with writer artifact families.
 Gene LD-score index preflight, direct publication, and interrupted-publication recovery share recognition of owned diagnostics; this excludes symlinks, special files, and unrelated empty subdirectories.

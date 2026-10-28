@@ -104,7 +104,7 @@ For a workflow that writes a log, the logging description can read:
 
 Do not promise that increasing `--log-level` prints progress to the terminal. Ordinary progress/debug messages go to the workflow log; console error reporting and explicit scientific notices have their own routing. See [workflow logging, “Console vs File Routing”](../../reference/logs-and-outputs.md#console-vs-file-routing).
 
-The examples are grounded in [`sumstats_munger.build_parser`](../../../src/ldsc/sumstats_munger.py), [`ldscore_calculator.build_parser` and `_write_one_ref_metadata_sidecar`](../../../src/ldsc/ldscore_calculator.py), [`build_window_coordinates` and `get_block_lefts`](../../../src/ldsc/_kernel/ldscore.py), and [`_WorkflowLoggingContext`](../../../src/ldsc/_logging.py). Preserve these behavioral distinctions when adapting the examples to other commands.
+The examples are grounded in [`sumstats_munger.build_parser`](../../../src/ldsc/sumstats_munger.py), [`ldscore_calculator.build_parser` and `_write_one_ref_metadata_sidecar`](../../../src/ldsc/ldscore_calculator.py), [`build_window_coordinates` and `get_block_lefts`](../../../src/ldsc/_kernel/ldscore.py), and [`_WorkflowLoggingContext`](../../../src/ldsc/_runtime/workflow_logging.py). Preserve these behavioral distinctions when adapting the examples to other commands.
 
 ## Naming rules
 
@@ -134,4 +134,4 @@ Naming decisions to keep:
 - Rendered `ldsc COMMAND --help` and `python -m ldsc COMMAND --help` remain readable, show the correct command, and preserve the intended grouping and ordering.
 - Help-only changes preserve accepted flags, parser destinations, defaults, choices, dependencies, and scientific behavior. Relevant parser/CLI checks establish this; prose edits alone do not require numerical test suites.
 
-The description contents and ordering precedence are approved. All public command parsers use explicit help groups and descriptions, with shared wrapping in [`CLIHelpFormatter`](../../../src/ldsc/_cli_help.py) and consistent log-level wording in [`LOG_LEVEL_HELP`](../../../src/ldsc/_logging.py). No guidance decisions remain open.
+The description contents and ordering precedence are approved. All public command parsers use explicit help groups and descriptions, with shared wrapping in [`CLIHelpFormatter`](../../../src/ldsc/_runtime/cli_help.py) and consistent log-level wording in [`LOG_LEVEL_HELP`](../../../src/ldsc/_runtime/workflow_logging.py). No guidance decisions remain open.

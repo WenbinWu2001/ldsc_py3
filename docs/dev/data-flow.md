@@ -11,11 +11,11 @@ This document summarizes the user-visible file streams for each public workflow.
 | Layer | Public? | Modules | Role |
 | --- | --- | --- | --- |
 | CLI | yes | `ldsc.cli` | parse subcommands and dispatch |
-| Preprocessing | yes | `ldsc.config`, `ldsc.path_resolution`, `ldsc._core.columns`, `ldsc._core.chromosomes`, `ldsc.genome_build_inference` | normalize tokens, headers, identifiers, chromosome order, and genome-build assumptions |
+| Preprocessing | yes | `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`, `ldsc._core.chromosomes`, `ldsc.genome_build_inference` | normalize tokens, headers, identifiers, chromosome order, and genome-build assumptions |
 | Workflow | yes | feature modules under `src/ldsc/` | build aligned in-memory tables |
 | Kernel | no | `ldsc._kernel.*` | low-level readers and numerical work |
 | Artifact access | yes | `ldsc.ldscore_source` | open LD-score directories, validate schemas/identities, and read selected query columns |
-| Postprocessing | yes | `ldsc.outputs`, `ldsc.plotting`, `ldsc.h2_scale`, pandas writers in `ldsc.regression_runner`, `ldsc._logging` | preflight fixed output paths, emit core/derived results, and write workflow audit logs/failure markers |
+| Postprocessing | yes | `ldsc.outputs`, `ldsc.plotting`, `ldsc.h2_scale`, pandas writers in `ldsc.regression_runner`, `ldsc._runtime.workflow_logging` | preflight fixed output paths, emit core/derived results, and write workflow audit logs/failure markers |
 
 ## Package Overview
 
@@ -225,7 +225,7 @@ tie at exactly 0.5 keeps PLINK order. See
 
 ### Modules used
 
-- Preprocessing: `ldsc.config`, `ldsc.path_resolution`
+- Preprocessing: `ldsc.config`, `ldsc._runtime.paths`
 - Workflow: `ldsc.ref_panel_builder`
 - Kernel: `ldsc._kernel.ref_panel_builder`, `ldsc._kernel.ldscore`, `ldsc._core.plink_files`
 - Postprocessing: parquet and TSV writers in the kernel
@@ -369,7 +369,7 @@ flowchart LR
 
 ### Modules used
 
-- Preprocessing: `ldsc.config`, `ldsc.path_resolution`, `ldsc._core.columns`
+- Preprocessing: `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`
 - Workflow: `ldsc.ldscore_calculator`
 - Kernel: `ldsc._kernel.ldscore`
 - Postprocessing: `ldsc.outputs`
@@ -510,7 +510,7 @@ flowchart LR
 
 ### Modules used
 
-- Preprocessing: `ldsc.config`, `ldsc.path_resolution`, `ldsc._core.columns`
+- Preprocessing: `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`
 - Workflow: `ldsc.sumstats_munger`, `ldsc._sumstats_input`
 - Kernel: `ldsc._kernel.sumstats_munger`, `ldsc._kernel.liftover`
 - Postprocessing: workflow-owned Parquet/TSV writing, log, and metadata writing
@@ -617,7 +617,7 @@ For column definitions and interpretation, see
 
 ### Modules used
 
-- Preprocessing: `ldsc.path_resolution`, `ldsc._core.columns`
+- Preprocessing: `ldsc._runtime.paths`, `ldsc._core.columns`
 - Workflow: `ldsc.regression_runner`, `ldsc.sumstats_munger.load_sumstats()`
 - Artifact access: `ldsc.ldscore_source.load_ldscore_from_dir()` and `LDScoreSource.read_queries()`
 - Kernel: `ldsc._kernel.regression`, `ldsc._kernel._jackknife`, `ldsc._kernel._irwls`

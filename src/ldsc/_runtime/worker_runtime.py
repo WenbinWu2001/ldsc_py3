@@ -43,7 +43,7 @@ def initialize_worker(log_level="INFO"):
     global _INITIALIZED, _ACCELERATE
     if _INITIALIZED:
         return
-    from ._logging import configure_package_logging
+    from .workflow_logging import configure_package_logging
     configure_package_logging(logging.getLevelName(log_level) if isinstance(log_level, int) else log_level)
     for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
                  "VECLIB_MAXIMUM_THREADS", "BLIS_NUM_THREADS", "NUMEXPR_NUM_THREADS"):

@@ -37,7 +37,7 @@ With eight detected CPUs and two chromosomes, `--workers 4` resolves to two work
 With two detected CPUs and one chromosome, `--workers 4` is an error.
 The same resolver applies to regression, with its query-batch cap.
 It reports the request, detected count and source, task unit/count, batch cap, and resolved worker count.
-See [`_parallelism.py`](../../src/ldsc/_parallelism.py).
+See [`_runtime/parallelism.py`](../../src/ldsc/_runtime/parallelism.py).
 
 ## Processes, numerical libraries, and memory
 
@@ -47,7 +47,7 @@ Direct and indexed LD keep their pools across query batches, and regression keep
 There are no nested chromosome/model pools.
 The parent coordinates inputs, collection, aggregation, and publication.
 
-Direct scoring, indexed scoring, and index construction share the private `_run_chromosome_tasks()` function in [`_parallelism.py`](../../src/ldsc/_parallelism.py).
+Direct scoring, indexed scoring, and index construction share the private `_run_chromosome_tasks()` function in [`_runtime/parallelism.py`](../../src/ldsc/_runtime/parallelism.py).
 It bounds outstanding futures by the resolved worker count, tracks their chromosomes, and collects each ready group before submitting replacements, using the same path for one or multiple workers.
 On an observed exception it attempts cancellation and passes the original error, current chromosome, and outstanding chromosomes to the workflow's failure callback.
 The workflow retains task preparation, result processing, progress and diagnostics, executor ownership, and all temporary-file and publication responsibilities.
@@ -61,7 +61,7 @@ Higher inherited numerical thread settings do not override this policy inside wo
 These settings do not modify the notebook or Python caller's global numerical or Arrow configuration.
 Standalone numerical entry points without a concurrency option use a controlled serial worker and reuse the current worker when called from a worker.
 This includes standalone regression fits and summaries, R² panel construction, quantile calculations, and legacy conversion's annotation overlap products.
-See [`_worker_runtime.py`](../../src/ldsc/_worker_runtime.py) and [`_serial_calculation.py`](../../src/ldsc/_serial_calculation.py).
+See [`_runtime/worker_runtime.py`](../../src/ldsc/_runtime/worker_runtime.py) and [`_runtime/serial_calculation.py`](../../src/ldsc/_runtime/serial_calculation.py).
 
 Runtime inspection checks supported loaded backends after importing NumPy and SciPy; these can use separate BLAS libraries.
 Apple Accelerate uses its supported single-threaded mode, rather than an invented exact automatic thread count.

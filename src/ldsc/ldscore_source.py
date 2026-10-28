@@ -27,7 +27,7 @@ from ._core.snp_identity import (
     is_allele_aware_mode,
     validate_identity_artifact_metadata,
 )
-from .path_resolution import normalize_path_token
+from ._runtime.paths import normalize_path_token
 
 
 LOGGER = logging.getLogger("LDSC.ldscore_source")

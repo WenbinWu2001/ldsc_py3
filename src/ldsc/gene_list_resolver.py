@@ -20,7 +20,7 @@ import pandas as pd
 
 from ._core.regions import load_preset_intervals
 from .errors import LDSCInputError
-from .path_resolution import normalize_path_token
+from ._runtime.paths import normalize_path_token
 
 
 CATALOG_REQUIRED_COLUMNS = ("gene_id", "gene_name", "chrom", "start", "end", "genome_build")

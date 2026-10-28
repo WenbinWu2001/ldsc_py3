@@ -106,7 +106,7 @@ def _observe_quantile_reads(args):
 
 
 def test_bounded_reads_and_released_chromosome_arrays(workflow):
-    from ldsc._serial_calculation import serial_calculation
+    from ldsc._runtime.serial_calculation import serial_calculation
     # Keep the observer and every numerical phase in the same compute child.
     serial_calculation(_observe_quantile_reads)(workflow.args)
 

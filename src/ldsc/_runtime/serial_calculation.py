@@ -13,7 +13,7 @@ import multiprocessing as mp
 import traceback
 import warnings
 
-from . import _worker_runtime
+from . import worker_runtime as _worker_runtime
 
 
 class _LogRecords(logging.Handler):

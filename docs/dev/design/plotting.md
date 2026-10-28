@@ -37,7 +37,7 @@ flowchart LR
 | `ldsc.h2_scale` | Load a canonical `h2` result, call the kernel conversion factor, write the derived table/metadata/log, and build the range plot when requested. |
 | `ldsc.regression_runner` | Compute the exact `h2` regression-bin diagnostic from the final fitted SNP population. |
 | `ldsc.outputs` | Validate and write the `h2` bin table and define core ownership of nested derived roots. |
-| `ldsc._logging` | Add `RUN_FAILED` marker behavior around authorized overwrites without changing workflow action order. |
+| `ldsc._runtime.workflow_logging` | Add `RUN_FAILED` marker behavior around authorized overwrites without changing workflow action order. |
 
 The public Python surface lazily exports `plot_result`, `PlotArtifact`, `convert_h2_scale`, and `H2ScaleConversionArtifact` from `ldsc.__init__`. Accessing a lazy plotting export does not itself import Matplotlib; the dependency is loaded only when a figure must be built.
 
@@ -182,7 +182,7 @@ Unrelated files elsewhere in the result directory remain untouched.
 
 ## Failed-overwrite visibility
 
-Every public materializing CLI or corresponding high-level Python workflow uses the marker helper in `ldsc._logging`. A failed attempt with overwrite authorization writes a plain-text marker in the applicable output scope:
+Every public materializing CLI or corresponding high-level Python workflow uses the marker helper in `ldsc._runtime.workflow_logging`. A failed attempt with overwrite authorization writes a plain-text marker in the applicable output scope:
 
 - ordinary workflows: `<output-dir>/RUN_FAILED.txt`
 - plotting: `<result-dir>/plots/RUN_FAILED.txt`

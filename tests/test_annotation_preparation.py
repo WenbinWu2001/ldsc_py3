@@ -8,7 +8,7 @@ import pytest
 
 from ldsc._annotation_sources import prepare_annotation_sources
 from ldsc._annotation_storage import AnnotationWorkspace
-from ldsc._logging import workflow_logging
+from ldsc._runtime.workflow_logging import workflow_logging
 from ldsc.errors import LDSCInputError
 
 

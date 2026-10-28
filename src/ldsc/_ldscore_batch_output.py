@@ -19,8 +19,9 @@ from ._annotation_storage import TsvDiagnostics
 from .annotation_semantics import require_unique_annotation_names
 from .errors import LDSCInputError
 from .ldscore_source import validate_ldscore_baseline_table, validate_ldscore_query_table
-from .outputs import _to_serializable, _write_chromosome_aligned_parquet
-from .path_resolution import ensure_output_directory, remove_output_artifacts
+from ._runtime.artifacts import _to_serializable
+from .outputs import _write_chromosome_aligned_parquet
+from ._runtime.paths import ensure_output_directory, remove_output_artifacts
 from .query_annotations import gene_viability_errors
 
 if TYPE_CHECKING:

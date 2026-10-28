@@ -14,8 +14,8 @@ from __future__ import annotations
 import argparse
 from typing import Any, Callable, Mapping
 
-from ._logging import overwrite_failure_marker
-from .errors import LDSCUsageError
+from .workflow_logging import overwrite_failure_marker
+from ..errors import LDSCUsageError
 
 _LOG_LEVEL_REASON = "set the log level with set_global_config(GlobalConfig(log_level=...))"
 # Regression and post-fit workflows read SNP identity and build from saved inputs.

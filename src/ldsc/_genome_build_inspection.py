@@ -15,14 +15,14 @@ import pyarrow.parquet as pq
 
 from ._core.coordinates import normalize_chr_pos_frame
 from ._genome_build_policy import _SAMPLE_ROWS, _table_frames, _text_options
-from ._result_files import declared_result_file
+from ._runtime.result_files import declared_result_file
 from ._core.columns import (
     RESTRICTION_CHRPOS_SPEC_MAP, RESTRICTION_HG19_POS_SPEC, RESTRICTION_HG38_POS_SPEC,
     normalize_genome_build, resolve_optional_column,
 )
 from .errors import LDSCInputError
 from .genome_build_inference import infer_chr_pos_build
-from .path_resolution import normalize_path_token
+from ._runtime.paths import normalize_path_token
 
 
 _RSID_NOTICE = "This artifact's workflow uses rsIDs for SNP matching."

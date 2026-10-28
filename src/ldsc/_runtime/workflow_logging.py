@@ -40,8 +40,8 @@ from os import PathLike
 from types import TracebackType
 from typing import Any, Callable
 
-from .errors import LDSCUsageError
-from .path_resolution import normalize_path_token
+from ..errors import LDSCUsageError
+from .paths import normalize_path_token
 
 
 _LDSC_LOGGER_NAME = "LDSC"

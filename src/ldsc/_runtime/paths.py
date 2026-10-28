@@ -35,8 +35,8 @@ from os import PathLike
 from pathlib import Path
 from typing import Optional, Union
 
-from ._core.chromosomes import STANDARD_CHROMOSOMES, chrom_sort_key, normalize_chromosome
-from .errors import LDSCInputError
+from .._core.chromosomes import STANDARD_CHROMOSOMES, chrom_sort_key, normalize_chromosome
+from ..errors import LDSCInputError
 
 InputPathToken = Union[str, PathLike[str]]
 InputPathCollection = Union[InputPathToken, Sequence[InputPathToken]]
@@ -489,7 +489,7 @@ def inspect_plink_inputs(
         and autosome-only policies.
     """
     import pandas as pd
-    from ._core import plink_files as parse
+    from .._core import plink_files as parse
 
     if discovered_members is None:
         members, issues = _discover_plink_members(
@@ -504,7 +504,7 @@ def inspect_plink_inputs(
         if declared:
             declarations[prefix].add(declared)
     mapping: dict[str, str] = {}
-    from ._progress import PhaseProgress
+    from .progress import PhaseProgress
     with PhaseProgress(logging.getLogger('LDSC.preflight'), 'validation', 'PLINK content', len(declarations)) as progress:
         for prefix, declared in declarations.items():
             progress.advance(0, object=prefix, force=True)

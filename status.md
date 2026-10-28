@@ -11,11 +11,15 @@ The current request authorizes this handoff and a continuation prompt, not imple
 - The reorganization landed on `restructure` on 2026-10-28, from `9236b80` (dead-code cleanup) to the documentation commit `docs: describe the domain layout`.
   [Code structure](docs/dev/code-structure.md) and [architecture](docs/dev/architecture.md) describe the layout, and `tests/test_layering.py` enforces its import tiers.
 - The module paths in this handoff follow the new layout.
-- Follow-ups noted during the work, none started:
-  merge the two LD-window coordinate functions in `src/ldsc/_refpanel/windows.py`, which differ in `--ld-wind-snps` behavior and messages;
-  decide whether `_runtime.result_files.atomic_write_json` and `_runtime.artifacts._atomic_write_json` should be one writer;
-  remove the gene-index build-state migration `_migrate_legacy_gene_index_build_state`;
-  consider per-domain test folders.
+- Follow-up cleanup landed on 2026-10-28 in the `refactor` commits from `cabe537` to `5b3cede`:
+  - `window_coordinates` and `get_block_lefts` in `src/ldsc/_refpanel/windows.py` serve both `ldscore` and `build-r2-panel`; each command keeps its own missing-CM error.
+  - `_runtime.artifacts.atomic_write_json` is the one atomic JSON writer, and every file it writes ends with a newline; `h2_scale` uses the shared `atomic_write_dataframe`.
+  - The gene-index build no longer migrates `<index>.build/` logs or takes the standalone lock of earlier releases.
+  - `_core.identifiers.open_text` is the one text-file opener; it decodes UTF-8 and treats `.gz` in any letter case as gzip.
+  - Four dead or test-only helpers were removed, `_genome.liftover.load_hm3_curated_map(path)` became `load_hm3_map_file`, and three modules stopped re-exporting names they do not define.
+  - The 24 underscore-prefixed names that other domains imported lost the underscore (`_runtime.preflight._readable` became `check_readable`), so an underscore again means module-local.
+- Look-alike helpers deliberately kept, because each carries a domain-specific error message or return type: the four `_require_columns`, the two `_read_json`, and the two `get_compression`.
+- Remaining follow-up, not started: consider per-domain test folders.
 
 ## Workspace and checkpoint
 

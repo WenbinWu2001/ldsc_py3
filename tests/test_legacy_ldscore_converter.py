@@ -14,7 +14,7 @@ import ldsc
 from ldsc import cli
 from ldsc.errors import LDSCInputError
 from ldsc.config import GlobalConfig, RegressionConfig
-from ldsc.regression_runner import RegressionRunner
+from ldsc._regression.runner import RegressionRunner
 from ldsc._sumstats.munger import SumstatsTable
 
 

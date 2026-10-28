@@ -18,9 +18,9 @@ Core workflows never generate plots automatically. Matplotlib is a required pack
 ```mermaid
 flowchart LR
     CLI[ldsc.cli] --> PLOT[ldsc.plotting]
-    CLI --> CONVERT[ldsc.h2_scale]
-    CORE[regression_runner] --> WRITERS[ldsc.outputs]
-    CORE --> KERNEL[ldsc._kernel.regression]
+    CLI --> CONVERT[ldsc._regression.h2_scale]
+    CORE[regression_runner] --> WRITERS[ldsc._regression.outputs]
+    CORE --> KERNEL[ldsc._regression.estimators]
     WRITERS --> RESULT[(canonical result directory)]
     RESULT --> PLOT
     RESULT --> CONVERT
@@ -34,9 +34,9 @@ flowchart LR
 | `ldsc.cli` | Parse and dispatch the two commands; define no plotting or conversion math. |
 | `ldsc.plotting` | Validate canonical metadata, select one plot contract, manage plot-family output, and expose `PlotArtifact`. |
 | `ldsc.plotting._builders` | Private Matplotlib-only builders and visual validation. Imports Matplotlib and selects the noninteractive `Agg` backend. |
-| `ldsc.h2_scale` | Load a canonical `h2` result, call the kernel conversion factor, write the derived table/metadata/log, and build the range plot when requested. |
-| `ldsc.regression_runner` | Compute the exact `h2` regression-bin diagnostic from the final fitted SNP population. |
-| `ldsc.outputs` | Validate and write the `h2` bin table and define core ownership of nested derived roots. |
+| `ldsc._regression.h2_scale` | Load a canonical `h2` result, call the kernel conversion factor, write the derived table/metadata/log, and build the range plot when requested. |
+| `ldsc._regression.runner` | Compute the exact `h2` regression-bin diagnostic from the final fitted SNP population. |
+| `ldsc._regression.outputs` | Validate and write the `h2` bin table and define core ownership of nested derived roots. |
 | `ldsc._runtime.workflow_logging` | Add `RUN_FAILED` marker behavior around authorized overwrites without changing workflow action order. |
 
 The public Python surface lazily exports `plot_result`, `PlotArtifact`, `convert_h2_scale`, and `H2ScaleConversionArtifact` from `ldsc.__init__`. Accessing a lazy plotting export does not itself import Matplotlib; the dependency is loaded only when a figure must be built.
@@ -143,7 +143,7 @@ Old `h2` results without the table hard-fail with rerun guidance.
 
 `convert_h2_scale` requires one canonical `h2_result`, follows `files.summary`, and loads exactly one row containing `trait_name`, `total_h2_obs`, and `total_h2_obs_se`. It never uses already-populated liability fields as source values.
 
-The workflow calls `ldsc._kernel.regression.liability_conversion_factor`; it does not duplicate the formula. The estimate and block-jackknife SE are multiplied by the same factor. Population prevalence is treated as fixed, so prevalence uncertainty is not propagated.
+The workflow calls `ldsc._regression.estimators.liability_conversion_factor`; it does not duplicate the formula. The estimate and block-jackknife SE are multiplied by the same factor. Population prevalence is treated as fixed, so prevalence uncertainty is not propagated.
 
 - Exact mode accepts one `pop_prev`, writes one row, and never imports Matplotlib.
 - Sensitivity mode accepts an inclusive `(MIN, MAX)` range, uses `num_points=201` by default, and writes one linearly spaced row per prevalence plus a figure.

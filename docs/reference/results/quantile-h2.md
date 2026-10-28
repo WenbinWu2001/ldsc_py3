@@ -68,7 +68,7 @@ Classification affects logs and metadata only, never coefficients or other numer
 
 ### Gene-list resolution
 
-When reconstructing a gene-list query, supply `--query-annot-gene-list-sources` and reproduce the original catalog, padding, exclusions, optional control, and resolution policy. Resolution is strict by default. Add the value-free `--allow-unresolved-genes` flag if the original LD-score run deliberately used the `resolved-only` subset; do not append a policy value. The old `--gene-list-resolution-policy` option is rejected without an alias. Other source, coverage, and model-consistency checks still apply. See [resolution choices and migration](../formats/gene-lists.md#strict-and-exploratory-resolution) and `add_quantile_h2_arguments()` in [quantile_h2.py](../../../src/ldsc/quantile_h2.py).
+When reconstructing a gene-list query, supply `--query-annot-gene-list-sources` and reproduce the original catalog, padding, exclusions, optional control, and resolution policy. Resolution is strict by default. Add the value-free `--allow-unresolved-genes` flag if the original LD-score run deliberately used the `resolved-only` subset; do not append a policy value. The old `--gene-list-resolution-policy` option is rejected without an alias. Other source, coverage, and model-consistency checks still apply. See [resolution choices and migration](../formats/gene-lists.md#strict-and-exploratory-resolution) and `add_quantile_h2_arguments()` in [_regression/quantile_h2.py](../../../src/ldsc/_regression/quantile_h2.py).
 
 ## Missing target values
 
@@ -81,7 +81,7 @@ It validates effective SNP identity, duplicate rows, reference/annotation inters
 Aggregate comparisons retain `rtol=1e-6` and `atol=1e-8`.
 A target whose name matches a fitted annotation must match that resupplied fitted column's float32 values on target-eligible SNPs.
 
-These checks establish alignment among resupplied sources and agreement with the available stored aggregate statistics. They do not establish the original annotation value at every SNP: value reassignments that preserve the checked sums and cross-products can pass and change the quantile projections. Resupply the original sources even when alternative sources pass validation. See `quantile_h2._prepare_quantile_inputs()` for the validation sequence.
+These checks establish alignment among resupplied sources and agreement with the available stored aggregate statistics. They do not establish the original annotation value at every SNP: value reassignments that preserve the checked sums and cross-products can pass and change the quantile projections. Resupply the original sources even when alternative sources pass validation. See `_regression.quantile_h2._prepare_quantile_inputs()` for the validation sequence.
 
 Rows outside an otherwise valid intersection are recorded as exclusions.
 Duplicate identities, missing target coverage on the common reference SNPs, invalid MAF, and provenance mismatches are fatal.

@@ -12,12 +12,12 @@ import json
 import numpy as np
 import pandas as pd
 
-from ._annotation.loading import build_annotation_shards
-from ._core.snp_identity import effective_merge_key_series, identity_base_mode, is_allele_aware_mode
-from ._quantile_storage import QuantileIdentityStore, reference_chunks, target_chunks
-from .config import AnnotationBuildConfig, GlobalConfig
-from .errors import LDSCInputError
-from ._runtime.paths import ANNOTATION_SUFFIXES, resolve_file_group, split_cli_path_tokens
+from .._annotation.loading import build_annotation_shards
+from .._core.snp_identity import effective_merge_key_series, identity_base_mode, is_allele_aware_mode
+from .quantile_storage import QuantileIdentityStore, reference_chunks, target_chunks
+from ..config import AnnotationBuildConfig, GlobalConfig
+from ..errors import LDSCInputError
+from .._runtime.paths import ANNOTATION_SUFFIXES, resolve_file_group, split_cli_path_tokens
 
 
 @dataclass(frozen=True)
@@ -176,8 +176,8 @@ def _validate_aggregates(model, metadata, sums, products):
             raise LDSCInputError(f"quantile-h2 fitted annotation '{name}' has common reference-SNP sum {actual}, expected {expected}. Resupply the exact annotation sources used for LD-score construction.")
     overlap_path = (metadata.get("files") or {}).get("overlap")
     if overlap_path:
-        from ._overlap_model import assemble_model_overlap
-        from ._ldscore.overlap_table import overlap_from_long_frame
+        from .overlap_model import assemble_model_overlap
+        from .._ldscore.overlap_table import overlap_from_long_frame
 
         config = metadata.get("overlap_config") or {}
         overlap = overlap_from_long_frame(pd.read_parquet(model.ldscore_dir / str(overlap_path)),
@@ -192,7 +192,7 @@ def prepare_quantile_statistics(args, model, workspace, diagnostics):
     """Validate sources and reduce chromosome artifacts using exact global bounds."""
     metadata = json.loads((model.ldscore_dir / "metadata.json").read_text(encoding="utf-8"))
     if str(metadata.get('snp_identifier', '')).startswith('chr_pos'):
-        from ._genome.build_policy import GenomeBuildCheck
+        from .._genome.build_policy import GenomeBuildCheck
         check = GenomeBuildCheck('auto', context='quantile-h2', option=None)
         check.declared('saved LD scores', model.ldscore_dir, metadata.get('genome_build'))
         for role in ('baseline_annot_sources', 'query_annot_sources', 'target_annot_sources', 'ref_metadata_sources', 'gene_coordinate_file'):

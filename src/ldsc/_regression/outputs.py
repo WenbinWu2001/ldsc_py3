@@ -64,16 +64,16 @@ from typing import Any
 
 import pandas as pd
 
-from .config import _normalize_required_path
-from .errors import LDSCInternalError
-from ._runtime.artifacts import (
+from ..config import _normalize_required_path
+from ..errors import LDSCInternalError
+from .._runtime.artifacts import (
     ArtifactFamily,
     _atomic_write_dataframe,
     _atomic_write_json,
     _declare_artifacts,
     _result_metadata,
 )
-from ._runtime.paths import (
+from .._runtime.paths import (
     ensure_output_directory,
     remove_output_artifacts,
 )

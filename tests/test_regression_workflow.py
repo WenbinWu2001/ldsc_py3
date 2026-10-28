@@ -26,8 +26,8 @@ from ldsc._ldscore.overlap_table import LDScoreOverlap
 try:
     from ldsc._ldscore.calculator import LDScoreResult
     from ldsc import cli
-    from ldsc import regression_runner
-    from ldsc.regression_runner import RegressionRunner
+    from ldsc._regression import runner as regression_runner
+    from ldsc._regression.runner import RegressionRunner
     from ldsc._sumstats.munger import SumstatsTable
     from ldsc._annotation.builder import AnnotationBundle
 except ImportError:
@@ -58,7 +58,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         # Real process behavior is covered in test_partitioned_query_workers.
         from tests.worker_fixtures import calculation_body, LocalQueryWorkers
         self.enterContext(calculation_body())
-        self.enterContext(mock.patch("ldsc._partitioned_h2_parallel._QueryWorkers", LocalQueryWorkers))
+        self.enterContext(mock.patch("ldsc._regression.partitioned_parallel._QueryWorkers", LocalQueryWorkers))
 
     def tearDown(self):
         reset_global_config()
@@ -1277,7 +1277,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertTrue(math.isnan(row["pop_prev"]))
 
     def test_summarize_total_h2_liability_scaled(self):
-        from ldsc._kernel.regression import liability_conversion_factor
+        from ldsc._regression.estimators import liability_conversion_factor
 
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         dataset = runner.build_dataset(self._high_chisq_sumstats(), self.make_ldscore_result())
@@ -1945,7 +1945,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             runner.estimate_partitioned_h2_batch(self.make_sumstats_table(), ldscore_result, query_columns=self.make_annotation_bundle().query_columns, output_dir=self.temporary_output_dir(), summary_sort_by='category')
 
     def test_summary_sort_auto_is_regime_aware(self):
-        from ldsc.regression_runner import _resolve_summary_sort
+        from ldsc._regression.runner import _resolve_summary_sort
 
         self.assertEqual(_resolve_summary_sort("auto", has_queries=True), "coefficient-p")
         self.assertEqual(_resolve_summary_sort("auto", has_queries=False), "category")
@@ -2149,7 +2149,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertTrue(np.isnan(partitioned.loc[0, "enrichment_p"]))
 
     def test_summarize_partitioned_h2_both_scales(self):
-        from ldsc._kernel.regression import liability_conversion_factor
+        from ldsc._regression.estimators import liability_conversion_factor
 
         dataset, hsq = self._base_only_partitioned_fixture()
         obs = regression_runner.summarize_partitioned_h2(hsq, dataset, ["base"])
@@ -2173,7 +2173,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(liab.loc[0, "pop_prev"], 0.01)
 
     def test_summarize_partitioned_h2_reports_total_h2(self):
-        from ldsc._kernel.regression import liability_conversion_factor
+        from ldsc._regression.estimators import liability_conversion_factor
 
         dataset, hsq = self._base_only_partitioned_fixture()  # tot=0.25, tot_se=0.03
         obs = regression_runner.summarize_partitioned_h2(hsq, dataset, ["base"])
@@ -2191,7 +2191,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertAlmostEqual(liab.loc[0, "total_h2_liab_se"], 0.03 * c, places=12)
 
     def test_summarize_rg_pair_liability_and_invariant_ratio(self):
-        from ldsc._kernel.regression import liability_conversion_factor, gencov_obs_to_liab
+        from ldsc._regression.estimators import liability_conversion_factor, gencov_obs_to_liab
 
         rg_result = self.make_rg_kernel_result(rg=0.4, rg_se=0.05)
         dataset = SimpleNamespace(merged=[0, 1, 2])
@@ -2440,7 +2440,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         )
 
     def test_run_h2_from_args_liability_scale(self):
-        from ldsc._kernel.regression import liability_conversion_factor
+        from ldsc._regression.estimators import liability_conversion_factor
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -2718,7 +2718,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 regression_runner.run_rg_from_args(args)
 
     def test_run_rg_from_args_returns_result_family_and_writes_output(self):
-        from ldsc.outputs import RG_FULL_COLUMNS
+        from ldsc._regression.outputs import RG_FULL_COLUMNS
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
@@ -3312,7 +3312,7 @@ class RegressionWorkflowTest(unittest.TestCase):
     def test_regression_writer_refuses_each_fixed_summary_filename(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
-            from ldsc.outputs import H2DirectoryWriter, PartitionedH2DirectoryWriter, RgDirectoryWriter
+            from ldsc._regression.outputs import H2DirectoryWriter, PartitionedH2DirectoryWriter, RgDirectoryWriter
 
             for filename, writer in (("h2.tsv", H2DirectoryWriter), ("partitioned_h2.tsv", PartitionedH2DirectoryWriter), ("rg.tsv", RgDirectoryWriter)):
                 with self.subTest(filename=filename):

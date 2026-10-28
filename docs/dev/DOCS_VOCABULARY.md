@@ -102,14 +102,14 @@ On each page that names S-LDSC, the first mention gives the full name and citati
 | observed scale, liability scale | Scales of heritability for a binary trait; conversion uses sample and population prevalence. | "observed-scale h2" in prose | `*_obs`, `*_liab`; `convert-h2-scale` | |
 | sample prevalence, population prevalence | The case fraction in the GWAS sample, and the trait prevalence in the population. | | `--samp-prev`; `--pop-prev` | $P$, $K$ |
 | intercept | The regression intercept; it absorbs confounding and, for genetic covariance, sample overlap. | "LDSC constant" | `intercept`; `--intercept-h2`; `--intercept-gencov` | |
-| ratio | $(\text{intercept} - 1)/(\text{mean } \chi^2 - 1)$ (`src/ldsc/_kernel/regression.py`). | "attenuation ratio" | `ratio` | |
+| ratio | $(\text{intercept} - 1)/(\text{mean } \chi^2 - 1)$ (`src/ldsc/_regression/estimators.py`). | "attenuation ratio" | `ratio` | |
 | genetic correlation | The correlation of genetic effects between two traits. | "rg" in prose, "genetic correlation coefficient" | `rg` | $r_g$ |
 | genetic covariance | The covariance of genetic effects between two traits. | "gencov" in prose | `gencov` | $\rho_g$ |
 | coefficient | The per-annotation regression coefficient: the per-SNP heritability contributed by one unit of the annotation, conditional on the other annotations. | "tau" in prose, "effect size" | `coefficient` in `partitioned_h2.tsv`; `tau` in the standardized-coefficient table | $\tau_C$ |
 | standardized coefficient | The coefficient scaled by the annotation standard deviation and the per-SNP heritability (Gazal et al. 2017). | "tau star" | `tau_star` | $\tau^*_C$ |
 | proportion of heritability | The share of SNP heritability attributed to an annotation. | "heritability fraction" | `prop_h2` | |
 | proportion of SNPs | The annotation's share of the SNP count. | "SNP fraction" | `prop_snps` | |
-| enrichment | Proportion of heritability divided by proportion of SNPs (`src/ldsc/_kernel/regression.py`). | "fold enrichment", "enrichment ratio" | `enrichment` | |
+| enrichment | Proportion of heritability divided by proportion of SNPs (`src/ldsc/_regression/estimators.py`). | "fold enrichment", "enrichment ratio" | `enrichment` | |
 | block jackknife | Standard-error estimation by deleting contiguous blocks of SNPs, 200 by default. | "jackknife blocks" for the method | `--n-blocks` | |
 
 ### Inputs, outputs and execution
@@ -127,7 +127,7 @@ On each page that names S-LDSC, the first mention gives the full name and citati
 
 These identifiers differ from the prose term or from each other; they are recorded here, not renamed.
 
-- The coefficient is the column `coefficient` in `partitioned_h2.tsv` and `tau` in the standardized-coefficient table (`src/ldsc/outputs.py`).
+- The coefficient is the column `coefficient` in `partitioned_h2.tsv` and `tau` in the standardized-coefficient table (`src/ldsc/_regression/outputs.py`).
 - Prose "R²" corresponds to the identifiers `R2`, `r2_dir` and `build-r2-panel`.
 - `--count-kind common|all` on the command line corresponds to `RegressionConfig.use_common_counts` in Python.
 - Prose "gene coordinate catalog" corresponds to the flag `--gene-coordinate-file`.

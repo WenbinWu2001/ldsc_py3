@@ -16,7 +16,7 @@ import numpy as np
 from ldsc.config import GlobalConfig
 from ldsc.errors import LDSCInputError, LDSCInternalError
 from ldsc._ldscore.calculator import LDScoreResult
-from ldsc.outputs import (
+from ldsc._regression.outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
     PARTITIONED_H2_COLUMNS,
@@ -226,7 +226,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             self.assertFalse((output_dir / "ldscore.baseline.parquet").exists())
 
     def test_outputs_module_does_not_expose_prefix_based_artifact_pipeline(self):
-        import ldsc.outputs as outputs
+        import ldsc._regression.outputs as outputs
 
         removed_names = [
             "ArtifactConfig",
@@ -238,7 +238,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             "ResultWriter",
         ]
         for name in removed_names:
-            self.assertFalse(hasattr(outputs, name), f"{name} should not be exposed by ldsc.outputs")
+            self.assertFalse(hasattr(outputs, name), f"{name} should not be exposed by ldsc._regression.outputs")
 
     def _overlap(self):
         import numpy as np
@@ -859,7 +859,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             self.assertEqual(metadata["files"], {"summary": "partitioned_h2.tsv"})
 
     def make_fit_artifacts(self):
-        from ldsc.outputs import stage_partitioned_h2_fit
+        from ldsc._regression.outputs import stage_partitioned_h2_fit
 
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         deletes = self.make_delete_tables()

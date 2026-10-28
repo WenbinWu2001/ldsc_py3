@@ -714,7 +714,7 @@ class LDScoreCalculator:
         existing calculation worker reuse that process.
         """
         backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
-        legacy_bundle = _kernel_annotation_bundle(annotation_bundle,chrom)
+        legacy_bundle = _chromosome_annotations(annotation_bundle,chrom)
         LOGGER.info(f"Computing chromosome {chrom} LD scores with backend '{backend or 'unknown'}' and {len(legacy_bundle.metadata)} annotation rows.")
         with ref_panel.prepare_chromosome(chrom, legacy_bundle, ldscore_config) as prepared:
             legacy_result = kernel_ldscore.compute_chromosome(
@@ -1772,7 +1772,7 @@ def _apply_direct_gene_gate_b(annotation_bundle, ref_panel, ldscore_config, glob
     for chrom in _chromosomes_from_bundle(annotation_bundle):
         genes = interval_frame[interval_frame["chrom"].astype(str).eq(str(chrom))]
         chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
-        legacy_bundle = _kernel_annotation_bundle(chrom_bundle,chrom)
+        legacy_bundle = _chromosome_annotations(chrom_bundle,chrom)
         try:
             with ref_panel.prepare_chromosome(chrom, legacy_bundle, ldscore_config) as prepared:
                 positions0 = np.sort(prepared.metadata["POS"].to_numpy(dtype=np.int64) - 1)
@@ -2468,7 +2468,7 @@ def _stage_chromosome_drops(bundle, chrom, reference_drops):
     return TsvDiagnostics(path, bundle.workspace)
 
 
-def _kernel_annotation_bundle(bundle, chrom):
+def _chromosome_annotations(bundle, chrom):
     """Borrow one chromosome's metadata and selected annotation reader."""
     from .._refpanel.prepared import MappedAnnotations
 

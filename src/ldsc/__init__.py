@@ -8,8 +8,9 @@ Core functionality:
 Overview
 --------
 This module is the top-level public API for LDSC3. Import from
-``ldsc`` when you want the supported package surface rather than the internal
-``ldsc._kernel`` implementation modules. The exports here mirror the main user
+``ldsc`` when you want the supported package surface; the private domain
+packages (``ldsc._core``, ``ldsc._ldscore`` and the others) hold the
+implementation. The exports here mirror the main user
 workflows: annotation building, R2 panel building, exact gene
 LD-score index construction, LD-score calculation, summary-statistics munging,
 regression, output writing, genome-build inference for ``chr_pos`` inputs, and
@@ -18,8 +19,8 @@ lazy access to result plotting and liability-scale post-processing.
 Design Notes
 ------------
 - Only stable public objects should be re-exported here.
-- Internal compute kernels remain under ``ldsc._kernel`` and are not part of
-  the intended user-facing API.
+- Every module whose package name starts with an underscore is private and
+  not part of the user-facing API, even when a name it defines is exported here.
 - Plotting exports are resolved lazily so importing ``ldsc`` does not import
   Matplotlib until a figure-producing path is used.
 
@@ -73,7 +74,7 @@ from ._genome.hm3 import load_hm3_curated_map
 from ._ldscore.calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
 from ._ldscore.gene_index.build import build_gene_ldscore_index
 from ._ldscore.gene_index.scoring import load_gene_ldscore_index
-from .outputs import (
+from ._regression.outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
     PartitionedH2DirectoryWriter,
@@ -100,23 +101,23 @@ _LAZY_EXPORTS = {
     "LegacyLDScoreConverter": ("._ldscore.legacy_converter", "LegacyLDScoreConverter"),
     "LegacyLDScoreConversionResult": ("._ldscore.legacy_converter", "LegacyLDScoreConversionResult"),
     "convert_ldsc2_ldscores": ("._ldscore.legacy_converter", "convert_ldsc2_ldscores"),
-    "RegressionDataset": (".regression_runner", "RegressionDataset"),
-    "PreparedRegressionInputs": (".regression_runner", "PreparedRegressionInputs"),
-    "PartitionedH2BatchResult": (".regression_runner", "PartitionedH2BatchResult"),
-    "RegressionRunner": (".regression_runner", "RegressionRunner"),
-    "RgResultFamily": (".regression_runner", "RgResultFamily"),
-    "run_h2": (".regression_runner", "run_h2"),
-    "run_partitioned_h2": (".regression_runner", "run_partitioned_h2"),
-    "run_rg": (".regression_runner", "run_rg"),
-    "QuantileAssignment": (".quantile_h2", "QuantileAssignment"),
-    "QuantileH2Result": (".quantile_h2", "QuantileH2Result"),
-    "assign_legacy_quantiles": (".quantile_h2", "assign_legacy_quantiles"),
-    "compute_quantile_h2": (".quantile_h2", "compute_quantile_h2"),
-    "compute_standardized_coefficients": (".quantile_h2", "compute_standardized_coefficients"),
-    "load_fitted_partitioned_model": (".quantile_h2", "load_fitted_partitioned_model"),
-    "run_quantile_h2": (".quantile_h2", "run_quantile_h2"),
-    "H2ScaleConversionArtifact": (".h2_scale", "H2ScaleConversionArtifact"),
-    "convert_h2_scale": (".h2_scale", "convert_h2_scale"),
+    "RegressionDataset": ("._regression.runner", "RegressionDataset"),
+    "PreparedRegressionInputs": ("._regression.runner", "PreparedRegressionInputs"),
+    "PartitionedH2BatchResult": ("._regression.runner", "PartitionedH2BatchResult"),
+    "RegressionRunner": ("._regression.runner", "RegressionRunner"),
+    "RgResultFamily": ("._regression.runner", "RgResultFamily"),
+    "run_h2": ("._regression.runner", "run_h2"),
+    "run_partitioned_h2": ("._regression.runner", "run_partitioned_h2"),
+    "run_rg": ("._regression.runner", "run_rg"),
+    "QuantileAssignment": ("._regression.quantile_h2", "QuantileAssignment"),
+    "QuantileH2Result": ("._regression.quantile_h2", "QuantileH2Result"),
+    "assign_legacy_quantiles": ("._regression.quantile_h2", "assign_legacy_quantiles"),
+    "compute_quantile_h2": ("._regression.quantile_h2", "compute_quantile_h2"),
+    "compute_standardized_coefficients": ("._regression.quantile_h2", "compute_standardized_coefficients"),
+    "load_fitted_partitioned_model": ("._regression.quantile_h2", "load_fitted_partitioned_model"),
+    "run_quantile_h2": ("._regression.quantile_h2", "run_quantile_h2"),
+    "H2ScaleConversionArtifact": ("._regression.h2_scale", "H2ScaleConversionArtifact"),
+    "convert_h2_scale": ("._regression.h2_scale", "convert_h2_scale"),
     "PlotArtifact": (".plotting", "PlotArtifact"),
     "plot_result": (".plotting", "plot_result"),
 }

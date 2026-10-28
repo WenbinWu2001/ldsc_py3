@@ -381,8 +381,8 @@ The following locations must be kept consistent with this document.
 | `src/ldsc/_core/columns.py` — `INTERNAL_SUMSTATS_ARTIFACT_SPECS` | Tuple order: `CHR, POS, SNP, ...` |
 | `src/ldsc/_core/columns.py` — `INTERNAL_LDSCORE_ARTIFACT_SPECS` | Strict reload specs still include optional metadata fields used by internal/legacy readers: `CHR, POS, SNP, CM, MAF` |
 | `src/ldsc/_ldscore/calculator.py` — `_split_ldscore_table` | Public output order: baseline `CHR, SNP, POS, regression_ld_scores, ...`; query `CHR, SNP, POS, ...` |
-| `src/ldsc/outputs.py` — `_write_chromosome_aligned_parquet` | One row group per `CHR` in `ldscore.baseline.parquet` and each query batch file |
-| `src/ldsc/outputs.py` — `required_baseline` / `required_query` validation lists | Baseline requires `CHR`, `POS`, `SNP`, `regression_ld_scores`, and baseline columns; query requires `CHR`, `POS`, `SNP`, and query columns |
+| `src/ldsc/_regression/outputs.py` — `_write_chromosome_aligned_parquet` | One row group per `CHR` in `ldscore.baseline.parquet` and each query batch file |
+| `src/ldsc/_regression/outputs.py` — `required_baseline` / `required_query` validation lists | Baseline requires `CHR`, `POS`, `SNP`, `regression_ld_scores`, and baseline columns; query requires `CHR`, `POS`, `SNP`, and query columns |
 
 `regression_ld_scores` is the historical `w_ld`: an LD score computed over the regression SNPs.
 It is stored with the baseline LD-score table because both `h2` and `rg` use it as one component when the regression kernel computes final model-dependent weights.

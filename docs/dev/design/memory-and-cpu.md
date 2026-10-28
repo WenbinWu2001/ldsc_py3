@@ -465,7 +465,7 @@ The complete [index contract](../../reference/gene-ldscore-index.md) and [`test_
 ## Batch regression and incremental result writing
 
 Query concurrency defaults to one worker.
-`_partitioned_h2_parallel._QueryWorkers` reuses whole-model workers across loading batches, with 1 BLAS thread per worker.
+`_regression.partitioned_parallel._QueryWorkers` reuses whole-model workers across loading batches, with 1 BLAS thread per worker.
 Shared numerical columns and each active query batch use dtype-preserving read-only maps.
 Nonnumeric columns and compact model metadata are loaded from private snapshots.
 Each task carries its query name, column descriptor, and a unique fit directory.
@@ -479,7 +479,7 @@ Writing workflows return `LDScoreSource` directly; `read_queries(columns)` may s
 `LDScoreResult` remains the explicitly materialized result, including small prepared no-output calculations; writing workflows use private fragment descriptors instead.
 Downstream `h2`, `rg`, and partitioned workflows consume only the columns they need.
 
-[`PreparedRegressionInputs`](../../../src/ldsc/regression_runner.py) shares trait alignment, baseline LD scores, row mappings, and count lookup across a batch.
+[`PreparedRegressionInputs`](../../../src/ldsc/_regression/runner.py) shares trait alignment, baseline LD scores, row mappings, and count lookup across a batch.
 Each query batch is loaded/aligned once.
 Each model still fits its complete retained genome-wide SNP set; variance filtering, outlier filtering, counts, regression weights, and jackknife work remain model-specific.
 No chromosome-wise regression estimates are substituted for the genome-wide model.
@@ -490,7 +490,7 @@ Zero-variance column removal preserves those shared values.
 The kernel reuses its own normalized/weighted design buffers only when the result dtype is preserved, including promotion from float32 inputs to float64 weights.
 Shared inputs remain read-only throughout fitting.
 
-`estimate_partitioned_h2_batch(..., output_dir=..., query_batch_size=100)` writes each completed fit's per-annotation table, float64 coefficient delete values, and metadata privately through [`stage_partitioned_h2_fit()`](../../../src/ldsc/outputs.py), then releases estimator details.
+`estimate_partitioned_h2_batch(..., output_dir=..., query_batch_size=100)` writes each completed fit's per-annotation table, float64 coefficient delete values, and metadata privately through [`stage_partitioned_h2_fit()`](../../../src/ldsc/_regression/outputs.py), then releases estimator details.
 After final stable summary sorting, the existing writer assigns canonical folders and publishes the complete query tree.
 The returned `PartitionedH2BatchResult` contains the aggregate summary, output paths, and `per_query_artifacts` referencing persistent files.
 It does not contain dictionaries of all detailed DataFrames.
@@ -510,23 +510,23 @@ See [query failure handling](../../reference/results/partitioned-h2.md#query-fai
 
 ### Regression kernels and saved-result reuse
 
-[`_partitioned_h2_parallel._stage_frame()`](../../../src/ldsc/_partitioned_h2_parallel.py) groups contiguous numeric columns by dtype into private binary files and exposes column windows through read-only memory maps.
+[`_regression.partitioned_parallel._stage_frame()`](../../../src/ldsc/_regression/partitioned_parallel.py) groups contiguous numeric columns by dtype into private binary files and exposes column windows through read-only memory maps.
 Labels and object-valued metadata use process-local snapshots; unsupported query dtypes retain their preserving fallback instead of silent numeric coercion.
 This avoids copying the shared numeric baseline through every task message.
 Maps can still populate charged file cache, and nonnumeric snapshots are loaded in each worker.
 The parent owns the files until every borrowing worker has exited.
 
-[`_kernel/regression.py`](../../../src/ldsc/_kernel/regression.py) and [`_kernel/_irwls.py`](../../../src/ldsc/_kernel/_irwls.py) reuse owned sample-size-scaled and weighted numerical buffers when the required result dtype permits it.
+[`_regression/estimators.py`](../../../src/ldsc/_regression/estimators.py) and [`_regression/irwls.py`](../../../src/ldsc/_regression/irwls.py) reuse owned sample-size-scaled and weighted numerical buffers when the required result dtype permits it.
 In-place reuse must not mutate caller-owned arrays or silently narrow promoted results.
 Model filtering and weighted fitting remain private to each task.
 The two IRWLS reweightings are the existing estimator, not a new early-stopping optimization.
 
-[`LstsqJackknifeFast`](../../../src/ldsc/_kernel/_jackknife.py) uses existing block sufficient statistics: compute block $X^\top X$ and $X^\top y$ summaries once, then obtain delete-block fits by subtracting one block's summaries from the totals.
+[`LstsqJackknifeFast`](../../../src/ldsc/_regression/jackknife.py) uses existing block sufficient statistics: compute block $X^\top X$ and $X^\top y$ summaries once, then obtain delete-block fits by subtracting one block's summaries from the totals.
 For $J$ blocks and $p$ predictors, the retained block summaries scale as $O(Jp^2)$ rather than storing $J$ copies of the SNP-by-predictor data.
 Each delete fit still solves a small system; aligned block boundaries, weighting, singular-design errors, and estimator semantics remain unchanged.
 [`test_jackknife.py`](../../../tests/test_jackknife.py) supplies numerical comparisons rather than asserting only that an allocation disappeared.
 
-Legacy summary-statistic projection in [`regression_runner.py`](../../../src/ldsc/regression_runner.py) uses column-wise identity/allele masks rather than row-wise Python processing.
+Legacy summary-statistic projection in [`_regression/runner.py`](../../../src/ldsc/_regression/runner.py) uses column-wise identity/allele masks rather than row-wise Python processing.
 It preserves alignment and drop diagnostics; it still materializes the trait and projection-drop table.
 [`test_legacy_sumstats_projection_performance.py`](../../../tests/test_legacy_sumstats_projection_performance.py) guards both agreement and a local performance budget, not a universal machine-independent runtime.
 Saved fit coefficients, counts, overlaps, and delete values support quantile analysis, heritability-scale conversion, and plotting without refitting the model.
@@ -537,12 +537,12 @@ It computes the standalone per-trait heritability summaries once per trait; thos
 There is no all-pairs merged-data cache or substitution of one trait's full-support fit for a pair-specific estimate.
 Current control flow is in `RegressionRunner.estimate_rg_pairs()`.
 A per-trait merge cache was rejected at design time: for fewer than ten traits it was estimated to save about 10% of wall time while holding 0.8–1.2 GB of extra state and roughly 3.5 times the code.
-Reusing one heritability fit across pairs is statistically invalid, because `RatioJackknife` in [`_kernel/_jackknife.py`](../../../src/ldsc/_kernel/_jackknife.py) combines the `hsq1`, `hsq2`, and `gencov` delete-block vectors element by element, so all three must come from the same pair-specific SNP partition.
+Reusing one heritability fit across pairs is statistically invalid, because `RatioJackknife` in [`_regression/jackknife.py`](../../../src/ldsc/_regression/jackknife.py) combines the `hsq1`, `hsq2`, and `gencov` delete-block vectors element by element, so all three must come from the same pair-specific SNP partition.
 Parallelizing independent pairs across processes was identified as the larger potential gain and remains unimplemented.
 
 ## Exact global quantiles
 
-[`_quantile_inputs.py`](../../../src/ldsc/_quantile_inputs.py) and [`_quantile_storage.py`](../../../src/ldsc/_quantile_storage.py) reconstruct the validated common reference SNPs with bounded annotation/reference/target reads and narrow SQLite row locators.
+[`_regression/quantile_inputs.py`](../../../src/ldsc/_regression/quantile_inputs.py) and [`_regression/quantile_storage.py`](../../../src/ldsc/_regression/quantile_storage.py) reconstruct the validated common reference SNPs with bounded annotation/reference/target reads and narrow SQLite row locators.
 Reference/target duplicates remain fatal globally, including base-key uniqueness when omitted alleles must be inferred.
 External targets retain float64 values and raw missing-token semantics; they are separate from ordinary packed-binary/dense-float32 annotation storage.
 

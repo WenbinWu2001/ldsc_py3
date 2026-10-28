@@ -9,9 +9,9 @@ import pytest
 
 from ldsc import GlobalConfig, RegressionConfig
 from ldsc import cli
-from ldsc import regression_runner as workflow
+from ldsc._regression import runner as workflow
 from ldsc.errors import LDSCConfigError, LDSCUsageError
-from ldsc.outputs import H2DirectoryWriter, H2OutputConfig
+from ldsc._regression.outputs import H2DirectoryWriter, H2OutputConfig
 from ldsc._sumstats.munger import SumstatsTable
 
 

@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc import regression_runner as workflow
-from ldsc._kernel import regression
-from ldsc._partitioned_h2_parallel import _stage_frame
+from ldsc._regression import runner as workflow
+from ldsc._regression import estimators as regression
+from ldsc._regression.partitioned_parallel import _stage_frame
 from ldsc._runtime.serial_calculation import serial_calculation
 from tests.test_regression_streaming import batch_inputs
 

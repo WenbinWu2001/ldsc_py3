@@ -22,7 +22,7 @@ Design Notes
 - Normalized unit is ``TraitPrevalence = (samp_prev | None, pop_prev | None)``;
   ``None`` marks a quantitative trait (no liability scale).
 - Range/consistency validation delegates to
-  ``_kernel.regression.liability_conversion_factor`` so the (0, 1)-or-NaN rule
+  ``_regression.estimators.liability_conversion_factor`` so the (0, 1)-or-NaN rule
   lives in one place.
 - Manifest lookup is by exact munged trait name; supersets are allowed, while
   missing resolved traits and (under the manifest scheme) duplicate resolved
@@ -37,8 +37,8 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from .errors import LDSCUsageError
-from ._kernel.regression import liability_conversion_factor
+from ..errors import LDSCUsageError
+from .estimators import liability_conversion_factor
 
 TraitPrevalence = tuple[float | None, float | None]
 

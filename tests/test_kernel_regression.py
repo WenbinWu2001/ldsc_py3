@@ -5,7 +5,7 @@ from unittest import mock
 
 import numpy as np
 
-from ldsc._kernel import regression as reg
+from ldsc._regression import estimators as reg
 from ldsc.errors import LDSCInternalError
 
 

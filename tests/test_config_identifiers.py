@@ -234,7 +234,7 @@ class WorkflowConfigTest(unittest.TestCase):
             ),
             "ldsc._refpanel.adapters": ("RefPanelSpec",),
             "ldsc._sumstats.munger": ("RawSumstatsSpec",),
-            "ldsc.outputs": ("OutputSpec",),
+            "ldsc._regression.outputs": ("OutputSpec",),
         }
         for module_name, names in removed_names_by_module.items():
             module = importlib.import_module(module_name)

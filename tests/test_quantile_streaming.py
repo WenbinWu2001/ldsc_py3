@@ -10,7 +10,7 @@ import pytest
 
 import tests.test_quantile_h2 as fixtures
 from ldsc.errors import LDSCInputError
-from ldsc.quantile_h2 import run_quantile_h2_from_args
+from ldsc._regression.quantile_h2 import run_quantile_h2_from_args
 
 
 @pytest.fixture
@@ -83,7 +83,7 @@ def test_high_offset_annotation_variance_is_stable(workflow):
 
 def _observe_quantile_reads(args):
     from unittest.mock import patch
-    from ldsc import _quantile_storage
+    from ldsc._regression import quantile_storage as _quantile_storage
     from ldsc._annotation.bundle import AnnotationBundle
 
     original = AnnotationBundle.read
@@ -148,7 +148,7 @@ def test_global_ties_and_sharded_baselines(workflow):
 
 @pytest.mark.parametrize("route", ["annot", "bed", "gene"])
 def test_single_query_model_reconstructs_each_query_route(workflow, route):
-    from ldsc.outputs import (
+    from ldsc._regression.outputs import (
         PARTITIONED_H2_COLUMNS, PartitionedH2DirectoryWriter, PartitionedH2OutputConfig,
         stage_partitioned_h2_fit,
     )

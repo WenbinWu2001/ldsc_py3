@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc import regression_runner as workflow
+from ldsc._regression import runner as workflow
 from ldsc import cli, load_ldscore_from_dir
 from ldsc._ldscore.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from tests import test_regression_workflow as fixtures
@@ -36,7 +36,7 @@ def test_public_directory_reader_does_not_import_regression(tmp_path):
 
         class BlockWorkflowImports(importlib.abc.MetaPathFinder):
             def find_spec(self, fullname, path=None, target=None):
-                if fullname == "ldsc.regression_runner":
+                if fullname == "ldsc._regression.runner":
                     raise ImportError(f"Directory reads must not import {fullname}")
 
         sys.meta_path.insert(0, BlockWorkflowImports())
@@ -413,7 +413,7 @@ def test_functional_command_keeps_complete_model_at_root(tmp_path):
 
 def _observe_staged_fit_worker(*args):
     import os
-    from ldsc._partitioned_h2_parallel import _query_worker
+    from ldsc._regression.partitioned_parallel import _query_worker
     staged = []
     original_stage = workflow.stage_partitioned_h2_fit
 
@@ -439,7 +439,7 @@ def _observe_staged_fit_worker(*args):
 
 @pytest.mark.parametrize("failure", ["fit", "publication"])
 def test_late_failures_clean_private_details_and_preserve_existing_failure_contract(tmp_path, monkeypatch, failure):
-    from ldsc import outputs, _partitioned_h2_parallel as parallel
+    from ldsc._regression import outputs, partitioned_parallel as parallel
 
     args, _ = cli_inputs(tmp_path)
     cli.main(args)

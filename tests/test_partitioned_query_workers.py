@@ -11,7 +11,7 @@ import pytest
 
 from ldsc import RegressionRunner, RegressionConfig, cli
 from ldsc._runtime import parallelism as policy
-from ldsc import _partitioned_h2_parallel as parallel
+from ldsc._regression import partitioned_parallel as parallel
 from ldsc.errors import LDSCInternalError
 from tests.test_regression_streaming import batch_inputs, cli_inputs
 from tests.test_partitioned_query_failures import concentrate_queries
@@ -110,7 +110,7 @@ def test_nonnumeric_query_keeps_per_query_preparation_failure_policy(tmp_path):
 
 def _fault_worker(connection, snapshot, inputs_path):
     """Inject failures inside real spawned processes at OS/numerical boundaries."""
-    from ldsc._partitioned_h2_parallel import _query_worker
+    from ldsc._regression.partitioned_parallel import _query_worker
     from threadpoolctl import threadpool_info
 
     mode = os.environ["LDSC_TEST_WORKER_FAULT"]

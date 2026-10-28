@@ -21,8 +21,8 @@ import traceback
 import numpy as np
 import pandas as pd
 
-from .errors import LDSCInternalError
-from ._runtime.worker_runtime import initialize_worker, log_native_thread_state
+from ..errors import LDSCInternalError
+from .._runtime.worker_runtime import initialize_worker, log_native_thread_state
 
 
 @dataclass(frozen=True)
@@ -121,7 +121,7 @@ def _query_worker(connection, snapshot, inputs_path):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     logs = _WorkerLog()
     try:
-        from .regression_runner import RegressionRunner
+        from .runner import RegressionRunner
 
         with inputs_path.open("rb") as stream:
             inputs, global_config, config, log_level = pickle.load(stream)

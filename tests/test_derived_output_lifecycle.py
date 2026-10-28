@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from ldsc.outputs import (
+from ldsc._regression.outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
     H2_REGRESSION_BIN_COLUMNS,
@@ -74,7 +74,7 @@ def test_partitioned_successful_overwrite_removes_default_plots_only(tmp_path):
 def test_derived_workflows_reject_invalid_declared_inputs_before_writing(tmp_path, workflow, source):
     import json
     from ldsc.errors import LDSCInputError
-    from ldsc.h2_scale import convert_h2_scale
+    from ldsc._regression.h2_scale import convert_h2_scale
     from ldsc.plotting import plot_result
 
     outside = tmp_path / "outside.tsv"

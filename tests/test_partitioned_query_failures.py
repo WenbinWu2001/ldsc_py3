@@ -8,7 +8,7 @@ import pytest
 
 from ldsc import cli, RegressionRunner, RegressionConfig
 from ldsc.errors import LDSCInputError
-from ldsc._kernel._jackknife import JackknifeIdentifiabilityError, LstsqJackknifeFast
+from ldsc._regression.jackknife import JackknifeIdentifiabilityError, LstsqJackknifeFast
 from tests.test_regression_streaming import cli_inputs, batch_inputs
 
 
@@ -90,7 +90,7 @@ def test_continue_with_no_successes_fails_and_keeps_all_statuses(tmp_path, worke
 def test_continue_also_catches_unexpected_numerical_exceptions(tmp_path, monkeypatch):
     args, _ = cli_inputs(tmp_path)
     concentrate_queries(tmp_path)
-    from ldsc import _partitioned_h2_parallel as parallel
+    from ldsc._regression import partitioned_parallel as parallel
     from tests.test_partitioned_query_workers import _fault_worker
     monkeypatch.setenv("LDSC_TEST_WORKER_FAULT", "exception")
     monkeypatch.setattr(parallel, "_query_worker", _fault_worker)
@@ -129,7 +129,7 @@ def test_all_singular_deletions_are_reported_together():
 def test_continue_does_not_swallow_process_control(tmp_path, monkeypatch, error_type):
     args, _ = cli_inputs(tmp_path)
 
-    from ldsc import _partitioned_h2_parallel as parallel
+    from ldsc._regression import partitioned_parallel as parallel
     from tests.test_partitioned_query_workers import _fault_worker
     concentrate_queries(tmp_path)
     monkeypatch.setenv("LDSC_TEST_WORKER_FAULT", "interrupt" if error_type is KeyboardInterrupt else "exit")

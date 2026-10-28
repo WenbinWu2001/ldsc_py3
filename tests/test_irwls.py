@@ -5,7 +5,7 @@ import numpy as np
 from numpy.testing import assert_array_almost_equal, assert_array_equal
 
 
-from ldsc._kernel._irwls import IRWLS
+from ldsc._regression.irwls import IRWLS
 from ldsc.errors import LDSCInternalError
 
 

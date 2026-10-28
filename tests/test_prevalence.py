@@ -1,6 +1,6 @@
 import pytest
 
-from ldsc import prevalence
+from ldsc._regression import prevalence
 from ldsc.errors import LDSCConfigError, LDSCUsageError
 
 

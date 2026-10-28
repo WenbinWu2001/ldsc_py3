@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from ldsc.outputs import H2_REGRESSION_BIN_COLUMNS
-from ldsc.regression_runner import summarize_ld_score_regression_bins
+from ldsc._regression.outputs import H2_REGRESSION_BIN_COLUMNS
+from ldsc._regression.runner import summarize_ld_score_regression_bins
 
 
 def test_summarize_ld_score_regression_bins_uses_final_fit_values():

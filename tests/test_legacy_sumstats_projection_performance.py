@@ -10,7 +10,7 @@ import pytest
 
 from ldsc.config import GlobalConfig
 from ldsc._ldscore.calculator import LDScoreResult
-from ldsc.regression_runner import _project_legacy_sumstats_to_panel
+from ldsc._regression.runner import _project_legacy_sumstats_to_panel
 from ldsc._sumstats.munger import SumstatsTable
 
 

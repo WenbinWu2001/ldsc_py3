@@ -442,7 +442,7 @@ def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentPars
 
 def _load_regression_runner():
     """Import the regression workflow lazily for SciPy-light entry paths."""
-    from . import regression_runner
+    from ._regression import runner as regression_runner
 
     return regression_runner
 
@@ -456,7 +456,7 @@ def _load_sumstats_munger():
 
 def _load_quantile_h2():
     """Import the continuous-annotation post-fit workflow lazily."""
-    from . import quantile_h2
+    from ._regression import quantile_h2
 
     return quantile_h2
 
@@ -470,7 +470,7 @@ def _load_legacy_ldscore_converter():
 
 def _load_h2_scale():
     """Import the post-fit heritability scale conversion lazily."""
-    from . import h2_scale
+    from ._regression import h2_scale
 
     return h2_scale
 

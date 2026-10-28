@@ -10,8 +10,8 @@ import pandas as pd
 
 import ldsc
 from ldsc.errors import LDSCInputError
-from ldsc._quantile_storage import target_chunks
-from ldsc.quantile_h2 import (
+from ldsc._regression.quantile_storage import target_chunks
+from ldsc._regression.quantile_h2 import (
     assign_legacy_quantiles,
     compute_quantile_h2,
     compute_standardized_coefficients,

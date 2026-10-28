@@ -61,7 +61,7 @@ This consolidation adds no way to disable automatic two-step estimation.
 
 The public Python `RegressionConfig.use_intercept=False` option remains available and unchanged. The CLI now expresses its standard fixed-intercept behavior through `--intercept-h2` and `--intercept-gencov` only.
 
-Sources: legacy LDSC [`ldsc.py`, intercept flags](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L528) and [`ldscore/sumstats.py`, `estimate_h2` / `estimate_rg`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldscore/sumstats.py#L321); current [`regression_runner._add_common_regression_arguments`, `_runner_from_args`, `_fit_h2_dataset`, and `_fit_rg_dataset`](../../src/ldsc/regression_runner.py), [`RegressionConfig`](../../src/ldsc/config.py), and [regression configuration, “Requesting fixed intercepts”](regression-options.md#15-requesting-fixed-intercepts).
+Sources: legacy LDSC [`ldsc.py`, intercept flags](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L528) and [`ldscore/sumstats.py`, `estimate_h2` / `estimate_rg`](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldscore/sumstats.py#L321); current [`_regression.runner._add_common_regression_arguments`, `_runner_from_args`, `_fit_h2_dataset`, and `_fit_rg_dataset`](../../src/ldsc/_regression/runner.py), [`RegressionConfig`](../../src/ldsc/config.py), and [regression configuration, “Requesting fixed intercepts”](regression-options.md#15-requesting-fixed-intercepts).
 
 ## Legacy behavior explicitly retained
 
@@ -129,7 +129,7 @@ These mappings describe current workflows and are not additional changes made by
 | `munge_sumstats.py --no-alleles` | `--snp-identifier rsid` or `--snp-identifier chr_pos` | Choose a base mode explicitly; the default SNP identifier mode is `chr_pos_allele_aware`. |
 | `munge_sumstats.py --merge-alleles FILE` | No exact alias; packaged HM3 restriction is the default, `--sumstats-snps-file` replaces it, and `--no-snp-restriction` disables it | Current identity matching and downstream allele alignment have separate roles. A keep-list does not imply allele rewriting or liftover. |
 
-Sources: legacy LDSC [`ldsc.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L423) and [`munge_sumstats.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/munge_sumstats.py#L449); current [`cli.build_parser`](../../src/ldsc/cli.py), [`_ldscore.calculator.build_parser`](../../src/ldsc/_ldscore/calculator.py), [`regression_runner` argument builders](../../src/ldsc/regression_runner.py), and the [IO inventory, command sections](cli.md). Unlisted unsupported legacy options should not be assumed to have an automatic replacement.
+Sources: legacy LDSC [`ldsc.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/ldsc.py#L423) and [`munge_sumstats.py`, parser](https://github.com/bulik/ldsc/blob/aa33296abac9569a6422ee6ba7eb4b902422cc74/munge_sumstats.py#L449); current [`cli.build_parser`](../../src/ldsc/cli.py), [`_ldscore.calculator.build_parser`](../../src/ldsc/_ldscore/calculator.py), [`regression_runner` argument builders](../../src/ldsc/_regression/runner.py), and the [IO inventory, command sections](cli.md). Unlisted unsupported legacy options should not be assumed to have an automatic replacement.
 
 ## Legacy LDSC options with no current equivalent
 

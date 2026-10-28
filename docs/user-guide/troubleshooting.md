@@ -888,7 +888,7 @@ with decisive evidence is rejected. See
 3. Check whether intended SNP selection leaves a usable intersection before changing it.
    Rebuild mismatched inputs; broaden an intended SNP selection only if that change is justified for the analysis.
 
-**Developer reference:** `regression_runner.RegressionRunner.build_dataset()` and `regression_runner.RegressionRunner.build_rg_dataset()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_regression.runner.RegressionRunner.build_dataset()` and `_regression.runner.RegressionRunner.build_rg_dataset()` · **Exception:** `LDSCInputError`
 
 ### `partitioned-h2`: a query regression fails
 
@@ -966,7 +966,7 @@ such a directory cannot be partitioned.
    guard uses it only when present), so they run on unpartitioned or older
    directories.
 
-**Developer reference:** `regression_runner.estimate_partitioned_h2_batch()` / `summarize_partitioned_h2()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_regression.runner.estimate_partitioned_h2_batch()` / `summarize_partitioned_h2()` · **Exception:** `LDSCInputError`
 
 ## `quantile-h2`
 
@@ -985,7 +985,7 @@ Restoring missing metadata from the original run does not require recomputing LD
 Do not substitute metadata from another run or reconstruct provenance from unrelated results.
 See [keeping fitted results together](workflows/partitioned-heritability.md#reading-the-outputs) and the [output contract](../reference/results/partitioned-h2.md).
 
-**Developer reference:** `load_fitted_partitioned_model()` in [quantile_h2.py](../../src/ldsc/quantile_h2.py) · **Exception:** `LDSCInputError`
+**Developer reference:** `load_fitted_partitioned_model()` in [_regression/quantile_h2.py](../../src/ldsc/_regression/quantile_h2.py) · **Exception:** `LDSCInputError`
 
 ### `quantile-h2`: fitted model or resupplied sources do not verify
 
@@ -1010,7 +1010,7 @@ If the saved fit records a different comparison, use a compatible fitted result.
 Changing this SNP-count policy requires regenerating LD scores and refitting `partitioned-h2`; it changes the fitted SNP population and must be intentional.
 Keep the saved comparison metadata faithful to the fit that produced it.
 
-**Developer reference:** `quantile_h2.load_fitted_partitioned_model()` / `quantile_h2._prepare_quantile_inputs()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_regression.quantile_h2.load_fitted_partitioned_model()` / `_regression.quantile_h2._prepare_quantile_inputs()` · **Exception:** `LDSCInputError`
 
 ### `quantile-h2`: target values are invalid or quantiles are empty
 
@@ -1025,7 +1025,7 @@ If exactly one token denotes missingness, pass it with `--target-missing-value`;
 If boundary ties produce an empty quantile, reduce `--num-quantiles` or use a less discrete target, recognizing that this changes the requested grouping.
 Ties are intentionally kept in the lower-valued quantile for legacy compatibility.
 
-**Developer reference:** `quantile_h2._read_target_annotation()` / `quantile_h2.assign_legacy_quantiles()` · **Exception:** `LDSCInputError`
+**Developer reference:** `_regression.quantile_h2._read_target_annotation()` / `_regression.quantile_h2.assign_legacy_quantiles()` · **Exception:** `LDSCInputError`
 
 ## `plot`
 

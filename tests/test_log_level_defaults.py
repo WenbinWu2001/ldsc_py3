@@ -6,7 +6,8 @@ import pytest
 
 import ldsc
 from ldsc._ldscore.gene_index import build as gene_ldscore_index
-from ldsc import h2_scale, plotting
+from ldsc._regression import h2_scale
+from ldsc import plotting
 from ldsc._ldscore.legacy_converter import LegacyLDScoreConverter
 from tests.test_python_regression_workflows import _inputs
 

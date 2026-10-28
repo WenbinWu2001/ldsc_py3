@@ -11,7 +11,7 @@ Iterativey re-weighted least squares.
 from __future__ import division
 import numpy as np
 from ..errors import LDSCInternalError
-from . import _jackknife as jk
+from . import jackknife as jk
 
 
 class IRWLS(object):

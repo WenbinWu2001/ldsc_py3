@@ -176,7 +176,7 @@ print(ldsc.__file__)
                 pass
             heavy = [
                 name
-                for name in ("ldsc.regression_runner", "ldsc._sumstats.munger", "scipy.stats._stats_py")
+                for name in ("ldsc._regression.runner", "ldsc._sumstats.munger", "scipy.stats._stats_py")
                 if name in sys.modules
             ]
             print(",".join(heavy))

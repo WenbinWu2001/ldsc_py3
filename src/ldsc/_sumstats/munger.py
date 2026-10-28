@@ -1928,7 +1928,7 @@ def _sumstats_footer_metadata(
 ) -> dict[bytes, bytes]:
     """Return discrete ``ldsc:*`` Parquet footer keys for a munged summary-statistics artifact.
 
-    Mirrors the reference-panel footer convention in ``_kernel/ref_panel.py``. A
+    Mirrors the reference-panel footer convention in ``_refpanel/adapters.py``. A
     ``None`` ``genome_build`` (rsID-family) or ``trait_name`` is encoded as an
     empty string and decoded back to ``None`` on read. ``qc_thresholds`` (the run's
     effective ``info_min`` and ``maf_min``) adds ``ldsc:qc_info_min`` and

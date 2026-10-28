@@ -6,7 +6,7 @@ import pytest
 from ldsc import cli
 from ldsc._runtime.workflow_logging import overwrite_failure_marker
 from ldsc._annotation.outputs import AnnotationDirectoryWriter
-from ldsc.outputs import (
+from ldsc._regression.outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
     PartitionedH2DirectoryWriter,
@@ -87,7 +87,7 @@ def test_cli_marker_follows_last_destination_option(tmp_path, command, option, n
 ])
 @pytest.mark.parametrize("custom", [False, True])
 def test_derived_workflows_retry_in_normalized_output_scope(tmp_path, monkeypatch, workflow, nested, custom):
-    from ldsc.h2_scale import convert_h2_scale
+    from ldsc._regression.h2_scale import convert_h2_scale
     from ldsc.plotting import plot_result
 
     monkeypatch.chdir(tmp_path)

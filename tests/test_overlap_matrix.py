@@ -114,7 +114,7 @@ def _legacy_overlap_reference(prop, prop_cov, coef, coef_cov, n_blocks, O, M, M_
 def test_overlap_aware_category_table_matches_legacy_and_augments():
     from types import SimpleNamespace
     from scipy import stats
-    from ldsc._overlap_model import overlap_aware_category_table
+    from ldsc._regression.overlap_model import overlap_aware_category_table
 
     names = ["base", "catA", "q"]
     M = np.array([10.0, 4.0, 6.0])
@@ -151,7 +151,7 @@ def test_overlap_aware_category_table_matches_legacy_and_augments():
 
 def test_overlap_aware_hand_example_disjoint_plus_base():
     from types import SimpleNamespace
-    from ldsc._overlap_model import overlap_aware_category_table
+    from ldsc._regression.overlap_model import overlap_aware_category_table
     # base = all 6 SNPs; A = first 3; Bcat = last 3 (disjoint A,B but both overlap base)
     names = ["base", "A", "Bcat"]
     M = np.array([6.0, 3.0, 3.0]); M_tot = 6.0
@@ -176,7 +176,7 @@ def test_overlap_aware_hand_example_disjoint_plus_base():
 def test_assemble_model_overlap_reconstructs_submatrix():
     from ldsc._annotation.overlap import OverlapContribution
     from ldsc._ldscore.overlap_table import LDScoreOverlap
-    from ldsc._overlap_model import assemble_model_overlap
+    from ldsc._regression.overlap_model import assemble_model_overlap
     # Full A: baseline=[base, catA], query=[q1, q2]
     A = np.array([
         [1, 1, 1, 0],
@@ -200,7 +200,7 @@ def test_assemble_model_overlap_reconstructs_submatrix():
 
 
 def test_model_collinearity_error_names_worst_pair():
-    from ldsc._overlap_model import model_collinearity_error
+    from ldsc._regression.overlap_model import model_collinearity_error
     # near-duplicate LD-score columns -> high condition number
     X = np.array([[1.0, 1.0001, 2.0], [2.0, 2.0001, 1.0], [3.0, 3.0001, 0.5], [4.0, 4.0002, 0.1]])
     columns = ["catA", "catA_dup", "other"]
@@ -210,6 +210,6 @@ def test_model_collinearity_error_names_worst_pair():
 
 
 def test_model_collinearity_error_none_when_well_conditioned():
-    from ldsc._overlap_model import model_collinearity_error
+    from ldsc._regression.overlap_model import model_collinearity_error
     X = np.array([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
     assert model_collinearity_error(X, ["a", "b"], np.eye(2), threshold=1e5) is None

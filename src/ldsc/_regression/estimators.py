@@ -17,8 +17,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm, chi2
 from ..errors import LDSCConfigError, LDSCInternalError, LDSCUsageError
-from . import _jackknife as jk
-from ._irwls import IRWLS
+from . import jackknife as jk
+from .irwls import IRWLS
 from .._core.snp_identity import VALID_SNPS
 from scipy.stats import t as tdist
 from collections import namedtuple

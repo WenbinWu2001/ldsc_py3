@@ -14,11 +14,11 @@ from ldsc.config import ConfigMismatchError, validate_config_compatibility
 from ldsc.errors import LDSCUsageError
 from ldsc._annotation import builder as annotation_builder
 from ldsc._ldscore import calculator as ldscore_calculator
-from ldsc import regression_runner
+from ldsc._regression import runner as regression_runner
 from ldsc._refpanel import builder as ref_panel_builder
 from ldsc._ldscore.calculator import LDScoreResult
 from ldsc._refpanel.builder import ReferencePanelBuildConfig, ReferencePanelBuilder
-from ldsc.regression_runner import RegressionRunner
+from ldsc._regression.runner import RegressionRunner
 from ldsc._sumstats.munger import SumstatsTable
 from tests.test_path_resolution import _write_plink_trio
 

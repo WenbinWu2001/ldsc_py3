@@ -202,7 +202,7 @@ Regression forwards its per-model log records to the parent workflow log as befo
 Existing phase timings, deterministic status order, and final sorting remain unchanged.
 Summed worker timings can exceed elapsed wall time.
 
-Ordinary query-model exceptions include the query name and stage. Process death, transport failures, worker initialization failures, interrupts, and output errors remain fatal under both strict and continue policies and can stop the scan before the final status table is written. The coordinator reports affected in-flight query identities and reaps workers before removing scratch. Sources: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py), `_WorkerLog` and `_QueryWorkers` in [_partitioned_h2_parallel.py](../../../src/ldsc/_partitioned_h2_parallel.py), and [query-worker policy](../../reference/regression-options.md#43-query-workers-and-memory).
+Ordinary query-model exceptions include the query name and stage. Process death, transport failures, worker initialization failures, interrupts, and output errors remain fatal under both strict and continue policies and can stop the scan before the final status table is written. The coordinator reports affected in-flight query identities and reaps workers before removing scratch. Sources: `RegressionRunner.estimate_partitioned_h2_batch()` in [_regression/runner.py](../../../src/ldsc/_regression/runner.py), `_WorkerLog` and `_QueryWorkers` in [_regression/partitioned_parallel.py](../../../src/ldsc/_regression/partitioned_parallel.py), and [query-worker policy](../../reference/regression-options.md#43-query-workers-and-memory).
 
 ## Maintaining this contract
 

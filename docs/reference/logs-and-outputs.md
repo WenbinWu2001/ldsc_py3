@@ -94,7 +94,7 @@ This keeps an output directory from mixing artifacts from different
 configurations, while preserving unrelated user files. Direct Python writer
 APIs apply the same rule to their data artifacts. Standalone `run_annotate()` owns the canonical annotation log; `AnnotationBuilder.run()` prepares private data without installing a workflow log.
 
-The six directory writers in `ldsc.outputs` each expose `artifact_family()`, returning an `ArtifactFamily` with selected output paths and the complete owned scope.
+The six directory writers in `ldsc._regression.outputs` each expose `artifact_family()`, returning an `ArtifactFamily` with selected output paths and the complete owned scope.
 `h2`, `partitioned-h2`, `rg`, `quantile-h2`, `query-r2`, and LD-score workflow preflights consult their writer's declaration and add workflow-owned logs or audits.
 The legacy LDSC converter and indexed LD-score CLI also consult the LD-score writer.
 Declarations only describe paths; the existing `_runtime.paths.preflight_output_artifact_family()` still performs collision checks.

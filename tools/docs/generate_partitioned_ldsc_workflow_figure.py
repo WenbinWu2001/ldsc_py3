@@ -86,7 +86,7 @@ def render():
         "Own the PLINK/R$^2$ reader and preserve physical PLINK row mapping.",
     ], GREEN)
     box(ax, 50, 680, 900, 145, "2. Compute direct LD scores", [
-        "LDScoreCalculator.compute_chromosome() -> _kernel.ldscore.compute_chromosome()",
+        "LDScoreCalculator.compute_chromosome() -> _ldscore.compute.compute_chromosome()",
         "Accumulate LD scores, annotation counts and overlaps in float64.",
         "Workers stage float32 query fragments; the parent combines chromosome results.",
     ], GREEN)
@@ -109,7 +109,7 @@ def render():
         "Validated SumstatsTable for trait alignment",
     ], BLUE)
     box(ax, 50, 85, 900, 150, "5. Fit and write partitioned heritability", [
-        "RegressionRunner -> _kernel.regression.Hsq",
+        "RegressionRunner -> _regression.estimators.Hsq",
         "Fit the complete baseline model, or one baseline-plus-query model per query.",
         "PartitionedH2DirectoryWriter -> partitioned_h2.tsv + diagnostics/",
     ], GREEN)

@@ -15,7 +15,7 @@ This document summarizes the user-visible file streams for each public workflow.
 | Workflow | yes | feature modules under `src/ldsc/` | build aligned in-memory tables |
 | Kernel | no | `ldsc._kernel.*` | low-level readers and numerical work |
 | Artifact access | yes | `ldsc._ldscore.source` | open LD-score directories, validate schemas/identities, and read selected query columns |
-| Postprocessing | yes | `ldsc.outputs`, `ldsc.plotting`, `ldsc.h2_scale`, pandas writers in `ldsc.regression_runner`, `ldsc._runtime.workflow_logging` | preflight fixed output paths, emit core/derived results, and write workflow audit logs/failure markers |
+| Postprocessing | yes | `ldsc._regression.outputs`, `ldsc.plotting`, `ldsc._regression.h2_scale`, pandas writers in `ldsc._regression.runner`, `ldsc._runtime.workflow_logging` | preflight fixed output paths, emit core/derived results, and write workflow audit logs/failure markers |
 
 ## Package Overview
 
@@ -44,7 +44,7 @@ flowchart LR
     K3[Run estimators]
   end
 
-  subgraph OUT[Postprocessing (public)<br/>ldsc.outputs / regression_runner]
+  subgraph OUT[Postprocessing (public)<br/>ldsc._regression.outputs / regression_runner]
     O1[Write LDSC3 artifacts]
     O2[Write summary tables]
     O3[Write workflow logs]
@@ -295,7 +295,7 @@ Every Parquet payload spans the computed chromosomes, with one row group per chr
 Root metadata records baseline row groups and the required ordered `query_batches` manifest, including file membership and chromosome offsets.
 Readers can select query columns across files or load one chromosome without scanning whole tables.
 One batch uses `ldscore.query.parquet`; multiple batches use numbered files.
-See `LDScoreDirectoryWriter.write_batches` in [`outputs.py`](../../src/ldsc/outputs.py).
+See `LDScoreDirectoryWriter.write_batches` in [`_regression/outputs.py`](../../src/ldsc/_regression/outputs.py).
 
 For ordinary unpartitioned LD scores, callers may omit both baseline and query
 inputs. The workflow then creates a synthetic baseline annotation named exactly
@@ -345,7 +345,7 @@ flowchart LR
     C7[Compute regression-SNP LD score]
   end
 
-  subgraph O3[Postprocessing (public)<br/>ldsc.outputs]
+  subgraph O3[Postprocessing (public)<br/>ldsc._regression.outputs]
     C8[Write LDSC3 artifacts]
   end
 
@@ -372,7 +372,7 @@ flowchart LR
 - Preprocessing: `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`
 - Workflow: `ldsc._ldscore.calculator`
 - Kernel: `ldsc._ldscore.compute`
-- Postprocessing: `ldsc.outputs`
+- Postprocessing: `ldsc._regression.outputs`
 
 ## 4A. `convert-ldsc2-ldscores`: Selected legacy LDSC Suites To Canonical LDSC3
 
@@ -578,12 +578,12 @@ flowchart LR
     E3[Open LDScoreSource and read selected queries]
   end
 
-  subgraph W5[Workflow (public)<br/>ldsc.regression_runner]
+  subgraph W5[Workflow (public)<br/>ldsc._regression.runner]
     E4[Merge on effective SNP identity key]
     E5[Drop zero-variance columns]
   end
 
-  subgraph K5[Kernel (private)<br/>ldsc._kernel.regression]
+  subgraph K5[Kernel (private)<br/>ldsc._regression.estimators]
     E6[Estimate SNP heritability]
     E7[Estimate partitioned heritability]
     E8[Estimate genetic correlation]
@@ -618,11 +618,11 @@ For column definitions and interpretation, see
 ### Modules used
 
 - Preprocessing: `ldsc._runtime.paths`, `ldsc._core.columns`
-- Workflow: `ldsc.regression_runner`, `ldsc._sumstats.munger.load_sumstats()`
+- Workflow: `ldsc._regression.runner`, `ldsc._sumstats.munger.load_sumstats()`
 - Artifact access: `ldsc._ldscore.source.load_ldscore_from_dir()` and `LDScoreSource.read_queries()`
-- Kernel: `ldsc._kernel.regression`, `ldsc._kernel._jackknife`, `ldsc._kernel._irwls`
-- Postprocessing: pandas TSV writers in `ldsc.regression_runner`; `partitioned-h2`
-  and `rg` directory writing in `ldsc.outputs`
+- Kernel: `ldsc._regression.estimators`, `ldsc._regression.jackknife`, `ldsc._regression.irwls`
+- Postprocessing: pandas TSV writers in `ldsc._regression.runner`; `partitioned-h2`
+  and `rg` directory writing in `ldsc._regression.outputs`
 
 ## 7. `quantile-h2`: One Fitted Model To Target Quantiles
 
@@ -663,7 +663,7 @@ flowchart LR
   F[plots/fixed-name.png + diagnostics]
   H[Canonical h2 result]
   S[h2.tsv observed estimate + SE]
-  C[ldsc.h2_scale]
+  C[ldsc._regression.h2_scale]
   K[Kernel liability conversion factor]
   O[postprocessing/liability-scale/
   table + optional sensitivity PNG]
@@ -701,6 +701,6 @@ Batch regression shares trait/baseline alignment, reads selected query columns, 
 With `partitioned-h2 --workers`, workers borrow immutable maps and each fit one complete query model; at most one task is in flight per worker.
 The coordinator collects results in query order, applies the query-error policy, and publishes after stable summary sorting.
 Workers exit before their output-owned scratch is removed.
-See [query workers](../reference/regression-options.md#43-query-workers-and-memory) and `_QueryWorkers` in [`_partitioned_h2_parallel.py`](../../src/ldsc/_partitioned_h2_parallel.py).
+See [query workers](../reference/regression-options.md#43-query-workers-and-memory) and `_QueryWorkers` in [`_regression/partitioned_parallel.py`](../../src/ldsc/_regression/partitioned_parallel.py).
 Exact quantile reconstruction uses global float64 boundaries and two bounded annotation passes.
 See [the annotation format policy](design/memory-and-cpu.md#annotation-format-policy) for encoding and [the implemented memory design](design/memory-and-cpu.md) for owner/release boundaries.

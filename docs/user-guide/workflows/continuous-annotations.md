@@ -38,7 +38,7 @@ Every successful folder contains one model's coefficients and jackknife delete v
 Worker count does not change the quantile reconstruction inputs.
 See [concurrent query fitting](partitioned-heritability.md#fit-queries-concurrently).
 
-If regression used `--continue-on-query-error`, failed queries appear only in `diagnostics/query_status.tsv` and the regression log; they have no fitted model or uncertainty estimates to supply to `quantile-h2`. Select a successful query from `diagnostics/query_annotations/manifest.tsv`. Without this flag, any query error prevents new scientific publication. See [query failure handling](partitioned-heritability.md#when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py).
+If regression used `--continue-on-query-error`, failed queries appear only in `diagnostics/query_status.tsv` and the regression log; they have no fitted model or uncertainty estimates to supply to `quantile-h2`. Select a successful query from `diagnostics/query_annotations/manifest.tsv`. Without this flag, any query error prevents new scientific publication. See [query failure handling](partitioned-heritability.md#when-a-query-fails); source: `RegressionRunner.estimate_partitioned_h2_batch()` in [_regression/runner.py](../../../src/ldsc/_regression/runner.py).
 
 ## 2. Prepare the resupplied sources
 
@@ -80,7 +80,7 @@ ldsc quantile-h2 \
   --output-dir "${OUTPUT_ROOT}/external-score-quantiles"
 ```
 
-Use the same query input form used for LD scores: `--query-annot-sources`, `--query-annot-bed-sources`, or `--query-annot-gene-list-sources` with its gene options. Gene-list reconstruction is strict by default; add `--allow-unresolved-genes` with no value if the original LD-score run used the deliberate `resolved-only` subset. Reproduce the original catalog, padding, exclusions, and any control as well. The old `--gene-list-resolution-policy` option is rejected without an alias. See [gene-list reconstruction](../../reference/results/quantile-h2.md#gene-list-resolution); source: `add_quantile_h2_arguments()` in [quantile_h2.py](../../../src/ldsc/quantile_h2.py).
+Use the same query input form used for LD scores: `--query-annot-sources`, `--query-annot-bed-sources`, or `--query-annot-gene-list-sources` with its gene options. Gene-list reconstruction is strict by default; add `--allow-unresolved-genes` with no value if the original LD-score run used the deliberate `resolved-only` subset. Reproduce the original catalog, padding, exclusions, and any control as well. The old `--gene-list-resolution-policy` option is rejected without an alias. See [gene-list reconstruction](../../reference/results/quantile-h2.md#gene-list-resolution); source: `add_quantile_h2_arguments()` in [_regression/quantile_h2.py](../../../src/ldsc/_regression/quantile_h2.py).
 
 By default, every target value must be finite and numeric. If exactly one token means missingness, name it explicitly, for example `--target-missing-value NaN`. Those SNPs are excluded from quantile construction. Zero is retained unless you explicitly choose zero as the missing token.
 

@@ -8,14 +8,14 @@ import pandas as pd
 import pytest
 
 from ldsc.errors import LDSCInputError
-from ldsc.outputs import (
+from ldsc._regression.outputs import (
     PARTITIONED_H2_COLUMNS,
     PartitionedH2DirectoryWriter,
     PartitionedH2FitArtifacts,
     PartitionedH2OutputConfig,
     stage_partitioned_h2_fit,
 )
-from ldsc.quantile_h2 import load_fitted_partitioned_model
+from ldsc._regression.quantile_h2 import load_fitted_partitioned_model
 
 
 @pytest.fixture
@@ -80,7 +80,7 @@ def test_persistent_fit_files_are_copied_and_remain_reusable(tmp_path, fitted_qu
 
 
 def test_failed_owned_publication_does_not_expose_partial_query_tree(tmp_path, monkeypatch, fitted_query):
-    from ldsc import outputs
+    from ldsc._regression import outputs
 
     original = outputs._atomic_write_json
 

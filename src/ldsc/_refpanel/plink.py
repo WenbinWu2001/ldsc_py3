@@ -2,7 +2,7 @@
 # Upstream authors and Python 3 port credit are in NOTICE. Modified 2026-06:
 # extracted readers and added selective streaming; 2026-09: reader lifetime;
 # 2026-10: exact LD windows independent of the chunk size; LD-score block
-# sums moved to _kernel/ldscore.py.
+# sums moved to _ldscore/compute.py.
 # See NOTICE for attribution and dated modifications.
 
 """PLINK genotype reader.
@@ -11,7 +11,7 @@ Selective reads apply sample and SNP filters before genotype normalization.
 In-memory readers close the BED file after loading retained genotypes;
 streaming readers keep it open until their owner calls ``close()``. The
 reader supplies standardized genotypes through ``nextSNPs``; the LD-score
-block sums over them are ``ld_scores_from_genotypes`` in ``_kernel/ldscore.py``.
+block sums over them are ``ld_scores_from_genotypes`` in ``_ldscore/compute.py``.
 """
 from __future__ import annotations
 

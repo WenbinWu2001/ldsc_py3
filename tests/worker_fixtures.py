@@ -21,7 +21,7 @@ class LocalQueryWorkers:
     """Substitute only the process boundary while testing mocked model logic."""
 
     def __init__(self, workspace, inputs, runner, config, workers):
-        from ldsc._partitioned_h2_parallel import _stage_frame
+        from ldsc._regression.partitioned_parallel import _stage_frame
         self.snapshot = _stage_frame(inputs.dataset.merged, workspace / "shared")
         self.inputs, self.runner, self.config = inputs, runner, config
 

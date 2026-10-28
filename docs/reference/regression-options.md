@@ -13,8 +13,8 @@ the *statistical* configuration and what each knob does to the estimator.
 
 Source of truth in code: `RegressionConfig` in `src/ldsc/config.py`,
 `_runner_from_args` / `estimate_h2` / `_fit_rg_dataset` /
-`estimate_partitioned_h2_batch` in `src/ldsc/regression_runner.py`, and the
-kernel in `src/ldsc/_kernel/regression.py`.
+`estimate_partitioned_h2_batch` in `src/ldsc/_regression/runner.py`, and the
+kernel in `src/ldsc/_regression/estimators.py`.
 
 Importing regression or munging workflows preserves the caller's NumPy floating-point error policy. The kernel uses local error contexts for its existing zero-SE fallback, invalid genetic-covariance weight handling, and ratio-jackknife zero-denominator errors; these contexts restore the caller's settings on both success and failure.
 
@@ -114,7 +114,7 @@ instead of the two-step estimator.
 
 Liability-scale conversion rescales only heritability-type quantities: total and per-annotation SNP heritability, genetic covariance from `rg`, and their standard errors.
 The intercept and the coefficients (`tau` with its SE, z, and p) stay on the observed scale, matching legacy LDSC, whose `h2_obs_to_liab` and `gencov_obs_to_liab` (`ldscore/regressions.py:107` and `:75`) scale only those quantities.
-The shared factor is `liability_conversion_factor` in [`_kernel/regression.py`](../../src/ldsc/_kernel/regression.py).
+The shared factor is `liability_conversion_factor` in [`_regression/estimators.py`](../../src/ldsc/_regression/estimators.py).
 
 ### 1.5 Requesting fixed intercepts
 
@@ -138,7 +138,7 @@ Explicit `--two-step-cutoff` also remains incompatible with fixed intercepts and
 
 The public Python `RegressionConfig.use_intercept=False` option remains supported.
 It selects a heritability intercept of 1 and a covariance intercept of 0; the CLI now uses only `intercept_h2` and `intercept_gencov` for fixed values.
-Sources: `RegressionRunner._fit_h2_dataset`, `_fit_rg_dataset`, and `_runner_from_args` in [`regression_runner.py`](../../src/ldsc/regression_runner.py).
+Sources: `RegressionRunner._fit_h2_dataset`, `_fit_rg_dataset`, and `_runner_from_args` in [`_regression/runner.py`](../../src/ldsc/_regression/runner.py).
 
 > **Boundary convention.** Every `χ²` threshold in this module is **inclusive**
 > (`χ² ≤ cutoff` / `χ² ≤ cap` / `Z₁²·Z₂² ≤ chisq_max²`), a deliberate deviation
@@ -238,7 +238,7 @@ The log reports detected CPU budget, requested/resolved concurrency, backend set
 Per-query times summed across workers can exceed elapsed wall time.
 `query_worker_native_threads` records the fixed target of 1, not proof of backend verification; runtime logs carry verification details.
 
-Mechanisms: [`RegressionRunner`](../../src/ldsc/regression_runner.py), [`_QueryWorkers`](../../src/ldsc/_partitioned_h2_parallel.py), and [`_worker_runtime`](../../src/ldsc/_runtime/worker_runtime.py).
+Mechanisms: [`RegressionRunner`](../../src/ldsc/_regression/runner.py), [`_QueryWorkers`](../../src/ldsc/_regression/partitioned_parallel.py), and [`_worker_runtime`](../../src/ldsc/_runtime/worker_runtime.py).
 The earlier [query-worker benchmark](../dev/validation/performance.md#partitioned-heritability-regression) remains historical evidence; it does not define the current serial policy.
 
 ### Defaults (both regimes)

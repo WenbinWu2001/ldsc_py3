@@ -12,11 +12,11 @@ import sqlite3
 import numpy as np
 import pandas as pd
 
-from ._core.columns import (
+from .._core.columns import (
     A1_COLUMN_SPEC, A2_COLUMN_SPEC, CHR_COLUMN_SPEC, POS_COLUMN_SPEC,
     SNP_COLUMN_SPEC, resolve_optional_column, resolve_required_column,
 )
-from .errors import LDSCInputError
+from ..errors import LDSCInputError
 from .outputs import SNP_ALIGNMENT_ISSUE_COLUMNS
 
 

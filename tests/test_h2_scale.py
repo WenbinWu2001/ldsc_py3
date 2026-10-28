@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ldsc._kernel.regression import liability_conversion_factor
+from ldsc._regression.estimators import liability_conversion_factor
 from ldsc.errors import LDSCInputError
 
 def _write_h2_result(tmp_path):
@@ -38,7 +38,7 @@ def _write_h2_result(tmp_path):
 
 
 def test_exact_conversion_uses_observed_fields_and_default_destination(tmp_path, monkeypatch):
-    from ldsc.h2_scale import convert_h2_scale
+    from ldsc._regression.h2_scale import convert_h2_scale
 
     result_dir = _write_h2_result(tmp_path)
     original_import = builtins.__import__
@@ -66,7 +66,7 @@ def test_exact_conversion_uses_observed_fields_and_default_destination(tmp_path,
 
 
 def test_range_conversion_is_inclusive_and_uses_python_output_override(tmp_path):
-    from ldsc.h2_scale import convert_h2_scale
+    from ldsc._regression.h2_scale import convert_h2_scale
 
     result_dir = _write_h2_result(tmp_path)
     output_dir = tmp_path / "custom"
@@ -89,7 +89,7 @@ def test_range_conversion_is_inclusive_and_uses_python_output_override(tmp_path)
 
 
 def test_exact_overwrite_removes_stale_sensitivity_plot(tmp_path):
-    from ldsc.h2_scale import convert_h2_scale
+    from ldsc._regression.h2_scale import convert_h2_scale
 
     result_dir = _write_h2_result(tmp_path)
     ranged = convert_h2_scale(
@@ -112,7 +112,7 @@ def test_exact_overwrite_removes_stale_sensitivity_plot(tmp_path):
 
 
 def test_conversion_requires_declared_summary_file(tmp_path):
-    from ldsc.h2_scale import convert_h2_scale
+    from ldsc._regression.h2_scale import convert_h2_scale
 
     result_dir = _write_h2_result(tmp_path)
     metadata_path = result_dir / "diagnostics" / "metadata.json"

@@ -175,7 +175,7 @@ pair_query/
 
 The TSV preserves input columns and writes `r2`, nullable `sign_r` (+1/-1), signed Pearson `r`, and `status`. `sign_r` and `r` use query allele orientation; they are not panel-orientation labels. There is no `sign` alias. Missing values are serialized as `NaN`.
 
-Diagnostic metadata records `artifact_type=query_r2_result`, the relative `files` map, `panel_dir`, `snp_identifier`, the requested `genome_build`, `n_samples`, `n_pairs`, and `status_counts`. The empty successful status is counted as `resolved`; other counts use `not_in_panel`, `cross_chromosome`, or `absent`. This JSON is provenance only. Sources: `_query_r2_metadata` in `src/ldsc/_refpanel/query.py` and `QueryR2DirectoryWriter` in `src/ldsc/outputs.py`.
+Diagnostic metadata records `artifact_type=query_r2_result`, the relative `files` map, `panel_dir`, `snp_identifier`, the requested `genome_build`, `n_samples`, `n_pairs`, and `status_counts`. The empty successful status is counted as `resolved`; other counts use `not_in_panel`, `cross_chromosome`, or `absent`. This JSON is provenance only. Sources: `_query_r2_metadata` in `src/ldsc/_refpanel/query.py` and `QueryR2DirectoryWriter` in `src/ldsc/_regression/outputs.py`.
 
 ### `annotate`
 
@@ -196,7 +196,7 @@ annotate/
 ```
 
 `diagnostics/metadata.json` is provenance only; no downstream workflow reads it.
-Fields come from `AnnotationDirectoryWriter.write()` in `src/ldsc/outputs.py` and the provenance built by `run_annotate()` in `src/ldsc/_annotation/annotate.py`.
+Fields come from `AnnotationDirectoryWriter.write()` in `src/ldsc/_regression/outputs.py` and the provenance built by `run_annotate()` in `src/ldsc/_annotation/annotate.py`.
 
 | Field | Explanation |
 | --- | --- |
@@ -358,7 +358,7 @@ Each per-query `metadata.json` stores fit-specific fields and `global_metadata: 
 Its `files` paths remain relative to the aggregate result root.
 The post-fit `quantile-h2` reader requires the enclosing shared metadata when this reference is present and merges it with query-specific fields taking precedence.
 Keep the complete result directory when copying fitted queries.
-Sources: `PartitionedH2DirectoryWriter` in [outputs.py](../../../src/ldsc/outputs.py) and `load_fitted_partitioned_model` in [quantile_h2.py](../../../src/ldsc/quantile_h2.py).
+Sources: `PartitionedH2DirectoryWriter` in [_regression/outputs.py](../../../src/ldsc/_regression/outputs.py) and `load_fitted_partitioned_model` in [_regression/quantile_h2.py](../../../src/ldsc/_regression/quantile_h2.py).
 
 Model metadata records `n_snps`, `effective_chisq_max`, and `n_blocks_used` from the fitted population: at the root for a baseline-only model and in each per-query metadata file for query models.
 
@@ -372,7 +372,7 @@ Baseline-only runs omit these query-worker fields and the status table.
 | `query_workers_effective` | Resolved process count after the shared worker policy and query/batch work cap; 1 means one worker. |
 | `query_worker_native_threads` | The fixed target of 1 BLAS thread per worker, including serial execution; runtime logs separately report verification. |
 
-These fields describe execution, not scientific filtering or jackknife construction. Worker completion order does not change status order or the stable summary/manifest order. Source: `RegressionRunner.estimate_partitioned_h2_batch()` in [regression_runner.py](../../../src/ldsc/regression_runner.py); see [query workers and memory](../regression-options.md#43-query-workers-and-memory).
+These fields describe execution, not scientific filtering or jackknife construction. Worker completion order does not change status order or the stable summary/manifest order. Source: `RegressionRunner.estimate_partitioned_h2_batch()` in [_regression/runner.py](../../../src/ldsc/_regression/runner.py); see [query workers and memory](../regression-options.md#43-query-workers-and-memory).
 
 The root coefficient-delete file is present for a baseline-only fitted model. In the cell-type regime, each written per-query directory contains the delete values for that complete baseline-plus-query fit. Metadata records the block count, fitted annotation order, and relative file path. These float64 matrices are required by `quantile-h2` and must never be concatenated across query runs.
 

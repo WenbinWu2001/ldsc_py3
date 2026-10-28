@@ -19,7 +19,7 @@ summary-statistics and LD-score suite parsing belongs to public workflow modules
 Design Notes
 ------------
 - Public regression never imports legacy LD-score/count/annotation fragments.
-- The explicit converter owns those compatibility formats outside ``_kernel``.
+- The explicit converter, ``ldsc._ldscore.legacy_converter``, owns those compatibility formats.
 """
 
 from __future__ import division

@@ -98,7 +98,6 @@ from .path_resolution import inspect_plink_inputs, normalize_path_token, split_c
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
 
-_IDENTITY_COLUMNS = ["CHR", "POS", "SNP"]
 # Version 3: PLINK LD windows are exact; version 2 operators used legacy LDSC's
 # chunk-rounded windows, which depended on --snp-batch-size.
 _INDEX_FORMAT_VERSION = 3

@@ -13,7 +13,8 @@ import pandas as pd
 
 
 from ldsc._kernel import annotation as kernel_annotation
-from ldsc._kernel import ldscore as kernel_ldscore
+from ldsc._annotation_sources import prepare_annotation_sources
+from ldsc._annotation_storage import AnnotationWorkspace
 from ldsc import annotation_builder
 from ldsc.annotation_builder import AnnotationBuilder, AnnotationBundle, run_annotate
 from ldsc.config import AnnotationBuildConfig, GlobalConfig
@@ -73,7 +74,7 @@ class AnnotationBuilderTest(unittest.TestCase):
         with self.assertRaisesRegex(LDSCInputError, "globally unique.*shared"):
             bundle.validate()
 
-    def test_annotate_output_round_trips_through_ldscore_parser(self):
+    def test_annotate_output_round_trips_through_annotation_loader(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
             expected = pd.DataFrame(
@@ -106,7 +107,11 @@ class AnnotationBuilderTest(unittest.TestCase):
             path = output_dir / "query.1.annot.gz"
             with gzip.open(path, "rt", encoding="utf-8") as handle:
                 written_rows = [line.split("\t") for line in handle.read().splitlines()[1:]]
-            metadata, actual = kernel_ldscore.parse_annotation_file(str(path))
+            with AnnotationWorkspace(output_dir / "reload") as workspace:
+                prepared = prepare_annotation_sources(workspace, [path], [], mode="rsid")
+                loaded = AnnotationBundle(prepared.shards, list(prepared.baseline_columns), [], workspace)
+                metadata = fixture_metadata(loaded)
+                actual = pd.DataFrame(loaded.read("1"), columns=list(prepared.baseline_columns))
 
         self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2", "rs3"])
         self.assertEqual(actual.columns.tolist(), expected.columns.tolist())

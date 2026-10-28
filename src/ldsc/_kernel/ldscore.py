@@ -54,12 +54,10 @@ from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ..column_inference import (
     A1_COLUMN_SPEC,
     A2_COLUMN_SPEC,
-    ANNOTATION_METADATA_SPEC_MAP,
     CHR_COLUMN_ALIASES,
     CHR_COLUMN_SPEC,
     CM_COLUMN_ALIASES,
     CM_COLUMN_SPEC,
-    ColumnSpec,
     MAF_COLUMN_SPEC,
     POS_COLUMN_ALIASES,
     POS_COLUMN_SPEC,
@@ -73,10 +71,8 @@ from ..column_inference import (
 )
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
-from .._row_alignment import assert_same_snp_rows
 from . import formats as legacy_parse
-from .annotation import _annotation_parse_error_message, _validate_annotation_values
-from .identifiers import build_snp_id_series, read_snp_restriction_keys
+from .identifiers import build_snp_id_series
 from .overlap import OverlapContribution, compute_overlap, annotation_statistics
 from .plink_bed import PlinkBEDFile  # Re-exported for the reference-panel adapters.
 from .ldscore_projection import ArrayAnnotations, ProjectionAccumulator
@@ -84,7 +80,6 @@ from .snp_identity import (
     RestrictionIdentityKeys,
     empty_identity_drop_frame,
     effective_merge_key_series,
-    identity_base_mode,
     identity_mode_family,
     is_allele_aware_mode,
     restriction_membership_mask,
@@ -100,20 +95,6 @@ _LDSCORE_INTERSECTION_DOC = (
 _LDSCORE_PARQUET_DOC = "docs/user-guide/troubleshooting.md#ldscore-r2-panel-is-incompatible"
 # K bounds buffered pairs; CSR construction and projection add working arrays.
 _CSR_CHUNK_PAIRS = 16_000_000
-REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP")
-ANNOT_META_COLUMNS = ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF")
-ANNOTATION_A1_COLUMN_SPEC = ColumnSpec(
-    A1_COLUMN_SPEC.canonical,
-    A1_COLUMN_SPEC.aliases,
-    A1_COLUMN_SPEC.label,
-    allow_suffix_match=False,
-)
-ANNOTATION_A2_COLUMN_SPEC = ColumnSpec(
-    A2_COLUMN_SPEC.canonical,
-    A2_COLUMN_SPEC.aliases,
-    A2_COLUMN_SPEC.label,
-    allow_suffix_match=False,
-)
 CHROM_ALIASES = CHR_COLUMN_ALIASES
 POS_ALIASES = POS_COLUMN_ALIASES
 SNP_ALIASES = SNP_COLUMN_ALIASES
@@ -235,8 +216,6 @@ def get_block_lefts(coords: np.ndarray, max_dist: float) -> np.ndarray:
     return block_left
 
 
-
-
 def validate_window_positions_sorted(metadata: pd.DataFrame, chrom: str) -> None:
     """Tripwire: base-pair positions must be non-decreasing within a chromosome.
 
@@ -263,18 +242,6 @@ def validate_window_positions_sorted(metadata: pd.DataFrame, chrom: str) -> None
             "construction, so most likely an upstream sorting step was removed or "
             "bypassed. Re-run with DEBUG logging and report the traceback."
         )
-
-
-def block_left_to_right(block_left):
-    """Convert block-left coordinates to block-right coordinates."""
-    M = len(block_left)
-    j = 0
-    block_right = np.zeros(M)
-    for i in range(M):
-        while j < M and block_left[j] <= i:
-            j += 1
-        block_right[i] = j
-    return block_right
 
 
 def identifier_keys(df: pd.DataFrame, mode: str) -> pd.Series:
@@ -356,14 +323,6 @@ def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
         sort_columns.append("SNP")
     sort_df = sort_df.sort_values(by=sort_columns, kind="mergesort")
     return sort_df.drop(columns="_chrom_key").reset_index(drop=True)
-
-
-
-
-def read_text_table(path: str) -> pd.DataFrame:
-    """Read a whitespace-delimited kernel input table with optional gzip compression."""
-    compression = "gzip" if path.endswith(".gz") else None
-    return pd.read_csv(path, sep=r"\s+", compression=compression, comment="#")
 
 
 def _panel_sidecar_path_for_r2(r2_path: str) -> Path:
@@ -472,222 +431,6 @@ def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_m
             "panel contains duplicate rsIDs. Use `rsid_allele_aware` or remove "
             "duplicate retained SNP identities."
         )
-
-
-# Annotation loading and normalization.
-def parse_annotation_file(
-    path: str,
-    chrom: str | None = None,
-    identifier_mode: str = "rsid",
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Parse one SNP-level annotation table into normalized metadata and values.
-
-    When ``chrom`` is provided, the returned tables are restricted to rows whose
-    normalized ``CHR`` matches that chromosome. This is the final safeguard for
-    group-style path tokens that resolved to shared multi-chromosome files or
-    to globs whose filenames did not encode chromosome labels clearly enough for
-    earlier path-level filtering. For LD-score calculation, annotation ``CM``
-    is discarded and the reference panel supplies genetic-map metadata.
-    """
-    try:
-        df = read_text_table(path)
-    except (pd.errors.ParserError, UnicodeDecodeError, ValueError) as exc:
-        raise LDSCInputError(_annotation_parse_error_message(path, details=str(exc))) from exc
-    context = path
-    chr_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CHR"], context=context)
-    pos_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["POS"], context=context)
-    if identity_mode_family(identifier_mode) == "rsid":
-        snp_col = resolve_required_column(
-            df.columns, ANNOTATION_METADATA_SPEC_MAP["SNP"], context=context
-        )
-    else:
-        snp_col = resolve_optional_column(
-            df.columns, ANNOTATION_METADATA_SPEC_MAP["SNP"], context=context
-        )
-    # CM/MAF are population-specific; the reference panel is authoritative. They are
-    # resolved only to exclude them from annotation value columns, never used as values.
-    cm_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CM"], context=context)
-    maf_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["MAF"], context=context)
-    a1_col = resolve_optional_column(df.columns, ANNOTATION_A1_COLUMN_SPEC, context=context)
-    a2_col = resolve_optional_column(df.columns, ANNOTATION_A2_COLUMN_SPEC, context=context)
-    if (a1_col is None) ^ (a2_col is None):
-        raise LDSCInputError(
-            f"ldscore could not parse annotation file '{path}': it has only one allele "
-            "column. Most likely the file contains A1 without A2, or A2 without A1. "
-            "Provide both allele columns, or remove both to match annotations by base SNP identity. "
-            "Allele-free annotations are also supported in allele-aware modes."
-        )
-
-    metadata_columns = {"CHR": df[chr_col], "POS": df[pos_col]}
-    if snp_col is not None:
-        metadata_columns["SNP"] = df[snp_col]
-    meta = pd.DataFrame(metadata_columns)
-    meta["CHR"] = meta["CHR"].map(lambda value: normalize_chromosome(value, context=path))
-    meta["POS"] = pd.to_numeric(meta["POS"], errors="raise").astype(np.int64)
-    if "SNP" in meta.columns:
-        meta["SNP"] = meta["SNP"].astype(str)
-    # CM is a population-agnostic placeholder (NaN); any input value is discarded.
-    meta["CM"] = np.nan
-    if a1_col is not None and a2_col is not None:
-        meta["A1"] = df[a1_col]
-        meta["A2"] = df[a2_col]
-
-    if chrom is not None:
-        keep = meta["CHR"] == normalize_chromosome(chrom, context=path)
-        meta = meta.loc[keep].reset_index(drop=True)
-        df = df.loc[keep].reset_index(drop=True)
-    else:
-        meta = meta.reset_index(drop=True)
-
-    if len(meta) == 0:
-        return meta, pd.DataFrame(index=meta.index)
-
-    metadata_source_columns = {chr_col, pos_col, snp_col, cm_col, maf_col, a1_col, a2_col}
-    annotation_columns = [col for col in df.columns if col not in metadata_source_columns]
-    if not annotation_columns:
-        raise LDSCInputError(
-            f"ldscore could not parse annotation file '{path}': no annotation value "
-            "columns remain after metadata columns were removed. Most likely the file "
-            "contains only CHR/POS/SNP/CM metadata, or the annotation columns were named "
-            "as metadata aliases. Add at least one annotation column with numeric values."
-        )
-    annotation_values = _validate_annotation_values(df, annotation_columns, path=path)
-
-    # Sort metadata and annotation values together through the one shared genomic
-    # sort, then split the result. A single permutation keeps the two tables
-    # aligned by construction -- there is no second, hand-rolled sort that could
-    # silently diverge from the metadata order.
-    combined = pd.concat([meta, annotation_values.reset_index(drop=True)], axis=1)
-    combined = sort_frame_by_genomic_position(combined)
-    annotations = combined.loc[:, annotation_columns].reset_index(drop=True)
-    meta = combined.drop(columns=annotation_columns).reset_index(drop=True)
-    return meta, annotations
-
-
-def combine_annotation_groups(
-    baseline_files: Sequence[str],
-    query_files: Sequence[str],
-    chrom: str,
-    identifier_mode: str,
-) -> AnnotationBundle | None:
-    """
-    Read and column-bind baseline/query annotation files for one chromosome.
-
-    Main steps:
-    1. Parse each SNP-level annotation file and restrict it to ``chrom``.
-    2. Normalize the chosen SNP identifier key.
-    3. Require identical SNP rows across all files for that chromosome.
-    4. Merge annotation columns into one dense matrix while preserving the
-       baseline/query grouping.
-
-    "Identical SNP rows" means that every contributing file for ``chrom`` must
-    produce the same ordered SNP rows after chromosome filtering and
-    sorting. In practice, the ``CHR``, ``POS``, and ``SNP`` columns must match
-    row-for-row, and the identifier key derived from ``identifier_mode`` must
-    also match row-for-row. If two files contribute columns for the same
-    chromosome but disagree on their retained SNP rows, the function raises a
-    ``ValueError`` instead of attempting a partial merge.
-    """
-    frames: list[pd.DataFrame] = []
-    blocks: list[pd.DataFrame] = []
-    baseline_columns: list[str] = []
-    query_columns: list[str] = []
-    seen_columns: set[str] = set()
-
-    for group_name, files in (("baseline", baseline_files), ("query", query_files)):
-        for path in files:
-            meta, annotations = parse_annotation_file(
-                path, chrom=chrom, identifier_mode=identifier_mode
-            )
-            if len(meta) == 0:
-                continue
-            meta = meta.copy()
-            meta["_key"] = identifier_keys(meta, _annotation_available_precision_mode(meta, identifier_mode))
-            if not frames:
-                frames.append(meta)
-            else:
-                reference = frames[0]
-                alignment_mode = _annotation_pair_alignment_mode(reference, meta, identifier_mode)
-                assert_same_snp_rows(
-                    reference,
-                    meta,
-                    context=f"Annotation SNP rows do not match across files for chromosome {chrom}: {path}",
-                    snp_identifier=alignment_mode,
-                )
-                if {"A1", "A2"}.issubset(meta.columns) and not {"A1", "A2"}.issubset(frames[0].columns):
-                    frames[0]["A1"] = meta["A1"].to_numpy()
-                    frames[0]["A2"] = meta["A2"].to_numpy()
-                missing_cm = reference["CM"].isna() & meta["CM"].notna()
-                if missing_cm.any():
-                    frames[0].loc[missing_cm, "CM"] = meta.loc[missing_cm, "CM"].to_numpy()
-                if "MAF" in meta.columns:
-                    if "MAF" not in frames[0].columns:
-                        frames[0]["MAF"] = np.nan
-                    missing_maf = frames[0]["MAF"].isna() & meta["MAF"].notna()
-                    if missing_maf.any():
-                        frames[0].loc[missing_maf, "MAF"] = meta.loc[missing_maf, "MAF"].to_numpy()
-
-            for column in annotations.columns:
-                if column in seen_columns:
-                    raise LDSCInputError(
-                        f"ldscore could not combine annotation files for chromosome {chrom}: "
-                        f"duplicate annotation column '{column}' was found. Most likely two "
-                        "baseline/query files define the same annotation name. Rename one "
-                        "column or remove the duplicate annotation input."
-                    )
-                seen_columns.add(column)
-
-            blocks.append(annotations.reset_index(drop=True))
-            if group_name == "baseline":
-                baseline_columns.extend(annotations.columns.tolist())
-            else:
-                query_columns.extend(annotations.columns.tolist())
-
-    if not frames:
-        return None
-
-    metadata = frames[0].drop(columns="_key").reset_index(drop=True)
-    annotations = pd.concat(blocks, axis=1)
-    ordered_columns = baseline_columns + query_columns
-    annotations = annotations.loc[:, ordered_columns].reset_index(drop=True)
-    return AnnotationBundle(
-        metadata=metadata,
-        annotations=annotations,
-        baseline_columns=baseline_columns,
-        query_columns=query_columns,
-    )
-
-
-def _annotation_available_precision_mode(metadata: pd.DataFrame, identifier_mode: str) -> str:
-    """Return allele-aware annotation identity only when metadata has A1/A2."""
-    mode = normalize_snp_identifier_mode(identifier_mode)
-    if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(metadata.columns):
-        return identity_base_mode(mode)
-    return mode
-
-
-def _annotation_pair_alignment_mode(left: pd.DataFrame, right: pd.DataFrame, identifier_mode: str) -> str:
-    """Return the row-alignment mode supported by both annotation tables."""
-    mode = normalize_snp_identifier_mode(identifier_mode)
-    if is_allele_aware_mode(mode) and not (
-        {"A1", "A2"}.issubset(left.columns) and {"A1", "A2"}.issubset(right.columns)
-    ):
-        return identity_base_mode(mode)
-    return mode
-
-
-def read_identifier_list(path: str, mode: str) -> RestrictionIdentityKeys:
-    """Read a SNP list file into base or allele-aware restriction keys for ``mode``."""
-    return read_snp_restriction_keys(path, normalize_snp_identifier_mode(mode))
-
-
-def load_regression_keys(args: argparse.Namespace) -> RestrictionIdentityKeys | None:
-    """Load the optional regression SNPs from CLI arguments."""
-    if not getattr(args, "regr_snps_file", None):
-        return None
-    return read_identifier_list(args.regr_snps_file, args.snp_identifier)
-
-
 
 
 def assert_cm_usable(cm: pd.Series, chrom: str) -> None:
@@ -1205,36 +948,6 @@ class SortedR2BlockReader:
                 group = self._decode_index_batch(table, rg_index)
                 if group.i.size:
                     yield group.i, group.j, group.r2
-
-
-def _accumulate_pair_contributions(
-    cor_sum: np.ndarray,
-    i: np.ndarray,
-    j: np.ndarray,
-    r2: np.ndarray,
-    annot: np.ndarray,
-    block_left: np.ndarray,
-) -> None:
-    """Add one chunk of stored pairs ``(i<j, r2)`` to ``cor_sum`` via a float64 CSR SpMM.
-
-    Builds the strict-upper-triangular sparse matrix ``U`` of the window-filtered
-    chunk and accumulates ``cor_sum += U @ annot + U.T @ annot`` (R is symmetric).
-    The SpMM is float64 (``U.data`` is float64 and the driver passes a float64
-    ``annot``): scipy accumulates each row sum in the operand dtype, so a float32
-    SpMM would lose ~3e-3 (see ``lessons.md``). Pairs outside the ldscore window are
-    dropped via ``i >= block_left[j]``; the CSR sums repeated row indices natively.
-    """
-    from scipy import sparse
-
-    keep = i >= block_left[j]
-    if not keep.all():
-        i, j, r2 = i[keep], j[keep], r2[keep]
-    if i.size == 0:
-        return
-    m = cor_sum.shape[0]
-    u = sparse.csr_matrix((r2.astype(np.float64, copy=False), (i, j)), shape=(m, m))
-    cor_sum += u @ annot
-    cor_sum += u.T @ annot
 
 
 def ld_score_streaming_from_r2_reader(

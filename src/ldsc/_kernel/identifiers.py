@@ -54,7 +54,6 @@ from ..chromosome_inference import normalize_chromosome, normalize_chromosome_se
 from ..column_inference import (
     A1_COLUMN_SPEC,
     A2_COLUMN_SPEC,
-    clean_header,
     infer_chr_pos_columns,
     infer_snp_column,
     normalize_genome_build,

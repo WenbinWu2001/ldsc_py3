@@ -21,10 +21,10 @@ from ldsc.config import (
     normalize_genome_build,
 )
 from ldsc.genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
+from ldsc.column_inference import clean_header
 from ldsc._kernel.identifiers import (
     build_chr_pos_snp_id,
     build_snp_id_series,
-    clean_header,
     infer_chr_pos_columns,
     infer_snp_column,
     normalize_chromosome,

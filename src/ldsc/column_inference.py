@@ -136,9 +136,6 @@ RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS = (
     ColumnSpec("INFO", ("INFO", "IMPINFO"), "summary-stat INFO"),
     ColumnSpec("FRQ", ("EAF", "FRQ", "MAF", "FRQ_U", "F_U"), "summary-stat allele frequency"),
 )
-RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPEC_MAP = {
-    spec.canonical: spec for spec in RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS
-}
 
 RAW_SUMSTATS_SIGNED_STAT_SPECS = (
     ColumnSpec("Z", ("ZSCORE", "Z-SCORE", "GC_ZSCORE", "Z"), "summary-stat Z-score"),
@@ -147,9 +144,6 @@ RAW_SUMSTATS_SIGNED_STAT_SPECS = (
     ColumnSpec("LOG_ODDS", ("LOG_ODDS",), "summary-stat log odds"),
     ColumnSpec("SIGNED_SUMSTAT", ("SIGNED_SUMSTAT",), "explicit signed summary statistic"),
 )
-RAW_SUMSTATS_SIGNED_STAT_SPEC_MAP = {
-    spec.canonical: spec for spec in RAW_SUMSTATS_SIGNED_STAT_SPECS
-}
 
 
 # Context families for permissive external inputs.
@@ -183,16 +177,6 @@ INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP = {
     spec.canonical: spec for spec in INTERNAL_SUMSTATS_ARTIFACT_SPECS
 }
 
-INTERNAL_ANNOT_ARTIFACT_SPECS = (
-    _canonical_only_spec("CHR", "internal annotation chromosome"),
-    _canonical_only_spec("POS", "internal annotation position"),
-    _canonical_only_spec("SNP", "internal annotation SNP identifier"),
-    _canonical_only_spec("CM", "internal annotation centiMorgan"),
-    _canonical_only_spec("MAF", "internal annotation minor-allele frequency"),
-)
-INTERNAL_ANNOT_ARTIFACT_SPEC_MAP = {
-    spec.canonical: spec for spec in INTERNAL_ANNOT_ARTIFACT_SPECS
-}
 
 INTERNAL_LDSCORE_ARTIFACT_SPECS = (
     _canonical_only_spec("CHR", "internal LD-score chromosome"),
@@ -201,10 +185,6 @@ INTERNAL_LDSCORE_ARTIFACT_SPECS = (
     _canonical_only_spec("CM", "internal LD-score centiMorgan"),
     _canonical_only_spec("MAF", "internal LD-score minor-allele frequency"),
 )
-INTERNAL_LDSCORE_ARTIFACT_SPEC_MAP = {
-    spec.canonical: spec for spec in INTERNAL_LDSCORE_ARTIFACT_SPECS
-}
-
 
 
 def build_cleaned_alias_lookup(specs: Sequence[ColumnSpec]) -> dict[str, str]:
@@ -333,8 +313,6 @@ def infer_chr_pos_columns(header: Iterable[str], *, context: str | None = None) 
         resolve_required_column(header, RESTRICTION_CHRPOS_SPEC_MAP["CHR"], context=context),
         resolve_required_column(header, RESTRICTION_CHRPOS_SPEC_MAP["POS"], context=context),
     )
-
-
 
 
 def _restriction_header_error(columns: Iterable[str], missing: Sequence[str]) -> LDSCInputError:

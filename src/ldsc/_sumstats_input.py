@@ -26,7 +26,6 @@ from .column_inference import (
 )
 from .config import GlobalConfig, MungeConfig
 from .errors import LDSCInputError, LDSCUsageError
-from .genome_build_inference import collect_chr_pos_build_evidence_frame
 from ._kernel.liftover import SumstatsLiftoverRequest
 from ._kernel.snp_identity import identity_base_mode, identity_mode_family, is_allele_aware_mode
 from ._kernel.sumstats_munger import MungeQC, ResolvedMungeInput, prepare_sumstats_restriction
@@ -534,9 +533,3 @@ def _coordinate_frames(source_path, cname_translation, *, compression, metadata_
         yield from frames
 
 
-def read_coordinate_evidence(source_path, cname_translation, *, compression, metadata_skiprows):
-    """Return an adaptive evidence sample for coordinate inspection tools."""
-    return collect_chr_pos_build_evidence_frame(
-        _coordinate_frames(source_path, cname_translation, compression=compression, metadata_skiprows=metadata_skiprows),
-        context=source_path,
-    )

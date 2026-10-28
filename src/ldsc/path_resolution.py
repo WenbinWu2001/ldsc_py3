@@ -42,8 +42,6 @@ InputPathToken = Union[str, PathLike[str]]
 InputPathCollection = Union[InputPathToken, Sequence[InputPathToken]]
 
 ANNOTATION_SUFFIXES = ("", ".annot.gz", ".annot", ".txt.gz", ".txt", ".tsv.gz", ".tsv")
-PARQUET_SUFFIXES = ("", ".parquet")
-FREQUENCY_SUFFIXES = ("", ".frq.gz", ".frq", ".txt.gz", ".txt", ".tsv.gz", ".tsv")
 _INPUT_PATH_TROUBLESHOOTING = (
     "docs/user-guide/troubleshooting.md#common-input-path-did-not-resolve-to-one-file"
 )

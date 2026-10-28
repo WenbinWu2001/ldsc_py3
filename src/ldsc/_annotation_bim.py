@@ -10,7 +10,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pyarrow.parquet as pq
 
 from ._annotation_identity import DiskIdentityIndex, IdentityDropSpool
 from ._annotation_preflight import AUTOSOMES, resolve_annotation_inputs
@@ -106,8 +105,3 @@ def prepare_bim_grid(workspace, paths, declared, *, mode, autosomes_only=False, 
     )
 
 
-def iter_grid_build_frames(shards):
-    """Read bounded coordinate evidence from staged metadata, without rereading BIM."""
-    for chrom in sorted(shards, key=chrom_sort_key):
-        for batch in pq.ParquetFile(shards[chrom].metadata_path).iter_batches(batch_size=65536, columns=["CHR", "POS"]):
-            yield batch.to_pandas()

@@ -30,14 +30,8 @@ from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsa
 SNPIdentifierMode = Literal["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"]
 SNP_IDENTIFIER_MODES = ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware")
 RSID_FAMILY_MODES = ("rsid", "rsid_allele_aware")
-CHR_POS_FAMILY_MODES = ("chr_pos", "chr_pos_allele_aware")
 ALLELE_AWARE_MODES = ("rsid_allele_aware", "chr_pos_allele_aware")
-BASE_MODES = ("rsid", "chr_pos")
 ARTIFACT_TYPES = frozenset({"sumstats", "ref_panel_r2", "ref_panel_metadata", "ldscore"})
-REGENERATE_ARTIFACT_MESSAGE = (
-    "This artifact was not written with the current LDSC3 schema/provenance contract. "
-    "Regenerate it with the current LDSC3 package."
-)
 _ARTIFACT_METADATA_TROUBLESHOOTING = (
     "docs/user-guide/troubleshooting.md#common-ldsc3-artifact-schema-or-provenance-is-incompatible"
 )

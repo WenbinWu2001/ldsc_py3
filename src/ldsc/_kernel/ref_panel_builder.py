@@ -58,7 +58,6 @@ GENETIC_MAP_CM_SPEC = ColumnSpec(
     ("CM", "GENETIC_MAP_CM", "GENETICMAPCM", "GENETIC_MAP(CM)", "GENETICMAP(CM)"),
     "genetic map centiMorgan",
 )
-_INDEX_R2_COLUMNS = ["IDX_1", "IDX_2", "R2", "SIGN_R"]
 
 def _open_text(path: str | PathLike[str]):
     """Open a plain-text or gzip-compressed text file for reading."""
@@ -648,24 +647,6 @@ def _ensure_parent_dir(path: str | PathLike[str]) -> None:
     """Create the parent directory for ``path`` if it does not already exist."""
     parent = Path(path).parent
     parent.mkdir(parents=True, exist_ok=True)
-
-
-def write_dataframe_to_parquet(df: pd.DataFrame, path: str | PathLike[str]) -> str:
-    """Write one generic DataFrame to parquet without LDSC3 format guarantees."""
-
-    _ensure_parent_dir(path)
-    if "R2" in df.columns:
-        df = df.copy()
-        df["R2"] = df["R2"].astype(np.float32)
-    try:
-        df.to_parquet(path, index=False)
-    except ImportError as exc:
-        raise LDSCDependencyError(
-            "build-r2-panel could not write reference-panel parquet artifacts because no parquet engine is installed. "
-            "Most likely the environment is missing pyarrow or fastparquet. Install pyarrow, or install fastparquet "
-            "for this legacy parquet writer path."
-        ) from exc
-    return str(path)
 
 
 def _standard_r2_index_table(pa, schema, *, i, j, r2, sign):

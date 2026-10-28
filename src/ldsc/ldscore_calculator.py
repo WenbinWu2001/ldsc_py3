@@ -98,7 +98,6 @@ from .query_annotations import (
 LOGGER = logging.getLogger("LDSC.ldscore_calculator")
 
 
-_LDSCORE_SUFFIX_COLUMNS = ("CHR", "SNP", "POS", "BP", "CM", "MAF")
 _QUERY_REQUIRES_BASELINE_MESSAGE = (
     "ldscore cannot run query annotations without baseline annotations. Most likely "
     "a prebuilt, BED, or gene-list query source was supplied without `--baseline-annot-sources`. "
@@ -110,8 +109,6 @@ _LDSCORE_INTERSECTION_DOC = (
     "docs/user-guide/troubleshooting.md#ldscore-no-annotation-snps-remain-after-reference-panel-intersection"
 )
 _LDSCORE_PARQUET_DOC = "docs/user-guide/troubleshooting.md#ldscore-r2-panel-is-incompatible"
-
-
 
 
 @dataclass(frozen=True)
@@ -1917,8 +1914,6 @@ def _uses_parquet_reference(args: argparse.Namespace) -> bool:
 def _r2_dir_from_args(args: argparse.Namespace) -> str | None:
     """Return the R2 panel directory supplied to the LD-score workflow."""
     return normalize_optional_path_token(getattr(args, "r2_dir", None))
-
-
 
 
 def run_ldscore(**kwargs) -> "LDScoreSource":

@@ -23,7 +23,6 @@ from .._core.columns import (
     resolve_restriction_rsid_column,
 )
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError
-from .._genome.liftover import LiftOverMappingResult, LiftOverTranslator
 from .._core.snp_identity import (
     RestrictionIdentityKeys,
     allele_set_series,

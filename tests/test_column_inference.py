@@ -4,6 +4,7 @@ import warnings
 
 
 from ldsc._core import columns as ci
+from ldsc._core import snp_identity
 from ldsc._core.columns import (
     POS_COLUMN_SPEC,
     resolve_restriction_chr_pos_columns,
@@ -25,16 +26,15 @@ class ColumnInferenceTest(unittest.TestCase):
         self.assertIsNotNone(getattr(ci, "clean_header", None))
         self.assertEqual(ci.clean_header("foo-bar.foo_BaR\n"), "FOO_BAR_FOO_BAR")
 
-        self.assertIsNotNone(getattr(ci, "normalize_snp_identifier_mode", None))
         self.assertEqual(
-            tuple(ci.SNP_IDENTIFIER_MODES),
+            tuple(snp_identity.SNP_IDENTIFIER_MODES),
             ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"),
         )
         for value in ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"):
-            self.assertEqual(ci.normalize_snp_identifier_mode(value), value)
+            self.assertEqual(snp_identity.normalize_snp_identifier_mode(value), value)
         for value in ("rsID", "SNPID", "snp_id", "snp", "chrpos", "rsid_alleles", "chr_pos_alleles"):
             with self.assertRaises(LDSCConfigError):
-                ci.normalize_snp_identifier_mode(value)
+                snp_identity.normalize_snp_identifier_mode(value)
 
         self.assertIsNotNone(getattr(ci, "normalize_genome_build", None))
         self.assertEqual(ci.normalize_genome_build("hg37"), "hg19")

@@ -28,7 +28,6 @@ from .._core.columns import (
     A2_COLUMN_SPEC,
     REFERENCE_METADATA_SPEC_MAP,
     normalize_genome_build,
-    normalize_snp_identifier_mode,
     resolve_optional_column,
     resolve_required_column,
 )
@@ -38,6 +37,7 @@ from .._core.snp_identity import (
     identity_artifact_metadata,
     is_allele_aware_mode,
     sidecar_identity_sha256,
+    normalize_snp_identifier_mode,
 )
 from .build_kernel import PairColumns
 from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError

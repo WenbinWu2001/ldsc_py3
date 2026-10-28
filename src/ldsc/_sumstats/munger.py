@@ -57,7 +57,6 @@ from .._core.coordinates import (
 from .._core.columns import (
     INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP,
     normalize_genome_build,
-    normalize_snp_identifier_mode,
     resolve_optional_column,
     resolve_required_column,
 )
@@ -86,6 +85,7 @@ from .._core.snp_identity import (
     identity_mode_family,
     is_allele_aware_mode,
     validate_identity_artifact_metadata,
+    normalize_snp_identifier_mode,
 )
 from .._genome.liftover import SumstatsLiftoverRequest, default_liftover_metadata
 from . import munge_kernel as kernel_munge

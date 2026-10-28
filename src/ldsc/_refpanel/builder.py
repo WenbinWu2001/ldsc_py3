@@ -49,7 +49,6 @@ from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_P
 from .._runtime.workflow_logging import LOG_LEVEL_HELP
 from .._core.columns import (
     normalize_genome_build,
-    normalize_snp_identifier_mode,
 )
 from .._core.snp_identity import (
     IDENTITY_DROP_COLUMNS,
@@ -59,6 +58,7 @@ from .._core.snp_identity import (
     empty_identity_drop_frame,
     identity_mode_family,
     sidecar_identity_sha256,
+    normalize_snp_identifier_mode,
 )
 from ..config import (
     DEFAULT_SNP_BATCH_SIZE, GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner,
@@ -87,6 +87,8 @@ from .r2_format import (
 )
 from .windows import get_block_lefts, window_coordinates
 from .._genome.liftover import (
+    LiftOverMappingResult,
+    LiftOverTranslator,
     duplicate_coordinate_drop_result,
     liftover_drop_report,
     log_liftover_drop_report,
@@ -136,7 +138,7 @@ class _BuildState:
     restriction_mode: str | None = None
     restriction_values: set[str] | None = None
     restriction_keys: RestrictionIdentityKeys | None = None
-    translator_cache: dict[tuple[str, str], kernel_builder.LiftOverTranslator] = field(default_factory=dict)
+    translator_cache: dict[tuple[str, str], LiftOverTranslator] = field(default_factory=dict)
 
 
 _AUTOSOMES = frozenset(map(str, range(1, 23)))
@@ -1185,11 +1187,11 @@ class ReferencePanelBuilder:
         positions,
         source_build: str,
         target_build: str,
-    ) -> kernel_builder.LiftOverMappingResult:
+    ) -> LiftOverMappingResult:
         """Translate positions between builds, caching translators by build pair."""
         if source_build == target_build:
             array = np.asarray(positions, dtype=int)
-            return kernel_builder.LiftOverMappingResult(
+            return LiftOverMappingResult(
                 translated_positions=array.copy(),
                 keep_mask=np.ones(len(array), dtype=bool),
                 unmapped_count=0,
@@ -1198,7 +1200,7 @@ class ReferencePanelBuilder:
         key = (source_build, target_build)
         translator = build_state.translator_cache.get(key)
         if translator is None:
-            translator = kernel_builder.LiftOverTranslator(
+            translator = LiftOverTranslator(
                 source_build=source_build,
                 target_build=target_build,
                 chain_path=build_state.liftover_chain_paths.get(key),

@@ -52,8 +52,6 @@ from .atoms import (
     compute_atom_statistics,
     iter_snp_atom_blocks,
     map_snps_to_atoms,
-    assemble_indexed_ld_scores,
-    assemble_selected_atom_statistics,
     validate_ldscore_operator,
 )
 from ..._core.regions import RegionIntervals

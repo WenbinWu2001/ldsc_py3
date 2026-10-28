@@ -23,7 +23,8 @@ from .._runtime.serial_calculation import serial_calculation
 from .._runtime.cli_help import CLIHelpFormatter
 from .._runtime.workflow_logging import LOG_LEVEL_HELP
 from .._runtime.workflow_logging import log_inputs, log_outputs, materializing_overwrite_guard, workflow_logging
-from .._core.columns import normalize_genome_build, normalize_snp_identifier_mode
+from .._core.columns import normalize_genome_build
+from .._core.snp_identity import normalize_snp_identifier_mode
 from ..config import GlobalConfig, get_global_config
 from ..errors import LDSCInputError, LDSCUsageError
 from .calculator import LDScoreResult

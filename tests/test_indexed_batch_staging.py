@@ -16,11 +16,10 @@ from tests.test_gene_ldscore_index import run_indexed_ldscore
 
 
 def _check_worker_serialization_lifetimes(*args, **kwargs):
-    from ldsc._ldscore.gene_index import build as core
     from ldsc._ldscore.gene_index.scoring import LoadedGeneLDScoreIndex
 
     original_load = LoadedGeneLDScoreIndex.load_chromosome
-    original_assemble = core.assemble_indexed_ld_scores
+    original_assemble = batches.assemble_indexed_ld_scores
     original_write = batches.pq.write_table
     arrays, operators = [], []
 
@@ -41,13 +40,13 @@ def _check_worker_serialization_lifetimes(*args, **kwargs):
         return original_write(table, path, **options)
 
     LoadedGeneLDScoreIndex.load_chromosome = load
-    core.assemble_indexed_ld_scores = assemble
+    batches.assemble_indexed_ld_scores = assemble
     batches.pq.write_table = write
     try:
         return batches._write_chromosome(*args, **kwargs)
     finally:
         LoadedGeneLDScoreIndex.load_chromosome = original_load
-        core.assemble_indexed_ld_scores = original_assemble
+        batches.assemble_indexed_ld_scores = original_assemble
         batches.pq.write_table = original_write
 
 

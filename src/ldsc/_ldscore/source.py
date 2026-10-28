@@ -18,7 +18,7 @@ import pyarrow.parquet as pq
 
 from .._annotation.semantics import require_unique_annotation_names
 from ..config import ConfigMismatchError, GlobalConfig
-from .._core.columns import normalize_snp_identifier_mode
+from .._core.snp_identity import normalize_snp_identifier_mode
 from ..errors import LDSCInputError, LDSCInternalError
 from .._core.row_alignment import assert_same_snp_rows
 from .._core.identifiers import build_snp_id_series

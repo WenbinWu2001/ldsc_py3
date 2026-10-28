@@ -59,7 +59,7 @@ def _observed_index_task(*args, **kwargs):
     from pathlib import Path
     from ldsc._ldscore.gene_index import batches
     original_load = _gene_index_artifact._load_index_chromosome
-    original_assemble = index_module.assemble_indexed_ld_scores
+    original_assemble = batches.assemble_indexed_ld_scores
     loads, widths, live = [], [], []
     def load(*values, **options):
         assert all(ref() is None for ref in live)
@@ -72,7 +72,7 @@ def _observed_index_task(*args, **kwargs):
             widths.append(selectors.shape[1])
         return original_assemble(operator, selectors)
     index_scoring._load_index_chromosome = load
-    index_module.assemble_indexed_ld_scores = assemble
+    batches.assemble_indexed_ld_scores = assemble
     try:
         result = batches._write_chromosome(*args, **kwargs)
         assert all(ref() is None for ref in live)
@@ -81,7 +81,7 @@ def _observed_index_task(*args, **kwargs):
         return result
     finally:
         index_scoring._load_index_chromosome = original_load
-        index_module.assemble_indexed_ld_scores = original_assemble
+        batches.assemble_indexed_ld_scores = original_assemble
 
 
 @pytest.mark.parametrize("batch_size", [1, 2, 1000])

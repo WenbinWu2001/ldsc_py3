@@ -90,7 +90,8 @@ from .._core.snp_identity import (
 )
 from .._core.row_alignment import assert_same_snp_rows
 from .._runtime.parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _validate_workers
-from .._core.columns import infer_chr_pos_columns, normalize_snp_identifier_mode
+from .._core.columns import infer_chr_pos_columns
+from .._core.snp_identity import normalize_snp_identifier_mode
 from .._ldscore.calculator import LDScoreResult
 from .._ldscore.source import LDScoreSource, load_ldscore_from_dir
 from .outputs import (

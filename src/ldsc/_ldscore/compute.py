@@ -48,7 +48,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from .._core.columns import normalize_snp_identifier_mode
+from .._core.snp_identity import normalize_snp_identifier_mode
 from ..errors import LDSCInternalError
 from .._annotation.overlap import OverlapContribution, annotation_statistics
 

@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 
+from ldsc._genome.liftover import LiftOverMappingResult, LiftOverTranslator
 from ldsc._refpanel import build_kernel as kernel_builder
 from ldsc._refpanel import r2_format
 from ldsc._refpanel.r2_format import build_runtime_metadata_table
@@ -186,7 +187,7 @@ class LiftOverTranslatorTest(unittest.TestCase):
                 }
                 return table[(chrom, pos0)]
 
-        translator = kernel_builder.LiftOverTranslator.__new__(kernel_builder.LiftOverTranslator)
+        translator = LiftOverTranslator.__new__(LiftOverTranslator)
         translator.source_build = "hg38"
         translator.target_build = "hg19"
         translator.chain_path = None
@@ -209,7 +210,7 @@ class LiftOverTranslatorTest(unittest.TestCase):
                 }
                 return table[(chrom, pos0)]
 
-        translator = kernel_builder.LiftOverTranslator.__new__(kernel_builder.LiftOverTranslator)
+        translator = LiftOverTranslator.__new__(LiftOverTranslator)
         translator.source_build = "hg38"
         translator.target_build = "hg19"
         translator.chain_path = None
@@ -228,7 +229,7 @@ class LiftOverTranslatorTest(unittest.TestCase):
             def convert_coordinate(self, chrom, pos0):
                 return [("chr21", 499, "+", 0), ("chr22", 999, "+", 0), ("chr22", 1499, "+", 0)]
 
-        translator = kernel_builder.LiftOverTranslator.__new__(kernel_builder.LiftOverTranslator)
+        translator = LiftOverTranslator.__new__(LiftOverTranslator)
         translator.source_build = "hg38"
         translator.target_build = "hg19"
         translator.chain_path = None
@@ -244,7 +245,7 @@ class LiftOverTranslatorTest(unittest.TestCase):
 
     def test_explicit_chain_path_is_required_for_cross_build_translation(self):
         with self.assertRaises(LDSCUsageError) as exc:
-            kernel_builder.LiftOverTranslator(
+            LiftOverTranslator(
                 source_build="hg38",
                 target_build="hg19",
                 chain_path=None,
@@ -1342,7 +1343,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             liftover_chain_paths={("hg19", "hg38"): "chain.over"},
         )
         chrom_df = pd.DataFrame({"SNP": ["rs1", "rs2", "rs3"], "BP": [100, 200, 300]}, index=[0, 1, 2])
-        mapping = kernel_builder.LiftOverMappingResult(
+        mapping = LiftOverMappingResult(
             translated_positions=np.asarray([1300], dtype=np.int64),
             keep_mask=np.asarray([False, False, True], dtype=bool),
             unmapped_count=1,
@@ -2187,7 +2188,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         )
         chrom_df = pd.DataFrame({"BP": [100]}, index=[4])
 
-        with mock.patch.object(kernel_builder, "LiftOverTranslator") as patched:
+        with mock.patch.object(ref_panel_builder, "LiftOverTranslator") as patched:
             retained, hg19_lookup, hg38_lookup, drop_frame = builder._resolve_mappable_snp_positions(
                 build_state=build_state,
                 chrom="1",
@@ -2685,14 +2686,14 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             genetic_map_hg38=pd.DataFrame({"CHR": ["1"], "POS": [100], "CM": [0.0]}),
             liftover_chain_paths={("hg38", "hg19"): "chains/hg38ToHg19.over.chain"},
         )
-        expected = kernel_builder.LiftOverMappingResult(
+        expected = LiftOverMappingResult(
             translated_positions=np.array([100], dtype=np.int64),
             keep_mask=np.array([True], dtype=bool),
             unmapped_count=0,
             cross_chrom_count=0,
         )
 
-        with mock.patch.object(kernel_builder, "LiftOverTranslator") as patched:
+        with mock.patch.object(ref_panel_builder, "LiftOverTranslator") as patched:
             patched.return_value.map_positions.return_value = expected
             result = builder._map_positions(
                 build_state=build_state,

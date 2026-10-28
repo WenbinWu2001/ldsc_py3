@@ -58,7 +58,6 @@ from .columns import (
     infer_chr_pos_columns,
     infer_snp_column,
     normalize_genome_build,
-    normalize_snp_identifier_mode,
     resolve_optional_column,
     resolve_restriction_chr_pos_columns,
     resolve_restriction_rsid_column,
@@ -71,6 +70,7 @@ from .snp_identity import (
     empty_identity_drop_frame,
     identity_mode_family,
     is_allele_aware_mode,
+    normalize_snp_identifier_mode,
 )
 
 LOGGER = logging.getLogger("LDSC.identifiers")

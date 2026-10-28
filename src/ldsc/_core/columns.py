@@ -25,7 +25,6 @@ import logging
 import re
 from typing import Iterable, Sequence
 
-from .snp_identity import SNP_IDENTIFIER_MODES, normalize_snp_identifier_mode
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError
 
 LOGGER = logging.getLogger("LDSC.columns")

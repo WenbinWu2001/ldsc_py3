@@ -53,7 +53,8 @@ from .._runtime.progress import report_phase, PhaseProgress
 from .._annotation.storage import TsvDiagnostics
 from .source import LDScoreSource
 from .._core.snp_identity import coerce_identity_drop_frame, IDENTITY_DROP_COLUMNS, identity_mode_family, is_allele_aware_mode
-from .._core.columns import normalize_genome_build, normalize_snp_identifier_mode
+from .._core.columns import normalize_genome_build
+from .._core.snp_identity import normalize_snp_identifier_mode
 from ..config import (
     DEFAULT_SNP_BATCH_SIZE,
     GlobalConfig,

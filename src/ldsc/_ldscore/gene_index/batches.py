@@ -23,6 +23,7 @@ from ..._runtime.progress import PhaseProgress
 from ..._runtime.parallelism import _resolve_worker_count, _run_chromosome_tasks
 from ..diagnostics import chromosome_log, report_chromosome_failure
 from ..query_variation import ScoreVariation, summarize_variation, combine_variation
+from .atoms import assemble_indexed_ld_scores, assemble_selected_atom_statistics
 
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
@@ -39,8 +40,6 @@ class _ChromosomeBatchSummary:
 
 def _write_baseline(record, control_selector, directory):
     """Stage shared baseline scores once and return all/common statistics."""
-    from . import build as core
-
     supplied = len(record.baseline_count_all)
     n_baseline = supplied + int(control_selector is not None)
     counts = np.zeros((2, n_baseline), dtype=np.float64)
@@ -50,8 +49,8 @@ def _write_baseline(record, control_selector, directory):
     baseline = record.baseline_rows
     if control_selector is not None:
         baseline = baseline.copy()
-        baseline["gene_control"] = core.assemble_indexed_ld_scores(record.operator, control_selector)
-        control = core.assemble_selected_atom_statistics(record.atom_statistics, control_selector)
+        baseline["gene_control"] = assemble_indexed_ld_scores(record.operator, control_selector)
+        control = assemble_selected_atom_statistics(record.atom_statistics, control_selector)
         counts[:, supplied] = [control.count_all, control.count_common]
         cross = np.array([control.baseline_overlap_all, control.baseline_overlap_common])
         blocks[:, :supplied, supplied] = cross
@@ -64,7 +63,6 @@ def _write_baseline(record, control_selector, directory):
 
 def _write_chromosome(index, chrom, batch, declarations, control_resolution, ordinal, total_batches, root, log_path=None):
     """Load, compute, and release one chromosome for the active query batch."""
-    from . import build as core
     from .scoring import _selector_for_resolution
 
     with chromosome_log(log_path, chrom, f"indexed batch {ordinal + 1}/{total_batches}"):
@@ -82,13 +80,13 @@ def _write_chromosome(index, chrom, batch, declarations, control_resolution, ord
         query_counts = np.empty((2, len(declarations)), dtype=np.float64)
         query_blocks = np.empty((2, n_baseline, len(declarations)), dtype=np.float64)
         for offset, selector in enumerate(selectors):
-            selected = core.assemble_selected_atom_statistics(
+            selected = assemble_selected_atom_statistics(
                 record.atom_statistics, selector, control_selector=control_selector)
             query_counts[:, offset] = [selected.count_all, selected.count_common]
             query_blocks[:, :supplied, offset] = [selected.baseline_overlap_all, selected.baseline_overlap_common]
             if control_selector is not None:
                 query_blocks[:, supplied, offset] = [selected.control_overlap_all, selected.control_overlap_common]
-        scores = core.assemble_indexed_ld_scores(record.operator, np.column_stack(selectors))
+        scores = assemble_indexed_ld_scores(record.operator, np.column_stack(selectors))
         del selectors, selector, selected
         variation = summarize_variation(scores.T)
         metadata = [name for name in ("CHR", "SNP", "POS", "A1", "A2") if name in record.baseline_rows]

@@ -8,7 +8,8 @@ import pandas as pd
 from .coordinates import positive_int_position_series
 from .chromosomes import chrom_sort_key
 from .snp_identity import effective_merge_key_series, identity_mode_family, is_allele_aware_mode
-from .columns import POS_COLUMN_SPEC, normalize_snp_identifier_mode, resolve_optional_column
+from .columns import POS_COLUMN_SPEC, resolve_optional_column
+from .snp_identity import normalize_snp_identifier_mode
 from ..errors import LDSCInputError
 
 

@@ -33,7 +33,7 @@ def test_invalid_workers_rejected_before_io(tmp_path, workers, workflow):
     assert not (tmp_path / "out").exists()
 
 
-@pytest.mark.parametrize("module", ["ldscore_calculator", "gene_ldscore_index"])
+@pytest.mark.parametrize("module", ["_ldscore.calculator", "_ldscore.gene_index.build"])
 @pytest.mark.parametrize("value", ["0", "True", "False", "1.5", "1.0"])
 def test_cli_rejects_invalid_workers(module, value, capsys):
     from importlib import import_module

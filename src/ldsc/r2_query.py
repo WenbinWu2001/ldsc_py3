@@ -650,7 +650,8 @@ def _write_query_r2_directory(args: argparse.Namespace, pairs: pd.DataFrame | No
     )
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     with workflow_logging("query-r2", log_path, log_level=args.log_level):
-        from ._input_preflight import inspect_declared_inputs, inspect_r2_headers
+        from ._input_preflight import inspect_declared_inputs
+        from ._ref_panel_preflight import inspect_r2_headers
         from ._progress import PhaseProgress
         inspect_declared_inputs(files=[] if args.pairs == '-' else [('pairs', args.pairs)],
             checks=[('reference', args.panel_dir, lambda: inspect_r2_headers(args.panel_dir, args.genome_build))],

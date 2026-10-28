@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from ._annotation_bundle import AnnotationBundle
-from ._annotation_preflight import input_issue
+from ._input_preflight import input_issue
 from ._annotation_queries import build_query_shards, prepare_bed_queries, query_source_statuses, ProjectedQueries
 from ._annotation_sources import prepare_annotation_sources
 from ._annotation_storage import AnnotationShard, ColumnStore

@@ -15,8 +15,8 @@ def build_annotation_shards(spec, config, workspace, *, projection_genome_build=
     annotate and direct LD-score workflows own their additional validation
     gates and publication policies.
     """
-    from ._input_preflight import inspect_declared_inputs
-    declared = inspect_declared_inputs(baseline=spec.baseline_annot_sources, query=spec.query_annot_sources,
+    from ._annotation_preflight import inspect_annotation_inputs
+    declared = inspect_annotation_inputs(baseline=spec.baseline_annot_sources, query=spec.query_annot_sources,
         files=[('BED', spec.query_annot_bed_sources), ('gene lists', spec.query_annot_gene_list_sources)],
         scalar_files=[('gene catalog', spec.gene_coordinate_file), ('control genes', spec.control_gene_list_file)],
         mode=config.snp_identifier, strict_annotations=False)

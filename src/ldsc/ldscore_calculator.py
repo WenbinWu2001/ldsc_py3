@@ -1445,10 +1445,12 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with AnnotationWorkspace(output_dir) as workspace:
         with workflow_logging("ldscore", log_path, log_level=getattr(args,"log_level","INFO")):
-            from ._input_preflight import inspect_declared_inputs, inspect_r2_headers, InputGate
+            from ._annotation_preflight import inspect_annotation_inputs
+            from ._input_preflight import InputGate
+            from ._ref_panel_preflight import inspect_r2_headers
             from ._ldscore_preflight import inspect_reference_inputs
             from ._progress import PhaseProgress
-            declared_inputs = inspect_declared_inputs(
+            declared_inputs = inspect_annotation_inputs(
                 baseline=getattr(args, 'baseline_annot_sources', None), query=getattr(args, 'query_annot_sources', None),
                 files=[(name, getattr(args, name, None)) for name in (
                     'query_annot_bed_sources', 'query_annot_gene_list_sources')],
@@ -2339,7 +2341,8 @@ def _check_parquet_reference(ref_panel, chromosomes, ldscore_config: LDScoreConf
     """
     if getattr(getattr(ref_panel, "spec", None), "backend", None) != "parquet_r2":
         return
-    from ._input_preflight import InputGate, inspect_r2_headers
+    from ._input_preflight import InputGate
+    from ._ref_panel_preflight import inspect_r2_headers
     from ._ldscore_preflight import read_r2_sidecar_for_chromosome
 
     def check_sidecar(chrom):

@@ -88,8 +88,7 @@ def require_readable_bed_sources(bed_sources, issues_path=None):
     without intervals is not a failure here; it stays a skipped
     ``empty_input`` query.
     """
-    from ._annotation_preflight import input_issue
-    from ._input_preflight import InputGate
+    from ._input_preflight import InputGate, input_issue
 
     issues = []
     for source in bed_sources:

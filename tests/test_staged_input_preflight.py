@@ -16,7 +16,7 @@ def forbid_work(*args, **kwargs):
 
 def test_missing_sumstats_reports_path_check_repair_and_original_cause(tmp_path):
     from ldsc._input_preflight import inspect_declared_inputs
-    from ldsc._annotation_preflight import INPUT_ISSUE_COLUMNS
+    from ldsc._input_preflight import INPUT_ISSUE_COLUMNS
 
     missing = tmp_path / "missing.tsv.gz"
     diagnostics = tmp_path / "diagnostics/input_issues.tsv"
@@ -330,14 +330,14 @@ def test_empty_annotation_header_stops_before_other_source_scans(tmp_path, monke
 
 def test_declared_header_chromosome_and_columns_fail_before_scans(tmp_path, monkeypatch):
     from ldsc import _annotation_sources
-    from ldsc._input_preflight import inspect_declared_inputs
+    from ldsc._annotation_preflight import inspect_annotation_inputs
     for chrom in range(1, 23):
         column = 'wrong' if chrom == 21 else 'base'
         member = 1 if chrom == 22 else chrom
         (tmp_path/f'base.{chrom}.annot').write_text(f'CHR SNP POS {column}\n{member} rs{chrom} 100 1\n')
     monkeypatch.setattr(_annotation_sources, '_scan', forbid_work)
     with pytest.raises(LDSCInputError) as failure:
-        inspect_declared_inputs(baseline=[str(tmp_path/'base.@.annot')], mode='rsid')
+        inspect_annotation_inputs(baseline=[str(tmp_path/'base.@.annot')], mode='rsid')
     assert {'21', '22'} <= set(failure.value.input_issues.chrom)
 
 

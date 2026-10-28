@@ -160,8 +160,8 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
             log_inputs(grid_kind='bim' if bim else 'annotation', grid_sources=f"{len(bim or baseline)} input declarations",
                        query_sources=f"{len(genes or bed)} input declarations; see diagnostics/metadata.json for source provenance",
                        padding_bp=spec.padding_bp, output_dir=str(output))
-            from ._input_preflight import inspect_declared_inputs
-            declared_inputs = inspect_declared_inputs(baseline=baseline,
+            from ._annotation_preflight import inspect_annotation_inputs
+            declared_inputs = inspect_annotation_inputs(baseline=baseline,
                 files=[('BED', bed), ('gene lists', genes)], scalar_files=[('gene catalog', spec.gene_coordinate_file)],
                 mode=config.snp_identifier, strict_annotations=bool(genes),
                 issues_path=output/'diagnostics/input_issues.tsv',

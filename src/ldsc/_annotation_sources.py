@@ -22,7 +22,8 @@ from ._progress import report_phase, advance, PhaseProgress
 
 from ._annotation_identity import DiskIdentityIndex, IdentityDropSpool
 from ._annotation_parsing import normalize_annotation_chunk
-from ._annotation_preflight import AUTOSOMES, INPUT_ISSUE_COLUMNS, input_issue
+from ._annotation_preflight import AUTOSOMES
+from ._input_preflight import INPUT_ISSUE_COLUMNS, input_issue
 from ._annotation_storage import AnnotationShard, ColumnStore, FrameSpool
 from ._kernel.annotation import _annotation_parse_error_message, _validate_annotation_values
 from ._core.snp_identity import identity_base_mode, is_allele_aware_mode
@@ -258,8 +259,8 @@ def prepare_annotation_sources(workspace, baseline_files, query_files, *, mode, 
             "for the requested SNP set."
         )
     if header_widths is None:
-        from ._input_preflight import inspect_declared_inputs
-        declared_inputs = inspect_declared_inputs(baseline=baseline_files, query=query_files,
+        from ._annotation_preflight import inspect_annotation_inputs
+        declared_inputs = inspect_annotation_inputs(baseline=baseline_files, query=query_files,
             mode=mode, initial_issues=input_issues)
         header_widths = declared_inputs.widths
     started = perf_counter()

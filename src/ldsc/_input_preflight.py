@@ -13,13 +13,18 @@ import logging
 
 import pandas as pd
 
-from ._annotation_preflight import INPUT_ISSUE_COLUMNS, input_issue, resolve_annotation_inputs
 from .errors import LDSCInputError, LDSCUserError
 from .path_resolution import _discover_plink_members, resolve_file_group, split_cli_path_tokens, normalize_path_tokens, resolve_exact_file, resolve_scalar_path
 from ._progress import PhaseProgress
 
 LOGGER = logging.getLogger('LDSC.preflight')
 INPUT_ERRORS = (OSError, EOFError, ValueError, UnicodeError, LDSCUserError)
+INPUT_ISSUE_COLUMNS = ['input_role', 'source', 'chrom', 'reason', 'details', 'repair']
+
+
+def input_issue(role, path, chrom, reason, details):
+    return dict(input_role=role, source=str(path), chrom=chrom, reason=reason, details=str(details),
+                repair='Supply valid annotation inputs for the declared scope; inspect exact paths, glob matches, and @ declarations.')
 
 
 @dataclass
@@ -107,71 +112,36 @@ def _readable(path):
     return str(path)
 
 
-def _inspect_file_header(role, path):
-    """Inspect bounded generic headers using the existing schema vocabulary."""
+def _inspect_file_header(role, path, header_checks):
+    """Check that a declared file is readable, then run its role's header check, if any."""
     _readable(path)
-    if role in {'genetic_map_hg19_sources', 'genetic_map_hg38_sources'}:
-        from ._core.columns import resolve_required_column, CHR_COLUMN_SPEC, POS_COLUMN_SPEC
-        from ._kernel.ref_panel_builder import GENETIC_MAP_CM_SPEC
-        columns = pd.read_csv(path, sep=r'\s+', nrows=0).columns
-        for spec in (CHR_COLUMN_SPEC, POS_COLUMN_SPEC, GENETIC_MAP_CM_SPEC):
-            resolve_required_column(columns, spec, context=str(path))
+    check = header_checks.get(role)
+    if check is not None:
+        check(path)
     return str(path)
 
 
-def inspect_declared_inputs(*, baseline=(), query=(), files=(), scalar_files=(), plink=None, chromosomes=tuple(map(str, range(1, 23))),
-                            require_complete_suite=False, mode='rsid', issues_path=None, strict_annotations=True, initial_issues=(), plink_issues_path=None, checks=()):
+def inspect_declared_inputs(*, files=(), scalar_files=(), plink=None, chromosomes=tuple(map(str, range(1, 23))),
+                            require_complete_suite=False, issues_path=None, initial_issues=(), plink_issues_path=None,
+                            checks=(), declaration_check=None, header_checks=None):
     """Check every declared object before large scans and return resolved paths.
 
     ``files`` contains (role, tokens) pairs using the existing group resolver;
     ``scalar_files`` uses the existing exact-one resolver instead.
-    Annotation ``@`` completeness remains a workflow-specific policy. Reading
-    one annotation row verifies headers and records width without a full scan.
+    ``declaration_check(gate, progress, resolved)`` runs first so a domain can
+    record its own declarations, such as annotation headers, on the same gate;
+    it fills ``resolved`` and returns extra result fields. ``header_checks``
+    maps a file role to a header check that runs once the file is readable.
     PLINK inspection here checks companion presence only; BIM/FAM and BED-size
     validation is the next content gate. No numeric reference data are loaded.
     """
     gate = InputGate('Input preflight (declarations and headers)', issues_path, list(initial_issues))
-    resolved, declarations, widths, columns = {}, {}, {}, {}
+    resolved = {'baseline': [], 'query': []}
+    extra = dict(declarations={}, widths={}, columns={})
+    header_checks = header_checks or {}
     with PhaseProgress(LOGGER, 'validation', 'input declarations and headers') as progress:
-        for role, tokens in (('baseline', baseline), ('query', query)):
-            if strict_annotations:
-                paths, declared, issues = resolve_annotation_inputs(tokens, role=role)
-                declarations.update(declared)
-                gate.issues.extend(issues)
-            else:
-                paths = []
-                for token in split_cli_path_tokens(normalize_path_tokens(tokens)):
-                    matches = gate.check(role, token, lambda token=token: resolve_file_group([token], allow_chromosome_suite=True))
-                    paths.extend(matches or [])
-            resolved[role] = paths
-            for path in paths:
-                def header():
-                    from ._annotation_parsing import normalize_annotation_chunk
-                    frame = pd.read_csv(path, sep=r'\s+', nrows=1)
-                    if frame.empty:
-                        raise LDSCInputError(f"Annotation file '{path}' has no SNP rows. Supply a nonempty annotation grid.")
-                    metadata, values = normalize_annotation_chunk(frame, path, mode, log_ignored_metadata=False)
-                    member = declarations.get(path)
-                    if member and set(metadata.CHR.astype(str)) != {member}:
-                        raise LDSCInputError(
-                            f"Annotation file '{path}' selected by @ for chromosome {member} starts with "
-                            f"chromosome {metadata.CHR.iloc[0]}. "
-                            "Restore the matching chromosome file or correct the path template; "
-                            "renaming a file does not change its SNP coordinates."
-                        )
-                    columns[str(path)] = tuple(values.columns)
-                    return len(frame.columns)
-                width = gate.check(role, path, header, chrom=declarations.get(path, ''))
-                if width is not None:
-                    widths[str(path)] = width
-                progress.advance(object=str(path))
-            declared_headers = [(path, columns[path]) for path in paths if path in declarations and path in columns]
-            if declared_headers:
-                expected = declared_headers[0][1]
-                for path, names in declared_headers[1:]:
-                    if names != expected:
-                        gate.issues.append(input_issue(role, path, declarations[path], 'invalid_required_input',
-                            'Annotation columns differ across declared chromosomes. Use the same annotation header for every shard.'))
+        if declaration_check is not None:
+            extra.update(declaration_check(gate, progress, resolved))
         for role, tokens, scalar in [*((role, tokens, False) for role, tokens in files),
                                      *((role, tokens, True) for role, tokens in scalar_files)]:
             paths = []
@@ -186,7 +156,7 @@ def inspect_declared_inputs(*, baseline=(), query=(), files=(), scalar_files=(),
                 else:
                     matches = gate.check(role, token, lambda token=token: resolve_file_group([token], label=role, allow_chromosome_suite=True))
                 for path in matches or []:
-                    gate.check(role, path, lambda path=path: _inspect_file_header(role, path))
+                    gate.check(role, path, lambda path=path: _inspect_file_header(role, path, header_checks))
                     paths.append(path)
                     progress.advance(object=str(path))
             resolved[role] = paths
@@ -206,82 +176,7 @@ def inspect_declared_inputs(*, baseline=(), query=(), files=(), scalar_files=(),
                 (issue['input_role'], issue['source'], issue['chrom']) for issue in gate.issues
             })
         gate.finish()
-    return SimpleNamespace(baseline=resolved['baseline'], query=resolved['query'],
-                           declarations=declarations, widths=widths, columns=columns, files=resolved)
-
-
-def inspect_r2_headers(directory, genome_build=None, *, ldscore_args=None):
-    """Check every selected R2 Parquet/sidecar path and Parquet metadata contract before pair scans.
-
-    With ``ldscore_args`` (parsed ldscore options), each file's recorded build
-    window must also admit the requested LD window, and the file must store
-    every pair (``ldsc:min_r2`` not positive).
-    """
-    from ._kernel.ldscore import (
-        read_r2_parquet_contract, reject_truncated_r2_panel, validate_ldscore_window_within_r2_panel_window,
-    )
-    from ._kernel.ref_panel import _resolve_r2_build_dir
-
-    root = Path(directory)
-    children = [root / build for build in ('hg19', 'hg38') if (root / build).is_dir()]
-    if genome_build == 'auto' and len(children) > 1 and not list(root.glob('chr*_r2.parquet')):
-        gate = InputGate('R2 panel declarations and headers')
-        for child in children:
-            gate.check('reference', child,
-                       lambda child=child: inspect_r2_headers(child, child.name, ldscore_args=ldscore_args))
-        gate.finish()
-        return root
-    root = _resolve_r2_build_dir(directory, genome_build)
-    members = sorted({path.name.split('_')[0][3:] for pattern in ('chr*_r2.parquet', 'chr*_meta.tsv.gz') for path in root.glob(pattern)})
-    gate = InputGate('R2 panel declarations and headers')
-    if not members:
-        gate.issues.append(input_issue('reference', root, '', 'missing_required_input', 'No R2 Parquet or sidecar chromosome files found.'))
-    for chrom in members:
-        pair = root / f'chr{chrom}_r2.parquet'
-        sidecar = root / f'chr{chrom}_meta.tsv.gz'
-        gate.check('reference', sidecar, lambda: _readable(sidecar), chrom=chrom)
-        contract = gate.check('reference', pair, lambda: read_r2_parquet_contract(pair), chrom=chrom)
-        if contract is not None and ldscore_args is not None:
-            gate.check('reference', pair, lambda: validate_ldscore_window_within_r2_panel_window(
-                ldscore_args, parquet_paths=[str(pair)], chrom=chrom), chrom=chrom)
-            gate.check('reference', pair, lambda: reject_truncated_r2_panel([str(pair)], chrom), chrom=chrom)
-    gate.finish()
-    return root
-
-
-def inspect_index_paths(directory, *, metadata=None):
-    """Inspect root declarations and all component paths without loading arrays."""
-    root = Path(directory)
-    if metadata is None:
-        from .gene_ldscore_index import _read_json
-        metadata = _read_json(root/'metadata.json', 'root')
-    chromosomes = metadata.get('chromosomes', [])
-    if not isinstance(chromosomes, (list, tuple)) or not chromosomes or any(str(chrom) not in tuple(map(str, range(1, 23))) for chrom in chromosomes):
-        raise LDSCInputError(
-            'Gene LD-score index chromosome coverage is invalid.'
-            " Restore a complete gene LD-score index covering chromosomes 1 through 22, or rebuild it with "
-            "ldsc build-gene-ldscore-index. Do not combine components from different builds."
-        )
-    gate = InputGate('Index component declarations')
-    paths = [('gene_catalog.parquet', '')]
-    files = ('metadata.json', 'baseline_rows.parquet', 'baseline_statistics.npz', 'atoms.parquet',
-             'gene_to_atom.npz', 'ldscore_operator.npz', 'atom_statistics.npz')
-    paths.extend((f'chromosomes/chr{chrom}/{name}', str(chrom)) for chrom in chromosomes for name in files)
-    for name, chrom in paths:
-        path = root/name
-        if not path.is_file():
-            gate.issues.append(input_issue('index', path, chrom, 'missing_required_input', 'Required index component is missing.'))
-        elif name.endswith('.parquet'):
-            gate.check('index', path, lambda path=path: _readable(path), chrom=chrom)
-        elif chrom and name.endswith('metadata.json'):
-            from .gene_ldscore_index import _read_json, _validate_chromosome_metadata
-            def component_header():
-                component = _read_json(path, f'chromosome {chrom}')
-                _validate_chromosome_metadata(component, chrom=chrom, index_id=metadata.get('index_id'),
-                    snp_identifier=metadata.get('snp_identifier'), genome_build=metadata.get('genome_build'))
-            gate.check('index', path, component_header, chrom=chrom)
-    gate.finish()
-    return metadata
+    return SimpleNamespace(baseline=resolved['baseline'], query=resolved['query'], files=resolved, **extra)
 
 
 def inspect_artifact_paths(directory, *, metadata_file="metadata.json"):

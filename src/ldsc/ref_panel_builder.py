@@ -436,7 +436,8 @@ class ReferencePanelBuilder:
         self._configure_logging()
         output_dir = ensure_output_directory(config.output_dir, label="output directory")
         from ._input_preflight import inspect_declared_inputs
-        declared_inputs = inspect_declared_inputs(plink=config.plink_prefix,
+        from ._ref_panel_preflight import GENETIC_MAP_HEADER_CHECKS
+        declared_inputs = inspect_declared_inputs(plink=config.plink_prefix, header_checks=GENETIC_MAP_HEADER_CHECKS,
             files=[(name, getattr(config, name, None)) for name in (
                 'genetic_map_hg19_sources', 'genetic_map_hg38_sources')],
             scalar_files=[(name, getattr(config, name, None)) for name in ('keep_indivs_file', 'ref_panel_snps_file')],
@@ -727,8 +728,7 @@ class ReferencePanelBuilder:
         chromosomes left without SNPs are skipped with a warning. Returns the
         ``(prefix, chrom)`` pairs that keep SNPs.
         """
-        from ._annotation_preflight import input_issue
-        from ._input_preflight import InputGate
+        from ._input_preflight import InputGate, input_issue
         from ._progress import PhaseProgress
 
         issues, buildable = [], []

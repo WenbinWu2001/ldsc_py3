@@ -17,7 +17,7 @@ pq = pytest.importorskip("pyarrow.parquet")
 
 from ldsc.config import GlobalConfig, RefPanelConfig
 from ldsc.errors import LDSCInputError
-from ldsc._input_preflight import inspect_r2_headers
+from ldsc._ref_panel_preflight import inspect_r2_headers
 from ldsc._kernel import ref_panel_builder as kb
 from ldsc._kernel.ref_panel import ParquetR2RefPanel
 from ldsc._core.snp_identity import sidecar_identity_sha256

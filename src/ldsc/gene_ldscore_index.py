@@ -562,8 +562,10 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 process_id=os.getpid(),
                 hostname=socket.gethostname(),
             )
-            from ._input_preflight import inspect_declared_inputs
-            declared_inputs = inspect_declared_inputs(
+            from ._annotation_preflight import inspect_annotation_inputs
+            from ._ref_panel_preflight import GENETIC_MAP_HEADER_CHECKS
+            declared_inputs = inspect_annotation_inputs(
+                header_checks=GENETIC_MAP_HEADER_CHECKS,
                 baseline=config.baseline_annot_sources, plink=config.plink_prefix, chromosomes=chromosomes,
                 require_complete_suite=True, mode=config.snp_identifier,
                 files=[(name, getattr(args, name, None)) for name in (
@@ -2003,7 +2005,6 @@ def _load_gene_ldscore_index(
             "build-gene-ldscore-index. See "
             "docs/user-guide/troubleshooting.md#ldscore-an-explicit-gene-ld-score-index-is-missing-corrupt-or-incompatible."
         )
-    from ._input_preflight import inspect_index_paths
     advance(0, total=len(chromosomes))
     inspect_index_paths(index_path, metadata=root)
     catalog_path = index_path / "gene_catalog.parquet"
@@ -2240,7 +2241,7 @@ def run_indexed_ldscore(
         raise ValueError("query_batch_size must be a positive integer.")
     _validate_workers(workers)
     output_dir = normalize_path_token(output_dir)
-    from ._input_preflight import inspect_declared_inputs, inspect_index_paths
+    from ._input_preflight import inspect_declared_inputs
     from .outputs import LDScoreDirectoryWriter
     LDScoreDirectoryWriter.artifact_family(output_dir).preflight(overwrite=overwrite)
     try:
@@ -3040,6 +3041,41 @@ def _write_index_artifact(
             },
         )
         _write_index_chromosome_payload(chrom_path, chrom=chrom, record=record)
+
+
+def inspect_index_paths(directory, *, metadata=None):
+    """Inspect root declarations and all component paths without loading arrays."""
+    from ._input_preflight import InputGate, _readable, input_issue
+
+    root = Path(directory)
+    if metadata is None:
+        metadata = _read_json(root/'metadata.json', 'root')
+    chromosomes = metadata.get('chromosomes', [])
+    if not isinstance(chromosomes, (list, tuple)) or not chromosomes or any(str(chrom) not in tuple(map(str, range(1, 23))) for chrom in chromosomes):
+        raise LDSCInputError(
+            'Gene LD-score index chromosome coverage is invalid.'
+            " Restore a complete gene LD-score index covering chromosomes 1 through 22, or rebuild it with "
+            "ldsc build-gene-ldscore-index. Do not combine components from different builds."
+        )
+    gate = InputGate('Index component declarations')
+    paths = [('gene_catalog.parquet', '')]
+    files = ('metadata.json', 'baseline_rows.parquet', 'baseline_statistics.npz', 'atoms.parquet',
+             'gene_to_atom.npz', 'ldscore_operator.npz', 'atom_statistics.npz')
+    paths.extend((f'chromosomes/chr{chrom}/{name}', str(chrom)) for chrom in chromosomes for name in files)
+    for name, chrom in paths:
+        path = root/name
+        if not path.is_file():
+            gate.issues.append(input_issue('index', path, chrom, 'missing_required_input', 'Required index component is missing.'))
+        elif name.endswith('.parquet'):
+            gate.check('index', path, lambda path=path: _readable(path), chrom=chrom)
+        elif chrom and name.endswith('metadata.json'):
+            def component_header():
+                component = _read_json(path, f'chromosome {chrom}')
+                _validate_chromosome_metadata(component, chrom=chrom, index_id=metadata.get('index_id'),
+                    snp_identifier=metadata.get('snp_identifier'), genome_build=metadata.get('genome_build'))
+            gate.check('index', path, component_header, chrom=chrom)
+    gate.finish()
+    return metadata
 
 
 def _load_npz_members(path: Path, required: set[str]) -> dict[str, np.ndarray]:

@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 
 from ldsc import SumstatsMunger, load_sumstats
-from ldsc.sumstats_munger import main
+from ldsc._sumstats.munger import main
 
 
 @pytest.mark.parametrize(

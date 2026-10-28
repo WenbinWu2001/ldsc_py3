@@ -127,7 +127,7 @@ def test_cli_help_with_overwrite_leaves_output_scope_untouched(tmp_path, help_fl
 def test_infer_only_with_overwrite_never_mutates_output_scope(
     tmp_path, entrypoint, input_state, existing
 ):
-    from ldsc import sumstats_munger
+    from ldsc._sumstats import munger as sumstats_munger
 
     output_dir = tmp_path / "unused"
     marker = output_dir / "RUN_FAILED.txt"

@@ -11,7 +11,7 @@ import pytest
 from ldsc.config import GlobalConfig
 from ldsc.ldscore_calculator import LDScoreResult
 from ldsc.regression_runner import _project_legacy_sumstats_to_panel
-from ldsc.sumstats_munger import SumstatsTable
+from ldsc._sumstats.munger import SumstatsTable
 
 
 @pytest.mark.slow

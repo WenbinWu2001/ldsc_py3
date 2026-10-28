@@ -357,7 +357,7 @@ Concrete source/output build options do not apply to rsID-family munging.
    see `docs/reference/formats/legacy-sumstats.md`.
 3. Do not hand-edit curated `.sumstats`/`.parquet` artifacts; treat them as outputs.
 
-**Developer reference:** `sumstats_munger.load_sumstats()` and its metadata helpers · **Exception:** `LDSCInputError`
+**Developer reference:** `_sumstats.munger.load_sumstats()` and its metadata helpers · **Exception:** `LDSCInputError`
 
 ### `munge-sumstats`: liftover dropped all rows
 

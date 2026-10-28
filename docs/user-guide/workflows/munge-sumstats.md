@@ -173,7 +173,7 @@ Standard errors are not required because this workflow derives Z from P and the 
 Legacy munged `SNP A1 A2 Z N` files can be passed directly to regression; the raw munging route still requires P.
 See [legacy summary-statistics compatibility](../../reference/formats/legacy-sumstats.md).
 
-Sources: `prepare_munge_input` in [_sumstats_input.py](../../../src/ldsc/_sumstats_input.py) validates required fields and sample-size choices; `munge_sumstats` in [_kernel/sumstats_munger.py](../../../src/ldsc/_kernel/sumstats_munger.py) converts P to signed Z.
+Sources: `prepare_munge_input` in [_sumstats/munge_input.py](../../../src/ldsc/_sumstats/munge_input.py) validates required fields and sample-size choices; `munge_sumstats` in [_sumstats/munge_kernel.py](../../../src/ldsc/_sumstats/munge_kernel.py) converts P to signed Z.
 
 ## Automatically inferred column aliases
 
@@ -207,7 +207,7 @@ For example, `p.value` matches `P_VALUE`. This reader uses cleaned exact aliases
 
 For DANER inputs, format-specific header handling additionally recognizes encoded count/frequency fields. The table describes ordinary raw-column aliases, not every DANER header convention. `--infer-only` previews mappings and suggestions; it does not replace the full run's required-field and QC checks.
 
-Source: `RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS`, `RAW_SUMSTATS_SIGNED_STAT_SPECS`, and `clean_header` in [_core/columns.py](../../../src/ldsc/_core/columns.py); `get_cname_map` in [_sumstats_input.py](../../../src/ldsc/_sumstats_input.py); `infer_raw_sumstats` in [sumstats_munger.py](../../../src/ldsc/sumstats_munger.py).
+Source: `RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS`, `RAW_SUMSTATS_SIGNED_STAT_SPECS`, and `clean_header` in [_core/columns.py](../../../src/ldsc/_core/columns.py); `get_cname_map` in [_sumstats/munge_input.py](../../../src/ldsc/_sumstats/munge_input.py); `infer_raw_sumstats` in [_sumstats/munger.py](../../../src/ldsc/_sumstats/munger.py).
 
 ## Flags for specifying input fields and sample sizes
 
@@ -238,7 +238,7 @@ For per-variant sample sizes, supply either `--N-col` or both case/control colum
 | Constant case count | `--N-cas VALUE` | `--N-cas 20000` |
 | Constant control count | `--N-con VALUE` | `--N-con 80000` |
 
-Supply either `--N` or both `--N-cas` and `--N-con`; the paired constants are added, so the example gives `N = 100000`. These are fallbacks: input N or paired case/control columns take precedence, followed by `--N`, then the paired constants. To use a constant instead of existing sample-size columns, exclude those columns with `--ignore` and omit their column-mapping flags. Constants are assigned after sample-size filtering and are not filtered by `--n-min`. Source: sample-size options in `build_parser` in [sumstats_munger.py](../../../src/ldsc/sumstats_munger.py) and `process_n` in [_kernel/sumstats_munger.py](../../../src/ldsc/_kernel/sumstats_munger.py).
+Supply either `--N` or both `--N-cas` and `--N-con`; the paired constants are added, so the example gives `N = 100000`. These are fallbacks: input N or paired case/control columns take precedence, followed by `--N`, then the paired constants. To use a constant instead of existing sample-size columns, exclude those columns with `--ignore` and omit their column-mapping flags. Constants are assigned after sample-size filtering and are not filtered by `--n-min`. Source: sample-size options in `build_parser` in [_sumstats/munger.py](../../../src/ldsc/_sumstats/munger.py) and `process_n` in [_sumstats/munge_kernel.py](../../../src/ldsc/_sumstats/munge_kernel.py).
 
 ### Optional fields and ignored columns
 
@@ -250,6 +250,6 @@ Supply either `--N` or both `--N-cas` and `--N-con`; the paired constants are ad
 | Number of contributing studies | `--nstudy COLUMN` | `--nstudy study_count` |
 | Columns to exclude from inference and reading | `--ignore COL1,COL2` | `--ignore unused_beta,unused_frequency` |
 
-Source: column options in `build_parser` in [sumstats_munger.py](../../../src/ldsc/sumstats_munger.py).
+Source: column options in `build_parser` in [_sumstats/munger.py](../../../src/ldsc/_sumstats/munger.py).
 
 For the Python API, see [Python usage](../python-usage.md#munge-summary-statistics).

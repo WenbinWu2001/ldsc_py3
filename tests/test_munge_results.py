@@ -8,8 +8,8 @@ import pandas as pd
 import pytest
 
 from ldsc import GlobalConfig, MungeConfig, SumstatsMunger, load_sumstats
-from ldsc import _sumstats_input as munge_input
-from ldsc._kernel import sumstats_munger as kernel_munge
+from ldsc._sumstats import munge_input
+from ldsc._sumstats import munge_kernel as kernel_munge
 from ldsc._genome.liftover import LiftOverMappingResult, SumstatsLiftoverRequest
 
 

@@ -36,7 +36,7 @@ Use `--snp-identifier chr_pos` for coordinate identity without allele-aware matc
 
 ## Preparation and Run Accounting
 
-The public workflow and tests use `_sumstats_input.prepare_munge_input()` to resolve column aliases and hints, DANER sample-size settings, the raw coordinate build/basis, and the optional keep-list.
+The public workflow and tests use `_sumstats.munge_input.prepare_munge_input()` to resolve column aliases and hints, DANER sample-size settings, the raw coordinate build/basis, and the optional keep-list.
 The kernel accepts a `ResolvedMungeInput` and returns a `MungeResult` containing the munged table, counts, coordinate provenance, and separate identity/liftover drop records.
 CLI parsing and artifact ownership stay in `sumstats_munger.py`; the kernel neither parses CLI flags nor mutates configuration to return results.
 
@@ -174,7 +174,7 @@ Scripts that previously expected `sumstats.parquet` despite supplying a trait la
 
 The munger automatically preserves the selected input frequency column as `FRQ` whenever present and omits `FRQ` when absent. Values are not converted to MAF, so an input frequency above 0.5 remains above 0.5. `--maf-min` still applies the unchanged filter to folded `min(FRQ, 1-FRQ)`. `--keep-maf` and `MungeConfig.keep_maf` are removed; no replacement toggle is needed. An explicitly ignored frequency column is not selected.
 
-This rule applies to the returned table, Parquet, and gzip TSV. TSV frequency values are written without three-decimal rounding; other floating columns keep the existing export rounding. Missing fields are serialized as `NA` to preserve column alignment in whitespace readers. See `parse_dat` and `filter_frq` in [`_kernel/sumstats_munger.py`](../../src/ldsc/_kernel/sumstats_munger.py), and `_write_sumstats_tsv_gz` in [`sumstats_munger.py`](../../src/ldsc/sumstats_munger.py).
+This rule applies to the returned table, Parquet, and gzip TSV. TSV frequency values are written without three-decimal rounding; other floating columns keep the existing export rounding. Missing fields are serialized as `NA` to preserve column alignment in whitespace readers. See `parse_dat` and `filter_frq` in [`_sumstats/munge_kernel.py`](../../src/ldsc/_sumstats/munge_kernel.py), and `_write_sumstats_tsv_gz` in [`_sumstats/munger.py`](../../src/ldsc/_sumstats/munger.py).
 
 ## Embedded Identity Metadata
 

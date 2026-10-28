@@ -18,7 +18,7 @@ from ldsc._refpanel import builder as ref_panel_builder
 from ldsc.ldscore_calculator import LDScoreResult
 from ldsc._refpanel.builder import ReferencePanelBuildConfig, ReferencePanelBuilder
 from ldsc.regression_runner import RegressionRunner
-from ldsc.sumstats_munger import SumstatsTable
+from ldsc._sumstats.munger import SumstatsTable
 from tests.test_path_resolution import _write_plink_trio
 
 

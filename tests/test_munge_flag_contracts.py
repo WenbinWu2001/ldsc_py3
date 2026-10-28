@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from ldsc import LDSCInputError, load_sumstats
-from ldsc.sumstats_munger import build_parser, main
+from ldsc._sumstats.munger import build_parser, main
 
 
 @pytest.mark.parametrize("frequency_column", ["FRQ", "MAF", None])

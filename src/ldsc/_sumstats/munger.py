@@ -47,37 +47,37 @@ from typing import Any
 
 import pandas as pd
 
-from ._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP
-from ._runtime.workflow_logging import LOG_LEVEL_HELP
-from ._core.chromosomes import chrom_sort_key, normalize_chromosome_series
-from ._core.coordinates import (
+from .._runtime.cli_help import CLIHelpFormatter, SCALAR_PATH_HELP
+from .._runtime.workflow_logging import LOG_LEVEL_HELP
+from .._core.chromosomes import chrom_sort_key, normalize_chromosome_series
+from .._core.coordinates import (
     coordinate_missing_mask,
     positive_int_position_series,
 )
-from ._core.columns import (
+from .._core.columns import (
     INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP,
     normalize_genome_build,
     normalize_snp_identifier_mode,
     resolve_optional_column,
     resolve_required_column,
 )
-from .config import GlobalConfig, MungeConfig, _normalize_trait_name, get_global_config
-from .errors import (
+from ..config import GlobalConfig, MungeConfig, _normalize_trait_name, get_global_config
+from ..errors import (
     LDSCConfigError,
     LDSCDependencyError,
     LDSCInputError,
     LDSCUsageError,
     LDSCUserError,
 )
-from ._genome.hm3 import packaged_hm3_curated_map_path
-from ._runtime.paths import (
+from .._genome.hm3 import packaged_hm3_curated_map_path
+from .._runtime.paths import (
     ensure_output_directory,
     preflight_output_artifact_family,
     remove_output_artifacts,
     resolve_scalar_path,
 )
-from ._runtime.workflow_logging import log_inputs, log_outputs, log_summary, materializing_overwrite_guard, workflow_logging
-from ._core.snp_identity import (
+from .._runtime.workflow_logging import log_inputs, log_outputs, log_summary, materializing_overwrite_guard, workflow_logging
+from .._core.snp_identity import (
     IDENTITY_DROP_COLUMNS,
     clean_identity_artifact_table,
     coerce_identity_drop_frame,
@@ -87,9 +87,9 @@ from ._core.snp_identity import (
     is_allele_aware_mode,
     validate_identity_artifact_metadata,
 )
-from ._genome.liftover import SumstatsLiftoverRequest, default_liftover_metadata
-from ._kernel import sumstats_munger as kernel_munge
-from . import _sumstats_input as munge_input
+from .._genome.liftover import SumstatsLiftoverRequest, default_liftover_metadata
+from . import munge_kernel as kernel_munge
+from . import munge_input
 
 
 LOGGER = logging.getLogger("LDSC.sumstats_munger")
@@ -568,7 +568,7 @@ class SumstatsMunger:
         )
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         with workflow_logging("munge-sumstats", log_path, log_level=config_snapshot.log_level):
-            from ._runtime.preflight import inspect_declared_inputs
+            from .._runtime.preflight import inspect_declared_inputs
             inspect_declared_inputs(files=[('raw summary statistics', raw_sumstats_config.raw_sumstats_file),
                 ('SNP restriction', sumstats_snps_path), ('liftover chain', liftover_request.liftover_chain_file)],
                 issues_path=diagnostics_dir/'input_issues.tsv')

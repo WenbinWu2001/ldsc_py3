@@ -15,7 +15,7 @@ from ldsc import cli
 from ldsc.errors import LDSCInputError
 from ldsc.config import GlobalConfig, RegressionConfig
 from ldsc.regression_runner import RegressionRunner
-from ldsc.sumstats_munger import SumstatsTable
+from ldsc._sumstats.munger import SumstatsTable
 
 
 def _write_text(path: Path, text: str) -> None:

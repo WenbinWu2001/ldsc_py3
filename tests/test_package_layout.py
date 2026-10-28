@@ -81,7 +81,7 @@ print(ldsc.__file__)
     def test_top_level_exports_sumstats_inference_api(self):
         import ldsc
         from ldsc import RawSumstatsInference, infer_raw_sumstats
-        from ldsc.sumstats_munger import (
+        from ldsc._sumstats.munger import (
             RawSumstatsInference as ModuleRawSumstatsInference,
             infer_raw_sumstats as module_infer_raw_sumstats,
         )
@@ -176,7 +176,7 @@ print(ldsc.__file__)
                 pass
             heavy = [
                 name
-                for name in ("ldsc.regression_runner", "ldsc.sumstats_munger", "scipy.stats._stats_py")
+                for name in ("ldsc.regression_runner", "ldsc._sumstats.munger", "scipy.stats._stats_py")
                 if name in sys.modules
             ]
             print(",".join(heavy))
@@ -525,7 +525,7 @@ print(ldsc.__file__)
             )
 
     def test_sumstats_munger_public_api_excludes_removed_merge_alleles(self):
-        from ldsc import sumstats_munger
+        from ldsc._sumstats import munger as sumstats_munger
 
         self.assertFalse(hasattr(sumstats_munger, "allele_merge"))
         help_text = sumstats_munger.build_parser().format_help()

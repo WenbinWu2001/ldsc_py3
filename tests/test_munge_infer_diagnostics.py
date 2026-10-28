@@ -3,7 +3,7 @@ import shlex
 
 import pytest
 
-from ldsc import sumstats_munger as workflow
+from ldsc._sumstats import munger as workflow
 from ldsc.errors import LDSCUsageError
 
 

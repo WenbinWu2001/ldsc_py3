@@ -89,12 +89,12 @@ from ._refpanel.adapters import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefP
 from ._refpanel.query import R2Panel, query_r2, unbiased_r2_to_pearson_r
 
 _LAZY_EXPORTS = {
-    "MungeRunSummary": (".sumstats_munger", "MungeRunSummary"),
-    "RawSumstatsInference": (".sumstats_munger", "RawSumstatsInference"),
-    "SumstatsMunger": (".sumstats_munger", "SumstatsMunger"),
-    "SumstatsTable": (".sumstats_munger", "SumstatsTable"),
-    "infer_raw_sumstats": (".sumstats_munger", "infer_raw_sumstats"),
-    "load_sumstats": (".sumstats_munger", "load_sumstats"),
+    "MungeRunSummary": ("._sumstats.munger", "MungeRunSummary"),
+    "RawSumstatsInference": ("._sumstats.munger", "RawSumstatsInference"),
+    "SumstatsMunger": ("._sumstats.munger", "SumstatsMunger"),
+    "SumstatsTable": ("._sumstats.munger", "SumstatsTable"),
+    "infer_raw_sumstats": ("._sumstats.munger", "infer_raw_sumstats"),
+    "load_sumstats": ("._sumstats.munger", "load_sumstats"),
     "load_ldscore_from_dir": (".ldscore_source", "load_ldscore_from_dir"),
     "LDScoreSource": (".ldscore_source", "LDScoreSource"),
     "LegacyLDScoreConverter": (".legacy_ldscore_converter", "LegacyLDScoreConverter"),

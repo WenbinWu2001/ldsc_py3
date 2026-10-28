@@ -3,7 +3,7 @@
 import pytest
 
 from ldsc import GlobalConfig, LDSCConfigError, LDSCInputError, LDSCUsageError, MungeConfig, SumstatsMunger
-from ldsc import sumstats_munger as workflow
+from ldsc._sumstats import munger as workflow
 
 
 @pytest.fixture

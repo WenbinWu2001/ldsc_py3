@@ -18,17 +18,17 @@ import warnings
 
 import pandas as pd
 
-from ._core.columns import (
+from .._core.columns import (
     RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS,
     RAW_SUMSTATS_SIGNED_STAT_SPECS,
     build_cleaned_alias_lookup,
     clean_header,
 )
-from .config import GlobalConfig, MungeConfig
-from .errors import LDSCInputError, LDSCUsageError
-from ._genome.liftover import SumstatsLiftoverRequest
-from ._core.snp_identity import identity_base_mode, identity_mode_family, is_allele_aware_mode
-from ._kernel.sumstats_munger import MungeQC, ResolvedMungeInput, prepare_sumstats_restriction
+from ..config import GlobalConfig, MungeConfig
+from ..errors import LDSCInputError, LDSCUsageError
+from .._genome.liftover import SumstatsLiftoverRequest
+from .._core.snp_identity import identity_base_mode, identity_mode_family, is_allele_aware_mode
+from .munge_kernel import MungeQC, ResolvedMungeInput, prepare_sumstats_restriction
 
 LOGGER = logging.getLogger('LDSC.sumstats_munger')
 _BUILD_INFERENCE_CHUNKSIZE = 5_000
@@ -468,7 +468,7 @@ def _resolve_source_coordinates(source_path, cname_translation, global_config, c
     each chromosome before QC. It checks the keep list in the actual filtering
     mode and reports all unresolved/conflicting inputs together.
     """
-    from ._genome.build_policy import GenomeBuildCheck
+    from .._genome.build_policy import GenomeBuildCheck
 
     mode, build = global_config.snp_identifier, global_config.genome_build
     metadata = {'snp_identifier': mode, 'genome_build': build,

@@ -445,7 +445,7 @@ workflow runs format and column inference:
 VCF-style headers, old DANER, and new DANER. `--infer-only` runs that inference
 pass, still requires `--output-dir` for the uniform CLI contract, creates no
 output directory, and prints missing fields plus exact repair suggestions.
-`_sumstats_input.prepare_munge_input()` resolves the raw schema, sample-size settings, source build/basis and keep-list into `ResolvedMungeInput`. The kernel returns a `MungeResult` with parsed row counts, exclusive per-stage drop counts, coordinate provenance and separate identity/liftover drop records. Row counting occurs during chunk parsing; there is no post-run full-file count pass. Source-build inference uses the shared bounded coordinate evidence reader before chunk QC, including when those informative rows will later be filtered out.
+`_sumstats.munge_input.prepare_munge_input()` resolves the raw schema, sample-size settings, source build/basis and keep-list into `ResolvedMungeInput`. The kernel returns a `MungeResult` with parsed row counts, exclusive per-stage drop counts, coordinate provenance and separate identity/liftover drop records. Row counting occurs during chunk parsing; there is no post-run full-file count pass. Source-build inference uses the shared bounded coordinate evidence reader before chunk QC, including when those informative rows will later be filtered out.
 
 Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
 also supports the legacy `sumstats.gz` artifact. With overwrite
@@ -483,12 +483,12 @@ flowchart LR
     D2[Skip leading ## lines<br/>Detect format + normalize aliases]
   end
 
-  subgraph W4[Workflow (public)<br/>ldsc.sumstats_munger]
+  subgraph W4[Workflow (public)<br/>ldsc._sumstats.munger]
     D3[Normalize CLI/API config<br/>Resolve schema, source build + keep-list<br/>ResolvedMungeInput]
     D4[Own parquet footer metadata + diagnostics<br/>Capture run summary]
   end
 
-  subgraph K4[Kernel (private)<br/>ldsc._kernel.sumstats_munger]
+  subgraph K4[Kernel (private)<br/>ldsc._sumstats.munge_kernel]
     D5[Parse chunks + count rows<br/>Normalize coordinates, QC + SNP restriction]
     D6[Whole-table N filtering<br/>Signed Z conversion]
     D7[Optional source-to-target liftover<br/>drop missing, unmapped, and colliding coordinates<br/>Global identity cleanup + MungeResult]
@@ -511,8 +511,8 @@ flowchart LR
 ### Modules used
 
 - Preprocessing: `ldsc.config`, `ldsc._runtime.paths`, `ldsc._core.columns`
-- Workflow: `ldsc.sumstats_munger`, `ldsc._sumstats_input`
-- Kernel: `ldsc._kernel.sumstats_munger`, `ldsc._genome.liftover`
+- Workflow: `ldsc._sumstats.munger`, `ldsc._sumstats.munge_input`
+- Kernel: `ldsc._sumstats.munge_kernel`, `ldsc._genome.liftover`
 - Postprocessing: workflow-owned Parquet/TSV writing, log, and metadata writing
 
 Allele columns keep the legacy LDSC names `A1` and `A2`. `A1` means the
@@ -618,7 +618,7 @@ For column definitions and interpretation, see
 ### Modules used
 
 - Preprocessing: `ldsc._runtime.paths`, `ldsc._core.columns`
-- Workflow: `ldsc.regression_runner`, `ldsc.sumstats_munger.load_sumstats()`
+- Workflow: `ldsc.regression_runner`, `ldsc._sumstats.munger.load_sumstats()`
 - Artifact access: `ldsc.ldscore_source.load_ldscore_from_dir()` and `LDScoreSource.read_queries()`
 - Kernel: `ldsc._kernel.regression`, `ldsc._kernel._jackknife`, `ldsc._kernel._irwls`
 - Postprocessing: pandas TSV writers in `ldsc.regression_runner`; `partitioned-h2`

@@ -1250,8 +1250,8 @@ class FixedOutputDirectoryTest(unittest.TestCase):
     def test_missing_munge_output_dir_is_created_without_warning(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "nested" / "trait"
-            munger = __import__("ldsc.sumstats_munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
-            table = __import__("ldsc.sumstats_munger", fromlist=["SumstatsTable"]).SumstatsTable(
+            munger = __import__("ldsc._sumstats.munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
+            table = __import__("ldsc._sumstats.munger", fromlist=["SumstatsTable"]).SumstatsTable(
                 data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5]}),
                 has_alleles=False,
                 source_path="source.sumstats.gz",
@@ -1268,7 +1268,7 @@ class FixedOutputDirectoryTest(unittest.TestCase):
             self.assertTrue(Path(written).exists())
 
     def test_munge_write_output_round_trips_through_public_loader(self):
-        module = __import__("ldsc.sumstats_munger", fromlist=["SumstatsMunger", "SumstatsTable", "load_sumstats"])
+        module = __import__("ldsc._sumstats.munger", fromlist=["SumstatsMunger", "SumstatsTable", "load_sumstats"])
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
             munger = module.SumstatsMunger()
@@ -1287,7 +1287,7 @@ class FixedOutputDirectoryTest(unittest.TestCase):
             self.assertEqual(loaded.data["SNP"].tolist(), ["rs1"])
 
     def test_munge_write_output_requires_config_snapshot(self):
-        module = __import__("ldsc.sumstats_munger", fromlist=["SumstatsMunger", "SumstatsTable"])
+        module = __import__("ldsc._sumstats.munger", fromlist=["SumstatsMunger", "SumstatsTable"])
         with tempfile.TemporaryDirectory() as tmpdir:
             table = module.SumstatsTable(
                 data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5]}),
@@ -1304,8 +1304,8 @@ class FixedOutputDirectoryTest(unittest.TestCase):
             output_dir = Path(tmpdir)
             existing = output_dir / "trait.parquet"
             existing.write_text("existing", encoding="utf-8")
-            munger = __import__("ldsc.sumstats_munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
-            table = __import__("ldsc.sumstats_munger", fromlist=["SumstatsTable"]).SumstatsTable(
+            munger = __import__("ldsc._sumstats.munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
+            table = __import__("ldsc._sumstats.munger", fromlist=["SumstatsTable"]).SumstatsTable(
                 data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5]}),
                 has_alleles=False,
                 source_path="source.sumstats.gz",
@@ -1323,8 +1323,8 @@ class FixedOutputDirectoryTest(unittest.TestCase):
             output_dir = Path(tmpdir)
             existing = output_dir / "trait.parquet"
             existing.write_text("existing", encoding="utf-8")
-            munger = __import__("ldsc.sumstats_munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
-            table = __import__("ldsc.sumstats_munger", fromlist=["SumstatsTable"]).SumstatsTable(
+            munger = __import__("ldsc._sumstats.munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
+            table = __import__("ldsc._sumstats.munger", fromlist=["SumstatsTable"]).SumstatsTable(
                 data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5]}),
                 has_alleles=False,
                 source_path="source.sumstats.gz",

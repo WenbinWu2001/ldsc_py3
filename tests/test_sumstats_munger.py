@@ -19,11 +19,11 @@ from ldsc.config import GlobalConfig, MungeConfig
 
 try:
     import ldsc
-    from ldsc import sumstats_munger as sumstats_workflow
-    from ldsc._kernel import sumstats_munger as kernel_munge
-    from ldsc import _sumstats_input as munge_input
+    from ldsc._sumstats import munger as sumstats_workflow
+    from ldsc._sumstats import munge_kernel as kernel_munge
+    from ldsc._sumstats import munge_input
     from ldsc._core.snp_identity import IDENTITY_DROP_COLUMNS
-    from ldsc.sumstats_munger import SumstatsMunger
+    from ldsc._sumstats.munger import SumstatsMunger
 except ImportError:
     ldsc = None
     kernel_munge = None
@@ -1324,7 +1324,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertTrue((tmpdir / "munged" / "trait.parquet").exists())
 
     def test_top_level_wrapper_calls_main(self):
-        from ldsc import sumstats_munger as munge_sumstats
+        from ldsc._sumstats import munger as munge_sumstats
 
         with mock.patch.object(munge_sumstats, "main", return_value=11) as patched:
             rc = munge_sumstats.__dict__["main"](["--help"])
@@ -1877,7 +1877,7 @@ class SumstatsMungerTest(unittest.TestCase):
             hm3_path = tmpdir / "hm3.tsv"
             hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\n1\t10\t20\trs2\n", encoding="utf-8")
 
-            with mock.patch("ldsc.sumstats_munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
+            with mock.patch("ldsc._sumstats.munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
                 table = SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(output_dir=tmpdir / "munged"),
@@ -1926,7 +1926,7 @@ class SumstatsMungerTest(unittest.TestCase):
             hm3_path = tmpdir / "hm3.tsv"
             hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\n1\t200\t999\trs2\n", encoding="utf-8")
 
-            with mock.patch("ldsc.sumstats_munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
+            with mock.patch("ldsc._sumstats.munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
                 table = SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(
@@ -1953,7 +1953,7 @@ class SumstatsMungerTest(unittest.TestCase):
             hm3_path = tmpdir / "hm3.tsv"
             hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\tA1\tA2\n1\t100\t200\trs1\tA\tC\n", encoding="utf-8")
 
-            with mock.patch("ldsc.sumstats_munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
+            with mock.patch("ldsc._sumstats.munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
                 table = SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(output_dir=tmpdir / "munged"),
@@ -1977,7 +1977,7 @@ class SumstatsMungerTest(unittest.TestCase):
             hm3_path = tmpdir / "hm3.tsv"
             hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\tA1\tA2\n1\t100\t200\trs2\tA\tC\n", encoding="utf-8")
 
-            with mock.patch("ldsc.sumstats_munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
+            with mock.patch("ldsc._sumstats.munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
                 table = SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(

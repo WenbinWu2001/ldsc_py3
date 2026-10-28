@@ -109,7 +109,7 @@ from .outputs import (
     RgOutputConfig,
 )
 from ._annotation.storage import AnnotationWorkspace
-from .sumstats_munger import SumstatsTable, load_sumstats
+from ._sumstats.munger import SumstatsTable, load_sumstats
 from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
 
 

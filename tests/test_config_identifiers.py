@@ -233,7 +233,7 @@ class WorkflowConfigTest(unittest.TestCase):
                 "run_bed_to_annot",
             ),
             "ldsc._refpanel.adapters": ("RefPanelSpec",),
-            "ldsc.sumstats_munger": ("RawSumstatsSpec",),
+            "ldsc._sumstats.munger": ("RawSumstatsSpec",),
             "ldsc.outputs": ("OutputSpec",),
         }
         for module_name, names in removed_names_by_module.items():

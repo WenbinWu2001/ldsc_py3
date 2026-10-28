@@ -28,7 +28,7 @@ try:
     from ldsc import cli
     from ldsc import regression_runner
     from ldsc.regression_runner import RegressionRunner
-    from ldsc.sumstats_munger import SumstatsTable
+    from ldsc._sumstats.munger import SumstatsTable
     from ldsc._annotation.builder import AnnotationBundle
 except ImportError:
     LDScoreResult = None
@@ -97,7 +97,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         genome_build: str | None = None,
     ) -> None:
         """Write a self-describing sumstats parquet carrying identity footer metadata."""
-        from ldsc.sumstats_munger import _sumstats_footer_metadata, _write_sumstats_outputs
+        from ldsc._sumstats.munger import _sumstats_footer_metadata, _write_sumstats_outputs
 
         if frame is None:
             frame = pd.DataFrame({"SNP": ["rs1"], "Z": [1.0], "N": [1000.0]})

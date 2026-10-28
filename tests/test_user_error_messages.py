@@ -59,7 +59,7 @@ def test_missing_saved_result_file_identifies_artifact_and_repair(tmp_path):
 
 def test_all_qc_rows_lost_reports_counts_and_current_options_without_sidecar(tmp_path):
     from ldsc.config import GlobalConfig, MungeConfig
-    from ldsc.sumstats_munger import SumstatsMunger
+    from ldsc._sumstats.munger import SumstatsMunger
 
     source = tmp_path / "raw.tsv"
     source.write_text("SNP A1 A2 P BETA N INFO\n"

@@ -12,7 +12,7 @@ from ldsc import cli
 from ldsc import regression_runner as workflow
 from ldsc.errors import LDSCConfigError, LDSCUsageError
 from ldsc.outputs import H2DirectoryWriter, H2OutputConfig
-from ldsc.sumstats_munger import SumstatsTable
+from ldsc._sumstats.munger import SumstatsTable
 
 
 def h2_dataset():

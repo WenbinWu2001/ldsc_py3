@@ -110,7 +110,7 @@ def test_panel_keep_list_requires_evidence_only_in_auto(tmp_path, requested, fai
 @pytest.mark.parametrize('requested, fails', [('auto', True), ('hg19', False)])
 def test_munge_checks_small_coordinate_keep_list(tmp_path, requested, fails):
     from ldsc import GlobalConfig
-    from ldsc._sumstats_input import _resolve_source_coordinates
+    from ldsc._sumstats.munge_input import _resolve_source_coordinates
     source, keep = tmp_path / 'raw.tsv', tmp_path / 'keep.tsv'
     coordinates(1, 'hg19').to_csv(source, sep='\t', index=False)
     coordinates(1, 'hg38', 2).to_csv(keep, sep='\t', index=False)
@@ -126,7 +126,7 @@ def test_munge_checks_small_coordinate_keep_list(tmp_path, requested, fails):
 
 def test_munge_trusts_the_selected_build_specific_source_column(tmp_path):
     from ldsc import GlobalConfig
-    from ldsc._sumstats_input import _resolve_source_coordinates
+    from ldsc._sumstats.munge_input import _resolve_source_coordinates
     source = tmp_path / 'raw.tsv'
     coordinates(1, 'hg38', 2).rename(columns={'POS': 'hg19_POS'}).to_csv(source, sep='\t', index=False)
     result = _resolve_source_coordinates(source, {'CHR': 'CHR', 'hg19_POS': 'POS'},
@@ -136,7 +136,7 @@ def test_munge_trusts_the_selected_build_specific_source_column(tmp_path):
 
 
 def test_munge_preview_trusts_the_selected_build_specific_source_column(tmp_path):
-    from ldsc.sumstats_munger import main
+    from ldsc._sumstats.munger import main
     source = tmp_path / 'raw.tsv'
     source.write_text('CHR hg19_POS SNP A1 A2 P BETA N\n1 123 rs1 A G 0.05 0.1 1000\n')
     result = main(['--raw-sumstats-file', str(source), '--output-dir', str(tmp_path / 'unused'),
@@ -168,7 +168,7 @@ def test_in_memory_build_labels_are_declarations(requested):
 
 
 def test_munge_preview_rejects_conflicting_source_declaration(tmp_path):
-    from ldsc.sumstats_munger import main
+    from ldsc._sumstats.munger import main
     source = tmp_path / 'raw.tsv'
     source.write_text('CHR hg38_POS SNP A1 A2 P BETA N\n1 123 rs1 A G 0.05 0.1 1000\n')
     result = main(['--raw-sumstats-file', str(source), '--output-dir', str(tmp_path / 'unused'),
@@ -349,7 +349,7 @@ def test_explicit_build_accepts_aliases_and_unlabeled_coordinates_without_infere
 def test_munge_preserves_bzip2_build_validation(tmp_path, declared, fails):
     import bz2
     from ldsc import GlobalConfig
-    from ldsc._sumstats_input import _resolve_source_coordinates
+    from ldsc._sumstats.munge_input import _resolve_source_coordinates
     path = tmp_path / 'raw.tsv.bz2'
     with bz2.open(path, 'wt') as stream:
         stream.write(f'CHR\tPOS\tgenome_build\n1\t123\t{declared}\n')
@@ -409,7 +409,7 @@ def test_ldscore_explicit_build_checks_annotation_metadata(tmp_path):
 
 def test_munge_explicit_source_build_checks_selected_column_and_metadata(tmp_path):
     from ldsc import GlobalConfig
-    from ldsc._sumstats_input import _resolve_source_coordinates
+    from ldsc._sumstats.munge_input import _resolve_source_coordinates
     source = tmp_path / 'raw.tsv'
     source.write_text('CHR\thg38_POS\n1\t123\n')
     with pytest.raises(LDSCInputError, match='raw.tsv'):

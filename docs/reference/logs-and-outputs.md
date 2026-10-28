@@ -338,7 +338,7 @@ Transport/process failures still terminate the phase with a failed event.
 `rg` similarly reports per-trait heritability and pair-fitting totals, retaining pair-specific failure diagnostics.
 Quantile and R² query workflows finish with result counts and table pointers.
 
-Munging emits one immediate warning per invalid P, INFO, or FRQ category within a parsing run, then reports accumulated category counts. Counts can overlap and are separate from exclusive QC removal counts. Subsequent API runs receive their own warnings. The INFO accepted-range message describes the existing [0,2] check; no filter cutoff changed. Complete raw QC row details are not all present in the dropped-SNP sidecar, so the warnings and final QC summary retain their own counts and meaning. Source: `parse_dat()` and `_invalid_value_summary()` in [_kernel/sumstats_munger.py](../../src/ldsc/_kernel/sumstats_munger.py).
+Munging emits one immediate warning per invalid P, INFO, or FRQ category within a parsing run, then reports accumulated category counts. Counts can overlap and are separate from exclusive QC removal counts. Subsequent API runs receive their own warnings. The INFO accepted-range message describes the existing [0,2] check; no filter cutoff changed. Complete raw QC row details are not all present in the dropped-SNP sidecar, so the warnings and final QC summary retain their own counts and meaning. Source: `parse_dat()` and `_invalid_value_summary()` in [_sumstats/munge_kernel.py](../../src/ldsc/_sumstats/munge_kernel.py).
 
 ## LD-score chromosome logs
 

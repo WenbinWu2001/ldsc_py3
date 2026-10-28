@@ -448,7 +448,7 @@ def _load_regression_runner():
 
 def _load_sumstats_munger():
     """Import the munging workflow lazily for SciPy-light entry paths."""
-    from . import sumstats_munger
+    from ._sumstats import munger as sumstats_munger
 
     return sumstats_munger
 

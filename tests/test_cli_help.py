@@ -139,7 +139,7 @@ def test_ldscore_padding_help_warns_against_double_padding(commands):
 
 
 def test_munge_help_and_restriction_exclusion_match_workflow_parser(commands):
-    from ldsc import sumstats_munger
+    from ldsc._sumstats import munger as sumstats_munger
 
     unified = commands["munge-sumstats"]
     assert unified.format_help() == sumstats_munger.build_parser().format_help()

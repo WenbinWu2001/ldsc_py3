@@ -9,8 +9,8 @@
 
 ``ResolvedMungeInput`` supplies the raw reader schema, concrete source build,
 coordinate basis, numeric thresholds and prepared keep-list. Header inference,
-DANER choices and build inference live in ``ldsc._sumstats_input``; CLI parsing
-and artifact writing live in ``ldsc.sumstats_munger``.
+DANER choices and build inference live in ``ldsc._sumstats.munge_input``; CLI parsing
+and artifact writing live in ``ldsc._sumstats.munger``.
 
 ``munge_sumstats`` streams plain/gzip/bzip2 input, normalizes coordinates and
 applies chunk QC and SNP restriction before concatenation. Whole-table sample

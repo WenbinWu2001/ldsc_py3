@@ -43,6 +43,7 @@ import csv
 import gzip
 import logging
 import re
+from os import PathLike
 from pathlib import Path
 from typing import Iterable
 
@@ -363,11 +364,14 @@ def read_global_chr_pos_restriction_key_set(
     )
 
 
-def _open_text(path: Path):
-    """Open a plain-text or gzipped restriction file for text iteration."""
-    if path.suffix.lower() == ".gz":
-        return gzip.open(path, "rt")
-    return open(path, "rt")
+def open_text(path: str | PathLike[str]):
+    """Open a UTF-8 plain-text or gzip-compressed text file for reading.
+
+    A ``.gz`` suffix in any letter case selects gzip.
+    """
+    if str(path).lower().endswith(".gz"):
+        return gzip.open(path, "rt", encoding="utf-8")
+    return open(path, "rt", encoding="utf-8")
 
 
 def _detect_delimiter(sample_line: str) -> str | None:
@@ -381,7 +385,7 @@ def _detect_delimiter(sample_line: str) -> str | None:
 
 def _non_comment_lines(path: Path) -> list[str]:
     """Read non-empty, non-comment lines from a restriction file."""
-    with _open_text(path) as handle:
+    with open_text(path) as handle:
         lines: list[str] = []
         for line in handle:
             stripped = line.lstrip()
@@ -395,7 +399,7 @@ def _non_comment_lines(path: Path) -> list[str]:
 
 def _iter_non_comment_lines(path: Path):
     """Yield non-empty, non-comment lines from a restriction file."""
-    with _open_text(path) as handle:
+    with open_text(path) as handle:
         for line in handle:
             stripped = line.lstrip()
             if not stripped.strip():
@@ -425,7 +429,7 @@ def _iter_restriction_rows(path: Path):
 
 def _read_restriction_header(path: Path) -> list[str]:
     """Read only the first non-comment restriction-file row as a header."""
-    with _open_text(path) as handle:
+    with open_text(path) as handle:
         for line in handle:
             stripped = line.lstrip()
             if not stripped.strip():

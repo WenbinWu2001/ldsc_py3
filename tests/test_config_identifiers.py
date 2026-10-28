@@ -864,3 +864,19 @@ def test_refpanelconfig_region_fields_are_removed():
             ReferencePanelBuildConfig(
                 plink_prefix="x", output_dir="o", ld_wind_snps=1, **{field: ("mhc",)}
             )
+
+
+def test_open_text_reads_utf8_and_any_case_gzip_suffix(tmp_path):
+    import gzip
+
+    from ldsc._core.identifiers import open_text
+
+    plain = tmp_path / "genes.tsv"
+    plain.write_bytes("SNP\nrs1é\n".encode("utf-8"))
+    compressed = tmp_path / "genes.TSV.GZ"
+    with gzip.open(compressed, "wt", encoding="utf-8") as handle:
+        handle.write("SNP\nrs1é\n")
+
+    for path in (plain, compressed, str(compressed)):
+        with open_text(path) as handle:
+            assert handle.read() == "SNP\nrs1é\n"

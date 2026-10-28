@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import gzip
 import logging
 import re
 from dataclasses import dataclass
@@ -14,6 +13,7 @@ import pandas as pd
 
 from .._core.coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from .._core.chromosomes import chrom_sort_key, normalize_chromosome
+from .._core.identifiers import open_text
 from .._core.columns import (
     CHR_COLUMN_SPEC,
     POS_COLUMN_SPEC,
@@ -44,14 +44,6 @@ GENETIC_MAP_CM_SPEC = ColumnSpec(
     "genetic map centiMorgan",
 )
 
-def _open_text(path: str | PathLike[str]):
-    """Open a plain-text or gzip-compressed text file for reading."""
-    text_path = str(path)
-    if text_path.endswith(".gz"):
-        return gzip.open(text_path, "rt", encoding="utf-8")
-    return open(text_path, "rt", encoding="utf-8")
-
-
 def _read_text_table(path: str | PathLike[str]) -> pd.DataFrame:
     """Read a whitespace-delimited plain-text or gzip-compressed table."""
     text_path = str(path)
@@ -62,7 +54,7 @@ def _read_text_table(path: str | PathLike[str]) -> pd.DataFrame:
 def _read_non_comment_lines(path: str | PathLike[str], limit: int = 5) -> list[str]:
     """Return up to ``limit`` non-empty, non-comment lines from ``path``."""
     lines: list[str] = []
-    with _open_text(path) as handle:
+    with open_text(path) as handle:
         for line in handle:
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):

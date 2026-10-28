@@ -128,7 +128,7 @@ def _alignment(args, bundle, metadata, store, diagnostics, reference_paths, targ
     intersection = "EXISTS (SELECT 1 FROM fitted f WHERE f.effective_snp_id=r.effective_snp_id)"
     n_all = store.scalar(f"SELECT count(*) FROM reference r WHERE {intersection}")
     _validate_universe(metadata, "all", n_all)
-    for frame in target_chunks(target_paths, args.target_annotation, getattr(args, "target_missing_value", None)):
+    for frame in target_chunks(target_paths, args.target_annot_column, getattr(args, "target_missing_value", None)):
         frame["effective_snp_id"] = _infer_keys(store, frame, mode, "target annotation", diagnostics, reference_source)
         store.append("target", frame)
     if store.duplicates(diagnostics, "target", target_source):
@@ -214,7 +214,7 @@ def prepare_quantile_statistics(args, model, workspace, diagnostics):
         full_sums, mean, m2 = (np.zeros(p) for _ in range(3))
         products, seen = np.zeros((p, p)), 0
         same_name_mismatch = False
-        target_index = model.annotation_names.index(args.target_annotation) if args.target_annotation in model.annotation_names else None
+        target_index = model.annotation_names.index(args.target_annot_column) if args.target_annot_column in model.annotation_names else None
         for values, aligned in _common_values(bundle, model.annotation_names, store, joins, threshold):
             n = len(values)
             local_mean = values.mean(axis=0)
@@ -234,7 +234,7 @@ def prepare_quantile_statistics(args, model, workspace, diagnostics):
             del values, centered, aligned, eligible, target_values
         _validate_aggregates(model, metadata, full_sums, products)
         if same_name_mismatch:
-            raise LDSCInputError(f"Target annotation '{args.target_annotation}' matches a fitted annotation name but its values differ. Supply the same values or rename the external target annotation.")
+            raise LDSCInputError(f"Target annotation '{args.target_annot_column}' matches a fitted annotation name but its values differ. Supply the same values or rename the external target annotation.")
         q = args.num_quantiles
         if int(q) != q or q < 2:
             raise LDSCInputError("quantile-h2 requires --num-quantiles to be an integer of at least 2.")

@@ -36,7 +36,7 @@ def target_chunks(paths, target_annotation, missing_token):
             if target_annotation not in header:
                 raise LDSCInputError(
                     f"Target annotation '{target_annotation}' is absent from '{path}'. Choose an existing column "
-                    "with --target-annotation or supply the correct --target-annot-sources."
+                    "with --target-annot-column or supply the correct --target-annot-sources."
                 )
             a1 = resolve_optional_column(header, A1_COLUMN_SPEC, context=path)
             a2 = resolve_optional_column(header, A2_COLUMN_SPEC, context=path)

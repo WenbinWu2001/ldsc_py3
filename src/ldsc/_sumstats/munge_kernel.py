@@ -84,7 +84,7 @@ class MungeQC:
 
     info_min: float | None = None
     maf_min: float | None = None
-    n_min: float | None = None
+    N_min: float | None = None
     nstudy_min: float | None = None
     N: float | None = None
     N_cas: float | None = None
@@ -618,11 +618,11 @@ def process_n(dat, qc: MungeQC):
         # NB no filtering on N done here -- that is done in the next code block
 
     if 'N' in dat.columns:
-        n_min = qc.n_min if qc.n_min else dat.N.quantile(0.9) / 1.5
+        N_min = qc.N_min if qc.N_min else dat.N.quantile(0.9) / 1.5
         old = len(dat)
-        dat = dat[dat.N >= n_min].reset_index(drop=True)
+        dat = dat[dat.N >= N_min].reset_index(drop=True)
         new = len(dat)
-        LOGGER.info(f"Removed {old - new} SNPs with N < {n_min} ({new} SNPs remain).")
+        LOGGER.info(f"Removed {old - new} SNPs with N < {N_min} ({new} SNPs remain).")
 
     elif 'NSTUDY' in dat.columns and 'N' not in dat.columns:
         nstudy_min = qc.nstudy_min if qc.nstudy_min else dat.NSTUDY.max()

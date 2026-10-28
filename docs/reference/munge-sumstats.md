@@ -113,7 +113,7 @@ file with `N`, `NCAS`, and `NCON` must choose either `--N-col N` or
 case/control pair, or only a nonstandard direct column selected with `--N-col`
 retain their existing behavior.
 
-Constant `--N`, `--N-cas`, and `--N-con` remain fallbacks: per-variant N or case/control columns take precedence. Otherwise use `--N`, or the sum of both case/control constants. For per-variant N, the default `--n-min` is the 90th percentile divided by 1.5; zero also selects this default. Constant N is assigned after filtering and bypasses `--n-min`. These rules preserve legacy LDSC `process_n` behavior; see the [legacy source comparison](legacy-flag-map.md#legacy-behavior-explicitly-retained). The existing `--chunksize` spelling and current 1,000,000-row default are retained.
+Constant `--N`, `--N-cas`, and `--N-con` remain fallbacks: per-variant N or case/control columns take precedence. Otherwise use `--N`, or the sum of both case/control constants. For per-variant N, the default `--N-min` is the 90th percentile divided by 1.5; zero also selects this default. Constant N is assigned after filtering and bypasses `--N-min`. These rules preserve legacy LDSC `process_n` behavior; see the [legacy source comparison](legacy-flag-map.md#legacy-behavior-explicitly-retained). The existing `--chunksize` spelling and current 1,000,000-row default are retained.
 
 ## Genome-Build Contract
 

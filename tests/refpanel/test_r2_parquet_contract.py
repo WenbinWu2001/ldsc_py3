@@ -75,9 +75,9 @@ DEFECTS = {
     # The unbiased correction divides by n - 2, so fewer than 3 samples cannot be decoded.
     "two samples": (dict(set_meta={b"ldsc:n_samples": b"2"}), "ldsc:n_samples"),
     "missing window": (dict(drop=[b"ldsc:ld_window_mode", b"ldsc:ld_window_value"]), "ldsc:ld_window_mode"),
-    "missing pair floor": (dict(drop=[b"ldsc:min_r2"]), "ldsc:min_r2"),
-    "non-numeric pair floor": (dict(set_meta={b"ldsc:min_r2": b"none"}), "ldsc:min_r2"),
-    "pair floor above one": (dict(set_meta={b"ldsc:min_r2": b"1.5"}), "ldsc:min_r2"),
+    "missing pair floor": (dict(drop=[b"ldsc:r2_min"]), "ldsc:r2_min"),
+    "non-numeric pair floor": (dict(set_meta={b"ldsc:r2_min": b"none"}), "ldsc:r2_min"),
+    "pair floor above one": (dict(set_meta={b"ldsc:r2_min": b"1.5"}), "ldsc:r2_min"),
     "missing binding": (dict(drop=[b"ldsc:sidecar_identity_sha256"]), "ldsc:sidecar_identity_sha256"),
     "missing identity": (dict(drop=[b"ldsc:artifact_type"]), "ldsc:artifact_type"),
 }

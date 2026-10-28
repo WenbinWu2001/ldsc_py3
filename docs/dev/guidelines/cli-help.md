@@ -91,7 +91,7 @@ The poor descriptions below are existing text or representative paraphrases. Imp
 | Unspecified logging behavior | `--log-level`: “Logging verbosity.” | Explain all four levels, `INFO` as the default, and the workflow log as the destination; see the full example below. |
 | Missing boolean default and output location | “Write a reference-metadata sidecar next to the LD-score output.” | “Write reference-panel SNP metadata to `ref_metadata/chrN_meta.tsv.gz` under the output directory. Applies to PLINK input only. Default: off; these additional files are not written.” |
 | Ambiguous window unit | “LD window size in SNPs.” | “LD window on either side of each SNP, measured by SNP count in the retained reference panel. No default; specify exactly one of `--ld-wind-snps`, `--ld-wind-kb`, or `--ld-wind-cm`.” This example describes direct `ldscore`. |
-| Implementation default instead of omission behavior | `--n-min`: “Default: None.” | “Minimum per-variant sample size. If omitted or zero, use the 90th percentile of N divided by 1.5. Constant sample sizes are not filtered.” |
+| Implementation default instead of omission behavior | `--N-min`: “Default: None.” | “Minimum per-variant sample size. If omitted or zero, use the 90th percentile of N divided by 1.5. Constant sample sizes are not filtered.” |
 | Hidden required companion | `--N-cas-col`: “Case-count column.” | “Name of the per-variant case-count column. Requires `--N-con-col`; cannot be combined with `--N-col`.” Also explain inference and selection precedence in the complete description. |
 | Fallback incorrectly called an override | `--N`: “Override sample size.” | “Constant sample-size fallback when per-variant N or paired case/control columns are absent. Input columns take precedence; this value takes precedence over `--N-cas`/`--N-con`.” |
 | Unqualified mode-dependent default | `--padding-bp`: “Default: 0.” | “For BED inputs, omission means 0. Direct gene-list input requires an explicit value, including 0 to use gene bodies.” Include the flag's purpose and other applicable mode restrictions. |
@@ -116,7 +116,7 @@ Public CLI options and Python configuration fields follow these suffix rules:
 | `*_sources` | One logical input that may resolve to several files, through globs, comma lists or `@` chromosome suites where the option supports them. | `baseline_annot_sources`, `query_annot_bed_sources`, `query_annot_gene_list_sources` |
 | `*_dir` | A directory, as input or as output location. | `ldscore_dir`, `result_dir`, `h2_result_dir`, `output_dir` |
 
-Established names outside these rules: `--plink-prefix`, `--pairs`, `--prevalence-manifest` and `--target-annotation`.
+Established names outside these rules: `--plink-prefix`, `--pairs-file`, `--prevalence-manifest` and `--target-annot-column`.
 
 Naming decisions to keep:
 

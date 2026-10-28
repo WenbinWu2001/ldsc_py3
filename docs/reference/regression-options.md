@@ -102,7 +102,7 @@ instead of the two-step estimator.
 
 | Parameter (CLI / config) | Backbone role | How to choose (empirical) |
 |---|---|---|
-| `--n-blocks` / `n_blocks` | Number of block-jackknife blocks for standard errors | Default `200` is the published setting and is almost always correct. Only worth revisiting with unusually small SNP sets (blocks become tiny) — keep the default otherwise. |
+| `--num-blocks` / `num_blocks` | Number of block-jackknife blocks for standard errors | Default `200` is the published setting and is almost always correct. Only worth revisiting with unusually small SNP sets (blocks become tiny) — keep the default otherwise. |
 | `--count-kind` / `use_common_counts` | Selects `M`, the heritability denominator: `common` = common-SNP count (`.M_5_50`, MAF ≥ 5%), `all` = all-SNP count (`.M`) | Use `common` (default) to match standard LDSC heritability reported in the literature. Use `all` only if your LD scores and target heritability are defined over the full SNP set. |
 | `--intercept-h2` / `intercept_h2` | Fixes the heritability intercept to a specific value | Use to pin the intercept to a value from a prior unconstrained run, or to a known stratification level. Leave unset to estimate. |
 | `--intercept-gencov` / `intercept_gencov` (`rg` only) | Fixes the genetic-covariance intercept (sample-overlap term) | Use a fixed value only when justified by the analysis; `0` requests the standard fixed covariance intercept. Single-annotation fits also require a fixed `--intercept-h2`, because automatic two-step estimation otherwise conflicts. Leave unset to estimate it. |
@@ -161,7 +161,7 @@ annotations equals the number of retained baseline LD-score columns
 | Two-step estimator | **On** when single-annotation (`n_annot == 1`), `--two-step-cutoff` unset, and the intercept is free → `twostep = 30`. Disabled if the intercept is fixed (`--intercept-h2`). |
 | `chisq_max` | **No cap** when single-annotation (the two-step estimator handles outliers). When multi-annotation (a baseline directory with several annotations), the partitioned default cap applies — see Section 4. An explicit `--chisq-max` always applies and is reported. |
 | Counts | Common-SNP counts (`--count-kind common`). |
-| Jackknife | `n_blocks = 200`. |
+| Jackknife | `num_blocks = 200`. |
 
 Reported diagnostics (`diagnostics/metadata.json`) include the **post-filter** SNP count (`n_snps`), the `effective_chisq_max` actually applied (`null` when uncapped), and `n_blocks_used`.
 These values come from the internal fit outcome, which retains the ordered final SNP population and annotation columns.
@@ -185,7 +185,7 @@ scores.
 | Genetic-covariance intercept | Estimated freely; `--intercept-gencov` fixes the sample-overlap term. |
 | Two-step estimator | **On** for the genetic-correlation fit when single-annotation, `--two-step-cutoff` unset, and the heritability intercept is free → `twostep = 30` (matches legacy `estimate_rg`). |
 | `chisq_max` | **No default cap** (matches legacy LDSC `_rg`). The filter is opt-in: when `--chisq-max` is given, SNPs are dropped on the **product** `Z₁²·Z₂² ≤ chisq_max²`. |
-| Counts / Jackknife | Common-SNP counts; `n_blocks = 200`. |
+| Counts / Jackknife | Common-SNP counts; `num_blocks = 200`. |
 
 Per-pair metadata reports the post-filter `n_snps_used` / `n_blocks_used` and an
 `effective_chisq_max` field. Because `rg` has no default cap, that field simply
@@ -249,7 +249,7 @@ The earlier [query-worker benchmark](../dev/validation/performance.md#partitione
 | Two-step estimator | **Off** — not applicable to multi-annotation models (the kernel rejects it). |
 | `chisq_max` | **Default cap `max(0.001 · N.max(), 80)`** when `--chisq-max` is unset, to keep extreme-`χ²` SNPs from dominating the regression. The cap is inclusive (`χ² ≤ cap`); dropped SNPs are logged as `Removed N SNPs with chi^2 > C (...)`. An explicit `--chisq-max` overrides the default. |
 | Counts | Common-SNP counts. `N.max()` for the cap is taken **before** filtering. |
-| Jackknife | `n_blocks = 200`. |
+| Jackknife | `num_blocks = 200`. |
 
 Reported diagnostics: the cell-type regime records per-query `n_snps` +
 `effective_chisq_max`; the functional regime records the same pair in the

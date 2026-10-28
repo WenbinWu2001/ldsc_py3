@@ -27,7 +27,7 @@ def commands():
     ("ldscore", [], "strict"),
     ("quantile-h2", ["--partitioned-h2-result-dir", "results",
                      "--target-annot-sources", "target.annot.gz",
-                     "--target-annotation", "target",
+                     "--target-annot-column", "target",
                      "--baseline-annot-sources", "baseline.annot.gz",
                      "--ref-metadata-sources", "ref.tsv.gz"], "strict"),
 ])

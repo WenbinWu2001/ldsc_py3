@@ -54,7 +54,7 @@ Ordinary BED inputs remain unchecked and inherit that build.
 The command deliberately does not copy original annotation matrices into regression results. Users resupply:
 
 - every original fitted annotation source with `--baseline-annot-sources` and, for a per-query model, the matching query source flag;
-- the target source with `--target-annot-sources` and its unique column name with `--target-annotation`; and
+- the target source with `--target-annot-sources` and its unique column name with `--target-annot-column`; and
 - reference metadata with `--ref-metadata-sources`.
 
 Path arguments accept exact files, globs, `@` chromosome placeholders, and existing path-token conventions.

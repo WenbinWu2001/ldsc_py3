@@ -61,7 +61,7 @@ def build_test_panel(
         snp_identifier=snp_identifier,
         n_snps=len(sidecar),
         sidecar_identity_sha256=identity_hash,
-        min_r2=0.0,
+        r2_min=0.0,
         ld_window_mode="kb",
         ld_window_value=1000.0,
     )
@@ -375,7 +375,7 @@ class TestQueryR2MatrixCLI:
     def _argv(self, tmp_path, pairs_path, *extra):
         return [
             "query-r2-matrix", "--r2-matrix-dir", str(tmp_path), "--genome-build", "hg38",
-            "--pairs", str(pairs_path), *extra,
+            "--pairs-file", str(pairs_path), *extra,
         ]
 
     def test_requires_output_dir(self, tmp_path, capsys):

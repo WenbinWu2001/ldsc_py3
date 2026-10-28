@@ -1041,7 +1041,7 @@ def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, Mun
         N_con=getattr(args, "N_con", None),
         info_min=args.info_min,
         maf_min=args.maf_min,
-        n_min=getattr(args, "n_min", None),
+        N_min=getattr(args, "N_min", None),
         nstudy_min=getattr(args, "nstudy_min", None),
         chunk_size=args.chunksize,
         output_format=args.output_format,
@@ -1226,7 +1226,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     filters.add_argument(
-        '--n-min', default=None, type=float, metavar='VALUE',
+        '--N-min', default=None, type=float, metavar='VALUE',
         help=(
             'Minimum per-SNP sample size to retain. If omitted or zero, use the 90th percentile of N '
             'divided by 1.5. Constant sample sizes are assigned after this filter and are not filtered.'

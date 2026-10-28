@@ -82,7 +82,7 @@ The result preserves input rows and columns and writes `r2`, `sign_r`, `r`, and 
   active mode (including invalid/ambiguous query alleles in allele-aware mode).
 - `cross_chromosome` — both endpoints resolved, but to different chromosomes.
 - `absent` — both endpoints are on the same chromosome but the pair is not stored
-  (outside the R² matrix's LD window or below its `min_r2` floor).
+  (outside the R² matrix's LD window or below its `r2_min` floor).
 
 A pair whose two endpoints resolve to the same R² matrix SNP (the diagonal) returns
 `r2 = 1.0` with empty `status`.
@@ -120,11 +120,11 @@ Both produce identical results.
 
 ```
 ldsc query-r2-matrix --r2-matrix-dir DIR
-              --pairs FILE --output-dir DIR [--overwrite] [--log-level LEVEL]
+              --pairs-file FILE --output-dir DIR [--overwrite] [--log-level LEVEL]
               [--snp-identifier MODE] [--genome-build {hg19,hg38}]
 ```
 
-`--pairs` is a TSV/CSV with the `_1`/`_2` endpoint columns (`-` reads stdin). The
+`--pairs-file` is a TSV/CSV with the `_1`/`_2` endpoint columns (`-` reads stdin). The
 result echoes the input columns plus `r2`, `sign_r`, `r`, and `status`.
 
 `query-r2-matrix` requires `--output-dir` and follows the canonical result-directory
@@ -135,5 +135,5 @@ layout shared by the other commands: `query_r2_matrix.tsv` at the root, plus
 ```bash
 # Canonical result directory
 ldsc query-r2-matrix --r2-matrix-dir r2_matrix --genome-build hg38 \
-    --pairs pairs.tsv --output-dir pairs_r2
+    --pairs-file pairs.tsv --output-dir pairs_r2
 ```

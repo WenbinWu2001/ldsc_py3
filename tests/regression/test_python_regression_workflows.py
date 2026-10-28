@@ -36,7 +36,7 @@ _REQUIRED = {
     "run_partitioned_h2": {"sumstats_file": "trait.parquet", "ldscore_dir": "ld"},
     "run_rg": {"sumstats_sources": ["a.parquet", "b.parquet"], "ldscore_dir": "ld"},
     "run_quantile_h2": {
-        "partitioned_h2_result_dir": "fit", "target_annot_sources": ["target.tsv"], "target_annotation": "target",
+        "partitioned_h2_result_dir": "fit", "target_annot_sources": ["target.tsv"], "target_annot_column": "target",
         "baseline_annot_sources": ["baseline.tsv"], "ref_metadata_sources": ["ref.tsv"],
     },
 }
@@ -91,9 +91,9 @@ def test_a_failed_python_overwrite_leaves_a_marker_naming_the_python_function(tm
 def test_run_h2_saves_the_result_the_h2_command_saves(tmp_path):
     ldscore_dir, sumstats = _inputs(tmp_path)
     cli.main(["h2", "--ldscore-dir", ldscore_dir, "--sumstats-file", sumstats,
-              "--output-dir", str(tmp_path / "cli"), "--n-blocks", "6"])
+              "--output-dir", str(tmp_path / "cli"), "--num-blocks", "6"])
 
-    summary = ldsc.run_h2(ldscore_dir=ldscore_dir, sumstats_file=sumstats, output_dir=str(tmp_path / "py"), n_blocks=6)
+    summary = ldsc.run_h2(ldscore_dir=ldscore_dir, sumstats_file=sumstats, output_dir=str(tmp_path / "py"), num_blocks=6)
 
     for name in ("h2.tsv", "diagnostics/ld_score_regression_bins.tsv"):
         pd.testing.assert_frame_equal(_table(tmp_path / "py" / name), _table(tmp_path / "cli" / name))
@@ -105,7 +105,7 @@ def test_run_h2_saves_the_result_the_h2_command_saves(tmp_path):
 def test_a_python_h2_result_can_be_converted_and_plotted(tmp_path):
     ldscore_dir, sumstats = _inputs(tmp_path)
     result_dir = tmp_path / "h2"
-    ldsc.run_h2(ldscore_dir=ldscore_dir, sumstats_file=sumstats, output_dir=str(result_dir), n_blocks=6)
+    ldsc.run_h2(ldscore_dir=ldscore_dir, sumstats_file=sumstats, output_dir=str(result_dir), num_blocks=6)
 
     conversion = ldsc.convert_h2_scale(result_dir, samp_prev=0.5, pop_prev=0.01)
     plot = ldsc.plot_result(result_dir)
@@ -117,10 +117,10 @@ def test_a_python_h2_result_can_be_converted_and_plotted(tmp_path):
 def test_run_partitioned_h2_saves_the_command_result_and_returns_every_query_status(tmp_path):
     ldscore_dir, sumstats = _inputs(tmp_path)
     cli.main(["partitioned-h2", "--ldscore-dir", ldscore_dir, "--sumstats-file", sumstats,
-              "--output-dir", str(tmp_path / "cli"), "--n-blocks", "6", "--query-batch-size", "2"])
+              "--output-dir", str(tmp_path / "cli"), "--num-blocks", "6", "--query-batch-size", "2"])
 
     result = ldsc.run_partitioned_h2(
-        ldscore_dir=ldscore_dir, sumstats_file=sumstats, output_dir=str(tmp_path / "py"), n_blocks=6, query_batch_size=2,
+        ldscore_dir=ldscore_dir, sumstats_file=sumstats, output_dir=str(tmp_path / "py"), num_blocks=6, query_batch_size=2,
     )
 
     pd.testing.assert_frame_equal(_table(tmp_path / "py" / "partitioned_h2.tsv"), _table(tmp_path / "cli" / "partitioned_h2.tsv"))
@@ -143,10 +143,10 @@ def _rg_inputs(tmp_path):
 def test_run_rg_takes_prevalence_lists_and_saves_the_command_result(tmp_path):
     ldscore_dir, sumstats = _rg_inputs(tmp_path)
     cli.main(["rg", "--ldscore-dir", ldscore_dir, "--sumstats-sources", *sumstats, "--output-dir", str(tmp_path / "cli"),
-              "--n-blocks", "6", "--samp-prev", "0.5,nan", "--pop-prev", "0.01,nan"])
+              "--num-blocks", "6", "--samp-prev", "0.5,nan", "--pop-prev", "0.01,nan"])
 
     result = ldsc.run_rg(
-        ldscore_dir=ldscore_dir, sumstats_sources=sumstats, output_dir=str(tmp_path / "py"), n_blocks=6,
+        ldscore_dir=ldscore_dir, sumstats_sources=sumstats, output_dir=str(tmp_path / "py"), num_blocks=6,
         samp_prev=[0.5, float("nan")], pop_prev=[0.01, float("nan")],
     )
 

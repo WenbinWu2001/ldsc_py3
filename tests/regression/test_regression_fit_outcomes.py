@@ -35,7 +35,7 @@ def _intercept_cli_config(command, flags):
               else ["--sumstats-file", "one.parquet"])
     args = cli.build_parser().parse_args([
         command, *inputs, "--ldscore-dir", "ldscores", "--output-dir", "results",
-        "--n-blocks", "6", *flags,
+        "--num-blocks", "6", *flags,
     ])
     return workflow._runner_from_args(args)[1]
 
@@ -70,7 +70,7 @@ def test_explicit_cli_intercepts_preserve_standard_fixed_fit(command):
     flags = ["--intercept-h2", "1"] + (["--intercept-gencov", "0"] if command == "rg" else [])
     actual = _intercept_fit(command, _intercept_cli_config(command, flags))
     # The retained public Python shortcut supplies the established numerical reference.
-    expected = _intercept_fit(command, RegressionConfig(n_blocks=6, use_intercept=False))
+    expected = _intercept_fit(command, RegressionConfig(num_blocks=6, use_intercept=False))
     pairs = ([(actual.hsq1, expected.hsq1, 1), (actual.hsq2, expected.hsq2, 1),
               (actual.gencov, expected.gencov, 0)] if command == "rg" else [(actual, expected, 1)])
     for fitted, reference, intercept in pairs:
@@ -107,7 +107,7 @@ def test_cli_intercept_consolidation_preserves_two_step_rejections(command, flag
 @pytest.mark.parametrize('intercept', [None, 1.0])
 def test_h2_fit_outcome_and_written_bins_use_exact_final_population(tmp_path, intercept):
     dataset = h2_dataset()
-    config = RegressionConfig(chisq_max=100, n_blocks=6, intercept_h2=intercept)
+    config = RegressionConfig(chisq_max=100, num_blocks=6, intercept_h2=intercept)
     runner = workflow.RegressionRunner(GlobalConfig(snp_identifier='rsid'), config)
     outcome = runner._fit_h2_dataset(dataset)
     assert isinstance(outcome.estimator, workflow.reg.Hsq)
@@ -152,7 +152,7 @@ def test_rg_outcome_uses_explicit_product_filter_not_h2_cap():
         'reference_snp_count_totals', 'count_key_used_for_regression', 'chromosomes_aggregated', 'config_snapshot',
     )}
     dataset = workflow.RGRegressionDataset(merged=merged, trait_names=['one', 'two'], **fields)
-    runner = workflow.RegressionRunner(GlobalConfig(snp_identifier='rsid'), RegressionConfig(chisq_max=10, n_blocks=5, use_intercept=False))
+    runner = workflow.RegressionRunner(GlobalConfig(snp_identifier='rsid'), RegressionConfig(chisq_max=10, num_blocks=5, use_intercept=False))
     outcome = runner._fit_rg_dataset(dataset)
     assert isinstance(outcome.estimator, workflow.reg.RG)
     assert outcome.dataset.merged.SNP.tolist() == ['rs0'] + [f'rs{i}' for i in range(2, 60)]
@@ -160,7 +160,7 @@ def test_rg_outcome_uses_explicit_product_filter_not_h2_cap():
     assert outcome.n_blocks == 5
     assert outcome.effective_chisq_max == 10
     assert len(dataset.merged) == 60
-    uncapped = runner._fit_rg_dataset(dataset, RegressionConfig(n_blocks=5, use_intercept=False))
+    uncapped = runner._fit_rg_dataset(dataset, RegressionConfig(num_blocks=5, use_intercept=False))
     assert uncapped.n_snps == 60
     assert uncapped.effective_chisq_max is None
 
@@ -177,7 +177,7 @@ def test_partitioned_default_cap_uses_prefilter_sample_size_and_retains_annotati
         dataset, merged=merged, ref_ld_columns=['base', 'query'], retained_ld_columns=['base', 'query'],
         reference_snp_count_totals={'common_reference_snp_counts': np.array([1000., 100.])},
     )
-    runner = workflow.RegressionRunner(GlobalConfig(snp_identifier='rsid'), RegressionConfig(n_blocks=6))
+    runner = workflow.RegressionRunner(GlobalConfig(snp_identifier='rsid'), RegressionConfig(num_blocks=6))
     outcome = runner._fit_h2_dataset(dataset)
     assert outcome.effective_chisq_max == 400
     assert outcome.dataset.merged.SNP.tolist() == [f'rs{i}' for i in range(1, 60)]

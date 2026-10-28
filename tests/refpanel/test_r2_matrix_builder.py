@@ -335,7 +335,7 @@ class PairwiseEmissionTest(unittest.TestCase):
 
     def test_min_r2_default_keeps_negative_unbiased_pairs(self):
         # col0 == col1 (corr=1 -> R2=1.0); col2 uncorrelated with both
-        # (corr=0 -> unbiased R2 = -0.5). Default min_r2 must keep the negatives.
+        # (corr=0 -> unbiased R2 = -0.5). Default r2_min must keep the negatives.
         standardized = np.array(
             [
                 [-1.0, -1.0, -1.0],
@@ -374,7 +374,7 @@ class PairwiseEmissionTest(unittest.TestCase):
             standardized_snp_getter=_SequentialSNPGetter(standardized),
             m=3,
             n=4,
-            min_r2=0.5,
+            r2_min=0.5,
         )
         by_pair = {(r["i"], r["j"]): r["R2"] for r in rows}
         self.assertEqual(set(by_pair), {(0, 1)})
@@ -500,15 +500,15 @@ class StandardTableFormattingTest(unittest.TestCase):
                 snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
                 ld_window_mode="kb", ld_window_value=1000.0,
             )
-            self.assertEqual(pq.read_schema(str(default_path)).metadata[b"ldsc:min_r2"], b"0.0")
+            self.assertEqual(pq.read_schema(str(default_path)).metadata[b"ldsc:r2_min"], b"0.0")
 
             filtered_path = Path(tmpdir) / "filtered.parquet"
             r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks([]), path=filtered_path, genome_build="hg19", n_samples=10,
-                snp_identifier="chr_pos", min_r2=0.3, n_snps=2, sidecar_identity_sha256="0" * 64,
+                snp_identifier="chr_pos", r2_min=0.3, n_snps=2, sidecar_identity_sha256="0" * 64,
                 ld_window_mode="kb", ld_window_value=1000.0,
             )
-            self.assertEqual(pq.read_schema(str(filtered_path)).metadata[b"ldsc:min_r2"], b"0.3")
+            self.assertEqual(pq.read_schema(str(filtered_path)).metadata[b"ldsc:r2_min"], b"0.3")
 
     def test_write_r2_parquet_requires_ld_window_record(self):
         # Readers reject panels without a build window, so the writer must not
@@ -3168,7 +3168,7 @@ class IndexWriterTest(unittest.TestCase):
             path = Path(tmp) / "hg19" / "chr1_r2.parquet"
             r2_format.write_r2_parquet(
                 pair_chunks=dict_chunks(self._rows()), path=path, genome_build="hg19",
-                n_samples=100, snp_identifier="chr_pos", min_r2=0.0,
+                n_samples=100, snp_identifier="chr_pos", r2_min=0.0,
                 n_snps=3, sidecar_identity_sha256="deadbeef" * 8,
                 ld_window_mode="kb", ld_window_value=1000.0,
             )
@@ -3191,7 +3191,7 @@ class IndexWriterTest(unittest.TestCase):
             with self.assertRaisesRegex(LDSCInternalError, "non-decreasing IDX_1"):
                 r2_format.write_r2_parquet(
                     pair_chunks=dict_chunks(bad), path=path, genome_build="hg19", n_samples=100,
-                    snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
+                    snp_identifier="chr_pos", r2_min=0.0, n_snps=4,
                     sidecar_identity_sha256="0" * 64,
                     ld_window_mode="kb", ld_window_value=1000.0,
                 )

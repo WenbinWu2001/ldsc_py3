@@ -845,7 +845,7 @@ class RegressionRunner:
         config = config or self.regression_config
         merged = dataset.merged
         n_snp = len(merged)
-        n_blocks = min(n_snp, config.n_blocks)
+        n_blocks = min(n_snp, config.num_blocks)
         chisq = np.asarray(merged["Z"] ** 2).reshape((n_snp, 1))
         # N.max() is read pre-filter so the partitioned default cap matches legacy.
         chisq_max = _resolve_default_chisq_max(
@@ -858,7 +858,7 @@ class RegressionRunner:
                 merged = merged.loc[keep]
                 merged.index = pd.RangeIndex(len(merged))
                 n_snp = len(merged)
-                n_blocks = min(n_snp, config.n_blocks)
+                n_blocks = min(n_snp, config.num_blocks)
                 chisq = chisq[keep]
                 LOGGER.log(log_level,
                     "Removed %d SNPs with chi^2 > %g (%d SNPs remain).",
@@ -1263,7 +1263,7 @@ class RegressionRunner:
             keep = np.ravel((merged["Z1"] ** 2) * (merged["Z2"] ** 2) <= config.chisq_max ** 2)
             merged = merged.loc[keep].reset_index(drop=True)
             n_snp = len(merged)
-        n_blocks = min(n_snp, config.n_blocks)
+        n_blocks = min(n_snp, config.num_blocks)
         intercept_hsq = _select_intercept(config.intercept_h2, use_intercept=config.use_intercept, default_when_disabled=1)
         intercept_gencov = _select_intercept(
             config.intercept_gencov,
@@ -3280,7 +3280,7 @@ def run_h2(**kwargs) -> pd.DataFrame:
     arguments are the command's option names without the leading ``--``:
     ``sumstats_file``, ``ldscore_dir`` and ``output_dir`` are required;
     ``trait_name``, ``count_kind``, ``intercept_h2``, ``two_step_cutoff``,
-    ``chisq_max``, ``n_blocks``, ``allow_identity_downgrade``, ``samp_prev``,
+    ``chisq_max``, ``num_blocks``, ``allow_identity_downgrade``, ``samp_prev``,
     ``pop_prev`` and ``overwrite`` are optional and default to the command's
     defaults. Run the call under ``if __name__ == "__main__":`` because the
     fit runs in a spawned worker.
@@ -3323,7 +3323,7 @@ def run_partitioned_h2(**kwargs) -> PartitionedH2BatchResult:
     files. Keyword arguments are the command's option names without the
     leading ``--``: ``sumstats_file``, ``ldscore_dir`` and ``output_dir`` are
     required; ``trait_name``, ``count_kind``, ``intercept_h2``,
-    ``two_step_cutoff``, ``chisq_max``, ``n_blocks``,
+    ``two_step_cutoff``, ``chisq_max``, ``num_blocks``,
     ``allow_identity_downgrade``, ``samp_prev``, ``pop_prev``,
     ``summary_sort_by``, ``workers``, ``query_batch_size``,
     ``continue_on_query_error`` and ``overwrite`` are optional and default to
@@ -3374,7 +3374,7 @@ def run_rg(**kwargs) -> RgResultFamily:
     ``sumstats_sources`` (two or more munged summary-statistics paths or
     ``*`` patterns), ``ldscore_dir`` and ``output_dir`` are required;
     ``anchor_trait``, ``count_kind``, ``intercept_h2``, ``intercept_gencov``,
-    ``two_step_cutoff``, ``chisq_max``, ``n_blocks``,
+    ``two_step_cutoff``, ``chisq_max``, ``num_blocks``,
     ``allow_identity_downgrade``, ``samp_prev``, ``pop_prev``,
     ``prevalence_manifest``, ``write_per_pair_detail`` and ``overwrite`` are
     optional and default to the command's defaults. Run the call under
@@ -3534,7 +3534,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool):
             ),
         )
     advanced.add_argument(
-        '--n-blocks', type=int, default=200, metavar='N',
+        '--num-blocks', type=int, default=200, metavar='N',
         help=(
             'Number of SNP blocks for jackknife standard errors; must be at least 2. Default: 200, capped '
             'at the number of retained SNPs.'
@@ -3714,7 +3714,7 @@ def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
     else:
         scalar_samp, scalar_pop = parse_scalar_prevalence(samp_prev, pop_prev)
     config = RegressionConfig(
-        n_blocks=args.n_blocks,
+        num_blocks=args.num_blocks,
         use_common_counts=(count_kind == "common"),
         intercept_h2=args.intercept_h2,
         intercept_gencov=getattr(args, "intercept_gencov", None),

@@ -95,7 +95,7 @@ def write_r2_inputs(tmp_path):
     write_runtime_metadata_sidecar(metadata, directory / "chr22_meta.tsv.gz", genome_build="hg19", snp_identifier="rsid")
     write_r2_parquet(pair_chunks=[(np.array([0, 1]), np.array([1, 2]), np.array([0.5, 0.25]), np.array([1, 1]))],
                      path=directory / "chr22_r2.parquet", genome_build="hg19", n_samples=100,
-                     snp_identifier="rsid", min_r2=0.0, n_snps=3, sidecar_identity_sha256=sidecar_identity_sha256(metadata),
+                     snp_identifier="rsid", r2_min=0.0, n_snps=3, sidecar_identity_sha256=sidecar_identity_sha256(metadata),
                      ld_window_mode="snps", ld_window_value=10.0)
     metadata.assign(base=1).to_csv(args.baseline_annot_sources, sep="\t", index=False)
     args.plink_prefix, args.r2_matrix_dir = None, str(directory)

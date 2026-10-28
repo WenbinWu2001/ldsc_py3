@@ -20,7 +20,7 @@ class _Requested(Exception):
 def h2_result(tmp_path_factory):
     tmp_path = tmp_path_factory.mktemp("h2")
     ldscore_dir, sumstats = _inputs(tmp_path)
-    ldsc.run_h2(ldscore_dir=ldscore_dir, sumstats_file=sumstats, output_dir=str(tmp_path / "h2"), n_blocks=6)
+    ldsc.run_h2(ldscore_dir=ldscore_dir, sumstats_file=sumstats, output_dir=str(tmp_path / "h2"), num_blocks=6)
     return tmp_path / "h2"
 
 

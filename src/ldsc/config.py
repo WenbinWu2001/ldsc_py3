@@ -789,13 +789,13 @@ class R2MatrixBuildConfig:
         may improve throughput but use more memory; stored pairs are the same
         for any value (R2 may differ by one int16 unit from float32 summation
         order). Default is ``512``.
-    min_r2 : float, optional
+    r2_min : float, optional
         Opt-in unbiased-R2 floor for emitted pairs. ``0.0`` (the default, and
         any non-positive value) writes every retained pair, preserving exact
         pairwise completeness. A positive value drops pairs whose unbiased R2
         is below the threshold, reducing output size and memory; ``ldscore``
         rejects such an R2 matrix, while ``query-r2-matrix`` reports dropped pairs as
-        absent. The applied value is recorded as ``ldsc:min_r2`` parquet
+        absent. The applied value is recorded as ``ldsc:r2_min`` parquet
         metadata. Default is ``0.0``.
     overwrite : bool, optional
         If ``True``, replace current R2 matrix artifacts and remove stale
@@ -818,7 +818,7 @@ class R2MatrixBuildConfig:
     ref_panel_snps_file: str | PathLike[str] | None = None
     keep_indivs_file: str | PathLike[str] | None = None
     snp_batch_size: int = DEFAULT_SNP_BATCH_SIZE
-    min_r2: float = 0.0
+    r2_min: float = 0.0
     overwrite: bool = False
 
     def __post_init__(self) -> None:
@@ -878,9 +878,9 @@ class R2MatrixBuildConfig:
             raise LDSCConfigError(_range_message("R2MatrixBuildConfig", "maf_min", self.maf_min, "[0, 0.5]"))
         if self.snp_batch_size <= 0:
             raise LDSCConfigError(_positive_number_message("R2MatrixBuildConfig", "snp_batch_size", self.snp_batch_size))
-        if not math.isfinite(self.min_r2) or self.min_r2 > 1:
+        if not math.isfinite(self.r2_min) or self.r2_min > 1:
             raise LDSCConfigError(
-                f"Could not construct R2MatrixBuildConfig: min_r2={self.min_r2!r} must be a finite "
+                f"Could not construct R2MatrixBuildConfig: r2_min={self.r2_min!r} must be a finite "
                 "number no greater than 1. "
                 "Most likely an R2 percentage or invalid threshold was supplied. "
                 "Use a decimal threshold in [0, 1]."
@@ -925,11 +925,11 @@ class MungeConfig:
         MAF filtering otherwise. An explicit value requires a frequency column.
         The input frequency is preserved as ``FRQ`` without folding whenever
         present; ``FRQ`` is omitted when no frequency column is selected.
-    n_min, nstudy_min : float or None, optional
+    N_min, nstudy_min : float or None, optional
         Optional row filters for sample size and study count. For per-variant
-        N, an omitted or zero ``n_min`` uses its 90th percentile divided by
+        N, an omitted or zero ``N_min`` uses its 90th percentile divided by
         1.5. Constant N is assigned after filtering and is not filtered by
-        ``n_min``. Study-count filtering applies only without per-variant N;
+        ``N_min``. Study-count filtering applies only without per-variant N;
         an omitted or zero ``nstudy_min`` uses the maximum study count.
         Defaults are ``None``, preserving legacy LDSC behavior.
     chunk_size : int, optional
@@ -1016,7 +1016,7 @@ class MungeConfig:
     N_con: float | None = None
     info_min: float | None = None
     maf_min: float | None = None
-    n_min: float | None = None
+    N_min: float | None = None
     nstudy_min: float | None = None
     chunk_size: int = 1_000_000
     sumstats_snps_file: str | PathLike[str] | None = None
@@ -1097,7 +1097,7 @@ class RegressionConfig:
 
     Parameters
     ----------
-    n_blocks : int, optional
+    num_blocks : int, optional
         Requested number of block-jackknife partitions. Default is ``200``.
     use_common_counts : bool, optional
         If ``True``, scale estimates by the LD-score metadata common-SNP counts;
@@ -1139,7 +1139,7 @@ class RegressionConfig:
         Original modes and dropped duplicate counts are logged by regression
         workflows, not persisted in detail metadata. Default is ``False``.
     """
-    n_blocks: int = 200
+    num_blocks: int = 200
     use_common_counts: bool = True
     use_intercept: bool = True
     intercept_h2: float | None = None
@@ -1152,10 +1152,10 @@ class RegressionConfig:
 
     def __post_init__(self) -> None:
         """Validate regression hyperparameters after dataclass construction."""
-        if self.n_blocks <= 1:
+        if self.num_blocks <= 1:
             raise LDSCConfigError(
-                f"Could not construct RegressionConfig: n_blocks={self.n_blocks!r} must be greater than 1. "
-                "Most likely too few jackknife blocks were requested. Set n_blocks to at least 2."
+                f"Could not construct RegressionConfig: num_blocks={self.num_blocks!r} must be greater than 1. "
+                "Most likely too few jackknife blocks were requested. Set num_blocks to at least 2."
             )
         if self.two_step_cutoff is not None and self.two_step_cutoff <= 0:
             raise LDSCConfigError(_positive_number_message("RegressionConfig", "two_step_cutoff", self.two_step_cutoff))

@@ -133,7 +133,7 @@ to the retained reference SNPs when the reader builds its remap (§3).
 | `ldsc:row_group_size` | string(int) | intended row-group size (informational) |
 | `ldsc:n_samples` | string(int) | reference individuals used to compute R²; required, at least 3, and equal across an R² matrix's chromosome files for `query-r2-matrix` |
 | `ldsc:r2_bias` | string | required; must be `"unbiased"` (stored values are already bias-corrected) |
-| `ldsc:min_r2` | string(float) | required; unbiased-R² floor applied at build, at most 1; non-positive means complete. `ldscore` rejects a positive value; `query-r2-matrix` accepts it |
+| `ldsc:r2_min` | string(float) | required; unbiased-R² floor applied at build, at most 1; non-positive means complete. `ldscore` rejects a positive value; `query-r2-matrix` accepts it |
 | `ldsc:n_snps` | string(int) | length of the R² matrix sidecar = size of the index space |
 | `ldsc:sidecar_identity_sha256` | string(hex) | binding hash of the sidecar identity (§4) |
 | `ldsc:r2_encoding` | string | required; must be `"int16_symmetric"` |
@@ -154,7 +154,7 @@ ldsc:genome_build            = "hg19"
 ldsc:sorted_by_build         = "hg19"
 ldsc:n_samples               = "3202"
 ldsc:r2_bias                 = "unbiased"
-ldsc:min_r2                  = "0.0"
+ldsc:r2_min                  = "0.0"
 ldsc:n_snps                  = "969730"
 ldsc:sidecar_identity_sha256 = "a1b2…(64 hex chars)"
 ldsc:r2_encoding             = "int16_symmetric"
@@ -315,7 +315,7 @@ See the [package resource model](../../dev/design/memory-and-cpu.md#precision-sn
 The builder has a different working set.
 Unrestricted builds stream genotypes from disk; with `--ref-panel-snps-file`, the selected genotypes are read into RAM, with individual filtering applied during the read.
 Pair computation keeps the current batch, window-spanning carry-over columns and pending pair batches, so memory depends on retained individuals, selected SNPs, window density and `--snp-batch-size`; wider windows also increase computation and output size.
-A positive `--min-r2` reduces the stored pairs, and `ldscore` rejects such an R² matrix (`query-r2-matrix` still reads it).
+A positive `--r2-min` reduces the stored pairs, and `ldscore` rejects such an R² matrix (`query-r2-matrix` still reads it).
 See `R2MatrixBuilder._build_chromosome` in `src/ldsc/_refpanel/builder.py` and `yield_pairwise_r2_rows` in `src/ldsc/_refpanel/build_kernel.py`.
 
 ### 3.7 LD windows and sidecar values in `ldscore`

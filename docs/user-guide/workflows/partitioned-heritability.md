@@ -103,7 +103,7 @@ Defaults used by this command:
 
 - `--count-kind common` scales estimates by common-SNP counts and `--count-kind all` by all-SNP counts; the run stops before fitting if the LD-score directory lacks the requested counts for a baseline annotation, or for a query annotation unless `--continue-on-query-error` records that query as failed; the other kind is never substituted.
 - The intercept is estimated; add `--intercept-h2 1` to fix it at 1 (the replacement for legacy LDSC `--no-intercept`; see the [flag map](../../reference/legacy-flag-map.md#regression-intercept-consolidation)).
-- `--n-blocks 200` sets the block jackknife.
+- `--num-blocks 200` sets the block jackknife.
 - Results are on the observed scale; for a binary trait, add `--samp-prev` and `--pop-prev` as described in [liability scale](liability-scale.md).
 - `--summary-sort-by auto` sorts query rows by ascending `coefficient_p` and baseline-only rows in annotation order.
 
@@ -203,7 +203,7 @@ See [query failures](../../reference/results/partitioned-h2.md#query-failures-an
 
 ### Other regression settings
 
-`--count-kind`, `--intercept-h2`, `--chisq-max`, `--n-blocks`, `--summary-sort-by` and `--allow-identity-downgrade` are described in [regression options](../../reference/regression-options.md) and `ldsc partitioned-h2 --help`.
+`--count-kind`, `--intercept-h2`, `--chisq-max`, `--num-blocks`, `--summary-sort-by` and `--allow-identity-downgrade` are described in [regression options](../../reference/regression-options.md) and `ldsc partitioned-h2 --help`.
 
 ## Caveats
 

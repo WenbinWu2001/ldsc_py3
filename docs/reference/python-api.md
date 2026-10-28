@@ -143,10 +143,10 @@ Field names of each configuration dataclass; types and defaults are in each clas
 | `H2OutputConfig` | `output_dir`, `overwrite` |
 | `LDScoreConfig` | `ld_wind_snps`, `ld_wind_kb`, `ld_wind_cm`, `regr_snps_file`, `snp_batch_size`, `query_batch_size`, `common_maf_min`, `whole_chromosome_ok`, `export_ref_metadata`, `workers` |
 | `LDScoreOutputConfig` | `output_dir`, `overwrite`, `parquet_compression` |
-| `MungeConfig` | `output_dir`, `raw_sumstats_file`, `compression`, `output_format`, `trait_name`, `column_hints`, `N`, `N_cas`, `N_con`, `info_min`, `maf_min`, `n_min`, `nstudy_min`, `chunk_size`, `sumstats_snps_file`, `no_snp_restriction`, `source_genome_build`, `output_genome_build`, `liftover_chain_file`, `signed_sumstats_spec`, `ignore_columns`, `info_list_columns`, `sumstats_format`, `a1_inc`, `overwrite` |
+| `MungeConfig` | `output_dir`, `raw_sumstats_file`, `compression`, `output_format`, `trait_name`, `column_hints`, `N`, `N_cas`, `N_con`, `info_min`, `maf_min`, `N_min`, `nstudy_min`, `chunk_size`, `sumstats_snps_file`, `no_snp_restriction`, `source_genome_build`, `output_genome_build`, `liftover_chain_file`, `signed_sumstats_spec`, `ignore_columns`, `info_list_columns`, `sumstats_format`, `a1_inc`, `overwrite` |
 | `PartitionedH2OutputConfig` | `output_dir`, `overwrite`, `write_per_query_results` |
 | `QuantileH2OutputConfig` | `output_dir`, `overwrite` |
 | `RefPanelConfig` | `backend`, `plink_prefix`, `r2_matrix_dir`, `chromosomes`, `maf_min`, `keep_indivs_file`, `ref_panel_snps_file`, `genetic_map_hg19_sources`, `genetic_map_hg38_sources` |
-| `R2MatrixBuildConfig` | `plink_prefix`, `output_dir`, `source_genome_build`, `genetic_map_hg19_sources`, `genetic_map_hg38_sources`, `liftover_chain_hg19_to_hg38_file`, `liftover_chain_hg38_to_hg19_file`, `ld_wind_snps`, `ld_wind_kb`, `ld_wind_cm`, `maf_min`, `ref_panel_snps_file`, `keep_indivs_file`, `snp_batch_size`, `min_r2`, `overwrite` |
-| `RegressionConfig` | `n_blocks`, `use_common_counts`, `use_intercept`, `intercept_h2`, `intercept_gencov`, `two_step_cutoff`, `chisq_max`, `samp_prev`, `pop_prev`, `allow_identity_downgrade` |
+| `R2MatrixBuildConfig` | `plink_prefix`, `output_dir`, `source_genome_build`, `genetic_map_hg19_sources`, `genetic_map_hg38_sources`, `liftover_chain_hg19_to_hg38_file`, `liftover_chain_hg38_to_hg19_file`, `ld_wind_snps`, `ld_wind_kb`, `ld_wind_cm`, `maf_min`, `ref_panel_snps_file`, `keep_indivs_file`, `snp_batch_size`, `r2_min`, `overwrite` |
+| `RegressionConfig` | `num_blocks`, `use_common_counts`, `use_intercept`, `intercept_h2`, `intercept_gencov`, `two_step_cutoff`, `chisq_max`, `samp_prev`, `pop_prev`, `allow_identity_downgrade` |
 | `RgOutputConfig` | `output_dir`, `overwrite`, `write_per_pair_detail` |

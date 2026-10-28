@@ -509,13 +509,13 @@ def add_quantile_h2_arguments(parser: argparse.ArgumentParser) -> None:
     inputs.add_argument(
         '--target-annot-sources', nargs='+', required=True, metavar='SOURCES',
         help=(
-            'Required annotation files containing --target-annotation, used to divide SNPs into quantiles. '
+            'Required annotation files containing --target-annot-column, used to divide SNPs into quantiles. '
             'Accepts exact paths. The target may be an external score or a fitted annotation. '
             + CHROMOSOME_PATH_HELP
         ),
     )
     inputs.add_argument(
-        '--target-annotation', required=True,
+        '--target-annot-column', required=True,
         help=(
             'Required unique column name in --target-annot-sources whose values define the quantiles.'
         ),
@@ -725,7 +725,7 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
             issues_path=diagnostics_dir/'input_issues.tsv')
         log_inputs(
             partitioned_h2_result_dir=args.partitioned_h2_result_dir,
-            target_annotation=args.target_annotation,
+            target_annotation=args.target_annot_column,
             output_dir=str(output_dir),
         )
         with AnnotationWorkspace(output_dir) as workspace, AlignmentDiagnostics(issues_path) as diagnostics:
@@ -782,7 +782,7 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
             "snp_identifier": ldscore_metadata.get("snp_identifier"),
             "genome_build": ldscore_metadata.get("genome_build"),
             "retained_ld_columns": model.annotation_names,
-            "target_annotation": args.target_annotation,
+            "target_annotation": args.target_annot_column,
             "target_annot_sources": inputs.target_paths,
             "ref_metadata_sources": inputs.reference_paths,
             "common_reference_snp_maf_min": common_maf_min,
@@ -802,7 +802,7 @@ def run_quantile_h2_from_args(args) -> QuantileH2Result:
             "Fitted model=%s; target=%s; common MAF rule=MAF >= %g; common reference SNPs=%d; "
             "target missing exclusions=%d.",
             model.model_type,
-            args.target_annotation,
+            args.target_annot_column,
             common_maf_min,
             inputs.n_common,
             inputs.n_excluded,
@@ -840,7 +840,7 @@ def run_quantile_h2(**kwargs) -> QuantileH2Result:
     This is the Python form of ``ldsc quantile-h2`` and writes the same files.
     Keyword arguments are the command's option names without the leading
     ``--``: ``partitioned_h2_result_dir``, ``target_annot_sources``,
-    ``target_annotation``, ``baseline_annot_sources``,
+    ``target_annot_column``, ``baseline_annot_sources``,
     ``ref_metadata_sources`` and ``output_dir`` are required; the query
     sources, gene-list settings, ``target_missing_value``, ``num_quantiles``
     and ``overwrite`` are optional and default to the command's defaults.

@@ -162,7 +162,7 @@ def test_continue_does_not_swallow_publication_failure(tmp_path, monkeypatch, wo
 def test_python_api_records_query_preparation_error_and_baseline_retry_removes_status(tmp_path, workers):
     table, source = batch_inputs(tmp_path / "ld")
     source.count_records[:] = [record for record in source.count_records if record["column"] != "second"]
-    runner = RegressionRunner(source.config_snapshot, RegressionConfig(n_blocks=6))
+    runner = RegressionRunner(source.config_snapshot, RegressionConfig(num_blocks=6))
     output = tmp_path / "out"
     result = runner.estimate_partitioned_h2_batch(
         table, source, output_dir=output, continue_on_query_error=True, workers=workers,

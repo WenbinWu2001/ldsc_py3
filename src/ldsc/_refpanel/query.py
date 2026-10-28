@@ -577,7 +577,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     inputs.add_argument(
-        '--pairs', required=True, metavar='FILE',
+        '--pairs-file', required=True, metavar='FILE',
         help=(
             'Required TSV/CSV of SNP pairs; use - to read standard input. Endpoint columns use _1/_2 '
             'suffixes and must match --snp-identifier, including allele columns for allele-aware matching.'
@@ -653,16 +653,16 @@ def _write_query_r2_matrix_directory(args: argparse.Namespace, pairs: pd.DataFra
         from .._runtime.preflight import inspect_declared_inputs
         from .preflight import inspect_r2_headers
         from .._runtime.progress import PhaseProgress
-        inspect_declared_inputs(files=[] if args.pairs == '-' else [('pairs', args.pairs)],
+        inspect_declared_inputs(files=[] if args.pairs_file == '-' else [('pairs', args.pairs_file)],
             checks=[('reference', args.r2_matrix_dir, lambda: inspect_r2_headers(args.r2_matrix_dir, args.genome_build))],
             issues_path=diagnostics_dir/'input_issues.tsv')
         if pairs is None:
             with PhaseProgress(LOGGER, 'validation', 'pair input loading'):
-                pairs_handle = sys.stdin if args.pairs == '-' else args.pairs
-                sep = ',' if str(args.pairs).endswith('.csv') else '\t'
+                pairs_handle = sys.stdin if args.pairs_file == '-' else args.pairs_file
+                sep = ',' if str(args.pairs_file).endswith('.csv') else '\t'
                 pairs = pd.read_csv(pairs_handle, sep=sep)
-        log_inputs(r2_matrix_dir=args.r2_matrix_dir, pairs=args.pairs, output_dir=str(output_dir))
-        LOGGER.info(f"Querying R2 for pairs from '{args.pairs}' against R2 matrix '{args.r2_matrix_dir}'.")
+        log_inputs(r2_matrix_dir=args.r2_matrix_dir, pairs=args.pairs_file, output_dir=str(output_dir))
+        LOGGER.info(f"Querying R2 for pairs from '{args.pairs_file}' against R2 matrix '{args.r2_matrix_dir}'.")
         matrix = R2Matrix.open(args.r2_matrix_dir, snp_identifier=args.snp_identifier, genome_build=args.genome_build)
         result = matrix.query_pairs(pairs)
         written = QueryR2MatrixDirectoryWriter().write(

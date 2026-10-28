@@ -299,7 +299,7 @@ The identity sidecar is stored once per SNP and bound to pair indices by the req
 Column-specific dictionary/delta/byte-stream encodings and compression reduce file size and I/O; compression also consumes CPU.
 R² quantization uses scale 32767 and preserves signed unbiased estimates within the stored range, but introduces rounding error.
 Aggregate LD-score error depends on the contributing pairs and annotation weights; historical measured differences are not universal bounds.
-Positive `min_r2` filtering omits scientific contributions, so `ldscore` rejects such R² matrices; they serve `query-r2-matrix` lookups only.
+Positive `r2_min` filtering omits scientific contributions, so `ldscore` rejects such R² matrices; they serve `query-r2-matrix` lookups only.
 The default zero threshold preserves zero and negative unbiased pairs.
 
 ## Direct LD-score computation

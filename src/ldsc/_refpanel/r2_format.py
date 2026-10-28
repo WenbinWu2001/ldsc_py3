@@ -183,7 +183,7 @@ class R2ParquetContract:
     r2_scale: float
     ld_window: _LDWindowSpec
     # Build-time adjusted-R2 floor; pairs below a positive value were not stored.
-    min_r2: float
+    r2_min: float
 
 
 def read_r2_parquet_contract(path) -> R2ParquetContract:
@@ -193,7 +193,7 @@ def read_r2_parquet_contract(path) -> R2ParquetContract:
     ``R2``/``SIGN_R`` columns with an int16 ``R2``, the writer's
     ``ldsc:r2_encoding`` and ``ldsc:r2_scale``, already-unbiased values
     (``ldsc:r2_bias="unbiased"``) with an ``ldsc:n_samples`` of at least 3, and
-    complete binding, identity, LD-window, and ``ldsc:min_r2`` metadata.
+    complete binding, identity, LD-window, and ``ldsc:r2_min`` metadata.
     Decoding is ``R2 = stored / r2_scale`` with no further correction. No
     value is defaulted; see :func:`read_r2_parquet_contracts` for the error.
     """
@@ -291,7 +291,7 @@ def _check_r2_parquet_contract(path) -> tuple[R2ParquetContract | None, list[str
     window_mode = parsed("ld_window_mode", str, lambda mode: mode in {"snps", "kb", "cm"}, "snps, kb, or cm")
     window_value = parsed("ld_window_value", float, lambda value: bool(np.isfinite(value)) and value > 0,
                           "a positive number")
-    min_r2 = parsed("min_r2", float, lambda value: bool(np.isfinite(value)) and value <= 1,
+    r2_min = parsed("r2_min", float, lambda value: bool(np.isfinite(value)) and value <= 1,
                     "a number no greater than 1")
     if problems:
         return None, problems
@@ -299,7 +299,7 @@ def _check_r2_parquet_contract(path) -> tuple[R2ParquetContract | None, list[str
         path=str(path), snp_identifier=snp_identifier, genome_build=genome_build,
         sorted_by_build=sorted_by_build, n_snps=n_snps, sidecar_identity_sha256=identity_hash,
         n_samples=n_samples, r2_scale=r2_scale, ld_window=_LDWindowSpec(window_mode, window_value),
-        min_r2=min_r2,
+        r2_min=r2_min,
     ), []
 
 
@@ -382,21 +382,21 @@ def validate_ldscore_window_within_r2_matrix_window(
 
 
 def reject_truncated_r2_matrix(parquet_paths: Sequence[str], chrom: str) -> None:
-    """Reject an R2 matrix that omitted pairs below a positive ``ldsc:min_r2``.
+    """Reject an R2 matrix that omitted pairs below a positive ``ldsc:r2_min``.
 
     LD scores sum every SNP pair in the window, so pairs the R2 matrix did not
     store would count as zero. Such R2 matrices stay valid for ``query-r2-matrix``, which
     reports unstored pairs as absent.
     """
     for path in parquet_paths:
-        min_r2 = read_r2_parquet_contract(path).min_r2
-        if min_r2 > 0:
+        r2_min = read_r2_parquet_contract(path).r2_min
+        if r2_min > 0:
             raise LDSCInputError(
                 f"ldscore cannot use R2 Parquet file '{path}' (chromosome {chrom}): the R2 matrix omits SNP pairs with "
-                f"unbiased R2 below {min_r2:g} (ldsc:min_r2, set by `build-r2-matrix --min-r2`). LD scores sum "
+                f"unbiased R2 below {r2_min:g} (ldsc:r2_min, set by `build-r2-matrix --r2-min`). LD scores sum "
                 "every SNP pair in the window, so the omitted pairs would count as zero and change the scores. "
-                "Rebuild the R2 matrix without `--min-r2` (the default keeps every pair). R2 matrices built with a "
-                "positive `--min-r2` remain usable for `ldsc query-r2-matrix`."
+                "Rebuild the R2 matrix without `--r2-min` (the default keeps every pair). R2 matrices built with a "
+                "positive `--r2-min` remain usable for `ldsc query-r2-matrix`."
             )
 
 
@@ -680,7 +680,7 @@ def write_r2_parquet(
     row_group_size: int = 50_000,
     ld_window_mode: str,
     ld_window_value: float,
-    min_r2: float = 0.0,
+    r2_min: float = 0.0,
 ) -> str:
     """
     Write one canonical 4-column R2 Parquet file with LDSC3 schema metadata.
@@ -697,9 +697,9 @@ def write_r2_parquet(
     ``CHR:POS:A1:A2`` identity). The stored indices are meaningless without the
     matching sidecar, so the reader hard-fails on a binding mismatch.
 
-    ``min_r2`` records the unbiased-R2 floor applied upstream during pair
+    ``r2_min`` records the unbiased-R2 floor applied upstream during pair
     emission; it does not itself filter rows here. The table is
-    pairwise-complete only when ``ldsc:min_r2`` is non-positive; ldscore
+    pairwise-complete only when ``ldsc:r2_min`` is non-positive; ldscore
     rejects any other value, and query-r2-matrix reports absent pairs as absent.
 
     ``ld_window_mode`` and ``ld_window_value`` record the build-time LD window
@@ -750,7 +750,7 @@ def write_r2_parquet(
         b"ldsc:row_group_size": str(row_group_size).encode("utf-8"),
         b"ldsc:n_samples": str(n_samples).encode("utf-8"),
         b"ldsc:r2_bias": b"unbiased",
-        b"ldsc:min_r2": str(min_r2).encode("utf-8"),
+        b"ldsc:r2_min": str(r2_min).encode("utf-8"),
         b"ldsc:n_snps": str(int(n_snps)).encode("utf-8"),
         b"ldsc:sidecar_identity_sha256": str(sidecar_identity_sha256).encode("utf-8"),
         b"ldsc:r2_encoding": R2_ENCODING.encode("utf-8"),

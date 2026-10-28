@@ -66,8 +66,8 @@ The R² matrix stores no pairs beyond its LD window.
 `ldsc ldscore` later accepts only a window in the same unit and no wider than the build window, so build with the widest window you will need.
 See [LD windows in `ldscore`](../../reference/formats/r2-matrices.md#37-ld-windows-and-sidecar-values-in-ldscore).
 
-`--min-r2` defaults to 0, which keeps every pair in the window, including negative unbiased R² values.
-A positive `--min-r2` drops smaller values; `ldsc ldscore` then rejects the R² matrix, because it would count the dropped pairs as zero.
+`--r2-min` defaults to 0, which keeps every pair in the window, including negative unbiased R² values.
+A positive `--r2-min` drops smaller values; `ldsc ldscore` then rejects the R² matrix, because it would count the dropped pairs as zero.
 Such an R² matrix serves only `query-r2-matrix`, which reports a dropped pair as `r2=NaN` with `status=absent`; an absent pair is not measured zero LD.
 
 ### Choose the reference SNPs and individuals
@@ -171,13 +171,13 @@ CHR_1	POS_1	A1_1	A2_1	CHR_2	POS_2	A1_2	A2_2
 
 Use positions in the R² matrix's genome build, and the alleles whose dosage correlation you want.
 rsID-family modes use `SNP_1` and `SNP_2`; `rsid_allele_aware` also needs both allele pairs.
-Common column aliases are accepted, and `--pairs -` reads a TSV from standard input.
+Common column aliases are accepted, and `--pairs-file -` reads a TSV from standard input.
 
 ```bash
 ldsc query-r2-matrix \
   --r2-matrix-dir tutorial_outputs/r2_matrix_chr22/hg38 \
   --genome-build hg38 \
-  --pairs pairs.tsv \
+  --pairs-file pairs.tsv \
   --output-dir tutorial_outputs/r2_matrix_query_chr22
 ```
 
@@ -197,7 +197,7 @@ Pair positions are read in the R² matrix's build; their build is not inferred s
 
 `not_in_matrix` means an endpoint did not match an R² matrix SNP, including invalid or ambiguous query alleles in allele-aware modes.
 `cross_chromosome` means the endpoints are on different chromosomes.
-`absent` means the pair was not stored, because it lies outside the build window or below a positive `--min-r2`; it does not mean zero correlation.
+`absent` means the pair was not stored, because it lies outside the build window or below a positive `--r2-min`; it does not mean zero correlation.
 A pair of a SNP with itself returns `r2 = 1`.
 Swapping the alleles of exactly one endpoint flips `sign_r` and `r` and leaves `r2` unchanged.
 `sign_r` is aligned to your alleles, unlike the stored `SIGN_R`, which follows the R² matrix's alleles.
@@ -239,7 +239,7 @@ See [compute LD scores](ld-scores.md).
 | `--ref-panel-snps-file` | Optional headered SNP restriction in the source build |
 | `--keep-indivs-file` | Optional list of individual IDs to keep, one per row |
 | `--maf-min` | Optional MAF threshold in [0, 0.5], inclusive |
-| `--min-r2` | Unbiased R² below which pairs are dropped; default 0 keeps every pair; a positive value makes the R² matrix usable by `query-r2-matrix` only |
+| `--r2-min` | Unbiased R² below which pairs are dropped; default 0 keeps every pair; a positive value makes the R² matrix usable by `query-r2-matrix` only |
 | `--snp-batch-size` | SNPs per genotype batch; default 512; the stored pairs do not depend on it |
 | `--overwrite` | Replace this command's existing outputs and remove its obsolete outputs after success |
 | `--log-level` | Log-file detail: `DEBUG`, `INFO` (default), `WARNING` or `ERROR` |

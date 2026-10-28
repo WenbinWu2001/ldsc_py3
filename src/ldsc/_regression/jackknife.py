@@ -183,7 +183,7 @@ class Jackknife(object):
             raise LDSCInternalError(
                 f"Regression jackknife requested {self.n_blocks} blocks for {self.N} SNPs. "
                 "Most likely too few SNPs remain after filtering for the requested block count. "
-                "Use a broader SNP set or reduce --n-blocks."
+                "Use a broader SNP set or reduce --num-blocks."
             )
 
     @classmethod

@@ -301,7 +301,7 @@ def _emit_cross_block_pairs(
     b_indices: np.ndarray,
     block_left: np.ndarray,
     n_samples: int,
-    min_r2: float = 0.0,
+    r2_min: float = 0.0,
 ) -> PairColumns:
     """Vectorize pair extraction between the carry-over block and the batch."""
     left = block_left[b_indices]
@@ -310,7 +310,7 @@ def _emit_cross_block_pairs(
     corr = correlation_matrix[local_i, local_j]
     i = a_indices[local_i].astype(np.int64)
     j = b_indices[local_j].astype(np.int64)
-    return _finalize_pair_columns(i, j, corr, n_samples, min_r2)
+    return _finalize_pair_columns(i, j, corr, n_samples, r2_min)
 
 
 def _emit_within_block_pairs(
@@ -318,7 +318,7 @@ def _emit_within_block_pairs(
     b_indices: np.ndarray,
     block_left: np.ndarray,
     n_samples: int,
-    min_r2: float = 0.0,
+    r2_min: float = 0.0,
 ) -> PairColumns:
     """Vectorize pair extraction within the current SNP batch under block_left."""
     local_i, local_j = np.triu_indices(len(b_indices), k=1)
@@ -329,22 +329,22 @@ def _emit_within_block_pairs(
     corr = correlation_matrix[local_i, local_j]
     i = global_i[valid].astype(np.int64)
     j = global_j[valid].astype(np.int64)
-    return _finalize_pair_columns(i, j, corr, n_samples, min_r2)
+    return _finalize_pair_columns(i, j, corr, n_samples, r2_min)
 
 
 def _finalize_pair_columns(
-    i: np.ndarray, j: np.ndarray, corr: np.ndarray, n_samples: int, min_r2: float = 0.0
+    i: np.ndarray, j: np.ndarray, corr: np.ndarray, n_samples: int, r2_min: float = 0.0
 ) -> PairColumns:
     """Compute unbiased R2 (float32) and correlation sign (int8) for a batch.
 
-    When ``min_r2 > 0`` the batch is filtered to pairs whose unbiased R2 is at
-    least ``min_r2``; ``min_r2 <= 0`` disables filtering so negative unbiased R2
+    When ``r2_min > 0`` the batch is filtered to pairs whose unbiased R2 is at
+    least ``r2_min``; ``r2_min <= 0`` disables filtering so negative unbiased R2
     pairs are retained (exact backward-compatible completeness).
     """
     r2 = _unbiased_r2_array(corr, n_samples).astype(np.float32)
     sign = np.where(corr >= 0, np.int8(1), np.int8(-1)).astype(np.int8)
-    if min_r2 > 0.0:
-        keep = r2 >= min_r2
+    if r2_min > 0.0:
+        keep = r2 >= r2_min
         i, j, r2, sign = i[keep], j[keep], r2[keep], sign[keep]
     return i, j, r2, sign
 
@@ -392,7 +392,7 @@ def yield_pairwise_r2_rows(
     standardized_snp_getter,
     m: int,
     n: int,
-    min_r2: float = 0.0,
+    r2_min: float = 0.0,
 ) -> Iterator[PairColumns]:
     """
     Yield retained SNP-pair column chunks inside the LD window.
@@ -405,8 +405,8 @@ def yield_pairwise_r2_rows(
     carry-over columns may be retained in memory in addition to the current
     batch.
 
-    ``min_r2`` is an opt-in unbiased-R2 floor: ``min_r2 <= 0`` (the default)
-    emits every retained pair, while ``min_r2 > 0`` drops pairs whose unbiased
+    ``r2_min`` is an opt-in unbiased-R2 floor: ``r2_min <= 0`` (the default)
+    emits every retained pair, while ``r2_min > 0`` drops pairs whose unbiased
     R2 is below the threshold. Filtering trades completeness for memory and
     output size, so callers that need exact completeness must keep the default.
     """
@@ -453,7 +453,7 @@ def yield_pairwise_r2_rows(
                 b_indices=np.arange(l_B, l_B + width),
                 block_left=block_left,
                 n_samples=n,
-                min_r2=min_r2,
+                r2_min=r2_min,
             ),
         )
 
@@ -491,7 +491,7 @@ def yield_pairwise_r2_rows(
                     b_indices=b_indices,
                     block_left=block_left,
                     n_samples=n,
-                    min_r2=min_r2,
+                    r2_min=r2_min,
                 ),
             )
 
@@ -503,7 +503,7 @@ def yield_pairwise_r2_rows(
                 b_indices=b_indices,
                 block_left=block_left,
                 n_samples=n,
-                min_r2=min_r2,
+                r2_min=r2_min,
             ),
         )
         previous_chunk_width = current_chunk_width
@@ -517,7 +517,7 @@ def iter_pairwise_r2_rows(
     standardized_snp_getter,
     m: int,
     n: int,
-    min_r2: float = 0.0,
+    r2_min: float = 0.0,
 ) -> list[PairColumns]:
     """Materialize :func:`yield_pairwise_r2_rows` as an in-memory list of chunks."""
 
@@ -528,7 +528,7 @@ def iter_pairwise_r2_rows(
             standardized_snp_getter=standardized_snp_getter,
             m=m,
             n=n,
-            min_r2=min_r2,
+            r2_min=r2_min,
         )
     )
 

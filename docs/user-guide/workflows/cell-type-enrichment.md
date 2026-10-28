@@ -159,7 +159,7 @@ ldsc partitioned-h2 \
 Defaults used by this command:
 
 - `--count-kind common` uses annotation counts from common reference SNPs.
-- `--n-blocks 200` sets the block jackknife.
+- `--num-blocks 200` sets the block jackknife.
 - The intercept is estimated; add `--intercept-h2 1` to fix it at 1.
 - Without `--samp-prev` and `--pop-prev`, results are on the observed scale; see [liability scale](liability-scale.md).
 - `--summary-sort-by auto` sorts the gene lists by ascending `coefficient_p`.

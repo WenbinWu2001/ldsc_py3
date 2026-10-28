@@ -198,7 +198,7 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             genome_build=genome_build,
             n_samples=10,
             snp_identifier="chr_pos",
-            min_r2=0.0,
+            r2_min=0.0,
             n_snps=len(panel_meta),
             sidecar_identity_sha256=sidecar_identity_sha256(panel_meta),
             row_group_size=row_group_size,

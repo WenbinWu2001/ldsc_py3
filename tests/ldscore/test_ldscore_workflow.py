@@ -2533,7 +2533,7 @@ class IndexReaderDecodeTest(unittest.TestCase):
             {"i": 2, "j": 3, "R2": 0.9, "sign": "+"},
         ]
         r2_format.write_r2_parquet(pair_chunks=dict_chunks(rows), path=r2, genome_build="hg19", n_samples=100,
-                            snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
+                            snp_identifier="chr_pos", r2_min=0.0, n_snps=4,
                             sidecar_identity_sha256=sidecar_identity_sha256(full), ld_window_mode="kb", ld_window_value=1000.0)
         return r2, full
 
@@ -2588,7 +2588,7 @@ class R2MatrixWindowValidationTest(unittest.TestCase):
                 genome_build="hg19",
                 n_samples=100,
                 snp_identifier="chr_pos",
-                min_r2=0.0,
+                r2_min=0.0,
                 n_snps=2,
                 sidecar_identity_sha256=sidecar_identity_sha256(panel),
                 ld_window_mode="cm",
@@ -2635,7 +2635,7 @@ class R2MatrixWindowValidationTest(unittest.TestCase):
                 genome_build="hg19",
                 n_samples=100,
                 snp_identifier="chr_pos",
-                min_r2=0.0,
+                r2_min=0.0,
                 n_snps=3,
                 sidecar_identity_sha256=sidecar_identity_sha256(panel),
                 ld_window_mode="kb",
@@ -2684,7 +2684,7 @@ class R2MatrixWindowValidationTest(unittest.TestCase):
                 genome_build="hg19",
                 n_samples=100,
                 snp_identifier="chr_pos",
-                min_r2=0.0,
+                r2_min=0.0,
                 n_snps=2,
                 sidecar_identity_sha256=sidecar_identity_sha256(panel),
                 ld_window_mode="cm",
@@ -2731,7 +2731,7 @@ class R2MatrixWindowValidationTest(unittest.TestCase):
                 genome_build="hg19",
                 n_samples=100,
                 snp_identifier="chr_pos",
-                min_r2=0.0,
+                r2_min=0.0,
                 n_snps=2,
                 sidecar_identity_sha256=sidecar_identity_sha256(panel),
                 ld_window_mode="cm",
@@ -2791,7 +2791,7 @@ class IndexCrossModeParityTest(unittest.TestCase):
             meta = _write_index_sidecar(tmp, panel)
             r2 = meta.with_name("chr1_r2.parquet")
             r2_format.write_r2_parquet(pair_chunks=dict_chunks(pairs), path=r2, genome_build="hg19", n_samples=100,
-                                snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
+                                snp_identifier="chr_pos", r2_min=0.0, n_snps=4,
                                 sidecar_identity_sha256=sidecar_identity_sha256(panel), ld_window_mode="kb", ld_window_value=1000.0)
             mode_scores = {}
             for mode in ("rsid", "chr_pos", "rsid_allele_aware", "chr_pos_allele_aware"):
@@ -2846,7 +2846,7 @@ class R2DequantizationTest(unittest.TestCase):
             meta = _write_index_sidecar(tmp, panel)
             r2 = meta.with_name("chr1_r2.parquet")
             r2_format.write_r2_parquet(pair_chunks=dict_chunks(pairs), path=r2, genome_build="hg19", n_samples=100,
-                                snp_identifier="chr_pos", min_r2=0.0, n_snps=3,
+                                snp_identifier="chr_pos", r2_min=0.0, n_snps=3,
                                 sidecar_identity_sha256=sidecar_identity_sha256(panel), ld_window_mode="kb", ld_window_value=1000.0)
             reader = r2_format.SortedR2BlockReader(
                 paths=[str(r2)], chrom="1", metadata=panel.copy(),

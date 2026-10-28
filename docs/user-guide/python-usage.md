@@ -292,7 +292,7 @@ def main():
         partitioned_h2_result_dir="results/partitioned_h2",
         baseline_annot_sources="/path/to/baseline/baseline.@.annot.gz",
         target_annot_sources="/path/to/target/target.@.annot.gz",
-        target_annotation="continuous_score",
+        target_annot_column="continuous_score",
         ref_metadata_sources="/path/to/r2-matrix/hg19/chr@_meta.tsv.gz",
         num_quantiles=5,
         output_dir="results/continuous_score_quantiles",
@@ -817,7 +817,7 @@ if __name__ == "__main__":
     main()
 ```
 
-`run_h2` accepts the `h2` option names without the leading `--`, for example `trait_name`, `count_kind`, `intercept_h2`, `two_step_cutoff`, `chisq_max`, `n_blocks`, `samp_prev`, `pop_prev` and `overwrite`; see [regression options](../reference/regression-options.md).
+`run_h2` accepts the `h2` option names without the leading `--`, for example `trait_name`, `count_kind`, `intercept_h2`, `two_step_cutoff`, `chisq_max`, `num_blocks`, `samp_prev`, `pop_prev` and `overwrite`; see [regression options](../reference/regression-options.md).
 It writes `h2.tsv`, the regression-bin diagnostic, `diagnostics/metadata.json` and `diagnostics/h2.log`, and returns the one-row summary saved in `h2.tsv`.
 `plot_result()` and `convert_h2_scale()` read that directory; the conversion above writes the liability-scale table under `results/trait_h2/postprocessing/liability-scale/`.
 `run_ldscore()` without annotations computes the all-ones `base` annotation.
@@ -840,7 +840,7 @@ h2 = runner.estimate_h2(dataset)
 print(float(h2.tot), float(h2.tot_se), float(h2.intercept))
 ```
 
-`RegressionConfig` holds the regression options: `n_blocks`, `use_common_counts` (the CLI's `--count-kind`), `intercept_h2`, `two_step_cutoff`, `chisq_max`, `samp_prev`, `pop_prev` and `allow_identity_downgrade`.
+`RegressionConfig` holds the regression options: `num_blocks`, `use_common_counts` (the CLI's `--count-kind`), `intercept_h2`, `two_step_cutoff`, `chisq_max`, `samp_prev`, `pop_prev` and `allow_identity_downgrade`.
 `RegressionConfig(use_intercept=False)` is equivalent to fixing the intercept at 1.
 `SumstatsMunger().run(MungeConfig(...))` returns the same `SumstatsTable` that `load_sumstats()` reads back.
 

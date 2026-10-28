@@ -306,7 +306,7 @@ def prepare_munge_input(
         info_list_columns=config.info_list_columns or tuple(column for column in raw_config.column_hints.get('info_list', '').split(',') if column),
     )
     qc = MungeQC(N=config.N, N_cas=config.N_cas, N_con=config.N_con,
-                 n_min=config.n_min, nstudy_min=config.nstudy_min)
+                 N_min=config.N_min, nstudy_min=config.nstudy_min)
     _validate_explicit_sample_size_column_strategy(columns)
     file_cnames = read_header(source_path)  # note keys not cleaned
     flag_cnames, signed_sumstat_null = _column_hints(columns, config)

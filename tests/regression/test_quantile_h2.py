@@ -276,7 +276,7 @@ class QuantileH2WorkflowTest(unittest.TestCase):
             gene_exclude_regions="none",
             padding_bp=0,
             target_annot_sources=[str(target)],
-            target_annotation="target",
+            target_annot_column="target",
             ref_metadata_sources=[str(reference)],
             target_missing_value=None,
             num_quantiles=2,
@@ -400,13 +400,13 @@ class QuantileH2WorkflowTest(unittest.TestCase):
         target = pd.read_csv(path, sep="\t").rename(columns={"target": "cont"})
         target["cont"] = [3, 2, 1, 0]
         target.to_csv(path, sep="\t", index=False)
-        self.args.target_annotation = "cont"
+        self.args.target_annot_column = "cont"
 
         with self.assertRaisesRegex(LDSCInputError, "matches a fitted annotation name but its values differ"):
             run_quantile_h2_from_args(self.args)
 
     def test_matching_fitted_target_is_accepted(self):
-        self.args.target_annotation = "cont"
+        self.args.target_annot_column = "cont"
         self.args.target_annot_sources = self.args.baseline_annot_sources
 
         result = run_quantile_h2_from_args(self.args)

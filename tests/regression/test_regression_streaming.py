@@ -162,7 +162,7 @@ def test_partitioned_batch_rejects_missing_requested_common_counts_before_fittin
     tmp_path, monkeypatch, column, continue_on_query_error
 ):
     table, source = _without_common_count(tmp_path, column)
-    runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(n_blocks=6))
+    runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
     monkeypatch.setattr(runner, "prepare_inputs",
                         lambda *args, **kwargs: pytest.fail("regression inputs were prepared before count validation"))
 
@@ -173,7 +173,7 @@ def test_partitioned_batch_rejects_missing_requested_common_counts_before_fittin
 
 def test_partitioned_continuation_records_query_without_common_counts_as_failed(tmp_path):
     table, source = _without_common_count(tmp_path, "second")
-    runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(n_blocks=6))
+    runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
 
     result = runner.estimate_partitioned_h2_batch(table, source, output_dir=tmp_path / "out",
                                                   continue_on_query_error=True)
@@ -186,7 +186,7 @@ def test_partitioned_continuation_records_query_without_common_counts_as_failed(
 @pytest.mark.parametrize("batch_size", [1, 2, 1000])
 def test_batch_fits_match_separate_models_and_release_details(tmp_path, monkeypatch, batch_size):
     table, source = batch_inputs(tmp_path / "ld")
-    runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(n_blocks=6))
+    runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
     expected = {}
     for query in source.query_columns:
         dataset = runner.build_dataset(table, source, query_columns=[query])
@@ -248,7 +248,7 @@ def test_regression_across_query_files_matches_single_file(tmp_path, generation_
                 overlap=original.overlap.select_queries(columns), chromosome_results=[],
                 ld_reference_snps=frozenset(), ld_regression_snps=original.ld_regression_snps)
     saved = LDScoreDirectoryWriter().write_batches(batches(), LDScoreOutputConfig(tmp_path / "batches"))
-    runner = workflow.RegressionRunner(original.config_snapshot, workflow.RegressionConfig(n_blocks=6))
+    runner = workflow.RegressionRunner(original.config_snapshot, workflow.RegressionConfig(num_blocks=6))
     expected = runner.estimate_partitioned_h2_batch(table, original, output_dir=tmp_path / "expected",
                                                    query_batch_size=1000, summary_sort_by="category")
     monkeypatch.chdir(tmp_path)
@@ -270,7 +270,7 @@ def cli_inputs(tmp_path):
     path = tmp_path / "trait.parquet"
     fixtures.RegressionWorkflowTest().write_footer_sumstats_parquet(path, frame=table.data, trait_name="MDD")
     return ["partitioned-h2", "--ldscore-dir", str(tmp_path / "ld"), "--sumstats-file", str(path),
-            "--output-dir", str(tmp_path / "out"), "--n-blocks", "6", "--query-batch-size", "2"], source
+            "--output-dir", str(tmp_path / "out"), "--num-blocks", "6", "--query-batch-size", "2"], source
 
 
 def _run_h2_cli(tmp_path, *, z_scale, options):
@@ -279,7 +279,7 @@ def _run_h2_cli(tmp_path, *, z_scale, options):
     fixtures.RegressionWorkflowTest().write_footer_sumstats_parquet(
         path, frame=table.data.assign(Z=table.data.Z * z_scale), trait_name="MDD")
     summary = cli.main(["h2", "--ldscore-dir", str(tmp_path / "ld"), "--sumstats-file", str(path),
-                        "--output-dir", str(tmp_path / "out"), "--n-blocks", "6", *options])
+                        "--output-dir", str(tmp_path / "out"), "--num-blocks", "6", *options])
     written = pd.read_csv(tmp_path / "out" / "h2.tsv", sep="\t", keep_default_na=False)
     return summary, written
 
@@ -307,7 +307,7 @@ def test_rg_root_metadata_records_each_trait_source_and_the_ldscore_directory(tm
         fixtures.RegressionWorkflowTest().write_footer_sumstats_parquet(path, frame=frame, trait_name="SCZ")
 
     cli.main(["rg", "--ldscore-dir", str(tmp_path / "ld"), "--sumstats-sources", *map(str, paths),
-              "--output-dir", str(tmp_path / "out"), "--n-blocks", "6"])
+              "--output-dir", str(tmp_path / "out"), "--num-blocks", "6"])
 
     metadata = json.loads((tmp_path / "out" / "diagnostics" / "metadata.json").read_text())
     assert metadata["trait_names"] == ["SCZ@pgc", "SCZ@ukb"]
@@ -320,7 +320,7 @@ def test_parallel_queries_match_inline_models_and_artifact_order(tmp_path, batch
     table, source = batch_inputs(tmp_path / "ld")
     # Trait order must never determine contiguous jackknife blocks.
     table = workflow.replace(table, data=table.data.iloc[::-1].reset_index(drop=True))
-    runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(n_blocks=6))
+    runner = workflow.RegressionRunner(source.config_snapshot, workflow.RegressionConfig(num_blocks=6))
     results = [runner.estimate_partitioned_h2_batch(
         table, source, output_dir=tmp_path / f"workers-{workers}", workers=workers,
         query_columns=["third", "first", "second"], query_batch_size=batch_size,

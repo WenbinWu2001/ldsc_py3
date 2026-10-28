@@ -103,7 +103,7 @@ def test_workflows_share_detected_budget_and_managed_processes(tmp_path, monkeyp
     assert calls == {name: [expected] for name in calls}
 
     table, source = batch_inputs(tmp_path / "query-inputs")
-    result = RegressionRunner(source.config_snapshot, RegressionConfig(n_blocks=6)).estimate_partitioned_h2_batch(
+    result = RegressionRunner(source.config_snapshot, RegressionConfig(num_blocks=6)).estimate_partitioned_h2_batch(
         table, source, output_dir=tmp_path / "partitioned", workers=workers,
         query_columns=["first", "second"],
     )

@@ -157,7 +157,7 @@ Runtime compatibility is carried by the Parquet footer and paired SNP sidecar, n
 | `ldsc:n_samples` | Parquet footer | Reference sample size (at least 3, equal across an R² matrix's chromosome files) that `query-r2-matrix` uses to recover Pearson r |
 | `ldsc:r2_bias` | Parquet footer | R² matrices store `unbiased` R² |
 | `ldsc:r2_encoding`, `ldsc:r2_scale` | Parquet footer | Package output uses `int16_symmetric` with divisor 32767 |
-| `ldsc:min_r2` | Parquet footer | Required build-time sparsification threshold; nonpositive means no R² filtering; `ldscore` rejects a positive value |
+| `ldsc:r2_min` | Parquet footer | Required build-time sparsification threshold; nonpositive means no R² filtering; `ldscore` rejects a positive value |
 | `ldsc:ld_window_mode`, `ldsc:ld_window_value` | Parquet footer | Build window used for downstream compatibility checks |
 | `ldsc:row_group_size` | Parquet footer | Informational intended row-group size |
 

@@ -349,7 +349,7 @@ def test_baseline_only_model_uses_one_child_for_fit_and_summary(tmp_path, monkey
         calls.append(kwargs["max_workers"])
         return original(**kwargs)
     monkeypatch.setattr(_serial_calculation, "ProcessPoolExecutor", pool)
-    result = RegressionRunner(source.config_snapshot, RegressionConfig(n_blocks=6)).estimate_partitioned_h2_batch(
+    result = RegressionRunner(source.config_snapshot, RegressionConfig(num_blocks=6)).estimate_partitioned_h2_batch(
         table, source, query_columns=[], output_dir=tmp_path / "out")
     assert not result.summary.empty
     assert calls == [1]

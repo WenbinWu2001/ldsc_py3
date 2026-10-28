@@ -1,8 +1,8 @@
-"""ldscore rejects R2 matrices built with a positive ``--min-r2``; query-r2-matrix still reads them.
+"""ldscore rejects R2 matrices built with a positive ``--r2-min``; query-r2-matrix still reads them.
 
 Fixture: the deterministic 32-SNP chromosome-22 1KG-30x subset (hg38; see
 ``tests/fixtures/minimal_external_resources/README.md``). A positive
-``--min-r2`` omits low-R2 pairs, which LD-score sums would count as zero.
+``--r2-min`` omits low-R2 pairs, which LD-score sums would count as zero.
 """
 from pathlib import Path
 
@@ -22,7 +22,7 @@ def truncated_panel(tmp_path_factory):
     panel = tmp_path_factory.mktemp("panel") / "kb200_min_r2"
     assert cli.run_cli(["build-r2-matrix", "--plink-prefix", str(PLINK), "--output-dir", str(panel),
                         "--snp-identifier", "chr_pos", "--source-genome-build", "hg38",
-                        "--ld-wind-kb", "200", "--min-r2", "0.05"]) == 0
+                        "--ld-wind-kb", "200", "--r2-min", "0.05"]) == 0
     return panel
 
 
@@ -45,6 +45,6 @@ def test_query_r2_matrix_still_reads_a_truncated_panel(tmp_path, truncated_panel
     pd.DataFrame({"CHR_1": ["22"], "POS_1": [sidecar["POS"].iloc[0]],
                   "CHR_2": ["22"], "POS_2": [sidecar["POS"].iloc[1]]}).to_csv(pairs, sep="\t", index=False)
     assert cli.run_cli(["query-r2-matrix", "--r2-matrix-dir", str(truncated_panel), "--genome-build", "hg38",
-                        "--snp-identifier", "chr_pos", "--pairs", str(pairs),
+                        "--snp-identifier", "chr_pos", "--pairs-file", str(pairs),
                         "--output-dir", str(tmp_path / "query")]) == 0
     assert len(pd.read_csv(tmp_path / "query" / "query_r2_matrix.tsv", sep="\t")) == 1

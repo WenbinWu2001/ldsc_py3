@@ -683,10 +683,10 @@ A chromosome emptied by `--ref-panel-snps-file` or genotype QC is skipped with a
 |---|--------------|--------------|
 | 1 | The R² matrix was written by an older LDSC3 version or another tool | Inspect columns; current files contain `IDX_1`, `IDX_2`, `R2`, and `SIGN_R`. The former `SIGN` column is no longer accepted; rebuild according to the [current format requirements](../reference/formats/r2-matrices.md#5-caveats-and-constraints). |
 | 2 | The matching `chrN_meta.tsv.gz` sidecar is missing or was copied from another R² matrix | Confirm each `chrN_r2.parquet` has a same-directory `chrN_meta.tsv.gz` with matching timestamps/provenance |
-| 3 | Parquet schema metadata was stripped or edited | The error lists each missing or invalid key; current R² matrices record `ldsc:r2_encoding`, `ldsc:r2_scale`, `ldsc:r2_bias=unbiased`, `ldsc:n_samples`, `ldsc:ld_window_mode`/`ldsc:ld_window_value`, `ldsc:min_r2`, `ldsc:sorted_by_build`, `ldsc:n_snps`, `ldsc:sidecar_identity_sha256`, and identity keys, with an int16 `R2` column |
+| 3 | Parquet schema metadata was stripped or edited | The error lists each missing or invalid key; current R² matrices record `ldsc:r2_encoding`, `ldsc:r2_scale`, `ldsc:r2_bias=unbiased`, `ldsc:n_samples`, `ldsc:ld_window_mode`/`ldsc:ld_window_value`, `ldsc:r2_min`, `ldsc:sorted_by_build`, `ldsc:n_snps`, `ldsc:sidecar_identity_sha256`, and identity keys, with an int16 `R2` column |
 | 4 | The R² matrix directory mixes chromosomes or builds from different reference-panel runs | List files in the R² matrix directory and compare recorded `genome_build` metadata |
 | 5 | Duplicate or conflicting pair rows survived in the R² matrix | Regenerate from a deduplicated reference-panel source and current `ldsc build-r2-matrix` |
-| 6 | The R² matrix was built with a positive `--min-r2`, so it omits low-R² pairs | The error names `ldsc:min_r2`; rebuild the R² matrix without `--min-r2` for `ldscore`, and keep the truncated R² matrix only for `ldsc query-r2-matrix` |
+| 6 | The R² matrix was built with a positive `--r2-min`, so it omits low-R² pairs | The error names `ldsc:r2_min`; rebuild the R² matrix without `--r2-min` for `ldscore`, and keep the truncated R² matrix only for `ldsc query-r2-matrix` |
 | 7 | The LD window is in a different unit from the R² matrix's build window, or wider than it (`windows in different units cannot be checked for coverage` / `is wider than the input R2 matrix window`) | The error names both windows; rerun with the R² matrix's unit and a value no wider, or rebuild the panel with the requested window. See [LD windows for R² matrices](../reference/formats/r2-matrices.md#37-ld-windows-and-sidecar-values-in-ldscore) |
 
 **Remedies:**
@@ -1044,7 +1044,7 @@ Keep the saved comparison metadata faithful to the fit that produced it.
 **Symptom:** the target annotation contains an invalid value, or the requested quantile split leaves an empty group.
 
 If the target table cannot be parsed, check its text encoding, whitespace-delimited header, chromosome labels, and numeric base-pair positions.
-Confirm that `--target-annot-sources` selects the intended annotation table and `--target-annotation` names its intended value column.
+Confirm that `--target-annot-sources` selects the intended annotation table and `--target-annot-column` names its intended value column.
 Restore or correct the source table before retrying; changing its filename does not change its coordinates or values.
 
 By default, every target value must be numeric and finite.

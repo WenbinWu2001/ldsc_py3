@@ -110,7 +110,7 @@ The defaults follow the published LDSC settings; change them only for a specific
 | `--intercept-h2` | Estimated by default; `--intercept-h2 1` fixes the intercept at the standard value (this replaces the legacy LDSC `--no-intercept`) |
 | `--two-step-cutoff` | 30 by default for a single-annotation model with a free intercept; cannot be combined with `--intercept-h2` |
 | `--chisq-max` | No cap for a single-annotation model; with several annotations, $\max(0.001 \cdot \max N, 80)$ |
-| `--n-blocks` | 200 block-jackknife blocks, capped at the number of SNPs |
+| `--num-blocks` | 200 block-jackknife blocks, capped at the number of SNPs |
 | `--allow-identity-downgrade` | Lets an allele-aware input meet a base-mode input of the same family by matching without alleles |
 | `--trait-name` | Overrides the trait label in the output |
 | `--samp-prev`, `--pop-prev` | Liability-scale columns; give both or neither |

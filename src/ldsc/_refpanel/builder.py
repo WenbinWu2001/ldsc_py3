@@ -1010,13 +1010,13 @@ class R2MatrixBuilder:
                     standardized_snp_getter=oriented_snp_getter,
                     m=geno.m,
                     n=geno.n,
-                    min_r2=config.min_r2,
+                    r2_min=config.r2_min,
                 ),
                 path=r2_path,
                 genome_build=build,
                 snp_identifier=self.global_config.snp_identifier,
                 n_samples=geno.n,
-                min_r2=config.min_r2,
+                r2_min=config.r2_min,
                 n_snps=len(runtime_metadata),
                 sidecar_identity_sha256=identity_hash,
                 ld_window_mode=(
@@ -1578,7 +1578,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     runtime.add_argument(
-        '--min-r2', dest='min_r2', default=0.0, type=float, metavar='VALUE',
+        '--r2-min', dest='r2_min', default=0.0, type=float, metavar='VALUE',
         help=(
             'Minimum unbiased R2 to store. Default: 0; zero or negative values keep every pair within the '
             'window. A positive value discards smaller R2 values; ldscore then rejects the R2 matrix, and '
@@ -1644,7 +1644,7 @@ def config_from_args(args: argparse.Namespace) -> tuple[R2MatrixBuildConfig, Glo
         ref_panel_snps_file=args.ref_panel_snps_file,
         keep_indivs_file=args.keep_indivs_file,
         snp_batch_size=args.snp_batch_size,
-        min_r2=getattr(args, "min_r2", 0.0),
+        r2_min=getattr(args, "r2_min", 0.0),
     )
     global_config = GlobalConfig(
         snp_identifier=snp_identifier,

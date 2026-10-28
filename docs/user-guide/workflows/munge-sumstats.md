@@ -238,7 +238,7 @@ For per-variant sample sizes, supply either `--N-col` or both case/control colum
 | Constant case count | `--N-cas VALUE` | `--N-cas 20000` |
 | Constant control count | `--N-con VALUE` | `--N-con 80000` |
 
-Supply either `--N` or both `--N-cas` and `--N-con`; the paired constants are added, so the example gives `N = 100000`. These are fallbacks: input N or paired case/control columns take precedence, followed by `--N`, then the paired constants. To use a constant instead of existing sample-size columns, exclude those columns with `--ignore` and omit their column-mapping flags. Constants are assigned after sample-size filtering and are not filtered by `--n-min`. Source: sample-size options in `build_parser` in [_sumstats/munger.py](../../../src/ldsc/_sumstats/munger.py) and `process_n` in [_sumstats/munge_kernel.py](../../../src/ldsc/_sumstats/munge_kernel.py).
+Supply either `--N` or both `--N-cas` and `--N-con`; the paired constants are added, so the example gives `N = 100000`. These are fallbacks: input N or paired case/control columns take precedence, followed by `--N`, then the paired constants. To use a constant instead of existing sample-size columns, exclude those columns with `--ignore` and omit their column-mapping flags. Constants are assigned after sample-size filtering and are not filtered by `--N-min`. Source: sample-size options in `build_parser` in [_sumstats/munger.py](../../../src/ldsc/_sumstats/munger.py) and `process_n` in [_sumstats/munge_kernel.py](../../../src/ldsc/_sumstats/munge_kernel.py).
 
 ### Optional fields and ignored columns
 

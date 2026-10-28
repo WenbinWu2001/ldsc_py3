@@ -292,12 +292,12 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.keep_indivs_file, "filters/samples.keep")
 
     def test_ref_panel_build_config_rejects_non_finite_min_r2(self):
-        # Readers require a finite ldsc:min_r2, so a non-finite floor must fail
+        # Readers require a finite ldsc:r2_min, so a non-finite floor must fail
         # before a build instead of producing a panel no reader accepts.
         for value in (float("nan"), float("inf"), float("-inf")):
-            with self.subTest(min_r2=value), self.assertRaisesRegex(ldsc.LDSCConfigError, "min_r2"):
+            with self.subTest(r2_min=value), self.assertRaisesRegex(ldsc.LDSCConfigError, "r2_min"):
                 R2MatrixBuildConfig(
-                    plink_prefix="plink/panel.@", output_dir="out", ld_wind_kb=100.0, min_r2=value
+                    plink_prefix="plink/panel.@", output_dir="out", ld_wind_kb=100.0, r2_min=value
                 )
 
     def test_ref_panel_build_config_validates_required_fields(self):
@@ -452,10 +452,10 @@ class WorkflowConfigTest(unittest.TestCase):
 
     def test_regression_config_defaults(self):
         config = RegressionConfig()
-        self.assertEqual(config.n_blocks, 200)
+        self.assertEqual(config.num_blocks, 200)
         self.assertTrue(config.use_common_counts)
         with self.assertRaises(ldsc.LDSCConfigError):
-            RegressionConfig(n_blocks=1)
+            RegressionConfig(num_blocks=1)
 
     def test_ref_panel_config_normalizes_path_fields(self):
         config = RefPanelConfig(

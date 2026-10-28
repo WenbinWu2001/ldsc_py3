@@ -77,7 +77,7 @@ def test_removed_munge_flags_are_rejected(removed):
     assert caught.value.code == 2
 
 
-@pytest.mark.parametrize("options", [[], ["--n-min", "0"]])
+@pytest.mark.parametrize("options", [[], ["--N-min", "0"]])
 def test_legacy_n_threshold_and_constant_precedence_are_preserved(tmp_path, options):
     raw = tmp_path / "raw.tsv"
     raw.write_text("SNP P BETA N\nrs1 .05 -.05 550\nrs2 .05 .05 1000\n")
@@ -96,6 +96,6 @@ def test_constant_n_bypasses_n_min_as_in_legacy(tmp_path, sample_size):
     raw.write_text("SNP P BETA\nrs1 .05 0\n")
     table = main([
         "--raw-sumstats-file", str(raw), "--output-dir", str(tmp_path / "out"),
-        "--snp-identifier", "rsid", "--no-snp-restriction", "--n-min", "2000", "--chunksize", "1", *sample_size,
+        "--snp-identifier", "rsid", "--no-snp-restriction", "--N-min", "2000", "--chunksize", "1", *sample_size,
     ])
     assert table.data.N.tolist() == [1000]

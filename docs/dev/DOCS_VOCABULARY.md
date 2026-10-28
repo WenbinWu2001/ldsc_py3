@@ -93,7 +93,7 @@ On each page that names S-LDSC, the first mention gives the full name and citati
 | summary statistics | Per-SNP GWAS association results; written in full in prose. | "sumstats" in prose | `munge-sumstats` | |
 | raw summary statistics | The GWAS table given to `munge-sumstats`. | "raw sumstats", "input GWAS" | `--raw-sumstats-file` | |
 | munged summary statistics | The output of `munge-sumstats`: Parquet with an identity footer, optionally also `.sumstats.gz`. | "curated summary statistics", "cleaned summary statistics" | `--sumstats-file`; `--sumstats-sources` | |
-| sample size | The number of individuals behind each SNP's statistic. | | column `N`; `--N`; `--N-col` | $N$ |
+| sample size | The number of individuals behind each SNP's statistic. | | column `N`; `--N`; `--N-col`; `--N-min` | $N$ |
 
 ### Regression quantities
 
@@ -111,7 +111,7 @@ On each page that names S-LDSC, the first mention gives the full name and citati
 | proportion of heritability | The share of SNP heritability attributed to an annotation. | "heritability fraction" | `prop_h2` | |
 | proportion of SNPs | The annotation's share of the SNP count. | "SNP fraction" | `prop_snps` | |
 | enrichment | Proportion of heritability divided by proportion of SNPs (`src/ldsc/_regression/estimators.py`). | "fold enrichment", "enrichment ratio" | `enrichment` | |
-| block jackknife | Standard-error estimation by deleting contiguous blocks of SNPs, 200 by default. | "jackknife blocks" for the method | `--n-blocks` | |
+| block jackknife | Standard-error estimation by deleting contiguous blocks of SNPs, 200 by default. | "jackknife blocks" for the method | `--num-blocks`; `RegressionConfig.num_blocks` | |
 
 ### Inputs, outputs and execution
 

@@ -167,7 +167,7 @@ def test_rg_reports_trait_and_pair_totals_without_repeating_input_provenance(tmp
     table = replace(table, data=table.data.assign(A1="A", A2="G"), has_alleles=True)
     traits = [replace(table, trait_name=f"trait-{i}") for i in range(3)]
     with caplog.at_level(logging.INFO, logger="LDSC"):
-        result = RegressionRunner(regression_config=RegressionConfig(n_blocks=6, use_intercept=False)).estimate_rg_pairs(traits, source)
+        result = RegressionRunner(regression_config=RegressionConfig(num_blocks=6, use_intercept=False)).estimate_rg_pairs(traits, source)
     assert len(result.h2_per_trait) == len(result.rg_full) == 3
     assert "Phase complete: computation; per-trait h2; completed=3/3" in caplog.text
     assert "Phase complete: computation; rg pairs; completed=3/3" in caplog.text

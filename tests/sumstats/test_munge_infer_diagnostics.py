@@ -106,7 +106,7 @@ _AUDIT_COMMON_OPTIONS = [
     '--trait-name', 'audit trait', '--output-format', 'both',
     '--snp-identifier', 'chr_pos', '--source-genome-build', 'hg19',
     '--output-genome-build', 'hg38', '--N-cas', '40', '--N-con', '60',
-    '--n-min', '25', '--nstudy-min', '2', '--info-min', '0.8', '--maf-min', '0.02',
+    '--N-min', '25', '--nstudy-min', '2', '--info-min', '0.8', '--maf-min', '0.02',
     '--snp', 'variant', '--chr', 'chrom_custom', '--pos', 'base_custom',
     '--a1', 'effect_allele_custom', '--a2', 'other_allele_custom', '--p', 'p_custom',
     '--frq', 'frequency_custom', '--nstudy', 'studies_custom', '--ignore', 'unused_custom',

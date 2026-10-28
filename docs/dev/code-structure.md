@@ -118,7 +118,7 @@ Function-level imports remain for optional or heavy dependencies, such as Matplo
 | `ldsc._refpanel.prepared` | the `PreparedChromosome` contract, the chromosome annotation input `ChromosomeAnnotations`, and the `ArrayAnnotations`/`MappedAnnotations` accessors |
 | `ldsc._refpanel.funnel` | the reference-SNP funnel: `ReferenceSNPFunnel` records what each reference-preparation step removed, with readers, writers and the run-level warning text |
 | `ldsc._refpanel.adapters` | runtime PLINK/R²-matrix adapters; `RefPanel.prepare_chromosome` owns reference filtering, annotation alignment, window/bias policy, and reader lifetime |
-| `ldsc._refpanel.builder`, `ldsc._refpanel.build_kernel` | R²-matrix build workflow (source-build inference, optional liftover, explicit SNP/sample restrictions, optional `min_r2` threshold) and its kernel (genetic maps, pairwise R² emission, restriction masks) |
+| `ldsc._refpanel.builder`, `ldsc._refpanel.build_kernel` | R²-matrix build workflow (source-build inference, optional liftover, explicit SNP/sample restrictions, optional `r2_min` threshold) and its kernel (genetic maps, pairwise R² emission, restriction masks) |
 | `ldsc._refpanel.query` | public `query-r2-matrix` CLI/API, `R2Matrix`, one-shot `query_r2_matrix()`, endpoint key resolution, sign harmonization, and optional unbiased-R²-to-Pearson-r conversion |
 | `ldsc._refpanel.preflight` | `inspect_r2_headers` and the genetic-map header check for the declared-input gate |
 | `ldsc._refpanel.outputs` | `QueryR2MatrixDirectoryWriter` for the `query-r2-matrix` result directory |

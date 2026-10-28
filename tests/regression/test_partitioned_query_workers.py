@@ -41,7 +41,7 @@ def test_positive_query_workers_follow_existing_work_cap(tmp_path, monkeypatch, 
     monkeypatch.setattr(policy.joblib, "cpu_count", lambda: 8)
     monkeypatch.setenv("SLURM_CPUS_PER_TASK", "1")
     table, source = batch_inputs(tmp_path / "ld")
-    RegressionRunner(source.config_snapshot, RegressionConfig(n_blocks=6)).estimate_partitioned_h2_batch(
+    RegressionRunner(source.config_snapshot, RegressionConfig(num_blocks=6)).estimate_partitioned_h2_batch(
         table, source, output_dir=tmp_path / "out", workers=4, query_batch_size=batch_size,
     )
     metadata = json.loads((tmp_path / "out/diagnostics/metadata.json").read_text())
@@ -65,7 +65,7 @@ def test_effective_one_uses_child_and_preserves_native_settings(tmp_path, monkey
     if reason == "one_cpu":
         monkeypatch.setattr(policy.joblib, "cpu_count", lambda: 1)
     workers = 1 if reason == "requested_one" else -1 if reason == "one_cpu" else 4
-    result = RegressionRunner(source.config_snapshot, RegressionConfig(n_blocks=6)).estimate_partitioned_h2_batch(
+    result = RegressionRunner(source.config_snapshot, RegressionConfig(num_blocks=6)).estimate_partitioned_h2_batch(
         table, source, output_dir=tmp_path / "out", workers=workers,
         query_columns=[] if reason == "baseline" else ["first"] if reason == "one_query" else None,
         query_batch_size=1 if reason == "one_batch" else 1000,
@@ -98,7 +98,7 @@ def test_nonnumeric_query_keeps_per_query_preparation_failure_policy(tmp_path):
     query = pd.read_parquet(path)
     query["second"] = "invalid query values"
     query.to_parquet(path, index=False)
-    runner = RegressionRunner(source.config_snapshot, RegressionConfig(n_blocks=6))
+    runner = RegressionRunner(source.config_snapshot, RegressionConfig(num_blocks=6))
     expected, actual = [runner.estimate_partitioned_h2_batch(
         table, source, output_dir=tmp_path / f"workers-{workers}", workers=workers, continue_on_query_error=True,
     ) for workers in (1, 2)]

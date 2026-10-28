@@ -123,7 +123,7 @@ Build pairwise R2 matrices from PLINK genotypes.
 | `--genetic-map-hg38-sources` | hg38 genetic-map files for deriving SNP centiMorgan coordinates. Accepts exact paths, '*' and '@' patterns; see --plink-prefix for pattern rules. Required with --ld-wind-cm when hg38 output is written; otherwise optional with no map supplied by default. |
 | `--liftover-chain-hg19-to-hg38-file` | Chain file enabling additional hg38 output from hg19 coordinates. Requires coordinate-based --snp-identifier; invalid for rsID-family modes. If omitted, do not convert hg19 input to hg38. Supply an exact file path; patterns are not expanded. |
 | `--liftover-chain-hg38-to-hg19-file` | Chain file enabling additional hg19 output from hg38 coordinates. Requires coordinate-based --snp-identifier; invalid for rsID-family modes. If omitted, do not convert hg38 input to hg19. Supply an exact file path; patterns are not expanded. |
-| `--min-r2` | Minimum unbiased R2 to store. Default: 0; zero or negative values keep every pair within the window. A positive value discards smaller R2 values; ldscore then rejects the R2 matrix, and query-r2-matrix reports discarded pairs as NaN with status=absent. |
+| `--r2-min` | Minimum unbiased R2 to store. Default: 0; zero or negative values keep every pair within the window. A positive value discards smaller R2 values; ldscore then rejects the R2 matrix, and query-r2-matrix reports discarded pairs as NaN with status=absent. |
 | `--snp-batch-size` | Number of reference SNPs processed per genotype batch. Default: 512; larger batches may improve speed but use more memory. Stored pairs do not depend on it. |
 | `--overwrite` | Replace this command's existing R2 matrix files and remove obsolete outputs after success. A concrete chromosome prefix replaces only that chromosome; a suite replaces the full R2 matrix. Default: off; stop if output files exist. |
 | `--log-level` | Set detail in the workflow log. DEBUG includes troubleshooting details. INFO includes progress and summaries. WARNING includes warnings and errors. ERROR includes errors only. Each level includes more severe messages. Default: INFO. Run headers and completion status are always recorded. |
@@ -193,7 +193,7 @@ Munge GWAS summary statistics.
 | `--N-con` | Constant control-count fallback. Requires --N-cas when used; the constants are added only when input sample-size columns and --N are absent. Default: no control-count constant. |
 | `--sumstats-snps-file` | Replace the default packaged HapMap3 restriction with this headered identity table, matched in the source genome build. Mutually exclusive with --no-snp-restriction. Requires --liftover-chain-file when source and output builds differ, even for a custom SNP keep-list. Same exact-one '*' pattern rules as --raw-sumstats-file; '@' is not expanded. |
 | `--no-snp-restriction` | Disable the default packaged HapMap3 keep-list restriction. Ordinary QC still applies. Mutually exclusive with --sumstats-snps-file; requires --liftover-chain-file when source and output builds differ. Default: off; restrict to HapMap3. |
-| `--n-min` | Minimum per-SNP sample size to retain. If omitted or zero, use the 90th percentile of N divided by 1.5. Constant sample sizes are assigned after this filter and are not filtered. |
+| `--N-min` | Minimum per-SNP sample size to retain. If omitted or zero, use the 90th percentile of N divided by 1.5. Constant sample sizes are assigned after this filter and are not filtered. |
 | `--nstudy-min` | Minimum number of contributing studies to retain. If omitted or zero, keep the maximum observed count. Applies only when NSTUDY is present and per-SNP sample sizes are absent. |
 | `--info-min` | Keep SNPs with INFO at or above this value. Default: 0.9 when an INFO column is selected; without one the default filter is skipped, and an explicit value is an error. Use --info or --info-list to select a nonstandard column. |
 | `--maf-min` | Keep SNPs whose minor-allele frequency min(FRQ, 1-FRQ) is at or above this value. Default: 0.01 when a frequency column is selected; without one the default filter is skipped, and an explicit value is an error. Output FRQ preserves the original frequency. |
@@ -231,7 +231,7 @@ Estimate heritability from munged summary statistics and LD scores.
 | `--intercept-h2` | Fix the heritability intercept to this value; use 1 for the standard fixed intercept. Cannot be combined with an explicit --two-step-cutoff. If omitted, estimate the intercept. |
 | `--two-step-cutoff` | First-step chi-square cutoff, including the boundary. Requires a single-annotation model with a free intercept; cannot be combined with --intercept-h2. If omitted, use 30 for such models; otherwise disable two-step estimation. |
 | `--chisq-max` | Keep SNPs with chi-square at or below this value. If omitted, use max(0.001 * maximum N, 80) for multi-annotation models; single-annotation models have no chi-square cap. |
-| `--n-blocks` | Number of SNP blocks for jackknife standard errors; must be at least 2. Default: 200, capped at the number of retained SNPs. |
+| `--num-blocks` | Number of SNP blocks for jackknife standard errors; must be at least 2. Default: 200, capped at the number of retained SNPs. |
 | `--allow-identity-downgrade` | Allow allele-aware and allele-unaware inputs of the same mode family by matching without alleles. rsID-family and coordinate-family modes still cannot be mixed. Default: off; require compatible SNP identifier modes. |
 | `--trait-name` | Trait label used in summaries. If omitted, use the stored trait name or derive one from the input filename. |
 | `--samp-prev` | Sample case fraction, strictly between 0 and 1, for liability-scale estimates. Requires --pop-prev; omit both, or pass nan for both, to report observed-scale estimates only. |
@@ -252,7 +252,7 @@ Estimate partitioned heritability with independent query models.
 | `--intercept-h2` | Fix the heritability intercept to this value; use 1 for the standard fixed intercept. Cannot be combined with an explicit --two-step-cutoff. If omitted, estimate the intercept. |
 | `--two-step-cutoff` | First-step chi-square cutoff, including the boundary. Requires a single-annotation model with a free intercept; cannot be combined with --intercept-h2. If omitted, use 30 for such models; otherwise disable two-step estimation. |
 | `--chisq-max` | Keep SNPs with chi-square at or below this value. If omitted, use max(0.001 * maximum N, 80) for multi-annotation models; single-annotation models have no chi-square cap. |
-| `--n-blocks` | Number of SNP blocks for jackknife standard errors; must be at least 2. Default: 200, capped at the number of retained SNPs. |
+| `--num-blocks` | Number of SNP blocks for jackknife standard errors; must be at least 2. Default: 200, capped at the number of retained SNPs. |
 | `--allow-identity-downgrade` | Allow allele-aware and allele-unaware inputs of the same mode family by matching without alleles. rsID-family and coordinate-family modes still cannot be mixed. Default: off; require compatible SNP identifier modes. |
 | `--trait-name` | Trait label used in summaries. If omitted, use the stored trait name or derive one from the input filename. |
 | `--samp-prev` | Sample case fraction, strictly between 0 and 1, for liability-scale estimates. Requires --pop-prev; omit both, or pass nan for both, to report observed-scale estimates only. |
@@ -271,8 +271,8 @@ Summarize fitted heritability across annotation quantiles.
 | Option | Description |
 | --- | --- |
 | `--partitioned-h2-result-dir` | Required. Required saved joint model: a baseline-only partitioned-h2 result or one diagnostics/query_annotations/<query>/ directory. An aggregate multi-query result root is not a single model. |
-| `--target-annot-sources` | Required. Required annotation files containing --target-annotation, used to divide SNPs into quantiles. Accepts exact paths. The target may be an external score or a fitted annotation. Quote patterns: '*' matches filename text; '@' substitutes chromosome numbers 1-22 by default. Use '*' to select available files for a chromosome subset where allowed. |
-| `--target-annotation` | Required. Required unique column name in --target-annot-sources whose values define the quantiles. |
+| `--target-annot-sources` | Required. Required annotation files containing --target-annot-column, used to divide SNPs into quantiles. Accepts exact paths. The target may be an external score or a fitted annotation. Quote patterns: '*' matches filename text; '@' substitutes chromosome numbers 1-22 by default. Use '*' to select available files for a chromosome subset where allowed. |
+| `--target-annot-column` | Required. Required unique column name in --target-annot-sources whose values define the quantiles. |
 | `--output-dir` | Required. Required destination for quantile heritability, standardized coefficients, and diagnostics. |
 | `--baseline-annot-sources` | Required. Required original baseline annotation files used to fit the selected model. Accepts exact paths, '*' and '@' patterns; see --target-annot-sources for pattern rules. Resupply their original values and SNP coverage. |
 | `--ref-metadata-sources` | Required. Required reference SNP metadata files with chromosome, position, SNP ID, and MAF; allele-aware matching also uses A1/A2. Accepts exact paths, '*' and '@' patterns; see --target-annot-sources for pattern rules. Use original R2 matrix sidecars or PLINK metadata exported by ldscore --export-ref-metadata. |
@@ -303,7 +303,7 @@ Estimate genetic correlation.
 | `--intercept-gencov` | Fix the genetic-covariance intercept to the same value for every trait pair; use 0 for the standard fixed intercept. Cannot be combined with --two-step-cutoff. Single-annotation fits also require --intercept-h2 because automatic two-step estimation otherwise conflicts with this fixed value. If omitted, estimate the covariance intercepts. |
 | `--two-step-cutoff` | First-step chi-square cutoff, including the boundary. Requires a single-annotation model with free intercepts; cannot be combined with --intercept-h2 or --intercept-gencov. If omitted, use 30 with a free heritability intercept in single-annotation fits; otherwise disable it. |
 | `--chisq-max` | Keep SNPs satisfying Z1^2 * Z2^2 <= VALUE^2 for each trait pair. If omitted, apply no chi-square product cap. This differs from the single-trait chi-square filter. |
-| `--n-blocks` | Number of SNP blocks for jackknife standard errors; must be at least 2. Default: 200, capped at the number of retained SNPs. |
+| `--num-blocks` | Number of SNP blocks for jackknife standard errors; must be at least 2. Default: 200, capped at the number of retained SNPs. |
 | `--allow-identity-downgrade` | Allow allele-aware and allele-unaware inputs of the same mode family by matching without alleles. rsID-family and coordinate-family modes still cannot be mixed. Default: off; require compatible SNP identifier modes. |
 | `--anchor-trait` | Trait name or input file path to compare against every other trait. Must identify one of --sumstats-sources. If omitted, estimate every unique trait pair. |
 | `--samp-prev` | Comma-separated sample case fractions in resolved --sumstats-sources order, one per trait; each in (0, 1) or nan for a quantitative trait. Requires --pop-prev; cannot be combined with --prevalence-manifest. If neither form is supplied, report observed-scale estimates only. |
@@ -320,7 +320,7 @@ Look up R2 for SNP pairs in an R2 matrix.
 | Option | Description |
 | --- | --- |
 | `--r2-matrix-dir` | Required. Required R2 matrix directory produced by build-r2-matrix, or its root containing genome-build subdirectories. Use --genome-build to select a subdirectory when needed. |
-| `--pairs` | Required. Required TSV/CSV of SNP pairs; use - to read standard input. Endpoint columns use _1/_2 suffixes and must match --snp-identifier, including allele columns for allele-aware matching. |
+| `--pairs-file` | Required. Required TSV/CSV of SNP pairs; use - to read standard input. Endpoint columns use _1/_2 suffixes and must match --snp-identifier, including allele columns for allele-aware matching. |
 | `--output-dir` | Required. Required destination for query_r2_matrix.tsv (r2, sign_r, r, status plus input columns) and diagnostics. sign_r and r use query allele orientation. |
 | `--genome-build` | Select the hg19 or hg38 subdirectory under --r2-matrix-dir. If omitted, use the supplied build-specific directory or its sole available build; ambiguous build roots require a selection. |
 | `--snp-identifier` | SNP matching rule for pair endpoints: the mode recorded by the R2 matrix (the default) or the base form of that mode (rsid or chr_pos), which ignores alleles. Pair columns must support the selected mode. |

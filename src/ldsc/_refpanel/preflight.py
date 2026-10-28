@@ -32,7 +32,7 @@ def inspect_r2_headers(directory, genome_build=None, *, ldscore_args=None):
 
     With ``ldscore_args`` (parsed ldscore options), each file's recorded build
     window must also admit the requested LD window, and the file must store
-    every pair (``ldsc:min_r2`` not positive).
+    every pair (``ldsc:r2_min`` not positive).
     """
     from .r2_format import (
         read_r2_parquet_contract,

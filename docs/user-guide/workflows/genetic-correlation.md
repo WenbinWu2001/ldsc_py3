@@ -1,6 +1,6 @@
 # Estimate genetic correlation
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 `ldsc rg` estimates the genetic correlation between traits with cross-trait LD score regression (LDSC; Bulik-Sullivan et al. 2015).
 It fits every pair of the traits you supply, or each trait against one anchor trait, and also fits each trait's SNP heritability on its own.
@@ -132,7 +132,7 @@ If a trait name contains `@` and equals one of the generated labels, `rg` stops 
 | `--intercept-h2`, `--intercept-gencov` | Intercepts are estimated by default; `--intercept-h2 1 --intercept-gencov 0` requests the standard fixed intercepts, replacing the legacy LDSC `--no-intercept` |
 | `--two-step-cutoff` | 30 by default for single-annotation fits with free intercepts; cannot be combined with fixed intercepts |
 | `--chisq-max` | No cap by default; when set, keeps SNPs with $Z_1^2 Z_2^2 \le$ value$^2$ in each pair |
-| `--n-blocks` | 200 block-jackknife blocks, capped at the number of SNPs |
+| `--num-blocks` | 200 block-jackknife blocks, capped at the number of SNPs |
 | `--samp-prev`, `--pop-prev`, `--prevalence-manifest` | Liability-scale heritability and genetic covariance; see [liability-scale conversion](liability-scale.md) |
 | `--allow-identity-downgrade` | Lets allele-aware and base-mode inputs of the same family match without alleles |
 | `--write-per-pair-detail` | Also write `diagnostics/pairs/` |

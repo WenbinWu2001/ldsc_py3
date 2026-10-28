@@ -51,7 +51,7 @@ On each page that names S-LDSC, the first mention gives the full name and citati
 | reference panel | Genotype data (PLINK) or an R² panel from which LD scores are computed. | "ref panel", "reference genotypes", "LD panel" | `--plink-prefix`; `--r2-dir`; `RefPanelConfig` | |
 | R² panel | Package-built Parquet files of pairwise unbiased R² with one sidecar per chromosome, written by `build-r2-panel`. | "parquet R² reference", "R² table", "index-format panel", "R² parquet panel" | `build-r2-panel`; `--r2-dir`; `--panel-dir`; `R2Panel` | |
 | sidecar | The per-chromosome metadata file of an R² panel that records SNP identity, CM and MAF. | "metadata file", "meta file" | `chr<N>_meta.tsv.gz` | |
-| R² | Squared correlation between two SNPs' genotypes; written "R²" in prose and `R2` only inside identifiers. | "R2" in prose, "r2" | column `R2` | |
+| R² | Squared correlation between two SNPs' genotypes; written "R²" (or $R^2$ in math) in Markdown prose, and "R2" in code text (docstrings, CLI help, messages, comments) and identifiers. | "R2" in Markdown prose, "r2" | column `R2` | |
 | unbiased R² | The sample-size-corrected squared correlation $r^2 - (1 - r^2)/(n - 2)$ (`src/ldsc/r2_query.py`); it can be negative. | "adjusted R²", "bias-adjusted R²" | column `R2`; `ldsc:r2_bias="unbiased"` | $\tilde r^2$ |
 | LD window | The maximum distance between two SNPs whose R² enters an LD score, in SNPs, kb or cM. | "window size" | `--ld-wind-snps`; `--ld-wind-kb`; `--ld-wind-cm` | |
 | LD score | The sum of unbiased R² between a SNP and the reference SNPs in its LD window, weighted by annotation values. Write "LD score" as a noun and "LD-score" before another noun. | "LDscore", "L2" | `ldscore`; `ldscore.baseline.parquet` | $\ell(j, C)$ |
@@ -78,7 +78,7 @@ On each page that names S-LDSC, the first mention gives the full name and citati
 | baseline annotation | An annotation that is in every fitted model, such as the baseline-LD set. | "baseline category", "background annotation" | `--baseline-annot-sources` | |
 | query annotation | An annotation tested one at a time on top of the baseline. | "focal annotation", "test annotation" | `--query-annot-sources`; `--query-annot-bed-sources`; `--query-annot-gene-list-sources` | |
 | continuous annotation | An annotation with non-binary values. | "quantitative annotation" | `quantile-h2` | |
-| SNP grid | The SNP rows that `annotate` projects onto: a BIM grid (PLINK `.bim` files) or an annotation grid (existing annotation files). | "SNP universe" for this meaning | `--ref-snp-bim-sources`; `--ref-snp-annot-sources` | |
+| SNP grid | The SNP rows that `annotate` projects onto: a BIM grid (PLINK `.bim` files) or an annotation grid (existing annotation files). It should list the reference panel's SNPs, so that the annotation covers every reference SNP; the reference SNPs are the grid SNPs kept after reference-panel filtering. | "SNP universe" for this meaning | `--ref-snp-bim-sources`; `--ref-snp-annot-sources` | |
 | gene list | A file of gene identifiers that becomes one query annotation. | "gene set" for the file, "pathway file" | `--query-annot-gene-list-sources` | |
 | gene coordinate catalog | The table of one-based gene coordinates that resolves gene identifiers to intervals. | "gene catalog", "coordinate catalog", "gene annotation file" | `--gene-coordinate-file` | |
 | control gene list | A gene list added to the baseline as column `gene_control`. | "background genes" | `--control-gene-list-file` | |
@@ -145,6 +145,12 @@ These identifiers differ from the prose term or from each other; they are record
 8. **Existing text:** violations in existing text are flagged with location and preferred term; rewriting them needs separate authorization; all newly written prose follows the approved entries.
 9. **Scope:** consulting the glossary does not authorize broader rewriting.
 10. **Identifiers stay as spelled:** commands, flags, arguments, columns and file names appear in code font exactly as the code spells them, even where the prose term differs.
+11. **ASCII-only code:** every script (package source, tests, tools), including docstrings, comments, CLI help text and messages, uses ASCII characters only.
+    Write `R2`, `h2`, `chi^2`, `+/-` and `->` there; Unicode symbols such as R², ± and → appear only in Markdown documentation.
+    When a figure or printed output must show a symbol, produce it from ASCII source: matplotlib mathtext such as `R$^2$`, or a `\uXXXX` escape.
+12. **No emoji:** emoji are not used anywhere, including documentation, code, messages, outputs and commit messages.
+13. **Figure labels:** text drawn inside a figure may use condensed phrasings, such as "sumstats", where space is limited; captions and the surrounding prose use the approved terms.
+14. **Verbatim copies:** documentation that reproduces code text verbatim, such as the CLI help tables in `docs/reference/cli.md`, the docstring summaries in `docs/reference/python-api.md`, and quoted messages, keeps the code's ASCII spelling (for example `R2`).
 
 ## Proposed terms
 

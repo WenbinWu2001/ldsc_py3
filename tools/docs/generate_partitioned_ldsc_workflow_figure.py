@@ -1,4 +1,4 @@
-"""Render the current direct-LD-score to partitioned-regression workflow.
+"""Render the current workflow from direct LD scores to partitioned regression.
 
 The SVG and PNG are generated together from the same code-mapped labels.
 Indexed scoring shares the publication and reader boundary shown here; its
@@ -76,21 +76,21 @@ def render():
     ], BLUE)
     box(ax, 520, 1060, 430, 160, "Reference inputs", [
         "PLINK: --plink-prefix",
-        "or canonical R² parquet: --r2-dir",
+        "or R$^2$ panel: --r2-dir",
         "Resolved paths and chromosome scope",
         "Shared identity and genome-build policy",
     ], BLUE)
     box(ax, 50, 870, 900, 145, "1. Prepare one chromosome", [
         "RefPanel.prepare_chromosome() -> PreparedChromosome",
         "Align annotation/reference rows; apply reference QC, restrictions and LD windows.",
-        "Own the PLINK/R² reader and preserve physical PLINK row mapping.",
+        "Own the PLINK/R$^2$ reader and preserve physical PLINK row mapping.",
     ], GREEN)
     box(ax, 50, 680, 900, 145, "2. Compute direct LD scores", [
         "LDScoreCalculator.compute_chromosome() -> _kernel.ldscore.compute_chromosome()",
         "Accumulate LD scores, annotation counts and overlaps in float64.",
         "Workers stage float32 query fragments; the parent combines chromosome results.",
     ], GREEN)
-    box(ax, 50, 470, 900, 165, "3. Publish the canonical LD-score directory", [
+    box(ax, 50, 470, 900, 165, "3. Publish the LD-score directory", [
         "LDScoreDirectoryWriter.write_batches() (also used by indexed scoring)",
         "metadata.json + ldscore.baseline.parquet + ldscore.overlap.parquet when required",
         "Optional query files: ldscore.query.parquet or ldscore.query.batchNNNNN.parquet",
@@ -104,7 +104,7 @@ def render():
     ], BLUE)
     box(ax, 520, 280, 430, 145, "Munge or load GWAS sumstats", [
         "SumstatsMunger / load_sumstats()",
-        "Curated Parquet or legacy .sumstats(.gz)",
+        "Munged Parquet or legacy .sumstats(.gz)",
         "Canonical identities, Z, N and allele metadata",
         "Validated SumstatsTable for trait alignment",
     ], BLUE)
@@ -121,7 +121,7 @@ def render():
     ]:
         arrow(ax, start, end)
 
-    ax.text(50, 48, "Counts and overlap use retained reference SNPs; regression rows and weights use a separate filtered universe.",
+    ax.text(50, 48, "Counts and overlap use retained reference SNPs; regression SNPs and weights use a separate filtered set.",
             fontsize=10.2, color=MUTED, va="top")
     ax.text(50, 25, "Public annotation reads and saved LD scores are float32. Numerical accumulation remains float64.",
             fontsize=10.2, color=MUTED, va="top")

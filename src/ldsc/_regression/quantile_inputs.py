@@ -114,7 +114,7 @@ def _alignment(args, bundle, metadata, store, diagnostics, reference_paths, targ
                  action="excluded", details="annotation SNP is absent from reference metadata")
     store.issues(diagnostics, "reference", "NOT EXISTS (SELECT 1 FROM fitted s WHERE s.effective_snp_id=r.effective_snp_id)",
                  role="reference_metadata", source=reference_source, issue="missing_baseline_annotation",
-                 action="excluded", details="reference SNP is outside the fitted annotation grid")
+                 action="excluded", details="reference SNP is outside the fitted annotation SNP grid")
     threshold = float((metadata.get("count_config") or {}).get("common_reference_snp_maf_min", .05))
     operator = str((metadata.get("count_config") or {}).get("common_reference_snp_maf_operator", ">="))
     if operator != ">=":

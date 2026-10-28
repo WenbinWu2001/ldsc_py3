@@ -987,7 +987,7 @@ def _align_annotations(bundle, reference, chrom, global_config, funnel):
     if not keep.any():
         error = EmptyReferenceSNPs(
             f"ldscore retained no reference SNPs on chromosome {chrom}: none of its {len(bundle.metadata)} "
-            f"annotation SNP-grid rows matches the {len(reference)} {funnel.backend} reference-panel SNPs left "
+            f"annotation rows matches the {len(reference)} {funnel.backend} reference-panel SNPs left "
             "after the panel's filters. Most likely the annotation SNP identifiers, genome build, or "
             "allele-aware identifier mode do not match the reference panel. Use annotation and reference-panel "
             "artifacts built with the same SNP identifier mode and genome build. "

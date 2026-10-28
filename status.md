@@ -19,7 +19,7 @@ Nothing below is in progress; each open item needs the user's go-ahead.
 - Look-alike helpers deliberately kept, because each carries a domain-specific error message or return type: the four `_require_columns`, the two `_read_json`, and the two `get_compression`.
 - Remaining follow-up, not started: consider per-domain test folders.
 
-## Annotation grids and LD-score annotation coverage
+## Annotation SNP grids and LD-score annotation coverage
 
 The earlier handoff for this work was written at `4e2fa3c`, before the implementation; this section replaces it.
 
@@ -27,10 +27,10 @@ The earlier handoff for this work was written at `4e2fa3c`, before the implement
 
 These five decisions are settled; do not reopen them.
 
-1. Annotation definitions (gene lists with their catalog and padding, or BED files) are separate from the SNP grid, which selects the SNPs that receive them.
-2. `ldsc annotate` takes exactly one SNP grid: a BIM grid (`--ref-snp-bim-sources`) or a temporarily retained annotation grid (`--ref-snp-annot-sources`).
+1. Annotation definitions (gene lists with their catalog and padding, or BED files) are separate from the annotation SNP grid, which selects the SNPs that receive them.
+2. `ldsc annotate` takes exactly one annotation SNP grid: a BIM grid (`--ref-snp-bim-sources`) or a temporarily retained annotation grid (`--ref-snp-annot-sources`).
 3. Baseline annotations may supply the annotation grid to `annotate`; downstream they remain the conditioning annotations for LD scores and regression, and choosing a BIM grid does not remove them.
-4. The SNP grid defines the candidate SNPs, reference-panel filtering and explicit restrictions select the reference SNPs, and regression SNPs are a separate subset; R² panels take SNP identities and coordinates from their metadata sidecars.
+4. The annotation SNP grid defines the candidate SNPs, reference-panel filtering and explicit restrictions select the reference SNPs, and regression SNPs are a separate subset; R² panels take SNP identities and coordinates from their metadata sidecars.
 5. Annotation coverage is validated during `ldscore` reference preparation, before LD-score computation, without zero-filling annotation values or silently shrinking the reference SNPs.
 
 ### Implemented
@@ -57,7 +57,7 @@ The contract is in [reference SNPs on the annotation SNP grid](docs/reference/ld
 - A chromosome emptied at the grid step now fails the run, naming every such chromosome (in Gate B for gene-list runs); one emptied by `--ref-panel-snps-file` or genotype QC is skipped with a logged WARNING instead of a Python `UserWarning`.
 - `snp_universe_policy.ld_reference_universe.selection` was removed from `metadata.json`; the reference-panel source is in the log's `Inputs:` section.
 - Gene LD-score indexes are format version 4: each chromosome stores `reference_snp_funnel.parquet`, which replaces `pre_qc_rows` and `annotation_intersection_removed` (the latter counted every `.bim` row, not the chromosome's); indexed scoring writes the inherited funnel and repeats the WARNING.
-- Baseline and prebuilt query files still need identical rows in identical order; that row-mismatch error now explains the shared SNP grid and links a new troubleshooting section.
+- Baseline and prebuilt query files still need identical rows in identical order; that row-mismatch error now explains the shared annotation SNP grid and links a new troubleshooting section.
 - The earlier decision-5 example ("a BIM grid A, B, C with a baseline covering A and B") already failed through row alignment before this work, so it was not the missing check; the tests in `tests/test_reference_snp_funnel.py` cover the grid-versus-panel behavior instead.
 
 ### Resolved follow-ups (2026-10-28)

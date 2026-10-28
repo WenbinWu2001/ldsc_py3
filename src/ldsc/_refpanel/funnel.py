@@ -105,14 +105,14 @@ def annotation_snp_grid_emptied(frame: pd.DataFrame) -> bool:
 
 
 def excluded_reference_snp_counts(frame: pd.DataFrame) -> pd.Series:
-    """Return panel SNPs removed at the annotation-SNP-grid step, by chromosome, when nonzero."""
+    """Return panel SNPs removed at the ``annotation_snp_grid`` step, by chromosome, when nonzero."""
     step = _grid_step(frame, REFERENCE_PANEL)
     counts = step.set_index("chrom")["removed"].fillna(0).astype("int64")
     return counts.loc[counts > 0]
 
 
 def with_grid_rows(frame: pd.DataFrame, grid_rows: int) -> pd.DataFrame:
-    """Restart the annotation-grid funnel at ``grid_rows`` rows, before an earlier intersection.
+    """Restart the ``annotation_snp_grid`` funnel at ``grid_rows`` rows, before an earlier intersection.
 
     Rows dropped between ``grid_rows`` and the rows that reached reference
     preparation are counted at the grid step; later ``remaining`` values are

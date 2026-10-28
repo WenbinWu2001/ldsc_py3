@@ -2454,7 +2454,7 @@ def _grid_emptied_message(funnels: Sequence[pd.DataFrame]) -> str:
         chrom = funnel["chrom"].iloc[0]
         panel_snps = int(grid.loc[REFERENCE_PANEL, "removed"])
         grid_rows = int(grid.loc["annotation_snp_grid", "removed"])
-        details.append(f"chromosome {chrom} ({grid_rows} annotation SNP-grid rows, {panel_snps} reference-panel SNPs)")
+        details.append(f"chromosome {chrom} ({grid_rows} annotation rows, {panel_snps} reference-panel SNPs)")
     return (
         "ldscore found no reference SNPs on the annotation SNP grid for " + "; ".join(details) + ": "
         "after the panel's filters, none of the panel SNPs on these chromosomes has an annotation row. "

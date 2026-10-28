@@ -104,7 +104,7 @@ class StagedGeneListBatch:
                     unsupported = frame.disposition.eq('retained') & frame[column].eq(0).fillna(False)
                     frame.loc[unsupported, 'disposition'] = 'unsupported'
                     frame.loc[unsupported, 'reason'] = f'zero_{self.support_kind}_snp_support'
-                    universe = 'annotation-grid' if self.support_kind == 'annotation' else 'retained reference-panel'
+                    universe = 'annotation row' if self.support_kind == 'annotation' else 'retained reference-panel'
                     frame.loc[unsupported, 'details'] = f'No {universe} SNP overlaps this gene interval.'
                 yield frame
 

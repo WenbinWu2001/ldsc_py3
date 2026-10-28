@@ -56,7 +56,7 @@ def inspect_annotation_inputs(*, baseline=(), query=(), mode='rsid', strict_anno
                 def header():
                     frame = pd.read_csv(path, sep=r'\s+', nrows=1)
                     if frame.empty:
-                        raise LDSCInputError(f"Annotation file '{path}' has no SNP rows. Supply a nonempty annotation grid.")
+                        raise LDSCInputError(f"Annotation file '{path}' has no SNP rows. Supply a nonempty annotation SNP grid.")
                     metadata, values = normalize_annotation_chunk(frame, path, mode, log_ignored_metadata=False)
                     member = declarations.get(path)
                     if member and set(metadata.CHR.astype(str)) != {member}:

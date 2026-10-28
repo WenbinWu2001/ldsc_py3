@@ -2,13 +2,13 @@
 
 Last updated on: 2026-10-28
 
-`ldsc annotate` projects BED intervals or gene lists onto a SNP grid and writes reusable query annotation files.
+`ldsc annotate` projects BED intervals or gene lists onto an annotation SNP grid and writes reusable query annotation files.
 This page is the exact contract; the task guide is [Create reusable SNP annotations](../user-guide/workflows/annotations.md), and every option is listed by `ldsc annotate --help`.
 The Python entry point is `run_annotate()` (`src/ldsc/_annotation/annotate.py`).
 
 ## Inputs
 
-A run takes exactly one query route, exactly one SNP grid, and `--output-dir`.
+A run takes exactly one query route, exactly one annotation SNP grid, and `--output-dir`.
 
 | Option | Contract |
 | --- | --- |

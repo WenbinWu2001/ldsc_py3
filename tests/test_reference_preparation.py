@@ -135,7 +135,7 @@ def test_public_run_fails_when_the_grid_misses_a_whole_chromosome(tmp_path):
     config = GlobalConfig(snp_identifier="rsid")
     panel = ParquetR2RefPanel(config, RefPanelConfig(backend="parquet_r2", r2_dir=tmp_path))
     bundle = public_bundle(pd.concat([absent, present], ignore_index=True))
-    with pytest.raises(LDSCInputError, match=r"annotation SNP grid for chromosome 1 \(2 annotation SNP-grid rows"):
+    with pytest.raises(LDSCInputError, match=r"annotation SNP grid for chromosome 1 \(2 annotation rows"):
         LDScoreCalculator().run(bundle, panel, LDScoreConfig(ld_wind_snps=1, whole_chromosome_ok=True), config)
 
 

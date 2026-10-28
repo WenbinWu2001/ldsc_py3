@@ -408,7 +408,7 @@ Use exactly one BED or gene-list query route. Gene lists require a readable gene
 
 The error message, shared with gene-list `ldscore` runs, gives each source's rejected and submitted row counts, up to ten examples and the number not shown, a suggested filter for `diagnostics/gene_list_audit.tsv.gz`, and the rerun with `--overwrite`.
 
-Standalone `annotate` checks query names from source filenames against validated baseline headers and reserved metadata/control names before preparing the SNP grid.
+Standalone `annotate` checks query names from source filenames against validated baseline headers and reserved metadata/control names before preparing the annotation SNP grid.
 For example, if baseline column `base` conflicts with `base.txt` and that list contains `UNKNOWN`, the same terminal error reports both problems.
 The source summary records `annotation_name_collision`, while the row audit records the unresolved identifier; duplicate source-derived query names retain `duplicate_query_name`.
 Rename the conflicting focal source files to change their query names, and repair rejected identifiers when using strict resolution.
@@ -624,7 +624,7 @@ For BED queries, `--padding-bp` extends the supplied intervals at both ends. Set
 
 **Symptom:** `Annotation SNP rows do not match across files: ... row count mismatch` or `... SNP row mismatch at row ...`
 
-Baseline and prebuilt query annotation files read together share one SNP grid: they must list the same SNP rows in the same order.
+Baseline and prebuilt query annotation files read together share one annotation SNP grid: they must list the same SNP rows in the same order.
 
 **Likely causes & how to check** (most probable first):
 
@@ -644,7 +644,7 @@ Baseline and prebuilt query annotation files read together share one SNP grid: t
 
 ### `ldscore`: no reference SNPs remain on the annotation SNP grid
 
-**Symptom:** `ldscore found no reference SNPs on the annotation SNP grid for chromosome <chrom> (<n> annotation SNP-grid rows, <m> reference-panel SNPs)`, or `ldscore retained no reference SNPs on chromosome <chrom>: none of its <n> annotation SNP-grid rows matches ...`
+**Symptom:** `ldscore found no reference SNPs on the annotation SNP grid for chromosome <chrom> (<n> annotation rows, <m> reference-panel SNPs)`, or `ldscore retained no reference SNPs on chromosome <chrom>: none of its <n> annotation rows matches ...`
 
 The annotation files define the candidate SNPs; reference-panel SNPs without an annotation row are excluded ([reference SNPs on the annotation SNP grid](../reference/ldscore-snp-universes.md#reference-snps-on-the-annotation-snp-grid)).
 A chromosome whose remaining panel SNPs are all off the grid stops the run, because a whole chromosome without one shared SNP usually signals an input mismatch.

@@ -1,8 +1,8 @@
 # Resource navigation
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
-Select resources that match the reference population, genome build, and intended SNP grid.
+Select resources that match the reference population, genome build, and intended annotation SNP grid.
 The example `/path/to/...` and project-specific paths in tutorials must be replaced with your own inputs.
 
 | Resource | Preparation and contract |

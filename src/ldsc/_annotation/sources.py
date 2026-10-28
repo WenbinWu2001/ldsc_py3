@@ -89,7 +89,7 @@ def _scan(path, directory, mode, chunk_rows, *, source_progress=None):
     except (pd.errors.ParserError, UnicodeDecodeError, ValueError) as exc:
         raise LDSCInputError(_annotation_parse_error_message(path, details=str(exc))) from exc
     if not chromosomes:
-        raise LDSCInputError(f"Annotation file '{path}' has no SNP rows. Supply a nonempty annotation grid.")
+        raise LDSCInputError(f"Annotation file '{path}' has no SNP rows. Supply a nonempty annotation SNP grid.")
     return _Source(Path(path), spool, columns, metadata_columns, chromosomes, width,
                    tuple(name for name in columns if name not in quantitative))
 
@@ -128,7 +128,7 @@ def _metadata_chunks(source, chunk_rows):
 
 _SHARED_GRID_GUIDANCE = (
     "Annotation files read together must list the same SNP rows in the same order, because they share one "
-    "SNP grid. A query built by `ldsc annotate --ref-snp-bim-sources` needs baseline annotations on that "
+    "annotation SNP grid. A query built by `ldsc annotate --ref-snp-bim-sources` needs baseline annotations on that "
     "same BIM grid; otherwise build the query on the baseline's grid with `ldsc annotate --ref-snp-annot-sources` "
     "and pass the exported baseline files with it. Other causes & fixes: "
     "docs/user-guide/troubleshooting.md#ldscore-annotation-snp-rows-do-not-match-across-files"

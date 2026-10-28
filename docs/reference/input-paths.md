@@ -321,7 +321,7 @@ How files are handled:
 - the annotation column name is the resolved BED file basename with the final
   suffix removed (`pathlib.Path.stem`); directory names are ignored, so
   `/path1/annot.bed` and `/path2/annot.bed` both become `annot`
-- the selected source supplies the SNP grid; annotation input also supplies baseline values to export
+- the selected source supplies the annotation SNP grid; annotation input also supplies baseline values to export
 - `padding_bp` / `--padding-bp` expands each BED interval on both
   sides before projection and clips starts at zero; the default `0` leaves
   intervals unchanged

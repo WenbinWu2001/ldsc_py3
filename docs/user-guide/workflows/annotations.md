@@ -1,17 +1,17 @@
 # Create reusable SNP annotations
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
-`ldsc annotate` projects BED intervals or gene lists onto a SNP grid and writes reusable annotation files (`.annot.gz`), one query annotation per BED file or gene list.
+`ldsc annotate` projects BED intervals or gene lists onto an annotation SNP grid and writes reusable annotation files (`.annot.gz`), one query annotation per BED file or gene list.
 `ldsc ldscore` reads BED files and gene lists itself, so this step is optional for query annotations; use it when you want annotation files on disk to inspect, share or reuse across LD-score runs.
 It is also the way to build binary baseline annotations from BED files, as in the [baseline recipe](#build-baseline-annotations-from-bed-files) below.
 The exact contract, including every validation outcome, is in the [`annotate` reference](../../reference/annotate.md).
 
 ## Inputs you need
 
-A run takes `--output-dir`, exactly one SNP grid and exactly one query route.
+A run takes `--output-dir`, exactly one annotation SNP grid and exactly one query route.
 
-| SNP grid option | Rows come from | Output |
+| Annotation SNP grid option | Rows come from | Output |
 | --- | --- | --- |
 | `--ref-snp-annot-sources` | Existing annotation files, such as a baseline annotation suite | Aligned `baseline.<chrom>.annot.gz` (your baseline values) and `query.<chrom>.annot.gz` (the new query annotations). |
 | `--ref-snp-bim-sources` | PLINK `.bim` or `.bim.gz` files | `query.<chrom>.annot.gz` only; no baseline values are created. |
@@ -42,7 +42,7 @@ chr1	5000	5400
 
 - Intervals are zero-based half-open intervals, so the first line covers the one-based SNP positions 1001 to 1250.
 - Extra columns are allowed but ignored: each annotation is binary interval membership, not a weight from a score column.
-- Use intervals in the same genome build as the SNP grid.
+- Use intervals in the same genome build as the annotation SNP grid.
 - Each file's name without its final extension becomes the query annotation name, so names must be unique and must not equal a baseline column; `enhancers.bed.gz` becomes `enhancers.bed`.
 - Plain text and gzip are accepted; comment, `track`, `browser` and one leading header line are skipped.
 - `--padding-bp` adds the same number of base pairs to both ends of every interval in the run; keep it at 0 when the intervals already contain the padding you want.
@@ -122,7 +122,7 @@ The full output list is in [`annotate` outputs](../../reference/annotate.md#outp
 ## Check the results
 
 `diagnostics/query_annotation_status.tsv` records the outcome of every query annotation, and gene-list runs add `diagnostics/gene_list_resolution_summary.tsv` and `diagnostics/gene_list_audit.tsv.gz`.
-Gene-list problems in the inputs, the gene coordinate catalog, query names and identifiers are all reported together before the SNP grid is read; a query name that collides with another query, a baseline column or a reserved name fails even with `--allow-unresolved-genes`, so rename the gene list file.
+Gene-list problems in the inputs, the gene coordinate catalog, query names and identifiers are all reported together before the annotation SNP grid is read; a query name that collides with another query, a baseline column or a reserved name fails even with `--allow-unresolved-genes`, so rename the gene list file.
 Gene SNP support is then measured on the grid rows that survive SNP identity cleanup and reported as `annotation_snp_count`; `annotate` makes no reference-panel or regression check.
 Empty gene lists and gene-list query annotations that overlap no grid SNP are skipped while the others continue, whereas a BED file without overlap is kept as an all-zero column.
 A run in which every query annotation is skipped fails, and an annotation that is 1 on every row is kept.

@@ -549,7 +549,7 @@ def test_parallel_run_is_deterministic(run_minimal_ldscore):
 def _run_with_one_empty_chrom(build_dir: Path, out_dir: Path, workers: int) -> Path:
     """Run with a panel restriction that leaves chr2 no SNPs (forces a skip).
 
-    A restriction empties chr2 before the annotation-SNP-grid step, so the
+    A restriction empties chr2 before the ``annotation_snp_grid`` step, so the
     chromosome is skipped; a grid that misses a whole chromosome fails instead.
     """
     import warnings as _warnings

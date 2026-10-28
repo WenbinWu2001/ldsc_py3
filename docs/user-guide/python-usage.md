@@ -647,7 +647,7 @@ Its keyword arguments carry the command-line option names with underscores: exac
 The SNP identifier mode and genome build come from `global_config=GlobalConfig(...)` or the registered global configuration, and `genome_build=` overrides the genome build for one call.
 The former keyword `baseline_annot_sources` is not accepted; use `ref_snp_annot_sources` for an annotation grid.
 
-### Project BED files onto a SNP grid
+### Project BED files onto an annotation SNP grid
 
 ```python
 from ldsc import GlobalConfig, run_annotate

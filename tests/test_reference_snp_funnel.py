@@ -263,7 +263,7 @@ def test_gene_list_run_fails_in_gate_b_when_the_grid_misses_a_whole_chromosome(t
     catalog.write_text("gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\nG1\tONE\t22\t10\t10\thg19\n")
     argv = workflow_argv(tmp_path, inputs, "--query-annot-gene-list-sources", str(genes),
                          "--gene-coordinate-file", str(catalog), "--genome-build", "hg19", "--padding-bp", "0")
-    with pytest.raises(LDSCInputError, match=r"annotation SNP grid for chromosome 22 \(2 annotation SNP-grid rows, "
+    with pytest.raises(LDSCInputError, match=r"annotation SNP grid for chromosome 22 \(2 annotation rows, "
                                              r"3 reference-panel SNPs\)"):
         run_ldscore_from_args(build_parser().parse_args(argv))
     assert not (tmp_path / "out" / "ldscore.baseline.parquet").exists()

@@ -1,4 +1,4 @@
-"""Interval-union projection onto a supplied chromosome SNP grid."""
+"""Interval-union projection onto one chromosome of a supplied annotation SNP grid."""
 
 import numpy as np
 import pandas as pd

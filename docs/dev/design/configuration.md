@@ -233,7 +233,7 @@ Annotation bundle rows B                      (AnnotationBuilder)
 
 | Concept | Owner | CLI flag | When applied | Artifact effect |
 | --- | --- | --- | --- | --- |
-| Reference-panel SNP restriction | `RefPanelConfig.ref_panel_snps_file` | `--ref-panel-snps-file` | `RefPanel.prepare_chromosome()` restricts the panel and aligns `B_chrom` before the kernel call | Deliberately shrinks the reference SNPs: after all panel filtering and intersection they are `ld_reference_snps = B ∩ A'`, the SNP-grid rows `B` that are also in the filtered panel `A'`; affects LD scores and count records |
+| Reference-panel SNP restriction | `RefPanelConfig.ref_panel_snps_file` | `--ref-panel-snps-file` | `RefPanel.prepare_chromosome()` restricts the panel and aligns `B_chrom` before the kernel call | Deliberately shrinks the reference SNPs: after all panel filtering and intersection they are `ld_reference_snps = B ∩ A'`, the annotation rows `B` that are also in the filtered panel `A'`; affects LD scores and count records |
 | Reference-panel MAF/sample filters | `RefPanelConfig.maf_min`, `RefPanelConfig.keep_indivs_file` | `--maf-min`, `--keep-indivs-file` | `RefPanel.prepare_chromosome()` applies configured sample selection before PLINK genotype QC/MAF filtering, or filters parquet sidecar rows by MAF | Affects the prepared panel A' and LD computation with inclusive `MAF >= maf_min`; separate from `LDScoreConfig.common_maf_min` |
 | PLINK genetic map (cM windows) | `RefPanelConfig.genetic_map_hg19_sources`, `genetic_map_hg38_sources` | `--genetic-map-hg19-sources`, `--genetic-map-hg38-sources` | `PlinkRefPanel.prepare_chromosome()` resolves the build/map and interpolates `CM` at retained `.bim` positions (map always wins). Ignored with a warning for parquet. | Defines `CM` for `--ld-wind-cm` when the `.bim` `CM` is uninformative; no effect on SNP/kb windows |
 | Reference-metadata export | `LDScoreConfig.export_ref_metadata` | `--export-ref-metadata` | After each chromosome's compute (PLINK worker), writes `ref_metadata/chrN_meta.tsv.gz` | Opt-in provenance/QC artifact (`CHR POS SNP A1 A2 CM MAF`); accepted later by `quantile-h2 --ref-metadata-sources` |
@@ -244,7 +244,7 @@ Annotation bundle rows B                      (AnnotationBuilder)
 
 **`RefPanelConfig.ref_panel_snps_file`** — the *reference SNPs*
 
-- `AnnotationBuilder.run()` still builds annotations on the full SNP grid `B`.
+- `AnnotationBuilder.run()` still builds annotations on the full annotation SNP grid `B`.
 - `run_annotate()` and `ldsc annotate` do **not** apply this restriction.
 - `RefPanel` applies the explicit restriction to the raw panel `A`, producing `A'`, alongside configured sample/MAF filters. Both metadata inspection and chromosome preparation honor it. Bundled HM3 is never a convenience way to shrink the reference SNPs.
 - SNP restriction files are identity-only. Duplicate restriction keys collapse
@@ -367,7 +367,7 @@ region-exclusion nor HM3 convenience flags.
 
 ### Artifact contract
 
-- Materialized query `.annot.gz` files and in-memory `AnnotationBundle` objects stay on the SNP grid `B`.
+- Materialized query `.annot.gz` files and in-memory `AnnotationBundle` objects stay on the annotation SNP grid `B`.
 - Ordinary unpartitioned `run_ldscore()` calls may omit baseline/query annotation inputs; the workflow creates a synthetic all-ones `base` annotation after the reference panel has applied any explicit reference-panel restriction.
 - Prebuilt, BED, and gene-list query annotations are valid only with explicit baseline annotations, so the synthetic `base` path is not used for partitioned heritability.
 - BED and gene-list sources are query-local failure units. Only `ok`/`warning` queries enter scientific result objects; every source remains represented in diagnostic status records.

@@ -232,7 +232,7 @@ File-free retained arrays use the same payload formula, excluding their Python/N
 Parsed input frames and returned float32 tiles remain larger transient allocations.
 
 $S$ is the actual annotation shard row count after annotation identity cleanup and requested chromosome selection.
-Supplied and generated query shards use the cleaned annotation grid, which can include SNPs absent from the retained reference panel.
+Supplied and generated query shards use the cleaned annotation SNP grid, which can include SNPs absent from the retained reference panel.
 During LD calculation, [`MappedAnnotations`](../../../src/ldsc/_refpanel/prepared.py) maps the retained reference SNPs onto those annotation rows; it does not create another complete dense annotation matrix.
 LD output rows are a further regression/output subset.
 Consequently, the reported 1,134,471 LD-score output rows cannot be used to size the intermediate annotation artifacts.
@@ -264,7 +264,7 @@ Global source resolution, duplicate cleanup, coverage/support gates, and the sha
 A fixed gene control, when requested by direct/indexed LD scoring, belongs to the shared baseline group.
 
 Standalone [`_annotation/annotate.py`](../../../src/ldsc/_annotation/annotate.py) accepts exactly one BED or gene-list route.
-Gene mode requires explicit nonnegative padding, uses gene-coordinate-catalog build and coverage gates, and evaluates support on the cleaned baseline annotation grid.
+Gene mode requires explicit nonnegative padding, uses gene-coordinate-catalog build and coverage gates, and evaluates support on the cleaned annotation SNP grid.
 It skips empty or globally unsupported query gene lists while retaining usable siblings, all-one queries, and zero-valued chromosome shards for queries supported elsewhere.
 It fails when all query gene lists are skipped.
 Its audits use `annotation_snp_count`; reference-panel support remains unevaluated.

@@ -92,8 +92,8 @@ def gene_query_statuses(batch):
         if rejected:
             details.append(f"{rejected} submitted row(s) were rejected during catalog resolution.")
         if pd.notna(unsupported) and unsupported:
-            universe = "annotation-grid" if getattr(batch, "support_kind", "reference") == "annotation" else "retained reference-SNP"
-            details.append(f"{int(unsupported)} resolved gene(s) have zero {universe} support.")
+            universe = "annotation row SNPs" if getattr(batch, "support_kind", "reference") == "annotation" else "retained reference SNPs"
+            details.append(f"{int(unsupported)} resolved gene(s) have zero support among {universe}.")
         if not selection.canonical_gene_ids:
             status, reason = "skipped", "empty_gene_list" if not row.nonblank_input_rows else "zero_resolved_genes"
         elif pd.notna(coverage) and coverage in {"partial", "none"}:

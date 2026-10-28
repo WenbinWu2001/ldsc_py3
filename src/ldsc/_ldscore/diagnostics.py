@@ -78,7 +78,7 @@ def reference_snp_funnel_path(output_dir) -> str:
 
 
 def log_reference_snp_funnel_warning(funnel, diagnostics, *, command="ldscore") -> None:
-    """Log one run-level WARNING when the annotation-SNP-grid step excluded panel SNPs."""
+    """Log one run-level WARNING when the ``annotation_snp_grid`` step excluded panel SNPs."""
     from .._refpanel.funnel import reference_snp_funnel_warning
 
     message = reference_snp_funnel_warning(funnel, command=command, diagnostics=str(diagnostics))

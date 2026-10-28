@@ -1,9 +1,10 @@
 """Standalone BED/gene annotation over a bounded BIM or annotation grid.
 
 This workflow resolves source and catalog gates before projection, measures
-annotation-grid support, writes canonical chromosome shards incrementally,
-and returns a resource-owning dataset handle. Reference-SNP and regression-SNP
-selection are deliberately absent from standalone annotation generation.
+support on the annotation rows, writes canonical chromosome shards
+incrementally, and returns a resource-owning dataset handle. Reference-SNP and
+regression-SNP selection are deliberately absent from standalone annotation
+generation.
 """
 
 import logging
@@ -119,10 +120,11 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
     Notes
     -----
     After input-header and catalog validation, gene identifier and query-name
-    failures are collected together before build inference, SNP-grid preparation,
-    or projection. Query names come from source filenames and are checked even
-    for empty or unresolved lists. Failed preflight writes the complete gene
-    audit and source summary; no new scientific annotation files are published.
+    failures are collected together before build inference, annotation SNP
+    grid preparation, or projection. Query names come from source filenames and
+    are checked even for empty or unresolved lists. Failed preflight writes the
+    complete gene audit and source summary; no new scientific annotation files
+    are published.
     """
     bed = split_cli_path_tokens(query_annot_bed_sources)
     genes = split_cli_path_tokens(query_annot_gene_list_sources)

@@ -66,7 +66,7 @@ class AnnotationBuilder:
         Notes
         -----
         Text/gzip preparation is serial for whole-genome and chromosome-sharded
-        inputs. Aligned baseline/query files describe one logical SNP grid;
+        inputs. Aligned baseline/query files describe one logical annotation SNP grid;
         identity cleanup covers that complete grid before chromosome selection.
         Two bounded content passes classify supplied columns, then write
         retained values directly to packed-binary or dense-float32 stores.

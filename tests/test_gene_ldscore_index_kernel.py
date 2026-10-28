@@ -52,7 +52,7 @@ def test_disjoint_atoms_reproduce_boolean_interval_unions():
     snp_pos0 = np.array([0, 4, 5, 6, 7, 8, 9, 10, 14, 15, 19, 20, 25])
     snp_atoms = map_snps_to_atoms(snp_pos0, model)
     selector = assemble_atom_selector(model.gene_to_atom, [0, 1, 0])
-    # Independent reconstruction on the SNP grid, without production scattering.
+    # Independent reconstruction on the annotation SNP grid, without production scattering.
     actual = np.array([atom >= 0 and selector[atom] for atom in snp_atoms], dtype=bool)
     expected = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0], dtype=bool)
     np.testing.assert_array_equal(actual, expected)

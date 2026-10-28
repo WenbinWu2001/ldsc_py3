@@ -22,7 +22,7 @@ Start with [the contributor entry](code-structure.md) to locate a change; this d
 
 ## Bird's-Eye View
 
-- **Build query annotations**: project BED or resolved gene intervals onto a SNP grid; standalone `annotate` accepts mutually exclusive BIM or baseline-annotation sources. Entry points: `ldsc annotate`, `ldsc ldscore`, `ldsc.AnnotationBuilder`
+- **Build query annotations**: project BED or resolved gene intervals onto an annotation SNP grid; standalone `annotate` accepts mutually exclusive BIM or baseline-annotation sources. Entry points: `ldsc annotate`, `ldsc ldscore`, `ldsc.AnnotationBuilder`
 - **Build R² panels**: convert PLINK reference panels into R² panels.
   Entry points: `ldsc build-r2-panel`, `ldsc.ReferencePanelBuilder`
 - **Query reference-panel R²**: look up unbiased R², `sign_r`, and signed Pearson `r` for SNP pairs in package-built R² panels.
@@ -243,7 +243,7 @@ Prepared no-output calculations retain the materialized `LDScoreResult` path.
 Writing workflows retain `diagnostics/ldscore.log` and per-chromosome logs.
 Query-local BED/gene failures are status records; a run continues when at least one query is usable.
 Chromosome workers return only the typed `EmptyReferenceSNPs` outcome as a skip, carrying the error's reference-SNP funnel; other failures propagate independently of diagnostic wording.
-The parent fails the run, naming every such chromosome, when the annotation-SNP-grid step emptied a chromosome (`annotation_snp_grid_emptied()` in `_refpanel/funnel.py`), and otherwise logs the skip as a WARNING; the batch-1 funnels become `diagnostics/reference_snp_funnel.tsv`.
+The parent fails the run, naming every such chromosome, when the `annotation_snp_grid` step emptied a chromosome (`annotation_snp_grid_emptied()` in `_refpanel/funnel.py`), and otherwise logs the skip as a WARNING; the batch-1 funnels become `diagnostics/reference_snp_funnel.tsv`.
 Architecture invariant: computation stays chromosome-wise, global filtering uses the complete chromosome summaries, and final publication follows complete success.
 
 ### `ldsc._refpanel.adapters`, `ldsc._ldscore.compute`

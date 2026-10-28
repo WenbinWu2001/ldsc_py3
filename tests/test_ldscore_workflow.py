@@ -2270,7 +2270,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             missing = metadata.iloc[[0]].assign(CHR='1',SNP='absent')
             pd.concat([missing,metadata],ignore_index=True).to_csv(inputs.baseline_annot_sources,sep='\t',index=False)
             with self.assertRaisesRegex(LDSCInputError,
-                    r'no reference SNPs on the annotation SNP grid for chromosome 1 \(1 annotation SNP-grid rows, 2 reference-panel SNPs\)'):
+                    r'no reference SNPs on the annotation SNP grid for chromosome 1 \(1 annotation rows, 2 reference-panel SNPs\)'):
                 ldscore_workflow.run_ldscore_from_args(build_parser().parse_args(argv))
 
 

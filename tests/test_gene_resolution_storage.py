@@ -10,7 +10,7 @@ from ldsc._annotation.gene_lists import GeneCatalog
 @pytest.mark.parametrize("chunk_rows", [1, 3])
 def test_exclusion_log_summarizes_roles_across_sources_and_audit_chunks(tmp_path, caplog, chunk_rows):
     from ldsc._annotation.gene_query_storage import resolve_gene_lists_staged
-    from ldsc._annotation.query_outcomes import _log_gene_list_rejections
+    from ldsc._annotation.query_outcomes import log_gene_list_rejections
 
     catalog_path = tmp_path / "catalog.tsv"
     catalog_path.write_text("gene_id\tgene_name\tchrom\tstart\tend\tgenome_build\n"
@@ -27,7 +27,7 @@ def test_exclusion_log_summarizes_roles_across_sources_and_audit_chunks(tmp_path
                                          resolution_policy="resolved-only", chunk_rows=chunk_rows)
         before = pd.concat(batch.audit_frames(), ignore_index=True)
         with caplog.at_level("INFO", logger="LDSC"):
-            _log_gene_list_rejections(batch)
+            log_gene_list_rejections(batch)
         messages = [record.getMessage() for record in caplog.records]
         exclusions = [message for message in messages if "intentionally excluded" in message]
         assert exclusions == [

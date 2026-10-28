@@ -187,13 +187,13 @@ def test_threads_negative_and_positive_allowed():
 
 
 def test_resolve_worker_count_positive_and_caps():
-    from ldsc._runtime.parallelism import _resolve_worker_count
+    from ldsc._runtime.parallelism import resolve_worker_count
 
-    assert _resolve_worker_count(1, task_count=22) == 1
-    assert _resolve_worker_count(8, task_count=3) == 3
-    assert _resolve_worker_count(4, task_count=22) == 4
-    assert _resolve_worker_count(8, task_count=1) == 1
-    assert _resolve_worker_count(8, task_count=0) == 1
+    assert resolve_worker_count(1, task_count=22) == 1
+    assert resolve_worker_count(8, task_count=3) == 3
+    assert resolve_worker_count(4, task_count=22) == 4
+    assert resolve_worker_count(8, task_count=1) == 1
+    assert resolve_worker_count(8, task_count=0) == 1
 
 
 def test_resolve_worker_count_negative_uses_affinity(monkeypatch):
@@ -201,9 +201,9 @@ def test_resolve_worker_count_negative_uses_affinity(monkeypatch):
 
     monkeypatch.setattr(mod, "_available_cpu_count", lambda: 8)
     # -1 = all cores, -2 = all but one (then capped at chromosome count).
-    assert mod._resolve_worker_count(-1, task_count=22) == 8
-    assert mod._resolve_worker_count(-2, task_count=22) == 7
-    assert mod._resolve_worker_count(-1, task_count=4) == 4  # capped
+    assert mod.resolve_worker_count(-1, task_count=22) == 8
+    assert mod.resolve_worker_count(-2, task_count=22) == 7
+    assert mod.resolve_worker_count(-1, task_count=4) == 4  # capped
 
 
 def test_available_cpu_count_prefers_affinity(monkeypatch):

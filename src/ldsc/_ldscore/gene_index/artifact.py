@@ -426,7 +426,7 @@ def _write_index_artifact(
 
 def inspect_index_paths(directory, *, metadata=None):
     """Inspect root declarations and all component paths without loading arrays."""
-    from ..._runtime.preflight import InputGate, _readable, input_issue
+    from ..._runtime.preflight import InputGate, check_readable, input_issue
 
     root = Path(directory)
     if metadata is None:
@@ -448,7 +448,7 @@ def inspect_index_paths(directory, *, metadata=None):
         if not path.is_file():
             gate.issues.append(input_issue('index', path, chrom, 'missing_required_input', 'Required index component is missing.'))
         elif name.endswith('.parquet'):
-            gate.check('index', path, lambda path=path: _readable(path), chrom=chrom)
+            gate.check('index', path, lambda path=path: check_readable(path), chrom=chrom)
         elif chrom and name.endswith('metadata.json'):
             def component_header():
                 component = _read_json(path, f'chromosome {chrom}')

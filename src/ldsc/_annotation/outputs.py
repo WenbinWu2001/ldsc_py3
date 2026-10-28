@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .._runtime.artifacts import ArtifactFamily, _atomic_write_json, _declare_artifacts
+from .._runtime.artifacts import ArtifactFamily, atomic_write_json, declare_artifacts
 from .._runtime.paths import remove_output_artifacts
 
 
@@ -38,7 +38,7 @@ class AnnotationDirectoryWriter:
         entries.update({f'query_{chrom}': (f'query.{chrom}.annot.gz', True) for chrom in chromosomes})
         if baseline:
             entries.update({f'baseline_{chrom}': (f'baseline.{chrom}.annot.gz', True) for chrom in chromosomes})
-        return _declare_artifacts(output_dir, entries, label='annotation output artifact',
+        return declare_artifacts(output_dir, entries, label='annotation output artifact',
                                   extra_owned=(*output_dir.glob('query.*.annot.gz'), *output_dir.glob('baseline.*.annot.gz')))
 
     def write_diagnostics(self, output_dir, *, batch=None, statuses=None, drops=None, catalog_issues=None, input_issues=None, scope=None):
@@ -66,7 +66,7 @@ class AnnotationDirectoryWriter:
                 frame.to_csv(paths[key], sep='\t', index=False, na_rep='')
         if scope is not None:
             paths['chromosome_scope'] = root / 'chromosome_scope.json'
-            _atomic_write_json(scope, paths['chromosome_scope'])
+            atomic_write_json(scope, paths['chromosome_scope'])
         return paths
 
     def write(self, bundle, output_dir, *, overwrite=False, provenance=None, scope=None, catalog_issues=None, preflighted=False):
@@ -115,7 +115,7 @@ class AnnotationDirectoryWriter:
                    'baseline_columns': bundle.baseline_columns, 'query_columns': bundle.query_columns,
                    'files': {**{key: [path.name for path in files] for key, files in written.items()},
                              **{key: str(path.relative_to(output_dir)) for key, path in paths.items()}}}
-        _atomic_write_json(payload, family.paths['metadata'])
+        atomic_write_json(payload, family.paths['metadata'])
         remove_output_artifacts(stale)
         bundle.output_paths = {**{key: str(path) for key, path in paths.items()}, 'metadata': str(family.paths['metadata']),
                                **{key: [str(path) for path in files] for key, files in written.items()}}

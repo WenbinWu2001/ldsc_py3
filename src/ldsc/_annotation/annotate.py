@@ -27,8 +27,8 @@ from .._genome.build_policy import GenomeBuildCheck
 from .outputs import AnnotationDirectoryWriter
 from .._runtime.paths import ensure_output_directory, resolve_file_group, split_cli_path_tokens
 from .query_outcomes import (
-    gene_query_statuses, gene_viability_errors, _all_query_annotations_skipped_message,
-    _emit_bed_query_notice, _emit_gene_gate_b_notice, _emit_resolved_only_notice,
+    gene_query_statuses, gene_viability_errors, all_query_annotations_skipped_message,
+    emit_bed_query_notice, emit_gene_gate_b_notice, emit_resolved_only_notice,
 )
 
 LOGGER = logging.getLogger('LDSC.annotation')
@@ -195,9 +195,9 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                     summary.loc[invalid_names, 'source_reasons'] = summary.loc[invalid_names, 'source_reasons'].fillna('').map(lambda text: ';'.join(filter(None, (text, 'annotation_name_collision'))))
                     batch = replace(batch, summary=summary, has_fatal_gate_a_issues=True)
                 writer.write_diagnostics(output, batch=batch, catalog_issues=catalog.issues)
-                from .query_outcomes import _log_gene_catalog_issues, _log_gene_list_rejections
-                _log_gene_catalog_issues(catalog.issues)
-                _log_gene_list_rejections(batch)
+                from .query_outcomes import log_gene_catalog_issues, log_gene_list_rejections
+                log_gene_catalog_issues(catalog.issues)
+                log_gene_list_rejections(batch)
                 if batch.has_fatal_gate_a_issues:
                     raise _gate_a_error(batch, naming_error)
             else:
@@ -243,7 +243,7 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
                 build_query_shards(bundle, bed_sources=bed_sources, padding_bp=spec.padding_bp)
                 if not bundle.query_columns:
                     writer.write_diagnostics(output, statuses=bundle.query_statuses, drops=prepared.drops, scope=scope)
-                    raise LDSCInputError(_all_query_annotations_skipped_message(bundle.query_statuses))
+                    raise LDSCInputError(all_query_annotations_skipped_message(bundle.query_statuses))
             provenance = {'query_source_kind': 'gene_list' if genes else 'bed', 'query_sources': genes or bed,
                           'grid_kind': 'bim' if bim else 'annotation', 'ref_snp_annot_sources': baseline, 'ref_snp_bim_sources': bim,
                           'query_annot_bed_sources': bed, 'query_annot_gene_list_sources': genes,
@@ -253,14 +253,14 @@ def run_annotate(*, output_dir, ref_snp_annot_sources=None, ref_snp_bim_sources=
             bundle.source_summary = provenance
             writer.write(bundle, output, overwrite=overwrite, provenance=provenance, scope=scope,
                          catalog_issues=None if catalog is None else catalog.issues, preflighted=True)
-            from .query_outcomes import _log_gene_list_snp_support, _log_query_annotation_statuses
+            from .query_outcomes import log_gene_list_snp_support, log_query_annotation_statuses
             if bundle.gene_list_batch is not None:
-                _log_gene_list_snp_support(bundle.gene_list_batch)
-            _log_query_annotation_statuses(bundle.query_statuses)
+                log_gene_list_snp_support(bundle.gene_list_batch)
+            log_query_annotation_statuses(bundle.query_statuses)
             if _console_notices:
-                _emit_resolved_only_notice(bundle.gene_list_batch)
-                _emit_gene_gate_b_notice(bundle.query_statuses, bundle.gene_list_batch, command='annotate')
-                _emit_bed_query_notice(bundle.query_statuses, command='annotate')
+                emit_resolved_only_notice(bundle.gene_list_batch)
+                emit_gene_gate_b_notice(bundle.query_statuses, bundle.gene_list_batch, command='annotate')
+                emit_bed_query_notice(bundle.query_statuses, command='annotate')
             log_outputs(**bundle.output_paths)
             counts = prepared.snp_rows
             LOGGER.info("%s SNP rows: input=%s, output=%s, dropped=%s.",

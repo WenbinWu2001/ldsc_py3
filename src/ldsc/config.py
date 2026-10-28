@@ -34,7 +34,7 @@ import warnings
 from ._core.snp_identity import identity_mode_family, normalize_snp_identifier_mode
 from ._core.columns import normalize_genome_build
 from .errors import LDSCConfigError
-from ._runtime.parallelism import _validate_workers
+from ._runtime.parallelism import validate_workers
 from ._runtime.paths import normalize_optional_path_token, normalize_path_token, normalize_path_tokens
 
 LOGGER = logging.getLogger("LDSC.config")
@@ -65,7 +65,7 @@ def _normalize_optional_path(path: str | PathLike[str] | None) -> str | None:
     return normalize_optional_path_token(path)
 
 
-def _normalize_required_path(path: str | PathLike[str]) -> str:
+def normalize_required_path(path: str | PathLike[str]) -> str:
     """Return a required path-like value as a plain string."""
     if path is None or not str(path).strip():
         raise LDSCConfigError(
@@ -81,7 +81,7 @@ def _normalize_path_tuple(values) -> tuple[str, ...]:
     return normalize_path_tokens(values)
 
 
-def _normalize_trait_name(value: str | None) -> str | None:
+def normalize_trait_name(value: str | None) -> str | None:
     """Return a stripped trait label, rejecting blank user-provided labels."""
     if value is None:
         return None
@@ -572,7 +572,7 @@ class LDScoreConfig:
             )
         if self.snp_batch_size <= 0:
             raise LDSCConfigError(_positive_number_message("LDScoreConfig", "snp_batch_size", self.snp_batch_size))
-        _validate_workers(self.workers, error_type=LDSCConfigError)
+        validate_workers(self.workers, error_type=LDSCConfigError)
         object.__setattr__(self, "regr_snps_file", _normalize_optional_path(self.regr_snps_file))
 
 
@@ -672,9 +672,9 @@ class GeneLDScoreIndexBuildConfig:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "baseline_annot_sources", _normalize_path_tuple(self.baseline_annot_sources))
-        object.__setattr__(self, "plink_prefix", _normalize_required_path(self.plink_prefix))
-        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
-        object.__setattr__(self, "gene_coordinate_file", _normalize_required_path(self.gene_coordinate_file))
+        object.__setattr__(self, "plink_prefix", normalize_required_path(self.plink_prefix))
+        object.__setattr__(self, "output_dir", normalize_required_path(self.output_dir))
+        object.__setattr__(self, "gene_coordinate_file", normalize_required_path(self.gene_coordinate_file))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         object.__setattr__(self, "regr_snps_file", _normalize_optional_path(self.regr_snps_file))
         if not self.baseline_annot_sources:
@@ -730,7 +730,7 @@ class GeneLDScoreIndexBuildConfig:
                 f"Cannot configure common-SNP counts: common_maf_min={self.common_maf_min!r} is outside [0, 0.5]. "
                 "Set --common-maf-min to the intended minor-allele-frequency threshold within this range."
             )
-        _validate_workers(self.workers, error_type=LDSCConfigError)
+        validate_workers(self.workers, error_type=LDSCConfigError)
 
 
 @dataclass(frozen=True)
@@ -823,7 +823,7 @@ class ReferencePanelBuildConfig:
 
     def __post_init__(self) -> None:
         """Normalize build paths and validate liftover and LD-window settings."""
-        object.__setattr__(self, "plink_prefix", _normalize_required_path(self.plink_prefix))
+        object.__setattr__(self, "plink_prefix", normalize_required_path(self.plink_prefix))
         try:
             source_genome_build = normalize_genome_build(self.source_genome_build)
         except ValueError as exc:
@@ -851,7 +851,7 @@ class ReferencePanelBuildConfig:
             "liftover_chain_hg38_to_hg19_file",
             _normalize_optional_path(self.liftover_chain_hg38_to_hg19_file),
         )
-        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+        object.__setattr__(self, "output_dir", normalize_required_path(self.output_dir))
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
@@ -1080,7 +1080,7 @@ class MungeConfig:
         object.__setattr__(self, "source_genome_build", source_genome_build)
         object.__setattr__(self, "output_genome_build", output_genome_build)
         object.__setattr__(self, "liftover_chain_file", _normalize_optional_path(self.liftover_chain_file))
-        object.__setattr__(self, "trait_name", _normalize_trait_name(self.trait_name))
+        object.__setattr__(self, "trait_name", normalize_trait_name(self.trait_name))
         object.__setattr__(self, "ignore_columns", tuple(self.ignore_columns))
         object.__setattr__(self, "info_list_columns", tuple(self.info_list_columns))
         object.__setattr__(self, "column_hints", dict(self.column_hints))

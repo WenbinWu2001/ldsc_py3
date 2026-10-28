@@ -169,7 +169,7 @@ Genes intentionally excluded by region policy: role=focal; sources=5607; input r
 ```
 
 The counts are illustrative. Rejection summaries point to the gene row audit or resolution summary, and query outcome summaries point to `diagnostics/query_annotation_status.tsv`. Live LD-score catalog defects also have a complete `diagnostics/gene_catalog_issues.tsv` table, using the existing catalog-issue schema shared with standalone `annotate`. This additive diagnostic is owned by the LD-score writer and linked from root metadata when present; scientific table schemas are unchanged.
-Mechanisms: [`_annotation/sources.py`](../../src/ldsc/_annotation/sources.py), `prepare_annotation_sources()`; [`_annotation/parsing.py`](../../src/ldsc/_annotation/parsing.py), `normalize_annotation_chunk()`; [`_annotation/query_outcomes.py`](../../src/ldsc/_annotation/query_outcomes.py), `_log_gene_list_rejections()`.
+Mechanisms: [`_annotation/sources.py`](../../src/ldsc/_annotation/sources.py), `prepare_annotation_sources()`; [`_annotation/parsing.py`](../../src/ldsc/_annotation/parsing.py), `normalize_annotation_chunk()`; [`_annotation/query_outcomes.py`](../../src/ldsc/_annotation/query_outcomes.py), `log_gene_list_rejections()`.
 
 ## LD-score chromosome diagnostics
 

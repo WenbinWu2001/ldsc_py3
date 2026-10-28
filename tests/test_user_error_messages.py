@@ -85,11 +85,11 @@ def test_all_qc_rows_lost_reports_counts_and_current_options_without_sidecar(tmp
     ("zero_variance_ld_scores", "constant"),
 ])
 def test_default_query_warning_explains_skip_and_preserves_reason(caplog, reason, consequence):
-    from ldsc._annotation.query_outcomes import QueryAnnotationStatus, _log_query_annotation_statuses
+    from ldsc._annotation.query_outcomes import QueryAnnotationStatus, log_query_annotation_statuses
 
     statuses = [QueryAnnotationStatus("query", "query.txt", "gene_list", "skipped", reason, 0.0)]
     with caplog.at_level(logging.INFO, logger="LDSC"):
-        _log_query_annotation_statuses(statuses)
+        log_query_annotation_statuses(statuses)
     record = next(record for record in caplog.records if record.levelno == logging.WARNING)
     message = record.getMessage()
     assert reason in message and "queries=1" in message
@@ -99,13 +99,13 @@ def test_default_query_warning_explains_skip_and_preserves_reason(caplog, reason
 
 
 def test_all_queries_skipped_error_explains_distinct_causes_and_repair():
-    from ldsc._annotation.query_outcomes import QueryAnnotationStatus, _all_query_annotations_skipped_message
+    from ldsc._annotation.query_outcomes import QueryAnnotationStatus, all_query_annotations_skipped_message
 
     statuses = [
         QueryAnnotationStatus("empty_support", "query1.txt", "gene_list", "skipped", "zero_annotation_snps"),
         QueryAnnotationStatus("constant_scores", "query2.txt", "gene_list", "skipped", "zero_variance_ld_scores"),
     ]
-    message = _all_query_annotations_skipped_message(statuses)
+    message = all_query_annotations_skipped_message(statuses)
     assert "all 2" in message
     assert "empty_support" in message and "constant_scores" in message
     assert "no SNP" in message and "constant" in message

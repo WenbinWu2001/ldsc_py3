@@ -103,7 +103,7 @@ class InputGate:
         raise error
 
 
-def _readable(path):
+def check_readable(path):
     with (gzip.open(path, 'rb') if str(path).endswith('.gz') else open(path, 'rb')) as stream:
         stream.read(1)
     if str(path).endswith('.parquet'):
@@ -114,7 +114,7 @@ def _readable(path):
 
 def _inspect_file_header(role, path, header_checks):
     """Check that a declared file is readable, then run its role's header check, if any."""
-    _readable(path)
+    check_readable(path)
     check = header_checks.get(role)
     if check is not None:
         check(path)
@@ -196,6 +196,6 @@ def inspect_artifact_paths(directory, *, metadata_file="metadata.json"):
         for name in ([member] if isinstance(member, str) else member if isinstance(member, list) else []):
             if isinstance(name, str):
                 path = root/name
-                gate.check(role, path, lambda path=path: _readable(path))
+                gate.check(role, path, lambda path=path: check_readable(path))
     gate.finish()
     return metadata

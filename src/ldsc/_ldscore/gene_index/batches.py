@@ -20,7 +20,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ..._runtime.progress import PhaseProgress
-from ..._runtime.parallelism import _resolve_worker_count, _run_chromosome_tasks
+from ..._runtime.parallelism import resolve_worker_count, run_chromosome_tasks
 from ..diagnostics import chromosome_log, report_chromosome_failure
 from ..query_variation import ScoreVariation, summarize_variation, combine_variation
 from .atoms import assemble_indexed_ld_scores, assemble_selected_atom_statistics
@@ -119,7 +119,7 @@ def _write_chromosomes(executor, index, batch, declarations, control, ordinal, t
                                   else [failed_chrom] if failed_chrom is not None else outstanding,
                                   log_paths, stage, LOGGER)
 
-    _run_chromosome_tasks(index.chromosomes, workers, submit, collect, on_failure)
+    run_chromosome_tasks(index.chromosomes, workers, submit, collect, on_failure)
     return [summaries[chrom] for chrom in index.chromosomes]
 
 
@@ -139,7 +139,7 @@ def indexed_results(index, batch, declarations, control, width, root, workers, s
 
     root = Path(root) / "indexed-batches"
     root.mkdir()
-    workers = _resolve_worker_count(workers, len(index.chromosomes))
+    workers = resolve_worker_count(workers, len(index.chromosomes))
     baseline_columns = [*index.baseline_columns, *(["gene_control"] if control is not None else [])]
     config = GlobalConfig(snp_identifier="rsid") if index.snp_identifier == "rsid" else GlobalConfig(
         snp_identifier="chr_pos", genome_build=index.genome_build)

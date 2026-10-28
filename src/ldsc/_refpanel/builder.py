@@ -43,7 +43,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from .._runtime.artifacts import _atomic_write_json
+from .._runtime.artifacts import atomic_write_json
 from .._runtime.serial_calculation import serial_calculation
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from .._runtime.workflow_logging import LOG_LEVEL_HELP
@@ -361,7 +361,7 @@ def _write_ref_panel_metadata(
         "resolved_plink_prefixes": [str(prefix) for prefix in resolved_plink_prefixes],
         "ref_panel_snps_file": None if config.ref_panel_snps_file is None else str(config.ref_panel_snps_file),
     }
-    _atomic_write_json(payload, path)
+    atomic_write_json(payload, path)
 
 
 def _relative_to_output_dir(path: str, output_dir: Path) -> str:

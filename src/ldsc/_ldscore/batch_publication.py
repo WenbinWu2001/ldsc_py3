@@ -19,7 +19,7 @@ from .._annotation.storage import TsvDiagnostics
 from .._annotation.semantics import require_unique_annotation_names
 from ..errors import LDSCInputError
 from .source import validate_ldscore_baseline_table, validate_ldscore_query_table
-from .._runtime.artifacts import _to_serializable
+from .._runtime.artifacts import to_serializable
 from .outputs import _write_chromosome_aligned_parquet
 from .._runtime.paths import ensure_output_directory, remove_output_artifacts
 from .._annotation.query_outcomes import gene_viability_errors
@@ -157,7 +157,7 @@ def write_ldscore_batches(writer, results, output_config, query_status_order=())
                 files=staged_family.metadata_files(exclude=("query_status", "gene_list_audit", "gene_list_resolution_summary", "gene_catalog_issues", "chromosome_scope", "input_issues")),
                 baseline_rg=baseline_rg,
                 query_rg=query_batches[0]["row_groups"] if len(query_batches) == 1 else None)
-            paths["metadata"].write_text(json.dumps(_to_serializable(metadata), indent=2, sort_keys=True), encoding="utf-8")
+            paths["metadata"].write_text(json.dumps(to_serializable(metadata), indent=2, sort_keys=True), encoding="utf-8")
             family = writer.artifact_family(root, shared)
             stale = family.preflight(overwrite=output_config.overwrite)
             for key, destination in family.paths.items():

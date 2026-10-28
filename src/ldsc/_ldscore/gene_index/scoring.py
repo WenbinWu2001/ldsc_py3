@@ -31,7 +31,7 @@ from .artifact import (
     inspect_index_paths,
 )
 from .atoms import ChromosomeAtomModel, assemble_atom_selector
-from ..._runtime.parallelism import _validate_workers
+from ..._runtime.parallelism import validate_workers
 from ..._runtime.paths import normalize_path_token
 from ..._runtime.progress import advance, report_phase
 from ...errors import LDSCInputError
@@ -422,7 +422,7 @@ def run_indexed_ldscore(
     """
     if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
         raise ValueError("query_batch_size must be a positive integer.")
-    _validate_workers(workers)
+    validate_workers(workers)
     output_dir = normalize_path_token(output_dir)
     from ..._runtime.preflight import inspect_declared_inputs
     from ..outputs import LDScoreDirectoryWriter
@@ -494,18 +494,18 @@ def _run_indexed_ldscore_in_workspace(
         gene_exclude_regions=gene_policy,
     )
     from ..._annotation.query_outcomes import (
-    _gene_list_gate_a_message,
-    _log_gene_list_rejections,
-    _log_gene_list_snp_support,
-    _log_query_annotation_statuses,
+    gene_list_gate_a_message,
+    log_gene_list_rejections,
+    log_gene_list_snp_support,
+    log_query_annotation_statuses,
 )
     if batch.has_fatal_gate_a_issues:
         LDScoreDirectoryWriter().write_gene_list_preflight(
             batch,
             LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
         )
-        _log_gene_list_rejections(batch)
-        raise LDSCInputError(_gene_list_gate_a_message(batch))
+        log_gene_list_rejections(batch)
+        raise LDSCInputError(gene_list_gate_a_message(batch))
     batch, coverage_errors = assess_gene_coverage(batch, index.chromosomes)
     scope = {"chromosomes": list(index.chromosomes), "analysis_chromosomes": list(index.chromosomes),
              "selection": "validated_immutable_index", "index_id": index.index_id,
@@ -536,9 +536,9 @@ def _run_indexed_ldscore_in_workspace(
             diagnostic_result,
             LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
         )
-        _log_gene_list_rejections(batch)
-        _log_gene_list_snp_support(batch)
-        _log_query_annotation_statuses(statuses)
+        log_gene_list_rejections(batch)
+        log_gene_list_snp_support(batch)
+        log_query_annotation_statuses(statuses)
         raise LDSCInputError("; ".join(control_errors))
     if any(item["query"] == "gene_control" for item in usable):
         raise LDSCInputError(
@@ -561,9 +561,9 @@ def _run_indexed_ldscore_in_workspace(
         result = LDScoreDirectoryWriter().write_batches(
             results, LDScoreOutputConfig(output_dir=output_dir, overwrite=overwrite),
             query_status_order=[status.query for status in statuses])
-        _log_gene_list_rejections(result.gene_list_batch)
-        _log_gene_list_snp_support(result.gene_list_batch)
-        _log_query_annotation_statuses(result.query_statuses)
+        log_gene_list_rejections(result.gene_list_batch)
+        log_gene_list_snp_support(result.gene_list_batch)
+        log_query_annotation_statuses(result.query_statuses)
         return result
 
 

@@ -41,7 +41,7 @@ from scipy import sparse
 from ..._runtime.worker_runtime import initialize_worker, native_thread_state
 from ..._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP
 from ..._runtime.workflow_logging import LOG_LEVEL_HELP
-from ..._runtime.parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _run_chromosome_tasks
+from ..._runtime.parallelism import WORKERS_HELP, parse_workers, resolve_worker_count, run_chromosome_tasks
 from ..._runtime.progress import report_phase
 from .. import compute as kernel_ldscore
 from ..._annotation.overlap import compute_overlap
@@ -263,7 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
                            'Same path rules as --genetic-map-hg19-sources.')
 
     runtime.add_argument(
-        '--workers', type=_parse_workers, default=1, metavar='N',
+        '--workers', type=parse_workers, default=1, metavar='N',
         help='Maximum simultaneous chromosome builds. ' + WORKERS_HELP,
     )
     runtime.add_argument(
@@ -804,7 +804,7 @@ def _run_gene_ldscore_index_build(
                     regression_regions, staged_index)
 
 
-        max_workers = _resolve_worker_count(config.workers, len(chromosomes))
+        max_workers = resolve_worker_count(config.workers, len(chromosomes))
         with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp.get_context("spawn"),
                                  initializer=initialize_worker, initargs=(args.log_level,)) as pool:
             completed = {}
@@ -832,7 +832,7 @@ def _run_gene_ldscore_index_build(
                 LOGGER.exception("Gene-index construction failed; affected in-flight chromosomes: %s.",
                                  list(outstanding))
 
-            _run_chromosome_tasks(chromosomes, max_workers, submit, collect, on_failure)
+            run_chromosome_tasks(chromosomes, max_workers, submit, collect, on_failure)
 
     staged_chromosomes = {chrom: completed[chrom] for chrom in chromosomes}
     evidence_by_chrom = {

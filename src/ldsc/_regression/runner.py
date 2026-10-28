@@ -89,7 +89,7 @@ from .._core.snp_identity import (
     resolve_regression_identity_mode,
 )
 from .._core.row_alignment import assert_same_snp_rows
-from .._runtime.parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _validate_workers
+from .._runtime.parallelism import WORKERS_HELP, parse_workers, resolve_worker_count, validate_workers
 from .._core.columns import infer_chr_pos_columns
 from .._core.snp_identity import normalize_snp_identifier_mode
 from .._ldscore.calculator import LDScoreResult
@@ -1099,7 +1099,7 @@ class RegressionRunner:
         Shared loading/publication errors and interrupts can stop the scan
         before that final diagnostic table is written.
         """
-        _validate_workers(workers)
+        validate_workers(workers)
         if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
             raise ValueError("query_batch_size must be a positive integer.")
         if not isinstance(continue_on_query_error, bool):
@@ -1115,7 +1115,7 @@ class RegressionRunner:
         model_columns = [*ldscore_result.baseline_columns, *([] if continue_on_query_error else queries)]
         _select_count_key(_count_totals_for_columns(ldscore_result.count_records, model_columns),
                           config.use_common_counts, model_columns)
-        worker_count = _resolve_worker_count(workers, max(1, len(queries)),
+        worker_count = resolve_worker_count(workers, max(1, len(queries)),
                                              task_unit="query-plus-baseline model", batch_size=query_batch_size)
         sort_by = _resolve_summary_sort(summary_sort_by, has_queries=bool(queries))
         output_dir = normalize_path_token(output_dir)
@@ -2868,7 +2868,7 @@ def add_partitioned_h2_arguments(parser) -> None:
     )
     runtime = parser.add_argument_group("Output, performance, and logging")
     runtime.add_argument(
-        '--workers', type=_parse_workers, default=1, metavar='N',
+        '--workers', type=parse_workers, default=1, metavar='N',
         help='Maximum complete query-plus-baseline models running simultaneously; also capped by query batch size. ' + WORKERS_HELP,
     )
     runtime.add_argument(
@@ -3066,7 +3066,7 @@ def run_partitioned_h2_from_args(args):
     failures abort under either query-error policy. Requested/effective counts
     and phase timings are recorded in the workflow log.
     """
-    _validate_workers(getattr(args, "workers", 1))
+    validate_workers(getattr(args, "workers", 1))
     query_batch_size = getattr(args, "query_batch_size", 100)
     if isinstance(query_batch_size, bool) or not isinstance(query_batch_size, int) or query_batch_size < 1:
         raise ValueError("query_batch_size must be a positive integer.")

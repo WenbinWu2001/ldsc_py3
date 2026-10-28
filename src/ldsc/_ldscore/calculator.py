@@ -48,7 +48,7 @@ from .query_variation import combine_variation
 from .._core.chromosomes import chrom_sort_key
 from .._runtime.cli_help import CLIHelpFormatter, CHROMOSOME_PATH_HELP, SCALAR_PATH_HELP
 from .._runtime.workflow_logging import LOG_LEVEL_HELP
-from .._runtime.parallelism import WORKERS_HELP, _parse_workers, _resolve_worker_count, _run_chromosome_tasks, _validate_workers
+from .._runtime.parallelism import WORKERS_HELP, parse_workers, resolve_worker_count, run_chromosome_tasks, validate_workers
 from .._runtime.progress import report_phase, PhaseProgress
 from .._annotation.storage import TsvDiagnostics
 from .source import LDScoreSource
@@ -92,9 +92,9 @@ from .._core.row_alignment import assert_same_snp_rows, sort_frame_by_genomic_po
 from ..errors import EmptyReferenceSNPs, LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .._annotation.query_outcomes import (
     QueryAnnotationStatus, finalize_query_statuses, finalize_query_measurements, gene_query_statuses, gene_viability_errors,
-    _log_gene_list_rejections, _log_gene_list_snp_support,
-    _log_query_annotation_statuses, _all_query_annotations_skipped_message,
-    _emit_bed_query_notice, _emit_gene_gate_b_notice, _emit_resolved_only_notice,
+    log_gene_list_rejections, log_gene_list_snp_support,
+    log_query_annotation_statuses, all_query_annotations_skipped_message,
+    emit_bed_query_notice, emit_gene_gate_b_notice, emit_resolved_only_notice,
 )
 
 
@@ -467,7 +467,7 @@ class LDScoreCalculator:
             ref_panel = copy(ref_panel)
             ref_panel.global_config = dataclass_replace(ref_panel.global_config, genome_build=global_config.genome_build)
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
-        _validate_workers(ldscore_config.workers)
+        validate_workers(ldscore_config.workers)
         if check_parquet_reference:
             _check_parquet_reference(ref_panel, chromosomes, ldscore_config, global_config)
         with ExitStack() as stack:
@@ -475,7 +475,7 @@ class LDScoreCalculator:
             log_paths = stack.enter_context(ldscore_logs(
                 output_dir, chromosomes, overwrite=bool(output_config and output_config.overwrite),
                 log_level=global_config.log_level))
-            worker_count = _resolve_worker_count(ldscore_config.workers, len(chromosomes))
+            worker_count = resolve_worker_count(ldscore_config.workers, len(chromosomes))
             export_root = (stack.enter_context(TemporaryDirectory(prefix=".ldsc-ref-", dir=output_dir))
                            if ldscore_config.export_ref_metadata else None)
             pool = stack.enter_context(ProcessPoolExecutor(
@@ -564,7 +564,7 @@ class LDScoreCalculator:
             )
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
         if worker_count is None:
-            worker_count = _resolve_worker_count(ldscore_config.workers, len(chromosomes))
+            worker_count = resolve_worker_count(ldscore_config.workers, len(chromosomes))
         cm_source, maf_source = _reference_metadata_sources(ref_panel)
         export_dir = None
         if output_config is not None and ldscore_config.export_ref_metadata and cm_source != "parquet_sidecar":
@@ -688,7 +688,7 @@ class LDScoreCalculator:
                     "Check memory limits or retry with fewer `--workers`."
                 ) from error
 
-        _run_chromosome_tasks(chromosomes, worker_count, submit, collect, on_failure)
+        run_chromosome_tasks(chromosomes, worker_count, submit, collect, on_failure)
         return outcomes
 
     @serial_calculation
@@ -1346,7 +1346,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     runtime.add_argument(
-        '--workers', default=1, type=_parse_workers, metavar='N',
+        '--workers', default=1, type=parse_workers, metavar='N',
         help='Maximum simultaneous chromosomes in direct or indexed mode. ' + WORKERS_HELP,
     )
     runtime.add_argument(
@@ -1419,7 +1419,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
         remain resident in the returned object. ``output_paths`` contains
         scientific artifacts only.
     """
-    _validate_workers(getattr(args, "workers", 1), error_type=LDSCConfigError)
+    validate_workers(getattr(args, "workers", 1), error_type=LDSCConfigError)
     _validate_padding_usage(args)
     _validate_gene_list_mode_args(args)
     if getattr(args, "gene_ldscore_index_dir", None) is not None:
@@ -1474,10 +1474,10 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 batch = validate_gene_query_names(batch, {column for path in declared_inputs.baseline
                     for column in declared_inputs.columns[path]})
                 if batch.has_fatal_gate_a_issues:
-                    from .._annotation.query_outcomes import _gene_list_gate_a_message
+                    from .._annotation.query_outcomes import gene_list_gate_a_message
                     LDScoreDirectoryWriter().write_gene_list_preflight(batch, output_config)
-                    _log_gene_list_rejections(batch)
-                    raise LDSCInputError(_gene_list_gate_a_message(batch))
+                    log_gene_list_rejections(batch)
+                    raise LDSCInputError(gene_list_gate_a_message(batch))
             if normalized_args is None:
                 normalized_args, global_config = _normalize_run_args(args,gene_catalog=catalog)
             print_global_config_banner("run_ldscore_from_args",global_config)
@@ -1519,25 +1519,25 @@ def run_ldscore_from_args(args: argparse.Namespace) -> "LDScoreSource":
                 annotation_bundle, gate_b_error = _apply_direct_gene_gate_b(annotation_bundle,ref_panel,ldscore_config,global_config)
                 if gate_b_error:
                     log_outputs(**calculator.output_writer.write_query_diagnostics(annotation_bundle,output_config))
-                    _log_gene_list_rejections(annotation_bundle.gene_list_batch)
-                    _log_gene_list_snp_support(annotation_bundle.gene_list_batch)
+                    log_gene_list_rejections(annotation_bundle.gene_list_batch)
+                    log_gene_list_snp_support(annotation_bundle.gene_list_batch)
                     raise LDSCInputError(gate_b_error)
             statuses = annotation_bundle.query_statuses
             if statuses and not annotation_bundle.query_columns:
                 log_outputs(**calculator.output_writer.write_query_diagnostics(annotation_bundle,output_config))
-                _log_query_annotation_statuses(statuses)
-                raise LDSCInputError(_all_query_annotations_skipped_message(statuses))
+                log_query_annotation_statuses(statuses)
+                raise LDSCInputError(all_query_annotations_skipped_message(statuses))
             result = calculator._run(annotation_bundle,ref_panel,ldscore_config,global_config,
                 output_config=output_config,regression_snps=regression_snps,regression_regions=regression_regions)
             if result.gene_list_batch is not None:
-                _log_gene_list_rejections(result.gene_list_batch)
-                _log_gene_list_snp_support(result.gene_list_batch)
-            _log_query_annotation_statuses(result.query_statuses)
+                log_gene_list_rejections(result.gene_list_batch)
+                log_gene_list_snp_support(result.gene_list_batch)
+            log_query_annotation_statuses(result.query_statuses)
             log_outputs(**result.output_paths)
             if bool(getattr(args,"_emit_query_console_notices",False)):
-                _emit_gene_gate_b_notice(result.query_statuses,result.gene_list_batch,command="ldscore")
-                _emit_resolved_only_notice(result.gene_list_batch)
-                _emit_bed_query_notice(result.query_statuses,command="ldscore")
+                emit_gene_gate_b_notice(result.query_statuses,result.gene_list_batch,command="ldscore")
+                emit_resolved_only_notice(result.gene_list_batch)
+                emit_bed_query_notice(result.query_statuses,command="ldscore")
             return dataclass_replace(result,gene_list_batch=persistent_gene_diagnostics(result.gene_list_batch,result.output_paths))
 
 
@@ -1656,12 +1656,12 @@ def _run_explicit_indexed_ldscore(args: argparse.Namespace) -> "LDScoreSource":
             overwrite=bool(getattr(args, "overwrite", False)),
         )
         if bool(getattr(args, "_emit_query_console_notices", False)):
-            _emit_gene_gate_b_notice(
+            emit_gene_gate_b_notice(
                 getattr(result, "query_statuses", ()),
                 getattr(result, "gene_list_batch", None),
                 command="ldscore",
             )
-            _emit_resolved_only_notice(getattr(result, "gene_list_batch", None))
+            emit_resolved_only_notice(getattr(result, "gene_list_batch", None))
         output_paths = getattr(result, "output_paths", None)
         if output_paths:
             log_outputs(**output_paths)

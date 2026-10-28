@@ -64,14 +64,14 @@ from typing import Any
 
 import pandas as pd
 
-from ..config import _normalize_required_path
+from ..config import normalize_required_path
 from ..errors import LDSCInternalError
 from .._runtime.artifacts import (
     ArtifactFamily,
-    _atomic_write_dataframe,
-    _atomic_write_json,
-    _declare_artifacts,
-    _result_metadata,
+    atomic_write_dataframe,
+    atomic_write_json,
+    declare_artifacts,
+    result_metadata,
 )
 from .._runtime.paths import (
     ensure_output_directory,
@@ -202,7 +202,7 @@ class H2OutputConfig:
 
     def __post_init__(self) -> None:
         """Normalize the output directory."""
-        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+        object.__setattr__(self, "output_dir", normalize_required_path(self.output_dir))
 
 
 class H2DirectoryWriter:
@@ -211,7 +211,7 @@ class H2DirectoryWriter:
     @staticmethod
     def artifact_family(output_dir) -> ArtifactFamily:
         """Declare h2 outputs and derived roots invalidated by a successful rewrite."""
-        return _declare_artifacts(output_dir, {
+        return declare_artifacts(output_dir, {
             "summary": ("h2.tsv", True),
             "ld_score_regression_bins": ("diagnostics/ld_score_regression_bins.tsv", True),
             "metadata": ("diagnostics/metadata.json", True),
@@ -269,14 +269,14 @@ class H2DirectoryWriter:
         diagnostics_dir = metadata_path.parent
         stale = family.preflight(overwrite=output_config.overwrite)
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
-        _atomic_write_dataframe(summary, summary_path, na_rep="NaN")
-        _atomic_write_dataframe(
+        atomic_write_dataframe(summary, summary_path, na_rep="NaN")
+        atomic_write_dataframe(
             _select_columns(diagnostic_bins, H2_REGRESSION_BIN_COLUMNS, label="h2 regression-bin diagnostic"),
             bins_path,
             na_rep="NaN",
         )
-        _atomic_write_json(
-            _result_metadata(
+        atomic_write_json(
+            result_metadata(
                 metadata,
                 artifact_type="h2_result",
                 files=family.metadata_files(),
@@ -305,7 +305,7 @@ class QuantileH2OutputConfig:
 
     def __post_init__(self) -> None:
         """Normalize the required output directory."""
-        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+        object.__setattr__(self, "output_dir", normalize_required_path(self.output_dir))
 
 
 class QuantileH2DirectoryWriter:
@@ -318,7 +318,7 @@ class QuantileH2DirectoryWriter:
     @staticmethod
     def artifact_family(output_dir) -> ArtifactFamily:
         """Declare quantile outputs, alignment diagnostics, and the derived plot root."""
-        return _declare_artifacts(output_dir, {
+        return declare_artifacts(output_dir, {
             "quantile_h2": ("quantile_h2.tsv", True),
             "standardized_coefficients": ("standardized_coefficients.tsv", True),
             "metadata": ("diagnostics/metadata.json", True),
@@ -361,12 +361,12 @@ class QuantileH2DirectoryWriter:
         diagnostics_dir = paths["metadata"].parent
         stale = family.preflight(overwrite=output_config.overwrite)
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
-        _atomic_write_dataframe(
+        atomic_write_dataframe(
             _select_columns(quantile_h2, QUANTILE_H2_COLUMNS, label="quantile-h2 summary"),
             paths["quantile_h2"],
             na_rep="NaN",
         )
-        _atomic_write_dataframe(
+        atomic_write_dataframe(
             _select_columns(
                 standardized_coefficients,
                 STANDARDIZED_COEFFICIENT_COLUMNS,
@@ -377,12 +377,12 @@ class QuantileH2DirectoryWriter:
         )
         if Path(alignment_issues_path).resolve() != paths["snp_alignment_issues"].resolve():
             shutil.copyfile(alignment_issues_path, paths["snp_alignment_issues"])
-        payload = _result_metadata(
+        payload = result_metadata(
             metadata,
             artifact_type="quantile_h2_result",
             files=family.metadata_files(),
         )
-        _atomic_write_json(payload, paths["metadata"])
+        atomic_write_json(payload, paths["metadata"])
         remove_output_artifacts(stale)
         return {name: str(path) for name, path in paths.items()}
 
@@ -415,7 +415,7 @@ class PartitionedH2OutputConfig:
 
     def __post_init__(self) -> None:
         """Normalize the output directory."""
-        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+        object.__setattr__(self, "output_dir", normalize_required_path(self.output_dir))
 
 
 @dataclass(frozen=True)
@@ -450,10 +450,10 @@ def stage_partitioned_h2_fit(directory, category_table, delete_values, metadata)
     artifacts = PartitionedH2FitArtifacts(directory / "partitioned_h2_full.tsv",
                                          directory / "coefficient_delete_values.parquet",
                                          directory / "metadata.json", owned=True)
-    _atomic_write_dataframe(_select_columns(category_table, PARTITIONED_H2_COLUMNS, label="full partitioned-h2 summary"),
+    atomic_write_dataframe(_select_columns(category_table, PARTITIONED_H2_COLUMNS, label="full partitioned-h2 summary"),
                             artifacts.full, na_rep="NaN")
     delete_values.to_parquet(artifacts.delete_values, index=False)
-    _atomic_write_json({**metadata, "coefficient_delete_block_count": int(len(delete_values)),
+    atomic_write_json({**metadata, "coefficient_delete_block_count": int(len(delete_values)),
                        "retained_ld_columns": [c for c in delete_values if c != "delete_block"]}, artifacts.metadata)
     return artifacts
 
@@ -482,7 +482,7 @@ class PartitionedH2DirectoryWriter:
     def artifact_family(output_dir, *, write_per_query_results=False, coefficient_delete_values=False,
                         query_status=False) -> ArtifactFamily:
         """Declare summaries, model artifacts, and an optional attempted-query ledger."""
-        return _declare_artifacts(output_dir, {
+        return declare_artifacts(output_dir, {
             "summary": ("partitioned_h2.tsv", True),
             "metadata": ("diagnostics/metadata.json", True),
             "coefficient_delete_values": ("diagnostics/coefficient_delete_values.parquet", coefficient_delete_values),
@@ -514,7 +514,7 @@ class PartitionedH2DirectoryWriter:
         """
         path = PartitionedH2DirectoryWriter.artifact_family(output_dir, query_status=True).paths["query_status"]
         path.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write_dataframe(query_status, path, na_rep="NaN")
+        atomic_write_dataframe(query_status, path, na_rep="NaN")
         return path
 
     def write(
@@ -601,15 +601,15 @@ class PartitionedH2DirectoryWriter:
         if query_status is not None:
             self.write_query_status(output_dir, query_status)
         if not output_config.write_per_query_results:
-            _atomic_write_dataframe(
+            atomic_write_dataframe(
                 root_summary,
                 summary_path,
                 na_rep="NaN",
             )
             if coefficient_delete_values is not None:
                 coefficient_delete_values.to_parquet(coefficient_delete_path, index=False)
-            _atomic_write_json(
-                _result_metadata(metadata_payload, artifact_type="partitioned_h2_result", files=root_files),
+            atomic_write_json(
+                result_metadata(metadata_payload, artifact_type="partitioned_h2_result", files=root_files),
                 metadata_path,
             )
             remove_output_artifacts(stale_paths)
@@ -628,14 +628,14 @@ class PartitionedH2DirectoryWriter:
                 summary,
                 per_query_artifacts or {},
             )
-            _atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv", na_rep="NaN")
-            _atomic_write_dataframe(
+            atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv", na_rep="NaN")
+            atomic_write_dataframe(
                 root_summary,
                 summary_path,
                 na_rep="NaN",
             )
-            _atomic_write_json(
-                _result_metadata(metadata_payload, artifact_type="partitioned_h2_result", files=root_files),
+            atomic_write_json(
+                result_metadata(metadata_payload, artifact_type="partitioned_h2_result", files=root_files),
                 metadata_path,
             )
             if output_config.overwrite and query_root.exists():
@@ -703,7 +703,7 @@ class PartitionedH2DirectoryWriter:
             full_rel = f"diagnostics/query_annotations/{folder}/partitioned_h2_full.tsv"
             metadata_rel = f"diagnostics/query_annotations/{folder}/metadata.json"
             delete_rel = f"diagnostics/query_annotations/{folder}/coefficient_delete_values.parquet"
-            _atomic_write_dataframe(
+            atomic_write_dataframe(
                 _select_columns(query_summary, PARTITIONED_H2_COLUMNS, label="query summary"),
                 query_dir / "partitioned_h2.tsv",
                 na_rep="NaN",
@@ -728,7 +728,7 @@ class PartitionedH2DirectoryWriter:
                 "slug": record["slug"],
                 "folder": folder,
             }
-            _atomic_write_json(payload, query_dir / "metadata.json")
+            atomic_write_json(payload, query_dir / "metadata.json")
             manifest_rows.append(
                 {
                     "ordinal": record["ordinal"],
@@ -767,7 +767,7 @@ class RgOutputConfig:
 
     def __post_init__(self) -> None:
         """Normalize the output directory."""
-        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+        object.__setattr__(self, "output_dir", normalize_required_path(self.output_dir))
 
 
 class RgDirectoryWriter:
@@ -785,7 +785,7 @@ class RgDirectoryWriter:
     @staticmethod
     def artifact_family(output_dir, *, include_pairs=False) -> ArtifactFamily:
         """Declare rg summaries, optional pair details, and the derived plot root."""
-        return _declare_artifacts(output_dir, {
+        return declare_artifacts(output_dir, {
             "metadata": ("diagnostics/metadata.json", True),
             "rg": ("rg.tsv", True),
             "rg_full": ("rg_full.tsv", True),
@@ -845,10 +845,10 @@ class RgDirectoryWriter:
         paths = {name: str(path) for name, path in family.paths.items() if name != "pairs"}
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         if not output_config.write_per_pair_detail:
-            _atomic_write_dataframe(rg, rg_path, na_rep="NaN")
-            _atomic_write_dataframe(rg_full, full_path, na_rep="NaN")
-            _atomic_write_dataframe(h2_per_trait, h2_path, na_rep="NaN")
-            _atomic_write_json(_rg_root_metadata(result, files=family.metadata_files()), metadata_path)
+            atomic_write_dataframe(rg, rg_path, na_rep="NaN")
+            atomic_write_dataframe(rg_full, full_path, na_rep="NaN")
+            atomic_write_dataframe(h2_per_trait, h2_path, na_rep="NaN")
+            atomic_write_json(_rg_root_metadata(result, files=family.metadata_files()), metadata_path)
             remove_output_artifacts(stale_paths)
             return paths
 
@@ -857,11 +857,11 @@ class RgDirectoryWriter:
         backup_dir: Path | None = None
         try:
             manifest_rows = self._write_staged_pair_tree(staging_dir, pair_records, rg_full)
-            _atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv", na_rep="NaN")
-            _atomic_write_dataframe(rg, rg_path, na_rep="NaN")
-            _atomic_write_dataframe(rg_full, full_path, na_rep="NaN")
-            _atomic_write_dataframe(h2_per_trait, h2_path, na_rep="NaN")
-            _atomic_write_json(_rg_root_metadata(result, files=family.metadata_files()), metadata_path)
+            atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv", na_rep="NaN")
+            atomic_write_dataframe(rg, rg_path, na_rep="NaN")
+            atomic_write_dataframe(rg_full, full_path, na_rep="NaN")
+            atomic_write_dataframe(h2_per_trait, h2_path, na_rep="NaN")
+            atomic_write_json(_rg_root_metadata(result, files=family.metadata_files()), metadata_path)
             if output_config.overwrite and pairs_root.exists():
                 backup_dir = Path(tempfile.mkdtemp(prefix=".pairs.backup.", dir=str(diagnostics_dir)))
                 backup_dir.rmdir()
@@ -919,7 +919,7 @@ class RgDirectoryWriter:
             row = rg_full.iloc[[int(record["ordinal"]) - 1]].reset_index(drop=True)
             detail_rel = f"diagnostics/pairs/{folder}/rg_full.tsv"
             metadata_rel = f"diagnostics/pairs/{folder}/metadata.json"
-            _atomic_write_dataframe(row, pair_dir / "rg_full.tsv", na_rep="NaN")
+            atomic_write_dataframe(row, pair_dir / "rg_full.tsv", na_rep="NaN")
             payload = {
                 **dict(record["metadata"]),
                 "artifact_type": "rg_pair_result",
@@ -930,7 +930,7 @@ class RgDirectoryWriter:
                 "slug": record["slug"],
                 "folder": folder,
             }
-            _atomic_write_json(payload, pair_dir / "metadata.json")
+            atomic_write_json(payload, pair_dir / "metadata.json")
             manifest_rows.append(
                 {
                     "ordinal": record["ordinal"],
@@ -956,7 +956,7 @@ def _rg_root_metadata(result: Any, *, files: dict[str, str]) -> dict[str, object
     if "pair_kind" in rg_full.columns:
         values = [str(value) for value in rg_full["pair_kind"].dropna().unique().tolist()]
         pair_kind = values[0] if len(values) == 1 else ("mixed" if values else None)
-    payload = _result_metadata(
+    payload = result_metadata(
         {
             "trait_names": trait_names,
             "pair_kind": pair_kind,

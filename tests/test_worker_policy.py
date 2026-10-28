@@ -118,7 +118,7 @@ def test_worker_cpu_discovery_delegates_to_joblib(monkeypatch, cpu_count, expect
     from ldsc._runtime import parallelism as policy
     monkeypatch.setattr(policy.joblib, "cpu_count", lambda: cpu_count)
     monkeypatch.setenv("SLURM_CPUS_PER_TASK", "1")
-    assert policy._resolve_worker_count(-1, 3) == expected
+    assert policy.resolve_worker_count(-1, 3) == expected
 
 
 @pytest.mark.parametrize("workers", [0, True, False, 1.0, 1.5, "2", None])

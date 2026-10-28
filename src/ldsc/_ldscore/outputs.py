@@ -22,10 +22,10 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .._core.snp_identity import identity_artifact_metadata
-from ..config import _normalize_required_path
+from ..config import normalize_required_path
 from .source import validate_ldscore_baseline_table, validate_ldscore_query_table
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError
-from .._runtime.artifacts import ArtifactFamily, _atomic_write_json, _declare_artifacts, _to_serializable
+from .._runtime.artifacts import ArtifactFamily, atomic_write_json, declare_artifacts, to_serializable
 from .._runtime.paths import ensure_output_directory, remove_output_artifacts
 
 if TYPE_CHECKING:
@@ -108,7 +108,7 @@ class LDScoreOutputConfig:
 
     def __post_init__(self) -> None:
         """Normalize the output directory and validate parquet compression."""
-        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+        object.__setattr__(self, "output_dir", normalize_required_path(self.output_dir))
         allowed = {"snappy", "gzip", "brotli", "zstd", "none", None}
         if self.parquet_compression not in allowed:
             raise LDSCConfigError(
@@ -164,7 +164,7 @@ class LDScoreDirectoryWriter:
                     entries[f"query_batch{ordinal:05d}"] = (entry["file"], True)
             for chrom in (getattr(result, "identity_drops_by_chrom", {}) or {}):
                 entries[f"dropped_snps_chr{chrom}"] = (f"diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz", True)
-        return _declare_artifacts(
+        return declare_artifacts(
             output_dir, entries, label="LD-score output artifact",
             extra_owned=[*([output_dir / "diagnostics/ldscore.log",
                             *sorted((output_dir / "diagnostics/chromosome-logs").glob("chr*.log"))]
@@ -316,7 +316,7 @@ class LDScoreDirectoryWriter:
             baseline_rg=baseline_rg,
             query_rg=query_rg,
         )
-        paths["metadata"].write_text(json.dumps(_to_serializable(metadata), indent=2, sort_keys=True), encoding="utf-8")
+        paths["metadata"].write_text(json.dumps(to_serializable(metadata), indent=2, sort_keys=True), encoding="utf-8")
         remove_output_artifacts(stale_paths)
         return {name: str(path) for name, path in paths.items()}
 
@@ -334,7 +334,7 @@ class LDScoreDirectoryWriter:
         gene_list_batch = getattr(result, "gene_list_batch", None)
         if "chromosome_scope" in paths:
             paths["chromosome_scope"].parent.mkdir(parents=True, exist_ok=True)
-            _atomic_write_json(getattr(result, "chromosome_scope", None) or result.source_summary["chromosome_scope"], paths["chromosome_scope"])
+            atomic_write_json(getattr(result, "chromosome_scope", None) or result.source_summary["chromosome_scope"], paths["chromosome_scope"])
         if "input_issues" in paths:
             paths["input_issues"].parent.mkdir(parents=True, exist_ok=True)
             result.input_issues.to_csv(paths["input_issues"], sep="\t", index=False, na_rep="")
@@ -358,10 +358,10 @@ class LDScoreDirectoryWriter:
             na_rep="",
         )
         if "gene_catalog_issues" in paths:
-            from .._annotation.query_outcomes import _log_gene_catalog_issues
+            from .._annotation.query_outcomes import log_gene_catalog_issues
 
             batch.catalog.issues.to_csv(paths["gene_catalog_issues"], sep="\t", index=False, na_rep="")
-            _log_gene_catalog_issues(batch.catalog.issues)
+            log_gene_catalog_issues(batch.catalog.issues)
 
     def build_metadata(
         self,

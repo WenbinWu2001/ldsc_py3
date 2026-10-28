@@ -13,13 +13,13 @@ from os import PathLike
 
 import pandas as pd
 
-from ..config import _normalize_required_path
+from ..config import normalize_required_path
 from .._runtime.artifacts import (
     ArtifactFamily,
-    _atomic_write_dataframe,
-    _atomic_write_json,
-    _declare_artifacts,
-    _result_metadata,
+    atomic_write_dataframe,
+    atomic_write_json,
+    declare_artifacts,
+    result_metadata,
 )
 from .._runtime.paths import ensure_output_directory
 
@@ -41,7 +41,7 @@ class QueryR2OutputConfig:
 
     def __post_init__(self) -> None:
         """Normalize the output directory."""
-        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+        object.__setattr__(self, "output_dir", normalize_required_path(self.output_dir))
 
 
 class QueryR2DirectoryWriter:
@@ -55,7 +55,7 @@ class QueryR2DirectoryWriter:
     @staticmethod
     def artifact_family(output_dir) -> ArtifactFamily:
         """Declare the pair-query result table and provenance."""
-        return _declare_artifacts(output_dir, {
+        return declare_artifacts(output_dir, {
             "result": ("query_r2.tsv", True),
             "metadata": ("diagnostics/metadata.json", True),
         }, label="query-r2 output artifact")
@@ -79,9 +79,9 @@ class QueryR2DirectoryWriter:
         diagnostics_dir = metadata_path.parent
         family.preflight(overwrite=output_config.overwrite)
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
-        _atomic_write_dataframe(result, result_path, na_rep="NaN")
-        _atomic_write_json(
-            _result_metadata(metadata, artifact_type="query_r2_result", files=family.metadata_files()),
+        atomic_write_dataframe(result, result_path, na_rep="NaN")
+        atomic_write_json(
+            result_metadata(metadata, artifact_type="query_r2_result", files=family.metadata_files()),
             metadata_path,
         )
         return {name: str(path) for name, path in family.paths.items()}

@@ -13,7 +13,7 @@ from ldsc._runtime import parallelism as policy
 def test_detected_budget_and_task_cap(monkeypatch, requested, tasks, expected, caplog):
     monkeypatch.setattr("joblib.cpu_count", lambda: 8)
     with caplog.at_level("INFO", logger="LDSC"):
-        assert policy._resolve_worker_count(requested, tasks) == expected
+        assert policy.resolve_worker_count(requested, tasks) == expected
     assert "joblib.cpu_count()" in caplog.text
     assert "detected available CPU count=8" in caplog.text
 
@@ -21,7 +21,7 @@ def test_detected_budget_and_task_cap(monkeypatch, requested, tasks, expected, c
 def test_explicit_over_budget_request_is_rejected_before_task_cap(monkeypatch):
     monkeypatch.setattr("joblib.cpu_count", lambda: 2)
     with pytest.raises(ValueError, match="detected available CPU count.*2"):
-        policy._resolve_worker_count(4, 1)
+        policy.resolve_worker_count(4, 1)
 
 
 def test_unverified_native_limits_are_recorded_without_failing(monkeypatch, caplog):

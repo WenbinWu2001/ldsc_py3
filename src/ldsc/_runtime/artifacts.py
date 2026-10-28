@@ -79,7 +79,7 @@ class ArtifactFamily:
         }
 
 
-def _declare_artifacts(output_dir, entries, *, label, extra_owned=()) -> ArtifactFamily:
+def declare_artifacts(output_dir, entries, *, label, extra_owned=()) -> ArtifactFamily:
     """Resolve each named (relative path, produced) entry exactly once."""
     output_dir = Path(output_dir)
     owned = {name: output_dir / relative for name, (relative, _) in entries.items()}
@@ -90,7 +90,7 @@ def _declare_artifacts(output_dir, entries, *, label, extra_owned=()) -> Artifac
     )
 
 
-def _result_metadata(
+def result_metadata(
     metadata: dict[str, object] | None,
     *,
     artifact_type: str,
@@ -103,7 +103,7 @@ def _result_metadata(
     return payload
 
 
-def _atomic_write_dataframe(df: pd.DataFrame, path: Path, *, na_rep: str | None = None) -> None:
+def atomic_write_dataframe(df: pd.DataFrame, path: Path, *, na_rep: str | None = None) -> None:
     """Write a dataframe through a temporary sibling file, then replace."""
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     os.close(fd)
@@ -119,23 +119,23 @@ def _atomic_write_dataframe(df: pd.DataFrame, path: Path, *, na_rep: str | None 
         raise
 
 
-def _atomic_write_json(payload: dict[str, object], path: Path) -> None:
+def atomic_write_json(payload: dict[str, object], path: Path) -> None:
     """Publish serializable JSON through a temporary sibling, cleaning it on failure."""
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     os.close(fd)
     tmp_path = Path(tmp_name)
     try:
-        tmp_path.write_text(json.dumps(_to_serializable(payload), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        tmp_path.write_text(json.dumps(to_serializable(payload), indent=2, sort_keys=True) + "\n", encoding="utf-8")
         os.replace(tmp_path, path)
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
 
 
-def _to_serializable(value: Any) -> Any:
+def to_serializable(value: Any) -> Any:
     """Recursively convert workflow objects into JSON-serializable structures."""
     if is_dataclass(value):
-        return _to_serializable(asdict(value))
+        return to_serializable(asdict(value))
     if isinstance(value, pd.DataFrame):
         return value.to_dict(orient="records")
     if isinstance(value, pd.Series):
@@ -145,7 +145,7 @@ def _to_serializable(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
     if isinstance(value, dict):
-        return {str(key): _to_serializable(val) for key, val in value.items()}
+        return {str(key): to_serializable(val) for key, val in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_to_serializable(item) for item in value]
+        return [to_serializable(item) for item in value]
     return value

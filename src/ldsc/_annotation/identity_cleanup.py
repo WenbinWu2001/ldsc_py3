@@ -13,7 +13,7 @@ import pandas as pd
 from .storage import FrameSpool
 from .._core.snp_identity import (
     IDENTITY_DROP_REASONS,
-    _identity_drop_rows,
+    identity_drop_rows,
     allele_set_series,
     base_key_series,
     coerce_identity_drop_frame,
@@ -127,7 +127,7 @@ class DiskIdentityIndex:
         keys = base.astype("string") + ":" + allele.astype("string") if aware else base
         work.loc[valid & ~multi, "_ldsc_identity_key"] = keys.loc[valid & ~multi]
         records = [
-            _identity_drop_rows(work.loc[reasons == reason], reason=reason, stage="annotation_identity_cleanup")
+            identity_drop_rows(work.loc[reasons == reason], reason=reason, stage="annotation_identity_cleanup")
             for reason in IDENTITY_DROP_REASONS if bool((reasons == reason).any())
         ]
         dropped = coerce_identity_drop_frame(pd.concat(records, ignore_index=True)) if records else empty_identity_drop_frame()

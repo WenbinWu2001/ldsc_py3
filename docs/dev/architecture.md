@@ -334,7 +334,7 @@ Managed partitioned query workers, including serial execution, live in `_regress
 The runner owns input preparation, batch reads, the shared `_fit_partitioned_query()` calculation, and final publication; the private module owns read-only numeric transport, spawned processes, bounded dispatch, log forwarding, and worker cleanup.
 Workers borrow output-owned maps and stage unique complete-query results.
 The parent assembles outcomes in query order before stable summary sorting.
-`_runtime.parallelism` shares parsing, validation, and `_resolve_worker_count()` with chromosome workflows, using the bounded query count as the work limit.
+`_runtime.parallelism` shares parsing, validation, and `resolve_worker_count()` with chromosome workflows, using the bounded query count as the work limit.
 Tests in `test_regression_streaming.py`, `test_partitioned_query_failures.py`, `test_partitioned_query_workers.py`, and `test_worker_policy.py` cover numerical/artifact parity, CPU and memory ownership, strict/continue policies, and real process failures.
 See [query workers](../reference/regression-options.md#43-query-workers-and-memory).
 

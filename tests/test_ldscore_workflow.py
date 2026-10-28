@@ -24,7 +24,7 @@ import pytest
 
 from ldsc.config import ConfigMismatchError, GlobalConfig
 from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
-from ldsc._annotation.query_outcomes import QueryAnnotationStatus, _emit_gene_gate_b_notice
+from ldsc._annotation.query_outcomes import QueryAnnotationStatus, emit_gene_gate_b_notice
 
 try:
     from ldsc import (
@@ -1716,7 +1716,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
             stream = StringIO()
             with mock.patch("sys.stderr", stream):
-                _emit_gene_gate_b_notice(
+                emit_gene_gate_b_notice(
                     gated.query_statuses,
                     gated.gene_list_batch,
                     command="ldscore",

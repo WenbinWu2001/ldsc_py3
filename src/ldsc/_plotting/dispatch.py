@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from .._runtime.cli_help import CLIHelpFormatter
 from .._runtime.workflow_logging import LOG_LEVEL_HELP
-from .._runtime.artifacts import _atomic_write_json
+from .._runtime.artifacts import atomic_write_json
 from .._runtime.result_files import declared_result_file
 
 import argparse
@@ -215,7 +215,7 @@ def plot_result(
             if metadata["artifact_type"] == "rg_result":
                 log_inputs(h2_per_trait=h2_path, h2_source_available=h2_per_trait is not None, h2_scale="observed")
             figure.savefig(paths["plot"], dpi=300, bbox_inches="tight", facecolor="white")
-            _atomic_write_json(plot_metadata, paths["metadata"])
+            atomic_write_json(plot_metadata, paths["metadata"])
             log_outputs(plot=paths["plot"], metadata=paths["metadata"])
     except Exception:
         builders.close_figure(figure)

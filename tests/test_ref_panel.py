@@ -15,7 +15,7 @@ from ldsc._refpanel.adapters import (
     ParquetR2RefPanel,
     PlinkRefPanel,
     RefPanelLoader,
-    _read_metadata_table,
+    read_metadata_table,
     _snp_id_series_for_matching,
 )
 from ldsc._refpanel.build_kernel import build_restriction_mask
@@ -213,7 +213,7 @@ class PlinkRefPanelTest(unittest.TestCase):
             _write_meta_sidecar(path, "CHR\tPOS\n1\t10\n", snp_identifier="rsid_allele_aware", genome_build="hg19")
 
             with self.assertRaisesRegex(LDSCInputError, "no SNP column was found"):
-                _read_metadata_table(
+                read_metadata_table(
                     path,
                     None,
                     GlobalConfig(snp_identifier="rsid_allele_aware"),

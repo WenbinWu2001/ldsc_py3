@@ -82,14 +82,14 @@ def test_persistent_fit_files_are_copied_and_remain_reusable(tmp_path, fitted_qu
 def test_failed_owned_publication_does_not_expose_partial_query_tree(tmp_path, monkeypatch, fitted_query):
     from ldsc._regression import outputs
 
-    original = outputs._atomic_write_json
+    original = outputs.atomic_write_json
 
     def fail_query(payload, path):
         if payload.get("artifact_type") == "partitioned_h2_query_result":
             raise OSError("injected publication failure")
         return original(payload, path)
 
-    monkeypatch.setattr(outputs, "_atomic_write_json", fail_query)
+    monkeypatch.setattr(outputs, "atomic_write_json", fail_query)
     with pytest.raises(OSError, match="injected publication failure"):
         publish(tmp_path / "result", fitted_query)
     diagnostics = tmp_path / "result/diagnostics"

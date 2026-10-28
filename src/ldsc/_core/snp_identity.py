@@ -445,7 +445,7 @@ def coerce_identity_drop_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return coerced
 
 
-def _identity_drop_rows(frame: pd.DataFrame, *, reason: str, stage: str) -> pd.DataFrame:
+def identity_drop_rows(frame: pd.DataFrame, *, reason: str, stage: str) -> pd.DataFrame:
     """Build drop-report rows for one policy reason."""
     if reason not in IDENTITY_DROP_REASONS:
         raise LDSCInternalError(
@@ -498,12 +498,12 @@ def clean_identity_artifact_table(
         for reason in IDENTITY_DROP_REASONS[:3]:
             reason_mask = reasons == reason
             if bool(reason_mask.any()):
-                drop_frames.append(_identity_drop_rows(work.loc[reason_mask], reason=reason, stage=stage))
+                drop_frames.append(identity_drop_rows(work.loc[reason_mask], reason=reason, stage=stage))
         work = work.loc[~invalid_mask].copy()
 
         multi_mask = _multi_allelic_base_key_mask(work)
         if bool(multi_mask.any()):
-            drop_frames.append(_identity_drop_rows(work.loc[multi_mask], reason="multi_allelic_base_key", stage=stage))
+            drop_frames.append(identity_drop_rows(work.loc[multi_mask], reason="multi_allelic_base_key", stage=stage))
             work = work.loc[~multi_mask].copy()
 
         work["_ldsc_identity_key"] = _combine_base_and_allele_keys(work["_ldsc_base_key"], work["_ldsc_allele_set"])
@@ -513,7 +513,7 @@ def clean_identity_artifact_table(
 
     duplicate_mask = _duplicate_identity_mask(work["_ldsc_identity_key"])
     if bool(duplicate_mask.any()):
-        drop_frames.append(_identity_drop_rows(work.loc[duplicate_mask], reason="duplicate_identity", stage=stage))
+        drop_frames.append(identity_drop_rows(work.loc[duplicate_mask], reason="duplicate_identity", stage=stage))
         work = work.loc[~duplicate_mask].copy()
 
     cleaned = work.drop(columns=[column for column in _INTERNAL_COLUMNS if column in work.columns]).reset_index(drop=True)
@@ -564,12 +564,12 @@ def collapse_restriction_identity_keys(
     for reason in IDENTITY_DROP_REASONS[:3]:
         reason_mask = reasons == reason
         if bool(reason_mask.any()):
-            drop_frames.append(_identity_drop_rows(work.loc[reason_mask], reason=reason, stage="restriction"))
+            drop_frames.append(identity_drop_rows(work.loc[reason_mask], reason=reason, stage="restriction"))
     work = work.loc[~invalid_mask].copy()
 
     multi_mask = _multi_allelic_base_key_mask(work)
     if bool(multi_mask.any()):
-        drop_frames.append(_identity_drop_rows(work.loc[multi_mask], reason="multi_allelic_base_key", stage="restriction"))
+        drop_frames.append(identity_drop_rows(work.loc[multi_mask], reason="multi_allelic_base_key", stage="restriction"))
         work = work.loc[~multi_mask].copy()
 
     work["_ldsc_identity_key"] = _combine_base_and_allele_keys(work["_ldsc_base_key"], work["_ldsc_allele_set"])

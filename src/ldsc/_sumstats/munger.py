@@ -60,7 +60,7 @@ from .._core.columns import (
     resolve_optional_column,
     resolve_required_column,
 )
-from ..config import GlobalConfig, MungeConfig, _normalize_trait_name, get_global_config
+from ..config import GlobalConfig, MungeConfig, normalize_trait_name, get_global_config
 from ..errors import (
     LDSCConfigError,
     LDSCDependencyError,
@@ -2161,7 +2161,7 @@ def _resolve_sumstats_trait_name(
 ) -> str:
     """Resolve the public trait label using CLI/API, parquet footer, then filename."""
     try:
-        explicit = _normalize_trait_name(explicit_trait_name)
+        explicit = normalize_trait_name(explicit_trait_name)
     except LDSCConfigError as exc:
         raise LDSCConfigError(
             f"Cannot load munged summary statistics at '{resolved_path}': trait_name argument is blank. "
@@ -2172,7 +2172,7 @@ def _resolve_sumstats_trait_name(
         return explicit
     if isinstance(metadata, dict) and "trait_name" in metadata:
         try:
-            metadata_trait = _normalize_trait_name(metadata.get("trait_name"))
+            metadata_trait = normalize_trait_name(metadata.get("trait_name"))
         except LDSCConfigError as exc:
             raise LDSCInputError(
                 _curated_sumstats_artifact_message(

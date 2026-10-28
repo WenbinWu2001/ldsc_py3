@@ -10,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from .._core.columns import CHR_COLUMN_SPEC, POS_COLUMN_SPEC, resolve_required_column
-from .._runtime.preflight import InputGate, _readable, input_issue
+from .._runtime.preflight import InputGate, check_readable, input_issue
 from .build_kernel import GENETIC_MAP_CM_SPEC
 
 
@@ -39,7 +39,7 @@ def inspect_r2_headers(directory, genome_build=None, *, ldscore_args=None):
         reject_truncated_r2_panel,
         validate_ldscore_window_within_r2_panel_window,
     )
-    from .adapters import _resolve_r2_build_dir
+    from .adapters import resolve_r2_build_dir
 
     root = Path(directory)
     children = [root / build for build in ('hg19', 'hg38') if (root / build).is_dir()]
@@ -50,7 +50,7 @@ def inspect_r2_headers(directory, genome_build=None, *, ldscore_args=None):
                        lambda child=child: inspect_r2_headers(child, child.name, ldscore_args=ldscore_args))
         gate.finish()
         return root
-    root = _resolve_r2_build_dir(directory, genome_build)
+    root = resolve_r2_build_dir(directory, genome_build)
     members = sorted({path.name.split('_')[0][3:] for pattern in ('chr*_r2.parquet', 'chr*_meta.tsv.gz') for path in root.glob(pattern)})
     gate = InputGate('R2 panel declarations and headers')
     if not members:
@@ -58,7 +58,7 @@ def inspect_r2_headers(directory, genome_build=None, *, ldscore_args=None):
     for chrom in members:
         pair = root / f'chr{chrom}_r2.parquet'
         sidecar = root / f'chr{chrom}_meta.tsv.gz'
-        gate.check('reference', sidecar, lambda: _readable(sidecar), chrom=chrom)
+        gate.check('reference', sidecar, lambda: check_readable(sidecar), chrom=chrom)
         contract = gate.check('reference', pair, lambda: read_r2_parquet_contract(pair), chrom=chrom)
         if contract is not None and ldscore_args is not None:
             gate.check('reference', pair, lambda: validate_ldscore_window_within_r2_panel_window(

@@ -32,7 +32,7 @@ def test_bounds_outstanding_work_and_collects_ready_group_before_refill(workers)
     def failed(*args):
         pytest.fail(f"Unexpected scheduling failure: {args}")
 
-    _parallelism._run_chromosome_tasks(
+    _parallelism.run_chromosome_tasks(
         ["1", "2", "3", "4", "5", "6", "7"], workers, submit, collect, failed)
     assert submitted == ["1", "2", "3", "4", "5", "6", "7"]
     assert sorted(collected) == submitted
@@ -75,7 +75,7 @@ def test_ready_failure_prevents_refill_and_preserves_context(monkeypatch, error_
         failures.append((original, chrom, outstanding))
 
     with pytest.raises(error_type) as raised:
-        _parallelism._run_chromosome_tasks(
+        _parallelism.run_chromosome_tasks(
             ["1", "2", "3", "4", "5"], 4, submit,
             lambda chrom, result: collected.append((chrom, result)), failed)
     assert raised.value is error
@@ -108,7 +108,7 @@ def test_coordinator_failure_preserves_exception_and_task_context(monkeypatch, f
         monkeypatch.setattr(_parallelism, "wait", broken_wait)
 
     with pytest.raises(OSError) as raised:
-        _parallelism._run_chromosome_tasks(
+        _parallelism.run_chromosome_tasks(
             ["1", "2", "3", "4"], 2, submit, collect,
             lambda *context: failures.append(context))
     assert raised.value is error
@@ -131,7 +131,7 @@ def test_interruptions_do_not_gain_task_failure_handling(error_type):
     future.set_exception(error)
     failures = []
     with pytest.raises(error_type) as raised:
-        _parallelism._run_chromosome_tasks(
+        _parallelism.run_chromosome_tasks(
             ["1", "2"], 1, lambda chrom: future, lambda *args: None,
             lambda *args: failures.append(args))
     assert raised.value is error
@@ -142,7 +142,7 @@ def test_interruptions_do_not_gain_task_failure_handling(error_type):
 def test_empty_chromosome_sequence_does_not_submit():
     def unexpected(*args):
         pytest.fail(f"Unexpected callback for no chromosomes: {args}")
-    _parallelism._run_chromosome_tasks([], 1, unexpected, unexpected, unexpected)
+    _parallelism.run_chromosome_tasks([], 1, unexpected, unexpected, unexpected)
 
 
 def test_ready_chromosome_releases_slot_while_another_remains_running():
@@ -163,7 +163,7 @@ def test_ready_chromosome_releases_slot_while_another_remains_running():
     def failed(*args):
         pytest.fail(f"Unexpected scheduling failure: {args}")
 
-    _parallelism._run_chromosome_tasks(
+    _parallelism.run_chromosome_tasks(
         ["1", "2", "3"], 2, submit, lambda *result: collected.append(result), failed)
     assert submitted == ["1", "2", "3"]
     assert sorted(collected) == [("1", "first"), ("2", "second"), ("3", "third")]

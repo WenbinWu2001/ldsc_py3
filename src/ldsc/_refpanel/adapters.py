@@ -455,7 +455,7 @@ class ParquetR2RefPanel(RefPanel):
         metadata_paths = self.resolve_metadata_paths(chrom)
         if metadata_paths:
             frames = [
-                _read_metadata_table(path, chrom=chrom, global_config=self.global_config)
+                read_metadata_table(path, chrom=chrom, global_config=self.global_config)
                 for path in metadata_paths
             ]
             frames = [frame for frame in frames if len(frame) > 0]
@@ -582,7 +582,7 @@ def _chromosome_from_ref_panel_r2_path(path: Path) -> str | None:
     return normalize_chromosome(match.group("chrom"), context=str(path))
 
 
-def _resolve_r2_build_dir(r2_dir: str | Path, genome_build: str | None) -> Path:
+def resolve_r2_build_dir(r2_dir: str | Path, genome_build: str | None) -> Path:
     """Resolve a build-specific R2 panel directory from user input."""
     root = Path(r2_dir)
     if not root.exists():
@@ -621,7 +621,7 @@ def _resolve_r2_build_dir(r2_dir: str | Path, genome_build: str | None) -> Path:
 
 def _r2_dir_r2_paths(r2_dir: str | Path, *, genome_build: str | None, chrom: str | None) -> list[str]:
     """Resolve required ``chr{chrom}_r2.parquet`` files inside a panel directory."""
-    build_dir = _resolve_r2_build_dir(r2_dir, genome_build)
+    build_dir = resolve_r2_build_dir(r2_dir, genome_build)
     if chrom is not None:
         path = build_dir / f"chr{normalize_chromosome(chrom)}_r2.parquet"
         if not path.exists():
@@ -642,7 +642,7 @@ def _r2_dir_r2_paths(r2_dir: str | Path, *, genome_build: str | None, chrom: str
 
 def _r2_dir_metadata_paths(r2_dir: str | Path, *, genome_build: str | None, chrom: str) -> list[str]:
     """Resolve the optional ``chr{chrom}_meta.tsv.gz`` sidecar from a panel directory."""
-    build_dir = _resolve_r2_build_dir(r2_dir, genome_build)
+    build_dir = resolve_r2_build_dir(r2_dir, genome_build)
     path = build_dir / f"chr{normalize_chromosome(chrom)}_meta.tsv.gz"
     return [str(path)] if path.exists() else []
 
@@ -734,7 +734,7 @@ def _validate_metadata_identity_matches_config(metadata: dict[str, object], glob
     )
 
 
-def _read_metadata_table(
+def read_metadata_table(
     path: str | Path,
     chrom: str | None,
     global_config: GlobalConfig,

@@ -142,7 +142,7 @@ def gene_viability_errors(batch, statuses, result=None):
     """Collect control and all-queries-skipped failures at one viability gate."""
     errors = gene_control_errors(batch, result)
     if (statuses or batch is not None) and all(status.status == "skipped" for status in statuses):
-        errors.append(_all_query_annotations_skipped_message(statuses))
+        errors.append(all_query_annotations_skipped_message(statuses))
     return errors
 
 
@@ -297,13 +297,13 @@ def _select_chromosome_result_queries(
     return selected
 
 
-def _log_gene_catalog_issues(issues: pd.DataFrame) -> None:
+def log_gene_catalog_issues(issues: pd.DataFrame) -> None:
     """Summarize catalog defects after their complete diagnostic table is saved."""
     if not issues.empty:
         LOGGER.warning("Gene coordinate catalog defects: records=%d. See diagnostics/gene_catalog_issues.tsv.", len(issues))
 
 
-def _log_gene_list_rejections(batch: Any) -> None:
+def log_gene_list_rejections(batch: Any) -> None:
     """Summarize source failures, rejected rows, and intentional exclusions by role.
 
     Call after publishing diagnostics; physical rows and gene identities remain
@@ -324,7 +324,7 @@ def _log_gene_list_rejections(batch: Any) -> None:
                         role, int(excluded.gt(0).sum()), int(excluded.sum()))
 
 
-def _log_gene_list_snp_support(batch: Any) -> None:
+def log_gene_list_snp_support(batch: Any) -> None:
     """Summarize unsupported gene selections after publishing their row audit."""
     for role, rows in batch.summary.groupby("input_role", sort=False):
         unsupported = pd.to_numeric(rows.zero_support_genes).fillna(0)
@@ -333,7 +333,7 @@ def _log_gene_list_snp_support(batch: Any) -> None:
                            role, int(unsupported.gt(0).sum()), int(unsupported.sum()))
 
 
-def _gene_list_gate_a_message(batch: Any) -> str:
+def gene_list_gate_a_message(batch: Any) -> str:
     """Return one bounded, actionable catalog-preflight failure message."""
     examples, n_rejected = [], 0
     for frame in batch.audit_frames():
@@ -404,7 +404,7 @@ def _gene_list_gate_a_message(batch: Any) -> str:
     )
 
 
-def _log_query_annotation_statuses(statuses: Sequence[QueryAnnotationStatus]) -> None:
+def log_query_annotation_statuses(statuses: Sequence[QueryAnnotationStatus]) -> None:
     """Log whole-run counts and reason summaries after diagnostics are written."""
     if not statuses:
         return
@@ -422,7 +422,7 @@ def _log_query_annotation_statuses(statuses: Sequence[QueryAnnotationStatus]) ->
                 len(statuses), counts["ok"], counts["warning"], counts["skipped"], counts["error"])
 
 
-def _all_query_annotations_skipped_message(statuses: Sequence[QueryAnnotationStatus]) -> str:
+def all_query_annotations_skipped_message(statuses: Sequence[QueryAnnotationStatus]) -> str:
     """Return the consolidated user-facing error for an unusable batch."""
     reasons = "; ".join(
         f"{status.query}: {_QUERY_REASON_EXPLANATIONS.get(status.reason, 'the recorded query check did not pass')} "
@@ -439,7 +439,7 @@ def _all_query_annotations_skipped_message(statuses: Sequence[QueryAnnotationSta
     )
 
 
-def _emit_resolved_only_notice(batch: Any | None) -> None:
+def emit_resolved_only_notice(batch: Any | None) -> None:
     """Emit the one bounded successful-run warning that must reach the console."""
     if batch is None or batch.resolution_policy != "resolved-only":
         return
@@ -463,7 +463,7 @@ def _emit_resolved_only_notice(batch: Any | None) -> None:
     print(message, file=sys.stderr)
 
 
-def _emit_gene_gate_b_notice(
+def emit_gene_gate_b_notice(
     statuses: Sequence[QueryAnnotationStatus],
     batch: Any | None,
     *,
@@ -516,7 +516,7 @@ def _emit_gene_gate_b_notice(
     print(message, file=sys.stderr)
 
 
-def _emit_bed_query_notice(statuses: Sequence[QueryAnnotationStatus], *, command: str) -> None:
+def emit_bed_query_notice(statuses: Sequence[QueryAnnotationStatus], *, command: str) -> None:
     """Emit one bounded successful-run notice for skipped BED queries."""
     bed = [status for status in statuses if status.input_type == "bed"]
     skipped = [status for status in bed if status.status == "skipped"]

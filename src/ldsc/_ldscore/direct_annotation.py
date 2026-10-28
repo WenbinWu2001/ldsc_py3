@@ -20,7 +20,7 @@ from .preflight import validate_direct_scope
 from .._annotation.semantics import require_unique_annotation_names
 from ..errors import LDSCInputError
 from .outputs import LDScoreDirectoryWriter
-from .._annotation.query_outcomes import _gene_list_gate_a_message
+from .._annotation.query_outcomes import gene_list_gate_a_message
 
 
 def prepare_direct_annotations(args, config, spec, workspace, output_config, *, declared_inputs, reference_inputs, batch=None):
@@ -45,7 +45,7 @@ def prepare_direct_annotations(args, config, spec, workspace, output_config, *, 
         batch = validate_gene_query_names(batch, prepared.baseline_columns)
     if batch is not None and batch.has_fatal_gate_a_issues:
         LDScoreDirectoryWriter().write_gene_list_preflight(batch,output_config)
-        raise LDSCInputError(_gene_list_gate_a_message(batch))
+        raise LDSCInputError(gene_list_gate_a_message(batch))
     scope = {}
     if has_queries:
         batch, scope = validate_direct_scope(args,config,batch,output_config,

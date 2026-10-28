@@ -21,7 +21,7 @@ from ..config import RefPanelConfig
 from ..errors import LDSCInputError, LDSCUserError
 from .._runtime.paths import inspect_plink_inputs, normalize_path_token, split_cli_path_tokens
 from .._core import regions
-from .._refpanel.adapters import RefPanelLoader, _read_metadata_table, _resolve_r2_build_dir
+from .._refpanel.adapters import RefPanelLoader, read_metadata_table, resolve_r2_build_dir
 
 
 AUTOSOMES = list(map(str, range(1, 23)))
@@ -52,7 +52,7 @@ class DirectInputPreflight:
 
 def read_r2_sidecar_for_chromosome(path, chrom, global_config, *, require_autosomes=False):
     """Read one R2 panel sidecar, with its MAF checks, and confirm it holds only ``chrom``."""
-    metadata = _read_metadata_table(path, None, global_config)
+    metadata = read_metadata_table(path, None, global_config)
     if set(metadata.CHR.astype(str)) != {chrom} or (require_autosomes and chrom not in AUTOSOMES):
         raise LDSCInputError(
             f"R2 panel SNP sidecar '{path}' does not contain the expected chromosome {chrom}"
@@ -82,7 +82,7 @@ def inspect_reference_inputs(args, global_config, *, require_autosomes=True, pli
     r2_dir = getattr(args, "r2_dir", None)
     if r2_dir:
         try:
-            root = _resolve_r2_build_dir(r2_dir, global_config.genome_build)
+            root = resolve_r2_build_dir(r2_dir, global_config.genome_build)
             members = sorted({path.name.split("_")[0][3:] for pattern in ("chr*_r2.parquet", "chr*_meta.tsv.gz") for path in root.glob(pattern)}, key=lambda value: (len(value), value))
             if not members:
                 raise LDSCInputError(

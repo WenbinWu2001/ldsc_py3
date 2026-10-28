@@ -12,7 +12,7 @@ import joblib
 LOGGER = logging.getLogger("LDSC.parallelism")
 
 
-def _run_chromosome_tasks(chromosomes, workers, submit, collect, on_failure):
+def run_chromosome_tasks(chromosomes, workers, submit, collect, on_failure):
     """Collect chromosome tasks with at most ``workers`` outstanding futures.
 
     ``workers`` is the already-resolved positive count. ``submit(chrom)``
@@ -53,7 +53,7 @@ def _run_chromosome_tasks(chromosomes, workers, submit, collect, on_failure):
         raise
 
 
-def _validate_workers(workers: int, *, error_type: type[Exception] = ValueError) -> int:
+def validate_workers(workers: int, *, error_type: type[Exception] = ValueError) -> int:
     """Require a nonzero Python integer, excluding booleans, without coercion."""
     if isinstance(workers, bool) or not isinstance(workers, int) or workers == 0:
         raise error_type("workers must be a nonzero integer (1, positive workers, or a negative CPU offset).")
@@ -66,10 +66,10 @@ def _validate_workers(workers: int, *, error_type: type[Exception] = ValueError)
     return workers
 
 
-def _parse_workers(value: str) -> int:
+def parse_workers(value: str) -> int:
     """Parse CLI integer syntax and apply the shared worker-request validator."""
     try:
-        return _validate_workers(int(value))
+        return validate_workers(int(value))
     except ValueError as error:
         raise argparse.ArgumentTypeError(str(error)) from error
 
@@ -79,7 +79,7 @@ def _available_cpu_count() -> int:
     return joblib.cpu_count()
 
 
-def _resolve_worker_count(workers: int, task_count: int, *, task_unit: str = "chromosome",
+def resolve_worker_count(workers: int, task_count: int, *, task_unit: str = "chromosome",
                           batch_size: int | None = None) -> int:
     """Validate and report task concurrency, capped by work after the CPU check.
 
@@ -89,7 +89,7 @@ def _resolve_worker_count(workers: int, task_count: int, *, task_unit: str = "ch
     Scheduler allocations not reflected in supported process restrictions
     remain the user's responsibility; this does not measure idle CPUs.
     """
-    _validate_workers(workers)
+    validate_workers(workers)
     budget = _available_cpu_count()
     if workers < 0:
         resolved = budget + 1 + workers

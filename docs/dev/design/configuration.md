@@ -1,10 +1,10 @@
 # Config Design: Immutable Config + Provenance-Carrying Results
 
-Last updated on: 2026-10-27
+Last updated on: 2026-10-28
 
 `--workers` sets the number of managed workers (default one, each with one BLAS thread); CPU budgets, limits and failure handling are in [parallel execution](../../reference/parallel-execution.md).
 
-`partitioned-h2` uses the same `_parse_workers`, `_validate_workers`, and `_resolve_worker_count` helpers.
+`partitioned-h2` uses the same `parse_workers`, `validate_workers`, and `resolve_worker_count` helpers.
 Its work limit is query count capped by loading-batch width.
 This concurrency option belongs to the batch workflow, not `RegressionConfig`.
 

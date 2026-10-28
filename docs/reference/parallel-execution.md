@@ -47,7 +47,7 @@ Direct and indexed LD keep their pools across query batches, and regression keep
 There are no nested chromosome/model pools.
 The parent coordinates inputs, collection, aggregation, and publication.
 
-Direct scoring, indexed scoring, and index construction share the private `_run_chromosome_tasks()` function in [`_runtime/parallelism.py`](../../src/ldsc/_runtime/parallelism.py).
+Direct scoring, indexed scoring, and index construction share the private `run_chromosome_tasks()` function in [`_runtime/parallelism.py`](../../src/ldsc/_runtime/parallelism.py).
 It bounds outstanding futures by the resolved worker count, tracks their chromosomes, and collects each ready group before submitting replacements, using the same path for one or multiple workers.
 On an observed exception it attempts cancellation and passes the original error, current chromosome, and outstanding chromosomes to the workflow's failure callback.
 The workflow retains task preparation, result processing, progress and diagnostics, executor ownership, and all temporary-file and publication responsibilities.

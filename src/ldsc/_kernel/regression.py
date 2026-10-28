@@ -45,8 +45,6 @@ FLIP_ALLELES = {''.join(x):
                 ((x[0] == COMPLEMENT[x[3]]) and (x[1] == COMPLEMENT[x[2]]))
                 for x in MATCH_ALLELES}
 
-s = lambda x: remove_brackets(str(np.asarray(x)))
-
 
 def _scalar_float(x):
     """Return a Python float from a scalar or one-element array-like value."""
@@ -79,11 +77,6 @@ def p_z_norm(est, se):
 
     P = chi2.sf(Z ** 2, 1, loc=0, scale=1)  # 0 if Z=inf
     return P, Z
-
-
-def remove_brackets(x):
-    '''Get rid of brackets and trailing whitespace in numpy arrays.'''
-    return x.replace('[', '').replace(']', '').strip()
 
 
 def append_intercept(x):
@@ -128,7 +121,7 @@ def liability_conversion_factor(samp_prev, pop_prev):
     prevalence, :math:`\phi` the standard normal pdf, and :math:`\Phi^{-1}` the
     inverse CDF (``scipy.stats.norm.isf``). The computation is vectorized:
     ``samp_prev`` and ``pop_prev`` broadcast, so a fixed ``P`` against an array of
-    ``K`` yields the liability-h2 curve used by sensitivity analyses.
+    ``K`` yields the liability-scale SNP heritability curve used by sensitivity analyses.
 
     Parameters
     ----------
@@ -240,10 +233,10 @@ def h2_obs_to_liab(h2_obs, P, K):
 
 
 class LD_Score_Regression(object):
-    """Base class for LD-score regression estimators.
+    """Base class for LD score regression estimators.
 
     This class owns the weighted least-squares fit, jackknife variance
-    estimation, coefficient-to-category transforms, and intercept handling that
+    estimation, coefficient-to-annotation transforms, and intercept handling that
     are shared by heritability and covariance estimators.
     """
 
@@ -309,9 +302,9 @@ class LD_Score_Regression(object):
             )
         elif step1_ii is not None and self.n_annot > 1:
             raise LDSCUsageError(
-                "Regression cannot use two-step estimation for partitioned LD Score models. "
+                "Regression cannot use two-step estimation for partitioned-heritability models. "
                 "Most likely `two_step_cutoff` was combined with query annotations. "
-                "Remove the two-step cutoff for partitioned-h2 runs."
+                "Remove the two-step cutoff for `partitioned-h2` runs."
             )
         elif step1_ii is not None:
             n1 = np.sum(step1_ii)
@@ -385,7 +378,7 @@ class LD_Score_Regression(object):
         raise NotImplementedError
 
     def _delete_vals_tot(self, jknife, Nbar, M):
-        '''Get delete values for total h2 or gencov.'''
+        '''Get delete values for total SNP heritability or genetic covariance.'''
         n_annot = self.n_annot
         tot_delete_vals = jknife.delete_values[
             :, 0:n_annot]  # shape (n_blocks, n_annot)
@@ -394,7 +387,7 @@ class LD_Score_Regression(object):
         return tot_delete_vals
 
     def _delete_vals_part(self, jknife, Nbar, M):
-        '''Get delete values for partitioned h2 or gencov.'''
+        '''Get delete values for partitioned heritability or genetic covariance.'''
         n_annot = self.n_annot
         return jknife.delete_values[:, 0:n_annot] / Nbar
 
@@ -407,21 +400,21 @@ class LD_Score_Regression(object):
         return coef, coef_cov, coef_se
 
     def _cat(self, jknife, M, Nbar, coef, coef_cov):
-        '''Convert coefficients to per-category h2 or gencov.'''
+        '''Convert coefficients to per-annotation SNP heritability or genetic covariance.'''
         cat = np.multiply(M, coef)
         cat_cov = np.multiply(np.dot(M.T, M), coef_cov)
         cat_se = np.sqrt(np.diag(cat_cov))
         return cat, cat_cov, cat_se
 
     def _tot(self, cat, cat_cov):
-        '''Convert per-category h2 to total h2 or gencov.'''
+        '''Convert per-annotation SNP heritability or genetic covariance to its total.'''
         tot = np.sum(cat)
         tot_cov = np.sum(cat_cov)
         tot_se = np.sqrt(tot_cov)
         return tot, tot_cov, tot_se
 
     def _prop(self, jknife, M, Nbar, cat, tot):
-        '''Convert total h2 and per-category h2 to per-category proportion h2 or gencov.'''
+        '''Convert total and per-annotation values to per-annotation proportions of SNP heritability or genetic covariance.'''
         n_annot = self.n_annot
         n_blocks = jknife.delete_values.shape[0]
         numer_delete_vals = np.multiply(
@@ -434,7 +427,7 @@ class LD_Score_Regression(object):
         return prop.est, prop.jknife_cov, prop.jknife_se
 
     def _enrichment(self, M, M_tot, cat, tot):
-        '''Compute proportion of SNPs per-category enrichment for h2 or gencov.'''
+        '''Compute proportion of SNPs and per-annotation enrichment for SNP heritability or genetic covariance.'''
         M_prop = M / M_tot
         enrichment = np.divide(cat, M) / (tot / M_tot)
         return enrichment, M_prop
@@ -452,7 +445,7 @@ class LD_Score_Regression(object):
         n_annot -= 1
         if n_annot > 2:
             raise LDSCUsageError(
-                "Regression cannot combine two-step jackknife summaries for partitioned LD Score models. "
+                "Regression cannot combine two-step jackknife summaries for partitioned-heritability models. "
                 "Most likely `two_step_cutoff` was combined with more than one retained annotation. "
                 "Remove the two-step cutoff for partitioned models."
             )
@@ -538,7 +531,7 @@ class Hsq(LD_Score_Regression):
         return ratio, ratio_se
 
     def _overlap_output(self, category_names, overlap_matrix, M_annot, M_tot, print_coefficients):
-        '''LD Score regression summary for overlapping categories.'''
+        '''LD score regression summary for overlapping annotations.'''
         overlap_matrix_prop = np.zeros([self.n_annot,self.n_annot])
         for i in range(self.n_annot):
             overlap_matrix_prop[i, :] = overlap_matrix[i, :] / M_annot
@@ -587,53 +580,6 @@ class Hsq(LD_Score_Regression):
         return df
 
 
-    def summary(self, ref_ld_colnames=None, P=None, K=None, overlap=False):
-        '''Print summary of the LD Score Regression.'''
-        if P is not None and K is not None:
-            T = 'Liability'
-            c = h2_obs_to_liab(1, P, K)
-        else:
-            T = 'Observed'
-            c = 1
-
-        out = ['Total ' + T + ' scale h2: ' +
-               s(c * self.tot) + ' (' + s(c * self.tot_se) + ')']
-        if self.n_annot > 1:
-            if ref_ld_colnames is None:
-                ref_ld_colnames = ['CAT_' + str(i)
-                                   for i in range(self.n_annot)]
-
-            out.append('Categories: ' + ' '.join(ref_ld_colnames))
-
-            if not overlap:
-                out.append(T + ' scale h2: ' + s(c * self.cat))
-                out.append(T + ' scale h2 SE: ' + s(c * self.cat_se))
-                out.append('Proportion of SNPs: ' + s(self.M_prop))
-                out.append('Proportion of h2g: ' + s(self.prop))
-                out.append('Enrichment: ' + s(self.enrichment))
-                out.append('Coefficients: ' + s(self.coef))
-                out.append('Coefficient SE: ' + s(self.coef_se))
-
-        out.append('Lambda GC: ' + s(self.lambda_gc))
-        out.append('Mean Chi^2: ' + s(self.mean_chisq))
-        if self.constrain_intercept:
-            out.append(
-                f'Intercept: constrained to {s(self.intercept)}')
-        else:
-            out.append(
-                'Intercept: ' + s(self.intercept) + ' (' + s(self.intercept_se) + ')')
-            if self.mean_chisq > 1:
-                if self.ratio < 0:
-                    out.append(
-                      'Ratio < 0 (usually indicates GC correction).')
-                else:
-                    out.append(
-                      'Ratio: ' + s(self.ratio) + ' (' + s(self.ratio_se) + ')')
-            else:
-                out.append('Ratio: NA (mean chi^2 < 1)')
-
-        return remove_brackets('\n'.join(out))
-
     def _update_weights(self, ld, w_ld, N, M, hsq, intercept, ii=None):
         """Adapt the shared weight-update signature to the heritability model."""
         if intercept is None:
@@ -649,14 +595,14 @@ class Hsq(LD_Score_Regression):
         Parameters
         ----------
         ld : np.matrix with shape (n_snp, 1)
-            LD Scores (non-partitioned).
+            LD scores (non-partitioned).
         w_ld : np.matrix with shape (n_snp, 1)
-            LD Scores (non-partitioned) computed with sum r^2 taken over only those SNPs included
+            LD scores (non-partitioned) computed with sum r^2 taken over only those SNPs included
             in the regression.
         N :  np.matrix of ints > 0 with shape (n_snp, 1)
             Number of individuals sampled for each SNP.
         M : float > 0
-            Number of SNPs used for estimating LD Score (need not equal number of SNPs included in
+            Number of SNPs used for estimating LD scores (need not equal number of SNPs included in
             the regression).
         hsq : float in [0,1]
             Heritability estimate.
@@ -707,37 +653,6 @@ class Gencov(LD_Score_Regression):
         self.p, self.z = p_z_norm(self.tot, self.tot_se)
         self.mean_z1z2 = np.mean(np.multiply(z1, z2))
 
-    def summary(self, ref_ld_colnames, P=None, K=None):
-        '''Print summary of the LD Score regression.'''
-        out = []
-        if P is not None and K is not None and\
-                all((i is not None for i in P)) and all((i is not None for i in K)):
-            T = 'Liability'
-            c = gencov_obs_to_liab(1, P[0], P[1], K[0], K[1])
-        else:
-            T = 'Observed'
-            c = 1
-
-        out.append('Total ' + T + ' scale gencov: ' +
-                   s(c * self.tot) + ' (' + s(c * self.tot_se) + ')')
-        if self.n_annot > 1:
-            out.append('Categories: ' + str(' '.join(ref_ld_colnames)))
-            out.append(T + ' scale gencov: ' + s(c * self.cat))
-            out.append(T + ' scale gencov SE: ' + s(c * self.cat_se))
-            out.append('Proportion of SNPs: ' + s(self.M_prop))
-            out.append('Proportion of gencov: ' + s(self.prop))
-            out.append('Enrichment: ' + s(self.enrichment))
-
-        out.append('Mean z1*z2: ' + s(self.mean_z1z2))
-        if self.constrain_intercept:
-            out.append(
-                f'Intercept: constrained to {s(self.intercept)}')
-        else:
-            out.append(
-                'Intercept: ' + s(self.intercept) + ' (' + s(self.intercept_se) + ')')
-
-        return remove_brackets('\n'.join(out))
-
     def _update_func(self, x, ref_ld_tot, w_ld, N, M, Nbar, intercept=None, ii=None):
         '''
         Update function for IRWLS
@@ -778,12 +693,12 @@ class Gencov(LD_Score_Regression):
         Parameters
         ----------
         ld : np.matrix with shape (n_snp, 1)
-            LD Scores (non-partitioned)
+            LD scores (non-partitioned)
         w_ld : np.matrix with shape (n_snp, 1)
-            LD Scores (non-partitioned) computed with sum r^2 taken over only those SNPs included
+            LD scores (non-partitioned) computed with sum r^2 taken over only those SNPs included
             in the regression.
         M : float > 0
-            Number of SNPs used for estimating LD Score (need not equal number of SNPs included in
+            Number of SNPs used for estimating LD scores (need not equal number of SNPs included in
             the regression).
         N1, N2 :  np.matrix of ints > 0 with shape (n_snp, 1)
             Number of individuals sampled for each SNP for each study.
@@ -868,39 +783,6 @@ class RG(object):
             self.rg_ratio = _scalar_float(rg_ratio)
             self.p, self.z = p_z_norm(self.rg_ratio, self.rg_se)
 
-    def summary(self, silly=False):
-        '''Print output of Gencor object.'''
-        out = []
-        if self._negative_hsq:
-            out.append('Genetic Correlation: nan (nan) (h2  out of bounds) ')
-            out.append('Z-score: nan (nan) (h2  out of bounds)')
-            out.append('P: nan (nan) (h2  out of bounds)')
-            out.append('WARNING: One of the h2\'s was out of bounds.')
-            out.append(
-                'This usually indicates a data-munging error ' +
-                'or that h2 or N is low.')
-        elif (self.rg_ratio > 1.2 or self.rg_ratio < -1.2) and not silly:
-            out.append('Genetic Correlation: nan (nan) (rg out of bounds) ')
-            out.append('Z-score: nan (nan) (rg out of bounds)')
-            out.append('P: nan (nan) (rg out of bounds)')
-            out.append('WARNING: rg was out of bounds.')
-            if self.intercept_gencov is None:
-                out.append(
-                    'This often means that h2 is not significantly ' +
-                    'different from zero.')
-            else:
-                out.append(
-                           'This often means that you have constrained' +
-                           ' the intercepts to the wrong values.')
-        else:
-            out.append(
-                'Genetic Correlation: ' + s(self.rg_ratio) +
-                ' (' + s(self.rg_se) + ')')
-            out.append('Z-score: ' + s(self.z))
-            out.append('P: ' + s(self.p))
-        return remove_brackets('\n'.join(out))
-
-
 def _filter_alleles(alleles):
     """Remove bad variants with mismatched, ambiguous, or non-SNP alleles."""
     return alleles.apply(lambda y: y in MATCH_ALLELES)
@@ -914,6 +796,6 @@ def _align_alleles(z, alleles):
         raise LDSCInternalError(
             f"Regression allele alignment found an unsupported allele pattern {e.args}. "
             "Most likely allele harmonization let an incompatible SNP through preprocessing. "
-            "Regenerate the munged sumstats with allele harmonization and re-run regression."
+            "Regenerate the munged summary statistics with allele harmonization and re-run regression."
         ) from e
     return z
